@@ -218,6 +218,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/desktop/sessions", get(routes::desktop_sessions))
         .route("/v1/desktop/attention", get(routes::desktop_attention))
         .route(
+            "/v1/desktop/command-blocks",
+            get(routes::desktop_command_blocks).post(routes::desktop_command_block),
+        )
+        .route(
             "/v1/desktop/session/launch",
             post(routes::desktop_session_launch),
         )

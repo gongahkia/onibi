@@ -1,4 +1,7 @@
-use crate::protocol::{Approval, ApprovalDecisionBody, Decision, RunEvent, PROTOCOL_VERSION};
+use crate::protocol::{
+    Approval, ApprovalDecisionBody, Decision, DesktopCommandBlock, RunEvent,
+    PROTOCOL_VERSION,
+};
 use anyhow::{Context, Result};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -74,6 +77,25 @@ impl ApprovalStore {
               ts          INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS command_blocks (
+              block_id      TEXT PRIMARY KEY,
+              session_id    TEXT NOT NULL,
+              workspace_id  TEXT NOT NULL,
+              agent         TEXT NOT NULL,
+              command       TEXT NOT NULL,
+              cwd           TEXT NOT NULL,
+              started_at    INTEGER NOT NULL,
+              ended_at      INTEGER,
+              exit_code     INTEGER,
+              status        TEXT NOT NULL,
+              output_preview TEXT NOT NULL,
+              preview_url   TEXT,
+              changed_files TEXT NOT NULL,
+              attention     TEXT,
+              source        TEXT,
+              updated_at    INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS devices (
               device_id   TEXT PRIMARY KEY,
               label       TEXT,
@@ -85,6 +107,12 @@ impl ApprovalStore {
             CREATE INDEX IF NOT EXISTS idx_approvals_undecided
               ON approvals(decided_at)
               WHERE decided_at IS NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_command_blocks_session_started
+              ON command_blocks(session_id, started_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_command_blocks_started
+              ON command_blocks(started_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -247,6 +275,95 @@ impl ApprovalStore {
         Ok(events)
     }
 
+    pub fn upsert_command_block(&self, block: &DesktopCommandBlock) -> Result<()> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        conn.execute(
+            r#"
+            INSERT INTO command_blocks (
+              block_id, session_id, workspace_id, agent, command, cwd, started_at,
+              ended_at, exit_code, status, output_preview, preview_url, changed_files,
+              attention, source, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(block_id) DO UPDATE SET
+              session_id = excluded.session_id,
+              workspace_id = excluded.workspace_id,
+              agent = excluded.agent,
+              command = excluded.command,
+              cwd = excluded.cwd,
+              started_at = excluded.started_at,
+              ended_at = excluded.ended_at,
+              exit_code = excluded.exit_code,
+              status = excluded.status,
+              output_preview = excluded.output_preview,
+              preview_url = excluded.preview_url,
+              changed_files = excluded.changed_files,
+              attention = excluded.attention,
+              source = excluded.source,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                &block.id,
+                &block.session_id,
+                &block.workspace_id,
+                &block.agent,
+                &block.command,
+                &block.cwd,
+                block.started_at,
+                block.ended_at,
+                block.exit_code,
+                &block.status,
+                &block.output_preview,
+                &block.preview_url,
+                serde_json::to_string(&block.changed_files)?,
+                &block.attention,
+                &block.source,
+                now_millis(),
+            ],
+        )
+        .with_context(|| format!("upsert command block {}", block.id))?;
+        Ok(())
+    }
+
+    pub fn list_command_blocks(
+        &self,
+        session_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DesktopCommandBlock>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let limit = limit.clamp(1, 500) as i64;
+        let sql = if session_id.is_some() {
+            r#"
+            SELECT block_id, session_id, workspace_id, agent, command, cwd, started_at,
+                   ended_at, exit_code, status, output_preview, preview_url, changed_files,
+                   attention, source
+            FROM command_blocks
+            WHERE session_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?
+            "#
+        } else {
+            r#"
+            SELECT block_id, session_id, workspace_id, agent, command, cwd, started_at,
+                   ended_at, exit_code, status, output_preview, preview_url, changed_files,
+                   attention, source
+            FROM command_blocks
+            ORDER BY started_at DESC
+            LIMIT ?
+            "#
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let mut rows = if let Some(session_id) = session_id {
+            stmt.query(params![session_id, limit])?
+        } else {
+            stmt.query(params![limit])?
+        };
+        let mut blocks = Vec::new();
+        while let Some(row) = rows.next()? {
+            blocks.push(row_to_command_block(row)?);
+        }
+        Ok(blocks)
+    }
+
     pub fn insert_device(
         &self,
         device_id: &str,
@@ -351,6 +468,29 @@ fn row_to_approval(row: &rusqlite::Row<'_>) -> Result<Approval> {
         decided_by: row.get(11)?,
         created_at: row.get(12)?,
         decided_at: row.get(13)?,
+    })
+}
+
+fn row_to_command_block(row: &rusqlite::Row<'_>) -> Result<DesktopCommandBlock> {
+    let changed_files: String = row.get(12)?;
+    Ok(DesktopCommandBlock {
+        id: row.get(0)?,
+        protocol_version: Some(PROTOCOL_VERSION.to_string()),
+        session_id: row.get(1)?,
+        workspace_id: row.get(2)?,
+        agent: row.get(3)?,
+        command: row.get(4)?,
+        cwd: row.get(5)?,
+        started_at: row.get(6)?,
+        ended_at: row.get(7)?,
+        exit_code: row.get(8)?,
+        status: row.get(9)?,
+        output_preview: row.get(10)?,
+        preview_url: row.get(11)?,
+        changed_files: serde_json::from_str(&changed_files)
+            .context("parse command block changed files")?,
+        attention: row.get(13)?,
+        source: row.get(14)?,
     })
 }
 

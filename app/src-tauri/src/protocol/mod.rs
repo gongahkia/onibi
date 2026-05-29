@@ -122,6 +122,37 @@ pub struct RunEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopCommandBlock {
+    pub id: String,
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    pub agent: String,
+    pub command: String,
+    pub cwd: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: i64,
+    #[serde(default, rename = "endedAt")]
+    pub ended_at: Option<i64>,
+    #[serde(default, rename = "exitCode")]
+    pub exit_code: Option<i64>,
+    pub status: String,
+    #[serde(default, rename = "outputPreview")]
+    pub output_preview: String,
+    #[serde(default, rename = "previewUrl")]
+    pub preview_url: Option<String>,
+    #[serde(default, rename = "changedFiles")]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub attention: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PtyOutputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,

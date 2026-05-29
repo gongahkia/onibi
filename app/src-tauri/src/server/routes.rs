@@ -4,9 +4,9 @@ use crate::{
     approval::store::now_millis,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        Decision, DesktopCommandResponse, DesktopSessionInputBody, DesktopSessionLaunchBody,
-        DesktopSnapshotBody, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody,
-        ServerMessage, PROTOCOL_VERSION,
+        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopSessionInputBody,
+        DesktopSessionLaunchBody, DesktopSnapshotBody, PairRequest, PairResponse,
+        PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
     push,
     transport::{lan, TransportSnapshot},
@@ -14,16 +14,25 @@ use crate::{
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use serde_json::{json, Value};
+use serde::Deserialize;
 use tokio::time;
 use ulid::Ulid;
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
+
+#[derive(Debug, Deserialize)]
+pub struct CommandBlockQuery {
+    #[serde(default, rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
 
 pub async fn healthz() -> Json<Value> {
     Json(json!({"ok": true, "protocol_version": PROTOCOL_VERSION}))
@@ -179,6 +188,34 @@ pub async fn desktop_attention(State(state): State<AppState>) -> ApiResult<Value
         "attentionCount": sessions.len(),
         "sessions": sessions,
     })))
+}
+
+pub async fn desktop_command_block(
+    State(state): State<AppState>,
+    Json(mut block): Json<DesktopCommandBlock>,
+) -> ApiResult<Value> {
+    validate_version(block.protocol_version.as_deref())?;
+    block.protocol_version = Some(PROTOCOL_VERSION.to_string());
+    state
+        .store
+        .upsert_command_block(&block)
+        .map_err(internal_error)?;
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "id": block.id,
+    })))
+}
+
+pub async fn desktop_command_blocks(
+    State(state): State<AppState>,
+    Query(query): Query<CommandBlockQuery>,
+) -> ApiResult<Vec<DesktopCommandBlock>> {
+    state
+        .store
+        .list_command_blocks(query.session_id.as_deref(), query.limit.unwrap_or(100))
+        .map(Json)
+        .map_err(internal_error)
 }
 
 pub async fn desktop_session_launch(

@@ -34,7 +34,8 @@ export type SessionStatus =
   | "running"
   | "awaiting-approval"
   | "completed"
-  | "error";
+  | "error"
+  | "stale";
 
 export interface Session {
   id: string;
@@ -52,6 +53,8 @@ export interface Session {
   attentionDismissedAt?: number | null;
   preview?: SessionPreview | null;
   lastCommand?: SessionCommandMarker | null;
+  lastCommandBlockId?: string | null;
+  control?: SessionControlState | null;
   shellPromptMarkerSeen?: boolean;
 }
 
@@ -85,6 +88,8 @@ export type SessionEventType =
   | "arrangement-saved"
   | "arrangement-restored"
   | "terminal-trigger"
+  | "command-block"
+  | "session-control"
   | "file-opened"
   | "web-opened";
 
@@ -142,6 +147,36 @@ export interface SessionCommandMarker {
   startedAt: number;
   endedAt?: number | null;
   exitCode?: number | null;
+}
+
+export type CommandBlockStatus = "running" | "succeeded" | "failed" | "aborted";
+export type CommandBlockSource = "shell-integration" | "manual" | "trigger";
+
+export interface CommandBlock {
+  id: string;
+  sessionId: string;
+  workspaceId: string;
+  agent: AgentKind;
+  command: string;
+  cwd: string;
+  startedAt: number;
+  endedAt?: number | null;
+  exitCode?: number | null;
+  status: CommandBlockStatus;
+  outputPreview: string;
+  previewUrl?: string | null;
+  changedFiles: string[];
+  attention?: SessionAttentionState | null;
+  source: CommandBlockSource;
+}
+
+export type SessionControlOwner = "user" | "agent";
+
+export interface SessionControlState {
+  owner: SessionControlOwner;
+  externalInputBlocked: boolean;
+  updatedAt: number;
+  reason?: string | null;
 }
 
 export type WorkspaceSidebarView =
@@ -346,7 +381,14 @@ export interface TerminalKeybinding {
   source?: TerminalConfigSource;
 }
 
-export type TerminalTriggerAction = "highlight" | "badge" | "notify";
+export type TerminalTriggerAction =
+  | "highlight"
+  | "badge"
+  | "notify"
+  | "attention"
+  | "timeline"
+  | "open-preview"
+  | "copy-line";
 export type TerminalTriggerSource = "builtin" | "user";
 
 export interface TerminalTrigger {
@@ -449,6 +491,8 @@ type SessionStore = {
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
   sessionEvents: SessionEvent[];
+  commandBlocks: CommandBlock[];
+  activeCommandBlocks: Record<string, CommandBlock>;
   settings: AppSettings;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
@@ -463,6 +507,10 @@ type SessionStore = {
   replaceSession: (id: string, session: Session) => void;
   removeSession: (id: string) => void;
   clearSessionAttention: (id: string) => void;
+  setSessionControlState: (id: string, control: SessionControlState) => void;
+  startCommandBlock: (block: CommandBlock) => void;
+  finishCommandBlock: (block: CommandBlock) => void;
+  setCommandBlocks: (blocks: CommandBlock[]) => void;
   saveCurrentArrangement: (name?: string) => string | null;
   deleteArrangement: (id: string) => void;
   appendSessionEvent: (event: Omit<SessionEvent, "id" | "timestamp">) => void;
@@ -1042,7 +1090,7 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
     label: "Approval needed",
     pattern: "\\b(approval|permission|confirm|allow|deny)\\b",
     enabled: false,
-    actions: ["highlight", "badge", "notify"],
+    actions: ["highlight", "badge", "notify", "attention", "timeline"],
     source: "builtin",
   },
   {
@@ -1050,7 +1098,7 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
     label: "Tests failed",
     pattern: "\\b(test|tests)\\b.*\\b(fail|failed|failure|failing)\\b|\\bFAIL\\b",
     enabled: false,
-    actions: ["highlight", "badge"],
+    actions: ["highlight", "badge", "attention", "timeline"],
     source: "builtin",
   },
   {
@@ -1058,7 +1106,25 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
     label: "Build failed",
     pattern: "\\b(build|compile|compilation)\\b.*\\b(fail|failed|error)\\b",
     enabled: false,
-    actions: ["highlight", "badge"],
+    actions: ["highlight", "badge", "attention", "timeline"],
+    source: "builtin",
+  },
+  {
+    id: "dev-server-ready",
+    label: "Dev server ready",
+    pattern:
+      "\\b(Local|ready|listening|server)\\b.*\\b(https?://|localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)",
+    enabled: false,
+    actions: ["highlight", "timeline", "open-preview"],
+    source: "builtin",
+  },
+  {
+    id: "migration-prompt",
+    label: "Migration or destructive prompt",
+    pattern:
+      "\\b(migration|migrate|drop|delete|overwrite|destructive)\\b.*\\b(confirm|continue|proceed|y/N|yes/no)\\b",
+    enabled: false,
+    actions: ["highlight", "badge", "attention", "notify", "timeline"],
     source: "builtin",
   },
   {
@@ -1066,7 +1132,7 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
     label: "Dangerous command",
     pattern: "\\b(rm\\s+-rf|git\\s+clean\\s+-[a-z]*x|drop\\s+database|truncate\\s+table)\\b",
     enabled: false,
-    actions: ["highlight", "badge", "notify"],
+    actions: ["highlight", "badge", "notify", "attention", "timeline"],
     source: "builtin",
   },
 ];
@@ -1328,7 +1394,15 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function normalizeTerminalTriggerAction(value: unknown): TerminalTriggerAction | null {
-  return value === "highlight" || value === "badge" || value === "notify" ? value : null;
+  return value === "highlight" ||
+    value === "badge" ||
+    value === "notify" ||
+    value === "attention" ||
+    value === "timeline" ||
+    value === "open-preview" ||
+    value === "copy-line"
+    ? value
+    : null;
 }
 
 function normalizeTerminalTriggers(value: unknown): TerminalTrigger[] {
@@ -1580,6 +1654,19 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
 
 function makeId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+}
+
+export function newCommandBlockId(): string {
+  return makeId("cmd");
+}
+
+export function defaultSessionControl(agent: AgentKind): SessionControlState {
+  return {
+    owner: agent === "shell" ? "user" : "agent",
+    externalInputBlocked: false,
+    updatedAt: Date.now(),
+    reason: null,
+  };
 }
 
 function makeTerminalLeaf(sessionId: string): TerminalLeafPane {
@@ -1899,6 +1986,9 @@ export function sessionAttentionState(
   now = Date.now(),
 ): SessionAttentionState {
   const dismissedAt = session.attentionDismissedAt ?? 0;
+  if (session.status === "stale") {
+    return "stale";
+  }
   if (session.status === "awaiting-approval" || session.pendingApprovals.length > 0) {
     return "needs-approval";
   }
@@ -1932,7 +2022,7 @@ export function sessionAttentionState(
 }
 
 export function sessionNeedsAttention(session: Session, now = Date.now()): boolean {
-  return ["needs-approval", "triggered", "failed", "exited"].includes(
+  return ["needs-approval", "triggered", "failed", "exited", "stale"].includes(
     sessionAttentionState(session, now),
   );
 }
@@ -1987,6 +2077,20 @@ function appendEvent(
   ];
 }
 
+function mergeCommandBlocks(
+  current: CommandBlock[],
+  incoming: CommandBlock[],
+  limit = 300,
+): CommandBlock[] {
+  const byId = new Map<string, CommandBlock>();
+  for (const block of [...current, ...incoming]) {
+    byId.set(block.id, block);
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, limit);
+}
+
 function snapshot(state: SessionStore): PersistedState {
   return {
     sessions: state.sessions,
@@ -2039,6 +2143,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   workspaces: [],
   selectedFile: null,
   sessionEvents: [],
+  commandBlocks: [],
+  activeCommandBlocks: {},
   settings: DEFAULT_SETTINGS,
   setHydrated: (hydrated) => set({ hydrated }),
   setActiveSession: (id) => {
@@ -2261,6 +2367,83 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }));
     persistLater();
   },
+  setSessionControlState: (id, control) => {
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id ? { ...session, control } : session,
+      ),
+      sessionEvents: appendEvent(state.sessionEvents, {
+        type: "session-control",
+        sessionId: id,
+        workspaceId: state.sessions.find((session) => session.id === id)?.workspaceId,
+        agent: state.sessions.find((session) => session.id === id)?.agent,
+        summary: `${control.owner === "user" ? "User took over" : "Handed back to agent"}${
+          control.externalInputBlocked ? " · external input blocked" : ""
+        }`,
+        metadata: {
+          owner: control.owner,
+          externalInputBlocked: control.externalInputBlocked,
+          reason: control.reason ?? null,
+        },
+      }),
+    }));
+    persistLater();
+  },
+  startCommandBlock: (block) => {
+    set((state) => ({
+      activeCommandBlocks: {
+        ...state.activeCommandBlocks,
+        [block.sessionId]: block,
+      },
+      sessions: state.sessions.map((session) =>
+        session.id === block.sessionId
+          ? {
+              ...session,
+              lastCommandBlockId: block.id,
+            }
+          : session,
+      ),
+    }));
+  },
+  finishCommandBlock: (block) => {
+    set((state) => {
+      const { [block.sessionId]: _finished, ...activeCommandBlocks } =
+        state.activeCommandBlocks;
+      return {
+        activeCommandBlocks,
+        commandBlocks: mergeCommandBlocks(state.commandBlocks, [block]),
+        sessions: state.sessions.map((session) =>
+          session.id === block.sessionId
+            ? {
+                ...session,
+                lastCommandBlockId: block.id,
+              }
+            : session,
+        ),
+        sessionEvents: appendEvent(state.sessionEvents, {
+          type: "command-block",
+          workspaceId: block.workspaceId,
+          sessionId: block.sessionId,
+          agent: block.agent,
+          summary: `${block.command} exited ${block.exitCode ?? "unknown"}`,
+          metadata: {
+            commandBlockId: block.id,
+            status: block.status,
+            exitCode: block.exitCode ?? null,
+          },
+        }),
+      };
+    });
+    persistLater();
+  },
+  setCommandBlocks: (blocks) => {
+    set((state) => ({
+      commandBlocks: mergeCommandBlocks([], [
+        ...state.commandBlocks,
+        ...blocks,
+      ]),
+    }));
+  },
   saveCurrentArrangement: (name) => {
     const state = useSessionStore.getState();
     const sessions = state.sessions
@@ -2461,14 +2644,24 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<SessionEvent[]>("sessionEvents"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
-    const liveSessions = (sessions ?? []).filter((session) =>
-      livePtys.has(session.id),
-    );
-    const liveIds = new Set(liveSessions.map((session) => session.id));
+    const restoredSessions = (sessions ?? []).map((session) => {
+      const live = livePtys.has(session.id);
+      return {
+        ...session,
+        status: live
+          ? session.status === "stale"
+            ? "running"
+            : session.status
+          : "stale",
+        pendingApprovals: session.pendingApprovals ?? [],
+        control: session.control ?? defaultSessionControl(session.agent),
+      } satisfies Session;
+    });
+    const restoredIds = new Set(restoredSessions.map((session) => session.id));
     const prunedLayout =
-      pruneTerminalLayout(terminalLayout, liveIds) ??
-      (liveSessions.length > 0
-        ? makeTerminalLeaf(liveSessions[liveSessions.length - 1].id)
+      pruneTerminalLayout(terminalLayout, restoredIds) ??
+      (restoredSessions.length > 0
+        ? makeTerminalLeaf(restoredSessions[restoredSessions.length - 1].id)
         : null);
     const activeLeaf =
       (activeTerminalPaneId && paneContainsPane(prunedLayout, activeTerminalPaneId)
@@ -2477,13 +2670,13 @@ export async function hydrateSessionStore(): Promise<void> {
     const activeSessionId =
       activeLeaf && prunedLayout
         ? sessionIdForPane(prunedLayout, activeLeaf) ??
-          liveSessions[liveSessions.length - 1]?.id ??
+          restoredSessions[restoredSessions.length - 1]?.id ??
           null
-        : liveSessions[liveSessions.length - 1]?.id ?? null;
+        : restoredSessions[restoredSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
     useSessionStore.setState({
-      sessions: liveSessions,
+      sessions: restoredSessions,
       activeSessionId,
       terminalLayout: prunedLayout,
       activeTerminalPaneId: activeLeaf,
@@ -2884,6 +3077,8 @@ export async function spawnSessionFromLaunchSpec(
       cwd: spec.cwd ?? undefined,
       lastExitCode: null,
       lastTrigger: null,
+      lastCommandBlockId: null,
+      control: defaultSessionControl(spec.agent),
       restart: {
         command: spec.command,
         args: spec.args,
@@ -2988,6 +3183,8 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     cwd: session.restart.cwd ?? session.cwd,
     lastExitCode: null,
     lastTrigger: null,
+    lastCommandBlockId: null,
+    control: session.control ?? defaultSessionControl(session.agent),
   };
   await ptyKill(sessionId).catch(() => undefined);
   if (session.agent !== "shell") {
@@ -3071,6 +3268,8 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       cwd: launch.cwd ?? undefined,
       lastExitCode: null,
       lastTrigger: null,
+      lastCommandBlockId: null,
+      control: defaultSessionControl(savedSession.agent),
       restart: launch,
     });
     if (savedSession.agent !== "shell") {
