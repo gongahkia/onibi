@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { DEFAULT_SETTINGS, useSessionStore, type CommandBlock } from "../lib/sessions";
 import { SessionHistoryView } from "./SessionHistoryView";
 
@@ -68,11 +68,11 @@ describe("SessionHistoryView", () => {
 
     render(<SessionHistoryView />);
 
-    expect(screen.getByText("pnpm test")).toBeInTheDocument();
+    expect(screen.getByText("pnpm test")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Search command timeline"), {
       target: { value: "failed" },
     });
-    expect(screen.getByText("1 test failed")).toBeInTheDocument();
+    expect(screen.getByText("1 test failed")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Rerun"));
     expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
