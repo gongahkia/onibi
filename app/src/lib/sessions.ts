@@ -227,7 +227,21 @@ export type TerminalConfigSource =
   | "wezterm"
   | "kitty"
   | "iterm2"
+  | "terminal-app"
+  | "tmux"
+  | "zellij"
+  | "warp"
+  | "muxy"
+  | "cmux"
   | "windows-terminal";
+
+export type TerminalKeybindingAction = "copy" | "paste" | "clear" | "select-all";
+
+export interface TerminalKeybinding {
+  keys: string;
+  action: TerminalKeybindingAction;
+  source?: TerminalConfigSource;
+}
 
 export interface TerminalConfigCandidate {
   source: TerminalConfigSource;
@@ -245,6 +259,8 @@ export interface TerminalConfigImport {
   fontFamily?: string;
   fontSize?: number;
   colorSchemeName?: string;
+  keybindings: TerminalKeybinding[];
+  shaderPaths: string[];
   importedFields: string[];
   unsupportedFields: string[];
 }
@@ -257,6 +273,10 @@ export interface AppSettings {
   editorFontFamily: string;
   uiFontSize: number;
   terminalFontSize: number;
+  terminalScrollbackLines: number;
+  terminalShellIntegration: boolean;
+  terminalKeybindings: TerminalKeybinding[];
+  terminalShaderPaths: string[];
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
@@ -872,6 +892,8 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: CustomColorScheme = {
   colors: { ...BUILT_IN_COLOR_SCHEMES[0].colors },
 };
 
+export const TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES = 1_000_000;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "github-dark",
   fontFamily: "Menlo, Monaco, monospace",
@@ -881,6 +903,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorFontFamily: "Menlo, Monaco, monospace",
   uiFontSize: 15,
   terminalFontSize: 13,
+  terminalScrollbackLines: 0,
+  terminalShellIntegration: true,
+  terminalKeybindings: [],
+  terminalShaderPaths: [],
   editorFontSize: 13,
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
@@ -1003,6 +1029,77 @@ function normalizeFontSize(value: unknown, fallback: number): number {
     : fallback;
 }
 
+function normalizeScrollbackLines(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.min(Math.round(parsed), TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES);
+}
+
+function normalizeTerminalKeybindingAction(
+  value: unknown,
+): TerminalKeybindingAction | null {
+  return value === "copy" ||
+    value === "paste" ||
+    value === "clear" ||
+    value === "select-all"
+    ? value
+    : null;
+}
+
+function normalizeTerminalKeybindings(value: unknown): TerminalKeybinding[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const keybindings: TerminalKeybinding[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.keys !== "string") {
+      continue;
+    }
+    const action = normalizeTerminalKeybindingAction(item.action);
+    const keys = normalizeKeyCombo(item.keys);
+    if (!keys || !action) {
+      continue;
+    }
+    const id = `${keys}:${action}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    keybindings.push({
+      keys,
+      action,
+      source:
+        typeof item.source === "string"
+          ? (item.source as TerminalConfigSource)
+          : undefined,
+    });
+  }
+  return keybindings;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
 function normalizeDiffViewMode(value: unknown): DiffViewMode {
   return value === "unified" || value === "side-by-side"
     ? value
@@ -1059,6 +1156,16 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     ),
     uiFontSize: normalizeFontSize(merged.uiFontSize, legacyFontSize),
     terminalFontSize: normalizeFontSize(merged.terminalFontSize, legacyFontSize),
+    terminalScrollbackLines: normalizeScrollbackLines(
+      merged.terminalScrollbackLines,
+      DEFAULT_SETTINGS.terminalScrollbackLines,
+    ),
+    terminalShellIntegration:
+      typeof merged.terminalShellIntegration === "boolean"
+        ? merged.terminalShellIntegration
+        : DEFAULT_SETTINGS.terminalShellIntegration,
+    terminalKeybindings: normalizeTerminalKeybindings(merged.terminalKeybindings),
+    terminalShaderPaths: normalizeStringArray(merged.terminalShaderPaths),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
@@ -1849,7 +1956,10 @@ export async function spawnAgentSession(
     command: launch.command,
     args: launch.args,
     cwd: workspace.path,
-    env: [],
+    env:
+      agent === "shell" && settings.terminalShellIntegration
+        ? [["ONIBI_SHELL_INTEGRATION", "1"]]
+        : [],
     rows: 30,
     cols: 100,
   });
@@ -1957,6 +2067,201 @@ function matchFirst(config: string, patterns: RegExp[]): string | undefined {
   return undefined;
 }
 
+function normalizeKeyCombo(value: string): string {
+  const parts = value
+    .trim()
+    .replace(/-/g, "+")
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const modifiers = new Set<string>();
+  let key = "";
+  for (const part of parts) {
+    if (["cmd", "command", "meta", "super"].includes(part)) {
+      modifiers.add("cmd");
+    } else if (["ctrl", "control"].includes(part)) {
+      modifiers.add("ctrl");
+    } else if (["alt", "option", "opt"].includes(part)) {
+      modifiers.add("alt");
+    } else if (["shift"].includes(part)) {
+      modifiers.add("shift");
+    } else if (part === "return") {
+      key = "enter";
+    } else if (part === "escape") {
+      key = "esc";
+    } else if (part === "spacebar") {
+      key = "space";
+    } else {
+      key = part;
+    }
+  }
+  if (!key) {
+    return "";
+  }
+  return [
+    ...(["cmd", "ctrl", "alt", "shift"] as const).filter((modifier) =>
+      modifiers.has(modifier),
+    ),
+    key,
+  ].join("+");
+}
+
+function keyComboFromModsAndKey(mods: string | undefined, key: string): string {
+  const modifierParts = (mods ?? "")
+    .split(/[|+]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return normalizeKeyCombo([...modifierParts, key].join("+"));
+}
+
+function actionFromTerminalAction(value: string | undefined): TerminalKeybindingAction | null {
+  const normalized = value?.toLowerCase() ?? "";
+  if (
+    normalized.includes("copytoclipboard") ||
+    normalized.includes("copy_to_clipboard") ||
+    normalized === "copy"
+  ) {
+    return "copy";
+  }
+  if (
+    normalized.includes("pastefromclipboard") ||
+    normalized.includes("paste_from_clipboard") ||
+    normalized === "paste"
+  ) {
+    return "paste";
+  }
+  if (
+    normalized.includes("clear_screen") ||
+    normalized.includes("clear_terminal") ||
+    normalized.includes("clear-history") ||
+    normalized === "clear"
+  ) {
+    return "clear";
+  }
+  if (normalized.includes("selectall") || normalized.includes("select_all")) {
+    return "select-all";
+  }
+  return null;
+}
+
+function makeTerminalKeybinding(
+  source: TerminalConfigSource,
+  keys: string,
+  action: TerminalKeybindingAction | null,
+): TerminalKeybinding | null {
+  const normalizedKeys = normalizeKeyCombo(keys);
+  return normalizedKeys && action ? { keys: normalizedKeys, action, source } : null;
+}
+
+function uniqueKeybindings(bindings: Array<TerminalKeybinding | null>): TerminalKeybinding[] {
+  const seen = new Set<string>();
+  const result: TerminalKeybinding[] = [];
+  for (const binding of bindings) {
+    if (!binding) {
+      continue;
+    }
+    const id = `${binding.keys}:${binding.action}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    result.push(binding);
+  }
+  return result;
+}
+
+function parseGhosttyKeybindings(config: string): TerminalKeybinding[] {
+  const bindings: Array<TerminalKeybinding | null> = [];
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("keybind")) {
+      continue;
+    }
+    const value = line.slice(line.indexOf("=") + 1).trim();
+    const parts = value.split("=").map((part) => part.trim());
+    if (parts.length < 2) {
+      continue;
+    }
+    const action = parts[parts.length - 1];
+    const keys = parts[parts.length - 2].replace(/^(global|all):/, "");
+    bindings.push(makeTerminalKeybinding("ghostty", keys, actionFromTerminalAction(action)));
+  }
+  return uniqueKeybindings(bindings);
+}
+
+function parseSimpleMappedKeybindings(
+  source: TerminalConfigSource,
+  config: string,
+): TerminalKeybinding[] {
+  const bindings: Array<TerminalKeybinding | null> = [];
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const match = line.match(/^(?:map|bind-key|bind)\s+(\S+)\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    bindings.push(
+      makeTerminalKeybinding(source, match[1], actionFromTerminalAction(match[2])),
+    );
+  }
+  return uniqueKeybindings(bindings);
+}
+
+function parseAlacrittyKeybindings(config: string): TerminalKeybinding[] {
+  const bindings: Array<TerminalKeybinding | null> = [];
+  for (const match of config.matchAll(/\[\[keyboard\.bindings\]\]([\s\S]*?)(?=\n\[\[|$)/g)) {
+    const block = match[1];
+    const key = matchFirst(block, [/key\s*=\s*["']([^"']+)["']/]);
+    const mods = matchFirst(block, [/mods\s*=\s*["']([^"']+)["']/]);
+    const action = matchFirst(block, [/action\s*=\s*["']([^"']+)["']/]);
+    if (!key) {
+      continue;
+    }
+    bindings.push(
+      makeTerminalKeybinding(
+        "alacritty",
+        keyComboFromModsAndKey(mods, key),
+        actionFromTerminalAction(action),
+      ),
+    );
+  }
+  return uniqueKeybindings(bindings);
+}
+
+function parseWezTermKeybindings(config: string): TerminalKeybinding[] {
+  const bindings: Array<TerminalKeybinding | null> = [];
+  for (const match of config.matchAll(/\{[^{}]*key\s*=\s*["']([^"']+)["'][^{}]*\}/g)) {
+    const block = match[0];
+    const key = match[1];
+    const mods = matchFirst(block, [/mods\s*=\s*["']([^"']+)["']/]);
+    const action = matchFirst(block, [/action\s*=\s*([^,}]+)/]);
+    bindings.push(
+      makeTerminalKeybinding(
+        "wezterm",
+        keyComboFromModsAndKey(mods, key),
+        actionFromTerminalAction(action),
+      ),
+    );
+  }
+  return uniqueKeybindings(bindings);
+}
+
+function parseShaderPaths(config: string, patterns: RegExp[]): string[] {
+  const paths: string[] = [];
+  for (const pattern of patterns) {
+    for (const match of config.matchAll(pattern)) {
+      const path = match[1]?.trim().replace(/^['"]|['"]$/g, "");
+      if (path) {
+        paths.push(path);
+      }
+    }
+  }
+  return normalizeStringArray(paths);
+}
+
 function importFromGhostty(candidate: TerminalConfigCandidate): TerminalConfigImport {
   const theme = parseGhosttyConfig(candidate.content);
   const colors: Partial<ColorSchemeColors> = {};
@@ -1977,7 +2282,18 @@ function importFromGhostty(candidate: TerminalConfigCandidate): TerminalConfigIm
   if (theme.palette[4]) {
     colors.accent = theme.palette[4];
   }
-  return terminalImport(candidate, colors, theme.fontFamily, theme.fontSize);
+  return terminalImport(
+    candidate,
+    colors,
+    theme.fontFamily,
+    theme.fontSize,
+    undefined,
+    parseGhosttyKeybindings(candidate.content),
+    parseShaderPaths(candidate.content, [
+      /custom-shader\s*=\s*([^\n#]+)/g,
+      /shader\s*=\s*([^\n#]+)/g,
+    ]),
+  );
 }
 
 function importFromKitty(candidate: TerminalConfigCandidate): TerminalConfigImport {
@@ -2021,6 +2337,8 @@ function importFromKitty(candidate: TerminalConfigCandidate): TerminalConfigImpo
     colors,
     values.font_family?.replace(/^['"]|['"]$/g, ""),
     Number.isFinite(fontSize) ? fontSize : undefined,
+    undefined,
+    parseSimpleMappedKeybindings("kitty", candidate.content),
   );
 }
 
@@ -2068,6 +2386,8 @@ function importFromAlacritty(candidate: TerminalConfigCandidate): TerminalConfig
     colors,
     fontFamily,
     Number.isFinite(fontSize) ? fontSize : undefined,
+    undefined,
+    parseAlacrittyKeybindings(candidate.content),
   );
 }
 
@@ -2114,7 +2434,40 @@ function importFromWezTerm(candidate: TerminalConfigCandidate): TerminalConfigIm
     fontFamily,
     Number.isFinite(fontSize) ? fontSize : undefined,
     colorSchemeName,
+    parseWezTermKeybindings(candidate.content),
   );
+}
+
+function importFromWarp(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const values = parseSimpleAssignments(candidate.content.replace(/:/g, " = "));
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = parseConfigHexColor(values.background);
+  const foreground = parseConfigHexColor(values.foreground);
+  const cursor = parseConfigHexColor(values.cursor);
+  const accent = parseConfigHexColor(values.accent ?? values.blue);
+  const danger = parseConfigHexColor(values.red);
+  const accent2 = parseConfigHexColor(values.green ?? values.cyan);
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+  }
+  if (accent) {
+    colors.accent = accent;
+  }
+  if (danger) {
+    colors.danger = danger;
+  }
+  if (accent2) {
+    colors.accent2 = accent2;
+  }
+  return terminalImport(candidate, colors, undefined, undefined, candidate.label);
 }
 
 function importFromWindowsTerminal(candidate: TerminalConfigCandidate): TerminalConfigImport {
@@ -2200,12 +2553,114 @@ function itermColor(config: string, name: string): string | undefined {
     .join("")}`;
 }
 
+function firstItermProfile(parsed: unknown): Record<string, unknown> | null {
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  const directProfiles = Array.isArray(parsed.Profiles) ? parsed.Profiles : [];
+  const bookmarks = Array.isArray(parsed["New Bookmarks"])
+    ? parsed["New Bookmarks"]
+    : [];
+  const profiles = [...directProfiles, ...bookmarks].filter(isRecord);
+  return profiles[0] ?? (isRecord(parsed) ? parsed : null);
+}
+
+function parseItermFont(
+  value: string | undefined,
+): { family: string; size?: number } | null {
+  if (!value) {
+    return null;
+  }
+  const match = value.match(/^(.+?)\s+([0-9.]+)$/);
+  const family = (match?.[1] ?? value)
+    .replace(/[-_](Regular|Medium|Bold|Italic|SemiBold)$/i, "")
+    .replace(/-/g, " ")
+    .trim();
+  const size = Number(match?.[2]);
+  return {
+    family,
+    size: Number.isFinite(size) ? size : undefined,
+  };
+}
+
+function itermJsonColor(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const red = Number(value["Red Component"]);
+  const green = Number(value["Green Component"]);
+  const blue = Number(value["Blue Component"]);
+  if (![red, green, blue].every(Number.isFinite)) {
+    return undefined;
+  }
+  return `#${[red, green, blue]
+    .map((component) =>
+      Math.min(255, Math.max(0, Math.round(component * 255)))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+function copyItermJsonColor(
+  profile: Record<string, unknown>,
+  sourceKey: string,
+  colors: Partial<ColorSchemeColors>,
+  targets: ColorSchemeColorKey[],
+): void {
+  const color = itermJsonColor(profile[sourceKey]);
+  if (!color) {
+    return;
+  }
+  for (const target of targets) {
+    colors[target] = color;
+  }
+}
+
 function importFromIterm2(candidate: TerminalConfigCandidate): TerminalConfigImport {
   const colors: Partial<ColorSchemeColors> = {};
-  const background = itermColor(candidate.content, "Background Color");
-  const foreground = itermColor(candidate.content, "Foreground Color");
-  const cursor = itermColor(candidate.content, "Cursor Color");
-  const selection = itermColor(candidate.content, "Selection Color");
+  let fontFamily: string | undefined;
+  let fontSize: number | undefined;
+  let colorSchemeName = candidate.label;
+  let content = candidate.content;
+  try {
+    const parsed = JSON.parse(candidate.content) as unknown;
+    const profile = firstItermProfile(parsed);
+    if (profile) {
+      content = JSON.stringify(profile);
+      colorSchemeName =
+        typeof profile.Name === "string" ? profile.Name : candidate.label;
+      const font = parseItermFont(
+        typeof profile["Normal Font"] === "string"
+          ? profile["Normal Font"]
+          : undefined,
+      );
+      fontFamily = font?.family;
+      fontSize = font?.size;
+      copyItermJsonColor(profile, "Background Color", colors, [
+        "bg0",
+        "terminalBackground",
+      ]);
+      copyItermJsonColor(profile, "Foreground Color", colors, [
+        "fg0",
+        "terminalForeground",
+      ]);
+      copyItermJsonColor(profile, "Cursor Color", colors, [
+        "accent",
+        "terminalCursor",
+      ]);
+      copyItermJsonColor(profile, "Selection Color", colors, [
+        "bg3",
+        "terminalSelection",
+      ]);
+    }
+  } catch {
+    // .itermcolors files are XML plists and are parsed below.
+  }
+  const background = itermColor(content, "Background Color");
+  const foreground = itermColor(content, "Foreground Color");
+  const cursor = itermColor(content, "Cursor Color");
+  const selection = itermColor(content, "Selection Color");
   if (background) {
     colors.bg0 = background;
     colors.terminalBackground = background;
@@ -2222,7 +2677,7 @@ function importFromIterm2(candidate: TerminalConfigCandidate): TerminalConfigImp
     colors.terminalSelection = selection;
     colors.bg3 = selection;
   }
-  return terminalImport(candidate, colors, undefined, undefined, candidate.label);
+  return terminalImport(candidate, colors, fontFamily, fontSize, colorSchemeName);
 }
 
 function terminalImport(
@@ -2231,6 +2686,8 @@ function terminalImport(
   fontFamily?: string,
   fontSize?: number,
   colorSchemeName?: string,
+  keybindings: TerminalKeybinding[] = [],
+  shaderPaths: string[] = [],
 ): TerminalConfigImport {
   const importedFields: string[] = [];
   if (Object.keys(colors).length > 0) {
@@ -2245,6 +2702,12 @@ function terminalImport(
   if (colorSchemeName) {
     importedFields.push("theme name");
   }
+  if (keybindings.length > 0) {
+    importedFields.push("keybindings");
+  }
+  if (shaderPaths.length > 0) {
+    importedFields.push("shaders");
+  }
   return {
     id: `${candidate.source}:${candidate.path}`,
     source: candidate.source,
@@ -2254,10 +2717,10 @@ function terminalImport(
     fontFamily,
     fontSize,
     colorSchemeName,
+    keybindings,
+    shaderPaths,
     importedFields,
-    unsupportedFields: ["keybinds", "shaders"].filter(
-      (field) => !candidate.content.toLowerCase().includes(field),
-    ),
+    unsupportedFields: [],
   };
 }
 
@@ -2281,6 +2744,24 @@ export function parseTerminalConfigImport(
   }
   if (candidate.source === "iterm2") {
     return importFromIterm2(candidate);
+  }
+  if (candidate.source === "warp") {
+    return importFromWarp(candidate);
+  }
+  if (
+    candidate.source === "tmux" ||
+    candidate.source === "zellij" ||
+    candidate.source === "muxy" ||
+    candidate.source === "cmux"
+  ) {
+    return terminalImport(
+      candidate,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      parseSimpleMappedKeybindings(candidate.source, candidate.content),
+    );
   }
   return terminalImport(candidate, {}, undefined, undefined);
 }
@@ -2404,4 +2885,10 @@ export function terminalThemeForSettings(settings: AppSettings): TerminalTheme {
     cursor: colors.terminalCursor,
     selectionBackground: colors.terminalSelection,
   };
+}
+
+export function terminalScrollbackLinesForSettings(settings: AppSettings): number {
+  return settings.terminalScrollbackLines === 0
+    ? TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES
+    : settings.terminalScrollbackLines;
 }

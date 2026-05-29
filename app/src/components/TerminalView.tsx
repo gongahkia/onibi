@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import {
   DEFAULT_SETTINGS,
+  terminalScrollbackLinesForSettings,
   terminalThemeForSettings,
   type AppSettings,
+  type TerminalKeybindingAction,
 } from "../lib/sessions";
 import { ptyResize, ptyWrite, subscribePty, type PtyId } from "../lib/tauri-bridge";
 
@@ -113,6 +114,32 @@ function terminalFontStack(fontFamily: string | undefined): string {
   ]);
 }
 
+function keyFromKeyboardEvent(event: KeyboardEvent): string {
+  const modifiers = [
+    event.metaKey ? "cmd" : "",
+    event.ctrlKey ? "ctrl" : "",
+    event.altKey ? "alt" : "",
+    event.shiftKey ? "shift" : "",
+  ].filter(Boolean);
+  let key = event.key.toLowerCase();
+  if (key === " ") {
+    key = "space";
+  } else if (key === "escape") {
+    key = "esc";
+  } else if (key === "return") {
+    key = "enter";
+  }
+  return [...modifiers, key].join("+");
+}
+
+function terminalKeybindingMap(
+  settings: AppSettings,
+): Map<string, TerminalKeybindingAction> {
+  return new Map(
+    settings.terminalKeybindings.map((binding) => [binding.keys, binding.action]),
+  );
+}
+
 function decodeBase64(data: string): Uint8Array {
   const binary = atob(data);
   const bytes = new Uint8Array(binary.length);
@@ -136,7 +163,9 @@ export function TerminalView({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const visibleRef = useRef(visible);
   const layoutFramesRef = useRef<number[]>([]);
+  const keybindingsRef = useRef<Map<string, TerminalKeybindingAction>>(new Map());
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
+  const resolvedScrollback = terminalScrollbackLinesForSettings(settings);
   const resolvedFontFamily = useMemo(
     () => terminalFontStack(fontFamily),
     [fontFamily],
@@ -156,6 +185,10 @@ export function TerminalView({
   useEffect(() => {
     visibleRef.current = visible;
   }, [visible]);
+
+  useEffect(() => {
+    keybindingsRef.current = terminalKeybindingMap(settings);
+  }, [settings]);
 
   const cancelScheduledLayout = () => {
     layoutFramesRef.current.forEach((frame) => cancelAnimationFrame(frame));
@@ -204,22 +237,15 @@ export function TerminalView({
       fontSize,
       letterSpacing: 0,
       lineHeight: 1,
-      scrollback: 10000,
+      scrollback: resolvedScrollback,
       theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon(handleTerminalLink);
-    let webglAddon: WebglAddon | undefined;
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
-    try {
-      webglAddon = new WebglAddon();
-      term.loadAddon(webglAddon);
-    } catch (error) {
-      console.debug("xterm webgl renderer unavailable", error);
-    }
 
     term.open(container);
     refreshTerminalLayout(visibleRef.current);
@@ -235,6 +261,33 @@ export function TerminalView({
     resizeObserver.observe(container);
 
     const encoder = new TextEncoder();
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") {
+        return true;
+      }
+      const action = keybindingsRef.current.get(keyFromKeyboardEvent(event));
+      if (!action) {
+        return true;
+      }
+      event.preventDefault();
+      if (action === "copy") {
+        const selection = term.getSelection();
+        if (selection) {
+          void navigator.clipboard?.writeText(selection);
+        }
+      } else if (action === "paste") {
+        void navigator.clipboard?.readText().then((text) => {
+          if (text) {
+            void ptyWrite(ptyId, encoder.encode(text));
+          }
+        });
+      } else if (action === "clear") {
+        term.clear();
+      } else if (action === "select-all") {
+        term.selectAll();
+      }
+      return false;
+    });
     const inputDisposable = term.onData((data) => {
       void ptyWrite(ptyId, encoder.encode(data));
     });
@@ -267,7 +320,6 @@ export function TerminalView({
       unlisten?.();
       resizeObserver.disconnect();
       inputDisposable.dispose();
-      webglAddon?.dispose();
       webLinksAddon.dispose();
       fitAddon.dispose();
       term.dispose();
@@ -292,6 +344,7 @@ export function TerminalView({
       fontSize,
       letterSpacing: 0,
       lineHeight: 1,
+      scrollback: resolvedScrollback,
       theme: terminalTheme,
     };
     term.clearTextureAtlas();
@@ -300,6 +353,7 @@ export function TerminalView({
     fontSize,
     ptyId,
     resolvedFontFamily,
+    resolvedScrollback,
     terminalTheme.background,
     terminalTheme.cursor,
     terminalTheme.foreground,

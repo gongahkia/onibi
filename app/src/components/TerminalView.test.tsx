@@ -22,8 +22,12 @@ const terminalMocks = vi.hoisted(() => {
     focus = vi.fn();
     write = vi.fn();
     refresh = vi.fn();
+    clear = vi.fn();
+    selectAll = vi.fn();
     dispose = vi.fn();
     clearTextureAtlas = vi.fn();
+    getSelection = vi.fn(() => "");
+    attachCustomKeyEventHandler = vi.fn();
     onData = vi.fn((handler: (data: string) => void) => {
       this.onDataHandler = handler;
       return { dispose: vi.fn() };
@@ -124,6 +128,19 @@ describe("TerminalView", () => {
       fontFamily: `"Fira Code", ${EXPECTED_TERMINAL_FONT_FALLBACK}`,
       letterSpacing: 0,
       lineHeight: 1,
+    });
+  });
+
+  test("uses configured terminal scrollback", () => {
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalScrollbackLines: 50000 }}
+      />,
+    );
+
+    expect(terminalMocks.instances[0].options).toMatchObject({
+      scrollback: 50000,
     });
   });
 

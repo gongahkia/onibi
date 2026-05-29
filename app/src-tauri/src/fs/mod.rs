@@ -403,6 +403,68 @@ fn push_terminal_config(
     Ok(())
 }
 
+fn push_terminal_config_dir(
+    configs: &mut Vec<TerminalConfigCandidate>,
+    source: &str,
+    label: &str,
+    dir: PathBuf,
+    extensions: &[&str],
+) -> Result<(), String> {
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(format!("failed to read {}: {err}", dir.display())),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|err| err.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if !extensions
+            .iter()
+            .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        {
+            continue;
+        }
+        let item_label = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .map(|name| format!("{label}: {name}"))
+            .unwrap_or_else(|| label.to_string());
+        push_terminal_config(configs, source, &item_label, path)?;
+    }
+    Ok(())
+}
+
+fn push_terminal_plist_config(
+    configs: &mut Vec<TerminalConfigCandidate>,
+    source: &str,
+    label: &str,
+    path: PathBuf,
+) -> Result<(), String> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    match plist::Value::from_file(&path) {
+        Ok(value) => {
+            let content = serde_json::to_string(&value)
+                .map_err(|err| format!("failed to serialize {}: {err}", path.display()))?;
+            configs.push(TerminalConfigCandidate {
+                source: source.to_string(),
+                label: label.to_string(),
+                path,
+                content,
+            });
+        }
+        Err(err) => return Err(format!("failed to read {}: {err}", path.display())),
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>, String> {
     let mut configs = Vec::new();
@@ -443,6 +505,62 @@ pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>
             "kitty",
             "kitty",
             home.join(".config/kitty/kitty.conf"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "tmux",
+            "tmux",
+            home.join(".tmux.conf"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "tmux",
+            "tmux",
+            home.join(".config/tmux/tmux.conf"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "zellij",
+            "Zellij",
+            home.join(".config/zellij/config.kdl"),
+        )?;
+        push_terminal_config_dir(
+            &mut configs,
+            "warp",
+            "Warp theme",
+            home.join(".warp/themes"),
+            &["yaml", "yml"],
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "muxy",
+            "muxy",
+            home.join(".config/muxy/config.toml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "cmux",
+            "cmux",
+            home.join(".config/cmux/config.toml"),
+        )?;
+        push_terminal_config_dir(
+            &mut configs,
+            "iterm2",
+            "iTerm2 dynamic profile",
+            home.join("Library/Application Support/iTerm2/DynamicProfiles"),
+            &["json"],
+        )?;
+        push_terminal_plist_config(
+            &mut configs,
+            "iterm2",
+            "iTerm2 Preferences",
+            home.join("Library/Preferences/com.googlecode.iterm2.plist"),
+        )?;
+        push_terminal_plist_config(
+            &mut configs,
+            "terminal-app",
+            "Terminal.app Preferences",
+            home.join("Library/Preferences/com.apple.Terminal.plist"),
         )?;
     }
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {

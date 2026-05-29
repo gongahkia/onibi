@@ -1795,6 +1795,7 @@ button {
 
 .custom-scheme-editor,
 .color-setting-control,
+.settings-stacked-control,
 .settings-check-row {
   display: grid;
   gap: 8px;

@@ -17,6 +17,7 @@ import {
   type TerminalConfigCandidate,
   type TerminalConfigImport,
   type TerminalConfigSource,
+  type TerminalKeybinding,
   type ThemeMode,
   type WebOpenMode,
   applyOnibiConfig,
@@ -246,6 +247,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               fontFamilies={fontFamilies}
               uiFontSize={settings.uiFontSize}
               terminalFontSize={settings.terminalFontSize}
+              terminalScrollbackLines={settings.terminalScrollbackLines}
+              terminalShellIntegration={settings.terminalShellIntegration}
               editorFontSize={settings.editorFontSize}
               diffViewMode={settings.diffViewMode}
               webOpenMode={settings.webOpenMode}
@@ -263,6 +266,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onUiFontSize={(uiFontSize) => updateSettings({ uiFontSize })}
               onTerminalFontSize={(terminalFontSize) =>
                 updateSettings({ terminalFontSize })
+              }
+              onTerminalScrollbackLines={(terminalScrollbackLines) =>
+                updateSettings({ terminalScrollbackLines })
+              }
+              onTerminalShellIntegration={(terminalShellIntegration) =>
+                updateSettings({ terminalShellIntegration })
               }
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
@@ -369,6 +378,15 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                     options.fontSize && item.fontSize
                       ? item.fontSize
                       : settings.terminalFontSize,
+                  terminalKeybindings: options.keybindings
+                    ? mergeTerminalKeybindings(
+                        settings.terminalKeybindings,
+                        item.keybindings,
+                      )
+                    : settings.terminalKeybindings,
+                  terminalShaderPaths: options.shaders
+                    ? mergeStringList(settings.terminalShaderPaths, item.shaderPaths)
+                    : settings.terminalShaderPaths,
                 });
               }}
             />
@@ -398,6 +416,8 @@ interface GeneralSettingsProps {
   fontFamilies: string[];
   uiFontSize: number;
   terminalFontSize: number;
+  terminalScrollbackLines: number;
+  terminalShellIntegration: boolean;
   editorFontSize: number;
   diffViewMode: DiffViewMode;
   webOpenMode: WebOpenMode;
@@ -408,6 +428,8 @@ interface GeneralSettingsProps {
   onEditorFontFamily: (fontFamily: string) => void;
   onUiFontSize: (fontSize: number) => void;
   onTerminalFontSize: (fontSize: number) => void;
+  onTerminalScrollbackLines: (lines: number) => void;
+  onTerminalShellIntegration: (enabled: boolean) => void;
   onEditorFontSize: (fontSize: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onWebOpenMode: (mode: WebOpenMode) => void;
@@ -422,6 +444,8 @@ function GeneralSettings({
   fontFamilies,
   uiFontSize,
   terminalFontSize,
+  terminalScrollbackLines,
+  terminalShellIntegration,
   editorFontSize,
   diffViewMode,
   webOpenMode,
@@ -432,6 +456,8 @@ function GeneralSettings({
   onEditorFontFamily,
   onUiFontSize,
   onTerminalFontSize,
+  onTerminalScrollbackLines,
+  onTerminalShellIntegration,
   onEditorFontSize,
   onDiffViewMode,
   onWebOpenMode,
@@ -518,6 +544,22 @@ function GeneralSettings({
         value={terminalFontSize}
         onChange={onTerminalFontSize}
       />
+      <ScrollbackControl
+        value={terminalScrollbackLines}
+        onChange={onTerminalScrollbackLines}
+      />
+      <label className="settings-row">
+        <span>Shell completions</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Enable shell completions and autosuggestions"
+            checked={terminalShellIntegration}
+            onChange={(event) => onTerminalShellIntegration(event.target.checked)}
+          />
+          Enable shell completions and autosuggestions
+        </span>
+      </label>
       <FontFamilyControl
         label="File content font"
         value={editorFontFamily}
@@ -615,6 +657,33 @@ function FontSizeControl({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
+    </label>
+  );
+}
+
+function ScrollbackControl({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (lines: number) => void;
+}) {
+  return (
+    <label className="settings-row">
+      <span>Terminal scrollback</span>
+      <span className="settings-stacked-control">
+        <input
+          className="settings-input"
+          aria-label="Terminal scrollback lines"
+          type="number"
+          min={0}
+          max={1000000}
+          step={1000}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        <span className="settings-note">0 keeps up to 1,000,000 lines.</span>
+      </span>
     </label>
   );
 }
@@ -824,6 +893,40 @@ interface ImportOptions {
   colors: boolean;
   fontFamily: boolean;
   fontSize: boolean;
+  keybindings: boolean;
+  shaders: boolean;
+}
+
+function mergeTerminalKeybindings(
+  current: TerminalKeybinding[],
+  imported: TerminalKeybinding[],
+): TerminalKeybinding[] {
+  const existing = new Set(current.map((binding) => `${binding.keys}:${binding.action}`));
+  return [
+    ...current,
+    ...imported.filter((binding) => {
+      const id = `${binding.keys}:${binding.action}`;
+      if (existing.has(id)) {
+        return false;
+      }
+      existing.add(id);
+      return true;
+    }),
+  ];
+}
+
+function mergeStringList(current: string[], imported: string[]): string[] {
+  const existing = new Set(current);
+  return [
+    ...current,
+    ...imported.filter((item) => {
+      if (existing.has(item)) {
+        return false;
+      }
+      existing.add(item);
+      return true;
+    }),
+  ];
 }
 
 function sourceForConfigFile(file: File): TerminalConfigSource {
@@ -831,7 +934,16 @@ function sourceForConfigFile(file: File): TerminalConfigSource {
   if (lower.endsWith(".itermcolors")) {
     return "iterm2";
   }
+  if (lower.includes("iterm")) {
+    return "iterm2";
+  }
+  if (lower.includes("terminal")) {
+    return "terminal-app";
+  }
   if (lower.includes("alacritty")) {
+    return "alacritty";
+  }
+  if (lower.includes("alacrity")) {
     return "alacritty";
   }
   if (lower.includes("wezterm") || lower.endsWith(".lua")) {
@@ -839,6 +951,21 @@ function sourceForConfigFile(file: File): TerminalConfigSource {
   }
   if (lower.includes("kitty")) {
     return "kitty";
+  }
+  if (lower.includes("tmux")) {
+    return "tmux";
+  }
+  if (lower.includes("zellij")) {
+    return "zellij";
+  }
+  if (lower.includes("warp")) {
+    return "warp";
+  }
+  if (lower.includes("muxy")) {
+    return "muxy";
+  }
+  if (lower.includes("cmux")) {
+    return "cmux";
   }
   if (lower.includes("settings.json")) {
     return "windows-terminal";
@@ -886,6 +1013,8 @@ function ImportConfigSettings({
         colors: Object.keys(item.colors).length > 0,
         fontFamily: Boolean(item.fontFamily),
         fontSize: Boolean(item.fontSize),
+        keybindings: item.keybindings.length > 0,
+        shaders: item.shaderPaths.length > 0,
       }
     );
   }
@@ -917,7 +1046,7 @@ function ImportConfigSettings({
         <input
           ref={inputRef}
           type="file"
-          accept=".conf,.config,.itermcolors,.json,.lua,.toml,.yaml,.yml"
+          accept=".conf,.config,.itermcolors,.json,.kdl,.lua,.plist,.toml,.yaml,.yml"
           className="visually-hidden"
           onChange={(event) => void importFile(event.target.files?.[0])}
         />
@@ -975,9 +1104,27 @@ function ImportConfigSettings({
               />
               Font size{item.fontSize ? `: ${item.fontSize}` : ""}
             </label>
-            <div className="settings-note">
-              Keybind and shader imports are detected as future import categories.
-            </div>
+            <label className="settings-check-row">
+              <input
+                type="checkbox"
+                checked={options.keybindings}
+                disabled={item.keybindings.length === 0}
+                onChange={(event) =>
+                  updateOption(item, "keybindings", event.target.checked)
+                }
+              />
+              Keybindings
+              {item.keybindings.length > 0 ? `: ${item.keybindings.length}` : ""}
+            </label>
+            <label className="settings-check-row">
+              <input
+                type="checkbox"
+                checked={options.shaders}
+                disabled={item.shaderPaths.length === 0}
+                onChange={(event) => updateOption(item, "shaders", event.target.checked)}
+              />
+              Shaders{item.shaderPaths.length > 0 ? `: ${item.shaderPaths.length}` : ""}
+            </label>
             <button
               type="button"
               className="text-button primary"

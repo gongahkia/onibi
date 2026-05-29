@@ -3838,6 +3838,7 @@ dependencies = [
  "notify",
  "p256",
  "parking_lot",
+ "plist",
  "png 0.17.16",
  "portable-pty",
  "qrcode",

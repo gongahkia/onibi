@@ -128,6 +128,19 @@ describe("SettingsPane", () => {
     expect(settings.diffViewMode).toBe("unified");
   });
 
+  test("stores terminal scrollback and shell integration settings", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Terminal scrollback lines"), {
+      target: { value: "50000" },
+    });
+    fireEvent.click(screen.getByLabelText("Enable shell completions and autosuggestions"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.terminalScrollbackLines).toBe(50000);
+    expect(settings.terminalShellIntegration).toBe(false);
+  });
+
   test("lists newly supported agent commands", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Agents"));
@@ -165,7 +178,8 @@ describe("SettingsPane", () => {
             source: "ghostty",
             label: "Ghostty",
             path: "/Users/test/.config/ghostty/config",
-            content: "font-family = Fira Code\nfont-size = 16\nbackground = #101010\nforeground = #eeeeee\npalette = 4=#88aaff\n",
+            content:
+              "font-family = Fira Code\nfont-size = 16\nbackground = #101010\nforeground = #eeeeee\npalette = 4=#88aaff\nkeybind = cmd+c=copy_to_clipboard\ncustom-shader = /tmp/ghostty.glsl\n",
           },
         ];
       }
@@ -185,5 +199,9 @@ describe("SettingsPane", () => {
     expect(settings.terminalFontFamily).toBe("Fira Code");
     expect(settings.terminalFontSize).toBe(16);
     expect(settings.customColorScheme.colors.terminalBackground).toBe("#101010");
+    expect(settings.terminalKeybindings).toEqual([
+      { keys: "cmd+c", action: "copy", source: "ghostty" },
+    ]);
+    expect(settings.terminalShaderPaths).toEqual(["/tmp/ghostty.glsl"]);
   });
 });

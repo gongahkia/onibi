@@ -5,7 +5,9 @@ use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
     collections::HashMap,
+    env, fs,
     io::{Read, Write},
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -45,14 +47,21 @@ impl PtyManager {
         } else {
             req.command
         };
+        let mut args = req.args;
+        let mut env_values = req.env;
+        let shell_integration_dir =
+            configure_shell_integration(id, &command, &mut args, &mut env_values)?;
         let mut cmd = CommandBuilder::new(&command);
-        cmd.args(req.args.iter());
+        cmd.args(args.iter());
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         if let Some(cwd) = req.cwd {
             cmd.cwd(cwd.as_os_str());
         }
-        for (key, value) in req.env {
+        for (key, value) in env_values {
+            if key == "ONIBI_SHELL_INTEGRATION" {
+                continue;
+            }
             cmd.env(key, value);
         }
         let mut reader = pair.master.try_clone_reader()?;
@@ -62,7 +71,7 @@ impl PtyManager {
         let session = PtySession::new(id, pair.master, child, writer, tx);
         self.sessions.write().insert(id, session.clone());
         self.spawn_reader(id, session.sender(), &mut reader);
-        self.spawn_waiter(session.clone());
+        self.spawn_waiter(session.clone(), shell_integration_dir);
         info!(%id, command, rows, cols, "spawned pty");
         Ok(id)
     }
@@ -189,7 +198,7 @@ impl PtyManager {
         });
     }
 
-    fn spawn_waiter(&self, session: PtySession) {
+    fn spawn_waiter(&self, session: PtySession, shell_integration_dir: Option<PathBuf>) {
         let id = session.id();
         let child = session.child();
         let tx = session.sender();
@@ -227,7 +236,119 @@ impl PtyManager {
                     }
                 }
             }
+            if let Some(path) = shell_integration_dir {
+                let _ = fs::remove_dir_all(path);
+            }
         });
+    }
+}
+
+fn env_flag(env_values: &[(String, String)], key: &str) -> bool {
+    env_values
+        .iter()
+        .any(|(env_key, value)| env_key == key && value != "0" && value != "false")
+}
+
+fn shell_name(command: &str) -> Option<String> {
+    Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(ToOwned::to_owned)
+}
+
+fn shell_integration_root(id: PtyId) -> PathBuf {
+    env::temp_dir().join(format!("onibi-shell-{id}"))
+}
+
+fn write_zsh_integration(root: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(root)?;
+    fs::write(
+        root.join(".zshenv"),
+        r#"if [ -r "$HOME/.zshenv" ]; then
+  source "$HOME/.zshenv"
+fi
+"#,
+    )?;
+    fs::write(
+        root.join(".zshrc"),
+        r#"if [ -r "$HOME/.zshrc" ]; then
+  source "$HOME/.zshrc"
+fi
+
+autoload -Uz compinit
+zstyle ':completion:*' menu select
+mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/zsh" 2>/dev/null
+compinit -d "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump-onibi-${ZSH_VERSION}" 2>/dev/null
+
+for plugin in \
+  "${HOMEBREW_PREFIX:-}/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  "$HOME/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"; do
+  if [ -r "$plugin" ]; then
+    source "$plugin"
+    break
+  fi
+done
+"#,
+    )
+}
+
+fn write_bash_integration(root: &Path) -> std::io::Result<PathBuf> {
+    fs::create_dir_all(root)?;
+    let rcfile = root.join("bashrc");
+    fs::write(
+        &rcfile,
+        r#"if [ -r "$HOME/.bashrc" ]; then
+  source "$HOME/.bashrc"
+fi
+
+for completion in \
+  "${HOMEBREW_PREFIX:-}/etc/profile.d/bash_completion.sh" \
+  /opt/homebrew/etc/profile.d/bash_completion.sh \
+  /usr/local/etc/profile.d/bash_completion.sh \
+  /etc/bash_completion; do
+  if [ -r "$completion" ]; then
+    source "$completion"
+    break
+  fi
+done
+
+bind 'set show-all-if-ambiguous on'
+bind 'TAB:menu-complete'
+"#,
+    )?;
+    Ok(rcfile)
+}
+
+fn configure_shell_integration(
+    id: PtyId,
+    command: &str,
+    args: &mut Vec<String>,
+    env_values: &mut Vec<(String, String)>,
+) -> std::io::Result<Option<PathBuf>> {
+    if !env_flag(env_values, "ONIBI_SHELL_INTEGRATION") || !args.is_empty() {
+        return Ok(None);
+    }
+    let Some(shell) = shell_name(command) else {
+        return Ok(None);
+    };
+    let root = shell_integration_root(id);
+    match shell.as_str() {
+        "zsh" => {
+            write_zsh_integration(&root)?;
+            env_values.push(("ZDOTDIR".to_string(), root.display().to_string()));
+            Ok(Some(root))
+        }
+        "bash" => {
+            let rcfile = write_bash_integration(&root)?;
+            args.push("--rcfile".to_string());
+            args.push(rcfile.display().to_string());
+            args.push("-i".to_string());
+            Ok(Some(root))
+        }
+        _ => Ok(None),
     }
 }
 
