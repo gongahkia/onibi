@@ -23,6 +23,14 @@ pub struct WorkspaceInfo {
     name: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalConfigCandidate {
+    source: String,
+    label: String,
+    path: PathBuf,
+    content: String,
+}
+
 fn canonicalize_existing(path: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|err| format!("failed to resolve {}: {err}", path.display()))
 }
@@ -232,6 +240,30 @@ pub async fn fs_create_file(
 }
 
 #[tauri::command]
+pub async fn fs_create_file_with_contents(
+    root: PathBuf,
+    parent: PathBuf,
+    name: String,
+    data: Vec<u8>,
+) -> Result<FsEntry, String> {
+    if data.len() as u64 > MAX_EDITABLE_FILE_BYTES {
+        return Err(format!(
+            "file too large: {} bytes exceeds {} bytes",
+            data.len(),
+            MAX_EDITABLE_FILE_BYTES
+        ));
+    }
+    let (root, path) = child_path_inside_workspace(&root, &parent, &name)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|err| err.to_string())?;
+    file.write_all(&data).map_err(|err| err.to_string())?;
+    fs_entry_for_path(&root, &path)
+}
+
+#[tauri::command]
 pub async fn fs_create_dir(
     root: PathBuf,
     parent: PathBuf,
@@ -350,6 +382,91 @@ pub async fn fs_read_ghostty_config() -> Result<Option<String>, String> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.to_string()),
     }
+}
+
+fn push_terminal_config(
+    configs: &mut Vec<TerminalConfigCandidate>,
+    source: &str,
+    label: &str,
+    path: PathBuf,
+) -> Result<(), String> {
+    match fs::read_to_string(&path) {
+        Ok(content) => configs.push(TerminalConfigCandidate {
+            source: source.to_string(),
+            label: label.to_string(),
+            path,
+            content,
+        }),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("failed to read {}: {err}", path.display())),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>, String> {
+    let mut configs = Vec::new();
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        push_terminal_config(
+            &mut configs,
+            "ghostty",
+            "Ghostty",
+            home.join(".config/ghostty/config"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "alacritty",
+            "Alacritty",
+            home.join(".config/alacritty/alacritty.toml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "alacritty",
+            "Alacritty legacy YAML",
+            home.join(".config/alacritty/alacritty.yml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "wezterm",
+            "WezTerm",
+            home.join(".wezterm.lua"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "wezterm",
+            "WezTerm",
+            home.join(".config/wezterm/wezterm.lua"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "kitty",
+            "kitty",
+            home.join(".config/kitty/kitty.conf"),
+        )?;
+    }
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        let local_app_data = PathBuf::from(local_app_data);
+        push_terminal_config(
+            &mut configs,
+            "windows-terminal",
+            "Windows Terminal",
+            local_app_data
+                .join("Packages")
+                .join("Microsoft.WindowsTerminal_8wekyb3d8bbwe")
+                .join("LocalState/settings.json"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "windows-terminal",
+            "Windows Terminal Preview",
+            local_app_data
+                .join("Packages")
+                .join("Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe")
+                .join("LocalState/settings.json"),
+        )?;
+    }
+    Ok(configs)
 }
 
 #[cfg(test)]
