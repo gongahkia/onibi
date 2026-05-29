@@ -1717,7 +1717,7 @@ function removePaneSession(
   return { ...node, children };
 }
 
-function pruneTerminalLayout(
+export function pruneTerminalLayout(
   node: TerminalPaneNode | null | undefined,
   liveSessionIds: Set<string>,
 ): TerminalPaneNode | null {
@@ -1893,6 +1893,14 @@ export function sessionAttentionState(
     return "stale";
   }
   return session.status === "running" ? "running" : "idle";
+}
+
+export function sessionHasRestorableTerminal(session: Session): boolean {
+  return session.status !== "stale";
+}
+
+export function sessionCanHandoff(session: Session): boolean {
+  return session.status === "running" || session.status === "awaiting-approval";
 }
 
 export function sessionNeedsAttention(session: Session, now = Date.now()): boolean {
@@ -2537,11 +2545,18 @@ export async function hydrateSessionStore(): Promise<void> {
         pendingApprovals: session.pendingApprovals ?? [],
       } satisfies Session;
     });
-    const restoredIds = new Set(restoredSessions.map((session) => session.id));
+    const restoredTerminalSessions = restoredSessions.filter((session) =>
+      sessionHasRestorableTerminal(session),
+    );
+    const restoredTerminalIds = new Set(
+      restoredTerminalSessions.map((session) => session.id),
+    );
     const prunedLayout =
-      pruneTerminalLayout(terminalLayout, restoredIds) ??
-      (restoredSessions.length > 0
-        ? makeTerminalLeaf(restoredSessions[restoredSessions.length - 1].id)
+      pruneTerminalLayout(terminalLayout, restoredTerminalIds) ??
+      (restoredTerminalSessions.length > 0
+        ? makeTerminalLeaf(
+            restoredTerminalSessions[restoredTerminalSessions.length - 1].id,
+          )
         : null);
     const activeLeaf =
       (activeTerminalPaneId && paneContainsPane(prunedLayout, activeTerminalPaneId)
@@ -2550,9 +2565,9 @@ export async function hydrateSessionStore(): Promise<void> {
     const activeSessionId =
       activeLeaf && prunedLayout
         ? sessionIdForPane(prunedLayout, activeLeaf) ??
-          restoredSessions[restoredSessions.length - 1]?.id ??
+          restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ??
           null
-        : restoredSessions[restoredSessions.length - 1]?.id ?? null;
+        : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
     useSessionStore.setState({

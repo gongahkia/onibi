@@ -87,6 +87,40 @@ describe("MainPane", () => {
     );
   });
 
+  test("does not mount stale saved sessions as live terminal panes", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-stale",
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex",
+          status: "stale",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          restart: {
+            command: "codex",
+            args: [],
+            cwd: "/repo",
+            env: [],
+          },
+        },
+      ],
+      activeSessionId: "pty-stale",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-stale" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<MainPane />);
+
+    expect(screen.getByTestId("empty-state")).toBeTruthy();
+    expect(screen.queryByTestId("terminal-view")).toBeNull();
+    expect(screen.queryByText("Session is stale")).toBeNull();
+    expect(screen.queryByLabelText("Handoff session to another agent")).toBeNull();
+  });
+
   test("opens the new-session picker for a split shortcut", () => {
     useSessionStore.setState({
       sessions: [
@@ -280,7 +314,9 @@ describe("MainPane", () => {
 
     render(<MainPane />);
     fireEvent.click(screen.getByLabelText("Handoff session to another agent"));
-    expect(screen.getByRole("dialog", { name: "Handoff Session" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Handoff Session" });
+    expect(dialog).toBeTruthy();
+    expect(dialog.parentElement?.classList.contains("handoff-backdrop")).toBe(true);
     expect((screen.getByLabelText("Next agent") as HTMLSelectElement).value).toBe(
       "codex",
     );

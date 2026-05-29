@@ -18,6 +18,8 @@ import {
   duplicateSession,
   restartSession,
   restoreArrangement,
+  sessionCanHandoff,
+  sessionHasRestorableTerminal,
   sessionNeedsAttention,
   spawnAgentSession,
   useSessionStore,
@@ -438,6 +440,7 @@ export function CommandPalette() {
     }
 
     if (activeSession) {
+      const canUseTerminalActions = sessionHasRestorableTerminal(activeSession);
       nextCommands.push(
         {
           id: "session.copy-id",
@@ -478,35 +481,39 @@ export function CommandPalette() {
               },
             ]
           : []),
-        {
-          id: "session.restart-active",
-          label: "Restart Active Session",
-          group: "Session",
-          description: activeSession.title,
-          keywords: ["reload", "respawn", "terminal"],
-          run: async () => {
-            await restartSession(activeSession.id);
-          },
-        },
-        {
-          id: "session.duplicate-active",
-          label: "Duplicate Active Session",
-          group: "Session",
-          description: activeSession.cwd ?? activeSession.title,
-          keywords: ["copy", "split", "terminal"],
-          run: async () => {
-            await duplicateSession(
-              activeSession.id,
-              activeTerminalPaneId
-                ? {
-                    type: "split",
-                    targetPaneId: activeTerminalPaneId,
-                    direction: "vertical",
-                  }
-                : null,
-            );
-          },
-        },
+        ...(canUseTerminalActions && activeSession.restart
+          ? [
+              {
+                id: "session.restart-active",
+                label: "Restart Active Session",
+                group: "Session" as const,
+                description: activeSession.title,
+                keywords: ["reload", "respawn", "terminal"],
+                run: async () => {
+                  await restartSession(activeSession.id);
+                },
+              },
+              {
+                id: "session.duplicate-active",
+                label: "Duplicate Active Session",
+                group: "Session" as const,
+                description: activeSession.cwd ?? activeSession.title,
+                keywords: ["copy", "split", "terminal"],
+                run: async () => {
+                  await duplicateSession(
+                    activeSession.id,
+                    activeTerminalPaneId
+                      ? {
+                          type: "split",
+                          targetPaneId: activeTerminalPaneId,
+                          direction: "vertical",
+                        }
+                      : null,
+                  );
+                },
+              },
+            ]
+          : []),
         {
           id: "session.close-active",
           label: "Close Active Session",
@@ -519,7 +526,7 @@ export function CommandPalette() {
           },
         },
       );
-      if (currentWorkspace) {
+      if (currentWorkspace && sessionCanHandoff(activeSession)) {
         for (const agent of AGENT_KINDS.filter(
           (candidate) => candidate !== "shell" && candidate !== activeSession.agent,
         )) {

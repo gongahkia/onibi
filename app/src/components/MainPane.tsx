@@ -17,7 +17,10 @@ import {
   closeSession,
   duplicateSession,
   newCommandBlockId,
+  pruneTerminalLayout,
   restartSession,
+  sessionCanHandoff,
+  sessionHasRestorableTerminal,
   sessionTitle,
   spawnAgentSession,
   terminalPaneNodeForId,
@@ -195,6 +198,9 @@ function TerminalPaneTree({
   }
   const active = activeSessionId === session.id;
   const workspace = workspaces.find((item) => item.id === session.workspaceId) ?? null;
+  const canHandoff = sessionCanHandoff(session) && Boolean(workspace);
+  const canRestart = Boolean(session.restart);
+  const canMaximize = sessionHasRestorableTerminal(session);
   return (
     <section
       className={`terminal-pane ${active ? "active" : ""}`}
@@ -272,24 +278,26 @@ function TerminalPaneTree({
             Prompt
           </button>
         ) : null}
-        <button
-          type="button"
-          className="terminal-pane-button"
-          aria-label="Handoff session to another agent"
-          title="Start another agent in this workspace with recent context"
-          disabled={!workspace}
-          onClick={(event) => {
-            event.stopPropagation();
-            setHandoffOpen(true);
-          }}
-        >
-          Handoff
-        </button>
+        {canHandoff ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label="Handoff session to another agent"
+            title="Start another agent in this workspace with recent context"
+            onClick={(event) => {
+              event.stopPropagation();
+              setHandoffOpen(true);
+            }}
+          >
+            Handoff
+          </button>
+        ) : null}
         <button
           type="button"
           className="terminal-pane-button"
           aria-label="Restart session"
           title="Restart session"
+          disabled={!canRestart}
           onClick={(event) => {
             event.stopPropagation();
             onRestart(session);
@@ -302,6 +310,7 @@ function TerminalPaneTree({
           className="terminal-pane-button"
           aria-label="Duplicate session"
           title="Duplicate session"
+          disabled={!canRestart}
           onClick={(event) => {
             event.stopPropagation();
             onDuplicate(session, node.paneId);
@@ -321,18 +330,20 @@ function TerminalPaneTree({
         >
           Close
         </button>
-        <button
-          type="button"
-          className="terminal-pane-button"
-          aria-label={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
-          title={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleMaximize(node.paneId);
-          }}
-        >
-          {maximizedPaneId === node.paneId ? "Restore" : "Maximize"}
-        </button>
+        {canMaximize ? (
+          <button
+            type="button"
+            className="terminal-pane-button"
+            aria-label={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+            title={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleMaximize(node.paneId);
+            }}
+          >
+            {maximizedPaneId === node.paneId ? "Restore" : "Maximize"}
+          </button>
+        ) : null}
       </div>
       {session.status === "stale" ? (
         <div className="terminal-stale-state">
@@ -355,7 +366,7 @@ function TerminalPaneTree({
           onTrigger={(match) => onTerminalTrigger(session, match)}
         />
       )}
-      {handoffOpen ? (
+      {handoffOpen && canHandoff ? (
         <AgentHandoffDialog
           session={session}
           workspace={workspace}
@@ -428,7 +439,7 @@ function AgentHandoffDialog({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop handoff-backdrop" role="presentation">
       <section
         className="modal-panel handoff-dialog"
         role="dialog"
@@ -550,13 +561,24 @@ export function MainPane() {
     (state) => state.focusRelativeTerminalPane,
   );
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
+  const activeTerminalSession =
+    session && sessionHasRestorableTerminal(session) ? session : null;
+  const renderableSessionIds = new Set(
+    sessions
+      .filter((item) => sessionHasRestorableTerminal(item))
+      .map((item) => item.id),
+  );
+  const renderableTerminalLayout = pruneTerminalLayout(
+    terminalLayout,
+    renderableSessionIds,
+  );
   const [splitPlacement, setSplitPlacement] = useState<TerminalPanePlacement | null>(
     null,
   );
 
   const requestSplit = useCallback(
     (direction: TerminalSplitDirection) => {
-      if (!session || !activeTerminalPaneId) {
+      if (!activeTerminalSession || !activeTerminalPaneId) {
         return;
       }
       setSplitPlacement({
@@ -565,7 +587,7 @@ export function MainPane() {
         direction,
       });
     },
-    [activeTerminalPaneId, session],
+    [activeTerminalPaneId, activeTerminalSession],
   );
 
   useEffect(() => {
@@ -804,17 +826,20 @@ export function MainPane() {
     });
   }, []);
 
-  if (session) {
+  if (activeTerminalSession) {
     const terminalVisible = selectedFile === null;
-    const layout = layoutContainsSession(terminalLayout, session.id)
-      ? terminalLayout!
-      : fallbackLayout(session);
+    const layout = layoutContainsSession(
+      renderableTerminalLayout,
+      activeTerminalSession.id,
+    )
+      ? renderableTerminalLayout!
+      : fallbackLayout(activeTerminalSession);
     const visibleLayout =
       maximizedTerminalPaneId && terminalPaneNodeForId(layout, maximizedTerminalPaneId)
         ? terminalPaneNodeForId(layout, maximizedTerminalPaneId)!
         : layout;
-    const splitWorkspaceId = session.workspaceId;
-    const splitDefaultCwd = session.cwd ?? null;
+    const splitWorkspaceId = activeTerminalSession.workspaceId;
+    const splitDefaultCwd = activeTerminalSession.cwd ?? null;
     return (
       <>
         <main
