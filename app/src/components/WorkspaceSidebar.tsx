@@ -64,8 +64,12 @@ export function WorkspaceSidebar() {
   }, [refreshGitStatus]);
 
   useEffect(() => {
-    if (view === "search" || view === "sessions" || view === "history") {
+    if (view === "search") {
       setFilesMode("search");
+      setView("files");
+    }
+    if (view === "sessions" || view === "history") {
+      setFilesMode("tree");
       setView("files");
     }
   }, [setView, view]);

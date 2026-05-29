@@ -13,7 +13,7 @@ function resetStore() {
         workspaceId: "workspace:/repo",
         title: "Codex",
         status: "running",
-        createdAt: 1,
+        createdAt: Date.now(),
         pendingApprovals: [],
         cwd: "/repo",
         lastExitCode: null,
@@ -79,6 +79,23 @@ describe("SessionHistoryView", () => {
       id: "pty-1",
       data: Array.from(new TextEncoder().encode("pnpm test\n")),
     });
+  });
+
+  test("combines current sessions with command history", () => {
+    useSessionStore.setState({ commandBlocks: [block()] });
+
+    render(<SessionHistoryView />);
+
+    expect(screen.getByText("Codex · Running")).toBeTruthy();
+    expect(screen.getByText("pnpm test")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Current" }));
+    expect(screen.getByText("Codex · Running")).toBeTruthy();
+    expect(screen.queryByText("pnpm test")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Commands" }));
+    expect(screen.queryByText("Codex · Running")).toBeNull();
+    expect(screen.getByText("pnpm test")).toBeTruthy();
   });
 
   test("opens changed files from command blocks", () => {

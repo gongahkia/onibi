@@ -668,6 +668,55 @@ pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>
         )?;
         push_terminal_config(
             &mut configs,
+            "rio",
+            "Rio",
+            home.join(".config/rio/config.toml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "tabby",
+            "Tabby",
+            home.join(".config/tabby/config.yaml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "tabby",
+            "Tabby",
+            home.join("Library/Application Support/tabby/config.yaml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "hyper",
+            "Hyper",
+            home.join(".hyper.js"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "contour",
+            "Contour",
+            home.join(".config/contour/contour.yml"),
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "foot",
+            "foot",
+            home.join(".config/foot/foot.ini"),
+        )?;
+        push_terminal_config_dir(
+            &mut configs,
+            "konsole",
+            "Konsole profile",
+            home.join(".local/share/konsole"),
+            &["profile"],
+        )?;
+        push_terminal_config(
+            &mut configs,
+            "xfce-terminal",
+            "Xfce Terminal",
+            home.join(".config/xfce4/terminal/terminalrc"),
+        )?;
+        push_terminal_config(
+            &mut configs,
             "muxy",
             "muxy",
             home.join(".config/muxy/config.toml"),

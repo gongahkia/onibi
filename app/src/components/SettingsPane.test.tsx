@@ -147,6 +147,17 @@ describe("SettingsPane", () => {
     expect(settings.terminalShellIntegration).toBe(false);
   });
 
+  test("moves terminal triggers into a dedicated settings tab", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    expect(screen.queryByText("Approval needed")).toBeNull();
+    fireEvent.click(screen.getByText("Triggers"));
+
+    expect(screen.getByText("Approval needed")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Approval needed trigger"));
+    expect(useSessionStore.getState().settings.terminalTriggers[0].enabled).toBe(true);
+  });
+
   test("lists newly supported agent commands", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Agents"));
@@ -262,5 +273,35 @@ describe("SettingsPane", () => {
       { keys: "cmd+c", action: "copy", source: "ghostty" },
     ]);
     expect(settings.terminalShaderPaths).toEqual(["/tmp/ghostty.glsl"]);
+  });
+
+  test("imports newer terminal config formats", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_detect_terminal_configs") {
+        return [
+          {
+            source: "rio",
+            label: "Rio",
+            path: "/Users/test/.config/rio/config.toml",
+            content:
+              "font-family = \"JetBrains Mono\"\nfont-size = 15\nbackground = \"#010203\"\nforeground = \"#f1f2f3\"\n",
+          },
+        ];
+      }
+      if (command === "list_font_families") {
+        return [];
+      }
+      return null;
+    });
+
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Import config from ..."));
+    expect(await screen.findByText("Rio")).toBeTruthy();
+    fireEvent.click(screen.getByText("Apply selected"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.terminalFontFamily).toBe("JetBrains Mono");
+    expect(settings.terminalFontSize).toBe(15);
+    expect(settings.customColorScheme.colors.terminalBackground).toBe("#010203");
   });
 });

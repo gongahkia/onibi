@@ -245,7 +245,9 @@ export function SessionHistoryView() {
           if (filter !== "all" && filter !== "events") {
             return false;
           }
-          const workspace = workspaceById.get(event.workspaceId);
+          const workspace = event.workspaceId
+            ? workspaceById.get(event.workspaceId)
+            : undefined;
           return searchable(
             [eventLabel(event), event.summary, workspace?.name, workspace?.path],
             query,
@@ -293,7 +295,11 @@ export function SessionHistoryView() {
           [
             eventLabel(event),
             event.summary,
-            `workspace: ${workspaceName(workspaceById.get(event.workspaceId))}`,
+            `workspace: ${
+              workspaceName(
+                event.workspaceId ? workspaceById.get(event.workspaceId) : undefined,
+              )
+            }`,
           ]
             .filter(Boolean)
             .join("\n"),
@@ -474,7 +480,9 @@ export function SessionHistoryView() {
         );
       })}
       {latestEvents.map((event) => {
-        const workspace = workspaceById.get(event.workspaceId);
+        const workspace = event.workspaceId
+          ? workspaceById.get(event.workspaceId)
+          : undefined;
         return (
           <article className="history-event" key={event.id}>
             <div className="history-event-time">{formatTime(event.timestamp)}</div>

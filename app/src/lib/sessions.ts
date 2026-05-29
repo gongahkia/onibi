@@ -3948,6 +3948,88 @@ function importFromWarp(candidate: TerminalConfigCandidate): TerminalConfigImpor
   return terminalImport(candidate, colors, undefined, undefined, candidate.label);
 }
 
+function importFromLooseTerminal(candidate: TerminalConfigCandidate): TerminalConfigImport {
+  const config = candidate.content;
+  const values = parseLooseAssignments(config);
+  const colors: Partial<ColorSchemeColors> = {};
+  const background = parseConfigHexColor(
+    looseValue(values, [
+      "background",
+      "backgroundColor",
+      "background_color",
+      "ColorBackground",
+    ]),
+  );
+  const foreground = parseConfigHexColor(
+    looseValue(values, [
+      "foreground",
+      "foregroundColor",
+      "foreground_color",
+      "ColorForeground",
+    ]),
+  );
+  const cursor = parseConfigHexColor(
+    looseValue(values, ["cursor", "cursorColor", "cursor_color", "ColorCursor"]),
+  );
+  const selection = parseConfigHexColor(
+    looseValue(values, [
+      "selection",
+      "selectionColor",
+      "selectionBackground",
+      "selection_background",
+      "ColorSelection",
+    ]),
+  );
+  if (background) {
+    colors.bg0 = background;
+    colors.terminalBackground = background;
+  }
+  if (foreground) {
+    colors.fg0 = foreground;
+    colors.terminalForeground = foreground;
+  }
+  if (cursor) {
+    colors.terminalCursor = cursor;
+    colors.accent = cursor;
+  }
+  if (selection) {
+    colors.terminalSelection = selection;
+    colors.bg3 = selection;
+  }
+
+  const fontFamily =
+    cleanTerminalFontFamily(
+      looseValue(values, [
+        "font-family",
+        "font_family",
+        "fontFamily",
+        "font",
+        "font_face",
+        "fontFace",
+        "FontName",
+        "Font",
+        "family",
+        "face",
+      ]),
+    ) ?? cleanTerminalFontFamily(config.match(/^Font=([^,\n]+)/m)?.[1]);
+  const fontSize = looseFontSize(config, values);
+  const colorSchemeName = looseValue(values, [
+    "theme",
+    "color_scheme",
+    "colorScheme",
+    "ColorScheme",
+  ]);
+
+  return terminalImport(
+    candidate,
+    colors,
+    fontFamily,
+    fontSize,
+    colorSchemeName,
+    parseSimpleMappedKeybindings(candidate.source, candidate.content),
+  );
+}
+
 function importFromWindowsTerminal(candidate: TerminalConfigCandidate): TerminalConfigImport {
   const colors: Partial<ColorSchemeColors> = {};
   let fontFamily: string | undefined;
@@ -4225,6 +4307,17 @@ export function parseTerminalConfigImport(
   }
   if (candidate.source === "warp") {
     return importFromWarp(candidate);
+  }
+  if (
+    candidate.source === "rio" ||
+    candidate.source === "tabby" ||
+    candidate.source === "hyper" ||
+    candidate.source === "contour" ||
+    candidate.source === "foot" ||
+    candidate.source === "konsole" ||
+    candidate.source === "xfce-terminal"
+  ) {
+    return importFromLooseTerminal(candidate);
   }
   if (
     candidate.source === "tmux" ||

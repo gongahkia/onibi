@@ -1463,6 +1463,27 @@ function sourceForConfigFile(file: File): TerminalConfigSource {
   if (lower.includes("warp")) {
     return "warp";
   }
+  if (lower.includes("rio")) {
+    return "rio";
+  }
+  if (lower.includes("tabby")) {
+    return "tabby";
+  }
+  if (lower.includes("hyper") || lower === ".hyper.js") {
+    return "hyper";
+  }
+  if (lower.includes("contour")) {
+    return "contour";
+  }
+  if (lower.includes("foot.ini") || lower.includes("foot")) {
+    return "foot";
+  }
+  if (lower.endsWith(".profile") || lower.includes("konsole")) {
+    return "konsole";
+  }
+  if (lower.includes("terminalrc") || lower.includes("xfce")) {
+    return "xfce-terminal";
+  }
   if (lower.includes("muxy")) {
     return "muxy";
   }
@@ -1548,7 +1569,7 @@ function ImportConfigSettings({
         <input
           ref={inputRef}
           type="file"
-          accept=".conf,.config,.itermcolors,.json,.kdl,.lua,.plist,.toml,.yaml,.yml"
+          accept=".conf,.config,.ini,.itermcolors,.js,.json,.kdl,.lua,.plist,.profile,.toml,.yaml,.yml"
           className="visually-hidden"
           onChange={(event) => void importFile(event.target.files?.[0])}
         />

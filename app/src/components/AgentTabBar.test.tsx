@@ -89,6 +89,30 @@ describe("AgentTabBar", () => {
     expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
   });
 
+  test("opens the activity center from the rail action", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex",
+          status: "running",
+          createdAt: Date.now(),
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<AgentTabBar orientation="vertical" />);
+    fireEvent.click(screen.getByLabelText("Activity"));
+
+    expect(screen.getByRole("dialog", { name: "Activity" })).toBeTruthy();
+    expect(screen.getByText("Codex · Running")).toBeTruthy();
+  });
+
   test("opens a workflow context menu on right click", () => {
     useSessionStore.setState({
       sessions: [
