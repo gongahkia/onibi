@@ -18,6 +18,11 @@ export const AGENT_KINDS = [
   "aider",
   "cursor",
   "goose",
+  "copilot",
+  "amp",
+  "pi",
+  "cline",
+  "crush",
   "shell",
 ] as const;
 
@@ -138,17 +143,26 @@ export type MainSelection =
 
 export type ThemeMode =
   | "system"
-  | "dark"
-  | "light"
-  | "graphite"
-  | "ember"
-  | "forest"
-  | "ocean"
-  | "violet"
+  | "github-dark"
+  | "github-light"
+  | "one-dark-pro"
+  | "dracula"
+  | "catppuccin-mocha"
+  | "catppuccin-latte"
+  | "tokyo-night"
+  | "night-owl"
+  | "material-darker"
+  | "material-lighter"
+  | "monokai-pro"
+  | "gruvbox-dark"
+  | "nord"
+  | "ayu-dark"
+  | "ayu-light"
+  | "palenight"
+  | "cobalt2"
+  | "shades-of-purple"
+  | "synthwave-84"
   | "solarized-dark"
-  | "solarized-light"
-  | "paper"
-  | "high-contrast"
   | "custom";
 export type TabBarOrientation = "vertical" | "horizontal";
 export type TabBarPosition = "left" | "right" | "top" | "bottom";
@@ -207,6 +221,33 @@ export interface GhosttyTheme {
 
 export type DiffViewMode = "unified" | "side-by-side";
 export type WebOpenMode = "off" | "ask" | "in-app";
+export type TerminalConfigSource =
+  | "ghostty"
+  | "alacritty"
+  | "wezterm"
+  | "kitty"
+  | "iterm2"
+  | "windows-terminal";
+
+export interface TerminalConfigCandidate {
+  source: TerminalConfigSource;
+  label: string;
+  path: string;
+  content: string;
+}
+
+export interface TerminalConfigImport {
+  id: string;
+  source: TerminalConfigSource;
+  label: string;
+  path: string;
+  colors: Partial<ColorSchemeColors>;
+  fontFamily?: string;
+  fontSize?: number;
+  colorSchemeName?: string;
+  importedFields: string[];
+  unsupportedFields: string[];
+}
 
 export interface AppSettings {
   theme: ThemeMode;
@@ -228,6 +269,12 @@ export interface AppSettings {
   agentInstallCommands: Partial<Record<AgentKind, string>>;
   customColorScheme: CustomColorScheme;
   ghosttyTheme: GhosttyTheme | null;
+}
+
+export interface OnibiConfigExport {
+  version: 1;
+  settings: AppSettings;
+  workspaces: Workspace[];
 }
 
 type PersistedState = {
@@ -276,6 +323,11 @@ export const AGENT_LABELS: Record<AgentKind, string> = {
   aider: "Aider",
   cursor: "Cursor",
   goose: "Goose",
+  copilot: "Copilot CLI",
+  amp: "Amp",
+  pi: "Pi",
+  cline: "Cline",
+  crush: "Crush",
   shell: "Plain shell",
 };
 
@@ -287,6 +339,11 @@ export const DEFAULT_AGENT_COMMANDS: Record<AgentKind, string> = {
   aider: "aider",
   cursor: "cursor-agent",
   goose: "goose session",
+  copilot: "copilot",
+  amp: "amp",
+  pi: "pi",
+  cline: "cline",
+  crush: "crush",
   shell: "",
 };
 
@@ -297,6 +354,11 @@ export const DEFAULT_AGENT_INSTALL_COMMANDS: Partial<Record<AgentKind, string>> 
   gemini: "npm install -g @google/gemini-cli",
   aider: "python3 -m pip install --user aider-chat",
   goose: "curl -fsSL https://github.com/block/goose/releases/latest/download/download_cli.sh | bash",
+  copilot: "npm install -g @github/copilot",
+  amp: "npm install -g @ampcode/cli",
+  pi: "npm install -g @earendil-works/pi-coding-agent",
+  cline: "npm install -g cline",
+  crush: "go install github.com/charmbracelet/crush@latest",
 };
 
 export const COLOR_SCHEME_COLOR_KEYS = [
