@@ -3446,6 +3446,88 @@ function parseSimpleAssignments(config: string): Record<string, string> {
   return values;
 }
 
+function parseLooseAssignments(config: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) {
+      continue;
+    }
+    const separator = line.includes("=")
+      ? line.indexOf("=")
+      : line.includes(":")
+        ? line.indexOf(":")
+        : line.search(/\s/);
+    if (separator < 0) {
+      continue;
+    }
+    const key = line.slice(0, separator).trim().replace(/^["']|["']$/g, "");
+    const value = line
+      .slice(separator + 1)
+      .trim()
+      .replace(/,$/, "")
+      .replace(/^["'`]|["'`]$/g, "");
+    if (key) {
+      values[key] = value;
+      values[key.toLowerCase()] = value;
+    }
+  }
+  return values;
+}
+
+function looseValue(
+  values: Record<string, string>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = values[key] ?? values[key.toLowerCase()];
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function cleanTerminalFontFamily(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const cleaned = value
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .split(",")[0]
+    .replace(/:size=.*$/i, "")
+    .replace(/\s+[0-9.]+$/g, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
+  return cleaned || undefined;
+}
+
+function looseFontSize(
+  config: string,
+  values: Record<string, string>,
+): number | undefined {
+  const explicit = looseValue(values, [
+    "font-size",
+    "font_size",
+    "fontSize",
+    "terminal.fontSize",
+    "font.size",
+    "size",
+  ]);
+  const explicitNumber = Number(explicit);
+  if (Number.isFinite(explicitNumber)) {
+    return explicitNumber;
+  }
+  const footSize = config.match(/:size=([0-9.]+)/i)?.[1];
+  const footNumber = Number(footSize);
+  if (Number.isFinite(footNumber)) {
+    return footNumber;
+  }
+  const konsoleSize = config.match(/^Font=[^,\n]+,([0-9.]+)/m)?.[1];
+  const konsoleNumber = Number(konsoleSize);
+  return Number.isFinite(konsoleNumber) ? konsoleNumber : undefined;
+}
+
 function matchFirst(config: string, patterns: RegExp[]): string | undefined {
   for (const pattern of patterns) {
     const match = config.match(pattern);
