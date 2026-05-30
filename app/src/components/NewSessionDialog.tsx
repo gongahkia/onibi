@@ -132,7 +132,7 @@ export function NewSessionDialog({
       }
       if (missingBinary) {
         throw new Error(
-          `${AGENT_LABELS[agent]} is not on PATH. Install details will live in docs/adapters.md once Phase-03 lands.`,
+          `${AGENT_LABELS[agent]} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
         );
       }
       await spawnAgentSession(

@@ -19,8 +19,33 @@ import {
   syntaxHighlighting,
   type LanguageSupport,
 } from "@codemirror/language";
-import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorState, Prec, type Extension } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import {
+  copyLineDown,
+  copyLineUp,
+  cursorDocEnd,
+  cursorDocStart,
+  cursorLineEnd,
+  cursorLineStart,
+  deleteLine,
+  emacsStyleKeymap,
+  indentLess,
+  indentMore,
+  insertBlankLine,
+  moveLineDown,
+  moveLineUp,
+  selectLine,
+  toggleComment,
+} from "@codemirror/commands";
+import {
+  findNext,
+  findPrevious,
+  openSearchPanel,
+  searchKeymap,
+  selectNextOccurrence,
+  selectSelectionMatches,
+} from "@codemirror/search";
 import { tags as highlightTags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import ReactMarkdown from "react-markdown";
@@ -44,6 +69,7 @@ type BufferState = "loading" | "ready" | "preview" | "binary" | "large" | "error
 type PreviewKind = "image" | "pdf" | "audio" | "video";
 
 const PREVIEW_MIME_BY_EXTENSION: Record<string, { kind: PreviewKind; mime: string }> = {
+  ico: { kind: "image", mime: "image/x-icon" },
   png: { kind: "image", mime: "image/png" },
   jpg: { kind: "image", mime: "image/jpeg" },
   jpeg: { kind: "image", mime: "image/jpeg" },
@@ -70,6 +96,77 @@ function previewTypeForPath(path: string) {
 
 function isMarkdownPath(path: string): boolean {
   return ["md", "mdx", "markdown"].includes(extensionForPath(path));
+}
+
+function isExternalImageSource(src: string): boolean {
+  return /^(?:https?:|data:|blob:)/i.test(src);
+}
+
+function stripUrlSuffix(src: string): string {
+  const queryIndex = src.search(/[?#]/);
+  return queryIndex >= 0 ? src.slice(0, queryIndex) : src;
+}
+
+function normalizeAbsolutePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+
+function dirname(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index <= 0 ? "/" : path.slice(0, index);
+}
+
+function decodePathComponent(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+function resolveMarkdownImagePath(
+  src: string | undefined,
+  markdownPath: string,
+  workspaceRoot: string,
+): string | null {
+  if (!src || isExternalImageSource(src)) {
+    return null;
+  }
+  const cleanSrc = decodePathComponent(stripUrlSuffix(src.trim()));
+  if (!cleanSrc || cleanSrc.startsWith("//")) {
+    return null;
+  }
+  const root = normalizeAbsolutePath(workspaceRoot);
+  let candidate: string;
+  if (cleanSrc.startsWith("file://")) {
+    try {
+      candidate = new URL(cleanSrc).pathname;
+    } catch {
+      return null;
+    }
+  } else if (cleanSrc.startsWith(root)) {
+    candidate = cleanSrc;
+  } else if (cleanSrc.startsWith("/")) {
+    candidate = `${root}/${cleanSrc.slice(1)}`;
+  } else {
+    candidate = `${dirname(markdownPath)}/${cleanSrc}`;
+  }
+  const normalized = normalizeAbsolutePath(candidate);
+  if (normalized !== root && !normalized.startsWith(`${root}/`)) {
+    return null;
+  }
+  return previewTypeForPath(normalized)?.kind === "image" ? normalized : null;
 }
 
 function bytesToText(bytes: number[]): string | null {
@@ -213,6 +310,7 @@ interface CodeEditorProps {
   path: string;
   fontFamily?: string;
   onChange: (value: string) => void;
+  onSave: () => void;
   onScroller?: (element: HTMLElement | null) => void;
 }
 
@@ -221,15 +319,20 @@ function CodeEditor({
   path,
   fontFamily,
   onChange,
+  onSave,
   onScroller,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
+  const onSaveRef = useRef(onSave);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   const language = useMemo(() => languageForPath(path), [path]);
 
@@ -239,6 +342,39 @@ function CodeEditor({
       return undefined;
     }
     const extensions: Extension[] = [
+      Prec.high(
+        keymap.of([
+          ...emacsStyleKeymap,
+          ...searchKeymap,
+          {
+            key: "Mod-s",
+            run: () => {
+              onSaveRef.current();
+              return true;
+            },
+          },
+          { key: "Mod-f", run: openSearchPanel },
+          { key: "Mod-g", run: findNext },
+          { key: "Shift-Mod-g", run: findPrevious },
+          { key: "Mod-d", run: selectNextOccurrence },
+          { key: "Shift-Mod-l", run: selectSelectionMatches },
+          { key: "Mod-l", run: selectLine },
+          { key: "Mod-/", run: toggleComment },
+          { key: "Mod-[", run: indentLess },
+          { key: "Mod-]", run: indentMore },
+          { key: "Alt-Up", run: moveLineUp },
+          { key: "Alt-Down", run: moveLineDown },
+          { key: "Shift-Alt-Up", run: copyLineUp },
+          { key: "Shift-Alt-Down", run: copyLineDown },
+          { key: "Mod-Enter", run: insertBlankLine },
+          { key: "Mod-Backspace", run: deleteLine },
+          { key: "Mod-ArrowLeft", run: cursorLineStart },
+          { key: "Mod-ArrowRight", run: cursorLineEnd },
+          { key: "Shift-Mod-ArrowLeft", run: cursorDocStart },
+          { key: "Shift-Mod-ArrowRight", run: cursorDocEnd },
+          { key: "Ctrl-d", run: selectNextOccurrence },
+        ]),
+      ),
       basicSetup,
       editorTheme,
       syntaxHighlighting(editorHighlightStyle),
@@ -333,9 +469,13 @@ function useSyncedScroll(
 
 function MarkdownPreview({
   content,
+  path,
+  workspaceRoot,
   onPreview,
 }: {
   content: string;
+  path: string;
+  workspaceRoot: string;
   onPreview: (element: HTMLElement | null) => void;
 }) {
   return (
@@ -349,12 +489,75 @@ function MarkdownPreview({
               {children}
             </a>
           ),
+          img: ({ src, alt, ...props }) => (
+            <MarkdownImage
+              src={typeof src === "string" ? src : undefined}
+              alt={alt ?? ""}
+              markdownPath={path}
+              workspaceRoot={workspaceRoot}
+              {...props}
+            />
+          ),
         }}
       >
         {content}
       </ReactMarkdown>
     </article>
   );
+}
+
+function MarkdownImage({
+  src,
+  alt,
+  markdownPath,
+  workspaceRoot,
+  ...props
+}: {
+  src?: string;
+  alt?: string;
+  markdownPath: string;
+  workspaceRoot: string;
+}) {
+  const [resolvedSrc, setResolvedSrc] = useState(src ?? "");
+
+  useEffect(() => {
+    const localPath = resolveMarkdownImagePath(src, markdownPath, workspaceRoot);
+    if (!localPath) {
+      setResolvedSrc(src ?? "");
+      return undefined;
+    }
+    const previewType = previewTypeForPath(localPath);
+    if (!previewType) {
+      setResolvedSrc(src ?? "");
+      return undefined;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setResolvedSrc("");
+    void readWorkspacePreviewFile(workspaceRoot, localPath)
+      .then((bytes) => {
+        if (cancelled) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(bytes)], { type: previewType.mime }),
+        );
+        setResolvedSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedSrc(src ?? "");
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [markdownPath, src, workspaceRoot]);
+
+  return <img src={resolvedSrc} alt={alt ?? src ?? ""} {...props} />;
 }
 
 function FilePreview({
@@ -533,9 +736,15 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
               fontFamily={fontFamily}
               value={content}
               onChange={setContent}
+              onSave={() => void save()}
               onScroller={setEditorScroller}
             />
-            <MarkdownPreview content={content} onPreview={setMarkdownPreview} />
+            <MarkdownPreview
+              content={content}
+              path={path}
+              workspaceRoot={workspaceRoot}
+              onPreview={setMarkdownPreview}
+            />
           </div>
         ) : (
           <CodeEditor
@@ -543,6 +752,7 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
             fontFamily={fontFamily}
             value={content}
             onChange={setContent}
+            onSave={() => void save()}
           />
         )
       ) : null}

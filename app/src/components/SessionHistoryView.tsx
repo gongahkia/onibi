@@ -106,6 +106,36 @@ function workspaceName(workspace: Workspace | undefined): string {
   return workspace?.name ?? "Workspace";
 }
 
+function sanitizeTerminalLog(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-Z\\-_]/g, "")
+    .replace(/\x1b/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/[\uE000-\uF8FF]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .filter((line) => {
+      const compact = line.replace(/\s/g, "");
+      if (!compact) {
+        return true;
+      }
+      const decorative = compact.replace(/[\u2500-\u257f\u2580-\u259f·•*_=~\-|+\\/]/g, "");
+      return decorative.length > 0;
+    })
+    .join("\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
+function displayLog(text: string, limit = 8000): string {
+  const sanitized = sanitizeTerminalLog(text);
+  return sanitized.length > limit ? sanitized.slice(-limit).trimStart() : sanitized;
+}
+
 export function SessionHistoryView() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ActivityFilter>("all");
@@ -448,6 +478,7 @@ export function SessionHistoryView() {
       })}
       {latestTranscripts.map((session) => {
         const workspace = workspaceById.get(session.workspaceId);
+        const logText = displayLog(session.transcript?.text ?? "");
         return (
           <article className="history-event transcript-event" key={`log:${session.id}`}>
             <div className="history-event-time">
@@ -458,9 +489,7 @@ export function SessionHistoryView() {
                 {AGENT_LABELS[session.agent]} · Chat Log
               </div>
               <div className="history-event-summary">{session.title}</div>
-              <pre className="history-output">
-                {(session.transcript?.text ?? "").trim().slice(-6000)}
-              </pre>
+              <pre className="history-output transcript-output">{logText}</pre>
               {workspace ? (
                 <div className="history-event-meta">{workspace.name}</div>
               ) : null}
@@ -469,7 +498,7 @@ export function SessionHistoryView() {
                   type="button"
                   className="text-button"
                   onClick={() =>
-                    void navigator.clipboard?.writeText(session.transcript?.text ?? "")
+                    void navigator.clipboard?.writeText(logText)
                   }
                 >
                   Copy Log
