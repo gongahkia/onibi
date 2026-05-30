@@ -29,6 +29,8 @@ const terminalMocks = vi.hoisted(() => {
     clearTextureAtlas = vi.fn();
     getSelection = vi.fn(() => "");
     attachCustomKeyEventHandler = vi.fn();
+    unicode = { activeVersion: "6" };
+    parser = { registerOscHandler: vi.fn() };
     onData = vi.fn((handler: (data: string) => void) => {
       this.onDataHandler = handler;
       return { dispose: vi.fn() };
@@ -82,7 +84,8 @@ vi.mock("@xterm/addon-search", () => ({
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: vi.fn().mockImplementation(function WebglAddonConstructor() {
     return {
-    dispose: vi.fn(),
+      dispose: vi.fn(),
+      onContextLoss: vi.fn(),
     };
   }),
 }));
@@ -91,6 +94,23 @@ vi.mock("@xterm/addon-web-links", () => ({
   WebLinksAddon: vi.fn().mockImplementation(function WebLinksAddonConstructor() {
     return {
     dispose: vi.fn(),
+    };
+  }),
+}));
+
+vi.mock("@xterm/addon-unicode11", () => ({
+  Unicode11Addon: vi.fn().mockImplementation(function Unicode11AddonConstructor() {
+    return {
+      dispose: vi.fn(),
+    };
+  }),
+}));
+
+vi.mock("@xterm/addon-serialize", () => ({
+  SerializeAddon: vi.fn().mockImplementation(function SerializeAddonConstructor() {
+    return {
+      dispose: vi.fn(),
+      serialize: vi.fn(() => ""),
     };
   }),
 }));

@@ -1845,6 +1845,32 @@ button.status-bar-item:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+.terminal-pane.attention {
+  box-shadow: inset 0 0 0 2px var(--accent-2);
+}
+
+.terminal-pane.attention[data-attention="needs-approval"] {
+  box-shadow: inset 0 0 0 2px var(--accent-2);
+  animation: pane-attention-pulse 2200ms ease-in-out infinite;
+}
+
+.terminal-pane.attention[data-attention="failed"] {
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
+
+.terminal-pane.attention[data-attention="triggered"] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+@keyframes pane-attention-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 2px var(--accent-2);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-2) 60%, transparent);
+  }
+}
+
 .terminal-pane-toolbar {
   position: relative;
   z-index: 2;
@@ -2502,31 +2528,35 @@ button.status-bar-item:hover {
   display: grid;
   align-items: start;
   justify-items: center;
-  padding: min(12vh, 96px) 20px 20px;
-  background: rgba(4, 8, 10, 0.58);
+  padding: min(8vh, 72px) 20px 20px;
+  background: transparent;
   z-index: 20;
 }
 
 .command-palette {
-  width: min(760px, calc(100vw - 32px));
-  max-height: min(680px, calc(100vh - 40px));
+  width: min(600px, calc(100vw - 32px));
+  max-height: min(440px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   color: var(--fg-0);
-  background: var(--bg-1);
+  background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.46);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .command-palette-input-wrap {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  min-height: 72px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-1);
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--focus-ring);
+  border-radius: 4px;
+  margin: 6px;
 }
 
 .command-palette-input {
@@ -2536,8 +2566,8 @@ button.status-bar-item:hover {
   background: transparent;
   border: 0;
   outline: 0;
-  font-size: 24px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .command-palette-input::placeholder {
@@ -2547,49 +2577,50 @@ button.status-bar-item:hover {
 .command-palette-trigger,
 .command-shortcut {
   min-width: max-content;
-  color: var(--fg-2);
-  background: var(--bg-0);
+  color: var(--fg-1);
+  background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 6px;
-  font: 12px/1.2 var(--font-mono);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font: 11px/1.4 var(--font-ui);
 }
 
 .command-list {
   display: flex;
   flex-direction: column;
-  max-height: calc(min(680px, calc(100vh - 40px)) - 72px);
+  max-height: calc(min(440px, calc(100vh - 40px)) - 48px);
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 0;
 }
 
 .command-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   min-width: 0;
-  min-height: 58px;
-  padding: 10px 12px;
-  color: var(--fg-1);
+  min-height: 22px;
+  padding: 2px 12px;
+  color: var(--fg-0);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border: 0;
+  border-radius: 0;
   text-align: left;
   cursor: pointer;
 }
 
 .command-row:hover,
 .command-row.selected {
-  color: var(--fg-0);
-  background: var(--bg-2);
-  border-color: var(--accent-2);
+  color: #ffffff;
+  background: var(--accent);
+  border-color: transparent;
 }
 
 .command-row-main {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -2601,13 +2632,18 @@ button.status-bar-item:hover {
 }
 
 .command-label {
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .command-description {
   color: var(--fg-2);
   font-size: 12px;
+}
+
+.command-row:hover .command-description,
+.command-row.selected .command-description {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .command-meta {

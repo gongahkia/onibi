@@ -19,8 +19,10 @@ import {
   newCommandBlockId,
   pruneTerminalLayout,
   restartSession,
+  sessionAttentionState,
   sessionCanHandoff,
   sessionHasRestorableTerminal,
+  sessionNeedsAttention,
   sessionTitle,
   spawnAgentSession,
   terminalPaneNodeForId,
@@ -201,9 +203,12 @@ function TerminalPaneTree({
   const canHandoff = sessionCanHandoff(session) && Boolean(workspace);
   const canRestart = Boolean(session.restart);
   const canMaximize = sessionHasRestorableTerminal(session);
+  const attentionState = sessionAttentionState(session);
+  const needsAttention = sessionNeedsAttention(session);
   return (
     <section
-      className={`terminal-pane ${active ? "active" : ""}`}
+      className={`terminal-pane ${active ? "active" : ""} ${needsAttention ? "attention" : ""}`}
+      data-attention={attentionState}
       onPointerDown={() => setActiveTerminalPane(node.paneId)}
     >
       <div className="terminal-pane-toolbar">

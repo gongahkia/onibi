@@ -177,11 +177,15 @@ impl PtyManager {
             let mut pending = Vec::with_capacity(64 * 1024);
             let mut flush = time::interval(Duration::from_millis(16));
             flush.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+            let mut osc_parser = super::notifications::OscNotificationParser::new();
 
             loop {
                 tokio::select! {
                     chunk = chunk_rx.recv() => match chunk {
                         Some(bytes) => {
+                            for event in osc_parser.feed(&bytes) {
+                                let _ = tx.send(PtyEvent::Notification(event));
+                            }
                             pending.extend_from_slice(&bytes);
                             if pending.len() >= 64 * 1024 {
                                 broadcast_pending(&tx, &mut pending);

@@ -70,6 +70,7 @@ impl From<portable_pty::ExitStatus> for PtyExitStatus {
 pub enum PtyEvent {
     Data(Bytes),
     Exit(PtyExitStatus),
+    Notification(super::notifications::OscNotification),
 }
 
 #[derive(Debug, Clone)]

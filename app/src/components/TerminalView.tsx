@@ -10,7 +10,10 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import {
   DEFAULT_SETTINGS,
@@ -398,14 +401,44 @@ export function TerminalView({
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
     const webLinksAddon = new WebLinksAddon(handleTerminalLink);
+    const unicode11Addon = new Unicode11Addon();
+    const serializeAddon = new SerializeAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
     term.loadAddon(webLinksAddon);
+    term.loadAddon(unicode11Addon);
+    term.loadAddon(serializeAddon);
+    term.unicode.activeVersion = "11";
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
+    // OSC 8 hyperlinks (anchor sequences emitted by tools like `ls --hyperlink`).
+    term.parser.registerOscHandler(8, (data) => {
+      const parts = data.split(";");
+      const url = parts[parts.length - 1] ?? "";
+      if (url) {
+        ;(term as unknown as { _onibiActiveLink?: string })._onibiActiveLink = url;
+      } else {
+        ;(term as unknown as { _onibiActiveLink?: string })._onibiActiveLink = undefined;
+      }
+      return false; // allow xterm to keep parsing
+    });
+
     term.open(container);
+
+    let webglAddon: WebglAddon | null = null;
+    try {
+      webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon?.dispose();
+        webglAddon = null;
+      });
+      term.loadAddon(webglAddon);
+    } catch {
+      // WebGL2 unavailable; xterm falls back to canvas/DOM renderer.
+      webglAddon = null;
+    }
     refreshTerminalLayout(visibleRef.current);
 
     let frame = 0;
@@ -577,6 +610,9 @@ export function TerminalView({
       webLinksAddon.dispose();
       searchAddon.dispose();
       fitAddon.dispose();
+      unicode11Addon.dispose();
+      serializeAddon.dispose();
+      webglAddon?.dispose();
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
