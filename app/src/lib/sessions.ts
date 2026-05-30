@@ -503,6 +503,7 @@ type PersistedState = {
   sessionEvents?: SessionEvent[];
   openBuffers?: MainSelection[];
   activeBufferKey?: string | null;
+  closedBufferStack?: MainSelection[];
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
 
@@ -519,6 +520,8 @@ type SessionStore = {
   selectedFile: MainSelection | null;
   openBuffers: MainSelection[];
   activeBufferKey: string | null;
+  closedBufferStack: MainSelection[];
+  dirtyBufferKeys: string[];
   sessionEvents: SessionEvent[];
   commandBlocks: CommandBlock[];
   activeCommandBlocks: Record<string, CommandBlock>;
@@ -553,6 +556,9 @@ type SessionStore = {
   closeBuffer: (key: string) => void;
   closeOtherBuffers: (key: string) => void;
   closeAllBuffers: () => void;
+  reopenClosedBuffer: () => boolean;
+  setBufferDirty: (key: string, dirty: boolean) => void;
+  reorderBuffer: (fromKey: string, toKey: string, before: boolean) => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   updateAgentCommand: (agent: AgentKind, command: string) => void;
 };
@@ -2240,6 +2246,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   selectedFile: null,
   openBuffers: [],
   activeBufferKey: null,
+  closedBufferStack: [],
+  dirtyBufferKeys: [],
   sessionEvents: [],
   commandBlocks: [],
   activeCommandBlocks: {},
@@ -2776,9 +2784,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
         (buffer) => bufferKey(buffer) === key,
       );
       if (idx < 0) return {};
+      const closing = state.openBuffers[idx];
       const openBuffers = state.openBuffers.filter((_, i) => i !== idx);
+      const closedBufferStack = [
+        closing,
+        ...state.closedBufferStack.filter((buffer) => bufferKey(buffer) !== key),
+      ].slice(0, 20);
+      const dirtyBufferKeys = state.dirtyBufferKeys.filter((k) => k !== key);
       if (state.activeBufferKey !== key) {
-        return { openBuffers };
+        return { openBuffers, closedBufferStack, dirtyBufferKeys };
       }
       // active buffer being closed: pick neighbor (prefer right, fall back left)
       const next =
@@ -2787,6 +2801,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
         null;
       return {
         openBuffers,
+        closedBufferStack,
+        dirtyBufferKeys,
         activeBufferKey: next ? bufferKey(next) : null,
         selectedFile: next,
       };
@@ -2799,8 +2815,19 @@ export const useSessionStore = create<SessionStore>((set) => ({
         (buffer) => bufferKey(buffer) === key,
       );
       if (!target) return {};
+      const closing = state.openBuffers.filter(
+        (buffer) => bufferKey(buffer) !== key,
+      );
+      const closedBufferStack = [
+        ...closing.reverse(),
+        ...state.closedBufferStack.filter(
+          (buffer) => !closing.some((c) => bufferKey(c) === bufferKey(buffer)),
+        ),
+      ].slice(0, 20);
       return {
         openBuffers: [target],
+        closedBufferStack,
+        dirtyBufferKeys: state.dirtyBufferKeys.filter((k) => k === key),
         activeBufferKey: key,
         selectedFile: target,
       };
@@ -2808,10 +2835,82 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   closeAllBuffers: () => {
-    set({
-      openBuffers: [],
-      activeBufferKey: null,
-      selectedFile: null,
+    set((state) => {
+      const closedBufferStack = [
+        ...[...state.openBuffers].reverse(),
+        ...state.closedBufferStack.filter(
+          (buffer) =>
+            !state.openBuffers.some((c) => bufferKey(c) === bufferKey(buffer)),
+        ),
+      ].slice(0, 20);
+      return {
+        openBuffers: [],
+        closedBufferStack,
+        dirtyBufferKeys: [],
+        activeBufferKey: null,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  reopenClosedBuffer: () => {
+    let opened = false;
+    set((state) => {
+      if (state.closedBufferStack.length === 0) return {};
+      const [next, ...rest] = state.closedBufferStack;
+      const key = bufferKey(next);
+      const exists = state.openBuffers.some(
+        (buffer) => bufferKey(buffer) === key,
+      );
+      const openBuffers = exists
+        ? state.openBuffers
+        : [...state.openBuffers, next];
+      opened = true;
+      return {
+        openBuffers,
+        closedBufferStack: rest,
+        activeBufferKey: key,
+        selectedFile: next,
+      };
+    });
+    if (opened) {
+      persistLater();
+    }
+    return opened;
+  },
+  setBufferDirty: (key, dirty) => {
+    set((state) => {
+      const has = state.dirtyBufferKeys.includes(key);
+      if (dirty && !has) {
+        return { dirtyBufferKeys: [...state.dirtyBufferKeys, key] };
+      }
+      if (!dirty && has) {
+        return {
+          dirtyBufferKeys: state.dirtyBufferKeys.filter((k) => k !== key),
+        };
+      }
+      return {};
+    });
+  },
+  reorderBuffer: (fromKey, toKey, before) => {
+    set((state) => {
+      const fromIdx = state.openBuffers.findIndex(
+        (buffer) => bufferKey(buffer) === fromKey,
+      );
+      const toIdx = state.openBuffers.findIndex(
+        (buffer) => bufferKey(buffer) === toKey,
+      );
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return {};
+      const moved = state.openBuffers[fromIdx];
+      const remaining = state.openBuffers.filter((_, i) => i !== fromIdx);
+      const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
+      const insertAt = before ? adjustedTo : adjustedTo + 1;
+      const openBuffers = [
+        ...remaining.slice(0, insertAt),
+        moved,
+        ...remaining.slice(insertAt),
+      ];
+      return { openBuffers };
     });
     persistLater();
   },
