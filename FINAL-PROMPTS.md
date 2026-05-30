@@ -753,14 +753,14 @@ Verification:
   pnpm -r build
   pnpm -r test                              (everything green)
   pnpm --filter @kelpclaw/findevil test     (integration test passes)
-  ./node_modules/.bin/kelp findevil sentinel \
+  ./node_modules/.bin/kelp-claw findevil sentinel \
        --case examples/findevil-sift-sentinel/case.yml \
        --trace fixtures/protocol-sift-baseline/baseline.jsonl \
        --max-iterations 3 \
        --evidence-root examples/findevil-sift-sentinel/case-data \
        --out .kelpclaw/findevil/sentinel
   ls .kelpclaw/findevil/sentinel/   # all 9 outputs present
-  ./node_modules/.bin/kelp verify-audit-bundle \
+  ./node_modules/.bin/kelp-claw verify-audit-bundle \
        --bundle .kelpclaw/findevil/sentinel/audit-bundle \
        --profile reviewer
 
