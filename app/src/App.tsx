@@ -74,7 +74,13 @@ function App() {
           )}
         </PanelGroup>
       ) : (
-        <ContentPanels sidebarCollapsed={sidebarCollapsed} />
+        <PanelGroup orientation="horizontal">
+          <Panel defaultSize="6%" minSize="4%" maxSize="10%" id="sessions-panel">
+            <AgentTabBar orientation="vertical" />
+          </Panel>
+          <PanelResizeHandle className="panel-resize-handle" />
+          <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
+        </PanelGroup>
       )}
     </main>
   );
