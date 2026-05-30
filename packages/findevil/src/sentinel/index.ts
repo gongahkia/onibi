@@ -23,6 +23,7 @@ import type { TaintLedgerEntry } from "../types/taint.js";
 import { extractTaintSpans } from "../taint/index.js";
 import { verifyClaim } from "../verifier/index.js";
 import { renderAccuracyReport } from "./accuracy-report.js";
+import { buildReviewerHtml } from "./reviewer-html.js";
 import { runProtocolSift } from "./sift-runner.js";
 import type {
   SentinelMode,
@@ -38,6 +39,7 @@ export type {
   SentinelResult
 } from "./types.js";
 export { renderAccuracyReport } from "./accuracy-report.js";
+export { buildReviewerHtml } from "./reviewer-html.js";
 
 interface NormalizedSentinelOptions {
   readonly casePath: string;
@@ -191,6 +193,7 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
     runId,
     outDir: options.outDir,
     outputs,
+    evidenceRoot: options.evidenceRoot,
     ok: status === "succeeded",
     mode: options.mode,
     policyDenials: firewallEvents.length,
@@ -567,6 +570,7 @@ async function writeAuditBundle(input: {
   readonly runId: string;
   readonly outDir: string;
   readonly outputs: SentinelOutputPathsWithCommittee;
+  readonly evidenceRoot: string;
   readonly ok: boolean;
   readonly mode: SentinelMode;
   readonly policyDenials: number;
@@ -574,7 +578,11 @@ async function writeAuditBundle(input: {
 }): Promise<void> {
   const bundleDir = input.outputs.auditBundle;
   await mkdir(bundleDir, { recursive: true });
-  const copied = await copySentinelArtifacts(input.outDir, bundleDir);
+  const sentinelFiles = await copySentinelArtifacts(input.outDir, bundleDir);
+  const evidencePreviewFiles = await copyEvidencePreviewArtifacts(input.evidenceRoot, bundleDir);
+  const copied = [...sentinelFiles, ...evidencePreviewFiles].sort((left, right) =>
+    left.localeCompare(right)
+  );
   await writeJson(join(bundleDir, "result.json"), {
     ok: input.ok,
     runId: input.runId,
@@ -602,7 +610,7 @@ async function writeAuditBundle(input: {
     redacted: false,
     files: copied
   });
-  await writeFile(join(bundleDir, "index.html"), auditBundleIndexHtml(copied), "utf8");
+  await writeReviewerIndex(bundleDir);
   const files = [
     ...copied,
     "result.json",
@@ -614,6 +622,21 @@ async function writeAuditBundle(input: {
   const key = createAuditKey();
   await signAuditBundle(bundleDir, input.runId, files, key);
   await writeAuditAttestation(bundleDir, input.runId, files, key);
+}
+
+async function writeReviewerIndex(bundleDir: string): Promise<void> {
+  const [ledger, repairTrace, firewallEvents, spoliation, manifest] = await Promise.all([
+    readJson<ClaimLedger>(join(bundleDir, outputNames.claimLedger)),
+    readJsonl<RepairTraceRow>(join(bundleDir, outputNames.repairTrace)),
+    readJsonl<FirewallEvent>(join(bundleDir, outputNames.firewallEvents)),
+    readOptionalJson<SpoliationCheck>(join(bundleDir, outputNames.spoliationCheck)),
+    readJson<JsonRecord>(join(bundleDir, outputNames.evidenceManifest))
+  ]);
+  await writeFile(
+    join(bundleDir, "index.html"),
+    buildReviewerHtml(ledger, repairTrace, firewallEvents, spoliation, manifest),
+    "utf8"
+  );
 }
 
 async function copySentinelArtifacts(outDir: string, bundleDir: string): Promise<string[]> {
@@ -636,6 +659,38 @@ async function copySentinelArtifacts(outDir: string, bundleDir: string): Promise
         await copyFile(source, join(bundleDir, file));
         copied.push(file);
       }
+    } catch (error) {
+      if (!isNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+  return copied;
+}
+
+async function copyEvidencePreviewArtifacts(
+  evidenceRoot: string,
+  bundleDir: string
+): Promise<string[]> {
+  const ledger = await readJson<ClaimLedger>(join(bundleDir, outputNames.claimLedger));
+  const artifacts = [
+    ...new Set(
+      ledger.claims
+        .flatMap((claim) => claim.evidenceRefs.map((ref) => safeBundlePath(ref.artifact)))
+        .filter((artifact): artifact is string => artifact !== undefined)
+    )
+  ].sort((left, right) => left.localeCompare(right));
+  const copied: string[] = [];
+  for (const artifact of artifacts) {
+    const source = join(evidenceRoot, ...artifact.split("/"));
+    try {
+      if (!(await stat(source)).isFile()) {
+        continue;
+      }
+      const destination = join(bundleDir, ...artifact.split("/"));
+      await mkdir(dirname(destination), { recursive: true });
+      await copyFile(source, destination);
+      copied.push(artifact);
     } catch (error) {
       if (!isNotFound(error)) {
         throw error;
@@ -740,24 +795,6 @@ function createAuditKey(): AuditKeyFile {
   };
 }
 
-function auditBundleIndexHtml(files: readonly string[]): string {
-  const rows = files
-    .map((file) => `<li><a href="${escapeHtml(file)}">${escapeHtml(file)}</a></li>`)
-    .join("");
-  return [
-    "<!doctype html>",
-    '<html lang="en">',
-    '<head><meta charset="utf-8"><title>KelpClaw Find Evil Audit Bundle</title></head>',
-    "<body>",
-    "<h1>KelpClaw Find Evil Audit Bundle</h1>",
-    "<ul>",
-    rows,
-    "</ul>",
-    "</body>",
-    "</html>"
-  ].join("");
-}
-
 function traceEventToHookInput(
   rawEvent: JsonRecord,
   runId: string,
@@ -845,6 +882,25 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+async function readJson<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(path, "utf8")) as T;
+}
+
+async function readOptionalJson<T>(path: string): Promise<T | undefined> {
+  try {
+    return await readJson<T>(path);
+  } catch (error) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function readJsonl<T>(path: string): Promise<T[]> {
+  return parseJsonl(await readFile(path, "utf8"), path).map((row) => row as T);
+}
+
 async function writeJsonl(path: string, rows: readonly unknown[]): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(
@@ -924,6 +980,19 @@ function isNonEmptyString(input: unknown): input is string {
   return typeof input === "string" && input.trim().length > 0;
 }
 
+function safeBundlePath(input: string): string | undefined {
+  const normalized = input.replace(/\\/gu, "/");
+  if (
+    normalized.length === 0 ||
+    normalized.startsWith("/") ||
+    normalized.includes("\0") ||
+    normalized.split("/").some((part) => part.length === 0 || part === "..")
+  ) {
+    return undefined;
+  }
+  return normalized;
+}
+
 function isJsonRecord(input: unknown): input is JsonRecord {
   return typeof input === "object" && input !== null && !Array.isArray(input);
 }
@@ -950,12 +1019,4 @@ function coerceJsonValue(value: unknown): JsonValue {
 
 function isNotFound(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/gu, "&amp;")
-    .replace(/</gu, "&lt;")
-    .replace(/>/gu, "&gt;")
-    .replace(/"/gu, "&quot;");
 }

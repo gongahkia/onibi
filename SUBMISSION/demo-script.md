@@ -76,7 +76,7 @@ $ jq '{ok, before:(.before|length), after:(.after|length), added:(.added|length)
 
 ## 4:30 Signed Audit Bundle Opens
 
-Spoken: "The result is a signed audit bundle. Reviewers can open the HTML index, inspect the JSON and Markdown artifacts, and verify the bundle signature from the CLI."
+Spoken: "The result is a signed audit bundle with a reviewer UI. I open the bundle, click one claim to show its linked evidence row, then click the firewall block to show the safe-reanalysis prompt that quoted the hostile text as evidence only."
 
 On screen:
 
