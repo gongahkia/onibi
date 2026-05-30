@@ -128,6 +128,8 @@ export function CommandPalette() {
   const workspaces = useSessionStore((state) => state.workspaces);
   const arrangements = useSessionStore((state) => state.arrangements);
   const selectedFile = useSessionStore((state) => state.selectedFile);
+  const closedBufferStack = useSessionStore((state) => state.closedBufferStack);
+  const reopenClosedBuffer = useSessionStore((state) => state.reopenClosedBuffer);
   const settings = useSessionStore((state) => state.settings);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);

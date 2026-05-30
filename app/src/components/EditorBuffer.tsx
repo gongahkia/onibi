@@ -66,6 +66,7 @@ export interface EditorBufferProps {
   workspaceRoot: string;
   fontFamily?: string;
   keybindingMode?: EditorKeybindingMode;
+  bufferKey?: string;
 }
 
 type BufferState = "loading" | "ready" | "preview" | "binary" | "large" | "error";
@@ -610,9 +611,11 @@ export function EditorBuffer({
   workspaceRoot,
   fontFamily,
   keybindingMode = "standard",
+  bufferKey: bufferKeyProp,
 }: EditorBufferProps) {
   const selectFile = useSessionStore((state) => state.selectFile);
   const closeBuffer = useSessionStore((state) => state.closeBuffer);
+  const setBufferDirty = useSessionStore((state) => state.setBufferDirty);
   const activeBufferKey = useSessionStore((state) => state.activeBufferKey);
   const [state, setState] = useState<BufferState>("loading");
   const [content, setContent] = useState("");
@@ -679,6 +682,16 @@ export function EditorBuffer({
       }
     };
   }, [loadFile]);
+
+  useEffect(() => {
+    if (!bufferKeyProp) return;
+    setBufferDirty(bufferKeyProp, dirty);
+    return () => {
+      if (bufferKeyProp) {
+        setBufferDirty(bufferKeyProp, false);
+      }
+    };
+  }, [bufferKeyProp, dirty, setBufferDirty]);
 
   async function save() {
     await writeWorkspaceFile(workspaceRoot, path, new TextEncoder().encode(content));

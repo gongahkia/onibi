@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type DragEvent, type MouseEvent } from "react";
 import {
   bufferKey,
   bufferLabel,
@@ -29,14 +29,25 @@ interface ContextMenuState {
   key: string;
 }
 
+interface DropIndicator {
+  key: string;
+  before: boolean;
+}
+
+const DRAG_MIME = "application/x-onibi-buffer-key";
+
 export function EditorTabBar() {
   const openBuffers = useSessionStore((state) => state.openBuffers);
   const activeBufferKey = useSessionStore((state) => state.activeBufferKey);
+  const dirtyKeys = useSessionStore((state) => state.dirtyBufferKeys);
   const setActiveBuffer = useSessionStore((state) => state.setActiveBuffer);
   const closeBuffer = useSessionStore((state) => state.closeBuffer);
   const closeOtherBuffers = useSessionStore((state) => state.closeOtherBuffers);
   const closeAllBuffers = useSessionStore((state) => state.closeAllBuffers);
+  const reorderBuffer = useSessionStore((state) => state.reorderBuffer);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -78,6 +89,48 @@ export function EditorTabBar() {
     }
   }
 
+  function handleDragStart(event: DragEvent<HTMLDivElement>, key: string) {
+    event.dataTransfer.setData(DRAG_MIME, key);
+    event.dataTransfer.effectAllowed = "move";
+    setDraggingKey(key);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>, key: string) {
+    const dragged = event.dataTransfer.types.includes(DRAG_MIME);
+    if (!dragged && !draggingKey) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const before = event.clientX < rect.left + rect.width / 2;
+    setDropIndicator((current) =>
+      current?.key === key && current.before === before ? current : { key, before },
+    );
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    // Only clear if we're truly leaving (not just moving between tabs)
+    const related = event.relatedTarget as HTMLElement | null;
+    if (!related || !event.currentTarget.contains(related)) {
+      // do nothing; will be replaced on next dragover or cleared on drop/end
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, targetKey: string) {
+    event.preventDefault();
+    const fromKey = event.dataTransfer.getData(DRAG_MIME) || draggingKey;
+    if (fromKey && fromKey !== targetKey) {
+      const before = dropIndicator?.key === targetKey ? dropIndicator.before : false;
+      reorderBuffer(fromKey, targetKey, before);
+    }
+    setDraggingKey(null);
+    setDropIndicator(null);
+  }
+
+  function handleDragEnd() {
+    setDraggingKey(null);
+    setDropIndicator(null);
+  }
+
   return (
     <div className="editor-tab-bar" role="tablist" aria-label="Open files">
       <div className="editor-tabs">
@@ -85,12 +138,23 @@ export function EditorTabBar() {
           const key = bufferKey(buffer);
           const label = bufferLabel(buffer);
           const isActive = key === activeBufferKey;
+          const isDirty = dirtyKeys.includes(key);
+          const isDragging = draggingKey === key;
+          const indicator =
+            dropIndicator?.key === key && draggingKey && draggingKey !== key
+              ? dropIndicator.before
+                ? "drop-before"
+                : "drop-after"
+              : null;
           return (
             <div
               key={key}
               role="tab"
               aria-selected={isActive}
-              className={`editor-tab ${isActive ? "active" : ""}`}
+              className={`editor-tab ${isActive ? "active" : ""} ${
+                isDirty ? "dirty" : ""
+              } ${isDragging ? "dragging" : ""} ${indicator ?? ""}`}
+              draggable
               title={buffer.type === "web" ? buffer.url : buffer.path}
               onClick={(event) => {
                 event.stopPropagation();
@@ -98,6 +162,11 @@ export function EditorTabBar() {
               }}
               onContextMenu={(event) => handleContextMenu(event, key)}
               onAuxClick={(event) => handleAuxClick(event, key)}
+              onDragStart={(event) => handleDragStart(event, key)}
+              onDragOver={(event) => handleDragOver(event, key)}
+              onDragLeave={handleDragLeave}
+              onDrop={(event) => handleDrop(event, key)}
+              onDragEnd={handleDragEnd}
             >
               <i
                 className={`codicon ${iconForBuffer(buffer)}`}
@@ -107,18 +176,34 @@ export function EditorTabBar() {
                 {label}
                 <span className="editor-tab-suffix">{suffixForBuffer(buffer)}</span>
               </span>
-              <button
-                type="button"
-                className="editor-tab-close"
-                aria-label={`Close ${label}`}
-                title="Close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  closeBuffer(key);
-                }}
-              >
-                <i className="codicon codicon-close" aria-hidden="true" />
-              </button>
+              {isDirty ? (
+                <button
+                  type="button"
+                  className="editor-tab-close dirty-indicator"
+                  aria-label={`Close ${label} (unsaved)`}
+                  title="Unsaved changes — click to close"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeBuffer(key);
+                  }}
+                >
+                  <span className="dirty-dot-tab" aria-hidden="true" />
+                  <i className="codicon codicon-close" aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="editor-tab-close"
+                  aria-label={`Close ${label}`}
+                  title="Close"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeBuffer(key);
+                  }}
+                >
+                  <i className="codicon codicon-close" aria-hidden="true" />
+                </button>
+              )}
             </div>
           );
         })}

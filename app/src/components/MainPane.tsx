@@ -18,6 +18,7 @@ import {
   buildAgentHandoffPrompt,
   closeSession,
   duplicateSession,
+  bufferKey,
   leafSessionIds,
   newCommandBlockId,
   pruneTerminalLayout,
@@ -582,6 +583,8 @@ function WebBuffer({ url }: { url: string }) {
 
 export function MainPane() {
   const selectedFile = useSessionStore((state) => state.selectedFile);
+  const openBuffers = useSessionStore((state) => state.openBuffers);
+  const activeBufferKey = useSessionStore((state) => state.activeBufferKey);
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
@@ -929,23 +932,11 @@ export function MainPane() {
             <section className="main-pane-surface editor-surface">
               <EditorTabBar />
               <div className="editor-surface-body">
-                {selectedFile.type === "web" ? (
-                  <WebBuffer url={selectedFile.url} />
-                ) : selectedFile.type === "git-diff" ? (
-                  <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
-                ) : selectedFile.type === "agent-review" ? (
-                  <AgentReviewBuffer
-                    selection={selectedFile}
-                    mode={settings.diffViewMode}
-                  />
-                ) : (
-                  <EditorBuffer
-                    path={selectedFile.path}
-                    workspaceRoot={selectedFile.workspaceRoot}
-                    fontFamily={settings.editorFontFamily}
-                    keybindingMode={settings.editorKeybindingMode}
-                  />
-                )}
+                <BufferStack
+                  openBuffers={openBuffers}
+                  activeBufferKey={activeBufferKey}
+                  settings={settings}
+                />
               </div>
             </section>
           ) : null}
@@ -966,20 +957,11 @@ export function MainPane() {
       <main className="main-pane" data-testid="main-pane-editor">
         <EditorTabBar />
         <div className="editor-surface-body">
-          {selectedFile.type === "web" ? (
-            <WebBuffer url={selectedFile.url} />
-          ) : selectedFile.type === "git-diff" ? (
-            <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
-          ) : selectedFile.type === "agent-review" ? (
-            <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
-          ) : (
-            <EditorBuffer
-              path={selectedFile.path}
-              workspaceRoot={selectedFile.workspaceRoot}
-              fontFamily={settings.editorFontFamily}
-              keybindingMode={settings.editorKeybindingMode}
-            />
-          )}
+          <BufferStack
+            openBuffers={openBuffers}
+            activeBufferKey={activeBufferKey}
+            settings={settings}
+          />
         </div>
       </main>
     );
@@ -989,5 +971,46 @@ export function MainPane() {
     <main className="main-pane" data-testid="main-pane-empty">
       <EmptyState />
     </main>
+  );
+}
+
+interface BufferStackProps {
+  openBuffers: import("../lib/sessions").MainSelection[];
+  activeBufferKey: string | null;
+  settings: ReturnType<typeof useSessionStore.getState>["settings"];
+}
+
+function BufferStack({ openBuffers, activeBufferKey, settings }: BufferStackProps) {
+  return (
+    <>
+      {openBuffers.map((buffer) => {
+        const key = bufferKey(buffer);
+        const isActive = key === activeBufferKey;
+        return (
+          <div
+            key={key}
+            className={`buffer-mount ${isActive ? "active" : ""}`}
+            data-active={isActive}
+            aria-hidden={!isActive}
+          >
+            {buffer.type === "web" ? (
+              <WebBuffer url={buffer.url} />
+            ) : buffer.type === "git-diff" ? (
+              <GitDiffBuffer selection={buffer} mode={settings.diffViewMode} />
+            ) : buffer.type === "agent-review" ? (
+              <AgentReviewBuffer selection={buffer} mode={settings.diffViewMode} />
+            ) : (
+              <EditorBuffer
+                path={buffer.path}
+                workspaceRoot={buffer.workspaceRoot}
+                fontFamily={settings.editorFontFamily}
+                keybindingMode={settings.editorKeybindingMode}
+                bufferKey={key}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }

@@ -1821,8 +1821,21 @@ button.status-bar-item:hover {
 .editor-surface-body {
   flex: 1 1 auto;
   min-height: 0;
+  position: relative;
+}
+
+.buffer-mount {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.buffer-mount.active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .editor-tab-bar {
@@ -1843,6 +1856,7 @@ button.status-bar-item:hover {
 }
 
 .editor-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1856,6 +1870,55 @@ button.status-bar-item:hover {
   border-right: 1px solid var(--border);
   border-top: 1px solid transparent;
   user-select: none;
+}
+
+.editor-tab.dragging {
+  opacity: 0.5;
+}
+
+.editor-tab.drop-before::before,
+.editor-tab.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.editor-tab.drop-before::before {
+  left: -1px;
+}
+
+.editor-tab.drop-after::after {
+  right: -1px;
+}
+
+.dirty-dot-tab {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fg-0);
+}
+
+.editor-tab .editor-tab-close.dirty-indicator {
+  opacity: 1;
+  position: relative;
+}
+
+.editor-tab .editor-tab-close.dirty-indicator .codicon {
+  display: none;
+}
+
+.editor-tab .editor-tab-close.dirty-indicator:hover .codicon {
+  display: inline-block;
+}
+
+.editor-tab .editor-tab-close.dirty-indicator:hover .dirty-dot-tab {
+  display: none;
 }
 
 .editor-tab.active {

@@ -2201,6 +2201,7 @@ function snapshot(state: SessionStore): PersistedState {
     sessionEvents: state.sessionEvents,
     openBuffers: state.openBuffers,
     activeBufferKey: state.activeBufferKey,
+    closedBufferStack: state.closedBufferStack,
     settings: state.settings,
   };
 }
@@ -2226,6 +2227,7 @@ export async function persistNow(): Promise<void> {
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("openBuffers", state.openBuffers);
     await store.set("activeBufferKey", state.activeBufferKey);
+    await store.set("closedBufferStack", state.closedBufferStack);
     await store.set("settings", state.settings);
     await store.save();
   } catch (error) {
@@ -2959,6 +2961,7 @@ export async function hydrateSessionStore(): Promise<void> {
       sessionEvents,
       openBuffers,
       activeBufferKey,
+      closedBufferStack,
     ] = await Promise.all([
       store.get<TerminalPaneNode | null>("terminalLayout"),
       store.get<string | null>("activeTerminalPaneId"),
@@ -2968,6 +2971,7 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<SessionEvent[]>("sessionEvents"),
       store.get<MainSelection[]>("openBuffers"),
       store.get<string | null>("activeBufferKey"),
+      store.get<MainSelection[]>("closedBufferStack"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
     const restoredSessions = (sessions ?? []).map((session) => {
@@ -3019,6 +3023,9 @@ export async function hydrateSessionStore(): Promise<void> {
     const restoredSelected = restoredActiveKey
       ? restoredBuffers.find((buffer) => bufferKey(buffer) === restoredActiveKey) ?? null
       : null;
+    const restoredClosedStack = (closedBufferStack ?? [])
+      .filter((buffer) => workspaceIds.has(buffer.workspaceId))
+      .slice(0, 20);
     useSessionStore.setState({
       sessions: restoredSessions,
       activeSessionId,
@@ -3034,6 +3041,8 @@ export async function hydrateSessionStore(): Promise<void> {
       sessionEvents: sessionEvents ?? [],
       openBuffers: restoredBuffers,
       activeBufferKey: restoredActiveKey,
+      closedBufferStack: restoredClosedStack,
+      dirtyBufferKeys: [],
       selectedFile: restoredSelected,
       settings: mergedSettings,
       hydrated: true,
