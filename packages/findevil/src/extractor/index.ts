@@ -2,7 +2,17 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { stableJsonStringify, type JsonValue } from "@kelpclaw/workflow-spec";
-import { claimLedgerSchema, type ClaimLedger } from "../types/claim.js";
+import {
+  claimLedgerSchema,
+  claimTypes,
+  type Claim,
+  type ClaimLedger
+} from "../types/claim.js";
+import {
+  catalogTechniquesFromIds,
+  resolveAttackTechniquesForClaim,
+  suggestTechniquesForClaim
+} from "../attack/index.js";
 import {
   buildClaimExtractorUserPrompt,
   claimExtractorSystemPrompt,
@@ -68,7 +78,7 @@ export async function extractClaims(
       ? await options.complete(request)
       : await defaultAnthropicCompletion(request, options);
     try {
-      const ledger = claimLedgerSchema.parse(decodeCompletionPayload(raw));
+      const ledger = parseClaimLedgerPayload(decodeCompletionPayload(raw));
       await writeCachedLedger(cachePath, ledger);
       return ledger;
     } catch (error) {
@@ -157,7 +167,7 @@ function decodeCompletionPayload(raw: unknown): unknown {
 
 async function readCachedLedger(path: string): Promise<ClaimLedger | undefined> {
   try {
-    return claimLedgerSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    return parseClaimLedgerPayload(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       return undefined;
@@ -171,6 +181,63 @@ async function writeCachedLedger(path: string, ledger: ClaimLedger): Promise<voi
   await writeFile(path, `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 }
 
+function parseClaimLedgerPayload(payload: unknown): ClaimLedger {
+  return applyAttackTechniques(claimLedgerSchema.parse(mergeAttackTechniquePayload(payload)));
+}
+
+function applyAttackTechniques(ledger: ClaimLedger): ClaimLedger {
+  return claimLedgerSchema.parse({
+    ...ledger,
+    claims: ledger.claims.map((claim) => ({
+      ...claim,
+      attackTechniques: resolveAttackTechniquesForClaim(claim)
+    }))
+  });
+}
+
+function mergeAttackTechniquePayload(payload: unknown): unknown {
+  if (!isRecord(payload) || !Array.isArray(payload.claims)) {
+    return payload;
+  }
+  return {
+    ...payload,
+    claims: payload.claims.map((claim) => mergeClaimAttackTechniquePayload(claim))
+  };
+}
+
+function mergeClaimAttackTechniquePayload(rawClaim: unknown): unknown {
+  if (!isRecord(rawClaim)) {
+    return rawClaim;
+  }
+  const type = typeof rawClaim.type === "string" && isClaimType(rawClaim.type)
+    ? rawClaim.type
+    : undefined;
+  const ids = attackTechniqueIdsFromPayload(rawClaim.attackTechniques);
+  const catalogTechniques = ids ? catalogTechniquesFromIds(ids) : undefined;
+  if (catalogTechniques) {
+    return {
+      ...rawClaim,
+      attackTechniques: catalogTechniques
+    };
+  }
+  return type
+    ? {
+        ...rawClaim,
+        attackTechniques: suggestTechniquesForClaim({ type })
+      }
+    : rawClaim;
+}
+
+function attackTechniqueIdsFromPayload(input: unknown): string[] | undefined {
+  if (!Array.isArray(input) || input.length === 0) {
+    return undefined;
+  }
+  const ids = input.map((entry) =>
+    isRecord(entry) && typeof entry.id === "string" ? entry.id : undefined
+  );
+  return ids.every((id): id is string => typeof id === "string") ? ids : [];
+}
+
 function reportToPromptText(report: string | JsonValue): string {
   return typeof report === "string" ? report : stableJsonStringify(report);
 }
@@ -181,6 +248,10 @@ function sha256Hex(value: string): string {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function isClaimType(input: string): input is Claim["type"] {
+  return claimTypes.includes(input as Claim["type"]);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

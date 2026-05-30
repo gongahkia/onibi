@@ -27,6 +27,12 @@ export const claimSeveritySchema = z.enum(["informational", "low", "medium", "hi
 export const claimTypeSchema = z.enum(claimTypes);
 export const claimStatusSchema = z.enum(claimStatuses);
 
+export const attackTechniqueSchema = z.object({
+  id: z.string().regex(/^T\d{4}(\.\d{3})?$/),
+  name: z.string(),
+  tactic: z.string()
+});
+
 export const evidenceRefSchema = z.object({
   artifact: z.string().min(1),
   locator: z.string().min(1),
@@ -46,6 +52,7 @@ export const claimSchema = z.object({
   severity: claimSeveritySchema,
   status: claimStatusSchema,
   confidence: z.number().min(0).max(1),
+  attackTechniques: z.array(attackTechniqueSchema).default([]),
   evidenceRefs: z.array(evidenceRefSchema),
   missingEvidence: z.array(z.string().min(1)),
   repairAction: repairActionSchema.optional(),
@@ -61,6 +68,7 @@ export const claimLedgerSchema = z.object({
 
 export type ClaimType = z.infer<typeof claimTypeSchema>;
 export type ClaimStatus = z.infer<typeof claimStatusSchema>;
+export type AttackTechnique = z.infer<typeof attackTechniqueSchema>;
 export type EvidenceRef = z.infer<typeof evidenceRefSchema>;
 export type RepairAction = z.infer<typeof repairActionSchema>;
 export type Claim = z.infer<typeof claimSchema>;
@@ -76,6 +84,13 @@ export const placeholderClaim: Claim = claimSchema.parse({
   severity: "low",
   status: "unverifiable",
   confidence: 0,
+  attackTechniques: [
+    {
+      id: "T1059",
+      name: "Command and Scripting Interpreter",
+      tactic: "execution"
+    }
+  ],
   evidenceRefs: [
     {
       artifact: "placeholder.txt",
