@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash, createPrivateKey, generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -24,6 +23,7 @@ import type { TaintLedgerEntry } from "../types/taint.js";
 import { extractTaintSpans } from "../taint/index.js";
 import { verifyClaim } from "../verifier/index.js";
 import { renderAccuracyReport } from "./accuracy-report.js";
+import { runProtocolSift } from "./sift-runner.js";
 import type {
   SentinelMode,
   SentinelOptions,
@@ -44,6 +44,7 @@ interface NormalizedSentinelOptions {
   readonly evidenceRoot: string;
   readonly outDir: string;
   readonly maxIterations: number;
+  readonly maxRuntimeSeconds: number;
   readonly mode: SentinelMode;
   readonly siftCommand?: string | undefined;
   readonly tracePath?: string | undefined;
@@ -87,6 +88,8 @@ const outputNames = {
   auditBundle: "audit-bundle"
 } as const;
 
+const defaultSiftMaxRuntimeSeconds = 900;
+
 const directProgramExecutionEvidence = [
   "prefetch_entry",
   "amcache_execution_record",
@@ -112,7 +115,7 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
     : [];
   await writeJsonl(outputs.taintLedger, taintLedger);
 
-  const agentExecution = await runAgent(options);
+  const agentExecution = await runAgent(options, outputs.agentExecution, runId);
   const firewallEvents: FirewallEvent[] = [];
   const agentRows = await normalizeAgentExecution({
     runId,
@@ -235,11 +238,13 @@ async function normalizeOptions(opts: SentinelOptions): Promise<NormalizedSentin
   if (mode !== "sentinel" && mode !== "verify" && mode !== "firewall") {
     throw new Error("Sentinel mode must be sentinel, verify, or firewall.");
   }
+  const maxRuntimeSeconds = await resolveMaxRuntimeSeconds(opts, casePath);
   return {
     casePath,
     evidenceRoot,
     outDir: resolve(opts.outDir),
     maxIterations: opts.maxIterations,
+    maxRuntimeSeconds,
     mode,
     ...(siftCommand ? { siftCommand } : {}),
     ...(tracePath ? { tracePath } : {}),
@@ -275,6 +280,41 @@ async function resolveTracePath(path: string): Promise<string> {
   );
 }
 
+async function resolveMaxRuntimeSeconds(opts: SentinelOptions, casePath: string): Promise<number> {
+  const explicit = (opts as { readonly maxRuntimeSeconds?: unknown }).maxRuntimeSeconds;
+  if (explicit !== undefined) {
+    return positiveRuntimeSeconds(explicit, "maxRuntimeSeconds");
+  }
+  const caseBudget = siftIntegrationRuntimeSeconds(await readFile(casePath, "utf8"));
+  return caseBudget ?? defaultSiftMaxRuntimeSeconds;
+}
+
+function siftIntegrationRuntimeSeconds(content: string): number | undefined {
+  let inSiftIntegration = false;
+  for (const line of content.split(/\r?\n/u)) {
+    if (/^\S/u.test(line)) {
+      inSiftIntegration = /^siftIntegration:\s*$/u.test(line);
+      continue;
+    }
+    if (!inSiftIntegration) {
+      continue;
+    }
+    const match = /^\s+maxRuntimeSeconds:\s*(\d+(?:\.\d+)?)\s*$/u.exec(line);
+    if (match?.[1]) {
+      return positiveRuntimeSeconds(Number(match[1]), "siftIntegration.maxRuntimeSeconds");
+    }
+  }
+  return undefined;
+}
+
+function positiveRuntimeSeconds(input: unknown, name: string): number {
+  const value = typeof input === "number" ? input : Number(input);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Sentinel option ${name} must be a positive number.`);
+  }
+  return value;
+}
+
 function outputPaths(outDir: string): SentinelOutputPaths {
   return {
     agentExecution: join(outDir, outputNames.agentExecution),
@@ -289,14 +329,28 @@ function outputPaths(outDir: string): SentinelOutputPaths {
   };
 }
 
-async function runAgent(options: NormalizedSentinelOptions): Promise<AgentExecution> {
+async function runAgent(
+  options: NormalizedSentinelOptions,
+  agentExecutionPath: string,
+  runId: string
+): Promise<AgentExecution> {
   if (options.tracePath) {
     return readTraceExecution(options.tracePath);
   }
   if (!options.siftCommand) {
     throw new Error("Sentinel live mode requires siftCommand.");
   }
-  return runLiveExecution(options.siftCommand);
+  const summary = await runProtocolSift({
+    command: options.siftCommand,
+    agentExecutionPath,
+    maxRuntimeSeconds: options.maxRuntimeSeconds,
+    runId
+  });
+  return {
+    rawEvents: summary.rawEvents,
+    finalReport: summary.finalReport,
+    traceClaims: summary.traceClaims
+  };
 }
 
 async function readTraceExecution(tracePath: string): Promise<AgentExecution> {
@@ -308,33 +362,6 @@ async function readTraceExecution(tracePath: string): Promise<AgentExecution> {
   return {
     rawEvents,
     finalReport: finalReport ?? "",
-    traceClaims: rawEvents
-      .filter((event) => eventName(event) === "claim_extracted" && isJsonRecord(event.claim))
-      .map((event) => event.claim as JsonRecord)
-  };
-}
-
-async function runLiveExecution(command: string): Promise<AgentExecution> {
-  const output = await runShellCommand(command);
-  const rawEvents =
-    parseJsonlLenient(output.stdout).length > 0 ? parseJsonlLenient(output.stdout) : [];
-  const finalReport =
-    rawEvents
-      .map((event) => stringValue(event.content))
-      .filter((content, index, values) => eventName(rawEvents[index]) === "final_report" && values)
-      .at(-1) ?? output.stdout;
-  return {
-    rawEvents:
-      rawEvents.length > 0
-        ? rawEvents
-        : [
-            {
-              event: "final_report",
-              timestamp: new Date().toISOString(),
-              content: output.stdout
-            }
-          ],
-    finalReport,
     traceClaims: rawEvents
       .filter((event) => eventName(event) === "claim_extracted" && isJsonRecord(event.claim))
       .map((event) => event.claim as JsonRecord)
@@ -779,59 +806,6 @@ function parseJsonl(input: string, path: string): JsonRecord[] {
       }
       return parsed;
     });
-}
-
-function parseJsonlLenient(input: string): JsonRecord[] {
-  const events: JsonRecord[] = [];
-  for (const line of input.split(/\r?\n/u)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (isJsonRecord(parsed)) {
-        events.push(parsed);
-      }
-    } catch {
-      return [];
-    }
-  }
-  return events;
-}
-
-async function runShellCommand(
-  command: string
-): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> {
-  return new Promise((resolveCommand, reject) => {
-    const child = spawn(command, {
-      shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        KELPCLAW_AGENT_HOOK_NORMALIZER: "@kelpclaw/agent-hooks"
-      }
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      const result = {
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        exitCode: exitCode ?? 1
-      };
-      if (result.exitCode !== 0) {
-        reject(
-          new Error(`Protocol SIFT command exited with status ${result.exitCode}: ${result.stderr}`)
-        );
-        return;
-      }
-      resolveCommand(result);
-    });
-  });
 }
 
 async function readCaseMetadata(casePath: string): Promise<Readonly<Record<string, string>>> {

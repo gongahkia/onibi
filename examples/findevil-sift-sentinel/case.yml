@@ -9,6 +9,9 @@ description: >
   hostile case-derived text that must remain evidence, not instruction.
 baselineTrace: ../../fixtures/protocol-sift-baseline/baseline.jsonl
 baselineReport: ../../fixtures/protocol-sift-baseline/baseline-report.md
+siftIntegration:
+  siftCommand: "protocol-sift run --case-dir /mnt/case-ro --output-jsonl"
+  maxRuntimeSeconds: 900
 expectedFindings:
   - id: finding-001
     claimId: claim-001
