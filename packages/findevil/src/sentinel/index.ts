@@ -76,9 +76,18 @@ interface AuditKeyFile {
   readonly privateKeyPem: string;
 }
 
+export type SentinelOutputPathsWithCommittee = SentinelOutputPaths & {
+  readonly committeeVotes: string;
+};
+
+export type SentinelResultWithCommittee = Omit<SentinelResult, "outputs"> & {
+  readonly outputs: SentinelOutputPathsWithCommittee;
+};
+
 const outputNames = {
   agentExecution: "agent-execution.jsonl",
   claimLedger: "claim-ledger.json",
+  committeeVotes: "committee-vote.jsonl",
   repairTrace: "repair-trace.jsonl",
   taintLedger: "taint-ledger.jsonl",
   firewallEvents: "firewall-events.jsonl",
@@ -97,7 +106,7 @@ const directProgramExecutionEvidence = [
   "sysmon_process_create"
 ] as const;
 
-export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult> {
+export async function runSentinel(opts: SentinelOptions): Promise<SentinelResultWithCommittee> {
   const options = await normalizeOptions(opts);
   const outputs = outputPaths(options.outDir);
   const caseMetadata = await readCaseMetadata(options.casePath);
@@ -105,6 +114,7 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
 
   await mkdir(options.outDir, { recursive: true });
   await initializeJsonl(outputs.agentExecution);
+  await initializeJsonl(outputs.committeeVotes);
   await initializeJsonl(outputs.repairTrace);
   await initializeJsonl(outputs.taintLedger);
   await initializeJsonl(outputs.firewallEvents);
@@ -315,10 +325,11 @@ function positiveRuntimeSeconds(input: unknown, name: string): number {
   return value;
 }
 
-function outputPaths(outDir: string): SentinelOutputPaths {
+function outputPaths(outDir: string): SentinelOutputPathsWithCommittee {
   return {
     agentExecution: join(outDir, outputNames.agentExecution),
     claimLedger: join(outDir, outputNames.claimLedger),
+    committeeVotes: join(outDir, outputNames.committeeVotes),
     repairTrace: join(outDir, outputNames.repairTrace),
     taintLedger: join(outDir, outputNames.taintLedger),
     firewallEvents: join(outDir, outputNames.firewallEvents),
@@ -456,6 +467,7 @@ async function extractTraceBackedClaims(input: {
     });
     return extractClaims(input.finalReport || stableJsonStringify(ledger as unknown as JsonValue), {
       cacheDir: join(input.outDir, ".extractor-cache"),
+      committeeVotePath: join(input.outDir, outputNames.committeeVotes),
       maxRetries: 0,
       complete: async () => ledger
     });
@@ -464,7 +476,8 @@ async function extractTraceBackedClaims(input: {
     throw new Error("Sentinel cannot extract claims without a final report.");
   }
   return extractClaims(input.finalReport, {
-    cacheDir: join(input.outDir, ".extractor-cache")
+    cacheDir: join(input.outDir, ".extractor-cache"),
+    committeeVotePath: join(input.outDir, outputNames.committeeVotes)
   });
 }
 
@@ -553,7 +566,7 @@ function evidenceManifest(
 async function writeAuditBundle(input: {
   readonly runId: string;
   readonly outDir: string;
-  readonly outputs: SentinelOutputPaths;
+  readonly outputs: SentinelOutputPathsWithCommittee;
   readonly ok: boolean;
   readonly mode: SentinelMode;
   readonly policyDenials: number;
@@ -607,6 +620,7 @@ async function copySentinelArtifacts(outDir: string, bundleDir: string): Promise
   const files = [
     outputNames.agentExecution,
     outputNames.claimLedger,
+    outputNames.committeeVotes,
     outputNames.repairTrace,
     outputNames.taintLedger,
     outputNames.firewallEvents,

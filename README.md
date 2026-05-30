@@ -53,7 +53,7 @@ $ ./node_modules/.bin/kelp-claw findevil sentinel \
   --out /tmp/kelpclaw-findevil-sentinel
 $ sed -n '1,80p' /tmp/kelpclaw-findevil-sentinel/accuracy-report.md
 $ jq '{ok, checkedAt, changed:(.changed|length), added:(.added|length), removed:(.removed|length)}' /tmp/kelpclaw-findevil-sentinel/spoliation-check.json
-$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,repair-trace,firewall-events,taint-ledger}.jsonl
+$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,committee-vote,repair-trace,firewall-events,taint-ledger}.jsonl
 $ test -s /tmp/kelpclaw-findevil-sentinel/accuracy-report.md && test -s /tmp/kelpclaw-findevil-sentinel/audit-bundle/index.html
 $ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
 ```
@@ -63,7 +63,23 @@ Expected high-level result:
 - The sentinel command returns `ok: true`, `status: "succeeded"`, `policyDenials: 1`, and `uncorrectedPolicyDenials: 0`.
 - The accuracy report shows one baseline claim, one repaired claim, one repair prompt, one repair result, one successful status change, and one firewall block.
 - The spoliation check shows `ok: true` with zero changed, added, or removed files.
-- The audit-bundle verification returns `ok: true` with a valid reviewer signature and thirteen checked files.
+- The audit-bundle verification returns `ok: true` with a valid reviewer signature and fourteen checked files.
+
+### Multi-model verification
+
+Set `KELP_FINDEVIL_MODELS` to a comma-separated committee to make claim extraction require cross-model agreement. Entries use `provider:model` and may include an optional weight suffix, for example:
+
+```console
+$ KELP_FINDEVIL_MODELS=anthropic:claude-3-5-sonnet-latest,openai:gpt-4.1-mini \
+  ./node_modules/.bin/kelp-claw findevil sentinel \
+  --case examples/findevil-sift-sentinel/case.yml \
+  --evidence-root examples/findevil-sift-sentinel/case-data \
+  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
+  --max-iterations 3 \
+  --out /tmp/kelpclaw-findevil-sentinel
+```
+
+The run writes `committee-vote.jsonl` beside the claim ledger with one row per model vote, then lowers confidence or marks claims inferred/unverifiable when the committee disagrees.
 
 ## Development
 

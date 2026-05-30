@@ -2,12 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { stableJsonStringify, type JsonValue } from "@kelpclaw/workflow-spec";
-import {
-  claimLedgerSchema,
-  claimTypes,
-  type Claim,
-  type ClaimLedger
-} from "../types/claim.js";
+import { claimLedgerSchema, claimTypes, type Claim, type ClaimLedger } from "../types/claim.js";
 import {
   catalogTechniquesFromIds,
   resolveAttackTechniquesForClaim,
@@ -30,6 +25,14 @@ export interface ClaimExtractionAttempt {
 }
 
 export type ClaimExtractionCompletion = (attempt: ClaimExtractionAttempt) => Promise<unknown>;
+export type CommitteeClaimExtractionCompletion = (input: {
+  readonly model: {
+    readonly provider: string;
+    readonly model: string;
+    readonly weight: number;
+  };
+  readonly attempt: ClaimExtractionAttempt;
+}) => Promise<unknown>;
 
 export interface ExtractClaimsOptions {
   readonly cacheDir?: string | undefined;
@@ -37,6 +40,9 @@ export interface ExtractClaimsOptions {
   readonly apiKey?: string | undefined;
   readonly maxRetries?: number | undefined;
   readonly complete?: ClaimExtractionCompletion | undefined;
+  readonly committeeComplete?: CommitteeClaimExtractionCompletion | undefined;
+  readonly committeeQuorumThreshold?: number | undefined;
+  readonly committeeVotePath?: string | undefined;
 }
 
 interface AnthropicClient {
@@ -52,6 +58,22 @@ const defaultCacheDir = ".kelpclaw/findevil/extractor-cache";
 const defaultModel = "claude-3-5-sonnet-latest";
 
 export async function extractClaims(
+  report: string | JsonValue,
+  options: ExtractClaimsOptions = {}
+): Promise<ClaimLedger> {
+  const committeeModelEnv = process.env.KELP_FINDEVIL_MODELS?.trim();
+  if (committeeModelEnv) {
+    const { extractClaimsCommittee, parseCommitteeModels } = await import("./committee.js");
+    return extractClaimsCommittee(
+      reportToPromptText(report),
+      parseCommitteeModels(committeeModelEnv),
+      options
+    );
+  }
+  return extractClaimsSingle(report, options);
+}
+
+export async function extractClaimsSingle(
   report: string | JsonValue,
   options: ExtractClaimsOptions = {}
 ): Promise<ClaimLedger> {
@@ -209,9 +231,8 @@ function mergeClaimAttackTechniquePayload(rawClaim: unknown): unknown {
   if (!isRecord(rawClaim)) {
     return rawClaim;
   }
-  const type = typeof rawClaim.type === "string" && isClaimType(rawClaim.type)
-    ? rawClaim.type
-    : undefined;
+  const type =
+    typeof rawClaim.type === "string" && isClaimType(rawClaim.type) ? rawClaim.type : undefined;
   const ids = attackTechniqueIdsFromPayload(rawClaim.attackTechniques);
   const catalogTechniques = ids ? catalogTechniquesFromIds(ids) : undefined;
   if (catalogTechniques) {
