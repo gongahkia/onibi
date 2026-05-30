@@ -572,6 +572,7 @@ type PersistedState = {
   sessionEvents?: SessionEvent[];
   openBuffers?: MainSelection[];
   activeBufferKey?: string | null;
+  bufferAccessOrder?: string[];
   closedBufferStack?: MainSelection[];
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
@@ -2295,6 +2296,7 @@ function snapshot(state: SessionStore): PersistedState {
     sessionEvents: state.sessionEvents,
     openBuffers: state.openBuffers,
     activeBufferKey: state.activeBufferKey,
+    bufferAccessOrder: state.bufferAccessOrder,
     closedBufferStack: state.closedBufferStack,
     settings: state.settings,
   };
@@ -2321,6 +2323,7 @@ export async function persistNow(): Promise<void> {
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("openBuffers", state.openBuffers);
     await store.set("activeBufferKey", state.activeBufferKey);
+    await store.set("bufferAccessOrder", state.bufferAccessOrder);
     await store.set("closedBufferStack", state.closedBufferStack);
     await store.set("settings", state.settings);
     await store.save();
@@ -2807,6 +2810,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
       dirtyBufferKeys: state.dirtyBufferKeys.filter((key) =>
         remainingBuffers.some((buffer) => bufferKey(buffer) === key),
       ),
+      bufferAccessOrder: state.bufferAccessOrder.filter((key) =>
+        remainingBuffers.some((buffer) => bufferKey(buffer) === key),
+      ),
       sessions: state.sessions.filter((session) => session.workspaceId !== id),
       arrangements: state.arrangements.filter(
         (arrangement) => arrangement.workspaceId !== id,
@@ -3072,7 +3078,35 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   updateSettings: (patch) => {
-    set((state) => ({ settings: mergeSettings({ ...state.settings, ...patch }) }));
+    set((state) => {
+      const nextSettings = mergeSettings({ ...state.settings, ...patch });
+      // If a tab limit just got tighter, evict immediately.
+      const limited = applyEditorOpenLimit(
+        state.openBuffers,
+        state.activeBufferKey,
+        state.dirtyBufferKeys,
+        state.bufferAccessOrder,
+        state.closedBufferStack,
+        nextSettings.editorOpenLimit,
+        nextSettings.closedBufferHistoryLimit,
+      );
+      const evictedKeys = new Set(
+        state.openBuffers
+          .filter((b) => !limited.openBuffers.some((kept) => bufferKey(kept) === bufferKey(b)))
+          .map((b) => bufferKey(b)),
+      );
+      return {
+        settings: nextSettings,
+        openBuffers: limited.openBuffers,
+        closedBufferStack: capClosedStack(
+          limited.closedBufferStack,
+          nextSettings.closedBufferHistoryLimit,
+        ),
+        bufferAccessOrder: state.bufferAccessOrder.filter(
+          (k) => !evictedKeys.has(k),
+        ),
+      };
+    });
     persistLater();
   },
   updateAgentCommand: (agent, command) => {
@@ -3111,6 +3145,7 @@ export async function hydrateSessionStore(): Promise<void> {
       openBuffers,
       activeBufferKey,
       closedBufferStack,
+      bufferAccessOrder,
     ] = await Promise.all([
       store.get<TerminalPaneNode | null>("terminalLayout"),
       store.get<string | null>("activeTerminalPaneId"),
@@ -3121,6 +3156,7 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<MainSelection[]>("openBuffers"),
       store.get<string | null>("activeBufferKey"),
       store.get<MainSelection[]>("closedBufferStack"),
+      store.get<string[]>("bufferAccessOrder"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
     const restoredSessions = (sessions ?? []).map((session) => {
@@ -3193,6 +3229,13 @@ export async function hydrateSessionStore(): Promise<void> {
       sessionEvents: sessionEvents ?? [],
       openBuffers: restoredBuffers,
       activeBufferKey: restoredActiveKey,
+      bufferAccessOrder: Array.isArray(bufferAccessOrder)
+        ? bufferAccessOrder.filter((key) =>
+            restoredBuffers.some((buffer) => bufferKey(buffer) === key),
+          )
+        : restoredActiveKey
+          ? [restoredActiveKey]
+          : [],
       closedBufferStack: restoredClosedStack,
       dirtyBufferKeys: [],
       selectedFile: restoredSelected,

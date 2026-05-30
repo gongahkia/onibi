@@ -451,6 +451,8 @@ interface GeneralSettingsProps {
   terminalConfirmClose: boolean;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
+  editorOpenLimit: number;
+  closedBufferHistoryLimit: number;
   diffViewMode: DiffViewMode;
   webOpenMode: WebOpenMode;
   onTheme: (theme: ThemeMode) => void;
