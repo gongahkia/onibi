@@ -467,6 +467,8 @@ interface GeneralSettingsProps {
   onTerminalConfirmClose: (enabled: boolean) => void;
   onEditorFontSize: (fontSize: number) => void;
   onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
+  onEditorOpenLimit: (limit: number) => void;
+  onClosedBufferHistoryLimit: (limit: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onWebOpenMode: (mode: WebOpenMode) => void;
 }
