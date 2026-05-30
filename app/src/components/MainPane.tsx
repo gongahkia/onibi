@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Group as PanelGroup,
   Panel,
@@ -140,6 +140,7 @@ function TerminalPaneTree({
   onShellUpdate,
   onTerminalTrigger,
   maximizedPaneId,
+  autoRestartingSessionIds,
   onToggleMaximize,
   onRestart,
   onDuplicate,
@@ -158,6 +159,7 @@ function TerminalPaneTree({
   onShellUpdate: (session: Session, update: TerminalShellUpdate) => void;
   onTerminalTrigger: (session: Session, match: TerminalTriggerMatch) => void;
   maximizedPaneId: string | null;
+  autoRestartingSessionIds: Set<string>;
   onToggleMaximize: (paneId: string) => void;
   onRestart: (session: Session) => void;
   onDuplicate: (session: Session, paneId: string) => void;
@@ -185,6 +187,7 @@ function TerminalPaneTree({
                 onShellUpdate={onShellUpdate}
                 onTerminalTrigger={onTerminalTrigger}
                 maximizedPaneId={maximizedPaneId}
+                autoRestartingSessionIds={autoRestartingSessionIds}
                 onToggleMaximize={onToggleMaximize}
                 onRestart={onRestart}
                 onDuplicate={onDuplicate}
@@ -215,6 +218,7 @@ function TerminalPaneTree({
   const canMaximize = sessionHasRestorableTerminal(session);
   const attentionState = sessionAttentionState(session);
   const needsAttention = sessionNeedsAttention(session);
+  const autoRestarting = autoRestartingSessionIds.has(session.id);
   return (
     <section
       className={`terminal-pane ${active ? "active" : ""} ${needsAttention ? "attention" : ""}`}
@@ -382,10 +386,11 @@ function TerminalPaneTree({
       />
       {session.status === "stale" ? (
         <div className="terminal-stale-state">
-          <strong>Session is stale</strong>
+          <strong>{autoRestarting ? "Restarting session" : "Session is stale"}</strong>
           <span>
-            The process is no longer attached. Restart, duplicate, or close this
-            saved session.
+            {autoRestarting
+              ? "Reattaching the saved terminal process."
+              : "The process is no longer attached. Restart, duplicate, or close this saved session."}
           </span>
         </div>
       ) : (
@@ -623,6 +628,10 @@ export function MainPane() {
   const [splitPlacement, setSplitPlacement] = useState<TerminalPanePlacement | null>(
     null,
   );
+  const attemptedAutoRestarts = useRef<Set<string>>(new Set());
+  const [autoRestartingSessionIds, setAutoRestartingSessionIds] = useState<
+    Set<string>
+  >(() => new Set());
 
   const requestSplit = useCallback(
     (direction: TerminalSplitDirection) => {
@@ -881,6 +890,34 @@ export function MainPane() {
     });
   }, []);
 
+  useEffect(() => {
+    const target = activeTerminalSession;
+    if (!target || target.status !== "stale" || !target.restart) {
+      return;
+    }
+    if (attemptedAutoRestarts.current.has(target.id)) {
+      return;
+    }
+    attemptedAutoRestarts.current.add(target.id);
+    setAutoRestartingSessionIds((current) => {
+      const next = new Set(current);
+      next.add(target.id);
+      return next;
+    });
+    void restartSession(target.id)
+      .catch((error) => {
+        console.warn("failed to auto-restart stale session", error);
+        updateSession(target.id, { status: "stale" });
+      })
+      .finally(() => {
+        setAutoRestartingSessionIds((current) => {
+          const next = new Set(current);
+          next.delete(target.id);
+          return next;
+        });
+      });
+  }, [activeTerminalSession, updateSession]);
+
   if (activeTerminalSession) {
     const terminalVisible = selectedFile === null;
     const layout = layoutContainsSession(
@@ -920,6 +957,7 @@ export function MainPane() {
                 onShellUpdate={handleShellUpdate}
                 onTerminalTrigger={handleTerminalTrigger}
                 maximizedPaneId={maximizedTerminalPaneId}
+                autoRestartingSessionIds={autoRestartingSessionIds}
                 onToggleMaximize={toggleMaximizedTerminalPane}
                 onRestart={handleRestartSession}
                 onDuplicate={handleDuplicateSession}

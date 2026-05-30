@@ -58,4 +58,23 @@ describe("ActivityBar", () => {
     expect(screen.getByText("Codex · Running")).toBeTruthy();
     expect(screen.queryByText("Gemini · Running")).toBeNull();
   });
+
+  test("terminal button returns focus to the active session", () => {
+    useSessionStore.setState({
+      selectedFile: {
+        type: "file",
+        workspaceId: "workspace:/repo",
+        workspaceRoot: "/repo",
+        path: "/repo/a.ts",
+        name: "a.ts",
+        size: 1,
+      },
+    });
+
+    render(<ActivityBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText("Terminal"));
+
+    expect(useSessionStore.getState().selectedFile).toBeNull();
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-1");
+  });
 });

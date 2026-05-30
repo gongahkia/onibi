@@ -150,13 +150,12 @@ describe("SettingsPane", () => {
     expect(screen.queryByLabelText("Enable shell integration")).toBeNull();
   });
 
-  test("moves terminal triggers into advanced settings", () => {
+  test("shows terminal triggers as a top-level settings section", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: "Triggers" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
     expect(screen.queryByText("Approval needed")).toBeNull();
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Triggers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Triggers" }));
 
     expect(screen.getByText("Approval needed")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Approval needed trigger"));
@@ -179,10 +178,10 @@ describe("SettingsPane", () => {
     fireEvent.change(screen.getByLabelText("Default agent"), {
       target: { value: "codex" },
     });
-    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("button", { name: "Shell integration" }));
 
     expect(useSessionStore.getState().settings.defaultAgent).toBe("codex");
-    expect(screen.getByRole("tab", { name: "Shell integration" })).toBeTruthy();
+    expect(screen.getByLabelText("Enable shell integration")).toBeTruthy();
   });
 
   test("shows shell integration runtime status", () => {
@@ -203,8 +202,7 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Shell integration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shell integration" }));
 
     expect(screen.getByText("cwd: /repo/packages/app")).toBeTruthy();
     expect(screen.getByText("last exit: 2")).toBeTruthy();
@@ -214,8 +212,7 @@ describe("SettingsPane", () => {
 
   test("applies config.json edits", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "config.json" }));
+    fireEvent.click(screen.getByRole("button", { name: "config.json" }));
     fireEvent.change(screen.getByLabelText("Onibi config JSON"), {
       target: {
         value: JSON.stringify({
@@ -251,8 +248,7 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Import terminal settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import terminal settings" }));
     expect((await screen.findAllByText("Ghostty")).length).toBeGreaterThan(0);
     expect(screen.getByText("Supported terminal imports")).toBeTruthy();
     expect(screen.getByText("Alacritty")).toBeTruthy();
@@ -290,8 +286,7 @@ describe("SettingsPane", () => {
     });
 
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("tab", { name: "Import terminal settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import terminal settings" }));
     expect((await screen.findAllByText("Rio")).length).toBeGreaterThan(0);
     fireEvent.click(await screen.findByRole("button", { name: "Apply selected" }));
 

@@ -91,7 +91,13 @@ describe("MainPane", () => {
     );
   });
 
-  test("shows the terminal pane shell for stale saved sessions", () => {
+  test("auto-restarts stale saved sessions with restart metadata", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "pty_spawn") {
+        return "pty-restored";
+      }
+      return null;
+    });
     useSessionStore.setState({
       sessions: [
         {
@@ -119,10 +125,11 @@ describe("MainPane", () => {
 
     render(<MainPane />);
 
-    expect(screen.getByTestId("main-pane-terminal")).toBeTruthy();
-    expect(screen.getByText("Session is stale")).toBeTruthy();
-    expect(screen.queryByTestId("terminal-view")).toBeNull();
-    expect(screen.queryByLabelText("Handoff session to another agent")).toBeNull();
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("pty-restored");
+    });
+    expect(screen.getByTestId("terminal-view").textContent).toContain("pty-restored");
+    expect(screen.queryByText("Session is stale")).toBeNull();
   });
 
   test("opens the new-session picker for a split shortcut", () => {

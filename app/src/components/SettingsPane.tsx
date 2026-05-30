@@ -46,8 +46,6 @@ type SettingsSection =
   | "layout"
   | "agents"
   | "workspaces"
-  | "advanced";
-type AdvancedSection =
   | "shell-integration"
   | "triggers"
   | "config-json"
@@ -65,8 +63,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const [section, setSection] = useState<SettingsSection>("general");
-  const [advancedSection, setAdvancedSection] =
-    useState<AdvancedSection>("shell-integration");
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus>(() =>
     Object.fromEntries(AGENT_KINDS.map((agent) => [agent, null])) as BinaryStatus,
   );
@@ -195,8 +191,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     }
   }
 
-  function selectAdvancedSection(item: AdvancedSection) {
-    setAdvancedSection(item);
+  function selectSection(item: SettingsSection) {
+    setSection(item);
     if (item === "config-json") {
       setConfigJson(serializeOnibiConfig());
       setConfigStatus(null);
@@ -235,16 +231,17 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 "layout",
                 "agents",
                 "workspaces",
-                "advanced",
+                "shell-integration",
+                "triggers",
+                "config-json",
+                "import-config",
               ] as const
             ).map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`text-button ${section === item ? "primary" : ""}`}
-                onClick={() => {
-                  setSection(item);
-                }}
+                onClick={() => selectSection(item)}
               >
                 {labelFor(item)}
               </button>
@@ -347,28 +344,31 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onRemove={removeWorkspace}
             />
           ) : null}
-          {section === "advanced" ? (
-            <AdvancedSettings
-              active={advancedSection}
-              onActive={selectAdvancedSection}
-              shellIntegrationEnabled={settings.terminalShellIntegration}
+          {section === "shell-integration" ? (
+            <ShellIntegrationSettings
               sessions={sessions}
-              triggers={settings.terminalTriggers}
-              configJson={configJson}
-              configStatus={configStatus}
-              imports={terminalImports}
-              importLoading={detectingTerminalConfigs}
-              importError={terminalImportError}
-              onShellIntegrationEnabled={(terminalShellIntegration) =>
+              enabled={settings.terminalShellIntegration}
+              onEnabled={(terminalShellIntegration) =>
                 updateSettings({ terminalShellIntegration })
               }
+            />
+          ) : null}
+          {section === "triggers" ? (
+            <TriggersSettings
+              triggers={settings.terminalTriggers}
               onTriggers={(terminalTriggers) => updateSettings({ terminalTriggers })}
-              onConfigJson={setConfigJson}
-              onRefreshConfig={() => {
+            />
+          ) : null}
+          {section === "config-json" ? (
+            <ConfigJsonSettings
+              value={configJson}
+              status={configStatus}
+              onValue={setConfigJson}
+              onRefresh={() => {
                 setConfigJson(serializeOnibiConfig());
                 setConfigStatus("Refreshed from current settings.");
               }}
-              onApplyConfig={() => {
+              onApply={() => {
                 try {
                   const config = parseOnibiConfigJson(configJson);
                   applyOnibiConfig(config);
@@ -378,14 +378,21 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                   setConfigStatus(caught instanceof Error ? caught.message : String(caught));
                 }
               }}
-              onRefreshImports={() => void refreshTerminalConfigImports()}
+            />
+          ) : null}
+          {section === "import-config" ? (
+            <ImportConfigSettings
+              imports={terminalImports}
+              loading={detectingTerminalConfigs}
+              error={terminalImportError}
+              onRefresh={() => void refreshTerminalConfigImports()}
               onAddImport={(item) =>
                 setTerminalImports((state) => [
                   item,
                   ...state.filter((existing) => existing.id !== item.id),
                 ])
               }
-              onApplyImport={(item, options) => {
+              onApply={(item, options) => {
                 const nextCustomColors: ColorSchemeColors = {
                   ...settings.customColorScheme.colors,
                   ...item.colors,
@@ -729,13 +736,6 @@ function GeneralSettings({
   );
 }
 
-const ADVANCED_SECTIONS: Array<{ id: AdvancedSection; label: string }> = [
-  { id: "shell-integration", label: "Shell integration" },
-  { id: "triggers", label: "Triggers" },
-  { id: "config-json", label: "config.json" },
-  { id: "import-config", label: "Import terminal settings" },
-];
-
 interface ShellIntegrationSessionStatus {
   id: string;
   title: string;
@@ -744,94 +744,6 @@ interface ShellIntegrationSessionStatus {
   shellPromptMarkerSeen?: boolean;
   lastCommand?: { command: string; exitCode?: number | null } | null;
   preview?: { url: string } | null;
-}
-
-function AdvancedSettings({
-  active,
-  onActive,
-  shellIntegrationEnabled,
-  sessions,
-  triggers,
-  configJson,
-  configStatus,
-  imports,
-  importLoading,
-  importError,
-  onShellIntegrationEnabled,
-  onTriggers,
-  onConfigJson,
-  onRefreshConfig,
-  onApplyConfig,
-  onRefreshImports,
-  onAddImport,
-  onApplyImport,
-}: {
-  active: AdvancedSection;
-  onActive: (section: AdvancedSection) => void;
-  shellIntegrationEnabled: boolean;
-  sessions: ShellIntegrationSessionStatus[];
-  triggers: TerminalTrigger[];
-  configJson: string;
-  configStatus: string | null;
-  imports: TerminalConfigImport[];
-  importLoading: boolean;
-  importError: string | null;
-  onShellIntegrationEnabled: (enabled: boolean) => void;
-  onTriggers: (triggers: TerminalTrigger[]) => void;
-  onConfigJson: (value: string) => void;
-  onRefreshConfig: () => void;
-  onApplyConfig: () => void;
-  onRefreshImports: () => void;
-  onAddImport: (item: TerminalConfigImport) => void;
-  onApplyImport: (item: TerminalConfigImport, options: ImportOptions) => void;
-}) {
-  return (
-    <section className="settings-section advanced-settings" aria-label="Advanced settings">
-      <div className="settings-subnav" role="tablist" aria-label="Advanced settings sections">
-        {ADVANCED_SECTIONS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={active === item.id ? "active" : ""}
-            role="tab"
-            aria-selected={active === item.id}
-            onClick={() => onActive(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      {active === "shell-integration" ? (
-        <ShellIntegrationSettings
-          enabled={shellIntegrationEnabled}
-          sessions={sessions}
-          onEnabled={onShellIntegrationEnabled}
-        />
-      ) : null}
-      {active === "triggers" ? (
-        <TriggersSettings triggers={triggers} onTriggers={onTriggers} />
-      ) : null}
-      {active === "config-json" ? (
-        <ConfigJsonSettings
-          value={configJson}
-          status={configStatus}
-          onValue={onConfigJson}
-          onRefresh={onRefreshConfig}
-          onApply={onApplyConfig}
-        />
-      ) : null}
-      {active === "import-config" ? (
-        <ImportConfigSettings
-          imports={imports}
-          loading={importLoading}
-          error={importError}
-          onRefresh={onRefreshImports}
-          onAddImport={onAddImport}
-          onApply={onApplyImport}
-        />
-      ) : null}
-    </section>
-  );
 }
 
 function TriggersSettings({

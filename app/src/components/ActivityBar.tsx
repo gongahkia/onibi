@@ -25,6 +25,8 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const setActiveSession = useSessionStore((state) => state.setActiveSession);
+  const selectFile = useSessionStore((state) => state.selectFile);
 
   const topItems: ActivityItem[] = [
     { id: "files", label: "Explorer", icon: "codicon-files" },
@@ -43,21 +45,50 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
     setView(id);
   }
 
+  const activeSession = useMemo(
+    () =>
+      activeSessionId
+        ? sessions.find((session) => session.id === activeSessionId)
+        : null,
+    [activeSessionId, sessions],
+  );
   const activeWorkspaceId = useMemo(() => {
-    const activeSession = activeSessionId
-      ? sessions.find((session) => session.id === activeSessionId)
-      : null;
     return activeSession?.workspaceId ?? selectedFile?.workspaceId ?? workspaces[0]?.id ?? null;
-  }, [activeSessionId, selectedFile?.workspaceId, sessions, workspaces]);
+  }, [activeSession?.workspaceId, selectedFile?.workspaceId, workspaces]);
+  const terminalActive = selectedFile === null && Boolean(activeSessionId);
+
+  function handleTerminalSelect() {
+    const target =
+      activeSession ??
+      sessions.find((session) => session.workspaceId === activeWorkspaceId) ??
+      sessions[0] ??
+      null;
+    if (target) {
+      setActiveSession(target.id);
+    } else {
+      selectFile(null);
+    }
+  }
 
   return (
     <nav className="activity-bar" aria-label="Activity bar">
       <div className="activity-bar-group">
+        <button
+          type="button"
+          className={`activity-bar-item ${terminalActive ? "active" : ""}`}
+          aria-label="Terminal"
+          title="Terminal"
+          onClick={handleTerminalSelect}
+        >
+          <i className="codicon codicon-terminal" aria-hidden="true" />
+        </button>
         {topItems.map((item) => (
           <button
             key={item.id}
             type="button"
-            className={`activity-bar-item ${view === item.id && !sidebarCollapsed ? "active" : ""}`}
+            className={`activity-bar-item ${
+              view === item.id && !sidebarCollapsed && !terminalActive ? "active" : ""
+            }`}
             aria-label={item.label}
             title={item.label}
             onClick={() => handleSelect(item.id)}
