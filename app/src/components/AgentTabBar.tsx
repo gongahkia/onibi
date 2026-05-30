@@ -216,7 +216,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           title="New session"
           onClick={() => setNewSessionOpen(true)}
         >
-          +
+          <i className="codicon codicon-add" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -254,7 +254,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           title="Settings"
           onClick={() => setSettingsOpen(true)}
         >
-          ⚙
+          <i className="codicon codicon-settings-gear" aria-hidden="true" />
         </button>
       </div>
       <NewSessionDialog

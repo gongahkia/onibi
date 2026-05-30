@@ -70,8 +70,6 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
             ) : null}
           </button>
         ))}
-      </div>
-      <div className="activity-bar-group bottom">
         <button
           type="button"
           className="activity-bar-item"
