@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { claimSchema, type Claim, type EvidenceRef } from "../types/claim.js";
 import { amcacheEntryToEvidenceRef, matchByPathOrHash, parseAmcacheOutput } from "./amcache.js";
+import { matchPcapNetworkConnection, parseFlowSummaryJson } from "./pcap.js";
 import { matchByExecutable, parsePrefetchOutput, prefetchEntryToEvidenceRef } from "./prefetch.js";
 import {
   matchByShimcachePath,
@@ -13,6 +14,7 @@ import { matchClaimToRows, parseTimelineCsv, timelineMatchToEvidenceRef } from "
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
 export { hashEvidenceRow } from "./hashing.js";
+export { parseFlowSummaryJson, matchPcapNetworkConnection } from "./pcap.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
 export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
 export { parseSrumOutput, matchBySrumApp } from "./srum.js";
@@ -39,9 +41,12 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
       break;
+    case "network_connection":
+      additions.push(...linkPcapEvidence(claim, caseDir, files));
+      additions.push(...linkTimelineEvidence(claim, caseDir, files));
+      break;
     case "file_presence":
     case "persistence":
-    case "network_connection":
     case "timeline_ordering":
     case "user_activity":
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
@@ -134,6 +139,17 @@ function linkSrumEvidence(claim: Claim, caseDir: string, files: readonly string[
     });
 }
 
+function linkPcapEvidence(claim: Claim, caseDir: string, files: readonly string[]): EvidenceRef[] {
+  return files
+    .filter((file) => isPcapFlowSummaryFile(file))
+    .flatMap((file) =>
+      matchPcapNetworkConnection(claim, parseFlowSummaryJson(file)).map((ref) => ({
+        ...ref,
+        artifact: relativeArtifact(caseDir, ref.artifact)
+      }))
+    );
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -183,6 +199,19 @@ function isShimcacheFile(path: string): boolean {
 function isSrumFile(path: string): boolean {
   const lower = path.toLowerCase();
   return lower.includes("srum") && /\.(?:txt|csv|log|json)$/u.test(lower);
+}
+
+function isPcapFlowSummaryFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith(".json") &&
+    (lower.includes("flow-summary") ||
+      lower.includes("flow_summary") ||
+      lower.includes("pcap") ||
+      lower.includes("conn.log") ||
+      lower.includes("conn-log") ||
+      /[/\\]conn\.json$/u.test(lower))
+  );
 }
 
 function relativeArtifact(caseDir: string, path: string): string {

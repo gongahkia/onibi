@@ -5,7 +5,7 @@ export function verifyNetworkConnectionClaim(claim: Claim): ClaimStatus {
   if (supports.some((support) => support.includes("contradict"))) {
     return "contradicted";
   }
-  if (supports.includes("netflow-or-pcap")) {
+  if (supports.includes("netflow-or-pcap") || supports.includes("pcap_flow_summary")) {
     return "confirmed";
   }
   if (supports.includes("dns_lookup") || supports.includes("dns-lookup") || supports.length > 0) {
