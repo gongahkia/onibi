@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useSessionStore,
   type WorkspaceSidebarView,
 } from "../lib/sessions";
 import { ActivityCenter } from "./ActivityCenter";
-import { SettingsPane } from "./SettingsPane";
 
 interface ActivityItem {
   id: WorkspaceSidebarView;
@@ -20,9 +19,12 @@ interface ActivityBarProps {
 
 export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarProps) {
   const [activityOpen, setActivityOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
+  const sessions = useSessionStore((state) => state.sessions);
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const selectedFile = useSessionStore((state) => state.selectedFile);
+  const workspaces = useSessionStore((state) => state.workspaces);
 
   const topItems: ActivityItem[] = [
     { id: "files", label: "Explorer", icon: "codicon-files" },
@@ -40,6 +42,13 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
     }
     setView(id);
   }
+
+  const activeWorkspaceId = useMemo(() => {
+    const activeSession = activeSessionId
+      ? sessions.find((session) => session.id === activeSessionId)
+      : null;
+    return activeSession?.workspaceId ?? selectedFile?.workspaceId ?? workspaces[0]?.id ?? null;
+  }, [activeSessionId, selectedFile?.workspaceId, sessions, workspaces]);
 
   return (
     <nav className="activity-bar" aria-label="Activity bar">
@@ -70,20 +79,18 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
           title="Activity"
           onClick={() => setActivityOpen(true)}
         >
-          <i className="codicon codicon-pulse" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="activity-bar-item"
-          aria-label="Settings"
-          title="Manage"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <i className="codicon codicon-settings-gear" aria-hidden="true" />
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path d="M12 7v5l3 2" />
+            <path d="M5.6 5.9A8.5 8.5 0 1 1 4 12" />
+            <path d="M4 4v5h5" />
+          </svg>
         </button>
       </div>
-      <ActivityCenter open={activityOpen} onClose={() => setActivityOpen(false)} />
-      <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ActivityCenter
+        open={activityOpen}
+        onClose={() => setActivityOpen(false)}
+        workspaceId={activeWorkspaceId}
+      />
     </nav>
   );
 }

@@ -136,7 +136,11 @@ function displayLog(text: string, limit = 8000): string {
   return sanitized.length > limit ? sanitized.slice(-limit).trimStart() : sanitized;
 }
 
-export function SessionHistoryView() {
+export interface SessionHistoryViewProps {
+  workspaceId?: string | null;
+}
+
+export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [now, setNow] = useState(Date.now());
@@ -161,9 +165,47 @@ export function SessionHistoryView() {
     [workspaces],
   );
 
+  const scopedSessions = useMemo(
+    () =>
+      workspaceId
+        ? sessions.filter((session) => session.workspaceId === workspaceId)
+        : sessions,
+    [sessions, workspaceId],
+  );
+  const scopedSessionIds = useMemo(
+    () => new Set(scopedSessions.map((session) => session.id)),
+    [scopedSessions],
+  );
+  const allCommandBlocks = useMemo(
+    () =>
+      [...Object.values(activeCommandBlocks), ...commandBlocks].filter(
+        (block, index, all) =>
+          all.findIndex((item) => item.id === block.id) === index,
+      ),
+    [activeCommandBlocks, commandBlocks],
+  );
+  const scopedCommandBlocks = useMemo(
+    () =>
+      workspaceId
+        ? allCommandBlocks.filter((block) => block.workspaceId === workspaceId)
+        : allCommandBlocks,
+    [allCommandBlocks, workspaceId],
+  );
+  const scopedEvents = useMemo(
+    () =>
+      workspaceId
+        ? events.filter(
+            (event) =>
+              event.workspaceId === workspaceId ||
+              (event.sessionId ? scopedSessionIds.has(event.sessionId) : false),
+          )
+        : events,
+    [events, scopedSessionIds, workspaceId],
+  );
+
   const latestSessions = useMemo(
     () =>
-      sessions
+      scopedSessions
         .filter((session) => {
           if (filter === "commands" || filter === "logs" || filter === "events") {
             return false;
@@ -204,13 +246,12 @@ export function SessionHistoryView() {
           }
           return right.createdAt - left.createdAt;
         }),
-    [filter, now, query, sessions, workspaceById],
+    [filter, now, query, scopedSessions, workspaceById],
   );
 
   const latestBlocks = useMemo(
     () =>
-      [...Object.values(activeCommandBlocks), ...commandBlocks]
-        .filter((block, index, all) => all.findIndex((item) => item.id === block.id) === index)
+      scopedCommandBlocks
         .filter((block) => {
           if (filter === "current" || filter === "logs" || filter === "events") {
             return false;
@@ -234,12 +275,12 @@ export function SessionHistoryView() {
           );
         })
         .sort((a, b) => b.startedAt - a.startedAt),
-    [activeCommandBlocks, commandBlocks, filter, query, workspaceById],
+    [filter, query, scopedCommandBlocks, workspaceById],
   );
 
   const latestTranscripts = useMemo(
     () =>
-      sessions
+      scopedSessions
         .filter((session) => {
           if (filter === "current" || filter === "attention" || filter === "commands" || filter === "events") {
             return false;
@@ -265,12 +306,12 @@ export function SessionHistoryView() {
             (b.transcript?.updatedAt ?? b.createdAt) -
             (a.transcript?.updatedAt ?? a.createdAt),
         ),
-    [filter, query, sessions, workspaceById],
+    [filter, query, scopedSessions, workspaceById],
   );
 
   const latestEvents = useMemo(
     () =>
-      [...events]
+      [...scopedEvents]
         .filter((event) => {
           if (filter !== "all" && filter !== "events") {
             return false;
@@ -284,7 +325,7 @@ export function SessionHistoryView() {
           );
         })
         .sort((a, b) => b.timestamp - a.timestamp),
-    [events, filter, query, workspaceById],
+    [filter, query, scopedEvents, workspaceById],
   );
 
   const visibleText = useMemo(
@@ -347,6 +388,7 @@ export function SessionHistoryView() {
       exportedAt: new Date().toISOString(),
       filter,
       query,
+      workspaceId,
       sessions: latestSessions,
       commandBlocks: latestBlocks,
       transcripts: latestTranscripts.map((session) => ({
@@ -439,7 +481,7 @@ export function SessionHistoryView() {
       })}
       {latestBlocks.map((block) => {
         const workspace = workspaceById.get(block.workspaceId);
-        const session = sessions.find((item) => item.id === block.sessionId);
+        const session = scopedSessions.find((item) => item.id === block.sessionId);
         return (
           <CommandBlockRow
             key={block.id}

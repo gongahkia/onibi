@@ -48,6 +48,11 @@ describe("App", () => {
     expect(screen.getByRole("main").getAttribute("data-tab-orientation")).toBe(
       "vertical",
     );
+    const appBody = document.querySelector(".app-body");
+    expect(
+      appBody?.children[0].querySelector('[data-testid="agent-tab-bar"]'),
+    ).toBeTruthy();
+    expect(appBody?.children[1].getAttribute("aria-label")).toBe("Activity bar");
   });
 
   test("renders horizontal tab layout when configured", () => {

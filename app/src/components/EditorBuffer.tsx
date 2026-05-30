@@ -312,6 +312,7 @@ const editorHighlightStyle = HighlightStyle.define([
 interface CodeEditorProps {
   value: string;
   path: string;
+  visible: boolean;
   fontFamily?: string;
   onChange: (value: string) => void;
   onSave: () => void;
@@ -322,6 +323,7 @@ interface CodeEditorProps {
 function CodeEditor({
   value,
   path,
+  visible,
   fontFamily,
   onChange,
   onSave,
@@ -421,6 +423,17 @@ function CodeEditor({
       });
     }
   }, [value]);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    requestAnimationFrame(() => view.requestMeasure());
+  }, [visible]);
 
   return (
     <div
@@ -628,6 +641,7 @@ export function EditorBuffer({
   const previewUrlRef = useRef<string | null>(null);
   const dirty = content !== savedContent;
   const isMarkdown = isMarkdownPath(path);
+  const visible = !bufferKeyProp || activeBufferKey === bufferKeyProp;
 
   useSyncedScroll(editorScroller, markdownPreview, state === "ready" && isMarkdown);
 
@@ -763,6 +777,7 @@ export function EditorBuffer({
           <div className="editor-markdown-split">
             <CodeEditor
               path={path}
+              visible={visible}
               fontFamily={fontFamily}
               value={content}
               onChange={setContent}
@@ -780,6 +795,7 @@ export function EditorBuffer({
         ) : (
           <CodeEditor
             path={path}
+            visible={visible}
             fontFamily={fontFamily}
             value={content}
             onChange={setContent}

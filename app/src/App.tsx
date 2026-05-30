@@ -87,13 +87,7 @@ function App() {
           )}
         </PanelGroup>
       ) : (
-        <PanelGroup orientation="horizontal">
-          <Panel defaultSize="6%" minSize="4%" maxSize="10%" id="sessions-panel">
-            <AgentTabBar orientation="vertical" onOpenApprovals={openApprovalsView} />
-          </Panel>
-          <PanelResizeHandle className="panel-resize-handle" />
-          <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
-        </PanelGroup>
+        <ContentPanels sidebarCollapsed={sidebarCollapsed} />
       )}
     </main>
   );
@@ -103,6 +97,14 @@ function App() {
       <div className="app-frame">
         <TitleBar />
         <div className="app-body">
+          {horizontalTabs ? null : (
+            <aside className="agent-rail-shell" aria-label="Session rail">
+              <AgentTabBar
+                orientation="vertical"
+                onOpenApprovals={openApprovalsView}
+              />
+            </aside>
+          )}
           <ActivityBar
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((value) => !value)}

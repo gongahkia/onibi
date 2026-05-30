@@ -3,9 +3,10 @@ import { SessionHistoryView } from "./SessionHistoryView";
 export interface ActivityCenterProps {
   open: boolean;
   onClose: () => void;
+  workspaceId?: string | null;
 }
 
-export function ActivityCenter({ open, onClose }: ActivityCenterProps) {
+export function ActivityCenter({ open, onClose, workspaceId = null }: ActivityCenterProps) {
   if (!open) {
     return null;
   }
@@ -32,7 +33,7 @@ export function ActivityCenter({ open, onClose }: ActivityCenterProps) {
           </button>
         </header>
         <div className="activity-center-body">
-          <SessionHistoryView />
+          <SessionHistoryView workspaceId={workspaceId} />
         </div>
       </section>
     </div>

@@ -54,6 +54,24 @@ describe("EditorBuffer", () => {
     });
   });
 
+  test("remeasures CodeMirror when a hidden buffer becomes active", async () => {
+    const measureSpy = vi.spyOn(EditorView.prototype, "requestMeasure");
+    const key = "file:workspace:/repo:/repo/a.txt";
+    useSessionStore.setState({ activeBufferKey: "other-buffer" });
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([104, 105]);
+
+    render(<EditorBuffer path="/repo/a.txt" workspaceRoot="/repo" bufferKey={key} />);
+    await screen.findByLabelText("Editor buffer");
+    measureSpy.mockClear();
+
+    act(() => {
+      useSessionStore.setState({ activeBufferKey: key });
+    });
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalled());
+    measureSpy.mockRestore();
+  });
+
   test("refuses binary files", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([0, 1, 2]);
     render(<EditorBuffer path="/repo/blob.bin" workspaceRoot="/repo" />);

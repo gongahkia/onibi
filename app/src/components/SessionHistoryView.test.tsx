@@ -145,4 +145,59 @@ describe("SessionHistoryView", () => {
     fireEvent.click(copyLogButtons[copyLogButtons.length - 1]);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Claude\nTry `fix`");
   });
+
+  test("can scope activity to one workspace", () => {
+    useSessionStore.setState((state) => ({
+      workspaces: [
+        ...state.workspaces,
+        { id: "workspace:/other", path: "/other", name: "other" },
+      ],
+      sessions: [
+        ...state.sessions,
+        {
+          id: "pty-2",
+          agent: "gemini",
+          workspaceId: "workspace:/other",
+          title: "Gemini",
+          status: "running",
+          createdAt: Date.now(),
+          pendingApprovals: [],
+          cwd: "/other",
+          lastExitCode: null,
+          lastTrigger: null,
+        },
+      ],
+      commandBlocks: [
+        block(),
+        block({
+          id: "cmd-2",
+          sessionId: "pty-2",
+          workspaceId: "workspace:/other",
+          agent: "gemini",
+          command: "npm build",
+          cwd: "/other",
+          outputPreview: "other output",
+        }),
+      ],
+      sessionEvents: [
+        {
+          id: "event-1",
+          timestamp: 1_700_000_003_000,
+          type: "file-opened",
+          workspaceId: "workspace:/other",
+          sessionId: "pty-2",
+          agent: "gemini",
+          summary: "opened other file",
+        },
+      ],
+    }));
+
+    render(<SessionHistoryView workspaceId="workspace:/repo" />);
+
+    expect(screen.getByText("Codex · Running")).toBeTruthy();
+    expect(screen.getByText("pnpm test")).toBeTruthy();
+    expect(screen.queryByText("Gemini · Running")).toBeNull();
+    expect(screen.queryByText("npm build")).toBeNull();
+    expect(screen.queryByText("opened other file")).toBeNull();
+  });
 });

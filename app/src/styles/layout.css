@@ -87,6 +87,7 @@ button {
 }
 
 .app-shell {
+  flex: 1 1 auto;
   width: 100%;
   height: 100%;
   min-width: 720px;
@@ -191,6 +192,16 @@ button {
 
 .activity-bar-item .codicon {
   font-size: 24px;
+}
+
+.activity-bar-item svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .activity-bar-badge {
@@ -320,6 +331,14 @@ button.status-bar-item:hover {
   border-right: 1px solid var(--border);
 }
 
+.agent-rail-shell {
+  flex: 0 0 clamp(88px, 6vw, 128px);
+  min-width: 88px;
+  max-width: 128px;
+  min-height: 0;
+  background: var(--bg-0);
+}
+
 .agent-tab-bar.horizontal {
   align-items: center;
   border-right: 0;
@@ -363,6 +382,23 @@ button.status-bar-item:hover {
 .agent-tab-bar.horizontal .agent-actions {
   flex-direction: row;
   margin-left: auto;
+}
+
+.agent-action-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #8aa4ff;
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 
 .tab,
@@ -2437,8 +2473,8 @@ button.status-bar-item:hover {
 }
 
 .empty-state.welcome {
-  align-items: start;
-  padding: 64px 32px;
+  align-items: center;
+  padding: 40px 32px;
 }
 
 .welcome-content {
@@ -2447,44 +2483,6 @@ button.status-bar-item:hover {
   display: flex;
   flex-direction: column;
   gap: 32px;
-}
-
-.welcome-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  text-align: center;
-}
-
-.welcome-logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #ffffff;
-}
-
-.welcome-logo .codicon {
-  font-size: 40px;
-}
-
-.welcome-title {
-  margin: 0;
-  color: var(--fg-0);
-  font-size: 32px;
-  font-weight: 300;
-  letter-spacing: 0.01em;
-}
-
-.welcome-subtitle {
-  margin: 0;
-  color: var(--fg-2);
-  font-size: 14px;
-  max-width: 480px;
 }
 
 .welcome-grid {
@@ -2561,6 +2559,42 @@ button.status-bar-item:hover {
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.clone-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.clone-source-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.clone-source-button:hover {
+  border-color: var(--accent-2);
+}
+
+.clone-source-button span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.clone-source-button span:last-child {
+  color: var(--fg-1);
+  font-size: 12px;
 }
 
 .editor-buffer {
