@@ -2670,6 +2670,12 @@ button {
   white-space: pre-wrap;
 }
 
+.transcript-output {
+  max-height: 340px;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
 .history-files,
 .history-actions,
 .trigger-action-row {

@@ -123,4 +123,26 @@ describe("SessionHistoryView", () => {
     expect(screen.getByText("Codex · Chat Log")).toBeTruthy();
     expect(screen.getByText(/inspected the repository/)).toBeTruthy();
   });
+
+  test("sanitizes terminal control noise from retained chat logs", () => {
+    useSessionStore.setState((state) => ({
+      sessions: state.sessions.map((session) => ({
+        ...session,
+        transcript: {
+          text: "\u001b[31mClaude\u001b[0m\r\n\ue0b6████\ue0b4\n──────\nTry `fix`\n",
+          updatedAt: 1_700_000_002_000,
+        },
+      })),
+    }));
+
+    render(<SessionHistoryView />);
+
+    const output = screen.getByText(/Claude/);
+    expect(output.textContent).toContain("Try `fix`");
+    expect(output.textContent).not.toContain("\u001b");
+    expect(output.textContent).not.toContain("\ue0b6");
+    const copyLogButtons = screen.getAllByText("Copy Log");
+    fireEvent.click(copyLogButtons[copyLogButtons.length - 1]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Claude\nTry `fix`");
+  });
 });

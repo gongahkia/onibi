@@ -79,6 +79,31 @@ describe("EditorBuffer", () => {
     expect(within(preview).getByText("raw html").tagName).toBe("STRONG");
   });
 
+  test("resolves local markdown images through workspace previews", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_read_file") {
+        return Array.from(
+          new TextEncoder().encode(
+            '# Title\n\n<img src="assets/logo.png" alt="Local logo" />',
+          ),
+        );
+      }
+      if (command === "fs_read_preview_file") {
+        return [137, 80, 78, 71];
+      }
+      return null;
+    });
+    render(<EditorBuffer path="/repo/docs/README.md" workspaceRoot="/repo" />);
+
+    const image = await screen.findByAltText("Local logo");
+
+    await waitFor(() => expect(image.getAttribute("src")).toContain("blob:"));
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "fs_read_preview_file",
+      { root: "/repo", path: "/repo/docs/assets/logo.png" },
+    );
+  });
+
   test("syncs markdown editor and preview scrolling", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce(
       Array.from(new TextEncoder().encode("# Title\n\n".repeat(80))),
@@ -104,15 +129,18 @@ describe("EditorBuffer", () => {
     await waitFor(() => expect(scroller.scrollTop).toBe(125));
   });
 
-  test("renders image files as previews", async () => {
+  test("renders image files as previews, including ico", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([137, 80, 78, 71]);
-    render(<EditorBuffer path="/repo/image.png" workspaceRoot="/repo" />);
+    render(<EditorBuffer path="/repo/favicon.ico" workspaceRoot="/repo" />);
 
-    const image = await screen.findByAltText("/repo/image.png");
+    const image = await screen.findByAltText("/repo/favicon.ico");
     expect(image.getAttribute("src")).toContain("blob:");
     expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
       "fs_read_preview_file",
-      { root: "/repo", path: "/repo/image.png" },
+      { root: "/repo", path: "/repo/favicon.ico" },
+    );
+    expect((vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob).type).toBe(
+      "image/x-icon",
     );
   });
 });

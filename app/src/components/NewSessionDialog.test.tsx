@@ -137,4 +137,31 @@ describe("NewSessionDialog", () => {
     });
     expect(useSessionStore.getState().activeSessionId).toBe("pty-codex");
   });
+
+  test("shows actionable copy when an agent binary is missing", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_resolve_binary") {
+        return null;
+      }
+      return null;
+    });
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "pi",
+      },
+    });
+
+    render(<NewSessionDialog open onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText(/pi \(missing\)/i)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText("Start"));
+
+    expect(
+      await screen.findByText(
+        "Pi is not on PATH. Install it, or update its launch command in Settings > Agents.",
+      ),
+    ).toBeTruthy();
+  });
 });
