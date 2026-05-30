@@ -1,12 +1,24 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AttackTechnique, Claim, ClaimLedger, ClaimStatus } from "../types/claim.js";
 import type { FirewallEvent } from "../types/firewall.js";
 import type { RepairTraceRow } from "../repair/loop.js";
+import { runBenchmark } from "../benchmark/benchmark.js";
+import type {
+  BenchmarkCaseManifest,
+  BenchmarkReport,
+  ExpectedFinding,
+  GroundTruthMatch
+} from "../benchmark/types.js";
 
 export interface AccuracyReportInput {
   readonly baselineLedger: ClaimLedger;
   readonly repairedLedger: ClaimLedger;
   readonly repairTrace: readonly RepairTraceRow[];
   readonly firewallEvents: readonly FirewallEvent[];
+  readonly caseManifest?: BenchmarkCaseManifest | undefined;
+  readonly expectedFindings?: readonly ExpectedFinding[] | undefined;
 }
 
 export function renderAccuracyReport(input: AccuracyReportInput): string {
@@ -29,6 +41,7 @@ export function renderAccuracyReport(input: AccuracyReportInput): string {
   const repairResults = input.repairTrace.filter((row) => row.event === "repair_result").length;
   const successfulRepairs = rows.filter((row) => row.outcome !== "unchanged").length;
   const attackCoverage = attackCoverageRows(input.repairedLedger.claims);
+  const benchmark = benchmarkReport(input);
 
   return [
     "# KelpClaw Find Evil Accuracy Report",
@@ -70,6 +83,8 @@ export function renderAccuracyReport(input: AccuracyReportInput): string {
             `| ${row.technique.id} | ${escapeMarkdown(row.technique.name)} | ${escapeMarkdown(row.technique.tactic)} | ${row.confirmedClaims} |`
         )
       : ["| _none_ | _none_ | _none_ | 0 |"]),
+    "",
+    ...benchmarkSection(benchmark),
     ""
   ].join("\n");
 }
@@ -120,6 +135,82 @@ function attackCoverageRows(claims: readonly Claim[]): AttackCoverageRow[] {
       confirmedClaims: row.confirmedClaimIds.size
     }))
     .sort((left, right) => left.technique.id.localeCompare(right.technique.id));
+}
+
+function benchmarkReport(input: AccuracyReportInput): BenchmarkReport | undefined {
+  const caseManifest =
+    input.caseManifest ?? (input.expectedFindings ? input.expectedFindings : defaultCaseManifest());
+  if (!caseManifest) {
+    return undefined;
+  }
+  return runBenchmark(caseManifest, input.repairedLedger);
+}
+
+function defaultCaseManifest(): string | undefined {
+  for (const path of defaultCaseManifestPaths()) {
+    if (existsSync(path)) {
+      return readFileSync(path, "utf8");
+    }
+  }
+  return undefined;
+}
+
+function defaultCaseManifestPaths(): string[] {
+  const relativePath = "examples/findevil-sift-sentinel/case.yml";
+  return [relativePath, join(dirname(fileURLToPath(import.meta.url)), "../../../..", relativePath)];
+}
+
+function benchmarkSection(report: BenchmarkReport | undefined): string[] {
+  if (!report) {
+    return [];
+  }
+  const rows = [...report.matches, ...report.unmatchedFalsePositiveClaims];
+  return [
+    "## Benchmark against ground truth",
+    "",
+    "| Metric | Value |",
+    "|---|---:|",
+    `| Expected findings | ${report.expectedFindings} |`,
+    `| Evaluated claims | ${report.evaluatedClaims} |`,
+    `| True positives | ${report.truePositives} |`,
+    `| False positives | ${report.falsePositives} |`,
+    `| False negatives | ${report.falseNegatives} |`,
+    `| Precision | ${formatRatio(report.precision)} |`,
+    `| Recall | ${formatRatio(report.recall)} |`,
+    `| F1 | ${formatRatio(report.f1)} |`,
+    "",
+    "| Expected finding | Expected claim | Claim | Status | Accepted techniques | Claim techniques | Matched | TP | FP | FN |",
+    "|---|---|---|---|---|---|---|---:|---:|---:|",
+    ...(rows.length > 0
+      ? rows.map((row) => benchmarkTableRow(row))
+      : ["| _none_ | _none_ | _none_ | _none_ | _none_ | _none_ | _none_ | 0 | 0 | 0 |"])
+  ];
+}
+
+function benchmarkTableRow(row: GroundTruthMatch): string {
+  return [
+    escapeMarkdown(row.expectedFindingId),
+    escapeMarkdown(row.expectedClaimId),
+    escapeMarkdown(row.claimId ?? "_missing_"),
+    row.claimStatus ?? "_missing_",
+    techniqueList(row.acceptedTechniqueIds),
+    techniqueList(row.claimTechniqueIds),
+    techniqueList(row.matchedTechniqueIds),
+    row.truePositive ? "1" : "0",
+    row.falsePositive ? "1" : "0",
+    row.falseNegative ? "1" : "0"
+  ]
+    .join(" | ")
+    .replace(/^/u, "| ")
+    .replace(/$/u, " |");
+}
+
+function techniqueList(ids: readonly string[]): string {
+  return ids.length > 0 ? ids.map(escapeMarkdown).join(", ") : "_none_";
+}
+
+function formatRatio(value: number): string {
+  return value.toFixed(3);
 }
 
 function outcomeFor(baseline: Claim, repaired: Claim | undefined): string {
