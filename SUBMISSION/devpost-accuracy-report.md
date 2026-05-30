@@ -1,41 +1,65 @@
 # Accuracy Report
 
-This report uses the latest sentinel run under `.kelpclaw/findevil/sentinel/`. The only run directory present under `.kelpclaw/findevil/` is `.kelpclaw/findevil/sentinel/`.
+This report cites the canonical sentinel rerun under `.kelpclaw/findevil/sentinel/`. The rerun completed as `findevil-sift-sentinel-demo-001-mps2r9yn`.
+
+Public repository: `https://github.com/gongahkia/kelp-claw`
 
 ## Numbers From The Run
 
-| Metric                                | Actual value | Source                                                                                                   |
-| ------------------------------------- | -----------: | -------------------------------------------------------------------------------------------------------- |
-| Baseline claims                       |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                         |
-| Repaired claims                       |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                         |
-| Repair prompts                        |           11 | `.kelpclaw/findevil/sentinel/accuracy-report.md` and `.kelpclaw/findevil/sentinel/repair-trace.jsonl`    |
-| Repair results                        |           11 | `.kelpclaw/findevil/sentinel/accuracy-report.md` and `.kelpclaw/findevil/sentinel/repair-trace.jsonl`    |
-| Successful status changes             |            5 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                         |
-| Firewall blocks                       |            1 | `.kelpclaw/findevil/sentinel/accuracy-report.md` and `.kelpclaw/findevil/sentinel/firewall-events.jsonl` |
-| Baseline unsupported claims           |            6 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                         |
-| Repaired confirmed claims             |            3 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                         |
-| Evidence refs on repaired `claim-001` |            4 | `.kelpclaw/findevil/sentinel/accuracy-report.md` and `.kelpclaw/findevil/sentinel/claim-ledger.json`     |
-| Evidence files hashed before analysis |           13 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                      |
-| Evidence files hashed after analysis  |           13 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                      |
-| Added evidence files                  |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                      |
-| Removed evidence files                |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                      |
-| Changed evidence files                |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                      |
-| Policy denials                        |            1 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json`                                                   |
-| Uncorrected policy denials            |            0 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json`                                                   |
-| Files checked in audit bundle         |           14 | `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json`                                                 |
+| Metric | Actual value | Source |
+|---|---:|---|
+| Baseline claims | 10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired claims | 10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repair prompts | 11 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/repair-trace.jsonl` |
+| Repair results | 11 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/repair-trace.jsonl` |
+| Successful status changes | 5 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Firewall blocks | 1 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/firewall-events.jsonl` |
+| Baseline unsupported claims | 6 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired confirmed claims | 3 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired inferred claims | 4 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired unsupported claims | 1 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired contradicted claims | 1 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Repaired unverifiable claims | 1 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Evidence refs on repaired `claim-001` | 4 | `.kelpclaw/findevil/sentinel/claim-ledger.json` |
+| Evidence files hashed before analysis | 13 | `.kelpclaw/findevil/sentinel/spoliation-check.json` |
+| Evidence files hashed after analysis | 13 | `.kelpclaw/findevil/sentinel/spoliation-check.json` |
+| Added evidence files | 0 | `.kelpclaw/findevil/sentinel/spoliation-check.json` |
+| Removed evidence files | 0 | `.kelpclaw/findevil/sentinel/spoliation-check.json` |
+| Changed evidence files | 0 | `.kelpclaw/findevil/sentinel/spoliation-check.json` |
+| Policy denials | 1 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json` |
+| Uncorrected policy denials | 0 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json` |
+| Files checked in audit bundle | 18 | `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json` |
+| Agent trace rows | 24 | `.kelpclaw/findevil/sentinel/agent-execution.jsonl` |
+| Repair trace rows | 33 | `.kelpclaw/findevil/sentinel/repair-trace.jsonl` |
+| Firewall event rows | 1 | `.kelpclaw/findevil/sentinel/firewall-events.jsonl` |
+| Taint ledger rows | 106 | `.kelpclaw/findevil/sentinel/taint-ledger.jsonl` |
+| Committee vote rows | 0 | `.kelpclaw/findevil/sentinel/committee-vote.jsonl` |
+
+`committee-vote.jsonl` is present but empty in the canonical offline run because `KELP_FINDEVIL_MODELS` was not set. The committee path is opt-in for runs that provide model credentials.
 
 ## Benchmark Numbers
 
-| Metric            | Actual value | Source                                           |
-| ----------------- | -----------: | ------------------------------------------------ |
-| Expected findings |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Evaluated claims  |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| True positives    |            3 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| False positives   |            0 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| False negatives   |            7 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Precision         |        1.000 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Recall            |        0.300 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| F1                |        0.462 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Metric | Actual value | Source |
+|---|---:|---|
+| Expected findings | 10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Evaluated claims | 10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| True positives | 3 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| False positives | 0 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| False negatives | 7 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Precision | 1.000 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| Recall | 0.300 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+| F1 | 0.462 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+
+## ATT&CK Coverage
+
+| Technique | Name | Tactic | Confirmed claims |
+|---|---|---|---:|
+| T1003 | OS Credential Dumping | credential-access | 0 |
+| T1021 | Remote Services | lateral-movement | 0 |
+| T1059 | Command and Scripting Interpreter | execution | 1 |
+| T1071 | Application Layer Protocol | command-and-control | 1 |
+| T1204 | User Execution | execution | 0 |
+| T1547 | Boot or Logon Autostart Execution | persistence | 1 |
 
 ## Source Excerpts
 
@@ -54,6 +78,10 @@ From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
 
 ```text
 | claim-001 | program_execution | high | unsupported | confirmed | 4 | confirmed |
+| claim-004 | persistence | high | unsupported | confirmed | 1 | confirmed |
+| claim-006 | network_connection | high | unsupported | confirmed | 4 | confirmed |
+| claim-005 | persistence | high | unsupported | inferred | 1 | downgraded-or-retracted |
+| claim-007 | network_connection | high | unsupported | inferred | 1 | downgraded-or-retracted |
 ```
 
 From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
@@ -67,45 +95,12 @@ From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
 | F1 | 0.462 |
 ```
 
-From `.kelpclaw/findevil/sentinel/repair-trace.jsonl`:
-
-```json
-{
-  "timestamp": "2026-05-30T07:45:38.475Z",
-  "iteration": 1,
-  "claimId": "claim-001",
-  "event": "repair_result",
-  "status": "confirmed",
-  "output": "iteration 1: repaired with 4 linked evidence refs"
-}
-```
-
-From `.kelpclaw/findevil/sentinel/firewall-events.jsonl`:
-
-```text
-"eventType":"tainted_instruction_blocked"
-"policyDecision":{"action":"deny","matchedRuleIds":["block-tainted-instruction-text"],"reason":"Case-derived text cannot become an operational instruction."}
-```
-
-From `.kelpclaw/findevil/sentinel/spoliation-check.json`:
-
-```text
-"ok": true
-"before": [
-"after": [
-"added": [],
-"removed": [],
-"changed": []
-```
-
-The opened spoliation JSON contains 13 objects in `before`, 13 objects in `after`, and empty `added`, `removed`, and `changed` arrays.
-
 From `.kelpclaw/findevil/sentinel/audit-bundle/result.json`:
 
 ```json
 {
   "ok": true,
-  "runId": "findevil-sift-sentinel-demo-001-mps1qirn",
+  "runId": "findevil-sift-sentinel-demo-001-mps2r9yn",
   "status": "succeeded",
   "mode": "sentinel",
   "policyDenials": 1,
@@ -113,25 +108,31 @@ From `.kelpclaw/findevil/sentinel/audit-bundle/result.json`:
 }
 ```
 
-From `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json`, the opened `files` array contains fourteen artifacts:
+From `.kelpclaw/findevil/sentinel/spoliation-check.json`, the opened JSON contains 13 objects in `before`, 13 objects in `after`, and empty `added`, `removed`, and `changed` arrays.
+
+From `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json`, the opened `files` array contains 18 artifacts:
 
 ```text
 accuracy-report.md
 agent-execution.jsonl
+amcache/Amcache-evidence.json
 claim-ledger.json
 committee-vote.jsonl
 compatibility.json
 evidence-manifest.json
 firewall-events.jsonl
 index.html
+pcap/flow-summary.json
 policy-decisions.json
+prefetch/POWERSHELL.EXE-A9B4C2D1.json
 redaction-report.json
 repair-trace.jsonl
 result.json
 spoliation-check.json
 taint-ledger.jsonl
+timeline.csv
 ```
 
 ## Honest Interpretation
 
-This is a compact synthetic evaluation, not a broad benchmark. The current run confirms 3 of 10 expected findings with accepted ATT&CK techniques, blocks one hostile evidence instruction, preserves the original evidence tree, and packages the result for review. It does not yet prove general incident-response accuracy across multiple real-world cases.
+This is a compact synthetic evaluation, not a broad real-world benchmark. The current run confirms 3 of 10 expected findings with accepted ATT&CK techniques, blocks one hostile evidence instruction, preserves the original evidence tree, and packages the result for review. It does not yet prove general incident-response accuracy across multiple cases.

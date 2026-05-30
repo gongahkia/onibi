@@ -6,6 +6,10 @@ KelpClaw SIFT Sentinel turns Protocol SIFT output into a defensible autonomous D
 
 KelpClaw is the verification and containment harness around Claude Code and Protocol SIFT for the SANS Find Evil! hackathon. Claude Code provides the required agentic framework. Protocol SIFT provides the SIFT Workstation MCP bridge. KelpClaw makes the agent's incident-response output defensible by checking claims against evidence, blocking evidence-borne instructions, proving original evidence hashes still match, and preserving a signed audit trail.
 
+Public repository: https://github.com/gongahkia/kelp-claw
+
+Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
+
 ## What Is Novel In This Submission
 
 The following work is scoped as post-2026-04-15 hackathon contribution:
@@ -13,6 +17,11 @@ The following work is scoped as post-2026-04-15 hackathon contribution:
 - `packages/findevil/` - Phase 1 package for claim schema, report extraction, evidence linking, verifier rules, repair prompts, taint tracking, instruction firewall, and spoliation guard.
 - `examples/findevil-sift-sentinel/` - Phase 1 runnable SIFT Sentinel example with case manifest, hostile-evidence fixtures, and demo commands.
 - `fixtures/protocol-sift-baseline/` - Phase 1 captured Protocol SIFT baseline output for repeatable offline judging and regression tests.
+- `packages/findevil/src/attack/` - Phase 7 MITRE ATT&CK tagging for claims.
+- `packages/findevil/src/benchmark/` - Phase 7 ground-truth scoring with precision, recall, and F1.
+- `packages/findevil/src/extractor/committee.ts` - Phase 7 optional multi-model committee claim extraction.
+- `packages/findevil/src/sentinel/reviewer-html.ts` - Phase 7 static reviewer UI for the signed audit bundle.
+- `packages/findevil/src/sentinel/sift-runner.ts` - Phase 5 live Protocol SIFT command runner.
 - `packages/policy` policy pack `dfir-spoliation-strict` - Phase 1 policy pack for blocking writes into evidence roots.
 - `packages/policy` policy pack `tainted-instruction-block` - Phase 1 policy pack for blocking hostile case-derived instructions from becoming tool arguments.
 
@@ -36,7 +45,7 @@ The workflow editor, API server, web-intelligence package, skill registry, SaaS 
 
 ## Try It Out
 
-These commands were run against the current repository state. They use the deterministic offline Protocol SIFT-style fixture and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the committed `.kelpclaw/findevil/sentinel/` run stays unchanged for review.
+These commands were run against the current repository state. They use the deterministic offline Protocol SIFT-style fixture and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the canonical `.kelpclaw/findevil/sentinel/` run remains available for review.
 
 Equivalent invocation: `pnpm exec kelp-claw ...`.
 
@@ -61,9 +70,11 @@ $ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-senti
 Expected high-level result:
 
 - The sentinel command returns `ok: true`, `status: "succeeded"`, `policyDenials: 1`, and `uncorrectedPolicyDenials: 0`.
-- The accuracy report shows one baseline claim, one repaired claim, one repair prompt, one repair result, one successful status change, and one firewall block.
-- The spoliation check shows `ok: true` with zero changed, added, or removed files.
-- The audit-bundle verification returns `ok: true` with a valid reviewer signature and fourteen checked files.
+- The accuracy report shows 10 baseline claims, 10 repaired claims, 11 repair prompts, 11 repair results, 5 successful status changes, and 1 firewall block.
+- The benchmark table shows 10 expected findings, 10 evaluated claims, 3 true positives, 0 false positives, 7 false negatives, precision 1.000, recall 0.300, and F1 0.462.
+- The ATT&CK table covers T1003, T1021, T1059, T1071, T1204, and T1547.
+- The spoliation check shows `ok: true` with 13 files before, 13 files after, and zero changed, added, or removed files.
+- The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.
 
 ### Multi-model verification
 

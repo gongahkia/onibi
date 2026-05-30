@@ -1,6 +1,10 @@
 # Try It Out
 
-Live SIFT Workstation mode is the preferred judge path; deterministic offline `--trace` mode is the fallback for reviewers who do not have the VM. The offline fallback commands below were run against the current repository state and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the committed `.kelpclaw/findevil/sentinel/` run stays unchanged for review.
+Public repository: `https://github.com/gongahkia/kelp-claw`
+
+Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
+
+Live SIFT Workstation mode is the preferred judge path; deterministic offline `--trace` mode is the fallback for reviewers who do not have the VM. The offline fallback commands below were run against the current repository state and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the canonical `.kelpclaw/findevil/sentinel/` run remains available for review.
 
 Equivalent invocation: `pnpm exec kelp-claw ...`.
 
@@ -9,6 +13,8 @@ Equivalent invocation: `pnpm exec kelp-claw ...`.
 Run this inside the SIFT Workstation VM after following `docs/sift-workstation-setup.md`:
 
 ```console
+$ git clone https://github.com/gongahkia/kelp-claw.git
+$ cd kelp-claw
 $ corepack enable
 $ pnpm install --frozen-lockfile
 $ pnpm -r --if-present build
@@ -46,7 +52,7 @@ $ ./node_modules/.bin/kelp-claw findevil sentinel \
   --out /tmp/kelpclaw-findevil-sentinel
 $ sed -n '1,80p' /tmp/kelpclaw-findevil-sentinel/accuracy-report.md
 $ jq '{ok, checkedAt, changed:(.changed|length), added:(.added|length), removed:(.removed|length)}' /tmp/kelpclaw-findevil-sentinel/spoliation-check.json
-$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,repair-trace,firewall-events,taint-ledger}.jsonl
+$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,committee-vote,repair-trace,firewall-events,taint-ledger}.jsonl
 $ test -s /tmp/kelpclaw-findevil-sentinel/accuracy-report.md && test -s /tmp/kelpclaw-findevil-sentinel/audit-bundle/index.html
 $ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
 ```
@@ -54,6 +60,8 @@ $ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-senti
 Expected high-level result:
 
 - The sentinel command returns `ok: true`, `status: "succeeded"`, `policyDenials: 1`, and `uncorrectedPolicyDenials: 0`.
-- The accuracy report shows one baseline claim, one repaired claim, one repair prompt, one repair result, one successful status change, and one firewall block.
-- The spoliation check shows `ok: true` with zero changed, added, or removed files.
-- The audit-bundle verification returns `ok: true` with a valid reviewer signature and thirteen checked files.
+- The accuracy report shows 10 baseline claims, 10 repaired claims, 11 repair prompts, 11 repair results, 5 successful status changes, and 1 firewall block.
+- The benchmark table shows 10 expected findings, 10 evaluated claims, 3 true positives, 0 false positives, 7 false negatives, precision 1.000, recall 0.300, and F1 0.462.
+- The ATT&CK table covers T1003, T1021, T1059, T1071, T1204, and T1547.
+- The spoliation check shows `ok: true` with 13 files before, 13 files after, and zero changed, added, or removed files.
+- The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.

@@ -1,6 +1,6 @@
 # Novel Contribution
 
-This table separates pre-existing KelpClaw foundation code from work created for the Find Evil hackathon window, 2026-04-15 through 2026-06-15. All cited paths exist in the Phase 3 repository state.
+This table separates pre-existing KelpClaw foundation code from work created for the Find Evil hackathon window, 2026-04-15 through 2026-06-15. Public repository: `https://github.com/gongahkia/kelp-claw`.
 
 | Pre-existing KelpClaw subsystem | Find Evil work created during 2026-04-15 to 2026-06-15 |
 |---|---|
@@ -15,4 +15,29 @@ This table separates pre-existing KelpClaw foundation code from work created for
 | Pre-existing policy pack index structure: `packages/policy/src/packs/index.ts` | Tainted-instruction firewall pack: `packages/policy/src/packs/tainted-instruction-block.ts` |
 | No prior DFIR example case in the retained repo foundation | Synthetic Find Evil case and offline SIFT fixture: `examples/findevil-sift-sentinel/case.yml`, `examples/findevil-sift-sentinel/case-data/timeline.csv`, `fixtures/protocol-sift-baseline/baseline.jsonl`, `fixtures/protocol-sift-baseline/baseline-report.md` |
 
-The hackathon-specific contribution is the DFIR sentinel behavior: claim-to-evidence verification, targeted repair, hostile-evidence taint containment, spoliation checking, Find Evil CLI commands, demo evidence, fixture traces, and submission documentation.
+## Phase 7 And v2 Files
+
+These v2 files are new Find Evil contribution files and are called out because they implement the ATT&CK, benchmark, committee, live SIFT, and reviewer-UI features cited in the submission:
+
+| Feature area | New file |
+|---|---|
+| MITRE ATT&CK tagging | `packages/findevil/src/attack/catalog.ts` |
+| MITRE ATT&CK tagging | `packages/findevil/src/attack/index.ts` |
+| Ground-truth benchmark scoring | `packages/findevil/src/benchmark/benchmark.ts` |
+| Ground-truth benchmark scoring | `packages/findevil/src/benchmark/scorer.ts` |
+| Ground-truth benchmark scoring | `packages/findevil/src/benchmark/types.ts` |
+| Multi-model committee extraction | `packages/findevil/src/extractor/committee.ts` |
+| Static reviewer UI | `packages/findevil/src/sentinel/reviewer-html.ts` |
+| Live Protocol SIFT runner | `packages/findevil/src/sentinel/sift-runner.ts` |
+
+## Phase 6 Artifact Linkers
+
+The v2 artifact-linker expansion also added or extended these Find Evil-specific linkers:
+
+- `packages/findevil/src/linker/sysmon.ts` for Sysmon Event IDs 1, 3, 11, and 13.
+- `packages/findevil/src/linker/eventlog.ts` for Security/System EVTX-style JSON records, including Event IDs 4688, 4624, 4625, 4698, 4702, and 7045.
+- `packages/findevil/src/linker/shimcache.ts` for ShimCache CSV/JSON-style rows.
+- `packages/findevil/src/linker/srum.ts` for SRUM network-activity rows.
+- `packages/findevil/src/linker/pcap.ts` for PCAP, flow-summary, and Zeek-style flow records.
+
+The hackathon-specific contribution is the DFIR sentinel behavior: claim-to-evidence verification, ATT&CK tagging, benchmark scoring, targeted repair, optional committee verification, hostile-evidence taint containment, spoliation checking, Find Evil CLI commands, live SIFT integration, reviewer UI, demo evidence, fixture traces, and submission documentation.
