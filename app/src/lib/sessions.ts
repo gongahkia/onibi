@@ -178,7 +178,8 @@ export type WorkspaceSidebarView =
   | "search"
   | "source-control"
   | "sessions"
-  | "history";
+  | "history"
+  | "approvals";
 
 export interface ArrangementSession {
   sessionId: string;
@@ -253,6 +254,8 @@ export type MainSelection =
 
 export type ThemeMode =
   | "system"
+  | "vscode-dark-plus"
+  | "vscode-light-plus"
   | "github-dark"
   | "github-light"
   | "one-dark-pro"
@@ -273,6 +276,7 @@ export type ThemeMode =
   | "shades-of-purple"
   | "synthwave-84"
   | "solarized-dark"
+  | "onibi-flame"
   | "custom";
 export type TabBarOrientation = "vertical" | "horizontal";
 export type TabBarPosition = "left" | "right" | "top" | "bottom";
@@ -614,6 +618,72 @@ const COLOR_SCHEME_CSS_VARIABLES: Record<ColorSchemeColorKey, string> = {
 };
 
 export const BUILT_IN_COLOR_SCHEMES: ColorScheme[] = [
+  {
+    id: "vscode-dark-plus",
+    label: "VSCode Dark+",
+    colors: {
+      bg0: "#1e1e1e",
+      bg1: "#252526",
+      bg2: "#2d2d30",
+      bg3: "#3c3c3c",
+      fg0: "#cccccc",
+      fg1: "#969696",
+      fg2: "#6e6e6e",
+      accent: "#007acc",
+      accent2: "#0098ff",
+      danger: "#f48771",
+      flash: "#cca700",
+      border: "#3e3e42",
+      terminalBackground: "#1e1e1e",
+      terminalForeground: "#d4d4d4",
+      terminalCursor: "#aeafad",
+      terminalSelection: "#264f78",
+    },
+  },
+  {
+    id: "vscode-light-plus",
+    label: "VSCode Light+",
+    colors: {
+      bg0: "#ffffff",
+      bg1: "#f3f3f3",
+      bg2: "#ececec",
+      bg3: "#e8e8e8",
+      fg0: "#333333",
+      fg1: "#616161",
+      fg2: "#8c8c8c",
+      accent: "#0078d4",
+      accent2: "#005a9e",
+      danger: "#a1260d",
+      flash: "#bf8803",
+      border: "#e5e5e5",
+      terminalBackground: "#ffffff",
+      terminalForeground: "#333333",
+      terminalCursor: "#005a9e",
+      terminalSelection: "#add6ff",
+    },
+  },
+  {
+    id: "onibi-flame",
+    label: "Onibi Flame",
+    colors: {
+      bg0: "#0b0f12",
+      bg1: "#11181c",
+      bg2: "#172127",
+      bg3: "#20303a",
+      fg0: "#edf2f4",
+      fg1: "#b9c4ca",
+      fg2: "#7f8f98",
+      accent: "#f2c14e",
+      accent2: "#2fb7a5",
+      danger: "#e85d5d",
+      flash: "#f2c14e",
+      border: "#26343c",
+      terminalBackground: "#0b0e14",
+      terminalForeground: "#e6edf3",
+      terminalCursor: "#f4d35e",
+      terminalSelection: "#315f7d",
+    },
+  },
   {
     id: "github-dark",
     label: "GitHub Dark Default",
@@ -1123,7 +1193,7 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: "github-dark",
+  theme: "vscode-dark-plus",
   fontFamily: "Menlo, Monaco, monospace",
   uiFontFamily:
     'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -1439,7 +1509,8 @@ function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
     value === "search" ||
     value === "source-control" ||
     value === "sessions" ||
-    value === "history"
+    value === "history" ||
+    value === "approvals"
     ? value
     : "files";
 }
@@ -4198,8 +4269,8 @@ function prefersLightTheme(): boolean {
 export function resolveThemeMode(theme: ThemeMode): Exclude<ThemeMode, "system"> {
   return theme === "system"
     ? prefersLightTheme()
-      ? "github-light"
-      : "github-dark"
+      ? "vscode-light-plus"
+      : "vscode-dark-plus"
     : theme;
 }
 
