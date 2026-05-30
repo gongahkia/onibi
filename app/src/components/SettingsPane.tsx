@@ -265,6 +265,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalConfirmClose={settings.terminalConfirmClose}
               editorFontSize={settings.editorFontSize}
               editorKeybindingMode={settings.editorKeybindingMode}
+              editorOpenLimit={settings.editorOpenLimit}
+              closedBufferHistoryLimit={settings.closedBufferHistoryLimit}
               diffViewMode={settings.diffViewMode}
               webOpenMode={settings.webOpenMode}
               onTheme={(theme) => updateSettings({ theme })}
@@ -292,6 +294,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onEditorKeybindingMode={(editorKeybindingMode) =>
                 updateSettings({ editorKeybindingMode })
+              }
+              onEditorOpenLimit={(editorOpenLimit) =>
+                updateSettings({ editorOpenLimit })
+              }
+              onClosedBufferHistoryLimit={(closedBufferHistoryLimit) =>
+                updateSettings({ closedBufferHistoryLimit })
               }
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
               onWebOpenMode={(webOpenMode) => updateSettings({ webOpenMode })}
@@ -487,6 +495,8 @@ function GeneralSettings({
   terminalConfirmClose,
   editorFontSize,
   editorKeybindingMode,
+  editorOpenLimit,
+  closedBufferHistoryLimit,
   diffViewMode,
   webOpenMode,
   onTheme,
@@ -501,6 +511,8 @@ function GeneralSettings({
   onTerminalConfirmClose,
   onEditorFontSize,
   onEditorKeybindingMode,
+  onEditorOpenLimit,
+  onClosedBufferHistoryLimit,
   onDiffViewMode,
   onWebOpenMode,
 }: GeneralSettingsProps) {
@@ -642,6 +654,51 @@ function GeneralSettings({
           <option value="emacs">Emacs</option>
           <option value="vim">Vim</option>
         </select>
+      </label>
+      <label className="settings-row">
+        <span>
+          Editor tab limit
+          <span className="settings-row-hint">
+            Cap on simultaneously-mounted editor buffers. Tabs beyond this evict
+            the least-recently-used non-dirty tab (kept in the reopen history).
+            0 = unlimited.
+          </span>
+        </span>
+        <input
+          className="settings-input"
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          aria-label="Editor tab limit"
+          value={editorOpenLimit}
+          onChange={(event) =>
+            onEditorOpenLimit(Math.max(0, Math.min(100, Number(event.target.value) || 0)))
+          }
+        />
+      </label>
+      <label className="settings-row">
+        <span>
+          Closed editor history
+          <span className="settings-row-hint">
+            Number of recently-closed editors kept for Reopen Closed Editor
+            (⌘⇧T / Ctrl+Shift+T). 0 = unlimited (capped at 500).
+          </span>
+        </span>
+        <input
+          className="settings-input"
+          type="number"
+          min={0}
+          max={500}
+          step={1}
+          aria-label="Closed editor history limit"
+          value={closedBufferHistoryLimit}
+          onChange={(event) =>
+            onClosedBufferHistoryLimit(
+              Math.max(0, Math.min(500, Number(event.target.value) || 0)),
+            )
+          }
+        />
       </label>
       <label className="settings-row">
         <span>Diff view</span>

@@ -1904,6 +1904,16 @@ button.status-bar-item:hover {
   background: var(--fg-0);
 }
 
+.settings-row-hint {
+  display: block;
+  color: var(--fg-2);
+  font-size: 11px;
+  margin-top: 2px;
+  font-weight: 400;
+  max-width: 360px;
+  line-height: 1.4;
+}
+
 .editor-tab .editor-tab-close.dirty-indicator {
   opacity: 1;
   position: relative;

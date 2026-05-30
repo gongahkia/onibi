@@ -1,7 +1,12 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 import { EditorTabBar } from "./EditorTabBar";
-import { bufferKey, useSessionStore, type MainSelection } from "../lib/sessions";
+import {
+  DEFAULT_SETTINGS,
+  bufferKey,
+  useSessionStore,
+  type MainSelection,
+} from "../lib/sessions";
 
 function fileSelection(path: string): MainSelection {
   return {
@@ -253,6 +258,118 @@ describe("EditorTabBar", () => {
       "/repo/a.ts",
       "/repo/b.ts",
     ]);
+  });
+
+  test("editorOpenLimit evicts the LRU non-active tab on selectFile", () => {
+    const a = fileSelection("/repo/a.ts");
+    const b = fileSelection("/repo/b.ts");
+    const c = fileSelection("/repo/c.ts");
+    useSessionStore.setState({
+      openBuffers: [a, b, c],
+      activeBufferKey: bufferKey(c),
+      selectedFile: c,
+      bufferAccessOrder: [bufferKey(a), bufferKey(b), bufferKey(c)],
+      closedBufferStack: [],
+      dirtyBufferKeys: [],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        editorOpenLimit: 3,
+      },
+    });
+    const d = fileSelection("/repo/d.ts");
+    useSessionStore.getState().selectFile(d);
+    const state = useSessionStore.getState();
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual([
+      "/repo/b.ts",
+      "/repo/c.ts",
+      "/repo/d.ts",
+    ]);
+    expect(state.closedBufferStack[0].path).toBe("/repo/a.ts");
+    expect(state.activeBufferKey).toBe(bufferKey(d));
+  });
+
+  test("editorOpenLimit never evicts the active or a dirty tab", () => {
+    const a = fileSelection("/repo/a.ts");
+    const b = fileSelection("/repo/b.ts");
+    const c = fileSelection("/repo/c.ts");
+    useSessionStore.setState({
+      openBuffers: [a, b, c],
+      activeBufferKey: bufferKey(c),
+      selectedFile: c,
+      bufferAccessOrder: [bufferKey(a), bufferKey(b), bufferKey(c)],
+      closedBufferStack: [],
+      // 'a' is dirty even though it's the LRU
+      dirtyBufferKeys: [bufferKey(a)],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        editorOpenLimit: 3,
+      },
+    });
+    const d = fileSelection("/repo/d.ts");
+    useSessionStore.getState().selectFile(d);
+    const state = useSessionStore.getState();
+    // 'a' kept (dirty), 'b' evicted (next-LRU, non-dirty, non-active)
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual([
+      "/repo/a.ts",
+      "/repo/c.ts",
+      "/repo/d.ts",
+    ]);
+    expect(state.closedBufferStack[0].path).toBe("/repo/b.ts");
+  });
+
+  test("editorOpenLimit = 0 means unlimited", () => {
+    useSessionStore.setState({
+      openBuffers: [],
+      activeBufferKey: null,
+      selectedFile: null,
+      bufferAccessOrder: [],
+      closedBufferStack: [],
+      dirtyBufferKeys: [],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        editorOpenLimit: 0,
+      },
+    });
+    for (let i = 0; i < 15; i++) {
+      useSessionStore.getState().selectFile(fileSelection(`/repo/${i}.ts`));
+    }
+    expect(useSessionStore.getState().openBuffers).toHaveLength(15);
+  });
+
+  test("lowering editorOpenLimit immediately evicts buffers", () => {
+    const buffers = Array.from({ length: 8 }, (_, i) =>
+      fileSelection(`/repo/${i}.ts`),
+    );
+    useSessionStore.setState({
+      openBuffers: buffers,
+      activeBufferKey: bufferKey(buffers[7]),
+      selectedFile: buffers[7],
+      bufferAccessOrder: buffers.map((b) => bufferKey(b)),
+      closedBufferStack: [],
+      dirtyBufferKeys: [],
+      settings: { ...DEFAULT_SETTINGS, editorOpenLimit: 10 },
+    });
+    useSessionStore.getState().updateSettings({ editorOpenLimit: 3 });
+    const state = useSessionStore.getState();
+    expect(state.openBuffers).toHaveLength(3);
+    expect(state.openBuffers[state.openBuffers.length - 1].path).toBe("/repo/7.ts");
+  });
+
+  test("closedBufferHistoryLimit caps the reopen stack", () => {
+    const buffers = Array.from({ length: 12 }, (_, i) =>
+      fileSelection(`/repo/${i}.ts`),
+    );
+    useSessionStore.setState({
+      openBuffers: buffers,
+      activeBufferKey: bufferKey(buffers[0]),
+      selectedFile: buffers[0],
+      bufferAccessOrder: buffers.map((b) => bufferKey(b)),
+      closedBufferStack: [],
+      dirtyBufferKeys: [],
+      settings: { ...DEFAULT_SETTINGS, closedBufferHistoryLimit: 5 },
+    });
+    useSessionStore.getState().closeAllBuffers();
+    expect(useSessionStore.getState().closedBufferStack).toHaveLength(5);
   });
 
   test("removeWorkspace prunes buffers from that workspace", () => {
