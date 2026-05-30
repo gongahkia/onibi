@@ -19,6 +19,8 @@ This plan recommends a single coherent project that fuses the strongest parts of
 
 ## Verified Repo Reality
 
+- 2026-05-30T11:10:40+0800: Phase 0 shelve completed; non-DFIR surfaces moved under `legacy/` and workspace narrowed to retained DFIR foundation packages.
+
 [Inference, per Explore agent.] KelpClaw has these mature subsystems that map directly to hackathon criteria:
 
 | KelpClaw asset | Maturity | Maps to judging criterion |

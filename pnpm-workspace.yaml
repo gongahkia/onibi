@@ -1,3 +1,10 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - "packages/evidence"
+  - "packages/policy"
+  - "packages/agent-hooks"
+  - "packages/nanoclaw"
+  - "packages/codegen"
+  - "packages/cli"
+  - "packages/workflow-spec"
+  - "packages/testing"
+  - "packages/adapters"

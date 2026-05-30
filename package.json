@@ -18,10 +18,15 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "validate:fixtures": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/validate-workflow-fixtures.mjs",
     "check:codegen-policy": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/check-codegen-policy.mjs",
-    "eval:router": "pnpm --filter @kelpclaw/api build && node scripts/router-eval.mjs",
     "smoke:live": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/live-smoke.mjs",
-    "demo:governance": "pnpm --filter @kelpclaw/workflow-spec build && pnpm --filter @kelpclaw/agent-hooks build && pnpm --filter @kelpclaw/api build && pnpm --filter @kelpclaw/cli build && node scripts/governance-demo.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "pnpm": {
+    "overrides": {
+      "@kelpclaw/api": "file:legacy/api",
+      "@kelpclaw/skill-registry": "file:legacy/skill-registry",
+      "@kelpclaw/web-intel": "file:legacy/web-intel"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
