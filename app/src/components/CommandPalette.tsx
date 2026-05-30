@@ -161,8 +161,19 @@ export function CommandPalette() {
       }
     }
 
+    function handleOpenEvent() {
+      setOpen(true);
+    }
+
     window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    window.addEventListener("onibi:open-command-palette", handleOpenEvent as EventListener);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+      window.removeEventListener(
+        "onibi:open-command-palette",
+        handleOpenEvent as EventListener,
+      );
+    };
   }, []);
 
   useEffect(() => {

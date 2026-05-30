@@ -207,143 +207,157 @@ function TerminalPaneTree({
       onPointerDown={() => setActiveTerminalPane(node.paneId)}
     >
       <div className="terminal-pane-toolbar">
-        <span title={session.cwd ?? session.title}>
-          {session.cwd ?? session.title}
-          {session.lastExitCode !== null && session.lastExitCode !== undefined
-            ? ` · ${session.lastExitCode}`
-            : ""}
+        <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
+          <i className="codicon codicon-folder" aria-hidden="true" />
+          <span className="terminal-pane-cwd-text">{session.cwd ?? session.title}</span>
+          {session.lastExitCode !== null && session.lastExitCode !== undefined ? (
+            <span
+              className={`terminal-pane-exit ${session.lastExitCode === 0 ? "ok" : "bad"}`}
+            >
+              <i
+                className={`codicon ${session.lastExitCode === 0 ? "codicon-pass" : "codicon-error"}`}
+                aria-hidden="true"
+              />
+              {session.lastExitCode}
+            </span>
+          ) : null}
         </span>
         {session.lastTrigger ? (
           <span className="terminal-trigger-pill" title={session.lastTrigger.line}>
             {session.lastTrigger.label}
           </span>
         ) : null}
-        {session.preview ? (
+        <div className="terminal-pane-actions">
+          {session.preview ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label="Open session preview"
+              title={session.preview.url}
+              onClick={(event) => {
+                event.stopPropagation();
+                useSessionStore.getState().openWebUrl(session.preview!.url, session.id);
+              }}
+            >
+              <i className="codicon codicon-link-external" aria-hidden="true" />
+            </button>
+          ) : null}
+          {session.lastCommand?.command ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label="Copy last command"
+              title={`Copy: ${session.lastCommand.command}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void navigator.clipboard?.writeText(session.lastCommand!.command);
+              }}
+            >
+              <i className="codicon codicon-copy" aria-hidden="true" />
+            </button>
+          ) : null}
+          {session.lastCommand?.output ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label="Copy last output"
+              title="Copy last command output"
+              onClick={(event) => {
+                event.stopPropagation();
+                void navigator.clipboard?.writeText(session.lastCommand!.output);
+              }}
+            >
+              <i className="codicon codicon-output" aria-hidden="true" />
+            </button>
+          ) : null}
+          {session.shellPromptMarkerSeen ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label="Jump to last prompt"
+              title="Jump to last prompt"
+              onClick={(event) => {
+                event.stopPropagation();
+                window.dispatchEvent(
+                  new CustomEvent("onibi:jump-last-prompt", {
+                    detail: { ptyId: session.id },
+                  }),
+                );
+              }}
+            >
+              <i className="codicon codicon-arrow-up" aria-hidden="true" />
+            </button>
+          ) : null}
+          {canHandoff ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label="Handoff session to another agent"
+              title="Handoff to another agent"
+              onClick={(event) => {
+                event.stopPropagation();
+                setHandoffOpen(true);
+              }}
+            >
+              <i className="codicon codicon-arrow-swap" aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="terminal-pane-button"
-            aria-label="Open session preview"
-            title={session.preview.url}
+            className="terminal-pane-icon-button"
+            aria-label="Restart session"
+            title="Restart session"
+            disabled={!canRestart}
             onClick={(event) => {
               event.stopPropagation();
-              useSessionStore.getState().openWebUrl(session.preview!.url, session.id);
+              onRestart(session);
             }}
           >
-            Preview
+            <i className="codicon codicon-debug-restart" aria-hidden="true" />
           </button>
-        ) : null}
-        {session.lastCommand?.command ? (
           <button
             type="button"
-            className="terminal-pane-button"
-            aria-label="Copy last command"
-            title={session.lastCommand.command}
+            className="terminal-pane-icon-button"
+            aria-label="Split right"
+            title="Split right (duplicate session)"
+            disabled={!canRestart}
             onClick={(event) => {
               event.stopPropagation();
-              void navigator.clipboard?.writeText(session.lastCommand!.command);
+              onDuplicate(session, node.paneId);
             }}
           >
-            Copy Cmd
+            <i className="codicon codicon-split-horizontal" aria-hidden="true" />
           </button>
-        ) : null}
-        {session.lastCommand?.output ? (
+          {canMaximize ? (
+            <button
+              type="button"
+              className="terminal-pane-icon-button"
+              aria-label={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+              title={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleMaximize(node.paneId);
+              }}
+            >
+              <i
+                className={`codicon ${maximizedPaneId === node.paneId ? "codicon-screen-normal" : "codicon-screen-full"}`}
+                aria-hidden="true"
+              />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="terminal-pane-button"
-            aria-label="Copy last output"
-            title="Copy last command output"
+            className="terminal-pane-icon-button danger"
+            aria-label="Close session"
+            title="Close session"
             onClick={(event) => {
               event.stopPropagation();
-              void navigator.clipboard?.writeText(session.lastCommand!.output);
+              onClose(session);
             }}
           >
-            Copy Out
+            <i className="codicon codicon-trash" aria-hidden="true" />
           </button>
-        ) : null}
-        {session.shellPromptMarkerSeen ? (
-          <button
-            type="button"
-            className="terminal-pane-button"
-            aria-label="Jump to last prompt"
-            title="Jump to last prompt"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.dispatchEvent(
-                new CustomEvent("onibi:jump-last-prompt", {
-                  detail: { ptyId: session.id },
-                }),
-              );
-            }}
-          >
-            Prompt
-          </button>
-        ) : null}
-        {canHandoff ? (
-          <button
-            type="button"
-            className="terminal-pane-button"
-            aria-label="Handoff session to another agent"
-            title="Start another agent in this workspace with recent context"
-            onClick={(event) => {
-              event.stopPropagation();
-              setHandoffOpen(true);
-            }}
-          >
-            Handoff
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="terminal-pane-button"
-          aria-label="Restart session"
-          title="Restart session"
-          disabled={!canRestart}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRestart(session);
-          }}
-        >
-          Restart
-        </button>
-        <button
-          type="button"
-          className="terminal-pane-button"
-          aria-label="Duplicate session"
-          title="Duplicate session"
-          disabled={!canRestart}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDuplicate(session, node.paneId);
-          }}
-        >
-          Duplicate
-        </button>
-        <button
-          type="button"
-          className="terminal-pane-button"
-          aria-label="Close session"
-          title="Close session"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClose(session);
-          }}
-        >
-          Close
-        </button>
-        {canMaximize ? (
-          <button
-            type="button"
-            className="terminal-pane-button"
-            aria-label={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
-            title={maximizedPaneId === node.paneId ? "Restore pane" : "Maximize pane"}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleMaximize(node.paneId);
-            }}
-          >
-            {maximizedPaneId === node.paneId ? "Restore" : "Maximize"}
-          </button>
-        ) : null}
+        </div>
       </div>
       {session.status === "stale" ? (
         <div className="terminal-stale-state">

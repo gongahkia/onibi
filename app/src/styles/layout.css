@@ -1895,6 +1895,88 @@ button.status-bar-item:hover {
   border-color: var(--accent-2);
 }
 
+.terminal-pane-cwd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.terminal-pane-cwd .codicon {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.terminal-pane-cwd-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.terminal-pane-exit.ok {
+  color: #4ec9b0;
+  background: rgba(78, 201, 176, 0.12);
+}
+
+.terminal-pane-exit.bad {
+  color: #f48771;
+  background: rgba(244, 135, 113, 0.16);
+}
+
+.terminal-pane-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  pointer-events: auto;
+}
+
+.terminal-pane-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg-1);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.terminal-pane-icon-button:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--fg-0);
+}
+
+.terminal-pane-icon-button:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+
+.terminal-pane-icon-button.danger:hover:not(:disabled) {
+  background: rgba(244, 135, 113, 0.18);
+  color: var(--danger);
+}
+
+.terminal-pane-icon-button .codicon {
+  font-size: 14px;
+}
+
 .terminal-stale-state {
   display: grid;
   align-content: center;
@@ -1959,6 +2041,136 @@ button.status-bar-item:hover {
   color: var(--fg-2);
   background: var(--bg-0);
   font: 13px/1.5 var(--font-ui);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.empty-state.welcome {
+  align-items: start;
+  padding: 64px 32px;
+}
+
+.welcome-content {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.welcome-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.welcome-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #ffffff;
+}
+
+.welcome-logo .codicon {
+  font-size: 40px;
+}
+
+.welcome-title {
+  margin: 0;
+  color: var(--fg-0);
+  font-size: 32px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+
+.welcome-subtitle {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 14px;
+  max-width: 480px;
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 32px;
+}
+
+.welcome-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.welcome-section h2 {
+  margin: 0 0 8px 0;
+  padding-bottom: 4px;
+  color: var(--fg-1);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.welcome-link:hover {
+  background: var(--hover-bg);
+  color: var(--accent-2);
+}
+
+.welcome-link .codicon {
+  flex: 0 0 16px;
+  font-size: 16px;
+  color: var(--fg-1);
+}
+
+.welcome-link > span:nth-of-type(1) {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.welcome-muted {
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.welcome-path {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 6px;
+}
+
+.welcome-shortcut {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .editor-buffer {

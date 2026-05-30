@@ -259,7 +259,7 @@ describe("MainPane", () => {
     });
 
     render(<MainPane />);
-    fireEvent.click(screen.getByLabelText("Duplicate session"));
+    fireEvent.click(screen.getByLabelText("Split right"));
 
     await waitFor(() => {
       expect(useSessionStore.getState().sessions.map((session) => session.id)).toContain(
