@@ -222,6 +222,7 @@ describe("MainPane", () => {
       type: "leaf",
       paneId: "pane-1",
       sessionId: "pty-2",
+      sessionIds: ["pty-2"],
     });
   });
 

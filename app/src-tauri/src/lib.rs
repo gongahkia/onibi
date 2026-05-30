@@ -120,6 +120,9 @@ async fn pty_spawn(
                         if !emit_pty_data(&window, id, &mut pending) {
                             break;
                         }
+                        if let Some(hook) = pty::notification_hook() {
+                            hook(id.to_string(), notice.clone());
+                        }
                         if window
                             .emit(&format!("pty:{id}"), PtyWireEvent::Notification(notice))
                             .is_err()

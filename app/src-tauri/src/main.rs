@@ -31,6 +31,17 @@ fn main() {
 
     #[cfg(feature = "gui")]
     {
+        use std::sync::Arc;
+        app_lib::pty::set_notification_hook(Arc::new(|session_id, notice| {
+            if let Some(bridge) = push::bridge() {
+                tokio::spawn(push::fanout_pty_notification(
+                    bridge.store.clone(),
+                    bridge.vapid.clone(),
+                    session_id,
+                    notice,
+                ));
+            }
+        }));
         server::start_background_server(17893);
         app_lib::run()
     }

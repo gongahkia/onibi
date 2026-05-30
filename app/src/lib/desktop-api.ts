@@ -180,7 +180,58 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const prompt = stringPayloadField(message.payload, "prompt") ?? "";
     const cwd = stringPayloadField(message.payload, "cwd");
     await spawnAgentSession(agent, workspace, prompt, null, { cwd });
+    return;
   }
+  if (message.kind === "pane-focus") {
+    const paneId = stringPayloadField(message.payload, "paneId");
+    if (paneId) {
+      state.setActiveTerminalPane(paneId);
+    }
+    return;
+  }
+  if (message.kind === "pane-maximize") {
+    const paneId = stringPayloadField(message.payload, "paneId");
+    if (paneId) {
+      state.toggleMaximizedTerminalPane(paneId);
+    }
+    return;
+  }
+  if (message.kind === "pane-split") {
+    const paneId = stringPayloadField(message.payload, "paneId");
+    const direction = stringPayloadField(message.payload, "direction") ?? "vertical";
+    const sessionId = state.terminalLayout
+      ? sessionIdForPaneFromLayout(state.terminalLayout, paneId)
+      : null;
+    const session = sessionId
+      ? state.sessions.find((s) => s.id === sessionId)
+      : null;
+    const workspace = session
+      ? state.workspaces.find((w) => w.id === session.workspaceId)
+      : null;
+    if (!paneId || !session || !workspace) {
+      return;
+    }
+    await spawnAgentSession(session.agent, workspace, "", {
+      type: "split",
+      targetPaneId: paneId,
+      direction: direction === "horizontal" ? "horizontal" : "vertical",
+    });
+  }
+}
+
+function sessionIdForPaneFromLayout(
+  node: import("./sessions").TerminalPaneNode,
+  paneId: string | null,
+): string | null {
+  if (!paneId) return null;
+  if (node.type === "leaf") {
+    return node.paneId === paneId ? node.sessionId : null;
+  }
+  for (const child of node.children) {
+    const found = sessionIdForPaneFromLayout(child, paneId);
+    if (found) return found;
+  }
+  return null;
 }
 
 export async function startDesktopBridge(): Promise<() => void> {

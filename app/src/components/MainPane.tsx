@@ -8,6 +8,7 @@ import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
 import { NewSessionDialog } from "./NewSessionDialog";
+import { TerminalTabStrip } from "./TerminalTabStrip";
 import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
@@ -16,6 +17,7 @@ import {
   buildAgentHandoffPrompt,
   closeSession,
   duplicateSession,
+  leafSessionIds,
   newCommandBlockId,
   pruneTerminalLayout,
   restartSession,
@@ -139,6 +141,7 @@ function TerminalPaneTree({
   onToggleMaximize,
   onRestart,
   onDuplicate,
+  onAddTab,
   onClose,
 }: {
   node: TerminalPaneNode;
@@ -156,6 +159,7 @@ function TerminalPaneTree({
   onToggleMaximize: (paneId: string) => void;
   onRestart: (session: Session) => void;
   onDuplicate: (session: Session, paneId: string) => void;
+  onAddTab: (paneId: string) => void;
   onClose: (session: Session) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
@@ -182,6 +186,7 @@ function TerminalPaneTree({
                 onToggleMaximize={onToggleMaximize}
                 onRestart={onRestart}
                 onDuplicate={onDuplicate}
+                onAddTab={onAddTab}
                 onClose={onClose}
               />
             </Panel>
@@ -193,6 +198,9 @@ function TerminalPaneTree({
       </PanelGroup>
     );
   }
+  const leafSessions = leafSessionIds(node)
+    .map((id) => sessions.find((s) => s.id === id))
+    .filter((s): s is Session => Boolean(s));
 
   const session = sessions.find((item) => item.id === node.sessionId) ?? null;
   if (!session) {
@@ -364,6 +372,12 @@ function TerminalPaneTree({
           </button>
         </div>
       </div>
+      <TerminalTabStrip
+        leaf={node}
+        sessions={leafSessions}
+        onAddSession={onAddTab}
+        onCloseSession={onClose}
+      />
       {session.status === "stale" ? (
         <div className="terminal-stale-state">
           <strong>Session is stale</strong>
@@ -373,17 +387,29 @@ function TerminalPaneTree({
           </span>
         </div>
       ) : (
-        <TerminalView
-          ptyId={session.id}
-          fontFamily={settings.terminalFontFamily}
-          fontSize={settings.terminalFontSize}
-          settings={settings}
-          visible={terminalVisible && active}
-          onExit={() => onTerminalExit(session)}
-          onOpenLink={(url) => useSessionStore.getState().openWebUrl(url, session.id)}
-          onShellUpdate={(update) => onShellUpdate(session, update)}
-          onTrigger={(match) => onTerminalTrigger(session, match)}
-        />
+        <div className="terminal-pane-bodies">
+          {leafSessions.map((tabSession) => (
+            <div
+              key={tabSession.id}
+              className={`terminal-pane-body ${tabSession.id === node.sessionId ? "active" : ""}`}
+              data-active={tabSession.id === node.sessionId}
+            >
+              <TerminalView
+                ptyId={tabSession.id}
+                fontFamily={settings.terminalFontFamily}
+                fontSize={settings.terminalFontSize}
+                settings={settings}
+                visible={terminalVisible && active && tabSession.id === node.sessionId}
+                onExit={() => onTerminalExit(tabSession)}
+                onOpenLink={(url) =>
+                  useSessionStore.getState().openWebUrl(url, tabSession.id)
+                }
+                onShellUpdate={(update) => onShellUpdate(tabSession, update)}
+                onTrigger={(match) => onTerminalTrigger(tabSession, match)}
+              />
+            </div>
+          ))}
+        </div>
       )}
       {handoffOpen && canHandoff ? (
         <AgentHandoffDialog
@@ -839,6 +865,13 @@ export function MainPane() {
     });
   }, []);
 
+  const handleAddTab = useCallback(
+    (paneId: string) => {
+      setSplitPlacement({ type: "tab", targetPaneId: paneId });
+    },
+    [],
+  );
+
   const handleCloseSession = useCallback((target: Session) => {
     void closeSession(target.id).catch((error) => {
       console.warn("failed to close session", error);
@@ -887,6 +920,7 @@ export function MainPane() {
                 onToggleMaximize={toggleMaximizedTerminalPane}
                 onRestart={handleRestartSession}
                 onDuplicate={handleDuplicateSession}
+                onAddTab={handleAddTab}
                 onClose={handleCloseSession}
               />
           </section>

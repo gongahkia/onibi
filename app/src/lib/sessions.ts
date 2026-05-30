@@ -63,6 +63,7 @@ export interface TerminalLeafPane {
   type: "leaf";
   paneId: string;
   sessionId: string;
+  sessionIds?: string[];
 }
 
 export interface TerminalSplitPane {
@@ -75,9 +76,16 @@ export interface TerminalSplitPane {
 export type TerminalPaneNode = TerminalLeafPane | TerminalSplitPane;
 
 export interface TerminalPanePlacement {
-  type: "split";
+  type: "split" | "tab";
   targetPaneId: string;
-  direction: TerminalSplitDirection;
+  direction?: TerminalSplitDirection;
+}
+
+export function leafSessionIds(leaf: TerminalLeafPane): string[] {
+  if (leaf.sessionIds && leaf.sessionIds.length > 0) {
+    return leaf.sessionIds;
+  }
+  return [leaf.sessionId];
 }
 
 export type SessionEventType =
@@ -490,6 +498,7 @@ type SessionStore = {
   focusRelativeTerminalPane: (delta: number) => void;
   focusRelativeAttentionSession: (delta: number) => void;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
+  setActivePaneSession: (paneId: string, sessionId: string) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   replaceSession: (id: string, session: Session) => void;
@@ -1628,7 +1637,7 @@ export function newCommandBlockId(): string {
 }
 
 function makeTerminalLeaf(sessionId: string): TerminalLeafPane {
-  return { type: "leaf", paneId: makeId("pane"), sessionId };
+  return { type: "leaf", paneId: makeId("pane"), sessionId, sessionIds: [sessionId] };
 }
 
 function paneIdForSession(
@@ -1639,7 +1648,7 @@ function paneIdForSession(
     return null;
   }
   if (node.type === "leaf") {
-    return node.sessionId === sessionId ? node.paneId : null;
+    return leafSessionIds(node).includes(sessionId) ? node.paneId : null;
   }
   for (const child of node.children) {
     const paneId = paneIdForSession(child, sessionId);
@@ -1766,7 +1775,13 @@ function replacePaneSession(
     return null;
   }
   if (node.type === "leaf") {
-    return node.sessionId === oldSessionId ? { ...node, sessionId: newSessionId } : node;
+    const ids = leafSessionIds(node);
+    if (!ids.includes(oldSessionId)) {
+      return node;
+    }
+    const nextIds = ids.map((id) => (id === oldSessionId ? newSessionId : id));
+    const sessionId = node.sessionId === oldSessionId ? newSessionId : node.sessionId;
+    return { ...node, sessionId, sessionIds: nextIds };
   }
   return {
     ...node,
@@ -1784,7 +1799,16 @@ function removePaneSession(
     return null;
   }
   if (node.type === "leaf") {
-    return node.sessionId === sessionId ? null : node;
+    const ids = leafSessionIds(node);
+    if (!ids.includes(sessionId)) {
+      return node;
+    }
+    const remaining = ids.filter((id) => id !== sessionId);
+    if (remaining.length === 0) {
+      return null;
+    }
+    const active = node.sessionId === sessionId ? remaining[0] : node.sessionId;
+    return { ...node, sessionId: active, sessionIds: remaining };
   }
   const children = node.children
     .map((child) => removePaneSession(child, sessionId))
@@ -1806,7 +1830,12 @@ export function pruneTerminalLayout(
     return null;
   }
   if (node.type === "leaf") {
-    return liveSessionIds.has(node.sessionId) ? node : null;
+    const ids = leafSessionIds(node).filter((id) => liveSessionIds.has(id));
+    if (ids.length === 0) {
+      return null;
+    }
+    const active = liveSessionIds.has(node.sessionId) ? node.sessionId : ids[0];
+    return { ...node, sessionId: active, sessionIds: ids };
   }
   const children = node.children
     .map((child) => pruneTerminalLayout(child, liveSessionIds))
@@ -1828,8 +1857,14 @@ function mapTerminalLayoutSessions(
     return null;
   }
   if (node.type === "leaf") {
-    const sessionId = sessionIds.get(node.sessionId);
-    return sessionId ? { ...node, sessionId } : null;
+    const mappedIds = leafSessionIds(node)
+      .map((id) => sessionIds.get(id))
+      .filter((id): id is string => Boolean(id));
+    if (mappedIds.length === 0) {
+      return null;
+    }
+    const activeMapped = sessionIds.get(node.sessionId) ?? mappedIds[0];
+    return { ...node, sessionId: activeMapped, sessionIds: mappedIds };
   }
   const children = node.children
     .map((child) => mapTerminalLayoutSessions(child, sessionIds))
@@ -1841,6 +1876,52 @@ function mapTerminalLayoutSessions(
     return children[0];
   }
   return { ...node, children };
+}
+
+function attachTabToPane(
+  node: TerminalPaneNode,
+  targetPaneId: string,
+  sessionId: string,
+): TerminalPaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId !== targetPaneId) {
+      return node;
+    }
+    const ids = leafSessionIds(node);
+    if (ids.includes(sessionId)) {
+      return { ...node, sessionId };
+    }
+    return { ...node, sessionId, sessionIds: [...ids, sessionId] };
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      attachTabToPane(child, targetPaneId, sessionId),
+    ),
+  };
+}
+
+function setActiveTabInPane(
+  node: TerminalPaneNode,
+  paneId: string,
+  sessionId: string,
+): TerminalPaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId !== paneId) {
+      return node;
+    }
+    const ids = leafSessionIds(node);
+    if (!ids.includes(sessionId)) {
+      return node;
+    }
+    return { ...node, sessionId };
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      setActiveTabInPane(child, paneId, sessionId),
+    ),
+  };
 }
 
 function normalizeArrangementSessions(value: unknown): ArrangementSession[] {
@@ -2223,25 +2304,38 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   addSession: (session, placement) => {
     set((state) => {
-      const leaf = makeTerminalLeaf(session.id);
-      const terminalLayout =
-        placement && state.terminalLayout
-          ? insertTerminalSplit(
-              state.terminalLayout,
-              placement.targetPaneId,
-              placement.direction,
-              leaf,
-            )
-          : leaf;
+      let terminalLayout: TerminalPaneNode | null;
+      let resolvedPaneId: string;
+      if (placement?.type === "tab" && state.terminalLayout) {
+        terminalLayout = attachTabToPane(
+          state.terminalLayout,
+          placement.targetPaneId,
+          session.id,
+        );
+        resolvedPaneId = placement.targetPaneId;
+      } else if (placement?.type === "split" && state.terminalLayout && placement.direction) {
+        const leaf = makeTerminalLeaf(session.id);
+        terminalLayout = insertTerminalSplit(
+          state.terminalLayout,
+          placement.targetPaneId,
+          placement.direction,
+          leaf,
+        );
+        resolvedPaneId = leaf.paneId;
+      } else {
+        const leaf = makeTerminalLeaf(session.id);
+        terminalLayout = leaf;
+        resolvedPaneId = leaf.paneId;
+      }
       return {
         sessions: [
           ...state.sessions.filter((existing) => existing.id !== session.id),
           session,
         ],
         terminalLayout,
-        activeTerminalPaneId: leaf.paneId,
+        activeTerminalPaneId: resolvedPaneId,
         maximizedTerminalPaneId: state.maximizedTerminalPaneId
-          ? leaf.paneId
+          ? resolvedPaneId
           : state.maximizedTerminalPaneId,
         activeSessionId: session.id,
         selectedFile: null,
@@ -2251,15 +2345,31 @@ export const useSessionStore = create<SessionStore>((set) => ({
           sessionId: session.id,
           agent: session.agent,
           summary: placement
-            ? `Split ${session.title}`
+            ? placement.type === "tab"
+              ? `Tab ${session.title}`
+              : `Split ${session.title}`
             : `Started ${session.title}`,
           metadata: placement
             ? {
                 targetPaneId: placement.targetPaneId,
-                direction: placement.direction,
+                direction: placement.direction ?? null,
+                placementType: placement.type,
               }
             : undefined,
         }),
+      };
+    });
+    persistLater();
+  },
+  setActivePaneSession: (paneId, sessionId) => {
+    set((state) => {
+      if (!state.terminalLayout) return {};
+      const nextLayout = setActiveTabInPane(state.terminalLayout, paneId, sessionId);
+      return {
+        terminalLayout: nextLayout,
+        activeTerminalPaneId: paneId,
+        activeSessionId: sessionId,
+        selectedFile: null,
       };
     });
     persistLater();

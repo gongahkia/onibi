@@ -51,6 +51,10 @@ enum Command {
         #[command(subcommand)]
         command: SessionCommand,
     },
+    Pane {
+        #[command(subcommand)]
+        command: PaneCommand,
+    },
     Attention,
     Arrangement {
         #[command(subcommand)]
@@ -99,6 +103,21 @@ enum SessionCommand {
         text: Vec<String>,
     },
     Focus {
+        id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PaneCommand {
+    Split {
+        id: String,
+        #[arg(long, default_value = "vertical")]
+        direction: String,
+    },
+    Focus {
+        id: String,
+    },
+    Maximize {
         id: String,
     },
 }
@@ -169,6 +188,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Adapter { command }) => adapter(command),
         Some(Command::Transport { command }) => transport(command, cli.port).await,
         Some(Command::Session { command }) => session(command, cli.port),
+        Some(Command::Pane { command }) => pane(command, cli.port),
         Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention"),
         Some(Command::Arrangement { command }) => arrangement(command, cli.port),
         Some(Command::Hook { name }) => hook(&name, cli.port),
@@ -231,6 +251,52 @@ fn session(command: SessionCommand, port: u16) -> Result<()> {
                     port,
                     "POST",
                     &format!("/v1/desktop/session/{}/focus", path_segment(&id)),
+                    Some("{}"),
+                )?
+            );
+            Ok(())
+        }
+    }
+}
+
+fn pane(command: PaneCommand, port: u16) -> Result<()> {
+    ensure_daemon_running(port)?;
+    match command {
+        PaneCommand::Split { id, direction } => {
+            let body = json!({
+                "protocol_version": "1.0",
+                "direction": direction,
+            });
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/pane/{}/split", path_segment(&id)),
+                    Some(&body.to_string()),
+                )?
+            );
+            Ok(())
+        }
+        PaneCommand::Focus { id } => {
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
+                    Some("{}"),
+                )?
+            );
+            Ok(())
+        }
+        PaneCommand::Maximize { id } => {
+            println!(
+                "{}",
+                authed_http(
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
                     Some("{}"),
                 )?
             );

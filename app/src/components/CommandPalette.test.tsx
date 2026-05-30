@@ -246,6 +246,7 @@ describe("CommandPalette", () => {
       type: "leaf",
       paneId: "pane-1",
       sessionId: "pty-restored",
+      sessionIds: ["pty-restored"],
     });
   });
 });

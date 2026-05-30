@@ -237,6 +237,12 @@ pub fn router(state: AppState) -> Router {
             "/v1/desktop/arrangement/:id/restore",
             post(routes::desktop_arrangement_restore),
         )
+        .route("/v1/desktop/pane/:id/split", post(routes::desktop_pane_split))
+        .route("/v1/desktop/pane/:id/focus", post(routes::desktop_pane_focus))
+        .route(
+            "/v1/desktop/pane/:id/maximize",
+            post(routes::desktop_pane_maximize),
+        )
         .route("/v1/status", get(routes::status))
         .route("/v1/transport/status", get(routes::transport_status))
         .route("/v1/transport/:name/enable", post(routes::transport_enable))
@@ -400,6 +406,7 @@ pub fn start_background_server(port: u16) {
             runtime.block_on(async move {
                 match AppState::from_config(port) {
                     Ok(state) => {
+                        crate::push::register_bridge(state.store.clone(), state.vapid.clone());
                         if let Err(error) = start_server(state, port).await {
                             tracing::error!(%error, "Onibi approval server stopped");
                         }

@@ -3,7 +3,9 @@
 // and returns structured events. it does not strip the bytes from the stream;
 // the caller still forwards the original data to the frontend renderer.
 
+use parking_lot::RwLock;
 use serde::Serialize;
+use std::sync::Arc;
 
 const ESC: u8 = 0x1b;
 const BEL: u8 = 0x07;
@@ -164,6 +166,21 @@ fn parse_payload(buf: &[u8]) -> Option<OscNotification> {
         }
         _ => None,
     }
+}
+
+// optional hook registered by the binary crate to forward notifications
+// to the approval server's push module without coupling lib.rs to main.rs's
+// `push` module.
+pub type NotificationHook = Arc<dyn Fn(String, OscNotification) + Send + Sync>;
+
+static NOTIFICATION_HOOK: RwLock<Option<NotificationHook>> = RwLock::new(None);
+
+pub fn set_notification_hook(hook: NotificationHook) {
+    *NOTIFICATION_HOOK.write() = Some(hook);
+}
+
+pub fn notification_hook() -> Option<NotificationHook> {
+    NOTIFICATION_HOOK.read().clone()
 }
 
 #[cfg(test)]

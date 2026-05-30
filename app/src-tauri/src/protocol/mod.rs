@@ -219,6 +219,18 @@ pub struct DesktopSessionInputBody {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopPaneSplitBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    #[serde(default = "default_split_direction")]
+    pub direction: String,
+}
+
+fn default_split_direction() -> String {
+    "vertical".to_string()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DesktopCommandResponse {
     pub ok: bool,

@@ -4,7 +4,7 @@ use crate::{
     approval::store::now_millis,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopSessionInputBody,
+        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopSessionInputBody,
         DesktopSessionLaunchBody, DesktopSnapshotBody, PairRequest, PairResponse,
         PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
@@ -269,6 +269,49 @@ pub async fn desktop_arrangement_restore(
         &state,
         "arrangement-restore",
         json!({ "arrangementId": arrangement_id }),
+    )))
+}
+
+pub async fn desktop_pane_split(
+    State(state): State<AppState>,
+    Path(pane_id): Path<String>,
+    Json(body): Json<DesktopPaneSplitBody>,
+) -> ApiResult<DesktopCommandResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    let direction = if body.direction == "horizontal" {
+        "horizontal"
+    } else {
+        "vertical"
+    };
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "pane-split",
+        json!({
+            "paneId": pane_id,
+            "direction": direction,
+        }),
+    )))
+}
+
+pub async fn desktop_pane_focus(
+    State(state): State<AppState>,
+    Path(pane_id): Path<String>,
+) -> ApiResult<DesktopCommandResponse> {
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "pane-focus",
+        json!({ "paneId": pane_id }),
+    )))
+}
+
+pub async fn desktop_pane_maximize(
+    State(state): State<AppState>,
+    Path(pane_id): Path<String>,
+) -> ApiResult<DesktopCommandResponse> {
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "pane-maximize",
+        json!({ "paneId": pane_id }),
     )))
 }
 
