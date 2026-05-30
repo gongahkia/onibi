@@ -10,6 +10,7 @@ import {
   shimcacheEntryToEvidenceRef
 } from "./shimcache.js";
 import { matchBySrumApp, parseSrumOutput, srumEntryToEvidenceRef } from "./srum.js";
+import { matchSysmonNetworkConnect, matchSysmonProcessCreate, parseSysmonJson } from "./sysmon.js";
 import { matchClaimToRows, parseTimelineCsv, timelineMatchToEvidenceRef } from "./timeline.js";
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
@@ -18,6 +19,7 @@ export { parseFlowSummaryJson, matchPcapNetworkConnection } from "./pcap.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
 export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
 export { parseSrumOutput, matchBySrumApp } from "./srum.js";
+export { parseSysmonJson, matchSysmonNetworkConnect, matchSysmonProcessCreate } from "./sysmon.js";
 export { parseTimelineCsv, matchClaimToRows } from "./timeline.js";
 
 const programExecutionProof = [
@@ -40,10 +42,12 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkAmcacheEvidence(claim, caseDir, files));
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
+      additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
       break;
     case "network_connection":
       additions.push(...linkPcapEvidence(claim, caseDir, files));
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
+      additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
       break;
     case "file_presence":
     case "persistence":
@@ -57,6 +61,8 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkAmcacheEvidence(claim, caseDir, files));
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
+      additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
+      additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
       break;
   }
 
@@ -150,6 +156,32 @@ function linkPcapEvidence(claim: Claim, caseDir: string, files: readonly string[
     );
 }
 
+function linkSysmonProcessCreateEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isSysmonFile(file))
+    .flatMap((file) => {
+      const events = parseSysmonJson(readFileSync(file, "utf8"), relativeArtifact(caseDir, file));
+      return matchSysmonProcessCreate(claim, events);
+    });
+}
+
+function linkSysmonNetworkConnectEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isSysmonFile(file))
+    .flatMap((file) => {
+      const events = parseSysmonJson(readFileSync(file, "utf8"), relativeArtifact(caseDir, file));
+      return matchSysmonNetworkConnect(claim, events);
+    });
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -212,6 +244,11 @@ function isPcapFlowSummaryFile(path: string): boolean {
       lower.includes("conn-log") ||
       /[/\\]conn\.json$/u.test(lower))
   );
+}
+
+function isSysmonFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.includes("sysmon") && /\.(?:json|jsonl|ndjson|log)$/u.test(lower);
 }
 
 function relativeArtifact(caseDir: string, path: string): string {
