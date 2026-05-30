@@ -63,6 +63,7 @@ import {
   versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
+import { runFindEvilCommand } from "./findevil/index.js";
 
 type JsonRecord = Record<string, unknown>;
 type DoctorStatus = "pass" | "warn" | "fail";
@@ -262,11 +263,13 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(await runOtlpSmoke(args));
     case "cross-agent-replay-smoke":
       return printJson(runCrossAgentReplaySmoke());
+    case "findevil":
+      return runFindEvilCommand(args);
     case "mcp":
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <help|version|doctor|demo|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <help|version|doctor|demo|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|findevil|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -327,7 +330,15 @@ export function runHelpCommand(): JsonRecord {
       },
       {
         group: "runtime",
-        entries: ["run-skill", "replay-diff", "verify-claude-code", "cross-agent-replay-smoke"]
+        entries: [
+          "run-skill",
+          "replay-diff",
+          "verify-claude-code",
+          "cross-agent-replay-smoke",
+          "findevil verify",
+          "findevil firewall",
+          "findevil sentinel"
+        ]
       },
       {
         group: "governance",

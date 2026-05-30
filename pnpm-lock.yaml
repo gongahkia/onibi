@@ -98,6 +98,27 @@ importers:
         specifier: workspace:*
         version: link:../workflow-spec
 
+  packages/findevil:
+    dependencies:
+      '@kelpclaw/agent-hooks':
+        specifier: workspace:*
+        version: link:../agent-hooks
+      '@kelpclaw/codegen':
+        specifier: workspace:*
+        version: link:../codegen
+      '@kelpclaw/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@kelpclaw/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@kelpclaw/workflow-spec':
+        specifier: workspace:*
+        version: link:../workflow-spec
+      zod:
+        specifier: ^4.2.1
+        version: 4.4.3
+
   packages/nanoclaw:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':

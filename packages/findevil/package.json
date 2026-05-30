@@ -1,0 +1,26 @@
+{
+  "name": "@kelpclaw/findevil",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kelpclaw/agent-hooks": "workspace:*",
+    "@kelpclaw/codegen": "workspace:*",
+    "@kelpclaw/evidence": "workspace:*",
+    "@kelpclaw/policy": "workspace:*",
+    "@kelpclaw/workflow-spec": "workspace:*",
+    "zod": "^4.2.1"
+  }
+}
