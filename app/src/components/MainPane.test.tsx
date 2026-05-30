@@ -44,14 +44,18 @@ describe("MainPane", () => {
   });
 
   test("chooses editor when a file is selected", () => {
+    const selection = {
+      type: "file" as const,
+      workspaceId: "workspace:/repo",
+      workspaceRoot: "/repo",
+      path: "/repo/a.txt",
+      name: "a.txt",
+      size: 1,
+    };
     useSessionStore.setState({
-      selectedFile: {
-        workspaceId: "workspace:/repo",
-        workspaceRoot: "/repo",
-        path: "/repo/a.txt",
-        name: "a.txt",
-        size: 1,
-      },
+      selectedFile: selection,
+      openBuffers: [selection],
+      activeBufferKey: `file:workspace:/repo:/repo/a.txt`,
     });
 
     render(<MainPane />);
@@ -163,12 +167,24 @@ describe("MainPane", () => {
       ],
       activeSessionId: "pty-1",
       selectedFile: {
+        type: "file",
         workspaceId: "workspace:/repo",
         workspaceRoot: "/repo",
         path: "/repo/a.txt",
         name: "a.txt",
         size: 1,
       },
+      openBuffers: [
+        {
+          type: "file",
+          workspaceId: "workspace:/repo",
+          workspaceRoot: "/repo",
+          path: "/repo/a.txt",
+          name: "a.txt",
+          size: 1,
+        },
+      ],
+      activeBufferKey: "file:workspace:/repo:/repo/a.txt",
     });
 
     render(<MainPane />);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 import { EditorTabBar } from "./EditorTabBar";
 import { bufferKey, useSessionStore, type MainSelection } from "../lib/sessions";
@@ -139,6 +139,120 @@ describe("EditorTabBar", () => {
     expect(state.openBuffers).toHaveLength(1);
     expect(state.activeBufferKey).toBeNull();
     expect(state.selectedFile).toBeNull();
+  });
+
+  test("closing a tab pushes it to the closedBufferStack and reopen restores it", () => {
+    const a = fileSelection("/repo/a.ts");
+    const b = fileSelection("/repo/b.ts");
+    useSessionStore.setState({
+      openBuffers: [a, b],
+      activeBufferKey: bufferKey(a),
+      selectedFile: a,
+      closedBufferStack: [],
+    });
+    useSessionStore.getState().closeBuffer(bufferKey(a));
+    let state = useSessionStore.getState();
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual(["/repo/b.ts"]);
+    expect(state.closedBufferStack.map((buf) => buf.path)).toEqual(["/repo/a.ts"]);
+
+    const reopened = useSessionStore.getState().reopenClosedBuffer();
+    state = useSessionStore.getState();
+    expect(reopened).toBe(true);
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual([
+      "/repo/b.ts",
+      "/repo/a.ts",
+    ]);
+    expect(state.activeBufferKey).toBe(bufferKey(a));
+    expect(state.closedBufferStack).toEqual([]);
+  });
+
+  test("reopenClosedBuffer returns false when the stack is empty", () => {
+    useSessionStore.setState({
+      openBuffers: [],
+      activeBufferKey: null,
+      selectedFile: null,
+      closedBufferStack: [],
+    });
+    expect(useSessionStore.getState().reopenClosedBuffer()).toBe(false);
+  });
+
+  test("closedBufferStack is bounded at 20 entries", () => {
+    const buffers = Array.from({ length: 25 }, (_, i) =>
+      fileSelection(`/repo/${i}.ts`),
+    );
+    useSessionStore.setState({
+      openBuffers: buffers,
+      activeBufferKey: bufferKey(buffers[0]),
+      selectedFile: buffers[0],
+      closedBufferStack: [],
+    });
+    useSessionStore.getState().closeAllBuffers();
+    const state = useSessionStore.getState();
+    expect(state.openBuffers).toHaveLength(0);
+    expect(state.closedBufferStack).toHaveLength(20);
+    // Stack is most-recently-closed-first; closeAllBuffers pushes the latest
+    // open buffer onto the stack first (reversed). The 25th open is /24.ts.
+    expect(state.closedBufferStack[0].path).toBe("/repo/24.ts");
+    // And the oldest kept on the stack is the 5th-most-recent (idx 5).
+    expect(state.closedBufferStack[19].path).toBe("/repo/5.ts");
+  });
+
+  test("setBufferDirty toggles dirty state and the tab class follows", () => {
+    const a = fileSelection("/repo/a.ts");
+    useSessionStore.setState({
+      openBuffers: [a],
+      activeBufferKey: bufferKey(a),
+      selectedFile: a,
+      dirtyBufferKeys: [],
+    });
+    render(<EditorTabBar />);
+    act(() => {
+      useSessionStore.getState().setBufferDirty(bufferKey(a), true);
+    });
+    const tab = screen.getAllByRole("tab")[0];
+    expect(tab.className).toContain("dirty");
+    act(() => {
+      useSessionStore.getState().setBufferDirty(bufferKey(a), false);
+    });
+    expect(tab.className).not.toContain("dirty");
+  });
+
+  test("reorderBuffer moves a tab before another", () => {
+    const a = fileSelection("/repo/a.ts");
+    const b = fileSelection("/repo/b.ts");
+    const c = fileSelection("/repo/c.ts");
+    useSessionStore.setState({
+      openBuffers: [a, b, c],
+      activeBufferKey: bufferKey(a),
+      selectedFile: a,
+    });
+    // Move 'a' to after 'c'
+    useSessionStore.getState().reorderBuffer(bufferKey(a), bufferKey(c), false);
+    const state = useSessionStore.getState();
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual([
+      "/repo/b.ts",
+      "/repo/c.ts",
+      "/repo/a.ts",
+    ]);
+  });
+
+  test("reorderBuffer can move a later tab before an earlier one", () => {
+    const a = fileSelection("/repo/a.ts");
+    const b = fileSelection("/repo/b.ts");
+    const c = fileSelection("/repo/c.ts");
+    useSessionStore.setState({
+      openBuffers: [a, b, c],
+      activeBufferKey: bufferKey(a),
+      selectedFile: a,
+    });
+    // Move 'c' to before 'a'
+    useSessionStore.getState().reorderBuffer(bufferKey(c), bufferKey(a), true);
+    const state = useSessionStore.getState();
+    expect(state.openBuffers.map((buf) => buf.path)).toEqual([
+      "/repo/c.ts",
+      "/repo/a.ts",
+      "/repo/b.ts",
+    ]);
   });
 
   test("removeWorkspace prunes buffers from that workspace", () => {

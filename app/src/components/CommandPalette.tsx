@@ -28,7 +28,7 @@ import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
-type CommandGroup = "Session" | "Workspace" | "Settings" | "Layout" | "View" | "Agent";
+type CommandGroup = "Session" | "Workspace" | "Settings" | "Layout" | "View" | "Agent" | "Editor";
 
 interface PaletteCommand {
   id: string;
@@ -160,6 +160,17 @@ export function CommandPalette() {
       ) {
         event.preventDefault();
         setOpen(true);
+        return;
+      }
+      // Cmd/Ctrl + Shift + T → reopen closed tab (VSCode parity)
+      if (
+        event.key.toLowerCase() === "t" &&
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        reopenClosedBuffer();
       }
     }
 
@@ -176,7 +187,7 @@ export function CommandPalette() {
         handleOpenEvent as EventListener,
       );
     };
-  }, []);
+  }, [reopenClosedBuffer]);
 
   useEffect(() => {
     if (!open) {
@@ -217,6 +228,20 @@ export function CommandPalette() {
         shortcut: primaryShortcut(","),
         keywords: ["preferences", "agents", "workspace"],
         run: () => setSettingsOpen(true),
+      },
+      {
+        id: "editor.reopen-closed",
+        label: "Reopen Closed Editor",
+        group: "Editor",
+        description:
+          closedBufferStack.length > 0
+            ? `Reopen ${closedBufferStack[0].path}`
+            : "No recently closed editors",
+        shortcut: `${primaryShortcut("⇧")}T`,
+        keywords: ["restore", "undo", "close", "tab", "file"],
+        run: () => {
+          reopenClosedBuffer();
+        },
       },
       {
         id: "workspace.open",
