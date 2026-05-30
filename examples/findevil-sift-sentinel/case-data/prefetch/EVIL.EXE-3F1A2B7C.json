@@ -1,0 +1,17 @@
+{
+  "sourceType": "prefetch_json_parse",
+  "evidenceType": "prefetch_entry",
+  "hostname": "WIN-LAB01",
+  "executableName": "EVIL.EXE",
+  "prefetchFile": "C:/Windows/Prefetch/EVIL.EXE-3F1A2B7C.pf",
+  "executablePath": "C:/Users/Public/Downloads/evil.exe",
+  "runCount": 1,
+  "lastRunTimes": ["2026-02-18T09:32:41.000Z"],
+  "volumeSerial": "A1B2-C3D4",
+  "loadedFiles": [
+    "C:/Windows/System32/kernel32.dll",
+    "C:/Windows/System32/user32.dll",
+    "C:/Users/Public/Downloads/evil.exe"
+  ],
+  "parser": "synthetic-prefetch-parser 0.1"
+}

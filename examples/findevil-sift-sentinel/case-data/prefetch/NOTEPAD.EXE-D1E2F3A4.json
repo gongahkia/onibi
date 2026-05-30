@@ -1,0 +1,13 @@
+{
+  "sourceType": "prefetch_json_parse",
+  "evidenceType": "prefetch_entry",
+  "hostname": "WIN-LAB01",
+  "executableName": "NOTEPAD.EXE",
+  "prefetchFile": "C:/Windows/Prefetch/NOTEPAD.EXE-D1E2F3A4.pf",
+  "executablePath": "C:/Windows/System32/notepad.exe",
+  "runCount": 6,
+  "lastRunTimes": ["2026-02-18T09:24:53.000Z", "2026-02-17T15:12:08.000Z"],
+  "volumeSerial": "A1B2-C3D4",
+  "loadedFiles": ["C:/Windows/System32/notepad.exe", "C:/Windows/System32/comdlg32.dll"],
+  "parser": "synthetic-prefetch-parser 0.1"
+}

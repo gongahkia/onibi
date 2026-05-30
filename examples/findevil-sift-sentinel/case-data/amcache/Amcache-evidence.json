@@ -1,0 +1,19 @@
+{
+  "sourceType": "amcache_json_parse",
+  "evidenceType": "amcache_execution_record",
+  "hostname": "WIN-LAB01",
+  "hive": "C:/Windows/AppCompat/Programs/Amcache.hve",
+  "records": [
+    {
+      "programId": "00000000-0000-0000-0000-evil00000001",
+      "fileName": "evil.exe",
+      "path": "C:/Users/Public/Downloads/evil.exe",
+      "sha1": "0000000000000000000000000000000000000000",
+      "sizeBytes": 0,
+      "publisher": null,
+      "firstObserved": "2026-02-18T09:32:43.000Z",
+      "sourceKey": "Root/InventoryApplicationFile/evil-demo"
+    }
+  ],
+  "parser": "synthetic-amcache-parser 0.1"
+}
