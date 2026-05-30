@@ -3,17 +3,26 @@ import { join, relative, sep } from "node:path";
 import { claimSchema, type Claim, type EvidenceRef } from "../types/claim.js";
 import { amcacheEntryToEvidenceRef, matchByPathOrHash, parseAmcacheOutput } from "./amcache.js";
 import { matchByExecutable, parsePrefetchOutput, prefetchEntryToEvidenceRef } from "./prefetch.js";
+import {
+  matchByShimcachePath,
+  parseShimcacheOutput,
+  shimcacheEntryToEvidenceRef
+} from "./shimcache.js";
+import { matchBySrumApp, parseSrumOutput, srumEntryToEvidenceRef } from "./srum.js";
 import { matchClaimToRows, parseTimelineCsv, timelineMatchToEvidenceRef } from "./timeline.js";
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
 export { hashEvidenceRow } from "./hashing.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
+export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
+export { parseSrumOutput, matchBySrumApp } from "./srum.js";
 export { parseTimelineCsv, matchClaimToRows } from "./timeline.js";
 
 const programExecutionProof = [
   "prefetch_entry",
   "amcache_execution_record",
   "shimcache_indicator",
+  "srum_network_activity",
   "sysmon_process_create"
 ] as const;
 const persistenceProof = ["registry-run-key", "scheduled-task", "service-create"] as const;
@@ -27,6 +36,8 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
       additions.push(...linkPrefetchEvidence(claim, caseDir, files));
       additions.push(...linkAmcacheEvidence(claim, caseDir, files));
+      additions.push(...linkShimcacheEvidence(claim, caseDir, files));
+      additions.push(...linkSrumEvidence(claim, caseDir, files));
       break;
     case "file_presence":
     case "persistence":
@@ -39,6 +50,8 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
       additions.push(...linkPrefetchEvidence(claim, caseDir, files));
       additions.push(...linkAmcacheEvidence(claim, caseDir, files));
+      additions.push(...linkShimcacheEvidence(claim, caseDir, files));
+      additions.push(...linkSrumEvidence(claim, caseDir, files));
       break;
   }
 
@@ -95,6 +108,32 @@ function linkAmcacheEvidence(
     });
 }
 
+function linkShimcacheEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isShimcacheFile(file))
+    .flatMap((file) => {
+      const entries = parseShimcacheOutput(readFileSync(file, "utf8"));
+      return matchByShimcachePath(claim.text, entries).map((entry) =>
+        shimcacheEntryToEvidenceRef(relativeArtifact(caseDir, file), entry)
+      );
+    });
+}
+
+function linkSrumEvidence(claim: Claim, caseDir: string, files: readonly string[]): EvidenceRef[] {
+  return files
+    .filter((file) => isSrumFile(file))
+    .flatMap((file) => {
+      const entries = parseSrumOutput(readFileSync(file, "utf8"));
+      return matchBySrumApp(claim.text, entries).map((entry) =>
+        srumEntryToEvidenceRef(relativeArtifact(caseDir, file), entry)
+      );
+    });
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -131,6 +170,19 @@ function isPrefetchFile(path: string): boolean {
 function isAmcacheFile(path: string): boolean {
   const lower = path.toLowerCase();
   return lower.includes("amcache") && /\.(?:txt|csv|log|json)$/u.test(lower);
+}
+
+function isShimcacheFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    (lower.includes("shimcache") || lower.includes("appcompatcache")) &&
+    /\.(?:txt|csv|log|json)$/u.test(lower)
+  );
+}
+
+function isSrumFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.includes("srum") && /\.(?:txt|csv|log|json)$/u.test(lower);
 }
 
 function relativeArtifact(caseDir: string, path: string): string {

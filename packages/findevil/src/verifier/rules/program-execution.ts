@@ -4,6 +4,7 @@ const directExecutionEvidence = new Set([
   "prefetch_entry",
   "amcache_execution_record",
   "shimcache_indicator",
+  "srum_network_activity",
   "sysmon_process_create"
 ]);
 
