@@ -58,7 +58,7 @@ function App() {
       {horizontalTabs ? (
         <PanelGroup orientation="vertical">
           {settings.tabBarPosition === "bottom" ? (
-            <ContentPanels sidebarCollapsed={sidebarCollapsed} />
+            <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
           ) : (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
               <AgentTabBar orientation="horizontal" />
@@ -70,7 +70,7 @@ function App() {
               <AgentTabBar orientation="horizontal" />
             </Panel>
           ) : (
-            <ContentPanels sidebarCollapsed={sidebarCollapsed} />
+            <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
           )}
         </PanelGroup>
       ) : (
@@ -100,26 +100,38 @@ function App() {
 
 interface ContentPanelsProps {
   sidebarCollapsed: boolean;
+  nestedInPanelGroup?: boolean;
 }
 
-function ContentPanels({ sidebarCollapsed }: ContentPanelsProps) {
-  return (
-    <Panel defaultSize="100%" minSize="70%">
-      <PanelGroup orientation="horizontal">
-        {sidebarCollapsed ? null : (
-          <>
-            <Panel defaultSize="20%" minSize="12%" maxSize="40%" id="sidebar-panel">
-              <WorkspaceSidebar />
-            </Panel>
-            <PanelResizeHandle className="panel-resize-handle" />
-          </>
-        )}
-        <Panel defaultSize="80%" minSize="40%" id="main-panel">
-          <MainPane />
-        </Panel>
-      </PanelGroup>
-    </Panel>
+function ContentPanels({
+  sidebarCollapsed,
+  nestedInPanelGroup = false,
+}: ContentPanelsProps) {
+  const panels = (
+    <PanelGroup orientation="horizontal">
+      {sidebarCollapsed ? null : (
+        <>
+          <Panel defaultSize="20%" minSize="12%" maxSize="40%" id="sidebar-panel">
+            <WorkspaceSidebar />
+          </Panel>
+          <PanelResizeHandle className="panel-resize-handle" />
+        </>
+      )}
+      <Panel defaultSize="80%" minSize="40%" id="main-panel">
+        <MainPane />
+      </Panel>
+    </PanelGroup>
   );
+
+  if (nestedInPanelGroup) {
+    return (
+      <Panel defaultSize="93%" minSize="70%" id="content-panel">
+        {panels}
+      </Panel>
+    );
+  }
+
+  return panels;
 }
 
 export default App;

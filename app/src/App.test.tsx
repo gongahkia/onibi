@@ -39,6 +39,15 @@ describe("App", () => {
     resetStore();
   });
 
+  test("renders default vertical tab layout without panel context errors", () => {
+    render(<App />);
+
+    expect(screen.getByTestId("main-pane")).toBeTruthy();
+    expect(screen.getByRole("main").getAttribute("data-tab-orientation")).toBe(
+      "vertical",
+    );
+  });
+
   test("renders horizontal tab layout when configured", () => {
     useSessionStore.setState({
       settings: {
