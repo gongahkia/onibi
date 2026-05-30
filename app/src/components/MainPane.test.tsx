@@ -91,7 +91,7 @@ describe("MainPane", () => {
     );
   });
 
-  test("does not mount stale saved sessions as live terminal panes", () => {
+  test("shows the terminal pane shell for stale saved sessions", () => {
     useSessionStore.setState({
       sessions: [
         {
@@ -119,9 +119,9 @@ describe("MainPane", () => {
 
     render(<MainPane />);
 
-    expect(screen.getByTestId("empty-state")).toBeTruthy();
+    expect(screen.getByTestId("main-pane-terminal")).toBeTruthy();
+    expect(screen.getByText("Session is stale")).toBeTruthy();
     expect(screen.queryByTestId("terminal-view")).toBeNull();
-    expect(screen.queryByText("Session is stale")).toBeNull();
     expect(screen.queryByLabelText("Handoff session to another agent")).toBeNull();
   });
 

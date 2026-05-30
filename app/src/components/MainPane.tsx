@@ -610,8 +610,7 @@ export function MainPane() {
     (state) => state.focusRelativeTerminalPane,
   );
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
-  const activeTerminalSession =
-    session && sessionHasRestorableTerminal(session) ? session : null;
+  const activeTerminalSession = session;
   const renderableSessionIds = new Set(
     sessions
       .filter((item) => sessionHasRestorableTerminal(item))
