@@ -262,6 +262,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalConfirmClose={settings.terminalConfirmClose}
               editorFontSize={settings.editorFontSize}
               editorKeybindingMode={settings.editorKeybindingMode}
+              editorVimRelativeLineNumbers={settings.editorVimRelativeLineNumbers}
+              editorVimSystemClipboard={settings.editorVimSystemClipboard}
+              editorEmacsSystemClipboard={settings.editorEmacsSystemClipboard}
               editorOpenLimit={settings.editorOpenLimit}
               closedBufferHistoryLimit={settings.closedBufferHistoryLimit}
               diffViewMode={settings.diffViewMode}
@@ -291,6 +294,15 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onEditorKeybindingMode={(editorKeybindingMode) =>
                 updateSettings({ editorKeybindingMode })
+              }
+              onEditorVimRelativeLineNumbers={(editorVimRelativeLineNumbers) =>
+                updateSettings({ editorVimRelativeLineNumbers })
+              }
+              onEditorVimSystemClipboard={(editorVimSystemClipboard) =>
+                updateSettings({ editorVimSystemClipboard })
+              }
+              onEditorEmacsSystemClipboard={(editorEmacsSystemClipboard) =>
+                updateSettings({ editorEmacsSystemClipboard })
               }
               onEditorOpenLimit={(editorOpenLimit) =>
                 updateSettings({ editorOpenLimit })
@@ -466,6 +478,9 @@ interface GeneralSettingsProps {
   terminalConfirmClose: boolean;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
+  editorVimRelativeLineNumbers: boolean;
+  editorVimSystemClipboard: boolean;
+  editorEmacsSystemClipboard: boolean;
   editorOpenLimit: number;
   closedBufferHistoryLimit: number;
   diffViewMode: DiffViewMode;
@@ -482,6 +497,9 @@ interface GeneralSettingsProps {
   onTerminalConfirmClose: (enabled: boolean) => void;
   onEditorFontSize: (fontSize: number) => void;
   onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
+  onEditorVimRelativeLineNumbers: (enabled: boolean) => void;
+  onEditorVimSystemClipboard: (enabled: boolean) => void;
+  onEditorEmacsSystemClipboard: (enabled: boolean) => void;
   onEditorOpenLimit: (limit: number) => void;
   onClosedBufferHistoryLimit: (limit: number) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
@@ -502,6 +520,9 @@ function GeneralSettings({
   terminalConfirmClose,
   editorFontSize,
   editorKeybindingMode,
+  editorVimRelativeLineNumbers,
+  editorVimSystemClipboard,
+  editorEmacsSystemClipboard,
   editorOpenLimit,
   closedBufferHistoryLimit,
   diffViewMode,
@@ -518,6 +539,9 @@ function GeneralSettings({
   onTerminalConfirmClose,
   onEditorFontSize,
   onEditorKeybindingMode,
+  onEditorVimRelativeLineNumbers,
+  onEditorVimSystemClipboard,
+  onEditorEmacsSystemClipboard,
   onEditorOpenLimit,
   onClosedBufferHistoryLimit,
   onDiffViewMode,
@@ -662,6 +686,54 @@ function GeneralSettings({
           <option value="vim">Vim</option>
         </select>
       </label>
+      {editorKeybindingMode === "vim" ? (
+        <>
+          <label className="settings-row">
+            <span>Vim line numbers</span>
+            <span className="settings-check-row">
+              <input
+                type="checkbox"
+                aria-label="Vim relative line numbers"
+                checked={editorVimRelativeLineNumbers}
+                onChange={(event) =>
+                  onEditorVimRelativeLineNumbers(event.target.checked)
+                }
+              />
+              Relative line numbers
+            </span>
+          </label>
+          <label className="settings-row">
+            <span>Vim clipboard</span>
+            <span className="settings-check-row">
+              <input
+                type="checkbox"
+                aria-label="Sync Vim register with system clipboard"
+                checked={editorVimSystemClipboard}
+                onChange={(event) =>
+                  onEditorVimSystemClipboard(event.target.checked)
+                }
+              />
+              Sync register with system clipboard
+            </span>
+          </label>
+        </>
+      ) : null}
+      {editorKeybindingMode === "emacs" ? (
+        <label className="settings-row">
+          <span>Emacs clipboard</span>
+          <span className="settings-check-row">
+            <input
+              type="checkbox"
+              aria-label="Use system clipboard for Emacs kill and yank"
+              checked={editorEmacsSystemClipboard}
+              onChange={(event) =>
+                onEditorEmacsSystemClipboard(event.target.checked)
+              }
+            />
+            Use system clipboard for kill and yank
+          </span>
+        </label>
+      ) : null}
       <label className="settings-row">
         <span>
           Editor tab limit

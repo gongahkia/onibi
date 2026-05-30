@@ -1042,6 +1042,9 @@ function BufferStack({ openBuffers, activeBufferKey, settings }: BufferStackProp
                 workspaceRoot={buffer.workspaceRoot}
                 fontFamily={settings.editorFontFamily}
                 keybindingMode={settings.editorKeybindingMode}
+                vimRelativeLineNumbers={settings.editorVimRelativeLineNumbers}
+                vimSystemClipboard={settings.editorVimSystemClipboard}
+                emacsSystemClipboard={settings.editorEmacsSystemClipboard}
                 bufferKey={key}
               />
             )}

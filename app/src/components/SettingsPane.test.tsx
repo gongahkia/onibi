@@ -126,6 +126,8 @@ describe("SettingsPane", () => {
     fireEvent.change(screen.getByLabelText("Editor keybindings"), {
       target: { value: "vim" },
     });
+    fireEvent.click(screen.getByLabelText("Vim relative line numbers"));
+    fireEvent.click(screen.getByLabelText("Sync Vim register with system clipboard"));
     fireEvent.change(screen.getByLabelText("Diff view"), {
       target: { value: "unified" },
     });
@@ -135,7 +137,22 @@ describe("SettingsPane", () => {
     expect(settings.terminalFontSize).toBe(18);
     expect(settings.editorFontSize).toBe(14);
     expect(settings.editorKeybindingMode).toBe("vim");
+    expect(settings.editorVimRelativeLineNumbers).toBe(true);
+    expect(settings.editorVimSystemClipboard).toBe(true);
     expect(settings.diffViewMode).toBe("unified");
+  });
+
+  test("stores emacs clipboard sync preference", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Editor keybindings"), {
+      target: { value: "emacs" },
+    });
+    fireEvent.click(screen.getByLabelText("Use system clipboard for Emacs kill and yank"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.editorKeybindingMode).toBe("emacs");
+    expect(settings.editorEmacsSystemClipboard).toBe(true);
   });
 
   test("stores terminal scrollback without exposing shell integration in general", () => {

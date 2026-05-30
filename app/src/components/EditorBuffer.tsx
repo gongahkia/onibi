@@ -20,7 +20,12 @@ import {
   type LanguageSupport,
 } from "@codemirror/language";
 import { EditorState, Prec, type Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  type KeyBinding,
+} from "@codemirror/view";
 import {
   copyLineDown,
   copyLineUp,
@@ -47,7 +52,7 @@ import {
   selectSelectionMatches,
 } from "@codemirror/search";
 import { tags as highlightTags } from "@lezer/highlight";
-import { vim } from "@replit/codemirror-vim";
+import { Vim, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -66,6 +71,9 @@ export interface EditorBufferProps {
   workspaceRoot: string;
   fontFamily?: string;
   keybindingMode?: EditorKeybindingMode;
+  vimRelativeLineNumbers?: boolean;
+  vimSystemClipboard?: boolean;
+  emacsSystemClipboard?: boolean;
   bufferKey?: string;
 }
 
@@ -317,7 +325,181 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   onSave: () => void;
   keybindingMode: EditorKeybindingMode;
+  vimRelativeLineNumbers: boolean;
+  vimSystemClipboard: boolean;
+  emacsSystemClipboard: boolean;
   onScroller?: (element: HTMLElement | null) => void;
+}
+
+let vimClipboardSyncUsers = 0;
+let vimClipboardSyncEnabled = false;
+let vimClipboardPatched = false;
+let vimClipboardMappingsEnabled = false;
+
+function writeSystemClipboard(text: string) {
+  void navigator.clipboard?.writeText?.(text).catch(() => undefined);
+}
+
+function setVimClipboardMappings(enabled: boolean) {
+  if (enabled === vimClipboardMappingsEnabled) {
+    return;
+  }
+  vimClipboardMappingsEnabled = enabled;
+  if (enabled) {
+    Vim.map("p", "\"+p", "normal");
+    Vim.map("P", "\"+P", "normal");
+    Vim.map("]p", "\"+]p", "normal");
+    Vim.map("[p", "\"+[p", "normal");
+    Vim.map("<C-r>\"", "<C-r>+", "insert");
+  } else {
+    Vim.unmap("p", "normal");
+    Vim.unmap("P", "normal");
+    Vim.unmap("]p", "normal");
+    Vim.unmap("[p", "normal");
+    Vim.unmap("<C-r>\"", "insert");
+  }
+}
+
+function ensureVimClipboardPatch() {
+  if (vimClipboardPatched) {
+    return;
+  }
+  vimClipboardPatched = true;
+  const controller = Vim.getRegisterController();
+  const originalPushText = controller.pushText.bind(controller);
+  controller.pushText = (registerName, operator, text, linewise, blockwise) => {
+    originalPushText(registerName, operator, text, linewise, blockwise);
+    if (!vimClipboardSyncEnabled || registerName === "_" || !text) {
+      return;
+    }
+    const nextText = linewise && !text.endsWith("\n") ? `${text}\n` : text;
+    controller.getRegister("+").setText(nextText, linewise, blockwise);
+    controller.unnamedRegister.setText(nextText, linewise, blockwise);
+    writeSystemClipboard(nextText);
+  };
+}
+
+function retainVimClipboardSync(enabled: boolean) {
+  if (!enabled) {
+    return () => undefined;
+  }
+  ensureVimClipboardPatch();
+  vimClipboardSyncUsers += 1;
+  vimClipboardSyncEnabled = vimClipboardSyncUsers > 0;
+  setVimClipboardMappings(vimClipboardSyncEnabled);
+  return () => {
+    vimClipboardSyncUsers = Math.max(0, vimClipboardSyncUsers - 1);
+    vimClipboardSyncEnabled = vimClipboardSyncUsers > 0;
+    setVimClipboardMappings(vimClipboardSyncEnabled);
+  };
+}
+
+async function syncClipboardIntoVimRegisters() {
+  if (!vimClipboardSyncEnabled || !navigator.clipboard?.readText) {
+    return;
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    const controller = Vim.getRegisterController();
+    const linewise = text.endsWith("\n");
+    controller.unnamedRegister.setText(text, linewise);
+    controller.getRegister("+").setText(text, linewise);
+  } catch {
+    // Browser permissions may deny clipboard reads until a user gesture.
+  }
+}
+
+function editorBasicSetup(relativeLineNumbers: boolean): Extension {
+  if (!relativeLineNumbers || !Array.isArray(basicSetup)) {
+    return basicSetup;
+  }
+  const setup = [...basicSetup] as Extension[];
+  setup[0] = lineNumbers({
+    formatNumber(lineNo, state) {
+      const activeLine = state.doc.lineAt(state.selection.main.head).number;
+      return lineNo === activeLine ? String(lineNo) : String(Math.abs(lineNo - activeLine));
+    },
+  });
+  return setup;
+}
+
+function selectionText(view: EditorView): string | null {
+  const range = view.state.selection.main;
+  return range.empty ? null : view.state.sliceDoc(range.from, range.to);
+}
+
+function emacsClipboardKeymap(enabled: boolean): KeyBinding[] {
+  if (!enabled) {
+    return [];
+  }
+  return [
+    {
+      key: "Alt-w",
+      run: (view) => {
+        const text = selectionText(view);
+        if (!text) {
+          return false;
+        }
+        writeSystemClipboard(text);
+        return true;
+      },
+    },
+    {
+      key: "Ctrl-w",
+      run: (view) => {
+        const range = view.state.selection.main;
+        if (range.empty) {
+          return false;
+        }
+        const text = view.state.sliceDoc(range.from, range.to);
+        writeSystemClipboard(text);
+        view.dispatch({
+          changes: { from: range.from, to: range.to },
+          selection: { anchor: range.from },
+          userEvent: "delete.cut",
+        });
+        return true;
+      },
+    },
+    {
+      key: "Ctrl-k",
+      run: (view) => {
+        const range = view.state.selection.main;
+        let from = range.from;
+        let to = range.to;
+        if (range.empty) {
+          const line = view.state.doc.lineAt(range.head);
+          to = range.head < line.to ? line.to : Math.min(line.to + 1, view.state.doc.length);
+        }
+        const text = view.state.sliceDoc(from, to);
+        if (!text) {
+          return false;
+        }
+        writeSystemClipboard(text);
+        view.dispatch({
+          changes: { from, to },
+          selection: { anchor: from },
+          userEvent: "delete.cut",
+        });
+        return true;
+      },
+    },
+    {
+      key: "Ctrl-y",
+      run: (view) => {
+        if (!navigator.clipboard?.readText) {
+          return false;
+        }
+        void navigator.clipboard.readText().then((text) => {
+          if (text) {
+            view.dispatch(view.state.replaceSelection(text));
+            view.focus();
+          }
+        });
+        return true;
+      },
+    },
+  ];
 }
 
 function CodeEditor({
@@ -328,6 +510,9 @@ function CodeEditor({
   onChange,
   onSave,
   keybindingMode,
+  vimRelativeLineNumbers,
+  vimSystemClipboard,
+  emacsSystemClipboard,
   onScroller,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,6 +538,9 @@ function CodeEditor({
       ...(keybindingMode === "vim" ? [vim()] : []),
       Prec.high(
         keymap.of([
+          ...(keybindingMode === "emacs"
+            ? emacsClipboardKeymap(emacsSystemClipboard)
+            : []),
           ...(keybindingMode === "emacs" ? emacsStyleKeymap : []),
           ...searchKeymap,
           {
@@ -384,7 +572,7 @@ function CodeEditor({
           { key: "Ctrl-d", run: selectNextOccurrence },
         ]),
       ),
-      basicSetup,
+      editorBasicSetup(keybindingMode === "vim" && vimRelativeLineNumbers),
       editorTheme,
       syntaxHighlighting(editorHighlightStyle),
       EditorView.contentAttributes.of({
@@ -404,12 +592,37 @@ function CodeEditor({
     });
     viewRef.current = view;
     onScroller?.(view.scrollDOM);
+    const releaseVimClipboardSync = retainVimClipboardSync(
+      keybindingMode === "vim" && vimSystemClipboard,
+    );
+    if (keybindingMode === "vim" && vimSystemClipboard) {
+      const sync = () => void syncClipboardIntoVimRegisters();
+      view.dom.addEventListener("focusin", sync);
+      window.addEventListener("focus", sync);
+      sync();
+      return () => {
+        view.dom.removeEventListener("focusin", sync);
+        window.removeEventListener("focus", sync);
+        releaseVimClipboardSync();
+        onScroller?.(null);
+        view.destroy();
+        viewRef.current = null;
+      };
+    }
     return () => {
+      releaseVimClipboardSync();
       onScroller?.(null);
       view.destroy();
       viewRef.current = null;
     };
-  }, [keybindingMode, language, onScroller]);
+  }, [
+    emacsSystemClipboard,
+    keybindingMode,
+    language,
+    onScroller,
+    vimRelativeLineNumbers,
+    vimSystemClipboard,
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -624,6 +837,9 @@ export function EditorBuffer({
   workspaceRoot,
   fontFamily,
   keybindingMode = "standard",
+  vimRelativeLineNumbers = false,
+  vimSystemClipboard = false,
+  emacsSystemClipboard = false,
   bufferKey: bufferKeyProp,
 }: EditorBufferProps) {
   const selectFile = useSessionStore((state) => state.selectFile);
@@ -783,6 +999,9 @@ export function EditorBuffer({
               onChange={setContent}
               onSave={() => void save()}
               keybindingMode={keybindingMode}
+              vimRelativeLineNumbers={vimRelativeLineNumbers}
+              vimSystemClipboard={vimSystemClipboard}
+              emacsSystemClipboard={emacsSystemClipboard}
               onScroller={setEditorScroller}
             />
             <MarkdownPreview
@@ -801,6 +1020,9 @@ export function EditorBuffer({
             onChange={setContent}
             onSave={() => void save()}
             keybindingMode={keybindingMode}
+            vimRelativeLineNumbers={vimRelativeLineNumbers}
+            vimSystemClipboard={vimSystemClipboard}
+            emacsSystemClipboard={emacsSystemClipboard}
           />
         )
       ) : null}

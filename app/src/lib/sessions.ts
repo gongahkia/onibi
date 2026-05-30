@@ -534,6 +534,9 @@ export interface AppSettings {
   terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
+  editorVimRelativeLineNumbers: boolean;
+  editorVimSystemClipboard: boolean;
+  editorEmacsSystemClipboard: boolean;
   /** Max simultaneously-mounted editor buffers. Tabs beyond this evict the LRU
    * inactive tab. 0 = unlimited (uses memory but preserves all undo history). */
   editorOpenLimit: number;
@@ -1330,6 +1333,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   editorFontSize: 13,
   editorKeybindingMode: "standard",
+  editorVimRelativeLineNumbers: false,
+  editorVimSystemClipboard: false,
+  editorEmacsSystemClipboard: false,
   editorOpenLimit: 10,
   closedBufferHistoryLimit: 20,
   diffViewMode: "side-by-side",
@@ -1730,6 +1736,18 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     editorKeybindingMode: normalizeEditorKeybindingMode(merged.editorKeybindingMode),
+    editorVimRelativeLineNumbers:
+      typeof merged.editorVimRelativeLineNumbers === "boolean"
+        ? merged.editorVimRelativeLineNumbers
+        : DEFAULT_SETTINGS.editorVimRelativeLineNumbers,
+    editorVimSystemClipboard:
+      typeof merged.editorVimSystemClipboard === "boolean"
+        ? merged.editorVimSystemClipboard
+        : DEFAULT_SETTINGS.editorVimSystemClipboard,
+    editorEmacsSystemClipboard:
+      typeof merged.editorEmacsSystemClipboard === "boolean"
+        ? merged.editorEmacsSystemClipboard
+        : DEFAULT_SETTINGS.editorEmacsSystemClipboard,
     editorOpenLimit: normalizeBufferLimit(
       merged.editorOpenLimit,
       DEFAULT_SETTINGS.editorOpenLimit,
