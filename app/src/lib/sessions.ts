@@ -148,6 +148,7 @@ export interface SessionCommandMarker {
 
 export type CommandBlockStatus = "running" | "succeeded" | "failed" | "aborted";
 export type CommandBlockSource = "shell-integration" | "manual" | "trigger";
+export type EditorKeybindingMode = "standard" | "emacs" | "vim";
 
 export interface CommandBlock {
   id: string;
@@ -429,6 +430,7 @@ export interface AppSettings {
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
+  editorKeybindingMode: EditorKeybindingMode;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
   tabBarPosition: TabBarPosition;
@@ -1136,6 +1138,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   editorFontSize: 13,
+  editorKeybindingMode: "standard",
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
   tabBarPosition: "left",
@@ -1453,6 +1456,12 @@ function normalizeWebOpenMode(value: unknown): WebOpenMode {
     : DEFAULT_SETTINGS.webOpenMode;
 }
 
+function normalizeEditorKeybindingMode(value: unknown): EditorKeybindingMode {
+  return value === "standard" || value === "emacs" || value === "vim"
+    ? value
+    : DEFAULT_SETTINGS.editorKeybindingMode;
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
@@ -1516,6 +1525,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         : DEFAULT_SETTINGS.terminalConfirmClose,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
+    editorKeybindingMode: normalizeEditorKeybindingMode(merged.editorKeybindingMode),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
       ? merged.tabBarOrientation
