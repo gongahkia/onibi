@@ -186,7 +186,6 @@ export type WorkspaceSidebarView =
   | "search"
   | "source-control"
   | "sessions"
-  | "history"
   | "approvals";
 
 export interface ArrangementSession {
@@ -1646,7 +1645,6 @@ function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
     value === "search" ||
     value === "source-control" ||
     value === "sessions" ||
-    value === "history" ||
     value === "approvals"
     ? value
     : "files";

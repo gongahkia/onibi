@@ -9,7 +9,6 @@ import {
 } from "../lib/sessions";
 import { AgentTabBar } from "./AgentTabBar";
 import { FileTree } from "./FileTree";
-import { SessionHistoryView } from "./SessionHistoryView";
 import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
 import { WorkspaceSearchView } from "./WorkspaceSearchView";
@@ -28,7 +27,6 @@ const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
   search: "Search",
   "source-control": "Source Control",
   sessions: "Sessions",
-  history: "Activity",
   approvals: "Approvals",
 };
 
@@ -154,8 +152,6 @@ export function WorkspaceSidebar() {
           <div className="sidebar-sessions">
             <AgentTabBar orientation="vertical" />
           </div>
-        ) : view === "history" ? (
-          <SessionHistoryView />
         ) : view === "approvals" ? (
           <ApprovalsView pendingSessions={pendingApprovals} />
         ) : null}

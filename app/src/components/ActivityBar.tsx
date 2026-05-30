@@ -36,7 +36,6 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
     { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
     { id: "sessions", label: "Sessions", icon: "codicon-terminal", badge: sessionsBadge },
     { id: "approvals", label: "Approvals", icon: "codicon-bell", badge: pendingApprovals || undefined },
-    { id: "history", label: "Activity", icon: "codicon-history" },
   ];
 
   function handleSelect(id: WorkspaceSidebarView) {
