@@ -4,29 +4,178 @@ evidenceRoot: ./case-data
 readonly: true
 description: >
   Synthetic mini-case for the Find Evil SIFT Sentinel demo. The baseline
-  report overclaims execution from file presence, while the evidence tree also
-  contains hostile case-derived text that must remain evidence, not instruction.
+  report mixes confirmed evidence with file-presence, DNS-only, TaskCache-only,
+  YARA-only, and no-evidence overclaims while the evidence tree also contains
+  hostile case-derived text that must remain evidence, not instruction.
 baselineTrace: ../../fixtures/protocol-sift-baseline/baseline.jsonl
 baselineReport: ../../fixtures/protocol-sift-baseline/baseline-report.md
 expectedFindings:
   - id: finding-001
+    claimId: claim-001
     type: program_execution
-    description: Suspicious executable execution should be confirmed only if execution artifacts exist.
+    description: PowerShell execution should be confirmed by Prefetch evidence.
     subject:
-      path: windows/Users/Public/Downloads/evil.exe
-      filename: evil.exe
+      path: windows/System32/WindowsPowerShell/v1.0/powershell.exe
+      filename: powershell.exe
       host: WIN-LAB01
     acceptedEvidence:
       - prefetch_entry
       - amcache_execution_record
       - sysmon_process_create
-      - shimcache_execution_indicator
+      - shimcache_indicator
     unsupportedEvidence:
       - file_presence
     repairGuidance: >
-      If the baseline report cites only timeline file presence, downgrade the
-      claim or rerun targeted analysis against Prefetch, Amcache, ShimCache, and
-      process-creation telemetry.
+      Rerun targeted Prefetch and process-execution analysis before keeping the
+      execution claim at high severity.
+  - id: finding-002
+    claimId: claim-002
+    type: program_execution
+    description: Invoice viewer execution must not be confirmed from file presence alone.
+    subject:
+      path: windows/Users/Public/Downloads/invoice_viewer.exe
+      filename: invoice_viewer.exe
+      host: WIN-LAB01
+    acceptedEvidence:
+      - prefetch_entry
+      - amcache_execution_record
+      - sysmon_process_create
+      - shimcache_indicator
+    unsupportedEvidence:
+      - file_presence
+    repairGuidance: >
+      If only timeline file presence is available, keep the execution claim
+      unsupported and list direct execution artifacts as missing.
+  - id: finding-003
+    claimId: claim-003
+    type: program_execution
+    description: Ghost tool execution should be contradicted by negative Amcache inventory evidence.
+    subject:
+      path: windows/Users/Public/Downloads/ghosttool.exe
+      filename: ghosttool.exe
+      host: WIN-LAB01
+    acceptedEvidence:
+      - amcache_contradiction
+      - negative_inventory_record
+    unsupportedEvidence:
+      - analyst_assertion
+    repairGuidance: >
+      Treat the Amcache negative inventory record as contradiction unless a
+      stronger execution artifact is supplied.
+  - id: finding-004
+    claimId: claim-004
+    type: persistence
+    description: UpdaterRun persistence should be confirmed by a Run-key value.
+    subject:
+      registryPath: HKCU/Software/Microsoft/Windows/CurrentVersion/Run/UpdaterRun
+      path: ProgramData/Updater/updater.exe
+      host: WIN-LAB01
+    acceptedEvidence:
+      - registry-run-key
+      - scheduled-task
+      - service-create
+    unsupportedEvidence:
+      - file_presence
+    repairGuidance: >
+      Link the claim to the exported Run-key value before confirming persistence.
+  - id: finding-005
+    claimId: claim-005
+    type: persistence
+    description: DailyUpdater persistence should remain inferred when only a TaskCache reference exists.
+    subject:
+      taskName: DailyUpdater
+      path: ProgramData/Updater/taskdrop.exe
+      host: WIN-LAB01
+    acceptedEvidence:
+      - scheduled-task
+      - task_scheduler_creation_event
+      - service-create
+    unsupportedEvidence:
+      - taskcache_reference
+    repairGuidance: >
+      Downgrade the scheduled-task claim to inferred unless creation telemetry or
+      an authoritative task definition is supplied.
+  - id: finding-006
+    claimId: claim-006
+    type: network_connection
+    description: C2 network connection should be confirmed by a PCAP-style flow summary.
+    subject:
+      process: powershell.exe
+      host: WIN-LAB01
+      destination: c2.example.test:443
+    acceptedEvidence:
+      - netflow-or-pcap
+      - firewall_flow_log
+    unsupportedEvidence:
+      - dns_lookup
+    repairGuidance: >
+      Confirm the connection only when the PCAP or netflow summary is linked.
+  - id: finding-007
+    claimId: claim-007
+    type: network_connection
+    description: DNS-only evidence should downgrade the claimed network connection.
+    subject:
+      host: WIN-LAB01
+      destination: cdn-update.example.test
+    acceptedEvidence:
+      - netflow-or-pcap
+      - firewall_flow_log
+    unsupportedEvidence:
+      - dns_lookup
+    repairGuidance: >
+      Treat DNS lookup evidence as inferential and keep netflow-or-pcap evidence
+      listed as missing.
+  - id: finding-008
+    claimId: claim-008
+    type: credential_access
+    description: LSASS MiniDump behavior is inferential without memory or process-access corroboration.
+    subject:
+      process: powershell.exe
+      target: lsass.exe
+      host: WIN-LAB01
+    acceptedEvidence:
+      - lsass_process_access
+      - memory_dump_artifact
+      - sysmon_process_access
+    unsupportedEvidence:
+      - command_line_indicator
+    repairGuidance: >
+      Keep credential access inferred unless direct process-access or dump
+      artifact evidence is supplied.
+  - id: finding-009
+    claimId: claim-009
+    type: lateral_movement
+    description: Lateral movement is unverifiable without remote-logon evidence.
+    subject:
+      sourceHost: WIN-LAB01
+      destinationHost: WIN-FILE01
+    acceptedEvidence:
+      - security_4624_type_3
+      - rdp_logon_event
+      - smb_session_log
+      - destination_host_event
+    unsupportedEvidence:
+      - analyst_assertion
+    repairGuidance: >
+      Mark lateral movement unverifiable when no source or destination remote
+      logon evidence is supplied.
+  - id: finding-010
+    claimId: claim-010
+    type: malware_identification
+    description: EvilClaw identification is inferred from a YARA hit without a full hash chain.
+    subject:
+      path: windows/Users/Public/Downloads/invoice_viewer.exe
+      malwareFamily: EvilClaw
+      host: WIN-LAB01
+    acceptedEvidence:
+      - yara_hit
+      - sha256_hash_chain
+      - sandbox_report
+    unsupportedEvidence:
+      - family_name_only
+    repairGuidance: >
+      Keep malware identification inferred unless the YARA hit is tied to a full
+      file hash chain or corroborating malware-analysis report.
 threatModel:
   attackerControls:
     - filenames

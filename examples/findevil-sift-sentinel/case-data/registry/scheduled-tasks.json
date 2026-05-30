@@ -1,0 +1,17 @@
+{
+  "sourceType": "registry_taskcache_export",
+  "hostname": "WIN-LAB01",
+  "taskCachePath": "HKLM/Software/Microsoft/Windows NT/CurrentVersion/Schedule/TaskCache/Tree",
+  "tasks": [
+    {
+      "name": "DailyUpdater",
+      "path": "\\DailyUpdater",
+      "action": "C:/ProgramData/Updater/taskdrop.exe",
+      "lastObserved": "2026-02-18T09:39:20.000Z",
+      "creationEventPresent": false,
+      "corroboration": "TaskCache reference only; no TaskScheduler Operational creation event supplied.",
+      "evidenceType": "taskcache_reference"
+    }
+  ],
+  "parser": "synthetic-taskcache-parser 0.1"
+}

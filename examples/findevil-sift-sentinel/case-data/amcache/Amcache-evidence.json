@@ -1,6 +1,6 @@
 {
   "sourceType": "amcache_json_parse",
-  "evidenceType": "amcache_execution_record",
+  "evidenceType": "amcache_inventory",
   "hostname": "WIN-LAB01",
   "hive": "C:/Windows/AppCompat/Programs/Amcache.hve",
   "records": [
@@ -12,8 +12,54 @@
       "sizeBytes": 0,
       "publisher": null,
       "firstObserved": "2026-02-18T09:32:43.000Z",
-      "sourceKey": "Root/InventoryApplicationFile/evil-demo"
+      "sourceKey": "Root/InventoryApplicationFile/evil-demo",
+      "verdict": "present"
+    },
+    {
+      "programId": "00000000-0000-0000-0000-pwsh00000001",
+      "fileName": "powershell.exe",
+      "path": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+      "sha1": "1111111111111111111111111111111111111111",
+      "sizeBytes": 452608,
+      "publisher": "Microsoft Windows",
+      "firstObserved": "2026-02-18T09:36:05.000Z",
+      "sourceKey": "Root/InventoryApplicationFile/powershell-demo",
+      "verdict": "present"
+    },
+    {
+      "programId": "00000000-0000-0000-0000-updt00000001",
+      "fileName": "updater.exe",
+      "path": "C:/ProgramData/Updater/updater.exe",
+      "sha1": "2222222222222222222222222222222222222222",
+      "sizeBytes": 38400,
+      "publisher": null,
+      "firstObserved": "2026-02-18T09:38:09.000Z",
+      "sourceKey": "Root/InventoryApplicationFile/updater-demo",
+      "verdict": "present"
+    },
+    {
+      "programId": "00000000-0000-0000-0000-invc00000001",
+      "fileName": "invoice_viewer.exe",
+      "path": "C:/Users/Public/Downloads/invoice_viewer.exe",
+      "sha1": "3333333333333333333333333333333333333333",
+      "sizeBytes": 92160,
+      "publisher": null,
+      "firstObserved": "2026-02-18T09:36:44.000Z",
+      "sourceKey": "Root/InventoryApplicationFile/invoice-viewer-demo",
+      "verdict": "present_no_execution"
+    },
+    {
+      "programId": "00000000-0000-0000-0000-ghst00000001",
+      "fileName": "ghosttool.exe",
+      "path": "C:/Users/Public/Downloads/ghosttool.exe",
+      "sha1": null,
+      "sizeBytes": null,
+      "publisher": null,
+      "firstObserved": null,
+      "sourceKey": "Root/InventoryApplicationFile/ghosttool-deny",
+      "verdict": "not_installed",
+      "negativeEvidence": "No Amcache inventory application file entry for ghosttool.exe on WIN-LAB01."
     }
   ],
-  "parser": "synthetic-amcache-parser 0.1"
+  "parser": "synthetic-amcache-parser 0.2"
 }

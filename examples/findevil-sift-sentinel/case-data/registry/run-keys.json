@@ -1,0 +1,17 @@
+{
+  "sourceType": "registry_run_key_export",
+  "hostname": "WIN-LAB01",
+  "hive": "NTUSER.DAT",
+  "key": "HKCU/Software/Microsoft/Windows/CurrentVersion/Run",
+  "values": [
+    {
+      "name": "UpdaterRun",
+      "type": "REG_SZ",
+      "data": "C:/ProgramData/Updater/updater.exe",
+      "lastWriteTime": "2026-02-18T09:38:09.000Z",
+      "user": "LAB/analyst01",
+      "evidenceType": "registry-run-key"
+    }
+  ],
+  "parser": "synthetic-registry-parser 0.1"
+}

@@ -1,0 +1,23 @@
+{
+  "sourceType": "pcap_flow_summary",
+  "hostname": "WIN-LAB01",
+  "flows": [
+    {
+      "flowId": "flow-20260218-094001-001",
+      "process": "powershell.exe",
+      "user": "LAB/analyst01",
+      "srcIp": "10.10.5.23",
+      "srcPort": 49712,
+      "destHost": "c2.example.test",
+      "destIp": "198.51.100.44",
+      "destPort": 443,
+      "protocol": "tcp/tls",
+      "startTime": "2026-02-18T09:40:01.000Z",
+      "endTime": "2026-02-18T09:40:17.000Z",
+      "bytesOut": 18432,
+      "bytesIn": 2208,
+      "evidenceType": "netflow-or-pcap"
+    }
+  ],
+  "parser": "synthetic-pcap-summarizer 0.1"
+}

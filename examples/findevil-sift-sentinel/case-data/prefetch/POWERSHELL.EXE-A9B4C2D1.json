@@ -1,0 +1,17 @@
+{
+  "sourceType": "prefetch_json_parse",
+  "evidenceType": "prefetch_entry",
+  "hostname": "WIN-LAB01",
+  "executableName": "POWERSHELL.EXE",
+  "prefetchFile": "C:/Windows/Prefetch/POWERSHELL.EXE-A9B4C2D1.pf",
+  "executablePath": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+  "runCount": 1,
+  "lastRunTimes": ["2026-02-18T09:36:05.000Z"],
+  "volumeSerial": "A1B2-C3D4",
+  "loadedFiles": [
+    "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    "C:/Windows/System32/kernel32.dll",
+    "C:/Windows/System32/WindowsPowerShell/v1.0/System.Management.Automation.dll"
+  ],
+  "parser": "synthetic-prefetch-parser 0.2"
+}
