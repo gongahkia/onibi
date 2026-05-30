@@ -9,3 +9,4 @@ packages:
   - "packages/workflow-spec"
   - "packages/testing"
   - "packages/adapters"
+  - "packages/web-intel"

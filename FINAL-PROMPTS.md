@@ -1,4 +1,4 @@
-# Kelp — Find Evil! Hackathon Execution Prompts (HAVENT START PHASE 2)
+# Kelp — Find Evil! Hackathon Execution Prompts
 
 > Copy-paste prompts for independent coding agents. Each prompt is self-contained: it tells the agent which docs to read, what files it owns, what files it must not touch, what to deliver, and how to verify.
 >

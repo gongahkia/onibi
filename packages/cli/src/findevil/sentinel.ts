@@ -85,13 +85,11 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
 }
 
 export async function loadRunSentinel(): Promise<RunSentinel> {
-  const module = (await import(
-    new URL("../../../findevil/dist/index.js", import.meta.url).href
-  )) as {
+  const module = (await import("@kelpclaw/findevil")) as {
     readonly runSentinel?: unknown;
   };
   if (typeof module.runSentinel !== "function") {
-    throw new Error("@kelpclaw/findevil dist build does not export runSentinel.");
+    throw new Error("@kelpclaw/findevil package does not export runSentinel.");
   }
   return module.runSentinel as RunSentinel;
 }

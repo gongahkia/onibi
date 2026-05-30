@@ -7,7 +7,6 @@ settings:
 overrides:
   '@kelpclaw/api': file:legacy/api
   '@kelpclaw/skill-registry': file:legacy/skill-registry
-  '@kelpclaw/web-intel': file:legacy/web-intel
 
 importers:
 
@@ -70,12 +69,15 @@ importers:
       '@kelpclaw/evidence':
         specifier: workspace:*
         version: link:../evidence
+      '@kelpclaw/findevil':
+        specifier: workspace:*
+        version: link:../findevil
       '@kelpclaw/policy':
         specifier: workspace:*
         version: link:../policy
       '@kelpclaw/web-intel':
-        specifier: file:../../legacy/web-intel
-        version: file:legacy/web-intel
+        specifier: workspace:*
+        version: link:../web-intel
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../workflow-spec
@@ -163,6 +165,12 @@ importers:
       '@kelpclaw/skill-registry':
         specifier: file:../../legacy/skill-registry
         version: file:legacy/skill-registry
+      '@kelpclaw/workflow-spec':
+        specifier: workspace:*
+        version: link:../workflow-spec
+
+  packages/web-intel:
+    dependencies:
       '@kelpclaw/workflow-spec':
         specifier: workspace:*
         version: link:../workflow-spec
@@ -483,9 +491,6 @@ packages:
 
   '@kelpclaw/skill-registry@file:legacy/skill-registry':
     resolution: {directory: legacy/skill-registry, type: directory}
-
-  '@kelpclaw/web-intel@file:legacy/web-intel':
-    resolution: {directory: legacy/web-intel, type: directory}
 
   '@modelcontextprotocol/sdk@1.29.0':
     resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
@@ -2290,10 +2295,6 @@ snapshots:
       fastify: 5.8.5
 
   '@kelpclaw/skill-registry@file:legacy/skill-registry':
-    dependencies:
-      '@kelpclaw/workflow-spec': link:packages/workflow-spec
-
-  '@kelpclaw/web-intel@file:legacy/web-intel':
     dependencies:
       '@kelpclaw/workflow-spec': link:packages/workflow-spec
 

@@ -24,8 +24,7 @@
   "pnpm": {
     "overrides": {
       "@kelpclaw/api": "file:legacy/api",
-      "@kelpclaw/skill-registry": "file:legacy/skill-registry",
-      "@kelpclaw/web-intel": "file:legacy/web-intel"
+      "@kelpclaw/skill-registry": "file:legacy/skill-registry"
     }
   },
   "devDependencies": {
