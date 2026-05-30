@@ -262,6 +262,70 @@ export type MainSelection =
   | SelectedAgentReview
   | SelectedWebView;
 
+function capClosedStack(
+  stack: MainSelection[],
+  limit: number,
+): MainSelection[] {
+  // 0 = unlimited but apply a hard ceiling of 500 to avoid runaway memory.
+  if (limit <= 0) return stack.slice(0, 500);
+  return stack.slice(0, limit);
+}
+
+/** Apply LRU eviction so openBuffers fits under editorOpenLimit. Active and
+ * dirty buffers are pinned (never evicted). Closed buffers go onto the stack.
+ * Returns the new openBuffers list AND the updated closedBufferStack. */
+function applyEditorOpenLimit(
+  openBuffers: MainSelection[],
+  activeKey: string | null,
+  dirtyKeys: string[],
+  bufferAccessOrder: string[],
+  closedBufferStack: MainSelection[],
+  editorOpenLimit: number,
+  closedBufferHistoryLimit: number,
+): { openBuffers: MainSelection[]; closedBufferStack: MainSelection[] } {
+  if (editorOpenLimit <= 0 || openBuffers.length <= editorOpenLimit) {
+    return { openBuffers, closedBufferStack };
+  }
+  const dirtySet = new Set(dirtyKeys);
+  // Sort eviction candidates by access-order ascending (oldest first).
+  // bufferAccessOrder is most-recently-used last.
+  const accessRank = new Map<string, number>();
+  bufferAccessOrder.forEach((key, idx) => accessRank.set(key, idx));
+  const evictable = openBuffers
+    .map((buffer) => ({ buffer, key: bufferKey(buffer) }))
+    .filter(({ key }) => key !== activeKey && !dirtySet.has(key))
+    .sort((a, b) => {
+      const aRank = accessRank.get(a.key) ?? -1;
+      const bRank = accessRank.get(b.key) ?? -1;
+      return aRank - bRank;
+    });
+  const toEvictCount = openBuffers.length - editorOpenLimit;
+  const evictedKeys = new Set<string>();
+  const evicted: MainSelection[] = [];
+  for (const candidate of evictable) {
+    if (evicted.length >= toEvictCount) break;
+    evictedKeys.add(candidate.key);
+    evicted.push(candidate.buffer);
+  }
+  const nextOpenBuffers = openBuffers.filter(
+    (buffer) => !evictedKeys.has(bufferKey(buffer)),
+  );
+  const nextStack = capClosedStack(
+    [
+      ...evicted.reverse(),
+      ...closedBufferStack.filter(
+        (buffer) => !evictedKeys.has(bufferKey(buffer)),
+      ),
+    ],
+    closedBufferHistoryLimit,
+  );
+  return { openBuffers: nextOpenBuffers, closedBufferStack: nextStack };
+}
+
+function touchAccessOrder(order: string[], key: string): string[] {
+  return [...order.filter((k) => k !== key), key];
+}
+
 export function bufferKey(selection: MainSelection): string {
   const wid = selection.workspaceId;
   if (selection.type === "git-diff") {
@@ -472,6 +536,11 @@ export interface AppSettings {
   terminalTriggers: TerminalTrigger[];
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
+  /** Max simultaneously-mounted editor buffers. Tabs beyond this evict the LRU
+   * inactive tab. 0 = unlimited (uses memory but preserves all undo history). */
+  editorOpenLimit: number;
+  /** Max entries kept in the reopen-closed stack. 0 = unlimited (within reason). */
+  closedBufferHistoryLimit: number;
   diffViewMode: DiffViewMode;
   tabBarOrientation: TabBarOrientation;
   tabBarPosition: TabBarPosition;
@@ -520,6 +589,7 @@ type SessionStore = {
   selectedFile: MainSelection | null;
   openBuffers: MainSelection[];
   activeBufferKey: string | null;
+  bufferAccessOrder: string[];
   closedBufferStack: MainSelection[];
   dirtyBufferKeys: string[];
   sessionEvents: SessionEvent[];
@@ -1261,6 +1331,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   editorFontSize: 13,
   editorKeybindingMode: "standard",
+  editorOpenLimit: 10,
+  closedBufferHistoryLimit: 20,
   diffViewMode: "side-by-side",
   tabBarOrientation: "vertical",
   tabBarPosition: "left",
@@ -1392,6 +1464,18 @@ function normalizeScrollbackLines(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.min(Math.round(parsed), TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES);
+}
+
+function normalizeBufferLimit(
+  value: unknown,
+  fallback: number,
+  max: number,
+): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.min(Math.round(parsed), max);
 }
 
 function normalizeTerminalKeybindingAction(
@@ -1649,6 +1733,16 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     editorKeybindingMode: normalizeEditorKeybindingMode(merged.editorKeybindingMode),
+    editorOpenLimit: normalizeBufferLimit(
+      merged.editorOpenLimit,
+      DEFAULT_SETTINGS.editorOpenLimit,
+      100,
+    ),
+    closedBufferHistoryLimit: normalizeBufferLimit(
+      merged.closedBufferHistoryLimit,
+      DEFAULT_SETTINGS.closedBufferHistoryLimit,
+      500,
+    ),
     diffViewMode: normalizeDiffViewMode(merged.diffViewMode),
     tabBarOrientation: isTabBarOrientation(merged.tabBarOrientation)
       ? merged.tabBarOrientation
@@ -2248,6 +2342,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   selectedFile: null,
   openBuffers: [],
   activeBufferKey: null,
+  bufferAccessOrder: [],
   closedBufferStack: [],
   dirtyBufferKeys: [],
   sessionEvents: [],
@@ -2750,16 +2845,34 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const existing = state.openBuffers.findIndex(
         (buffer) => bufferKey(buffer) === key,
       );
-      const openBuffers =
+      const nextOpenBuffers =
         existing >= 0
           ? state.openBuffers.map((buffer, index) =>
               index === existing ? file : buffer,
             )
           : [...state.openBuffers, file];
+      const nextAccessOrder = touchAccessOrder(state.bufferAccessOrder, key);
+      const limited = applyEditorOpenLimit(
+        nextOpenBuffers,
+        key,
+        state.dirtyBufferKeys,
+        nextAccessOrder,
+        state.closedBufferStack,
+        state.settings.editorOpenLimit,
+        state.settings.closedBufferHistoryLimit,
+      );
+      const evictedKeys = new Set(
+        nextOpenBuffers
+          .filter((b) => !limited.openBuffers.some((kept) => bufferKey(kept) === bufferKey(b)))
+          .map((b) => bufferKey(b)),
+      );
+      const prunedAccessOrder = nextAccessOrder.filter((k) => !evictedKeys.has(k));
       return {
         selectedFile: file,
-        openBuffers,
+        openBuffers: limited.openBuffers,
+        closedBufferStack: limited.closedBufferStack,
         activeBufferKey: key,
+        bufferAccessOrder: prunedAccessOrder,
         sessionEvents:
           file.type !== "web"
             ? appendEvent(state.sessionEvents, {
@@ -2782,25 +2895,31 @@ export const useSessionStore = create<SessionStore>((set) => ({
       return {
         selectedFile: target,
         activeBufferKey: key,
+        bufferAccessOrder: touchAccessOrder(state.bufferAccessOrder, key),
       };
     });
     persistLater();
   },
   closeBuffer: (key) => {
     set((state) => {
+      const limit = state.settings.closedBufferHistoryLimit;
       const idx = state.openBuffers.findIndex(
         (buffer) => bufferKey(buffer) === key,
       );
       if (idx < 0) return {};
       const closing = state.openBuffers[idx];
       const openBuffers = state.openBuffers.filter((_, i) => i !== idx);
-      const closedBufferStack = [
-        closing,
-        ...state.closedBufferStack.filter((buffer) => bufferKey(buffer) !== key),
-      ].slice(0, 20);
+      const closedBufferStack = capClosedStack(
+        [
+          closing,
+          ...state.closedBufferStack.filter((buffer) => bufferKey(buffer) !== key),
+        ],
+        limit,
+      );
       const dirtyBufferKeys = state.dirtyBufferKeys.filter((k) => k !== key);
+      const bufferAccessOrder = state.bufferAccessOrder.filter((k) => k !== key);
       if (state.activeBufferKey !== key) {
-        return { openBuffers, closedBufferStack, dirtyBufferKeys };
+        return { openBuffers, closedBufferStack, dirtyBufferKeys, bufferAccessOrder };
       }
       // active buffer being closed: pick neighbor (prefer right, fall back left)
       const next =
@@ -2811,6 +2930,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
         openBuffers,
         closedBufferStack,
         dirtyBufferKeys,
+        bufferAccessOrder: next
+          ? touchAccessOrder(bufferAccessOrder, bufferKey(next))
+          : bufferAccessOrder,
         activeBufferKey: next ? bufferKey(next) : null,
         selectedFile: next,
       };
@@ -2819,6 +2941,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   closeOtherBuffers: (key) => {
     set((state) => {
+      const limit = state.settings.closedBufferHistoryLimit;
       const target = state.openBuffers.find(
         (buffer) => bufferKey(buffer) === key,
       );
@@ -2826,16 +2949,20 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const closing = state.openBuffers.filter(
         (buffer) => bufferKey(buffer) !== key,
       );
-      const closedBufferStack = [
-        ...closing.reverse(),
-        ...state.closedBufferStack.filter(
-          (buffer) => !closing.some((c) => bufferKey(c) === bufferKey(buffer)),
-        ),
-      ].slice(0, 20);
+      const closedBufferStack = capClosedStack(
+        [
+          ...closing.reverse(),
+          ...state.closedBufferStack.filter(
+            (buffer) => !closing.some((c) => bufferKey(c) === bufferKey(buffer)),
+          ),
+        ],
+        limit,
+      );
       return {
         openBuffers: [target],
         closedBufferStack,
         dirtyBufferKeys: state.dirtyBufferKeys.filter((k) => k === key),
+        bufferAccessOrder: [key],
         activeBufferKey: key,
         selectedFile: target,
       };
@@ -2844,17 +2971,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   closeAllBuffers: () => {
     set((state) => {
-      const closedBufferStack = [
-        ...[...state.openBuffers].reverse(),
-        ...state.closedBufferStack.filter(
-          (buffer) =>
-            !state.openBuffers.some((c) => bufferKey(c) === bufferKey(buffer)),
-        ),
-      ].slice(0, 20);
+      const limit = state.settings.closedBufferHistoryLimit;
+      const closedBufferStack = capClosedStack(
+        [
+          ...[...state.openBuffers].reverse(),
+          ...state.closedBufferStack.filter(
+            (buffer) =>
+              !state.openBuffers.some((c) => bufferKey(c) === bufferKey(buffer)),
+          ),
+        ],
+        limit,
+      );
       return {
         openBuffers: [],
         closedBufferStack,
         dirtyBufferKeys: [],
+        bufferAccessOrder: [],
         activeBufferKey: null,
         selectedFile: null,
       };
@@ -2870,14 +3002,31 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const exists = state.openBuffers.some(
         (buffer) => bufferKey(buffer) === key,
       );
-      const openBuffers = exists
+      const nextOpenBuffers = exists
         ? state.openBuffers
         : [...state.openBuffers, next];
+      const nextAccessOrder = touchAccessOrder(state.bufferAccessOrder, key);
+      const limited = applyEditorOpenLimit(
+        nextOpenBuffers,
+        key,
+        state.dirtyBufferKeys,
+        nextAccessOrder,
+        rest,
+        state.settings.editorOpenLimit,
+        state.settings.closedBufferHistoryLimit,
+      );
+      const evictedKeys = new Set(
+        nextOpenBuffers
+          .filter((b) => !limited.openBuffers.some((kept) => bufferKey(kept) === bufferKey(b)))
+          .map((b) => bufferKey(b)),
+      );
+      const prunedAccessOrder = nextAccessOrder.filter((k) => !evictedKeys.has(k));
       opened = true;
       return {
-        openBuffers,
-        closedBufferStack: rest,
+        openBuffers: limited.openBuffers,
+        closedBufferStack: limited.closedBufferStack,
         activeBufferKey: key,
+        bufferAccessOrder: prunedAccessOrder,
         selectedFile: next,
       };
     });
@@ -3023,9 +3172,12 @@ export async function hydrateSessionStore(): Promise<void> {
     const restoredSelected = restoredActiveKey
       ? restoredBuffers.find((buffer) => bufferKey(buffer) === restoredActiveKey) ?? null
       : null;
-    const restoredClosedStack = (closedBufferStack ?? [])
-      .filter((buffer) => workspaceIds.has(buffer.workspaceId))
-      .slice(0, 20);
+    const restoredClosedStack = capClosedStack(
+      (closedBufferStack ?? []).filter((buffer) =>
+        workspaceIds.has(buffer.workspaceId),
+      ),
+      mergedSettings.closedBufferHistoryLimit,
+    );
     useSessionStore.setState({
       sessions: restoredSessions,
       activeSessionId,
