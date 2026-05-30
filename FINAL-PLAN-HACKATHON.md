@@ -190,5 +190,77 @@ Single `kelp-claw findevil sentinel` umbrella command runs all three layers in s
 - https://findevil.devpost.com/
 - https://findevil.devpost.com/rules
 - https://www.sans.org/blog/sans-launches-first-hackathon-autonomous-incident-response
+- https://www.sans.org/blog/protocol-sift-experimental-research-initiative-ai-assisted-dfir
 - https://robtlee73.substack.com/p/registration-is-open-find-evil-hackathon
+- https://robtlee73.substack.com/p/introducing-protocol-sift-meeting
 - https://www.sans.org/press/announcements/two-words-changed-cybersecurity-find-evil-builders-answer-call-defend-infrastructure
+- https://github.com/marez8505/find-evil  (competing submission — typed-MCP path)
+- https://github.com/Yamato-Security/hayabusa  (Sigma-based EVTX scanner; referenced by Phase 6B)
+- https://github.com/WithSecureLabs/chainsaw  (MITRE-mapped EVTX analyzer)
+- https://attack.mitre.org/techniques/enterprise/  (Phase 7A catalog source)
+- arxiv:2602.08082  Spectral Guardrails for Tool Use Hallucination (Phase 7C inspiration)
+- arxiv:2601.06818  AgentHallu hallucination attribution benchmark
+
+---
+
+# v2 Expansion (Phases 5–8) — added 2026-05-30
+
+## Why v2 exists
+
+The v1 pipeline (Phases 0–4) ships a working but thin demo: one claim, one repair, one firewall block, one spoliation pass. Audit confirmed it works end-to-end. With ~3 weeks of runway remaining before 2026-06-15, the gap between "works" and "wins" is:
+
+1. **Visible breadth.** Reviewers will compare against other submissions. A public competitor (`github.com/marez8505/find-evil`) already ships broad artifact coverage (MFT, Registry, Volatility 3, YARA, netscan) on the typed-MCP path. Without more artifact linkers, Kelp's "depth not breadth" framing reads as "narrow, not focused."
+2. **Defensible numbers.** A single-claim accuracy report does not look like a benchmark. Reviewers reward precision/recall they can replicate.
+3. **A real audit experience.** The current `audit-bundle/index.html` is a 685-byte placeholder. The signed primitives are excellent but reviewers cannot walk them.
+4. **Hallucination story.** "We catch hallucinations" is the explicit hackathon criterion. The single-model extractor cannot make a research-grade claim about this. A multi-model committee can.
+5. **Real SIFT Workstation runtime.** Offline `--trace` mode is documented, but live integration is the rule the hackathon names explicitly.
+
+## Competitive intelligence (2026-05-30 web research)
+
+- **`github.com/marez8505/find-evil`** — typed MCP server with broad forensic tool wrappers (Amcache, Prefetch, MFT/mactime, Registry, EvtxECmd, Volatility 3 plugins, netscan, YARA), persistent self-correcting loop, architectural guardrails against shell exec and evidence writes. **Lacks**: claim verifier, instruction firewall, spoliation detection. **Lacks**: signed audit bundle. **Lacks**: any threat-intel or MITRE ATT&CK mapping.
+- **1,100+ registered participants** — assume 200+ will submit. Most will follow the typed-MCP path. Kelp's verification + containment + signed-proof angle is rare.
+- **Protocol SIFT itself**: "has not been validated for forensic soundness or evidentiary reliability and is not court-admissible." This is the killer positioning line — Kelp explicitly adds the validation layer Protocol SIFT lacks.
+- **Hackathon explicit requirement**: "Each Project must demonstrate self-correction... and accuracy validation — all findings are traceable to specific artifacts, files, offsets, or log entries." Kelp's `evidenceRefs` schema is the literal answer to "traceable to specific artifacts." Quote this verbatim in submission docs.
+- **DFIR community vocabulary** in 2026: MITRE ATT&CK technique IDs (T-numbers) are the lingua franca; Sigma rules (Hayabusa/Chainsaw) are the de-facto detection format; Sysmon Event ID 1 + Security 4688/4624/7045 are the must-have event IDs.
+
+## Updated positioning (use in Phase 8 submission rewrite)
+
+Old one-liner (v1):
+> Kelp turns Protocol SIFT into a defensible autonomous DFIR agent…
+
+New one-liner (v2):
+> Protocol SIFT runs at machine speed but is "not validated for forensic soundness." Kelp is the validation layer Protocol SIFT lacks: every claim mapped to specific artifacts with MITRE ATT&CK tags, every overclaim caught by multi-model committee verification, every hostile evidence string blocked from steering the agent, every original artifact hashed and signed.
+
+## Updated layer roadmap
+
+| Layer | Source | Status after v1 | v2 expansion |
+|---|---|---|---|
+| A: Claim Verifier + Repair | IDEA 2 core | shipped (1 claim demo) | 5A richer fixture, 7A ATT&CK tagging, 7B benchmark, 7C committee |
+| B: Spoliation Guard | IDEA 3 lite | shipped | unchanged |
+| C: Instruction Firewall + Taint | IDEA 3 sharp | shipped | unchanged |
+| D: Artifact Coverage | new in v2 | — | 6A Sysmon, 6B EVTX, 6C ShimCache+SRUM, 6D PCAP |
+| E: Reviewer Experience | new in v2 | placeholder HTML | 7D interactive reviewer UI |
+| F: Live SIFT Integration | mentioned, deferred | offline only | 5C live `--sift-command` mode |
+| G: Distribution | mentioned, missing | bin not on PATH | 5B installable CLI |
+
+## Updated 3-week schedule (today 2026-05-30, deadline 2026-06-15)
+
+| Days | Phase(s) | Mode | People |
+|---|---|---|---|
+| 0.5 | 5A + 5B | parallel | 2 |
+| 1.5 | 5C | sequential | 1 |
+| 1 | 6A + 6B + 6C + 6D | **parallel** | 4 |
+| 0.5 | 7A | sequential | 1 |
+| 1 | 7B + 7C + 7D | parallel | 3 |
+| 2 | 8 (rerun + SUBMISSION rewrite + demo video) | sequential | 1–2 |
+| buffer ~10 days | risk + polish + dry runs | — | all |
+
+Total critical-path work in v2: ~6.5 days. With a team of 4–5 and ~16 days of runway (2026-05-30 → 2026-06-15), the buffer absorbs Protocol SIFT VM friction, demo recording retakes, and any judging-criteria adjustments.
+
+## Updated risks (v2)
+
+- **Phase 5C VM friction.** Protocol SIFT install on the SIFT Workstation may break for opaque reasons. Time-box to 2 days; fall back to a recorded transcript + offline `--trace` mode for the live demo.
+- **Phase 6 conflicts on `linker/index.ts`.** Four agents inserting into one dispatch table. The Phase 1 stub should already have inserted a `// PHASE 6 INSERT POINT` marker; if not, Phase 5A's agent must add it before Phase 6 starts.
+- **Phase 7A schema migration.** Adding `attackTechniques` to the Claim schema is a Zod-level change that ripples through extractor/linker/verifier. Run the full test suite after the schema edit before letting 7B/7C/7D start.
+- **Phase 7C model cost.** Multi-model committee can burn budget. Default to single-model when `KELP_FINDEVIL_MODELS` is unset; treat committee as opt-in for the headline demo only.
+- **Demo video timing.** With reviewer UI, ATT&CK coverage, and benchmark table the 5-minute video gets crowded. Phase 8 demo-script must aggressively cut anything non-essential.
