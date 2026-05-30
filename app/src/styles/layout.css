@@ -211,6 +211,105 @@ button {
   letter-spacing: 0;
 }
 
+.title-bar {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  background: var(--title-bar-bg);
+  color: var(--title-bar-fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.title-bar-spacer {
+  flex: 0 0 78px; /* offset for macOS traffic lights */
+}
+
+.title-bar-center {
+  flex: 1 1 auto;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 12px;
+}
+
+.title-bar-actions {
+  flex: 0 0 78px;
+}
+
+.status-bar {
+  flex: 0 0 22px;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  height: 22px;
+  background: var(--status-bar-bg);
+  color: var(--status-bar-fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  user-select: none;
+  border-top: 1px solid var(--border);
+}
+
+.status-bar[data-variant="attention"] {
+  background: var(--status-bar-attention-bg);
+}
+
+.status-bar[data-variant="error"] {
+  background: var(--status-bar-error-bg);
+}
+
+.status-bar-section {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+
+.status-bar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 22px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: default;
+  font: inherit;
+  white-space: nowrap;
+}
+
+button.status-bar-item {
+  cursor: pointer;
+}
+
+button.status-bar-item:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.status-bar-item .codicon {
+  font-size: 13px;
+}
+
+.status-bar-item.attention {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.status-bar-item.error {
+  background: rgba(244, 135, 113, 0.32);
+}
+
+.status-bar-count {
+  font-weight: 600;
+  margin-left: 2px;
+}
+
 .agent-tab-bar {
   display: flex;
   height: 100%;
@@ -397,6 +496,126 @@ button {
   min-width: 0;
   background: var(--bg-1);
   border-right: 1px solid var(--border);
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 35px;
+  padding: 0 20px 0 20px;
+  color: var(--sidebar-section-fg);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.sidebar-section-title {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg-1);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sidebar-icon-button:hover {
+  background: var(--hover-bg);
+  color: var(--fg-0);
+}
+
+.sidebar-icon-button .codicon {
+  font-size: 14px;
+}
+
+.sidebar-overflow-menu {
+  display: flex;
+  flex-direction: column;
+  margin: 0 8px 6px 8px;
+  padding: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.sidebar-overflow-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-0);
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.sidebar-overflow-menu button:hover {
+  background: var(--hover-bg);
+}
+
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 24px;
+  color: var(--fg-2);
+  text-align: center;
+}
+
+.sidebar-empty .codicon {
+  font-size: 36px;
+  opacity: 0.45;
+}
+
+.sidebar-empty p {
+  margin: 0;
+  color: var(--fg-1);
+  font-size: 13px;
+}
+
+.sidebar-empty span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sidebar-sessions {
+  height: 100%;
+  min-height: 0;
+}
+
+.sidebar-sessions .agent-tab-bar {
+  border-right: 0;
+  background: var(--bg-1);
+  padding: 4px;
+  gap: 4px;
 }
 
 .workspace-view-switcher {

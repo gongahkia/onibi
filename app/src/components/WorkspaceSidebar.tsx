@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listAgentReviews, type AgentReviewRecord } from "../lib/agent-review";
 import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
-import { useSessionStore, type Session, type Workspace } from "../lib/sessions";
+import {
+  useSessionStore,
+  type Session,
+  type Workspace,
+  type WorkspaceSidebarView,
+} from "../lib/sessions";
+import { AgentTabBar } from "./AgentTabBar";
 import { FileTree } from "./FileTree";
+import { SessionHistoryView } from "./SessionHistoryView";
+import { SessionListView } from "./SessionListView";
 import { SourceControlView } from "./SourceControlView";
 import { WorkspaceSearchView } from "./WorkspaceSearchView";
 
@@ -15,19 +23,27 @@ function activeWorkspaceFor(
   return workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ?? null;
 }
 
+const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
+  files: "Explorer",
+  search: "Search",
+  "source-control": "Source Control",
+  sessions: "Sessions",
+  history: "Activity",
+  approvals: "Approvals",
+};
+
 export function WorkspaceSidebar() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState("");
-  const [filesMode, setFilesMode] = useState<"tree" | "search">("tree");
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const view = useSessionStore((state) => state.activeSidebarView);
-  const setView = useSessionStore((state) => state.setActiveSidebarView);
-  const effectiveView =
-    view === "search" || view === "sessions" || view === "history" ? "files" : view;
+  const showHiddenFiles = useSessionStore((state) => state.settings.showHiddenFiles);
+  const updateSettings = useSessionStore((state) => state.updateSettings);
   const activeWorkspace = useMemo(
     () => activeWorkspaceFor(sessions, workspaces, activeSessionId),
     [activeSessionId, sessions, workspaces],
@@ -64,17 +80,6 @@ export function WorkspaceSidebar() {
   }, [refreshGitStatus]);
 
   useEffect(() => {
-    if (view === "search") {
-      setFilesMode("search");
-      setView("files");
-    }
-    if (view === "sessions" || view === "history") {
-      setFilesMode("tree");
-      setView("files");
-    }
-  }, [setView, view]);
-
-  useEffect(() => {
     void refreshAgentReviews();
     const timer = window.setInterval(() => {
       void refreshAgentReviews();
@@ -87,60 +92,57 @@ export function WorkspaceSidebar() {
     () => Object.fromEntries(agentReviews.map((record) => [record.fullPath, record])),
     [agentReviews],
   );
-  const changeCount = gitStatus?.entries.length ?? 0;
+
+  const pendingApprovals = useMemo(() => {
+    return sessions.filter((s) => s.pendingApprovals.length > 0);
+  }, [sessions]);
 
   return (
-    <div className="workspace-sidebar">
-      <div className="workspace-view-switcher" role="tablist" aria-label="Workspace views">
-        <button
-          type="button"
-          className={effectiveView === "files" ? "active" : ""}
-          role="tab"
-          aria-selected={effectiveView === "files"}
-          onClick={() => setView("files")}
-        >
-          Files
-        </button>
-        <button
-          type="button"
-          className={effectiveView === "source-control" ? "active" : ""}
-          role="tab"
-          aria-selected={effectiveView === "source-control"}
-          onClick={() => setView("source-control")}
-        >
-          Git
-          {changeCount > 0 ? <span className="workspace-view-badge">{changeCount}</span> : null}
-        </button>
-      </div>
+    <aside className="workspace-sidebar">
+      <header className="sidebar-section-header">
+        <span className="sidebar-section-title">{VIEW_TITLES[view] ?? "Explorer"}</span>
+        <div className="sidebar-section-actions">
+          {view === "files" ? (
+            <button
+              type="button"
+              className="sidebar-icon-button"
+              aria-label="More actions"
+              title="Views and More Actions..."
+              onClick={() => setOverflowOpen((v) => !v)}
+            >
+              <i className="codicon codicon-ellipsis" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      </header>
+      {overflowOpen && view === "files" ? (
+        <div className="sidebar-overflow-menu" role="menu">
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={showHiddenFiles}
+            onClick={() => {
+              updateSettings({ showHiddenFiles: !showHiddenFiles });
+              setOverflowOpen(false);
+            }}
+          >
+            <i
+              className={`codicon ${showHiddenFiles ? "codicon-check" : "codicon-blank"}`}
+              aria-hidden="true"
+            />
+            Show Hidden Files
+          </button>
+        </div>
+      ) : null}
       <div className="workspace-view-pane">
-        {effectiveView === "files" ? (
-          <section className="files-view" aria-label="Files">
-            <div className="files-view-mode" role="tablist" aria-label="File view mode">
-              <button
-                type="button"
-                className={filesMode === "tree" ? "active" : ""}
-                onClick={() => setFilesMode("tree")}
-              >
-                Tree
-              </button>
-              <button
-                type="button"
-                className={filesMode === "search" ? "active" : ""}
-                onClick={() => setFilesMode("search")}
-              >
-                Text Search
-              </button>
-            </div>
-            {filesMode === "tree" ? (
-              <FileTree
-                gitStatusByPath={gitStatusByPath}
-                agentReviewsByPath={agentReviewsByPath}
-              />
-            ) : (
-              <WorkspaceSearchView />
-            )}
-          </section>
-        ) : effectiveView === "source-control" ? (
+        {view === "files" ? (
+          <FileTree
+            gitStatusByPath={gitStatusByPath}
+            agentReviewsByPath={agentReviewsByPath}
+          />
+        ) : view === "search" ? (
+          <WorkspaceSearchView />
+        ) : view === "source-control" ? (
           <SourceControlView
             workspace={activeWorkspace}
             status={gitStatus}
@@ -148,8 +150,33 @@ export function WorkspaceSidebar() {
             error={gitError}
             onRefresh={refreshGitStatus}
           />
+        ) : view === "sessions" ? (
+          <div className="sidebar-sessions">
+            <AgentTabBar orientation="vertical" />
+          </div>
+        ) : view === "history" ? (
+          <SessionHistoryView />
+        ) : view === "approvals" ? (
+          <ApprovalsView pendingSessions={pendingApprovals} />
         ) : null}
       </div>
-    </div>
+    </aside>
   );
+}
+
+interface ApprovalsViewProps {
+  pendingSessions: Session[];
+}
+
+function ApprovalsView({ pendingSessions }: ApprovalsViewProps) {
+  if (pendingSessions.length === 0) {
+    return (
+      <div className="sidebar-empty">
+        <i className="codicon codicon-bell-slash" aria-hidden="true" />
+        <p>No pending approvals</p>
+        <span>You'll see agent tool calls awaiting your decision here.</span>
+      </div>
+    );
+  }
+  return <SessionListView />;
 }

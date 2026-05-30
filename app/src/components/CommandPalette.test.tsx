@@ -40,7 +40,7 @@ describe("CommandPalette", () => {
     fireEvent.change(input, { target: { value: "theme light" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(useSessionStore.getState().settings.theme).toBe("github-light");
+    expect(useSessionStore.getState().settings.theme).toBe("vscode-light-plus");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
   });
 
