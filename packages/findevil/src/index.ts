@@ -9,4 +9,6 @@ export * from "./repair/index.js";
 export * from "./spoliation/index.js";
 export * from "./firewall/index.js";
 export * from "./taint/index.js";
+export * from "./sentinel/types.js";
+export * from "./sentinel/accuracy-report.js";
 export * from "./sentinel/index.js";
