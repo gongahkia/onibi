@@ -2704,6 +2704,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
       selectedFile: nextSelected,
       openBuffers: remainingBuffers,
       activeBufferKey: nextActiveKey,
+      closedBufferStack: state.closedBufferStack.filter(
+        (buffer) => buffer.workspaceId !== id,
+      ),
+      dirtyBufferKeys: state.dirtyBufferKeys.filter((key) =>
+        remainingBuffers.some((buffer) => bufferKey(buffer) === key),
+      ),
       sessions: state.sessions.filter((session) => session.workspaceId !== id),
       arrangements: state.arrangements.filter(
         (arrangement) => arrangement.workspaceId !== id,
