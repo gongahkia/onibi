@@ -1,0 +1,371 @@
+#!/usr/bin/env node
+import { createServer } from "node:http";
+import { stdin, stdout } from "node:process";
+import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
+import { createWebIntelClient, defaultProviderForOperation, policyArgsForWebRequest, toolNameForWebRequest } from "@kelpclaw/web-intel";
+const apiBaseUrl = process.env.KELPCLAW_API_URL ?? "http://127.0.0.1:8787";
+const apiToken = process.env.KELPCLAW_API_TOKEN ?? process.env.KELPCLAW_ADMIN_TOKEN;
+const webGatewayEnabled = process.argv.includes("web-gateway");
+const browserToolsEnabled = process.argv.includes("--allow-browser-tools");
+const webPolicyPackName = option(process.argv, "--policy") ?? "web-search-safe";
+const tools = [
+    tool("kelp.start_recording", "Start recording a coding-agent session."),
+    tool("kelp.record_step", "Record one coding-agent tool step."),
+    tool("kelp.stop_recording", "Stop an agent-run recording."),
+    tool("kelp.list_skills", "List registered KelpClaw skills."),
+    tool("kelp.invoke_skill", "Invoke a registered KelpClaw skill."),
+    tool("kelp.promote_trajectory", "Promote a verified trajectory into a skill."),
+    tool("kelp.check_policy", "Evaluate a tool call against loaded policy rules."),
+    ...(webGatewayEnabled
+        ? [
+            tool("kelp.web_search", "Run governed web search through Exa or TinyFish."),
+            tool("kelp.web_fetch", "Fetch governed web evidence for a URL."),
+            tool("kelp.web_answer", "Answer a question with governed web evidence."),
+            tool("kelp.web_research", "Run a governed web research query.")
+        ]
+        : []),
+    ...(webGatewayEnabled && browserToolsEnabled
+        ? [
+            tool("kelp.web_browser_session", "Start a governed TinyFish browser session."),
+            tool("kelp.web_browser_action", "Run a governed action in a TinyFish browser session."),
+            tool("kelp.web_agent_task", "Run a governed TinyFish web-agent task.")
+        ]
+        : [])
+];
+async function handleRequest(request) {
+    switch (request.method) {
+        case "initialize":
+            return {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: {} },
+                serverInfo: { name: "kelp-mcp", version: "0.1.0" }
+            };
+        case "tools/list":
+            return { tools };
+        case "tools/call":
+            return callTool(String(request.params?.name ?? ""), jsonObject(request.params?.arguments));
+        default:
+            throw new Error(`Unsupported MCP method '${request.method}'.`);
+    }
+}
+async function callTool(name, args) {
+    switch (name) {
+        case "kelp.start_recording":
+            return toolContent(await postJson("/api/agent-runs", args));
+        case "kelp.record_step":
+            return toolContent(await postJson(`/api/agent-runs/${encodeURIComponent(stringArg(args, "runId"))}/events`, args));
+        case "kelp.stop_recording":
+            return toolContent(await postJson(`/api/agent-runs/${encodeURIComponent(stringArg(args, "runId"))}/stop`, args));
+        case "kelp.list_skills":
+            return toolContent(await getJson(`/api/skills${query(args)}`));
+        case "kelp.invoke_skill":
+            return toolContent(await postJson(`/api/skills/${encodeURIComponent(stringArg(args, "skillId"))}/invoke`, {
+                input: jsonObject(args.input)
+            }));
+        case "kelp.promote_trajectory":
+            return toolContent(await postJson(`/api/agent-runs/${encodeURIComponent(stringArg(args, "runId"))}/promote`, {
+                skillName: args.skillName,
+                capabilities: args.capabilities
+            }));
+        case "kelp.check_policy":
+            return toolContent(await postJson("/api/policies/check", {
+                hookEvent: args.hookEvent ?? "PreToolUse",
+                toolName: args.toolName,
+                args: jsonObject(args.args),
+                classification: args.classification
+            }));
+        case "kelp.web_search":
+            return toolContent(await runWebTool({
+                operation: "web.search",
+                query: stringArg(args, "query"),
+                ...webCommonArgs(args)
+            }));
+        case "kelp.web_fetch":
+            return toolContent(await runWebTool({
+                operation: "web.fetch",
+                url: stringArg(args, "url"),
+                ...webCommonArgs(args)
+            }));
+        case "kelp.web_answer":
+            return toolContent(await runWebTool({
+                operation: "web.answer",
+                question: stringArg(args, "question"),
+                ...webCommonArgs(args)
+            }));
+        case "kelp.web_research":
+            return toolContent(await runWebTool({
+                operation: "web.search",
+                query: stringArg(args, "goal"),
+                goal: stringArg(args, "goal"),
+                ...webCommonArgs(args)
+            }));
+        case "kelp.web_browser_session":
+            requireBrowserTools();
+            return toolContent(await runWebTool({
+                operation: "web.browser.session",
+                goal: stringArg(args, "goal"),
+                ...webCommonArgs(args),
+                provider: "tinyfish"
+            }));
+        case "kelp.web_browser_action":
+            requireBrowserTools();
+            return toolContent(await runWebTool({
+                operation: "web.browser.action",
+                browserSessionId: stringArg(args, "sessionId"),
+                action: stringArg(args, "action"),
+                ...webCommonArgs(args),
+                provider: "tinyfish"
+            }));
+        case "kelp.web_agent_task":
+            requireBrowserTools();
+            return toolContent(await runWebTool({
+                operation: "web.agent.task",
+                goal: stringArg(args, "goal"),
+                ...webCommonArgs(args),
+                provider: "tinyfish"
+            }));
+        default:
+            throw new Error(`Unknown KelpClaw tool '${name}'.`);
+    }
+}
+async function runWebTool(request) {
+    const provider = request.provider ?? defaultProviderForOperation(request.operation);
+    const pack = requirePolicyPack(webPolicyPackName);
+    const toolName = toolNameForWebRequest(request, provider);
+    const decision = evaluatePolicy({
+        tool: toolName,
+        args: policyArgsForWebRequest(request, provider),
+        skill: {
+            id: "kelpclaw.mcp.web",
+            tags: ["web", provider, request.operation]
+        }
+    }, pack.ruleset);
+    if (decision.action === "deny" || decision.action === "require-approval") {
+        return {
+            ok: false,
+            status: "blocked",
+            policyPack: pack.name,
+            toolName,
+            decision
+        };
+    }
+    const evidence = await createWebIntelClient().run({ ...request, provider });
+    return {
+        ok: true,
+        status: "succeeded",
+        policyPack: pack.name,
+        toolName,
+        decision,
+        evidence
+    };
+}
+function webCommonArgs(args) {
+    const provider = optionalProviderArg(args.provider);
+    const domains = stringArrayArg(args.domains);
+    const numResults = numberArg(args.numResults);
+    const common = {};
+    if (provider) {
+        common.provider = provider;
+    }
+    if (domains.length) {
+        common.domains = domains;
+    }
+    if (numResults !== undefined) {
+        common.numResults = numResults;
+    }
+    if (args.storeFullContent !== undefined) {
+        common.storeFullContent = booleanArg(args.storeFullContent);
+    }
+    return common;
+}
+function optionalProviderArg(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === "exa" || value === "tinyfish") {
+        return value;
+    }
+    throw new Error("Web provider must be 'exa' or 'tinyfish'.");
+}
+function stringArrayArg(value) {
+    if (Array.isArray(value)) {
+        return value.filter((entry) => typeof entry === "string" && entry.length > 0);
+    }
+    if (typeof value === "string" && value.trim()) {
+        return value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+function numberArg(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+        return Number(value);
+    }
+    throw new Error("Numeric web option must be a finite number.");
+}
+function booleanArg(value) {
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (value === "true") {
+        return true;
+    }
+    if (value === "false") {
+        return false;
+    }
+    throw new Error("Boolean web option must be true or false.");
+}
+function requireBrowserTools() {
+    if (!browserToolsEnabled) {
+        throw new Error("Start the MCP server with --allow-browser-tools to expose browser tools.");
+    }
+}
+function runStdio() {
+    let buffer = Buffer.alloc(0);
+    stdin.on("data", (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        for (;;) {
+            const headerEnd = buffer.indexOf("\r\n\r\n");
+            if (headerEnd < 0) {
+                return;
+            }
+            const header = buffer.slice(0, headerEnd).toString("utf8");
+            const length = Number(/^Content-Length:\s*(\d+)/imu.exec(header)?.[1] ?? 0);
+            if (buffer.length < headerEnd + 4 + length) {
+                return;
+            }
+            const body = buffer.slice(headerEnd + 4, headerEnd + 4 + length).toString("utf8");
+            buffer = buffer.slice(headerEnd + 4 + length);
+            void respond(JSON.parse(body));
+        }
+    });
+}
+function runHttp(port) {
+    createServer((request, response) => {
+        if (request.method !== "POST") {
+            response.writeHead(404).end();
+            return;
+        }
+        let body = "";
+        request.setEncoding("utf8");
+        request.on("data", (chunk) => {
+            body += chunk;
+        });
+        request.on("end", () => {
+            void handleJsonRpc(JSON.parse(body)).then((payload) => {
+                response.writeHead(200, { "content-type": "application/json" });
+                response.end(JSON.stringify(payload));
+            });
+        });
+    }).listen(port, "127.0.0.1");
+}
+async function respond(request) {
+    const payload = await handleJsonRpc(request);
+    const content = Buffer.from(JSON.stringify(payload), "utf8");
+    stdout.write(`Content-Length: ${content.length}\r\n\r\n`);
+    stdout.write(content);
+}
+async function handleJsonRpc(request) {
+    try {
+        return {
+            jsonrpc: "2.0",
+            id: request.id ?? null,
+            result: await handleRequest(request)
+        };
+    }
+    catch (error) {
+        return {
+            jsonrpc: "2.0",
+            id: request.id ?? null,
+            error: {
+                code: -32000,
+                message: error instanceof Error ? error.message : String(error)
+            }
+        };
+    }
+}
+async function getJson(path) {
+    return requestJson("GET", path);
+}
+async function postJson(path, body) {
+    return requestJson("POST", path, body);
+}
+async function requestJson(method, path, body) {
+    const response = await fetch(new URL(path, apiBaseUrl), {
+        method,
+        headers: {
+            "content-type": "application/json",
+            ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {})
+        },
+        ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    const payload = (await response.json());
+    if (!response.ok) {
+        throw new Error(JSON.stringify(payload));
+    }
+    return payload;
+}
+function tool(name, description) {
+    return {
+        name,
+        description,
+        inputSchema: {
+            type: "object",
+            additionalProperties: true
+        }
+    };
+}
+function toolContent(value) {
+    return {
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(value, null, 2)
+            }
+        ]
+    };
+}
+function jsonObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+}
+function stringArg(args, key) {
+    const value = args[key];
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new Error(`Tool argument '${key}' is required.`);
+    }
+    return value;
+}
+function query(args) {
+    const params = new URLSearchParams();
+    for (const key of ["capability", "prompt"]) {
+        const value = args[key];
+        if (typeof value === "string" && value.trim()) {
+            params.set(key, value.trim());
+        }
+    }
+    const text = params.toString();
+    return text ? `?${text}` : "";
+}
+function option(args, name) {
+    const index = args.indexOf(name);
+    const value = index >= 0 ? args[index + 1] : undefined;
+    return value && !value.startsWith("--") ? value : undefined;
+}
+const httpIndex = process.argv.indexOf("--http");
+if (httpIndex >= 0) {
+    runHttp(Number(process.argv[httpIndex + 1] ?? 8788));
+}
+else {
+    runStdio();
+}
+//# sourceMappingURL=index.js.map
