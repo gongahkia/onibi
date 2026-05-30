@@ -21,6 +21,7 @@ import { SettingsPane } from "./SettingsPane";
 
 export interface AgentTabBarProps {
   orientation: "vertical" | "horizontal";
+  onOpenApprovals?: () => void;
 }
 
 interface WorkflowContextMenuState {
@@ -51,7 +52,7 @@ function chooseDiffEntry(
   return null;
 }
 
-export function AgentTabBar({ orientation }: AgentTabBarProps) {
+export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -63,9 +64,14 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const diffViewMode = useSessionStore((state) => state.settings.diffViewMode);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
+  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const removeSession = useSessionStore((state) => state.removeSession);
   const selectFile = useSessionStore((state) => state.selectFile);
   const updateSettings = useSessionStore((state) => state.updateSettings);
+  const pendingApprovals = useMemo(
+    () => sessions.reduce((sum, session) => sum + session.pendingApprovals.length, 0),
+    [sessions],
+  );
   const workspaceById = useMemo(
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     [workspaces],
@@ -211,6 +217,26 @@ export function AgentTabBar({ orientation }: AgentTabBarProps) {
           onClick={() => setNewSessionOpen(true)}
         >
           +
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Approvals"
+          title="Approvals"
+          onClick={() => {
+            if (onOpenApprovals) {
+              onOpenApprovals();
+            } else {
+              setActiveSidebarView("approvals");
+            }
+          }}
+        >
+          <i className="codicon codicon-bell" aria-hidden="true" />
+          {pendingApprovals > 0 ? (
+            <span className="agent-action-badge" aria-label={`${pendingApprovals} approvals`}>
+              {pendingApprovals > 99 ? "99+" : pendingApprovals}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"

@@ -43,6 +43,8 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByTestId("main-pane")).toBeTruthy();
+    expect(screen.getByTestId("agent-tab-bar").textContent).toContain("vertical");
+    expect(screen.queryByLabelText("Sessions")).toBeNull();
     expect(screen.getByRole("main").getAttribute("data-tab-orientation")).toBe(
       "vertical",
     );

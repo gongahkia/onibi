@@ -185,7 +185,6 @@ export type WorkspaceSidebarView =
   | "files"
   | "search"
   | "source-control"
-  | "sessions"
   | "approvals";
 
 export interface ArrangementSession {
@@ -1644,7 +1643,6 @@ function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
   return value === "files" ||
     value === "search" ||
     value === "source-control" ||
-    value === "sessions" ||
     value === "approvals"
     ? value
     : "files";
@@ -2441,7 +2439,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
         activeSessionId: next.id,
         activeTerminalPaneId:
           paneIdForSession(state.terminalLayout, next.id) ?? state.activeTerminalPaneId,
-        activeSidebarView: "sessions" as const,
         selectedFile: null,
       };
     });

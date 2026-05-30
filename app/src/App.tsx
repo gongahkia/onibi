@@ -22,6 +22,7 @@ import "./styles/layout.css";
 
 function App() {
   const settings = useSessionStore((state) => state.settings);
+  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -49,6 +50,12 @@ function App() {
   }, [settings]);
 
   const horizontalTabs = settings.tabBarOrientation === "horizontal";
+  const openApprovalsView = () => {
+    setActiveSidebarView("approvals");
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+    }
+  };
 
   const body = (
     <main
@@ -61,13 +68,19 @@ function App() {
             <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
           ) : (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
-              <AgentTabBar orientation="horizontal" />
+              <AgentTabBar
+                orientation="horizontal"
+                onOpenApprovals={openApprovalsView}
+              />
             </Panel>
           )}
           <PanelResizeHandle className="panel-resize-handle" />
           {settings.tabBarPosition === "bottom" ? (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
-              <AgentTabBar orientation="horizontal" />
+              <AgentTabBar
+                orientation="horizontal"
+                onOpenApprovals={openApprovalsView}
+              />
             </Panel>
           ) : (
             <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
@@ -76,7 +89,7 @@ function App() {
       ) : (
         <PanelGroup orientation="horizontal">
           <Panel defaultSize="6%" minSize="4%" maxSize="10%" id="sessions-panel">
-            <AgentTabBar orientation="vertical" />
+            <AgentTabBar orientation="vertical" onOpenApprovals={openApprovalsView} />
           </Panel>
           <PanelResizeHandle className="panel-resize-handle" />
           <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />

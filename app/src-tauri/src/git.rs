@@ -51,6 +51,13 @@ pub struct GitWorktree {
     prunable: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCloneResult {
+    path: PathBuf,
+    name: String,
+}
+
 fn command_text(args: &[&str]) -> String {
     format!("git {}", args.join(" "))
 }
@@ -325,6 +332,59 @@ fn validate_branch_name(branch: &str) -> Result<String, String> {
     Ok(branch.to_string())
 }
 
+fn validate_clone_remote(remote: &str) -> Result<String, String> {
+    let remote = remote.trim();
+    if remote.is_empty() || remote.contains('\0') || remote.starts_with('-') {
+        return Err("repository URL is not valid".to_string());
+    }
+    Ok(remote.to_string())
+}
+
+fn clone_name_from_remote(remote: &str) -> String {
+    let trimmed = remote.trim().trim_end_matches('/').trim_end_matches(".git");
+    let separator = trimmed
+        .rfind(|character| character == '/' || character == ':')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    trimmed[separator..]
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn validate_clone_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.starts_with('-')
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return Err("folder name is not valid".to_string());
+    }
+    Ok(name.to_string())
+}
+
+fn canonical_dir(path: &Path) -> Result<PathBuf, String> {
+    let resolved =
+        fs::canonicalize(path).map_err(|err| format!("failed to resolve {}: {err}", path.display()))?;
+    let metadata = fs::metadata(&resolved).map_err(|err| err.to_string())?;
+    if !metadata.is_dir() {
+        return Err(format!("{} is not a directory", resolved.display()));
+    }
+    Ok(resolved)
+}
+
 #[tauri::command]
 pub async fn git_status(root: PathBuf) -> Result<GitStatus, String> {
     let Some(repo_root) = repo_root_for(&root)? else {
@@ -571,6 +631,42 @@ pub async fn git_remove_worktree(
             stderr
         })
     }
+}
+
+#[tauri::command]
+pub async fn git_clone_repository(
+    remote: String,
+    destination_parent: PathBuf,
+    name: Option<String>,
+) -> Result<GitCloneResult, String> {
+    let remote = validate_clone_remote(&remote)?;
+    let parent = canonical_dir(&destination_parent)?;
+    let name = validate_clone_name(
+        &name
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| clone_name_from_remote(&remote)),
+    )?;
+    let target = parent.join(&name);
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+
+    let output = Command::new("git")
+        .args(["clone", "--"])
+        .arg(&remote)
+        .arg(&target)
+        .output()
+        .map_err(|err| format!("failed to run git clone: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git clone failed".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(GitCloneResult { path: target, name })
 }
 
 #[cfg(test)]

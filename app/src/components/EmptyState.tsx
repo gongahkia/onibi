@@ -1,5 +1,7 @@
-import { useMemo } from "react";
-import { useSessionStore } from "../lib/sessions";
+import { useMemo, useRef, useState, type FormEvent } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { cloneGitRepository } from "../lib/git";
+import { useSessionStore, workspaceIdForPath } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 function openCommandPalette() {
@@ -7,6 +9,7 @@ function openCommandPalette() {
 }
 
 export function EmptyState() {
+  const [cloneOpen, setCloneOpen] = useState(false);
   const workspaces = useSessionStore((state) => state.workspaces);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
@@ -23,15 +26,6 @@ export function EmptyState() {
   return (
     <div className="empty-state welcome" data-testid="empty-state">
       <div className="welcome-content">
-        <header className="welcome-header">
-          <div className="welcome-logo" aria-hidden="true">
-            <i className="codicon codicon-flame" />
-          </div>
-          <h1 className="welcome-title">Onibi</h1>
-          <p className="welcome-subtitle">
-            Local AI agent cockpit. Open a folder, start a session.
-          </p>
-        </header>
         <div className="welcome-grid">
           <section className="welcome-section">
             <h2>Start</h2>
@@ -43,7 +37,11 @@ export function EmptyState() {
               <i className="codicon codicon-folder-opened" aria-hidden="true" />
               <span>Open Folder...</span>
             </button>
-            <button type="button" className="welcome-link" onClick={openCommandPalette}>
+            <button
+              type="button"
+              className="welcome-link"
+              onClick={() => setCloneOpen(true)}
+            >
               <i className="codicon codicon-source-control" aria-hidden="true" />
               <span>Clone Git Repository...</span>
             </button>
@@ -68,34 +66,199 @@ export function EmptyState() {
               ))
             )}
           </section>
-          <section className="welcome-section">
-            <h2>Help</h2>
-            <button type="button" className="welcome-link" onClick={openCommandPalette}>
-              <i className="codicon codicon-command-center" aria-hidden="true" />
-              <span>Show All Commands</span>
-              <span className="welcome-muted welcome-shortcut">⌘P</span>
-            </button>
-            <a
-              className="welcome-link"
-              href="https://onibi.sh"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <i className="codicon codicon-book" aria-hidden="true" />
-              <span>Documentation</span>
-            </a>
-            <a
-              className="welcome-link"
-              href="https://github.com/gongahkia/onibi"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <i className="codicon codicon-github" aria-hidden="true" />
-              <span>GitHub Repository</span>
-            </a>
-          </section>
         </div>
       </div>
+      <CloneRepositoryDialog
+        open={cloneOpen}
+        onClose={() => setCloneOpen(false)}
+        onCloned={(workspace) => {
+          addWorkspace(workspace);
+          setActiveSidebarView("files");
+          setCloneOpen(false);
+        }}
+      />
+    </div>
+  );
+}
+
+interface CloneRepositoryDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onCloned: (workspace: { id: string; path: string; name: string }) => void;
+}
+
+function defaultRepoName(remote: string): string {
+  const trimmed = remote.trim().replace(/\/+$/, "").replace(/\.git$/i, "");
+  const separator = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf(":"));
+  return trimmed.slice(separator + 1).replace(/[^A-Za-z0-9._-]+/g, "-");
+}
+
+function CloneRepositoryDialog({
+  open: dialogOpen,
+  onClose,
+  onCloned,
+}: CloneRepositoryDialogProps) {
+  const [remote, setRemote] = useState("");
+  const [destinationParent, setDestinationParent] = useState("");
+  const [name, setName] = useState("");
+  const [choosing, setChoosing] = useState(false);
+  const [cloning, setCloning] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  if (!dialogOpen) {
+    return null;
+  }
+
+  const resolvedName = name.trim() || defaultRepoName(remote);
+
+  async function chooseDestination() {
+    setChoosing(true);
+    setError("");
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Choose clone destination",
+      });
+      if (selected && !Array.isArray(selected)) {
+        setDestinationParent(selected);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setChoosing(false);
+    }
+  }
+
+  async function clone(event: FormEvent) {
+    event.preventDefault();
+    if (!remote.trim()) {
+      setError("Repository URL is required.");
+      return;
+    }
+    if (!destinationParent.trim()) {
+      setError("Choose a destination folder.");
+      return;
+    }
+    setCloning(true);
+    setError("");
+    try {
+      const result = await cloneGitRepository(
+        remote.trim(),
+        destinationParent.trim(),
+        resolvedName,
+      );
+      onCloned({
+        id: workspaceIdForPath(result.path),
+        path: result.path,
+        name: result.name,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setCloning(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        className="modal-panel clone-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clone-dialog-title"
+      >
+        <header className="modal-header">
+          <h2 className="modal-title" id="clone-dialog-title">
+            Clone Repository
+          </h2>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close clone dialog"
+            onClick={onClose}
+          >
+            x
+          </button>
+        </header>
+        <form className="modal-body" onSubmit={(event) => void clone(event)}>
+          <div className="form-grid">
+            <label className="field-label">
+              Repository URL
+              <input
+                ref={inputRef}
+                className="settings-input"
+                value={remote}
+                placeholder="https://github.com/owner/repository.git"
+                onChange={(event) => setRemote(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="clone-source-button"
+              onClick={() => {
+                if (!remote) {
+                  setRemote("https://github.com/");
+                }
+                inputRef.current?.focus();
+              }}
+            >
+              <span>
+                <i className="codicon codicon-github" aria-hidden="true" />
+                Clone from GitHub
+              </span>
+              <span>remote sources</span>
+            </button>
+            <label className="field-label">
+              Destination
+              <span className="workspace-picker-row">
+                <input
+                  className="settings-input"
+                  value={destinationParent}
+                  placeholder="Choose parent folder"
+                  onChange={(event) => setDestinationParent(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={choosing || cloning}
+                  onClick={() => void chooseDestination()}
+                >
+                  {choosing ? "Choosing" : "Browse"}
+                </button>
+              </span>
+            </label>
+            <label className="field-label">
+              Folder name
+              <input
+                className="settings-input"
+                value={name}
+                placeholder={defaultRepoName(remote) || "repository"}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            {destinationParent && resolvedName ? (
+              <div className="settings-note">
+                Target: {destinationParent.replace(/\/+$/, "")}/{resolvedName}
+              </div>
+            ) : null}
+          </div>
+          {error ? <div className="editor-error">{error}</div> : null}
+          <footer className="dialog-actions">
+            <button type="button" className="text-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="text-button primary"
+              disabled={cloning || !remote.trim() || !destinationParent.trim()}
+            >
+              {cloning ? "Cloning" : "Clone"}
+            </button>
+          </footer>
+        </form>
+      </section>
     </div>
   );
 }

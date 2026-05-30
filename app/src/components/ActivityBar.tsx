@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   useSessionStore,
   type WorkspaceSidebarView,
@@ -23,19 +23,11 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   const [settingsOpen, setSettingsOpen] = useState(false);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
-  const sessions = useSessionStore((state) => state.sessions);
-  const pendingApprovals = useMemo(
-    () => sessions.reduce((sum, s) => sum + s.pendingApprovals.length, 0),
-    [sessions],
-  );
-  const sessionsBadge = sessions.length || undefined;
 
   const topItems: ActivityItem[] = [
     { id: "files", label: "Explorer", icon: "codicon-files" },
     { id: "search", label: "Search", icon: "codicon-search" },
     { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
-    { id: "sessions", label: "Sessions", icon: "codicon-terminal", badge: sessionsBadge },
-    { id: "approvals", label: "Approvals", icon: "codicon-bell", badge: pendingApprovals || undefined },
   ];
 
   function handleSelect(id: WorkspaceSidebarView) {
