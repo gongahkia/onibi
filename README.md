@@ -1,8 +1,10 @@
-# Kelp
+# KelpClaw SIFT Sentinel
 
-Kelp turns Protocol SIFT into a defensible autonomous DFIR agent: claim-to-evidence verification, hostile-evidence firewall, signed audit trail.
+## What This Is
 
-Kelp is the verification and containment harness around Claude Code and Protocol SIFT for the SANS Find Evil! hackathon. Claude Code provides the required agentic framework. Protocol SIFT provides the SIFT Workstation MCP bridge. Kelp makes the agent's incident-response output defensible by checking claims against evidence, blocking evidence-borne instructions, and preserving a signed audit trail.
+KelpClaw SIFT Sentinel turns Protocol SIFT output into a defensible autonomous DFIR record: claim-to-evidence verification, hostile-evidence firewall, spoliation check, and signed audit trail.
+
+KelpClaw is the verification and containment harness around Claude Code and Protocol SIFT for the SANS Find Evil! hackathon. Claude Code provides the required agentic framework. Protocol SIFT provides the SIFT Workstation MCP bridge. KelpClaw makes the agent's incident-response output defensible by checking claims against evidence, blocking evidence-borne instructions, proving original evidence hashes still match, and preserving a signed audit trail.
 
 ## What Is Novel In This Submission
 
@@ -32,29 +34,34 @@ These packages pre-date the Find Evil work and are retained as the foundation al
 
 The workflow editor, API server, web-intelligence package, skill registry, SaaS adapters, and MCP web gateway have been shelved under `legacy/` so the repository presents a DFIR CLI submission instead of a general workflow product.
 
-## Submission Shape
+## Try It Out
 
-Kelp SIFT Sentinel will run as a CLI-first DFIR workflow:
+These commands were run against the current repository state. They use the deterministic offline Protocol SIFT-style fixture and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the committed `.kelpclaw/findevil/sentinel/` run stays unchanged for review.
 
 ```console
-$ kelp-claw findevil sentinel \
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm -r --if-present build
+$ rm -rf /tmp/kelpclaw-findevil-sentinel
+$ node packages/cli/dist/index.js findevil sentinel \
   --case examples/findevil-sift-sentinel/case.yml \
-  --sift-command "./run-protocol-sift.sh" \
+  --evidence-root examples/findevil-sift-sentinel/case-data \
+  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
   --max-iterations 3 \
-  --out .kelpclaw/findevil/sentinel
+  --out /tmp/kelpclaw-findevil-sentinel
+$ sed -n '1,80p' /tmp/kelpclaw-findevil-sentinel/accuracy-report.md
+$ jq '{ok, checkedAt, changed:(.changed|length), added:(.added|length), removed:(.removed|length)}' /tmp/kelpclaw-findevil-sentinel/spoliation-check.json
+$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,repair-trace,firewall-events,taint-ledger}.jsonl
+$ test -s /tmp/kelpclaw-findevil-sentinel/accuracy-report.md && test -s /tmp/kelpclaw-findevil-sentinel/audit-bundle/index.html
+$ node packages/cli/dist/index.js verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
 ```
 
-Expected Phase 1 outputs:
+Expected high-level result:
 
-- `agent-execution.jsonl`
-- `claim-ledger.json`
-- `repair-trace.jsonl`
-- `accuracy-report.md`
-- `taint-ledger.jsonl`
-- `firewall-events.jsonl`
-- `spoliation-check.json`
-- `evidence-manifest.json`
-- signed `audit-bundle/`
+- The sentinel command returns `ok: true`, `status: "succeeded"`, `policyDenials: 1`, and `uncorrectedPolicyDenials: 0`.
+- The accuracy report shows one baseline claim, one repaired claim, one repair prompt, one repair result, one successful status change, and one firewall block.
+- The spoliation check shows `ok: true` with zero changed, added, or removed files.
+- The audit-bundle verification returns `ok: true` with a valid reviewer signature and thirteen checked files.
 
 ## Development
 
