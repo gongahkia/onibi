@@ -433,6 +433,7 @@ mod tests {
             match timeout(remaining, rx.recv()).await.unwrap().unwrap() {
                 PtyEvent::Data(bytes) => output.extend_from_slice(&bytes),
                 PtyEvent::Exit(status) => return (output, status),
+                PtyEvent::Notification(_) => {}
             }
         }
     }

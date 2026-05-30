@@ -578,6 +578,18 @@ export function TerminalView({
         applyOutputMetadata(text);
         applyTriggers(text);
         term.write(bytes);
+      } else if (event.type === "notification") {
+        window.dispatchEvent(
+          new CustomEvent("onibi:pty-notification", {
+            detail: {
+              ptyId,
+              source: event.source,
+              title: event.title,
+              body: event.body ?? null,
+              urgency: event.urgency ?? null,
+            },
+          }),
+        );
       } else {
         const suffix = event.signal ? ` (${event.signal})` : "";
         term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);

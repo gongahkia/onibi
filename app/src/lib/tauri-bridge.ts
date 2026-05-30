@@ -12,9 +12,17 @@ export interface PtySpawnRequest {
   cols: number;
 }
 
+export interface PtyNotificationPayload {
+  source: "osc9" | "osc99" | "osc777";
+  title: string;
+  body?: string | null;
+  urgency?: string | null;
+}
+
 export type PtyWireEvent =
   | { type: "data"; data: string }
-  | { type: "exit"; code: number; signal: string | null };
+  | { type: "exit"; code: number; signal: string | null }
+  | ({ type: "notification" } & PtyNotificationPayload);
 
 export function shellPath(): string {
   return "";

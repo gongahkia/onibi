@@ -55,6 +55,7 @@ use tracing_subscriber::EnvFilter;
 enum PtyWireEvent {
     Data { data: String },
     Exit { code: u32, signal: Option<String> },
+    Notification(crate::pty::OscNotification),
 }
 
 #[cfg(feature = "gui")]
@@ -112,6 +113,17 @@ async fn pty_spawn(
                     Ok(PtyEvent::Data(bytes)) => {
                         pending.extend_from_slice(&bytes);
                         if pending.len() >= 64 * 1024 && !emit_pty_data(&window, id, &mut pending) {
+                            break;
+                        }
+                    }
+                    Ok(PtyEvent::Notification(notice)) => {
+                        if !emit_pty_data(&window, id, &mut pending) {
+                            break;
+                        }
+                        if window
+                            .emit(&format!("pty:{id}"), PtyWireEvent::Notification(notice))
+                            .is_err()
+                        {
                             break;
                         }
                     }
