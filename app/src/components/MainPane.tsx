@@ -884,6 +884,7 @@ export function MainPane() {
                   path={selectedFile.path}
                   workspaceRoot={selectedFile.workspaceRoot}
                   fontFamily={settings.editorFontFamily}
+                  keybindingMode={settings.editorKeybindingMode}
                 />
               )}
             </section>
@@ -914,6 +915,7 @@ export function MainPane() {
             path={selectedFile.path}
             workspaceRoot={selectedFile.workspaceRoot}
             fontFamily={settings.editorFontFamily}
+            keybindingMode={settings.editorKeybindingMode}
           />
         )}
       </main>

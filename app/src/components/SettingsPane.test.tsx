@@ -111,7 +111,7 @@ describe("SettingsPane", () => {
     expect(settings.editorFontFamily).toBe("Fira Code");
   });
 
-  test("stores separate font sizes and diff view mode", () => {
+  test("stores separate font sizes, editor keybindings, and diff view mode", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText("UI font size"), {
@@ -123,6 +123,9 @@ describe("SettingsPane", () => {
     fireEvent.change(screen.getByLabelText("File content font size"), {
       target: { value: "14" },
     });
+    fireEvent.change(screen.getByLabelText("Editor keybindings"), {
+      target: { value: "vim" },
+    });
     fireEvent.change(screen.getByLabelText("Diff view"), {
       target: { value: "unified" },
     });
@@ -131,6 +134,7 @@ describe("SettingsPane", () => {
     expect(settings.uiFontSize).toBe(16);
     expect(settings.terminalFontSize).toBe(18);
     expect(settings.editorFontSize).toBe(14);
+    expect(settings.editorKeybindingMode).toBe("vim");
     expect(settings.diffViewMode).toBe("unified");
   });
 

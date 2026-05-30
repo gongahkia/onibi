@@ -47,6 +47,7 @@ import {
   selectSelectionMatches,
 } from "@codemirror/search";
 import { tags as highlightTags } from "@lezer/highlight";
+import { vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -55,6 +56,7 @@ import remarkGfm from "remark-gfm";
 import {
   readWorkspaceFile,
   readWorkspacePreviewFile,
+  type EditorKeybindingMode,
   useSessionStore,
   writeWorkspaceFile,
 } from "../lib/sessions";
@@ -63,6 +65,7 @@ export interface EditorBufferProps {
   path: string;
   workspaceRoot: string;
   fontFamily?: string;
+  keybindingMode?: EditorKeybindingMode;
 }
 
 type BufferState = "loading" | "ready" | "preview" | "binary" | "large" | "error";
@@ -311,6 +314,7 @@ interface CodeEditorProps {
   fontFamily?: string;
   onChange: (value: string) => void;
   onSave: () => void;
+  keybindingMode: EditorKeybindingMode;
   onScroller?: (element: HTMLElement | null) => void;
 }
 
@@ -320,6 +324,7 @@ function CodeEditor({
   fontFamily,
   onChange,
   onSave,
+  keybindingMode,
   onScroller,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -342,9 +347,10 @@ function CodeEditor({
       return undefined;
     }
     const extensions: Extension[] = [
+      ...(keybindingMode === "vim" ? [vim()] : []),
       Prec.high(
         keymap.of([
-          ...emacsStyleKeymap,
+          ...(keybindingMode === "emacs" ? emacsStyleKeymap : []),
           ...searchKeymap,
           {
             key: "Mod-s",
@@ -400,7 +406,7 @@ function CodeEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [language, onScroller]);
+  }, [keybindingMode, language, onScroller]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -599,7 +605,12 @@ function FilePreview({
   );
 }
 
-export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferProps) {
+export function EditorBuffer({
+  path,
+  workspaceRoot,
+  fontFamily,
+  keybindingMode = "standard",
+}: EditorBufferProps) {
   const selectFile = useSessionStore((state) => state.selectFile);
   const [state, setState] = useState<BufferState>("loading");
   const [content, setContent] = useState("");
@@ -737,6 +748,7 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
               value={content}
               onChange={setContent}
               onSave={() => void save()}
+              keybindingMode={keybindingMode}
               onScroller={setEditorScroller}
             />
             <MarkdownPreview
@@ -753,6 +765,7 @@ export function EditorBuffer({ path, workspaceRoot, fontFamily }: EditorBufferPr
             value={content}
             onChange={setContent}
             onSave={() => void save()}
+            keybindingMode={keybindingMode}
           />
         )
       ) : null}

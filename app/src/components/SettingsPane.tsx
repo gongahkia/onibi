@@ -13,6 +13,7 @@ import {
   type ColorSchemeColors,
   type CustomColorScheme,
   type DiffViewMode,
+  type EditorKeybindingMode,
   type TabBarOrientation,
   type TabBarPosition,
   type TerminalConfigCandidate,
@@ -263,6 +264,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalConfirmClose={settings.terminalConfirmClose}
               editorFontSize={settings.editorFontSize}
+              editorKeybindingMode={settings.editorKeybindingMode}
               diffViewMode={settings.diffViewMode}
               webOpenMode={settings.webOpenMode}
               onTheme={(theme) => updateSettings({ theme })}
@@ -288,6 +290,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 updateSettings({ terminalConfirmClose })
               }
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
+              onEditorKeybindingMode={(editorKeybindingMode) =>
+                updateSettings({ editorKeybindingMode })
+              }
               onDiffViewMode={(diffViewMode) => updateSettings({ diffViewMode })}
               onWebOpenMode={(webOpenMode) => updateSettings({ webOpenMode })}
             />
@@ -445,6 +450,7 @@ interface GeneralSettingsProps {
   terminalScrollbackLines: number;
   terminalConfirmClose: boolean;
   editorFontSize: number;
+  editorKeybindingMode: EditorKeybindingMode;
   diffViewMode: DiffViewMode;
   webOpenMode: WebOpenMode;
   onTheme: (theme: ThemeMode) => void;
@@ -458,6 +464,7 @@ interface GeneralSettingsProps {
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
   onEditorFontSize: (fontSize: number) => void;
+  onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onWebOpenMode: (mode: WebOpenMode) => void;
 }
@@ -475,6 +482,7 @@ function GeneralSettings({
   terminalScrollbackLines,
   terminalConfirmClose,
   editorFontSize,
+  editorKeybindingMode,
   diffViewMode,
   webOpenMode,
   onTheme,
@@ -488,6 +496,7 @@ function GeneralSettings({
   onTerminalScrollbackLines,
   onTerminalConfirmClose,
   onEditorFontSize,
+  onEditorKeybindingMode,
   onDiffViewMode,
   onWebOpenMode,
 }: GeneralSettingsProps) {
@@ -615,6 +624,21 @@ function GeneralSettings({
         value={editorFontSize}
         onChange={onEditorFontSize}
       />
+      <label className="settings-row">
+        <span>Editor keybindings</span>
+        <select
+          className="settings-select"
+          aria-label="Editor keybindings"
+          value={editorKeybindingMode}
+          onChange={(event) =>
+            onEditorKeybindingMode(event.target.value as EditorKeybindingMode)
+          }
+        >
+          <option value="standard">Standard (VS Code, Atom, Zed)</option>
+          <option value="emacs">Emacs</option>
+          <option value="vim">Vim</option>
+        </select>
+      </label>
       <label className="settings-row">
         <span>Diff view</span>
         <select
