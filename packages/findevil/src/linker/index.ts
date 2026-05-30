@@ -2,6 +2,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { claimSchema, type Claim, type EvidenceRef } from "../types/claim.js";
 import { amcacheEntryToEvidenceRef, matchByPathOrHash, parseAmcacheOutput } from "./amcache.js";
+import {
+  matchEventLogProcessCreate,
+  matchEventLogScheduledTask,
+  matchEventLogServiceInstall,
+  parseEvtxJson
+} from "./eventlog.js";
 import { matchPcapNetworkConnection, parseFlowSummaryJson } from "./pcap.js";
 import { matchByExecutable, parsePrefetchOutput, prefetchEntryToEvidenceRef } from "./prefetch.js";
 import {
@@ -14,6 +20,13 @@ import { matchSysmonNetworkConnect, matchSysmonProcessCreate, parseSysmonJson } 
 import { matchClaimToRows, parseTimelineCsv, timelineMatchToEvidenceRef } from "./timeline.js";
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
+export {
+  matchEventLogLogon,
+  matchEventLogProcessCreate,
+  matchEventLogScheduledTask,
+  matchEventLogServiceInstall,
+  parseEvtxJson
+} from "./eventlog.js";
 export { hashEvidenceRow } from "./hashing.js";
 export { parseFlowSummaryJson, matchPcapNetworkConnection } from "./pcap.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
@@ -27,9 +40,17 @@ const programExecutionProof = [
   "amcache_execution_record",
   "shimcache_indicator",
   "srum_network_activity",
-  "sysmon_process_create"
+  "sysmon_process_create",
+  "security_4688_process_create"
 ] as const;
-const persistenceProof = ["registry-run-key", "scheduled-task", "service-create"] as const;
+const persistenceProof = [
+  "registry-run-key",
+  "scheduled-task",
+  "service-create",
+  "security_4698_scheduled_task",
+  "security_4702_scheduled_task",
+  "system_7045_service_create"
+] as const;
 const networkProof = ["netflow-or-pcap"] as const;
 
 export function linkEvidence(claim: Claim, caseDir: string): Claim {
@@ -43,6 +64,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
+      additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
       break;
     case "network_connection":
       additions.push(...linkPcapEvidence(claim, caseDir, files));
@@ -50,7 +72,12 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
       break;
     case "file_presence":
+      additions.push(...linkTimelineEvidence(claim, caseDir, files));
+      break;
     case "persistence":
+      additions.push(...linkTimelineEvidence(claim, caseDir, files));
+      additions.push(...linkEventLogPersistenceEvidence(claim, caseDir, files));
+      break;
     case "timeline_ordering":
     case "user_activity":
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
@@ -62,6 +89,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
+      additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
       break;
   }
@@ -182,6 +210,34 @@ function linkSysmonNetworkConnectEvidence(
     });
 }
 
+function linkEventLogProcessCreateEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isEventLogFile(file))
+    .flatMap((file) =>
+      matchEventLogProcessCreate(claim, parseEvtxJson(file, relativeArtifact(caseDir, file)))
+    );
+}
+
+function linkEventLogPersistenceEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isEventLogFile(file))
+    .flatMap((file) => {
+      const records = parseEvtxJson(file, relativeArtifact(caseDir, file));
+      return [
+        ...matchEventLogServiceInstall(claim, records),
+        ...matchEventLogScheduledTask(claim, records)
+      ];
+    });
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -249,6 +305,14 @@ function isPcapFlowSummaryFile(path: string): boolean {
 function isSysmonFile(path: string): boolean {
   const lower = path.toLowerCase();
   return lower.includes("sysmon") && /\.(?:json|jsonl|ndjson|log)$/u.test(lower);
+}
+
+function isEventLogFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    /\.(?:json|jsonl|ndjson)$/u.test(lower) &&
+    /(?:evtx|event[-_ ]?log|security|system|hayabusa|chainsaw|winevent)/u.test(lower)
+  );
 }
 
 function relativeArtifact(caseDir: string, path: string): string {

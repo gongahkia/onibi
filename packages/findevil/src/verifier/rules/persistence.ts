@@ -1,6 +1,13 @@
 import type { Claim, ClaimStatus } from "../../types/claim.js";
 
-const directPersistenceEvidence = new Set(["registry-run-key", "scheduled-task", "service-create"]);
+const directPersistenceEvidence = new Set([
+  "registry-run-key",
+  "scheduled-task",
+  "service-create",
+  "security_4698_scheduled_task",
+  "security_4702_scheduled_task",
+  "system_7045_service_create"
+]);
 
 export function verifyPersistenceClaim(claim: Claim): ClaimStatus {
   const supports = claim.evidenceRefs.map((ref) => ref.supports.toLowerCase());
