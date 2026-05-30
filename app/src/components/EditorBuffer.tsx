@@ -612,6 +612,8 @@ export function EditorBuffer({
   keybindingMode = "standard",
 }: EditorBufferProps) {
   const selectFile = useSessionStore((state) => state.selectFile);
+  const closeBuffer = useSessionStore((state) => state.closeBuffer);
+  const activeBufferKey = useSessionStore((state) => state.activeBufferKey);
   const [state, setState] = useState<BufferState>("loading");
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
@@ -687,7 +689,11 @@ export function EditorBuffer({
     if (dirty && !window.confirm("Discard unsaved changes?")) {
       return;
     }
-    selectFile(null);
+    if (activeBufferKey) {
+      closeBuffer(activeBufferKey);
+    } else {
+      selectFile(null);
+    }
   }
 
   function copyPath() {

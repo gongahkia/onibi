@@ -207,6 +207,8 @@ export interface Arrangement {
   activeTerminalPaneId: string | null;
   maximizedTerminalPaneId: string | null;
   selectedFile: MainSelection | null;
+  openBuffers?: MainSelection[];
+  activeBufferKey?: string | null;
   activeSidebarView: WorkspaceSidebarView;
   sessions: ArrangementSession[];
 }
@@ -2191,6 +2193,8 @@ function snapshot(state: SessionStore): PersistedState {
     arrangements: state.arrangements,
     activeSidebarView: state.activeSidebarView,
     sessionEvents: state.sessionEvents,
+    openBuffers: state.openBuffers,
+    activeBufferKey: state.activeBufferKey,
     settings: state.settings,
   };
 }
@@ -2214,6 +2218,8 @@ export async function persistNow(): Promise<void> {
     await store.set("arrangements", state.arrangements);
     await store.set("activeSidebarView", state.activeSidebarView);
     await store.set("sessionEvents", state.sessionEvents);
+    await store.set("openBuffers", state.openBuffers);
+    await store.set("activeBufferKey", state.activeBufferKey);
     await store.set("settings", state.settings);
     await store.save();
   } catch (error) {
@@ -2232,6 +2238,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   activeSidebarView: "files",
   workspaces: [],
   selectedFile: null,
+  openBuffers: [],
+  activeBufferKey: null,
   sessionEvents: [],
   commandBlocks: [],
   activeCommandBlocks: {},
@@ -2591,6 +2599,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
       activeTerminalPaneId: state.activeTerminalPaneId,
       maximizedTerminalPaneId: state.maximizedTerminalPaneId,
       selectedFile: state.selectedFile,
+      openBuffers: state.openBuffers,
+      activeBufferKey: state.activeBufferKey,
       activeSidebarView: state.activeSidebarView,
       sessions,
     };
@@ -2842,6 +2852,8 @@ export async function hydrateSessionStore(): Promise<void> {
       arrangements,
       activeSidebarView,
       sessionEvents,
+      openBuffers,
+      activeBufferKey,
     ] = await Promise.all([
       store.get<TerminalPaneNode | null>("terminalLayout"),
       store.get<string | null>("activeTerminalPaneId"),
@@ -2849,6 +2861,8 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<Arrangement[]>("arrangements"),
       store.get<WorkspaceSidebarView>("activeSidebarView"),
       store.get<SessionEvent[]>("sessionEvents"),
+      store.get<MainSelection[]>("openBuffers"),
+      store.get<string | null>("activeBufferKey"),
     ]);
     const livePtys = new Set(await ptyList().catch(() => []));
     const restoredSessions = (sessions ?? []).map((session) => {
@@ -2888,6 +2902,18 @@ export async function hydrateSessionStore(): Promise<void> {
         : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
+    const workspaceIds = new Set((workspaces ?? []).map((w) => w.id));
+    const restoredBuffers = (openBuffers ?? []).filter((buffer) =>
+      workspaceIds.has(buffer.workspaceId),
+    );
+    const restoredActiveKey =
+      activeBufferKey &&
+      restoredBuffers.some((buffer) => bufferKey(buffer) === activeBufferKey)
+        ? activeBufferKey
+        : null;
+    const restoredSelected = restoredActiveKey
+      ? restoredBuffers.find((buffer) => bufferKey(buffer) === restoredActiveKey) ?? null
+      : null;
     useSessionStore.setState({
       sessions: restoredSessions,
       activeSessionId,
@@ -2901,6 +2927,9 @@ export async function hydrateSessionStore(): Promise<void> {
       activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
       workspaces: workspaces ?? [],
       sessionEvents: sessionEvents ?? [],
+      openBuffers: restoredBuffers,
+      activeBufferKey: restoredActiveKey,
+      selectedFile: restoredSelected,
       settings: mergedSettings,
       hydrated: true,
     });
@@ -3448,6 +3477,22 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
     activeTerminalPaneId && terminalLayout
       ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
       : newSessions[0]?.id ?? null;
+  // restore buffers if the saved arrangement had any; otherwise fall back
+  // to the single legacy `selectedFile` (old arrangements).
+  const savedBuffers = arrangement.openBuffers ?? [];
+  const fallbackBuffers = savedBuffers.length === 0 && arrangement.selectedFile
+    ? [arrangement.selectedFile]
+    : savedBuffers;
+  const restoredActiveKey = arrangement.activeBufferKey
+    ?? (arrangement.selectedFile ? bufferKey(arrangement.selectedFile) : null);
+  const resolvedActiveKey =
+    restoredActiveKey &&
+    fallbackBuffers.some((buffer) => bufferKey(buffer) === restoredActiveKey)
+      ? restoredActiveKey
+      : (fallbackBuffers[0] ? bufferKey(fallbackBuffers[0]) : null);
+  const resolvedSelected = resolvedActiveKey
+    ? fallbackBuffers.find((buffer) => bufferKey(buffer) === resolvedActiveKey) ?? null
+    : null;
   useSessionStore.setState((current) => ({
     sessions: newSessions,
     terminalLayout,
@@ -3459,7 +3504,9 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
         ? arrangement.maximizedTerminalPaneId
         : null,
     activeSessionId,
-    selectedFile: arrangement.selectedFile,
+    selectedFile: resolvedSelected,
+    openBuffers: fallbackBuffers,
+    activeBufferKey: resolvedActiveKey,
     activeSidebarView: arrangement.activeSidebarView,
     sessionEvents: appendEvent(current.sessionEvents, {
       type: "arrangement-restored",

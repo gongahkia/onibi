@@ -5,6 +5,7 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
+import { EditorTabBar } from "./EditorTabBar";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
 import { NewSessionDialog } from "./NewSessionDialog";
@@ -926,20 +927,26 @@ export function MainPane() {
           </section>
           {selectedFile ? (
             <section className="main-pane-surface editor-surface">
-              {selectedFile.type === "web" ? (
-                <WebBuffer url={selectedFile.url} />
-              ) : selectedFile.type === "git-diff" ? (
-                <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
-              ) : selectedFile.type === "agent-review" ? (
-                <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
-              ) : (
-                <EditorBuffer
-                  path={selectedFile.path}
-                  workspaceRoot={selectedFile.workspaceRoot}
-                  fontFamily={settings.editorFontFamily}
-                  keybindingMode={settings.editorKeybindingMode}
-                />
-              )}
+              <EditorTabBar />
+              <div className="editor-surface-body">
+                {selectedFile.type === "web" ? (
+                  <WebBuffer url={selectedFile.url} />
+                ) : selectedFile.type === "git-diff" ? (
+                  <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
+                ) : selectedFile.type === "agent-review" ? (
+                  <AgentReviewBuffer
+                    selection={selectedFile}
+                    mode={settings.diffViewMode}
+                  />
+                ) : (
+                  <EditorBuffer
+                    path={selectedFile.path}
+                    workspaceRoot={selectedFile.workspaceRoot}
+                    fontFamily={settings.editorFontFamily}
+                    keybindingMode={settings.editorKeybindingMode}
+                  />
+                )}
+              </div>
             </section>
           ) : null}
         </main>
@@ -957,20 +964,23 @@ export function MainPane() {
   if (selectedFile) {
     return (
       <main className="main-pane" data-testid="main-pane-editor">
-        {selectedFile.type === "web" ? (
-          <WebBuffer url={selectedFile.url} />
-        ) : selectedFile.type === "git-diff" ? (
-          <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
-        ) : selectedFile.type === "agent-review" ? (
-          <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
-        ) : (
-          <EditorBuffer
-            path={selectedFile.path}
-            workspaceRoot={selectedFile.workspaceRoot}
-            fontFamily={settings.editorFontFamily}
-            keybindingMode={settings.editorKeybindingMode}
-          />
-        )}
+        <EditorTabBar />
+        <div className="editor-surface-body">
+          {selectedFile.type === "web" ? (
+            <WebBuffer url={selectedFile.url} />
+          ) : selectedFile.type === "git-diff" ? (
+            <GitDiffBuffer selection={selectedFile} mode={settings.diffViewMode} />
+          ) : selectedFile.type === "agent-review" ? (
+            <AgentReviewBuffer selection={selectedFile} mode={settings.diffViewMode} />
+          ) : (
+            <EditorBuffer
+              path={selectedFile.path}
+              workspaceRoot={selectedFile.workspaceRoot}
+              fontFamily={settings.editorFontFamily}
+              keybindingMode={settings.editorKeybindingMode}
+            />
+          )}
+        </div>
       </main>
     );
   }

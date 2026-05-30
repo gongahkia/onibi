@@ -1813,6 +1813,148 @@ button.status-bar-item:hover {
 
 .editor-surface {
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-tab-bar {
+  flex: 0 0 35px;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.editor-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 0 8px;
+  height: 35px;
+  background: var(--tab-inactive-bg);
+  color: var(--fg-1);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  border-top: 1px solid transparent;
+  user-select: none;
+}
+
+.editor-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--fg-0);
+  border-top-color: var(--tab-active-border);
+}
+
+.editor-tab:hover:not(.active) {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.editor-tab .codicon {
+  flex: 0 0 14px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.editor-tab-label {
+  flex: 1 1 auto;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-tab-suffix {
+  color: var(--fg-2);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.editor-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg-1);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 100ms ease, background 100ms ease;
+}
+
+.editor-tab:hover .editor-tab-close,
+.editor-tab.active .editor-tab-close {
+  opacity: 1;
+}
+
+.editor-tab-close:hover {
+  background: var(--hover-bg);
+  color: var(--fg-0);
+}
+
+.editor-tab-close .codicon {
+  font-size: 12px;
+}
+
+.editor-tab-context-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 30;
+}
+
+.editor-tab-context-menu button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-0);
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.editor-tab-context-menu button:hover:not(:disabled) {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.editor-tab-context-menu button:disabled {
+  color: var(--fg-2);
+  cursor: not-allowed;
 }
 
 .terminal-view-shell {
