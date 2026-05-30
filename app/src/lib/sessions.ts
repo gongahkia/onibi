@@ -260,6 +260,33 @@ export type MainSelection =
   | SelectedAgentReview
   | SelectedWebView;
 
+export function bufferKey(selection: MainSelection): string {
+  const wid = selection.workspaceId;
+  if (selection.type === "git-diff") {
+    return `git-diff:${wid}:${selection.stage}:${selection.path}`;
+  }
+  if (selection.type === "agent-review") {
+    return `agent-review:${wid}:${selection.reviewId}:${selection.path}`;
+  }
+  if (selection.type === "web") {
+    return `web:${wid}:${selection.url}`;
+  }
+  return `file:${wid}:${selection.path}`;
+}
+
+export function bufferLabel(selection: MainSelection): string {
+  if (selection.type === "git-diff") {
+    return selection.name || selection.path.split("/").pop() || selection.path;
+  }
+  if (selection.type === "agent-review") {
+    return selection.name || selection.path.split("/").pop() || selection.path;
+  }
+  if (selection.type === "web") {
+    return selection.name || selection.url;
+  }
+  return selection.name || selection.path.split("/").pop() || selection.path;
+}
+
 export type ThemeMode =
   | "system"
   | "vscode-dark-plus"
@@ -472,6 +499,8 @@ type PersistedState = {
   arrangements?: Arrangement[];
   activeSidebarView?: WorkspaceSidebarView;
   sessionEvents?: SessionEvent[];
+  openBuffers?: MainSelection[];
+  activeBufferKey?: string | null;
   settings?: Partial<AppSettings> & { fontSize?: number };
 };
 
@@ -486,6 +515,8 @@ type SessionStore = {
   activeSidebarView: WorkspaceSidebarView;
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
+  openBuffers: MainSelection[];
+  activeBufferKey: string | null;
   sessionEvents: SessionEvent[];
   commandBlocks: CommandBlock[];
   activeCommandBlocks: Record<string, CommandBlock>;
@@ -516,6 +547,10 @@ type SessionStore = {
   addWorkspace: (workspace: Workspace) => void;
   removeWorkspace: (id: string) => void;
   selectFile: (file: MainSelection | null) => void;
+  setActiveBuffer: (key: string) => void;
+  closeBuffer: (key: string) => void;
+  closeOtherBuffers: (key: string) => void;
+  closeAllBuffers: () => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   updateAgentCommand: (agent: AgentKind, command: string) => void;
 };
@@ -2635,10 +2670,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   removeWorkspace: (id) => {
-    set((state) => ({
+    set((state) => {
+      const remainingBuffers = state.openBuffers.filter(
+        (buffer) => buffer.workspaceId !== id,
+      );
+      const activeStillOpen =
+        state.activeBufferKey &&
+        remainingBuffers.some((buffer) => bufferKey(buffer) === state.activeBufferKey);
+      const nextActiveKey = activeStillOpen ? state.activeBufferKey : null;
+      const nextSelected = nextActiveKey
+        ? remainingBuffers.find((buffer) => bufferKey(buffer) === nextActiveKey) ?? null
+        : null;
+      return {
       workspaces: state.workspaces.filter((workspace) => workspace.id !== id),
-      selectedFile:
-        state.selectedFile?.workspaceId === id ? null : state.selectedFile,
+      selectedFile: nextSelected,
+      openBuffers: remainingBuffers,
+      activeBufferKey: nextActiveKey,
       sessions: state.sessions.filter((session) => session.workspaceId !== id),
       arrangements: state.arrangements.filter(
         (arrangement) => arrangement.workspaceId !== id,
@@ -2660,22 +2707,102 @@ export const useSessionStore = create<SessionStore>((set) => ({
         )
           ? null
           : state.activeSessionId,
-    }));
+      };
+    });
     persistLater();
   },
   selectFile: (file) => {
-    set((state) => ({
-      selectedFile: file,
-      sessionEvents:
-        file && file.type !== "web"
-          ? appendEvent(state.sessionEvents, {
-              type: "file-opened",
-              workspaceId: file.workspaceId,
-              summary: `Opened ${file.path}`,
-              metadata: { path: file.path, kind: file.type ?? "file" },
-            })
-          : state.sessionEvents,
-    }));
+    set((state) => {
+      if (file === null) {
+        // hide editor surface, keep tabs in store
+        return {
+          selectedFile: null,
+          activeBufferKey: null,
+        };
+      }
+      const key = bufferKey(file);
+      const existing = state.openBuffers.findIndex(
+        (buffer) => bufferKey(buffer) === key,
+      );
+      const openBuffers =
+        existing >= 0
+          ? state.openBuffers.map((buffer, index) =>
+              index === existing ? file : buffer,
+            )
+          : [...state.openBuffers, file];
+      return {
+        selectedFile: file,
+        openBuffers,
+        activeBufferKey: key,
+        sessionEvents:
+          file.type !== "web"
+            ? appendEvent(state.sessionEvents, {
+                type: "file-opened",
+                workspaceId: file.workspaceId,
+                summary: `Opened ${file.path}`,
+                metadata: { path: file.path, kind: file.type ?? "file" },
+              })
+            : state.sessionEvents,
+      };
+    });
+    persistLater();
+  },
+  setActiveBuffer: (key) => {
+    set((state) => {
+      const target = state.openBuffers.find(
+        (buffer) => bufferKey(buffer) === key,
+      );
+      if (!target) return {};
+      return {
+        selectedFile: target,
+        activeBufferKey: key,
+      };
+    });
+    persistLater();
+  },
+  closeBuffer: (key) => {
+    set((state) => {
+      const idx = state.openBuffers.findIndex(
+        (buffer) => bufferKey(buffer) === key,
+      );
+      if (idx < 0) return {};
+      const openBuffers = state.openBuffers.filter((_, i) => i !== idx);
+      if (state.activeBufferKey !== key) {
+        return { openBuffers };
+      }
+      // active buffer being closed: pick neighbor (prefer right, fall back left)
+      const next =
+        openBuffers[idx] ??
+        openBuffers[idx - 1] ??
+        null;
+      return {
+        openBuffers,
+        activeBufferKey: next ? bufferKey(next) : null,
+        selectedFile: next,
+      };
+    });
+    persistLater();
+  },
+  closeOtherBuffers: (key) => {
+    set((state) => {
+      const target = state.openBuffers.find(
+        (buffer) => bufferKey(buffer) === key,
+      );
+      if (!target) return {};
+      return {
+        openBuffers: [target],
+        activeBufferKey: key,
+        selectedFile: target,
+      };
+    });
+    persistLater();
+  },
+  closeAllBuffers: () => {
+    set({
+      openBuffers: [],
+      activeBufferKey: null,
+      selectedFile: null,
+    });
     persistLater();
   },
   updateSettings: (patch) => {
