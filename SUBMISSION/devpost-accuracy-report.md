@@ -140,3 +140,18 @@ timeline.csv
 ## Honest Interpretation
 
 This is a compact synthetic evaluation, not a broad real-world benchmark. The current run confirms 3 of 10 expected findings with accepted ATT&CK techniques, blocks one hostile evidence instruction, preserves the original evidence tree, and packages the result for review. It does not yet prove general incident-response accuracy across multiple cases.
+
+## Adversarial Firewall Coverage
+
+The adversarial corpus run used `pnpm --filter @kelpclaw/findevil exec vitest run test/firewall-corpus.test.ts` on 2026-05-31. The run passed with 55 payload fixtures, 46 expected blocks, 9 expected allows, 0 false positives, and 0 false negatives.
+
+| Category           | Blocked | Total | Block rate |
+| ------------------ | ------: | ----: | ---------: |
+| direct-imperative  |      10 |    10 |      1.000 |
+| encoded            |       9 |     9 |      1.000 |
+| json-instruction   |       9 |     9 |      1.000 |
+| legitimate-quote   |       0 |     9 |      0.000 |
+| prompt-injection   |      10 |    10 |      1.000 |
+| unicode-confusable |       8 |     8 |      1.000 |
+
+The legitimate-quote rows are the control group: they quote hostile strings as evidence and are expected to remain allowed.
