@@ -55,22 +55,21 @@ type AnthropicConstructor = new (options?: { readonly apiKey?: string }) => Anth
 
 const anthropicSdkPackage = "@anthropic-ai/sdk";
 const defaultCacheDir = ".kelpclaw/findevil/extractor-cache";
-const defaultModel = "claude-3-5-sonnet-latest";
-const defaultOpenAiCommitteeModel = "gpt-4.1-mini";
+const defaultModel = "claude-opus-4-7";
 
 /*
 default extraction routing matrix:
 - KELP_FINDEVIL_MODELS set: use the committee path with the explicit model list.
-- KELP_FINDEVIL_MODELS unset + ANTHROPIC_API_KEY and any of OPENAI_API_KEY,
-  AZURE_OPENAI_API_KEY, or GOOGLE_API_KEY set: use the default committee path.
-- KELP_FINDEVIL_MODELS unset + zero or one provider configured: use the single-model path.
+- KELP_FINDEVIL_MODELS unset + provider credentials set: use the default committee path,
+  filtered to configured providers.
+- KELP_FINDEVIL_MODELS unset + no live provider but an injected completion: use the single path.
 */
 
 export async function extractClaims(
   report: string | JsonValue,
   options: ExtractClaimsOptions = {}
 ): Promise<ClaimLedger> {
-  const committeeModelEnv = resolveCommitteeModelEnv();
+  const committeeModelEnv = stringEnv("KELP_FINDEVIL_MODELS");
   if (committeeModelEnv) {
     const { extractClaimsCommittee, parseCommitteeModels } = await import("./committee.js");
     return extractClaimsCommittee(
@@ -79,30 +78,45 @@ export async function extractClaims(
       options
     );
   }
+  if (shouldUseDefaultCommittee(options)) {
+    const { defaultCommitteeModels, extractClaimsCommittee } = await import("./committee.js");
+    return extractClaimsCommittee(reportToPromptText(report), defaultCommitteeModels(), options);
+  }
   return extractClaimsSingle(report, options);
 }
 
-function resolveCommitteeModelEnv(): string | undefined {
-  const explicitModels = stringEnv("KELP_FINDEVIL_MODELS");
-  if (explicitModels) {
-    return explicitModels;
+function shouldUseDefaultCommittee(options: ExtractClaimsOptions): boolean {
+  if (options.committeeComplete) {
+    return true;
   }
-  return shouldUseDefaultCommittee() ? defaultCommitteeModels() : undefined;
+  if (options.complete) {
+    return false;
+  }
+  if (configuredProviderCount() > 0) {
+    return true;
+  }
+  return !options.complete && !options.apiKey;
 }
 
-function shouldUseDefaultCommittee(): boolean {
+function configuredProviderCount(): number {
+  return [
+    hasEnv("ANTHROPIC_API_KEY"),
+    hasEnv("OPENAI_API_KEY"),
+    hasAzureOpenAiCredential(),
+    hasEnv("GOOGLE_API_KEY")
+  ].filter(Boolean).length;
+}
+
+function hasAzureOpenAiCredential(): boolean {
   return (
-    stringEnv("ANTHROPIC_API_KEY") !== undefined &&
-    (stringEnv("OPENAI_API_KEY") !== undefined ||
-      stringEnv("AZURE_OPENAI_API_KEY") !== undefined ||
-      stringEnv("GOOGLE_API_KEY") !== undefined)
+    hasEnv("AZURE_OPENAI_ENDPOINT") &&
+    hasEnv("AZURE_OPENAI_API_KEY") &&
+    hasEnv("AZURE_OPENAI_DEPLOYMENT")
   );
 }
 
-function defaultCommitteeModels(): string {
-  const anthropicModel = stringEnv("KELP_FINDEVIL_ANTHROPIC_MODEL") ?? defaultModel;
-  const openAiModel = stringEnv("KELP_FINDEVIL_OPENAI_MODEL") ?? defaultOpenAiCommitteeModel;
-  return `anthropic:${anthropicModel},openai:${openAiModel}`;
+function hasEnv(name: string): boolean {
+  return stringEnv(name) !== undefined;
 }
 
 export async function extractClaimsSingle(

@@ -76,12 +76,23 @@ Expected high-level result:
 - The spoliation check shows `ok: true` with 13 files before, 13 files after, and zero changed, added, or removed files.
 - The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.
 
-### Multi-model verification
+## Configuration
 
-Set `KELP_FINDEVIL_MODELS` to a comma-separated committee to make claim extraction require cross-model agreement. Entries use `provider:model` and may include an optional weight suffix, for example:
+### Multi-vendor committee
+
+Set `KELP_FINDEVIL_MODELS` to a comma-separated committee to make claim extraction require cross-model agreement. Entries use `provider:model` and may include an optional weight suffix. Supported providers are `anthropic`, `openai`, `openai-azure`, and `gemini`.
+
+Provider environment:
+
+- Anthropic: `ANTHROPIC_API_KEY`
+- OpenAI hosted endpoint: `OPENAI_API_KEY`
+- Azure OpenAI: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`
+- Gemini: `GOOGLE_API_KEY`
+
+When `KELP_FINDEVIL_MODELS` is unset and at least one provider is configured, extraction uses the configured subset of the default committee: `anthropic:claude-opus-4-7`, `openai-azure:gpt-5`, and `gemini:gemini-2.5-pro`. If only one provider is configured, the extractor falls back to that single model.
 
 ```console
-$ KELP_FINDEVIL_MODELS=anthropic:claude-3-5-sonnet-latest,openai:gpt-4.1-mini \
+$ KELP_FINDEVIL_MODELS=anthropic:claude-opus-4-7,openai-azure:gpt-5,gemini:gemini-2.5-pro \
   ./node_modules/.bin/kelp-claw findevil sentinel \
   --case examples/findevil-sift-sentinel/case.yml \
   --evidence-root examples/findevil-sift-sentinel/case-data \
@@ -91,6 +102,8 @@ $ KELP_FINDEVIL_MODELS=anthropic:claude-3-5-sonnet-latest,openai:gpt-4.1-mini \
 ```
 
 The run writes `committee-vote.jsonl` beside the claim ledger with one row per model vote, then lowers confidence or marks claims inferred/unverifiable when the committee disagrees.
+
+Claude Code remains the agentic framework for the hackathon submission. The multi-vendor committee uses other providers only for claim-extraction voting, not for tool execution.
 
 ## Development
 

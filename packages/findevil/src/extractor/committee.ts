@@ -8,7 +8,11 @@ import {
   type ClaimType,
   type EvidenceRef
 } from "../types/claim.js";
-import { claimExtractorToolName } from "./prompts.js";
+import { extractFromAnthropic } from "./providers/anthropic.js";
+import { extractFromAzureOpenAI } from "./providers/azure.js";
+import { extractFromGemini } from "./providers/gemini.js";
+import { extractFromOpenAI } from "./providers/openai.js";
+import type { RawClaimsJson } from "./providers/shared.js";
 import {
   extractClaimsSingle,
   type ClaimExtractionAttempt,
@@ -16,7 +20,9 @@ import {
   type ExtractClaimsOptions
 } from "./index.js";
 
-export type CommitteeProvider = "anthropic" | "openai";
+export type ProviderName = "anthropic" | "openai" | "openai-azure" | "gemini";
+export type CommitteeProvider = ProviderName;
+export type Provider = (prompt: string, model: string) => Promise<RawClaimsJson>;
 
 export interface CommitteeModelSpec {
   readonly provider: CommitteeProvider;
@@ -65,24 +71,17 @@ interface CommitteeVoteRow {
   readonly text: string;
 }
 
-type AnthropicConstructor = new (options?: { readonly apiKey?: string }) => {
-  readonly messages: {
-    create(input: Record<string, unknown>): Promise<unknown>;
-  };
-};
-
-type OpenAiConstructor = new (options?: { readonly apiKey?: string }) => {
-  readonly responses: {
-    create(input: Record<string, unknown>): Promise<unknown>;
-  };
-};
-
 const defaultVotePath = ".kelpclaw/findevil/committee-vote.jsonl";
+const defaultCacheDir = ".kelpclaw/findevil/extractor-cache";
 const defaultQuorumThreshold = 0.75;
-const defaultAnthropicModel = "claude-3-5-sonnet-latest";
-const defaultOpenAiModel = "gpt-4.1-mini";
-const anthropicSdkPackage = "@anthropic-ai/sdk";
-const openAiSdkPackage = "openai";
+const defaultAnthropicModel = "claude-opus-4-7";
+const defaultOpenAiModel = "gpt-5";
+const defaultGeminiModel = "gemini-2.5-pro";
+const defaultCommittee = [
+  { provider: "anthropic", model: defaultAnthropicModel, weight: 1 },
+  { provider: "openai-azure", model: defaultOpenAiModel, weight: 1 },
+  { provider: "gemini", model: defaultGeminiModel, weight: 1 }
+] as const satisfies ReadonlyArray<CommitteeModelSpec>;
 const severityRank: Record<Claim["severity"], number> = {
   informational: 0,
   low: 1,
@@ -97,14 +96,17 @@ export async function extractClaimsCommittee(
   options: ExtractClaimsCommitteeOptions = {}
 ): Promise<ClaimLedger> {
   const activeModels = resolveActiveModels(models, options);
+  if (activeModels.length === 0) {
+    throw noConfiguredProvidersError();
+  }
   const settled = await Promise.all(
-    activeModels.map(async (spec, index): Promise<ModelSuccess | ModelFailure> => {
+    activeModels.map(async (spec): Promise<ModelSuccess | ModelFailure> => {
       try {
         return {
           spec,
           ledger: await extractClaimsSingle(report, {
             apiKey: options.apiKey,
-            cacheDir: modelCacheDir(options.cacheDir, spec, index),
+            cacheDir: modelCacheDir(options.cacheDir, spec),
             maxRetries: options.maxRetries,
             model: spec.model,
             complete: completionForModel(spec, options)
@@ -117,11 +119,6 @@ export async function extractClaimsCommittee(
   );
   const successes = settled.filter((result): result is ModelSuccess => "ledger" in result);
   if (successes.length === 0) {
-    const fallback = await trySingleModelFallback(report, activeModels, options);
-    if (fallback) {
-      await writeJsonl(options.committeeVotePath ?? defaultVotePath, voteRows([fallback]));
-      return fallback.ledger;
-    }
     const firstFailure = settled.find((result): result is ModelFailure => "error" in result);
     throw new Error("committee claim extraction failed for every model.", {
       cause: firstFailure?.error
@@ -135,27 +132,20 @@ export async function extractClaimsCommittee(
   });
 }
 
-async function trySingleModelFallback(
-  report: string,
-  activeModels: readonly CommitteeModelSpec[],
-  options: ExtractClaimsCommitteeOptions
-): Promise<ModelSuccess | undefined> {
-  if (options.committeeComplete || options.complete || activeModels.length < 2) {
-    return undefined;
-  }
-  const spec = fallbackModelFromCredentials() ?? activeModels[0] ?? fallbackModel();
-  try {
-    return {
-      spec,
-      ledger: await extractClaimsSingle(report, {
-        apiKey: options.apiKey,
-        cacheDir: modelCacheDir(options.cacheDir, spec, 0),
-        maxRetries: options.maxRetries,
-        model: spec.model
-      })
-    };
-  } catch {
-    return undefined;
+export function defaultCommitteeModels(): CommitteeModelSpec[] {
+  return defaultCommittee.map((model) => ({ ...model }));
+}
+
+export function providerDispatch(provider: ProviderName): Provider {
+  switch (provider) {
+    case "anthropic":
+      return extractFromAnthropic;
+    case "openai":
+      return extractFromOpenAI;
+    case "openai-azure":
+      return extractFromAzureOpenAI;
+    case "gemini":
+      return extractFromGemini;
   }
 }
 
@@ -171,7 +161,7 @@ function parseCommitteeModel(input: string): CommitteeModelSpec | undefined {
     return undefined;
   }
   const [modelPart, weightPart] = splitWeight(input);
-  const providerMatch = /^(anthropic|openai)[:/](.+)$/iu.exec(modelPart);
+  const providerMatch = /^(anthropic|openai|openai-azure|gemini)[:/](.+)$/iu.exec(modelPart);
   const provider = providerMatch?.[1]
     ? providerFromString(providerMatch[1])
     : inferProvider(modelPart);
@@ -193,7 +183,12 @@ function splitWeight(input: string): readonly [string, string | undefined] {
 
 function providerFromString(input: string): CommitteeProvider {
   const provider = input.toLowerCase();
-  if (provider === "anthropic" || provider === "openai") {
+  if (
+    provider === "anthropic" ||
+    provider === "openai" ||
+    provider === "openai-azure" ||
+    provider === "gemini"
+  ) {
     return provider;
   }
   throw new Error(`Unsupported committee model provider: ${input}`);
@@ -204,6 +199,9 @@ function inferProvider(model: string): CommitteeProvider {
   if (normalized.startsWith("claude")) {
     return "anthropic";
   }
+  if (normalized.startsWith("gemini")) {
+    return "gemini";
+  }
   if (
     normalized.startsWith("gpt") ||
     normalized.startsWith("o1") ||
@@ -211,10 +209,11 @@ function inferProvider(model: string): CommitteeProvider {
     normalized.startsWith("o4") ||
     normalized.startsWith("chatgpt")
   ) {
-    return "openai";
+    return hasAzureOpenAiCredential() && !hasOpenAiCredential() ? "openai-azure" : "openai";
   }
-  if (hasOpenAiCredential() && !hasAnthropicCredential()) {
-    return "openai";
+  const configured = configuredProviderNames();
+  if (configured.length === 1 && configured[0]) {
+    return configured[0];
   }
   return "anthropic";
 }
@@ -229,18 +228,18 @@ function parseWeight(input: string | undefined): number {
 
 function resolveActiveModels(
   models: ReadonlyArray<CommitteeModelSpec>,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey" | "committeeComplete" | "complete">
+  options: Pick<ExtractClaimsCommitteeOptions, "committeeComplete" | "complete">
 ): CommitteeModelSpec[] {
-  const normalized = models.length > 0 ? models.map(normalizeModel) : [fallbackModel()];
+  const normalized = models.length > 0 ? models.map(normalizeModel) : defaultCommitteeModels();
   if (options.committeeComplete || options.complete) {
     return normalized;
   }
-  const available = normalized.filter((model) => hasProviderCredential(model.provider, options));
+  const available = normalized.filter((model) => hasProviderCredential(model.provider));
   if (available.length > 0) {
     return available;
   }
   const credentialFallback = fallbackModelFromCredentials();
-  return credentialFallback ? [credentialFallback] : [normalized[0] ?? fallbackModel()];
+  return credentialFallback ? [credentialFallback] : [];
 }
 
 function normalizeModel(model: CommitteeModelSpec): CommitteeModelSpec {
@@ -252,40 +251,33 @@ function normalizeModel(model: CommitteeModelSpec): CommitteeModelSpec {
 }
 
 function fallbackModelFromCredentials(): CommitteeModelSpec | undefined {
-  if (hasAnthropicCredential()) {
-    return {
-      provider: "anthropic",
-      model: process.env.KELP_FINDEVIL_ANTHROPIC_MODEL ?? defaultAnthropicModel,
-      weight: 1
-    };
-  }
-  if (hasOpenAiCredential()) {
-    return {
-      provider: "openai",
-      model: process.env.KELP_FINDEVIL_OPENAI_MODEL ?? defaultOpenAiModel,
-      weight: 1
-    };
-  }
-  return undefined;
+  const provider = configuredProviderNames()[0];
+  return provider ? defaultModelForProvider(provider) : undefined;
 }
 
-function fallbackModel(): CommitteeModelSpec {
+function defaultModelForProvider(provider: ProviderName): CommitteeModelSpec {
   return {
-    provider: "anthropic",
-    model: process.env.KELP_FINDEVIL_ANTHROPIC_MODEL ?? defaultAnthropicModel,
+    provider,
+    model: provider === "gemini" ? defaultGeminiModel : defaultOpenAiLikeModel(provider),
     weight: 1
   };
 }
 
-function hasProviderCredential(
-  provider: CommitteeProvider,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey">
-): boolean {
-  return options.apiKey !== undefined
-    ? true
-    : provider === "openai"
-      ? hasOpenAiCredential()
-      : hasAnthropicCredential();
+function defaultOpenAiLikeModel(provider: ProviderName): string {
+  return provider === "anthropic" ? defaultAnthropicModel : defaultOpenAiModel;
+}
+
+function hasProviderCredential(provider: CommitteeProvider): boolean {
+  switch (provider) {
+    case "anthropic":
+      return hasAnthropicCredential();
+    case "openai":
+      return hasOpenAiCredential();
+    case "openai-azure":
+      return hasAzureOpenAiCredential();
+    case "gemini":
+      return hasGeminiCredential();
+  }
 }
 
 function hasAnthropicCredential(): boolean {
@@ -293,10 +285,24 @@ function hasAnthropicCredential(): boolean {
 }
 
 function hasOpenAiCredential(): boolean {
+  return stringEnv("OPENAI_API_KEY") !== undefined;
+}
+
+function hasAzureOpenAiCredential(): boolean {
   return (
-    stringEnv("OPENAI_API_KEY") !== undefined ||
-    stringEnv("GPT5_MINI_API_KEY") !== undefined ||
-    stringEnv("GPT5_PRO_API_KEY") !== undefined
+    stringEnv("AZURE_OPENAI_ENDPOINT") !== undefined &&
+    stringEnv("AZURE_OPENAI_API_KEY") !== undefined &&
+    stringEnv("AZURE_OPENAI_DEPLOYMENT") !== undefined
+  );
+}
+
+function hasGeminiCredential(): boolean {
+  return stringEnv("GOOGLE_API_KEY") !== undefined;
+}
+
+function configuredProviderNames(): ProviderName[] {
+  return (["anthropic", "openai-azure", "gemini", "openai"] as const).filter((provider) =>
+    hasProviderCredential(provider)
   );
 }
 
@@ -312,151 +318,7 @@ function completionForModel(
   if (injected) {
     return (attempt) => injected({ model: spec, attempt });
   }
-  return (attempt) => defaultModelCompletion(spec, attempt, options);
-}
-
-async function defaultModelCompletion(
-  spec: CommitteeModelSpec,
-  request: ClaimExtractionAttempt,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey">
-): Promise<unknown> {
-  return spec.provider === "openai"
-    ? openAiCompletion(spec, request, options)
-    : anthropicCompletion(spec, request, options);
-}
-
-async function anthropicCompletion(
-  spec: CommitteeModelSpec,
-  request: ClaimExtractionAttempt,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey">
-): Promise<unknown> {
-  const Anthropic = await loadAnthropicConstructor();
-  const apiKey = apiKeyForProvider(spec.provider, options);
-  const client = new Anthropic(apiKey ? { apiKey } : undefined);
-  return client.messages.create({
-    model: spec.model,
-    max_tokens: 4096,
-    temperature: 0,
-    system: request.systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: request.userPrompt
-      }
-    ],
-    tools: [
-      {
-        name: request.toolName,
-        description: "Emit the extracted KelpClaw Find Evil claim ledger.",
-        input_schema: request.jsonSchema
-      }
-    ],
-    tool_choice: {
-      type: "tool",
-      name: request.toolName
-    }
-  });
-}
-
-async function openAiCompletion(
-  spec: CommitteeModelSpec,
-  request: ClaimExtractionAttempt,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey">
-): Promise<unknown> {
-  const OpenAI = await loadOpenAiConstructor();
-  const apiKey = apiKeyForProvider(spec.provider, options);
-  const client = new OpenAI(apiKey ? { apiKey } : undefined);
-  const response = await client.responses.create({
-    model: spec.model,
-    instructions: request.systemPrompt,
-    input: request.userPrompt,
-    text: {
-      format: {
-        type: "json_schema",
-        name: claimExtractorToolName,
-        strict: true,
-        schema: request.jsonSchema
-      }
-    },
-    store: false,
-    tools: []
-  });
-  return parsedOpenAiOutput(response) ?? outputText(response) ?? response;
-}
-
-async function loadAnthropicConstructor(): Promise<AnthropicConstructor> {
-  const module = (await import(anthropicSdkPackage)) as {
-    readonly default?: unknown;
-    readonly Anthropic?: unknown;
-  };
-  const constructor = module.default ?? module.Anthropic;
-  if (typeof constructor !== "function") {
-    throw new Error("@anthropic-ai/sdk did not expose an Anthropic constructor.");
-  }
-  return constructor as AnthropicConstructor;
-}
-
-async function loadOpenAiConstructor(): Promise<OpenAiConstructor> {
-  const module = (await import(openAiSdkPackage)) as {
-    readonly default?: unknown;
-    readonly OpenAI?: unknown;
-  };
-  const constructor = module.default ?? module.OpenAI;
-  if (typeof constructor !== "function") {
-    throw new Error("openai did not expose an OpenAI constructor.");
-  }
-  return constructor as OpenAiConstructor;
-}
-
-function apiKeyForProvider(
-  provider: CommitteeProvider,
-  options: Pick<ExtractClaimsCommitteeOptions, "apiKey">
-): string | undefined {
-  return options.apiKey ?? providerEnvKey(provider);
-}
-
-function providerEnvKey(provider: CommitteeProvider): string | undefined {
-  return provider === "openai"
-    ? (stringEnv("OPENAI_API_KEY") ??
-        stringEnv("GPT5_MINI_API_KEY") ??
-        stringEnv("GPT5_PRO_API_KEY"))
-    : stringEnv("ANTHROPIC_API_KEY");
-}
-
-function parsedOpenAiOutput(response: unknown): unknown {
-  const items = outputContentItems(recordValue(response).output);
-  for (const item of items) {
-    if ("parsed" in item && item.parsed !== undefined) {
-      return item.parsed;
-    }
-  }
-  return undefined;
-}
-
-function outputText(response: unknown): string | undefined {
-  const direct = recordValue(response).output_text;
-  if (typeof direct === "string" && direct.trim().length > 0) {
-    return direct.trim();
-  }
-  const text = outputContentItems(recordValue(response).output)
-    .map((item) => (typeof item.text === "string" ? item.text : ""))
-    .filter((value) => value.length > 0)
-    .join("\n")
-    .trim();
-  return text.length > 0 ? text : undefined;
-}
-
-function outputContentItems(output: unknown): readonly Record<string, unknown>[] {
-  if (!Array.isArray(output)) {
-    return [];
-  }
-  return output.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      return [];
-    }
-    const content = (item as { readonly content?: unknown }).content;
-    return Array.isArray(content) ? content.filter(isRecord) : [];
-  });
+  return (attempt) => providerDispatch(spec.provider)(attempt.userPrompt, spec.model);
 }
 
 function voteRows(successes: readonly ModelSuccess[]): CommitteeVoteRow[] {
@@ -609,12 +471,9 @@ function uniqueStrings(values: readonly string[]): string[] {
 
 function modelCacheDir(
   cacheDir: string | undefined,
-  spec: CommitteeModelSpec,
-  index: number
-): string | undefined {
-  return cacheDir
-    ? join(cacheDir, "committee", `${index + 1}-${safePathPart(spec.model)}`)
-    : undefined;
+  spec: CommitteeModelSpec
+): string {
+  return join(cacheDir ?? defaultCacheDir, safePathPart(spec.provider), safePathPart(spec.model));
 }
 
 function safePathPart(value: string): string {
@@ -630,12 +489,14 @@ async function writeJsonl(path: string, rows: readonly unknown[]): Promise<void>
   );
 }
 
-function recordValue(input: unknown): Record<string, unknown> {
-  return isRecord(input) ? input : {};
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === "object" && input !== null && !Array.isArray(input);
+function noConfiguredProvidersError(): Error {
+  return new Error(
+    [
+      "No Find Evil extractor providers configured.",
+      "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, or all of",
+      "AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT."
+    ].join(" ")
+  );
 }
 
 function stringEnv(name: string): string | undefined {
