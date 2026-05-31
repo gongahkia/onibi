@@ -34,7 +34,10 @@ describe("verifier rules", () => {
     ).toBe("inferred");
   });
 
-  it("uses default inference for unmapped claim types", () => {
+  it("confirms malware identification with accepted YARA evidence", () => {
+    expect(
+      verifyClaim(claim({ type: "malware_identification", evidenceRefs: [evidence("yara_hit")] }))
+    ).toBe("confirmed");
     expect(
       verifyClaim(claim({ type: "malware_identification", evidenceRefs: [evidence("yara_match")] }))
     ).toBe("inferred");

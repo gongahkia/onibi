@@ -25,6 +25,7 @@ import {
   matchVolatilityPslist,
   parseVolatilityJson
 } from "./memory.js";
+import { matchYaraExecutionContext, matchYaraFamilyHit, parseYaraJson } from "./yara.js";
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
 export {
@@ -48,6 +49,7 @@ export {
   matchVolatilityPslist,
   parseVolatilityJson
 } from "./memory.js";
+export { parseYaraJson, matchYaraExecutionContext, matchYaraFamilyHit } from "./yara.js";
 
 const programExecutionProof = [
   "prefetch_entry",
@@ -68,6 +70,7 @@ const persistenceProof = [
   "system_7045_service_create"
 ] as const;
 const networkProof = ["netflow-or-pcap", "volatility-netscan"] as const;
+const malwareIdentificationProof = ["yara_hit"] as const;
 
 export function linkEvidence(claim: Claim, caseDir: string): Claim {
   const files = listCaseFiles(caseDir);
@@ -82,6 +85,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkVolatilityProgramExecutionEvidence(claim, caseDir, files));
+      additions.push(...linkYaraExecutionContextEvidence(claim, caseDir, files));
       break;
     case "network_connection":
       additions.push(...linkPcapEvidence(claim, caseDir, files));
@@ -100,6 +104,9 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
     case "user_activity":
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
       break;
+    case "malware_identification":
+      additions.push(...linkYaraFamilyHitEvidence(claim, caseDir, files));
+      break;
     default:
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
       additions.push(...linkPrefetchEvidence(claim, caseDir, files));
@@ -111,6 +118,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
       additions.push(...linkVolatilityProgramExecutionEvidence(claim, caseDir, files));
       additions.push(...linkVolatilityNetscanEvidence(claim, caseDir, files));
+      additions.push(...linkYaraFamilyHitEvidence(claim, caseDir, files));
       break;
   }
 
@@ -293,6 +301,30 @@ function linkVolatilityNetscanEvidence(
     );
 }
 
+function linkYaraFamilyHitEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isYaraFile(file))
+    .flatMap((file) =>
+      matchYaraFamilyHit(claim, parseYaraJson(file, relativeArtifact(caseDir, file)))
+    );
+}
+
+function linkYaraExecutionContextEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isYaraFile(file))
+    .flatMap((file) =>
+      matchYaraExecutionContext(claim, parseYaraJson(file, relativeArtifact(caseDir, file)))
+    );
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -378,6 +410,11 @@ function isVolatilityFile(path: string): boolean {
   );
 }
 
+function isYaraFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.includes("yara") && /\.(?:json|jsonl|ndjson|log)$/u.test(lower);
+}
+
 function relativeArtifact(caseDir: string, path: string): string {
   return relative(caseDir, path).split(sep).join("/");
 }
@@ -403,7 +440,9 @@ function missingEvidenceFor(
         ? persistenceProof
         : type === "network_connection"
           ? networkProof
-          : [];
+          : type === "malware_identification"
+            ? malwareIdentificationProof
+            : [];
   if (required.length === 0) {
     return [...new Set(existing)].sort();
   }
