@@ -8,6 +8,7 @@ const directPersistenceEvidence = new Set([
   "security_4702_scheduled_task",
   "system_7045_service_create"
 ]);
+const corroboratingOnlyPersistenceEvidence = new Set(["mft-file-create"]);
 
 export function verifyPersistenceClaim(claim: Claim): ClaimStatus {
   const supports = claim.evidenceRefs.map((ref) => ref.supports.toLowerCase());
@@ -16,6 +17,9 @@ export function verifyPersistenceClaim(claim: Claim): ClaimStatus {
   }
   if (supports.some((support) => directPersistenceEvidence.has(support))) {
     return "confirmed";
+  }
+  if (supports.some((support) => corroboratingOnlyPersistenceEvidence.has(support))) {
+    return "inferred";
   }
   if (supports.length > 0) {
     return "inferred";

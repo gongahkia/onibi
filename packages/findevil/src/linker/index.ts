@@ -8,6 +8,7 @@ import {
   matchEventLogServiceInstall,
   parseEvtxJson
 } from "./eventlog.js";
+import { matchMftFileCreate, matchMftFileDelete, matchMftFileModify, parseMftJson } from "./mft.js";
 import { matchPcapNetworkConnection, parseFlowSummaryJson } from "./pcap.js";
 import { matchByExecutable, parsePrefetchOutput, prefetchEntryToEvidenceRef } from "./prefetch.js";
 import {
@@ -36,6 +37,7 @@ export {
   parseEvtxJson
 } from "./eventlog.js";
 export { hashEvidenceRow } from "./hashing.js";
+export { parseMftJson, matchMftFileCreate, matchMftFileModify, matchMftFileDelete } from "./mft.js";
 export { parseFlowSummaryJson, matchPcapNetworkConnection } from "./pcap.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
 export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
@@ -121,6 +123,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkYaraFamilyHitEvidence(claim, caseDir, files));
       break;
   }
+  additions.push(...linkMftEvidence(claim, caseDir, files));
 
   const evidenceRefs = dedupeEvidenceRefs([...claim.evidenceRefs, ...additions]);
   return claimSchema.parse({
@@ -266,6 +269,19 @@ function linkEventLogPersistenceEvidence(
     });
 }
 
+function linkMftEvidence(claim: Claim, caseDir: string, files: readonly string[]): EvidenceRef[] {
+  return files
+    .filter((file) => isMftFile(file))
+    .flatMap((file) => {
+      const records = parseMftJson(file, relativeArtifact(caseDir, file));
+      return [
+        ...(shouldLinkMftCreate(claim) ? matchMftFileCreate(claim, records) : []),
+        ...(shouldLinkMftModify(claim) ? matchMftFileModify(claim, records) : []),
+        ...(shouldLinkMftDelete(claim) ? matchMftFileDelete(claim, records) : [])
+      ];
+    });
+}
+
 function linkVolatilityProgramExecutionEvidence(
   claim: Claim,
   caseDir: string,
@@ -400,6 +416,32 @@ function isEventLogFile(path: string): boolean {
     /\.(?:json|jsonl|ndjson)$/u.test(lower) &&
     /(?:evtx|event[-_ ]?log|security|system|hayabusa|chainsaw|winevent)/u.test(lower)
   );
+}
+
+function isMftFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return /\.(?:json|jsonl|ndjson)$/u.test(lower) && /(?:^|[/\\])(?:\$?mft|mftecmd)/u.test(lower);
+}
+
+function shouldLinkMftCreate(claim: Claim): boolean {
+  return (
+    claim.type === "program_execution" ||
+    claim.type === "persistence" ||
+    claim.type === "file_presence" ||
+    /\b(?:creat(?:e|ed|ion)|dropped|downloaded|written|present|exists|appeared)\b/iu.test(
+      claim.text
+    )
+  );
+}
+
+function shouldLinkMftModify(claim: Claim): boolean {
+  return /\b(?:modif(?:y|ied|ication)|tamper(?:ed|ing)?|updated|overwrote|changed)\b/iu.test(
+    claim.text
+  );
+}
+
+function shouldLinkMftDelete(claim: Claim): boolean {
+  return /\b(?:delet(?:e|ed|ion)|removed|unlinked)\b/iu.test(claim.text);
 }
 
 function isVolatilityFile(path: string): boolean {
