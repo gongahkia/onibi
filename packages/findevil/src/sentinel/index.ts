@@ -8,6 +8,7 @@ import { extractClaims } from "../extractor/index.js";
 import { classifyToolCall, firewallEventFromDecision } from "../firewall/index.js";
 import { linkEvidence } from "../linker/index.js";
 import { runRepairLoop, type RepairAgentRunner, type RepairTraceRow } from "../repair/index.js";
+import { requestTimestampResponse } from "../evidence/tsa.js";
 import { hashEvidenceTree, spoliationCheck } from "../spoliation/index.js";
 import {
   claimLedgerSchema,
@@ -89,6 +90,7 @@ interface AuditKeyFile {
 export type SentinelOutputPathsWithCommittee = SentinelOutputPaths & {
   readonly attackNavigatorLayer: string;
   readonly committeeVotes: string;
+  readonly evidenceManifestTimestampToken: string;
 };
 
 export type SentinelResultWithCommittee = Omit<SentinelResult, "outputs"> & {
@@ -105,6 +107,7 @@ const outputNames = {
   firewallEvents: "firewall-events.jsonl",
   spoliationCheck: "spoliation-check.json",
   evidenceManifest: "evidence-manifest.json",
+  evidenceManifestTimestampToken: "evidence-manifest.tsr",
   accuracyReport: "accuracy-report.md",
   benchmarkReport: "benchmark-report.json",
   auditBundle: "audit-bundle"
@@ -112,6 +115,7 @@ const outputNames = {
 
 const defaultSiftMaxRuntimeSeconds = 900;
 const deterministicTimestamp = "1970-01-01T00:00:00.000Z";
+const defaultTsaUrl = "https://freetsa.org/tsr";
 
 const directProgramExecutionEvidence = [
   "prefetch_entry",
@@ -231,6 +235,10 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
     outputs.evidenceManifest,
     evidenceManifest(caseMetadata, options, beforeHashes),
     options.deterministic
+  );
+  await writeEvidenceManifestTimestampToken(
+    outputs.evidenceManifest,
+    outputs.evidenceManifestTimestampToken
   );
 
   const uncorrectedPolicyDenials = 0;
@@ -390,6 +398,11 @@ function outputPaths(outDir: string): SentinelOutputPathsWithCommittee {
     firewallEvents: join(outDir, outputNames.firewallEvents),
     spoliationCheck: join(outDir, outputNames.spoliationCheck),
     evidenceManifest: join(outDir, outputNames.evidenceManifest),
+    evidenceManifestTimestampToken: join(
+      outDir,
+      outputNames.auditBundle,
+      outputNames.evidenceManifestTimestampToken
+    ),
     accuracyReport: join(outDir, outputNames.accuracyReport),
     auditBundle: join(outDir, outputNames.auditBundle)
   };
@@ -644,8 +657,11 @@ async function writeAuditBundle(input: {
   await mkdir(bundleDir, { recursive: true });
   const sentinelFiles = await copySentinelArtifacts(input.outDir, bundleDir);
   const evidencePreviewFiles = await copyEvidencePreviewArtifacts(input.evidenceRoot, bundleDir);
-  const copied = [...sentinelFiles, ...evidencePreviewFiles].sort((left, right) =>
-    left.localeCompare(right)
+  const bundleResidentFiles = await existingBundleFiles(bundleDir, [
+    outputNames.evidenceManifestTimestampToken
+  ]);
+  const copied = [...sentinelFiles, ...evidencePreviewFiles, ...bundleResidentFiles].sort(
+    (left, right) => left.localeCompare(right)
   );
   await writeJson(
     join(bundleDir, "result.json"),
@@ -746,6 +762,22 @@ async function copySentinelArtifacts(outDir: string, bundleDir: string): Promise
     }
   }
   return copied;
+}
+
+async function existingBundleFiles(bundleDir: string, files: readonly string[]): Promise<string[]> {
+  const existing: string[] = [];
+  for (const file of files) {
+    try {
+      if ((await stat(join(bundleDir, file))).isFile()) {
+        existing.push(file);
+      }
+    } catch (error) {
+      if (!isNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+  return existing;
 }
 
 async function copyEvidencePreviewArtifacts(
@@ -1029,6 +1061,18 @@ async function sha256File(path: string): Promise<string> {
   return createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
+}
+
+async function writeEvidenceManifestTimestampToken(
+  evidenceManifestPath: string,
+  tokenPath: string
+): Promise<void> {
+  const token = await requestTimestampResponse(
+    await sha256File(evidenceManifestPath),
+    defaultTsaUrl
+  );
+  await mkdir(dirname(tokenPath), { recursive: true });
+  await writeFile(tokenPath, token);
 }
 
 function emptyLedger(runId: string, generatedAt = new Date().toISOString()): ClaimLedger {

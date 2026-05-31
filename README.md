@@ -70,6 +70,16 @@ Expected high-level result:
 
 Drag `.kelpclaw/findevil/sentinel/attack-navigator-layer.json` into https://mitre-attack.github.io/attack-navigator/ to see the technique coverage map.
 
+## Verifying the timestamp token
+
+```console
+$ openssl ts -verify -in audit-bundle/evidence-manifest.tsr \
+                          -content audit-bundle/evidence-manifest.json \
+                          -CAfile freetsa-cacert.pem
+```
+
+Judges need FreeTSA's CA certificate from https://freetsa.org/files/.
+
 ## Developer setup
 
 Use this path when building from source instead of running the published container.
