@@ -1,0 +1,6 @@
+# Third-party licenses
+
+| Component      | Use in this repository                                                                                    | Upstream                                          | License note                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Hayabusa rules | Rule-selection and Windows Event Log Sigma coverage reference. No upstream rule file is vendored.         | https://github.com/Yamato-Security/hayabusa-rules | Hayabusa upstream states its rules are released under Detection Rule License (DRL) 1.1.                                                  |
+| Tigma          | Sigma parsing/scanning design reference for the local deterministic matcher. No Tigma source is vendored. | https://github.com/binalyze/tigma                 | The current upstream repository and package metadata report GPL-3.0-only. The requested MIT license could not be verified from upstream. |

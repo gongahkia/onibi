@@ -26,6 +26,38 @@ export const claimStatuses = [
 export const claimSeveritySchema = z.enum(["informational", "low", "medium", "high", "critical"]);
 export const claimTypeSchema = z.enum(claimTypes);
 export const claimStatusSchema = z.enum(claimStatuses);
+export const evidenceSupportTypes = [
+  "amcache_execution_record",
+  "contradicts_installation",
+  "file_present",
+  "mft-file-create",
+  "mft-file-delete",
+  "mft-file-modify",
+  "netflow-or-pcap",
+  "pcap_flow_summary",
+  "prefetch_entry",
+  "registry-run-key",
+  "registry-service",
+  "scheduled-task",
+  "security_4624_logon",
+  "security_4625_logon",
+  "security_4688_process_create",
+  "security_4698_scheduled_task",
+  "security_4702_scheduled_task",
+  "service-create",
+  "shimcache_indicator",
+  "sigma_rule_match",
+  "srum_network_activity",
+  "sysmon_network_connect",
+  "sysmon_process_create",
+  "system_7045_service_create",
+  "volatility-cmdline",
+  "volatility-malfind",
+  "volatility-netscan",
+  "volatility-pslist",
+  "yara_hit"
+] as const;
+export const evidenceSupportSchema = z.enum(evidenceSupportTypes).or(z.string().min(1));
 
 export const attackTechniqueSchema = z.object({
   id: z.string().regex(/^T\d{4}(\.\d{3})?$/),
@@ -36,7 +68,7 @@ export const attackTechniqueSchema = z.object({
 export const evidenceRefSchema = z.object({
   artifact: z.string().min(1),
   locator: z.string().min(1),
-  supports: z.string().min(1),
+  supports: evidenceSupportSchema,
   hash: z.string().regex(/^sha256:[a-f0-9]{64}$/)
 });
 

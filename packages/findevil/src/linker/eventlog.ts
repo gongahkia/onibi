@@ -1,4 +1,10 @@
 import { readFileSync } from "node:fs";
+import {
+  loadCuratedRuleset,
+  matchEventLogAgainstSigma,
+  sigmaMatchesAsEvidence,
+  type SigmaRule
+} from "../sigma/index.js";
 import type { Claim, EvidenceRef } from "../types/claim.js";
 import { hashEvidenceRow } from "./hashing.js";
 
@@ -43,6 +49,7 @@ const genericClaimWords = new Set([
   "users",
   "windows"
 ]);
+let curatedSigmaRules: SigmaRule[] | undefined;
 
 export function parseEvtxJson(file: string, artifact = file): EventLogRecord[] {
   const input = readFileSync(file, "utf8");
@@ -55,53 +62,69 @@ export function matchEventLogProcessCreate(
   claim: Pick<Claim, "text">,
   records: readonly EventLogRecord[]
 ): EvidenceRef[] {
-  return records
-    .filter((record) => record.eventId === 4688 && isChannel(record, "Security"))
-    .filter((record) => recordMatchesClaim(claim.text, record))
-    .map((record) => eventLogRecordToEvidenceRef(record, "security_4688_process_create"));
+  return withRequestedSigmaEvidence(
+    claim,
+    records,
+    records
+      .filter((record) => record.eventId === 4688 && isChannel(record, "Security"))
+      .filter((record) => recordMatchesClaim(claim.text, record))
+      .map((record) => eventLogRecordToEvidenceRef(record, "security_4688_process_create"))
+  );
 }
 
 export function matchEventLogLogon(
   claim: Pick<Claim, "text">,
   records: readonly EventLogRecord[]
 ): EvidenceRef[] {
-  return records
-    .filter(
-      (record) =>
-        (record.eventId === 4624 || record.eventId === 4625) && isChannel(record, "Security")
-    )
-    .filter((record) => recordMatchesClaim(claim.text, record))
-    .map((record) => eventLogRecordToEvidenceRef(record, logonSupport(record)));
+  return withRequestedSigmaEvidence(
+    claim,
+    records,
+    records
+      .filter(
+        (record) =>
+          (record.eventId === 4624 || record.eventId === 4625) && isChannel(record, "Security")
+      )
+      .filter((record) => recordMatchesClaim(claim.text, record))
+      .map((record) => eventLogRecordToEvidenceRef(record, logonSupport(record)))
+  );
 }
 
 export function matchEventLogServiceInstall(
   claim: Pick<Claim, "text">,
   records: readonly EventLogRecord[]
 ): EvidenceRef[] {
-  return records
-    .filter((record) => record.eventId === 7045 && isChannel(record, "System"))
-    .filter((record) => recordMatchesClaim(claim.text, record))
-    .map((record) =>
-      eventLogRecordToEvidenceRef(record, persistenceEventEvidence.get(7045) ?? "service-create")
-    );
+  return withRequestedSigmaEvidence(
+    claim,
+    records,
+    records
+      .filter((record) => record.eventId === 7045 && isChannel(record, "System"))
+      .filter((record) => recordMatchesClaim(claim.text, record))
+      .map((record) =>
+        eventLogRecordToEvidenceRef(record, persistenceEventEvidence.get(7045) ?? "service-create")
+      )
+  );
 }
 
 export function matchEventLogScheduledTask(
   claim: Pick<Claim, "text">,
   records: readonly EventLogRecord[]
 ): EvidenceRef[] {
-  return records
-    .filter(
-      (record) =>
-        (record.eventId === 4698 || record.eventId === 4702) && isChannel(record, "Security")
-    )
-    .filter((record) => recordMatchesClaim(claim.text, record))
-    .map((record) =>
-      eventLogRecordToEvidenceRef(
-        record,
-        persistenceEventEvidence.get(record.eventId) ?? "scheduled-task"
+  return withRequestedSigmaEvidence(
+    claim,
+    records,
+    records
+      .filter(
+        (record) =>
+          (record.eventId === 4698 || record.eventId === 4702) && isChannel(record, "Security")
       )
-    );
+      .filter((record) => recordMatchesClaim(claim.text, record))
+      .map((record) =>
+        eventLogRecordToEvidenceRef(
+          record,
+          persistenceEventEvidence.get(record.eventId) ?? "scheduled-task"
+        )
+      )
+  );
 }
 
 function parseJsonRecords(input: string): unknown[] {
@@ -286,6 +309,26 @@ function eventLogRecordToEvidenceRef(record: EventLogRecord, supports: string): 
       raw: record.raw
     })
   };
+}
+
+function withRequestedSigmaEvidence(
+  claim: Pick<Claim, "text">,
+  records: readonly EventLogRecord[],
+  refs: EvidenceRef[]
+): EvidenceRef[] {
+  if (!claimRequestsSigmaEvidence(claim)) {
+    return refs;
+  }
+  curatedSigmaRules ??= loadCuratedRuleset();
+  return [
+    ...refs,
+    ...sigmaMatchesAsEvidence(matchEventLogAgainstSigma(records, curatedSigmaRules))
+  ];
+}
+
+function claimRequestsSigmaEvidence(claim: Pick<Claim, "text">): boolean {
+  const missingEvidence = (claim as { readonly missingEvidence?: unknown }).missingEvidence;
+  return Array.isArray(missingEvidence) && missingEvidence.includes("sigma_rule_match");
 }
 
 function logonSupport(record: EventLogRecord): string {
