@@ -164,6 +164,42 @@ describe("TerminalView", () => {
     expect(output).toBe("hello world");
   });
 
+  test("flushes live pty output when replay stalls", async () => {
+    let emitPty: ((payload: unknown) => void) | undefined;
+    const stalledReplay = new Promise<{
+      data: string;
+      startOffset: number;
+      endOffset: number;
+    }>(() => undefined);
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(
+      async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
+        emitPty = (payload) => callback({ payload });
+        return globalThis.__TAURI_MOCKS__.unlisten;
+      },
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return stalledReplay;
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(emitPty).toBeDefined());
+    emitPty?.({ type: "data", data: "aGk=", offset: 0 });
+
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(term.write).toHaveBeenCalled());
+    const bytes = term.write.mock.calls[0][0] as Uint8Array;
+    expect(new TextDecoder().decode(bytes)).toBe("hi");
+  });
+
   test("reports unavailable ptys when replay attach fails", async () => {
     const onUnavailable = vi.fn();
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(

@@ -87,6 +87,8 @@ const TERMINAL_STANDARD_FONT_KEYS = new Set(
   TERMINAL_STANDARD_FONT_FALLBACKS.map((family) => fontFamilyKey(family)),
 );
 
+const PTY_REPLAY_FLUSH_DELAY_MS = 300;
+
 function quoteFontFamily(family: string): string {
   if (/^["'].*["']$/.test(family)) {
     return family;
@@ -579,8 +581,22 @@ export function TerminalView({
     let disposed = false;
     let unlisten: (() => void) | undefined;
     let replayReady = false;
+    let replayCompleted = false;
     let replayEndOffset = 0;
+    let replayFallbackTimer: number | undefined;
+    let liveDataBeforeReplay = false;
     const queuedEvents: PtyWireEvent[] = [];
+    const clearReplayFallbackTimer = () => {
+      if (replayFallbackTimer !== undefined) {
+        window.clearTimeout(replayFallbackTimer);
+        replayFallbackTimer = undefined;
+      }
+    };
+    const markQueuedDataAsLive = () => {
+      if (queuedEvents.some((event) => event.type === "data")) {
+        liveDataBeforeReplay = true;
+      }
+    };
     const writePtyBytes = (bytes: Uint8Array) => {
       const text = textDecoderRef.current.decode(bytes, { stream: true });
       applyOutputMetadata(text);
@@ -635,6 +651,9 @@ export function TerminalView({
         queuedEvents.push(event);
         return;
       }
+      if (!replayCompleted && event.type === "data") {
+        liveDataBeforeReplay = true;
+      }
       handlePtyEvent(event);
     })
       .then((dispose) => {
@@ -644,25 +663,42 @@ export function TerminalView({
         } else {
           unlisten = dispose;
         }
+        replayFallbackTimer = window.setTimeout(() => {
+          if (disposed || replayCompleted || replayReady) {
+            return;
+          }
+          replayReady = true;
+          markQueuedDataAsLive();
+          flushQueuedEvents();
+        }, PTY_REPLAY_FLUSH_DELAY_MS);
         return ptyReplay(ptyId);
       })
       .then((replay) => {
         if (disposed) {
           return;
         }
+        replayCompleted = true;
+        clearReplayFallbackTimer();
         if (replay) {
           replayEndOffset = replay.endOffset;
-          writePtyData(replay.data);
+          if (!liveDataBeforeReplay) {
+            writePtyData(replay.data);
+          }
         }
         replayReady = true;
         flushQueuedEvents();
       })
       .catch((error) => {
         if (!disposed) {
+          replayCompleted = true;
+          clearReplayFallbackTimer();
+          markQueuedDataAsLive();
           replayReady = true;
           flushQueuedEvents();
           console.warn("failed to attach pty output", error);
-          onUnavailable?.(error);
+          if (!liveDataBeforeReplay) {
+            onUnavailable?.(error);
+          }
         }
       });
 
@@ -676,6 +712,7 @@ export function TerminalView({
 
     return () => {
       disposed = true;
+      clearReplayFallbackTimer();
       cancelScheduledLayout();
       cancelAnimationFrame(frame);
       unlisten?.();
