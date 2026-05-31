@@ -76,6 +76,8 @@ Expected high-level result:
 - The spoliation check shows `ok: true` with 13 files before, 13 files after, and zero changed, added, or removed files.
 - The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.
 
+Drag `.kelpclaw/findevil/sentinel/attack-navigator-layer.json` into https://mitre-attack.github.io/attack-navigator/ to see the technique coverage map.
+
 ## Configuration
 
 ### Multi-vendor committee

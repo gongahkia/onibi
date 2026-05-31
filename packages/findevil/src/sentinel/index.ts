@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { normalizeClaudeCodeHook } from "@kelpclaw/agent-hooks";
 import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/workflow-spec";
+import { buildNavigatorLayer, writeNavigatorLayer } from "../attack/navigator-layer.js";
 import { extractClaims } from "../extractor/index.js";
 import { classifyToolCall, firewallEventFromDecision } from "../firewall/index.js";
 import { linkEvidence } from "../linker/index.js";
@@ -79,6 +80,7 @@ interface AuditKeyFile {
 }
 
 export type SentinelOutputPathsWithCommittee = SentinelOutputPaths & {
+  readonly attackNavigatorLayer: string;
   readonly committeeVotes: string;
 };
 
@@ -89,6 +91,7 @@ export type SentinelResultWithCommittee = Omit<SentinelResult, "outputs"> & {
 const outputNames = {
   agentExecution: "agent-execution.jsonl",
   claimLedger: "claim-ledger.json",
+  attackNavigatorLayer: "attack-navigator-layer.json",
   committeeVotes: "committee-vote.jsonl",
   repairTrace: "repair-trace.jsonl",
   taintLedger: "taint-ledger.jsonl",
@@ -178,6 +181,10 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
       "utf8"
     );
   }
+  await writeNavigatorLayer(
+    outputs.attackNavigatorLayer,
+    buildNavigatorLayer(repairedLedger ?? emptyLedger(runId))
+  );
 
   let check: SpoliationCheck | undefined;
   if (options.spoliationEnabled) {
@@ -332,6 +339,7 @@ function outputPaths(outDir: string): SentinelOutputPathsWithCommittee {
   return {
     agentExecution: join(outDir, outputNames.agentExecution),
     claimLedger: join(outDir, outputNames.claimLedger),
+    attackNavigatorLayer: join(outDir, outputNames.attackNavigatorLayer),
     committeeVotes: join(outDir, outputNames.committeeVotes),
     repairTrace: join(outDir, outputNames.repairTrace),
     taintLedger: join(outDir, outputNames.taintLedger),
