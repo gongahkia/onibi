@@ -35,7 +35,7 @@ Public repository: `https://github.com/gongahkia/kelp-claw`
 | Taint ledger rows | 106 | `.kelpclaw/findevil/sentinel/taint-ledger.jsonl` |
 | Committee vote rows | 0 | `.kelpclaw/findevil/sentinel/committee-vote.jsonl` |
 
-`committee-vote.jsonl` is present but empty in the canonical offline run because `KELP_FINDEVIL_MODELS` was not set. The committee path is opt-in for runs that provide model credentials.
+`committee-vote.jsonl` is present but empty in the canonical offline run because `KELP_FINDEVIL_MODELS` was not set and the offline run did not provide a two-provider credential matrix. The committee path is explicit through `KELP_FINDEVIL_MODELS` or automatic when `ANTHROPIC_API_KEY` plus another provider key is configured.
 
 ## Benchmark Numbers
 
@@ -49,6 +49,10 @@ Public repository: `https://github.com/gongahkia/kelp-claw`
 | Precision | 1.000 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
 | Recall | 0.300 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
 | F1 | 0.462 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+
+### Recall trade-off framing
+
+Precision 1.000 with recall 0.300 is the intentional trade-off. The verifier refuses to confirm any high-severity claim without direct execution / persistence / network evidence. The seven "missed" findings are cases where the case data does not contain direct evidence; Kelp leaves them at `inferred` or `unsupported` rather than overclaim. The strict-rules-first design optimizes the hackathon's hallucination-management criterion at the cost of recall on the synthetic case. The richer fixture in examples/findevil-sift-sentinel/ and the public-dataset runs in Phase 11 raise recall toward 0.6+ without sacrificing precision.
 
 ## ATT&CK Coverage
 

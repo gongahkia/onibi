@@ -171,3 +171,46 @@ sed -n '1,50p' /tmp/kelpclaw-findevil-sift-live/agent-execution.jsonl
 ```
 
 Paste the full sentinel JSON output from the `kelp-claw findevil sentinel` command and the first 50 lines of `agent-execution.jsonl` here after the VM run.
+
+## Captured live transcript
+
+No SIFT Workstation VM is attached to this workspace, so this is not a live VM transcript.
+
+Offline trace mode captured 2026-05-31. Live `--sift-command` integration was tested manually but no full transcript is captured for the canonical bundle. See limitations in the accuracy report.
+
+Canonical offline trace transcript:
+
+```console
+$ ./node_modules/.bin/kelp-claw findevil sentinel \
+  --case examples/findevil-sift-sentinel/case.yml \
+  --evidence-root examples/findevil-sift-sentinel/case-data \
+  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
+  --max-iterations 3 \
+  --out .kelpclaw/findevil/sentinel
+$ cat .kelpclaw/findevil/sentinel/audit-bundle/result.json
+{
+  "ok": true,
+  "runId": "findevil-sift-sentinel-demo-001-mpt33q3b",
+  "status": "succeeded",
+  "mode": "sentinel",
+  "policyDenials": 1,
+  "uncorrectedPolicyDenials": 0
+}
+$ sed -n '1,12p' .kelpclaw/findevil/sentinel/accuracy-report.md
+# KelpClaw Find Evil Accuracy Report
+
+## Summary
+
+- Baseline claims: 10
+- Repaired claims: 10
+- Repair prompts: 11
+- Repair results: 11
+- Successful status changes: 5
+- Firewall blocks: 1
+$ sed -n '1,5p' .kelpclaw/findevil/sentinel/agent-execution.jsonl
+{"sourceAgent":"claude-code","sessionId":"protocol-sift-baseline-demo-002","hookEvent":"Notification","toolName":"ProtocolSIFT","args":{"traceEvent":{"event":"run_started","timestamp":"2026-05-30T00:00:00.000Z","runId":"protocol-sift-baseline-demo-002","case":"examples/findevil-sift-sentinel/case.yml","agent":"Protocol SIFT synthetic baseline"}},"status":"succeeded","startedAt":"2026-05-31T01:11:40.384Z","rawEvent":{"event":"run_started","timestamp":"2026-05-30T00:00:00.000Z","runId":"protocol-sift-baseline-demo-002","case":"examples/findevil-sift-sentinel/case.yml","agent":"Protocol SIFT synthetic baseline"}}
+{"sourceAgent":"claude-code","sessionId":"protocol-sift-baseline-demo-002","hookEvent":"PreToolUse","toolName":"filesystem.read_file","toolUseId":"call-001","args":{"path":"examples/findevil-sift-sentinel/case-data/timeline.csv","purpose":"Load Plaso-style timeline rows for suspicious execution, persistence, network, and malware triage."},"status":"pending","startedAt":"2026-05-31T01:11:40.384Z","rawEvent":{"event":"tool_call","timestamp":"2026-05-30T00:00:02.000Z","runId":"protocol-sift-baseline-demo-002","callId":"call-001","tool":"filesystem.read_file","arguments":{"path":"examples/findevil-sift-sentinel/case-data/timeline.csv","purpose":"Load Plaso-style timeline rows for suspicious execution, persistence, network, and malware triage."}}}
+{"sourceAgent":"claude-code","sessionId":"protocol-sift-baseline-demo-002","hookEvent":"PostToolUse","toolName":"filesystem.read_file","toolUseId":"call-001","args":{"callId":"call-001"},"result":{"event":"tool_result","timestamp":"2026-05-30T00:00:02.400Z","runId":"protocol-sift-baseline-demo-002","callId":"call-001","status":"ok","summary":"Read timeline.csv and observed rows 1848-1856 for PowerShell execution, invoice_viewer file presence, Run-key persistence, TaskCache reference, PCAP flow, DNS lookup, credential access indicator, and YARA hit."},"status":"succeeded","startedAt":"2026-05-31T01:11:40.399Z","finishedAt":"2026-05-31T01:11:40.399Z","rawEvent":{"event":"tool_result","timestamp":"2026-05-30T00:00:02.400Z","runId":"protocol-sift-baseline-demo-002","callId":"call-001","status":"ok","summary":"Read timeline.csv and observed rows 1848-1856 for PowerShell execution, invoice_viewer file presence, Run-key persistence, TaskCache reference, PCAP flow, DNS lookup, credential access indicator, and YARA hit."}}
+{"sourceAgent":"claude-code","sessionId":"protocol-sift-baseline-demo-002","hookEvent":"PreToolUse","toolName":"filesystem.read_file","toolUseId":"call-002","args":{"path":"examples/findevil-sift-sentinel/case-data/prefetch/POWERSHELL.EXE-A9B4C2D1.json","purpose":"Inspect parsed Prefetch evidence for PowerShell execution."},"status":"pending","startedAt":"2026-05-31T01:11:40.399Z","rawEvent":{"event":"tool_call","timestamp":"2026-05-30T00:00:03.000Z","runId":"protocol-sift-baseline-demo-002","callId":"call-002","tool":"filesystem.read_file","arguments":{"path":"examples/findevil-sift-sentinel/case-data/prefetch/POWERSHELL.EXE-A9B4C2D1.json","purpose":"Inspect parsed Prefetch evidence for PowerShell execution."}}}
+{"sourceAgent":"claude-code","sessionId":"protocol-sift-baseline-demo-002","hookEvent":"PostToolUse","toolName":"filesystem.read_file","toolUseId":"call-002","args":{"callId":"call-002"},"result":{"event":"tool_result","timestamp":"2026-05-30T00:00:03.250Z","runId":"protocol-sift-baseline-demo-002","callId":"call-002","status":"ok","summary":"Prefetch summary shows POWERSHELL.EXE runCount=1 lastRun=2026-02-18T09:36:05Z."},"status":"succeeded","startedAt":"2026-05-31T01:11:40.401Z","finishedAt":"2026-05-31T01:11:40.401Z","rawEvent":{"event":"tool_result","timestamp":"2026-05-30T00:00:03.250Z","runId":"protocol-sift-baseline-demo-002","callId":"call-002","status":"ok","summary":"Prefetch summary shows POWERSHELL.EXE runCount=1 lastRun=2026-02-18T09:36:05Z."}}
+```
