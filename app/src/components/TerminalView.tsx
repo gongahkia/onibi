@@ -55,6 +55,7 @@ export interface TerminalViewProps {
   onOpenLink?: (url: string, event: MouseEvent) => void;
   onShellUpdate?: (update: TerminalShellUpdate) => void;
   onTrigger?: (match: TerminalTriggerMatch) => void;
+  onUnavailable?: (error: unknown) => void;
 }
 
 const TERMINAL_SYMBOL_FONT_FALLBACKS = [
@@ -263,6 +264,7 @@ export function TerminalView({
   onOpenLink,
   onShellUpdate,
   onTrigger,
+  onUnavailable,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -660,6 +662,7 @@ export function TerminalView({
           replayReady = true;
           flushQueuedEvents();
           console.warn("failed to attach pty output", error);
+          onUnavailable?.(error);
         }
       });
 
@@ -690,7 +693,7 @@ export function TerminalView({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [handleTerminalLink, onExit, openSearch, ptyId, triggerMatchers]);
+  }, [handleTerminalLink, onExit, onUnavailable, openSearch, ptyId, triggerMatchers]);
 
   useEffect(() => {
     if (visible) {
