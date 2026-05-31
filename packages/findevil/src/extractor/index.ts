@@ -56,12 +56,21 @@ type AnthropicConstructor = new (options?: { readonly apiKey?: string }) => Anth
 const anthropicSdkPackage = "@anthropic-ai/sdk";
 const defaultCacheDir = ".kelpclaw/findevil/extractor-cache";
 const defaultModel = "claude-3-5-sonnet-latest";
+const defaultOpenAiCommitteeModel = "gpt-4.1-mini";
+
+/*
+default extraction routing matrix:
+- KELP_FINDEVIL_MODELS set: use the committee path with the explicit model list.
+- KELP_FINDEVIL_MODELS unset + ANTHROPIC_API_KEY and any of OPENAI_API_KEY,
+  AZURE_OPENAI_API_KEY, or GOOGLE_API_KEY set: use the default committee path.
+- KELP_FINDEVIL_MODELS unset + zero or one provider configured: use the single-model path.
+*/
 
 export async function extractClaims(
   report: string | JsonValue,
   options: ExtractClaimsOptions = {}
 ): Promise<ClaimLedger> {
-  const committeeModelEnv = process.env.KELP_FINDEVIL_MODELS?.trim();
+  const committeeModelEnv = resolveCommitteeModelEnv();
   if (committeeModelEnv) {
     const { extractClaimsCommittee, parseCommitteeModels } = await import("./committee.js");
     return extractClaimsCommittee(
@@ -71,6 +80,29 @@ export async function extractClaims(
     );
   }
   return extractClaimsSingle(report, options);
+}
+
+function resolveCommitteeModelEnv(): string | undefined {
+  const explicitModels = stringEnv("KELP_FINDEVIL_MODELS");
+  if (explicitModels) {
+    return explicitModels;
+  }
+  return shouldUseDefaultCommittee() ? defaultCommitteeModels() : undefined;
+}
+
+function shouldUseDefaultCommittee(): boolean {
+  return (
+    stringEnv("ANTHROPIC_API_KEY") !== undefined &&
+    (stringEnv("OPENAI_API_KEY") !== undefined ||
+      stringEnv("AZURE_OPENAI_API_KEY") !== undefined ||
+      stringEnv("GOOGLE_API_KEY") !== undefined)
+  );
+}
+
+function defaultCommitteeModels(): string {
+  const anthropicModel = stringEnv("KELP_FINDEVIL_ANTHROPIC_MODEL") ?? defaultModel;
+  const openAiModel = stringEnv("KELP_FINDEVIL_OPENAI_MODEL") ?? defaultOpenAiCommitteeModel;
+  return `anthropic:${anthropicModel},openai:${openAiModel}`;
 }
 
 export async function extractClaimsSingle(
@@ -277,4 +309,9 @@ function isClaimType(input: string): input is Claim["type"] {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function stringEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }

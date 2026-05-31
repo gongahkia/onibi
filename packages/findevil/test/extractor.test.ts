@@ -57,6 +57,13 @@ describe("extractClaims", () => {
       {
         "claims": [
           {
+            "attackTechniques": [
+              {
+                "id": "T1059",
+                "name": "Command and Scripting Interpreter",
+                "tactic": "execution",
+              },
+            ],
             "confidence": 0.41,
             "evidenceRefs": [],
             "id": "claim-0001",
