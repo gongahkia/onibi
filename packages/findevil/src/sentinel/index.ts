@@ -99,6 +99,7 @@ const outputNames = {
   spoliationCheck: "spoliation-check.json",
   evidenceManifest: "evidence-manifest.json",
   accuracyReport: "accuracy-report.md",
+  benchmarkReport: "benchmark-report.json",
   auditBundle: "audit-bundle"
 } as const;
 

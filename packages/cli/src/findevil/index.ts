@@ -1,3 +1,4 @@
+import { runFindEvilBenchmarkCommand } from "./benchmark.js";
 import { runFindEvilFirewallCommand } from "./firewall.js";
 import { runFindEvilSentinelCommand } from "./sentinel.js";
 import { runFindEvilVerifyCommand } from "./verify.js";
@@ -5,6 +6,8 @@ import { runFindEvilVerifyCommand } from "./verify.js";
 export async function runFindEvilCommand(args: readonly string[]): Promise<void> {
   const [command, ...commandArgs] = args;
   switch (command) {
+    case "benchmark":
+      return runFindEvilBenchmarkCommand(commandArgs);
     case "verify":
       return runFindEvilVerifyCommand(commandArgs);
     case "firewall":
@@ -12,6 +15,6 @@ export async function runFindEvilCommand(args: readonly string[]): Promise<void>
     case "sentinel":
       return runFindEvilSentinelCommand(commandArgs);
     default:
-      throw new Error("Usage: kelp-claw findevil <verify|firewall|sentinel>");
+      throw new Error("Usage: kelp-claw findevil <benchmark|verify|firewall|sentinel>");
   }
 }
