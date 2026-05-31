@@ -24,6 +24,12 @@ import type { TaintLedgerEntry } from "../types/taint.js";
 import { extractTaintSpans } from "../taint/index.js";
 import { verifyClaim } from "../verifier/index.js";
 import { renderAccuracyReport } from "./accuracy-report.js";
+import {
+  assertDeterministicMode,
+  computeClaimLedgerHash,
+  refuseFreshLlmCallOnCacheMiss,
+  stableSortRecord
+} from "./determinism.js";
 import { buildReviewerHtml } from "./reviewer-html.js";
 import { runProtocolSift } from "./sift-runner.js";
 import type {
@@ -54,6 +60,7 @@ interface NormalizedSentinelOptions {
   readonly firewallEnabled: boolean;
   readonly spoliationEnabled: boolean;
   readonly claimExtractionEnabled: boolean;
+  readonly deterministic: boolean;
 }
 
 interface AgentExecution {
@@ -104,6 +111,7 @@ const outputNames = {
 } as const;
 
 const defaultSiftMaxRuntimeSeconds = 900;
+const deterministicTimestamp = "1970-01-01T00:00:00.000Z";
 
 const directProgramExecutionEvidence = [
   "prefetch_entry",
@@ -112,11 +120,21 @@ const directProgramExecutionEvidence = [
   "sysmon_process_create"
 ] as const;
 
-export async function runSentinel(opts: SentinelOptions): Promise<SentinelResultWithCommittee> {
-  const options = await normalizeOptions(opts);
+type RunSentinelOptions = SentinelOptions & {
+  readonly deterministic?: boolean | undefined;
+};
+
+export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelResultWithCommittee> {
+  const deterministic = deterministicMode(opts);
+  if (deterministic) {
+    assertDeterministicMode({ ...opts, deterministic });
+  }
+  const options = await normalizeOptions(opts, deterministic);
   const outputs = outputPaths(options.outDir);
   const caseMetadata = await readCaseMetadata(options.casePath);
-  const runId = `${caseMetadata.id ?? "findevil-sentinel"}-${Date.now().toString(36)}`;
+  const runId = options.deterministic
+    ? `${caseMetadata.id ?? "findevil-sentinel"}-deterministic`
+    : `${caseMetadata.id ?? "findevil-sentinel"}-${Date.now().toString(36)}`;
 
   await mkdir(options.outDir, { recursive: true });
   await initializeJsonl(outputs.agentExecution);
@@ -129,7 +147,7 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
   const taintLedger = options.firewallEnabled
     ? await extractEvidenceTaintLedger(options.evidenceRoot, beforeHashes, runId)
     : [];
-  await writeJsonl(outputs.taintLedger, taintLedger);
+  await writeJsonl(outputs.taintLedger, taintLedger, options.deterministic);
 
   const agentExecution = await runAgent(options, outputs.agentExecution, runId);
   const firewallEvents: FirewallEvent[] = [];
@@ -140,8 +158,8 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
     firewallEnabled: options.firewallEnabled,
     firewallEvents
   });
-  await writeJsonl(outputs.agentExecution, agentRows);
-  await writeJsonl(outputs.firewallEvents, firewallEvents);
+  await writeJsonl(outputs.agentExecution, agentRows, options.deterministic);
+  await writeJsonl(outputs.firewallEvents, firewallEvents, options.deterministic);
 
   let baselineLedger: ClaimLedger | undefined;
   let repairedLedger: ClaimLedger | undefined;
@@ -152,18 +170,23 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
       runId,
       outDir: options.outDir,
       finalReport: agentExecution.finalReport,
-      traceClaims: agentExecution.traceClaims
+      traceClaims: agentExecution.traceClaims,
+      deterministic: options.deterministic
     });
     baselineLedger = verifyLedger(extractedLedger);
     const linkedLedger = verifyLedger(linkLedger(baselineLedger, options.evidenceRoot));
     const repairResult = await runRepairLoop(baselineLedger, options.maxIterations, {
       tracePath: outputs.repairTrace,
       runner: evidenceBackedRepairRunner(linkedLedger),
-      now: () => new Date().toISOString()
+      now: () => sentinelTimestamp(options)
     });
     repairedLedger = repairResult.ledger;
     repairTrace = repairResult.trace;
-    await writeJson(outputs.claimLedger, repairedLedger);
+    if (options.deterministic) {
+      await writeJsonl(outputs.repairTrace, repairTrace, true);
+    }
+    await writeJson(outputs.claimLedger, repairedLedger, options.deterministic);
+    logClaimLedgerHash(repairedLedger, options.deterministic);
     await writeFile(
       outputs.accuracyReport,
       renderAccuracyReport({
@@ -175,7 +198,9 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
       "utf8"
     );
   } else {
-    await writeJson(outputs.claimLedger, emptyLedger(runId));
+    const skippedLedger = emptyLedger(runId, sentinelTimestamp(options));
+    await writeJson(outputs.claimLedger, skippedLedger, options.deterministic);
+    logClaimLedgerHash(skippedLedger, options.deterministic);
     await writeFile(
       outputs.accuracyReport,
       "# KelpClaw Find Evil Accuracy Report\n\nClaim extraction skipped for firewall-only run.\n",
@@ -184,16 +209,29 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
   }
   await writeNavigatorLayer(
     outputs.attackNavigatorLayer,
-    buildNavigatorLayer(repairedLedger ?? emptyLedger(runId))
+    stableOutput(
+      buildNavigatorLayer(repairedLedger ?? emptyLedger(runId, sentinelTimestamp(options))),
+      options.deterministic
+    )
   );
 
   let check: SpoliationCheck | undefined;
   if (options.spoliationEnabled) {
     const afterHashes = await hashEvidenceTree(options.evidenceRoot);
-    check = spoliationCheck(beforeHashes, afterHashes);
-    await writeJson(outputs.spoliationCheck, check);
+    const rawCheck = spoliationCheck(beforeHashes, afterHashes);
+    check = options.deterministic
+      ? {
+          ...rawCheck,
+          checkedAt: deterministicTimestamp
+        }
+      : rawCheck;
+    await writeJson(outputs.spoliationCheck, check, options.deterministic);
   }
-  await writeJson(outputs.evidenceManifest, evidenceManifest(caseMetadata, options, beforeHashes));
+  await writeJson(
+    outputs.evidenceManifest,
+    evidenceManifest(caseMetadata, options, beforeHashes),
+    options.deterministic
+  );
 
   const uncorrectedPolicyDenials = 0;
   const status = uncorrectedPolicyDenials > 0 ? "policy_denied" : "succeeded";
@@ -205,7 +243,8 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
     ok: status === "succeeded",
     mode: options.mode,
     policyDenials: firewallEvents.length,
-    uncorrectedPolicyDenials
+    uncorrectedPolicyDenials,
+    deterministic: options.deterministic
   });
 
   return {
@@ -226,7 +265,10 @@ export async function runSentinel(opts: SentinelOptions): Promise<SentinelResult
   };
 }
 
-async function normalizeOptions(opts: SentinelOptions): Promise<NormalizedSentinelOptions> {
+async function normalizeOptions(
+  opts: SentinelOptions,
+  deterministic: boolean
+): Promise<NormalizedSentinelOptions> {
   if (!isNonEmptyString(opts.casePath)) {
     throw new Error("Sentinel option casePath is required.");
   }
@@ -271,7 +313,8 @@ async function normalizeOptions(opts: SentinelOptions): Promise<NormalizedSentin
     ...(tracePath ? { tracePath } : {}),
     firewallEnabled: opts.skipFirewall === true ? false : mode !== "verify",
     spoliationEnabled: opts.skipSpoliation === true ? false : mode !== "verify",
-    claimExtractionEnabled: opts.skipClaimExtraction === true ? false : mode !== "firewall"
+    claimExtractionEnabled: opts.skipClaimExtraction === true ? false : mode !== "firewall",
+    deterministic
   };
 }
 
@@ -424,7 +467,9 @@ async function normalizeAgentExecution(input: {
   const callTools = new Map<string, string>();
   for (const rawEvent of input.rawEvents) {
     const hookInput = traceEventToHookInput(rawEvent, input.runId, callTools);
-    const normalized = normalizeClaudeCodeHook(hookInput, { sourceAgent: "claude-code" });
+    const normalized = normalizeClaudeCodeHook(hookInput, {
+      sourceAgent: "claude-code"
+    });
     const row: NormalizedAgentRow = {
       ...normalized,
       rawEvent: coerceJsonValue(rawEvent)
@@ -469,19 +514,22 @@ async function extractTraceBackedClaims(input: {
   readonly outDir: string;
   readonly finalReport: string;
   readonly traceClaims: readonly JsonRecord[];
+  readonly deterministic: boolean;
 }): Promise<ClaimLedger> {
   if (input.traceClaims.length > 0) {
     const ledger = claimLedgerSchema.parse({
       id: `claim-ledger-${input.runId}-baseline`,
       runId: input.runId,
-      generatedAt: new Date().toISOString(),
+      generatedAt: input.deterministic ? deterministicTimestamp : new Date().toISOString(),
       claims: input.traceClaims.map((claim, index) => normalizeTraceClaim(claim, index))
     });
     return extractClaims(input.finalReport || stableJsonStringify(ledger as unknown as JsonValue), {
       cacheDir: join(input.outDir, ".extractor-cache"),
       committeeVotePath: join(input.outDir, outputNames.committeeVotes),
       maxRetries: 0,
-      complete: async () => ledger
+      complete: input.deterministic
+        ? async () => refuseFreshLlmCallOnCacheMiss()
+        : async () => ledger
     });
   }
   if (input.finalReport.trim().length === 0) {
@@ -489,7 +537,13 @@ async function extractTraceBackedClaims(input: {
   }
   return extractClaims(input.finalReport, {
     cacheDir: join(input.outDir, ".extractor-cache"),
-    committeeVotePath: join(input.outDir, outputNames.committeeVotes)
+    committeeVotePath: join(input.outDir, outputNames.committeeVotes),
+    ...(input.deterministic
+      ? {
+          maxRetries: 0,
+          complete: async () => refuseFreshLlmCallOnCacheMiss()
+        }
+      : {})
   });
 }
 
@@ -570,7 +624,7 @@ function evidenceManifest(
     id: `evidence-manifest-${caseMetadata.id ?? "findevil-sentinel"}`,
     root: relative(process.cwd(), options.evidenceRoot).split(sep).join("/") || ".",
     casePath: relative(process.cwd(), options.casePath).split(sep).join("/") || options.casePath,
-    generatedAt: new Date().toISOString(),
+    generatedAt: sentinelTimestamp(options),
     files: hashes
   };
 }
@@ -584,6 +638,7 @@ async function writeAuditBundle(input: {
   readonly mode: SentinelMode;
   readonly policyDenials: number;
   readonly uncorrectedPolicyDenials: number;
+  readonly deterministic: boolean;
 }): Promise<void> {
   const bundleDir = input.outputs.auditBundle;
   await mkdir(bundleDir, { recursive: true });
@@ -592,33 +647,49 @@ async function writeAuditBundle(input: {
   const copied = [...sentinelFiles, ...evidencePreviewFiles].sort((left, right) =>
     left.localeCompare(right)
   );
-  await writeJson(join(bundleDir, "result.json"), {
-    ok: input.ok,
-    runId: input.runId,
-    status: input.ok ? "succeeded" : "policy_denied",
-    mode: input.mode,
-    policyDenials: input.policyDenials,
-    uncorrectedPolicyDenials: input.uncorrectedPolicyDenials
-  });
-  await writeJson(join(bundleDir, "compatibility.json"), {
-    runnable: true,
-    toolsDetected: ["@kelpclaw/agent-hooks", "@kelpclaw/findevil"],
-    requiredSecrets: [],
-    network: "none",
-    sandboxProfile: "workspace-write",
-    policyFindings: []
-  });
-  await writeJson(join(bundleDir, "policy-decisions.json"), {
-    policyPack: "findevil-sentinel",
-    decisions: {
-      denied: input.policyDenials,
-      uncorrected: input.uncorrectedPolicyDenials
-    }
-  });
-  await writeJson(join(bundleDir, "redaction-report.json"), {
-    redacted: false,
-    files: copied
-  });
+  await writeJson(
+    join(bundleDir, "result.json"),
+    {
+      ok: input.ok,
+      runId: input.runId,
+      status: input.ok ? "succeeded" : "policy_denied",
+      mode: input.mode,
+      policyDenials: input.policyDenials,
+      uncorrectedPolicyDenials: input.uncorrectedPolicyDenials
+    },
+    input.deterministic
+  );
+  await writeJson(
+    join(bundleDir, "compatibility.json"),
+    {
+      runnable: true,
+      toolsDetected: ["@kelpclaw/agent-hooks", "@kelpclaw/findevil"],
+      requiredSecrets: [],
+      network: "none",
+      sandboxProfile: "workspace-write",
+      policyFindings: []
+    },
+    input.deterministic
+  );
+  await writeJson(
+    join(bundleDir, "policy-decisions.json"),
+    {
+      policyPack: "findevil-sentinel",
+      decisions: {
+        denied: input.policyDenials,
+        uncorrected: input.uncorrectedPolicyDenials
+      }
+    },
+    input.deterministic
+  );
+  await writeJson(
+    join(bundleDir, "redaction-report.json"),
+    {
+      redacted: false,
+      files: copied
+    },
+    input.deterministic
+  );
   await writeReviewerIndex(bundleDir);
   const files = [
     ...copied,
@@ -629,8 +700,8 @@ async function writeAuditBundle(input: {
     "index.html"
   ].sort((left, right) => left.localeCompare(right));
   const key = createAuditKey();
-  await signAuditBundle(bundleDir, input.runId, files, key);
-  await writeAuditAttestation(bundleDir, input.runId, files, key);
+  await signAuditBundle(bundleDir, input.runId, files, key, input.deterministic);
+  await writeAuditAttestation(bundleDir, input.runId, files, key, input.deterministic);
 }
 
 async function writeReviewerIndex(bundleDir: string): Promise<void> {
@@ -713,12 +784,13 @@ async function signAuditBundle(
   bundleDir: string,
   runId: string,
   files: readonly string[],
-  key: AuditKeyFile
+  key: AuditKeyFile,
+  deterministic: boolean
 ): Promise<void> {
   const manifest = {
     schemaVersion: "1.0.0",
     runId,
-    generatedAt: new Date().toISOString(),
+    generatedAt: deterministic ? deterministicTimestamp : new Date().toISOString(),
     algorithm: "ed25519",
     publicKeyId: key.keyId,
     files: await Promise.all(files.map((file) => auditManifestFile(bundleDir, file)))
@@ -729,26 +801,31 @@ async function signAuditBundle(
     Buffer.from(payload, "utf8"),
     createPrivateKey(key.privateKeyPem)
   ).toString("base64");
-  await writeJson(join(bundleDir, "manifest.json"), manifest);
+  await writeJson(join(bundleDir, "manifest.json"), manifest, deterministic);
   await writeFile(join(bundleDir, "manifest.sig"), `${signature}\n`, "utf8");
-  await writeJson(join(bundleDir, "manifest.pub.json"), {
-    keyId: key.keyId,
-    algorithm: key.algorithm,
-    publicKeyPem: key.publicKeyPem
-  });
+  await writeJson(
+    join(bundleDir, "manifest.pub.json"),
+    {
+      keyId: key.keyId,
+      algorithm: key.algorithm,
+      publicKeyPem: key.publicKeyPem
+    },
+    deterministic
+  );
 }
 
 async function writeAuditAttestation(
   bundleDir: string,
   runId: string,
   files: readonly string[],
-  key: AuditKeyFile
+  key: AuditKeyFile,
+  deterministic: boolean
 ): Promise<void> {
   const manifestHash = await sha256File(join(bundleDir, "manifest.json"));
   const attestation = {
     schemaVersion: "1.0.0",
     runId,
-    generatedAt: new Date().toISOString(),
+    generatedAt: deterministic ? deterministicTimestamp : new Date().toISOString(),
     policyPack: "findevil-sentinel",
     signer: {
       keyId: key.keyId,
@@ -777,7 +854,7 @@ async function writeAuditAttestation(
     Buffer.from(payload, "utf8"),
     createPrivateKey(key.privateKeyPem)
   ).toString("base64");
-  await writeJson(join(bundleDir, "attestation.json"), attestation);
+  await writeJson(join(bundleDir, "attestation.json"), attestation, deterministic);
   await writeFile(join(bundleDir, "attestation.sig"), `${signature}\n`, "utf8");
 }
 
@@ -886,9 +963,9 @@ async function readUtf8IfText(path: string): Promise<string> {
   return Buffer.from(text, "utf8").equals(buffer) ? text : "";
 }
 
-async function writeJson(path: string, value: unknown): Promise<void> {
+async function writeJson(path: string, value: unknown, deterministic = false): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(stableOutput(value, deterministic), null, 2)}\n`, "utf8");
 }
 
 async function readJson<T>(path: string): Promise<T> {
@@ -910,11 +987,17 @@ async function readJsonl<T>(path: string): Promise<T[]> {
   return parseJsonl(await readFile(path, "utf8"), path).map((row) => row as T);
 }
 
-async function writeJsonl(path: string, rows: readonly unknown[]): Promise<void> {
+async function writeJsonl(
+  path: string,
+  rows: readonly unknown[],
+  deterministic = false
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(
     path,
-    rows.length > 0 ? `${rows.map((row) => JSON.stringify(row)).join("\n")}\n` : "",
+    rows.length > 0
+      ? `${rows.map((row) => JSON.stringify(stableOutput(row, deterministic))).join("\n")}\n`
+      : "",
     "utf8"
   );
 }
@@ -923,17 +1006,36 @@ async function initializeJsonl(path: string): Promise<void> {
   await writeJsonl(path, []);
 }
 
+function deterministicMode(opts: RunSentinelOptions): boolean {
+  return opts.deterministic === true || process.env.KELP_DETERMINISTIC?.trim() === "1";
+}
+
+function sentinelTimestamp(options: Pick<NormalizedSentinelOptions, "deterministic">): string {
+  return options.deterministic ? deterministicTimestamp : new Date().toISOString();
+}
+
+function logClaimLedgerHash(ledger: ClaimLedger, deterministic: boolean): void {
+  if (!deterministic) {
+    return;
+  }
+  process.stderr.write(`claim-ledger SHA-256 ${computeClaimLedgerHash(ledger)}\n`);
+}
+
+function stableOutput<T>(value: T, deterministic: boolean): T {
+  return deterministic ? stableSortRecord(value) : value;
+}
+
 async function sha256File(path: string): Promise<string> {
   return createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
 }
 
-function emptyLedger(runId: string): ClaimLedger {
+function emptyLedger(runId: string, generatedAt = new Date().toISOString()): ClaimLedger {
   return claimLedgerSchema.parse({
     id: `claim-ledger-${runId}-skipped`,
     runId,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     claims: []
   });
 }

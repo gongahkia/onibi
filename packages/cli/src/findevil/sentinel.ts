@@ -9,6 +9,7 @@ interface SentinelCliOptions {
   readonly skipFirewall?: boolean | undefined;
   readonly skipSpoliation?: boolean | undefined;
   readonly skipClaimExtraction?: boolean | undefined;
+  readonly deterministic?: boolean | undefined;
 }
 
 interface SentinelCliResult {
@@ -34,6 +35,7 @@ export async function runFindEvilSentinelCommand(args: readonly string[]): Promi
       outDir: options.outDir,
       maxIterations: options.maxIterations,
       mode: "sentinel",
+      deterministic: options.deterministic,
       ...(options.siftCommand ? { siftCommand: options.siftCommand } : {}),
       ...(options.tracePath ? { tracePath: options.tracePath } : {})
     });
@@ -52,6 +54,7 @@ export interface ParsedSentinelArgs {
   readonly maxIterations: number;
   readonly siftCommand?: string | undefined;
   readonly tracePath?: string | undefined;
+  readonly deterministic: boolean;
 }
 
 export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
@@ -61,7 +64,8 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
     "--trace",
     "--max-iterations",
     "--evidence-root",
-    "--out"
+    "--out",
+    "--deterministic"
   ]);
   const casePath = requiredOption(args, "--case");
   const evidenceRoot = requiredOption(args, "--evidence-root");
@@ -69,6 +73,7 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
   const maxIterations = integerOption(requiredOption(args, "--max-iterations"), "--max-iterations");
   const siftCommand = option(args, "--sift-command");
   const tracePath = option(args, "--trace");
+  const deterministic = args.includes("--deterministic");
   if ((siftCommand ? 1 : 0) + (tracePath ? 1 : 0) !== 1) {
     throw new Error(
       "Usage: kelp-claw findevil sentinel requires exactly one of --sift-command or --trace."
@@ -79,6 +84,7 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
     evidenceRoot,
     outDir,
     maxIterations,
+    deterministic,
     ...(siftCommand ? { siftCommand } : {}),
     ...(tracePath ? { tracePath } : {})
   };
