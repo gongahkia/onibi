@@ -12,6 +12,13 @@ import { matchMftFileCreate, matchMftFileDelete, matchMftFileModify, parseMftJso
 import { matchPcapNetworkConnection, parseFlowSummaryJson } from "./pcap.js";
 import { matchByExecutable, parsePrefetchOutput, prefetchEntryToEvidenceRef } from "./prefetch.js";
 import {
+  matchRegistryRunKey,
+  matchRegistryScheduledTask,
+  matchRegistryService,
+  matchRegistryShimCache,
+  parseRegistryJson
+} from "./registry.js";
+import {
   matchByShimcachePath,
   parseShimcacheOutput,
   shimcacheEntryToEvidenceRef
@@ -40,6 +47,13 @@ export { hashEvidenceRow } from "./hashing.js";
 export { parseMftJson, matchMftFileCreate, matchMftFileModify, matchMftFileDelete } from "./mft.js";
 export { parseFlowSummaryJson, matchPcapNetworkConnection } from "./pcap.js";
 export { parsePrefetchOutput, matchByExecutable } from "./prefetch.js";
+export {
+  matchRegistryRunKey,
+  matchRegistryScheduledTask,
+  matchRegistryService,
+  matchRegistryShimCache,
+  parseRegistryJson
+} from "./registry.js";
 export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
 export { parseSrumOutput, matchBySrumApp } from "./srum.js";
 export { parseSysmonJson, matchSysmonNetworkConnect, matchSysmonProcessCreate } from "./sysmon.js";
@@ -65,6 +79,7 @@ const programExecutionProof = [
 ] as const;
 const persistenceProof = [
   "registry-run-key",
+  "registry-service",
   "scheduled-task",
   "service-create",
   "security_4698_scheduled_task",
@@ -83,6 +98,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkPrefetchEvidence(claim, caseDir, files));
       additions.push(...linkAmcacheEvidence(claim, caseDir, files));
       additions.push(...linkShimcacheEvidence(claim, caseDir, files));
+      additions.push(...linkRegistryProgramExecutionEvidence(claim, caseDir, files));
       additions.push(...linkSrumEvidence(claim, caseDir, files));
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
@@ -100,6 +116,7 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       break;
     case "persistence":
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
+      additions.push(...linkRegistryPersistenceEvidence(claim, caseDir, files));
       additions.push(...linkEventLogPersistenceEvidence(claim, caseDir, files));
       break;
     case "timeline_ordering":
@@ -213,6 +230,35 @@ function linkPcapEvidence(claim: Claim, caseDir: string, files: readonly string[
         artifact: relativeArtifact(caseDir, ref.artifact)
       }))
     );
+}
+
+function linkRegistryProgramExecutionEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isRegistryFile(file))
+    .flatMap((file) =>
+      matchRegistryShimCache(claim, parseRegistryJson(file, relativeArtifact(caseDir, file)))
+    );
+}
+
+function linkRegistryPersistenceEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isRegistryFile(file))
+    .flatMap((file) => {
+      const records = parseRegistryJson(file, relativeArtifact(caseDir, file));
+      return [
+        ...matchRegistryRunKey(claim, records),
+        ...matchRegistryService(claim, records),
+        ...matchRegistryScheduledTask(claim, records)
+      ];
+    });
 }
 
 function linkSysmonProcessCreateEvidence(
@@ -455,6 +501,14 @@ function isVolatilityFile(path: string): boolean {
 function isYaraFile(path: string): boolean {
   const lower = path.toLowerCase();
   return lower.includes("yara") && /\.(?:json|jsonl|ndjson|log)$/u.test(lower);
+}
+
+function isRegistryFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    /\.(?:csv|json|jsonl|ndjson)$/u.test(lower) &&
+    /(?:registry|reg[-_ ]?|recmd|regripper|ntuser|appcompatcache|taskcache|runkeys?)/u.test(lower)
+  );
 }
 
 function relativeArtifact(caseDir: string, path: string): string {

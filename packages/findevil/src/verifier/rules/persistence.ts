@@ -2,6 +2,7 @@ import type { Claim, ClaimStatus } from "../../types/claim.js";
 
 const directPersistenceEvidence = new Set([
   "registry-run-key",
+  "registry-service",
   "scheduled-task",
   "service-create",
   "security_4698_scheduled_task",
