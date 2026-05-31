@@ -137,6 +137,7 @@ function TerminalPaneTree({
   terminalVisible,
   settings,
   onTerminalExit,
+  onTerminalUnavailable,
   onShellUpdate,
   onTerminalTrigger,
   maximizedPaneId,
@@ -156,6 +157,7 @@ function TerminalPaneTree({
   terminalVisible: boolean;
   settings: ReturnType<typeof useSessionStore.getState>["settings"];
   onTerminalExit: (session: Session) => void;
+  onTerminalUnavailable: (session: Session) => void;
   onShellUpdate: (session: Session, update: TerminalShellUpdate) => void;
   onTerminalTrigger: (session: Session, match: TerminalTriggerMatch) => void;
   maximizedPaneId: string | null;
@@ -184,6 +186,7 @@ function TerminalPaneTree({
                 terminalVisible={terminalVisible}
                 settings={settings}
                 onTerminalExit={onTerminalExit}
+                onTerminalUnavailable={onTerminalUnavailable}
                 onShellUpdate={onShellUpdate}
                 onTerminalTrigger={onTerminalTrigger}
                 maximizedPaneId={maximizedPaneId}
@@ -413,6 +416,7 @@ function TerminalPaneTree({
                 }
                 onShellUpdate={(update) => onShellUpdate(tabSession, update)}
                 onTrigger={(match) => onTerminalTrigger(tabSession, match)}
+                onUnavailable={() => onTerminalUnavailable(tabSession)}
               />
             </div>
           ))}
@@ -731,6 +735,23 @@ export function MainPane() {
     [appendSessionEvent, replaceSession, updateSession, workspaces],
   );
 
+  const handleTerminalUnavailable = useCallback(
+    (unavailableSession: Session) => {
+      updateSession(unavailableSession.id, { status: "stale" });
+      appendSessionEvent({
+        type: "session-stopped",
+        workspaceId: unavailableSession.workspaceId,
+        sessionId: unavailableSession.id,
+        agent: unavailableSession.agent,
+        summary: `${unavailableSession.title} detached`,
+      });
+      if (unavailableSession.agent !== "shell") {
+        void stopAgentReview(unavailableSession.id).catch(() => undefined);
+      }
+    },
+    [appendSessionEvent, updateSession],
+  );
+
   const handleShellUpdate = useCallback(
     (updatedSession: Session, update: TerminalShellUpdate) => {
       if (update.transcriptChunk) {
@@ -953,6 +974,7 @@ export function MainPane() {
                 terminalVisible={terminalVisible}
                 settings={settings}
                 onTerminalExit={handleTerminalExit}
+                onTerminalUnavailable={handleTerminalUnavailable}
                 onShellUpdate={handleShellUpdate}
                 onTerminalTrigger={handleTerminalTrigger}
                 maximizedPaneId={maximizedTerminalPaneId}
