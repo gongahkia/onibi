@@ -45,26 +45,18 @@ The workflow editor, API server, web-intelligence package, skill registry, SaaS 
 
 ## Try It Out
 
-These commands were run against the current repository state. They use the deterministic offline Protocol SIFT-style fixture and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the canonical `.kelpclaw/findevil/sentinel/` run remains available for review.
+Use the published container to run the deterministic offline Protocol SIFT-style fixture. It mounts the case bundle read-only and writes fresh reviewer outputs to `.kelpclaw/findevil/sentinel/`.
 
-Equivalent invocation: `pnpm exec kelp-claw ...`.
-
-```console
-$ corepack enable
-$ pnpm install --frozen-lockfile
-$ pnpm -r --if-present build
-$ rm -rf /tmp/kelpclaw-findevil-sentinel
-$ ./node_modules/.bin/kelp-claw findevil sentinel \
-  --case examples/findevil-sift-sentinel/case.yml \
-  --evidence-root examples/findevil-sift-sentinel/case-data \
-  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
-  --max-iterations 3 \
-  --out /tmp/kelpclaw-findevil-sentinel
-$ sed -n '1,80p' /tmp/kelpclaw-findevil-sentinel/accuracy-report.md
-$ jq '{ok, checkedAt, changed:(.changed|length), added:(.added|length), removed:(.removed|length)}' /tmp/kelpclaw-findevil-sentinel/spoliation-check.json
-$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,committee-vote,repair-trace,firewall-events,taint-ledger}.jsonl
-$ test -s /tmp/kelpclaw-findevil-sentinel/accuracy-report.md && test -s /tmp/kelpclaw-findevil-sentinel/audit-bundle/index.html
-$ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
+```bash
+docker run -v $PWD/examples/findevil-sift-sentinel/case-data:/data/case/case-data:ro \
+           -v $PWD/examples/findevil-sift-sentinel/case.yml:/data/case/case.yml:ro \
+           -v $PWD/.kelpclaw/findevil/sentinel:/data/out \
+           ghcr.io/gongahkia/kelp-claw:latest \
+           findevil sentinel --case /data/case/case.yml \
+                              --evidence-root /data/case/case-data \
+                              --trace /app/fixtures/protocol-sift-baseline/baseline.jsonl \
+                              --max-iterations 3 \
+                              --out /data/out
 ```
 
 Expected high-level result:
@@ -77,6 +69,31 @@ Expected high-level result:
 - The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.
 
 Drag `.kelpclaw/findevil/sentinel/attack-navigator-layer.json` into https://mitre-attack.github.io/attack-navigator/ to see the technique coverage map.
+
+## Developer setup
+
+Use this path when building from source instead of running the published container.
+
+```console
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm -r --if-present build
+$ node packages/cli/dist/index.js findevil sentinel \
+  --case examples/findevil-sift-sentinel/case.yml \
+  --evidence-root examples/findevil-sift-sentinel/case-data \
+  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
+  --max-iterations 3 \
+  --out /tmp/kelpclaw-findevil-sentinel
+$ node packages/cli/dist/index.js verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
+```
+
+For development checks:
+
+```console
+$ pnpm test
+```
+
+The active workspace is intentionally limited to the retained DFIR foundation packages. Shelved code remains in `legacy/` for provenance but is no longer part of the pnpm workspace.
 
 ## Configuration
 
@@ -106,17 +123,6 @@ $ KELP_FINDEVIL_MODELS=anthropic:claude-opus-4-7,openai-azure:gpt-5,gemini:gemin
 The run writes `committee-vote.jsonl` beside the claim ledger with one row per model vote, then lowers confidence or marks claims inferred/unverifiable when the committee disagrees.
 
 Claude Code remains the agentic framework for the hackathon submission. The multi-vendor committee uses other providers only for claim-extraction voting, not for tool execution.
-
-## Development
-
-```console
-$ corepack enable
-$ pnpm install
-$ pnpm -r --filter '!./legacy/**' build
-$ pnpm test
-```
-
-The active workspace is intentionally limited to the retained DFIR foundation packages. Shelved code remains in `legacy/` for provenance but is no longer part of the pnpm workspace.
 
 ## License
 

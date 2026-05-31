@@ -4,9 +4,21 @@ Public repository: `https://github.com/gongahkia/kelp-claw`
 
 Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
 
-Live SIFT Workstation mode is the preferred judge path; deterministic offline `--trace` mode is the fallback for reviewers who do not have the VM. The offline fallback commands below were run against the current repository state and write fresh outputs to `/tmp/kelpclaw-findevil-sentinel` so the canonical `.kelpclaw/findevil/sentinel/` run remains available for review.
+Use the published container to run the deterministic offline Protocol SIFT-style fixture. It mounts the case bundle read-only and writes fresh reviewer outputs to `.kelpclaw/findevil/sentinel/`.
 
-Equivalent invocation: `pnpm exec kelp-claw ...`.
+```bash
+docker run -v $PWD/examples/findevil-sift-sentinel/case-data:/data/case/case-data:ro \
+           -v $PWD/examples/findevil-sift-sentinel/case.yml:/data/case/case.yml:ro \
+           -v $PWD/.kelpclaw/findevil/sentinel:/data/out \
+           ghcr.io/gongahkia/kelp-claw:latest \
+           findevil sentinel --case /data/case/case.yml \
+                              --evidence-root /data/case/case-data \
+                              --trace /app/fixtures/protocol-sift-baseline/baseline.jsonl \
+                              --max-iterations 3 \
+                              --out /data/out
+```
+
+Live SIFT Workstation mode is available for reviewers with the VM; deterministic offline `--trace` mode is the fallback source-build path.
 
 ## Live SIFT Workstation Mode
 

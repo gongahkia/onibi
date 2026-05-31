@@ -1,0 +1,25 @@
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /app
+
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+COPY . .
+
+RUN pnpm install --frozen-lockfile && pnpm -r build
+
+FROM node:20-bookworm-slim AS runtime
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app /app
+
+RUN mkdir -p /data/case /data/out && chown -R 10000:10000 /data
+
+USER 10000:10000
+
+ENTRYPOINT ["node", "packages/cli/dist/index.js"]
