@@ -4,93 +4,110 @@ Target length: 5 minutes or less.
 
 ## 0:00 Framing
 
-Spoken: "This is KelpClaw SIFT Sentinel. Claude Code and Protocol SIFT perform the investigation. KelpClaw wraps the run with claim verification, hostile-evidence containment, spoliation checks, and a signed audit bundle."
+Spoken: "This is KelpClaw SIFT Sentinel. Claude Code and Protocol SIFT perform the investigation. KelpClaw wraps the run with claim verification, hostile-evidence containment, spoliation checks, ATT&CK Navigator export, deterministic replay, RFC3161 timestamping, and a signed audit bundle."
 
 On screen:
 
 ```console
-$ ./node_modules/.bin/kelp-claw findevil sentinel \
-  --case examples/findevil-sift-sentinel/case.yml \
-  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
+$ docker build -f Dockerfile.kelp -t kelp:v3 .
+$ sed -n '1,120p' SUBMISSION/architecture-diagram.md
+```
+
+## 0:25 CFReDS Case Anchor
+
+Spoken: "The public CFReDS Forensics Image Test is mounted read-only. The fetch script verifies the 309 MB E01 against its pinned SHA-256 before Sentinel touches it."
+
+On screen:
+
+```console
+$ node scripts/fetch-cfreds-case.mjs
+$ sed -n '1,120p' examples/findevil-cfreds-image-test/case.yml
+$ docker run --rm \
+  -v "$PWD/.kelpclaw/datasets/cfreds/forensics-image-test:/data/cfreds:ro" \
+  -v "$PWD/.kelpclaw/findevil/sentinel-cfreds:/data/out" \
+  kelp:v3 findevil sentinel \
+  --case /app/examples/findevil-cfreds-image-test/case.yml \
+  --evidence-root /data/cfreds \
+  --sift-command "<Protocol SIFT JSONL command>" \
   --max-iterations 3 \
-  --evidence-root examples/findevil-sift-sentinel/case-data \
-  --out .kelpclaw/findevil/sentinel
-$ sed -n '1,40p' examples/findevil-sift-sentinel/case.yml
-$ sed -n '1,90p' SUBMISSION/architecture-diagram.md
+  --out /data/out
 ```
 
-## 0:30 Baseline Overclaim x3
+## 1:15 Conservative CFReDS Result
 
-Spoken: "The baseline report intentionally overclaims three things for the demo: PowerShell execution before direct artifact linking, Run-key persistence before registry proof, and DailyUpdater persistence from a TaskCache-only reference."
+Spoken: "The CFReDS container anchor emits the official worksheet prompts as 25 claims, but confirms none without recovered artifact evidence. That is intentional: the tool refuses to turn prompts into findings."
 
 On screen:
 
 ```console
-$ sed -n '1,120p' fixtures/protocol-sift-baseline/baseline-report.md
-$ rg "F-001|F-004|F-005|Analyst conclusion" fixtures/protocol-sift-baseline/baseline-report.md
+$ jq '{files:.files}' .kelpclaw/findevil/sentinel-cfreds/evidence-manifest.json
+$ jq -r '.claims[] | [.id,.type,.status,(.evidenceRefs|length)] | @tsv' \
+  .kelpclaw/findevil/sentinel-cfreds/claim-ledger.json | head
+$ jq '{ok,before:(.before|length),after:(.after|length),changed:(.changed|length)}' \
+  .kelpclaw/findevil/sentinel-cfreds/spoliation-check.json
 ```
 
-## 1:30 Verifier Flags All 3
+## 1:55 Synthetic Self-Correction
 
-Spoken: "The verifier does not accept those conclusions on confidence alone. In the baseline ledger, all three selected claims start unsupported."
+Spoken: "The synthetic case shows self-correction. v3 starts with weak claims, links direct artifacts, and repairs 5 findings to confirmed while keeping weak evidence unconfirmed."
 
 On screen:
 
 ```console
-$ sed -n '1,34p' .kelpclaw/findevil/sentinel/accuracy-report.md
-$ rg "claim-001|claim-004|claim-005" .kelpclaw/findevil/sentinel/accuracy-report.md
+$ sed -n '1,90p' .kelpclaw/findevil/sentinel-synthetic/accuracy-report.md
+$ jq -r '.claims[] | select(.status=="confirmed") | [.id,.type,(.evidenceRefs|length)] | @tsv' \
+  .kelpclaw/findevil/sentinel-synthetic/claim-ledger.json
 ```
 
-## 2:00 Repair Pass Succeeds On 2, Retracts 1
+## 2:35 Hostile-Evidence Firewall
 
-Spoken: "The repair pass asks for proof, retraction, or downgrade. It confirms PowerShell from Prefetch, confirms UpdaterRun from a Run-key, and downgrades DailyUpdater because the task evidence is still not authoritative."
-
-On screen:
-
-```console
-$ jq -r 'select(.event=="repair_result" and (.claimId=="claim-001" or .claimId=="claim-004" or .claimId=="claim-005")) | [.claimId,.status,.output] | @tsv' .kelpclaw/findevil/sentinel/repair-trace.jsonl
-$ jq -r '.claims[] | select(.id=="claim-001" or .id=="claim-004" or .id=="claim-005") | [.id,.status,(.evidenceRefs|length)] | @tsv' .kelpclaw/findevil/sentinel/claim-ledger.json
-```
-
-## 2:45 Hostile-Evidence Block
-
-Spoken: "The case also contains hostile text. The baseline copies the ransom-note command into an operational next step, but the firewall blocks that as tainted case data."
+Spoken: "The evidence includes hostile strings. The firewall blocks tainted case text when it crosses into a tool argument, then injects a safe reanalysis prompt that quotes the string as evidence only."
 
 On screen:
 
 ```console
 $ sed -n '1p' examples/findevil-sift-sentinel/case-data/ransom_note.txt
-$ jq '{eventType, source, blockedUse, policyDecision, correctionTask}' .kelpclaw/findevil/sentinel/firewall-events.jsonl
+$ jq '{eventType, source, blockedUse, policyDecision, correctionTask}' \
+  .kelpclaw/findevil/sentinel-synthetic/firewall-events.jsonl
+$ pnpm --filter @kelpclaw/findevil exec vitest run test/firewall-corpus.test.ts
 ```
 
-## 3:15 Spoliation Check Passes
+## 3:10 Navigator Drag-And-Drop
 
-Spoken: "The original evidence tree is hashed before and after the run. This run has 13 files before, 13 files after, and no added, removed, or changed evidence files."
+Spoken: "Every run exports an ATT&CK Navigator layer. I drag `attack-navigator-layer.json` into MITRE ATT&CK Navigator and the reviewer sees exactly which techniques were confirmed, weak, or unconfirmed."
 
 On screen:
 
 ```console
-$ jq '{ok, before:(.before|length), after:(.after|length), added:(.added|length), removed:(.removed|length), changed:(.changed|length)}' .kelpclaw/findevil/sentinel/spoliation-check.json
+$ jq '{name,domain,techniques:(.techniques|length)}' \
+  .kelpclaw/findevil/sentinel-synthetic/attack-navigator-layer.json
+$ open https://mitre-attack.github.io/attack-navigator/
 ```
 
-## 3:45 Reviewer UI Walkthrough
+Visual beat: drag `.kelpclaw/findevil/sentinel-synthetic/attack-navigator-layer.json` into the Navigator page.
 
-Spoken: "The result is a signed audit bundle with a reviewer UI. I open the bundle, click a confirmed claim to show linked evidence, then click the firewall block to show the safe reanalysis prompt."
+## 3:45 Audit Bundle And TSA Verification
+
+Spoken: "The audit bundle is signed, and the evidence manifest is timestamped. A reviewer can verify both the Kelp signature and the RFC3161 timestamp token."
 
 On screen:
 
 ```console
-$ ls .kelpclaw/findevil/sentinel/audit-bundle
-$ ./node_modules/.bin/kelp-claw verify-audit-bundle .kelpclaw/findevil/sentinel/audit-bundle --profile reviewer
-$ open .kelpclaw/findevil/sentinel/audit-bundle/index.html
+$ ./node_modules/.bin/kelp-claw verify-audit-bundle \
+  .kelpclaw/findevil/sentinel-synthetic/audit-bundle --profile reviewer
+$ openssl ts -verify \
+  -in .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.tsr \
+  -content .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.json \
+  -CAfile freetsa-cacert.pem
+$ open .kelpclaw/findevil/sentinel-synthetic/audit-bundle/index.html
 ```
 
-## 4:30 ATT&CK Coverage And Benchmark Table
+## 4:30 Three-Anchor Accuracy Close
 
-Spoken: "The final accuracy report shows ATT&CK coverage and a benchmark against ground truth: 10 expected findings, 3 true positives, 0 false positives, 7 false negatives, precision 1.000, recall 0.300, and F1 0.462."
+Spoken: "The v3 submission reports three anchors: synthetic precision 1.000, recall 0.500, F1 0.667; CFReDS precision 0.000, recall 0.000, F1 0.000 because no worksheet answer is promoted without direct artifact proof; and DFIR-Metric subset-10 precision 1.000, recall 1.000, F1 1.000 over 14 non-empty expected answers."
 
 On screen:
 
 ```console
-$ sed -n '/## MITRE ATT&CK Coverage/,$p' .kelpclaw/findevil/sentinel/accuracy-report.md
+$ sed -n '1,180p' SUBMISSION/devpost-accuracy-report.md
 ```

@@ -2,65 +2,68 @@
 
 ```mermaid
 flowchart LR
-  A["case.yml<br/>expectedFindings + siftIntegration"] --> B["Evidence root<br/>case-data"]
+  A["case.yml<br/>expectedFindings + threatModel"] --> B["Evidence root<br/>mounted read-only"]
   A --> C["Offline trace<br/>baseline.jsonl"]
-  A --> D["Live SIFT command<br/>protocol-sift run"]
+  A --> D["Live SIFT command<br/>Protocol SIFT / Claude Code"]
+  D --> D1["SIFT tools<br/>Volatility 3 + MFTECmd + YARA"]
   C --> E["Sentinel runner"]
-  D --> E
-  E --> F["agent-execution.jsonl"]
+  D1 --> E
 
-  B --> B1["Timeline CSV"]
-  B --> B2["Prefetch"]
-  B --> B3["Amcache"]
-  B --> B4["Sysmon JSON"]
-  B --> B5["EVTX-style JSON"]
-  B --> B6["ShimCache"]
-  B --> B7["SRUM"]
-  B --> B8["PCAP / Zeek flow summary"]
+  B --> L0["Pre-run SHA-256 manifest"]
+  B --> L1["Artifact linkers<br/>Prefetch + Amcache + MFT + Registry"]
+  B --> L2["Event linkers<br/>Sysmon + EVTX + ShimCache + SRUM"]
+  B --> L3["Network and memory linkers<br/>PCAP + Zeek + Volatility-style refs"]
+  B --> T0["Taint extractor"]
 
-  B --> G["Pre-run SHA-256 manifest"]
-  B --> H["Taint extractor"]
-  H --> I["taint-ledger.jsonl"]
-  F --> J["Instruction firewall"]
-  I --> J
-  J --> K["firewall-events.jsonl"]
-  J --> L["safe reanalysis task"]
+  E --> X0["agent-execution.jsonl"]
+  X0 --> F0["Instruction firewall"]
+  T0 --> T1["taint-ledger.jsonl"]
+  T1 --> F0
+  F0 --> F1["firewall-events.jsonl"]
+  F0 --> F2["safe reanalysis task"]
 
-  F --> M["Claim extractor"]
-  M --> N["Optional committee<br/>KELP_FINDEVIL_MODELS"]
-  N --> O["committee-vote.jsonl"]
-  N --> P["ATT&CK tagger"]
-  P --> Q["baseline claim ledger"]
+  X0 --> C0["Claim extractor"]
+  C0 --> C1["Provider adapters<br/>Anthropic + OpenAI SDK + Google Generative AI SDK"]
+  C1 --> C2["committee-vote.jsonl"]
+  C0 --> C3["ATT&CK tagger"]
+  C3 --> C4["baseline claim ledger"]
 
-  B1 --> R["Evidence linker"]
-  B2 --> R
-  B3 --> R
-  B4 --> R
-  B5 --> R
-  B6 --> R
-  B7 --> R
-  B8 --> R
-  Q --> R
-  R --> S["Verifier rules"]
-  S --> T{"Unsupported<br/>contradicted<br/>or weak?"}
-  T -- yes --> U["Targeted repair loop"]
-  U --> V["repaired claim-ledger.json"]
-  T -- no --> V
+  L1 --> V0["Evidence linker"]
+  L2 --> V0
+  L3 --> V0
+  C4 --> V0
+  V0 --> V1["Verifier rules<br/>claim-specific evidence requirements"]
+  V1 --> R0{"Weak, unsupported,<br/>contradicted?"}
+  R0 -- yes --> R1["Targeted repair loop"]
+  R1 --> R2["repair-trace.jsonl"]
+  R0 -- no --> G0["repaired claim-ledger.json"]
+  R1 --> G0
 
-  V --> W["Benchmark scorer<br/>precision recall F1"]
-  P --> W
-  W --> X["accuracy-report.md"]
+  G0 --> S0["Benchmark scorer<br/>precision / recall / F1"]
+  A --> S0
+  S0 --> S1["accuracy-report.md"]
 
-  B --> Y["Post-run SHA-256 check"]
-  G --> Y
-  Y --> Z["spoliation-check.json"]
+  G0 --> M0["Sigma mapping"]
+  M0 --> M1["ATT&CK Navigator layer<br/>attack-navigator-layer.json"]
 
-  X --> AA["signed audit-bundle/"]
-  F --> AA
-  I --> AA
-  K --> AA
-  O --> AA
-  V --> AA
-  Z --> AA
-  AA --> AB["reviewer UI<br/>index.html"]
+  B --> P0["Post-run SHA-256 check"]
+  L0 --> P0
+  P0 --> P1["spoliation-check.json"]
+
+  S1 --> AB["audit-bundle/"]
+  X0 --> AB
+  G0 --> AB
+  R2 --> AB
+  F1 --> AB
+  T1 --> AB
+  P1 --> AB
+  M1 --> AB
+  AB --> AB1["Ed25519 manifest<br/>manifest.json + manifest.sig"]
+  AB --> AB2["RFC3161 TSA token<br/>evidence-manifest.tsr"]
+  AB --> AB3["reviewer UI<br/>index.html"]
+
+  AB1 --> CI["GitHub Actions<br/>build + test verification"]
+  AB2 --> OSSL["openssl ts -verify"]
+  M1 --> NAV["MITRE ATT&CK Navigator<br/>drag-and-drop JSON"]
+  E --> DOCKER["Docker image<br/>Dockerfile.kelp / kelp:v3"]
 ```

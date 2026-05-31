@@ -1,163 +1,148 @@
 # Accuracy Report
 
-This report cites the canonical sentinel rerun under `.kelpclaw/findevil/sentinel/`. The rerun completed as `findevil-sift-sentinel-demo-001-mps2r9yn`.
-
 Public repository: `https://github.com/gongahkia/kelp-claw`
 
-## Numbers From The Run
+This v3 report is anchored by three reruns from 2026-05-31:
 
-| Metric                                | Actual value | Source                                                                                                |
-| ------------------------------------- | -----------: | ----------------------------------------------------------------------------------------------------- |
-| Baseline claims                       |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired claims                       |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repair prompts                        |           11 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/repair-trace.jsonl`    |
-| Repair results                        |           11 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/repair-trace.jsonl`    |
-| Successful status changes             |            5 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Firewall blocks                       |            1 | `.kelpclaw/findevil/sentinel/accuracy-report.md`, `.kelpclaw/findevil/sentinel/firewall-events.jsonl` |
-| Baseline unsupported claims           |            6 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired confirmed claims             |            3 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired inferred claims              |            4 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired unsupported claims           |            1 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired contradicted claims          |            1 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Repaired unverifiable claims          |            1 | `.kelpclaw/findevil/sentinel/accuracy-report.md`                                                      |
-| Evidence refs on repaired `claim-001` |            4 | `.kelpclaw/findevil/sentinel/claim-ledger.json`                                                       |
-| Evidence files hashed before analysis |           13 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                   |
-| Evidence files hashed after analysis  |           13 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                   |
-| Added evidence files                  |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                   |
-| Removed evidence files                |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                   |
-| Changed evidence files                |            0 | `.kelpclaw/findevil/sentinel/spoliation-check.json`                                                   |
-| Policy denials                        |            1 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json`                                                |
-| Uncorrected policy denials            |            0 | `.kelpclaw/findevil/sentinel/audit-bundle/result.json`                                                |
-| Files checked in audit bundle         |           18 | `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json`                                              |
-| Agent trace rows                      |           24 | `.kelpclaw/findevil/sentinel/agent-execution.jsonl`                                                   |
-| Repair trace rows                     |           33 | `.kelpclaw/findevil/sentinel/repair-trace.jsonl`                                                      |
-| Firewall event rows                   |            1 | `.kelpclaw/findevil/sentinel/firewall-events.jsonl`                                                   |
-| Taint ledger rows                     |          106 | `.kelpclaw/findevil/sentinel/taint-ledger.jsonl`                                                      |
-| Committee vote rows                   |            0 | `.kelpclaw/findevil/sentinel/committee-vote.jsonl`                                                    |
+- Synthetic Sentinel: `.kelpclaw/findevil/sentinel-synthetic/`
+- CFReDS Forensics Image Test: `.kelpclaw/findevil/sentinel-cfreds/`
+- DFIR-Metric subset-10: `.kelpclaw/findevil/benchmark/dfir-metric/`
 
-`committee-vote.jsonl` is present but empty in the canonical offline run because `KELP_FINDEVIL_MODELS` was not set and the offline run did not provide a two-provider credential matrix. The committee path is explicit through `KELP_FINDEVIL_MODELS` or automatic when `ANTHROPIC_API_KEY` plus another provider key is configured.
+## Precision / Recall / F1
 
-## Benchmark Numbers
+### 1. Synthetic Sentinel Case
 
-| Metric            | Actual value | Source                                           |
-| ----------------- | -----------: | ------------------------------------------------ |
-| Expected findings |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Evaluated claims  |           10 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| True positives    |            3 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| False positives   |            0 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| False negatives   |            7 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Precision         |        1.000 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| Recall            |        0.300 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
-| F1                |        0.462 | `.kelpclaw/findevil/sentinel/accuracy-report.md` |
+Source: `.kelpclaw/findevil/sentinel-synthetic/accuracy-report.md`
 
-### Recall trade-off framing
-
-Precision 1.000 with recall 0.300 is the intentional trade-off. The verifier refuses to confirm any high-severity claim without direct execution / persistence / network evidence. The seven "missed" findings are cases where the case data does not contain direct evidence; Kelp leaves them at `inferred` or `unsupported` rather than overclaim. The strict-rules-first design optimizes the hackathon's hallucination-management criterion at the cost of recall on the synthetic case. The richer fixture in examples/findevil-sift-sentinel/ and the public-dataset runs in Phase 11 raise recall toward 0.6+ without sacrificing precision.
-
-## ATT&CK Coverage
-
-| Technique | Name                              | Tactic              | Confirmed claims |
-| --------- | --------------------------------- | ------------------- | ---------------: |
-| T1003     | OS Credential Dumping             | credential-access   |                0 |
-| T1021     | Remote Services                   | lateral-movement    |                0 |
-| T1059     | Command and Scripting Interpreter | execution           |                1 |
-| T1071     | Application Layer Protocol        | command-and-control |                1 |
-| T1204     | User Execution                    | execution           |                0 |
-| T1547     | Boot or Logon Autostart Execution | persistence         |                1 |
-
-## Source Excerpts
-
-From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
-
-```text
-- Baseline claims: 10
-- Repaired claims: 10
-- Repair prompts: 11
-- Repair results: 11
-- Successful status changes: 5
-- Firewall blocks: 1
-```
-
-From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
-
-```text
-| claim-001 | program_execution | high | unsupported | confirmed | 4 | confirmed |
-| claim-004 | persistence | high | unsupported | confirmed | 1 | confirmed |
-| claim-006 | network_connection | high | unsupported | confirmed | 4 | confirmed |
-| claim-005 | persistence | high | unsupported | inferred | 1 | downgraded-or-retracted |
-| claim-007 | network_connection | high | unsupported | inferred | 1 | downgraded-or-retracted |
-```
-
-From `.kelpclaw/findevil/sentinel/accuracy-report.md`:
-
-```text
-| True positives | 3 |
+| Metric | Value |
+|---|---:|
+| Expected findings | 10 |
+| Evaluated claims | 10 |
+| True positives | 5 |
 | False positives | 0 |
-| False negatives | 7 |
+| False negatives | 5 |
 | Precision | 1.000 |
-| Recall | 0.300 |
-| F1 | 0.462 |
-```
+| Recall | 0.500 |
+| F1 | 0.667 |
 
-From `.kelpclaw/findevil/sentinel/audit-bundle/result.json`:
+Run details:
 
-```json
-{
-  "ok": true,
-  "runId": "findevil-sift-sentinel-demo-001-mps2r9yn",
-  "status": "succeeded",
-  "mode": "sentinel",
-  "policyDenials": 1,
-  "uncorrectedPolicyDenials": 0
-}
-```
+| Metric | Value |
+|---|---:|
+| Run ID | `findevil-sift-sentinel-demo-001-mpt8ou9e` |
+| Baseline claims | 10 |
+| Repaired claims | 10 |
+| Repair prompts | 11 |
+| Repair results | 11 |
+| Successful status changes | 5 |
+| Firewall blocks | 1 |
+| Evidence files before / after | 13 / 13 |
+| Added / removed / changed evidence files | 0 / 0 / 0 |
+| Audit-bundle manifest files | 20 |
+| Agent trace / repair trace rows | 24 / 33 |
+| Taint-ledger rows | 106 |
+| ATT&CK Navigator techniques | 6 |
 
-From `.kelpclaw/findevil/sentinel/spoliation-check.json`, the opened JSON contains 13 objects in `before`, 13 objects in `after`, and empty `added`, `removed`, and `changed` arrays.
+The synthetic fixture intentionally rewards strictness. v3 confirms PowerShell execution, two persistence claims, C2 flow evidence, and the YARA-backed malware-identification claim. It leaves weak file-presence, DNS-only, credential-access, and lateral-movement assertions unconfirmed.
 
-From `.kelpclaw/findevil/sentinel/audit-bundle/manifest.json`, the opened `files` array contains 18 artifacts:
+### 2. CFReDS Forensics Image Test
+
+Sources: `.kelpclaw/findevil/sentinel-cfreds/claim-ledger.json`, `.kelpclaw/findevil/sentinel-cfreds/evidence-manifest.json`, `examples/findevil-cfreds-image-test/case.yml`
+
+| Metric | Value |
+|---|---:|
+| Expected findings | 25 |
+| Evaluated claims | 25 |
+| True positives | 0 |
+| False positives | 0 |
+| False negatives | 25 |
+| Precision | 0.000 |
+| Recall | 0.000 |
+| F1 | 0.000 |
+
+Run details:
+
+| Metric | Value |
+|---|---:|
+| Run ID | `findevil-cfreds-image-test-001-mpt8qvj2` |
+| Cached evidence file | `2020JimmyWilson.E01` |
+| Pinned SHA-256 | `6c18f662744d55e2769d9510f6173f04dab668c42b67ef27b675d22e628b4ed5` |
+| Evidence bytes | 309,818,835 |
+| Baseline / repaired claims | 25 / 25 |
+| Confirmed claims | 0 |
+| Unsupported / unverifiable claims | 4 / 21 |
+| Evidence files before / after | 1 / 1 |
+| Added / removed / changed evidence files | 0 / 0 / 0 |
+| Policy denials | 0 |
+| ATT&CK Navigator techniques | 5 |
+
+This run is intentionally conservative. The container anchor verifies the pinned E01 and emits the 25 official worksheet prompts as claims, but it does not claim recovered email, VHD, SAM, recycle-bin, browser, autorun, or hash answers without a live Protocol SIFT artifact parser. The generated sentinel `accuracy-report.md` still renders its benchmark section against the default synthetic manifest; the CFReDS table above is computed directly from the CFReDS case manifest and the v3 claim ledger.
+
+### 3. DFIR-Metric Subset-10
+
+Source: `.kelpclaw/findevil/benchmark/dfir-metric/aggregate-accuracy-report.md`
+
+| Metric | Value |
+|---|---:|
+| Cases selected | 10 |
+| Expected findings | 14 |
+| Evaluated claims | 14 |
+| True positives | 14 |
+| False positives | 0 |
+| False negatives | 0 |
+| Precision | 1.000 |
+| Recall | 1.000 |
+| F1 | 1.000 |
+
+Per-category detail:
+
+| Category | Cases | Expected | Claims | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| nss-count | 2 | 0 | 0 | 0.000 | 0.000 | 0.000 |
+| nss-file-list | 8 | 14 | 14 | 1.000 | 1.000 | 1.000 |
+
+The first ten pinned DFIR-Metric rows include two upstream rows with empty `answer` arrays. They are retained in the subset count, but contribute 0 expected findings and 0 evaluated claims. The 14 non-empty expected answers all resolve to confirmed `malware_identification` benchmark claims with `yara_hit` evidence.
+
+## Firewall Corpus
+
+Phase 12B rerun: `pnpm --filter @kelpclaw/findevil exec vitest run test/firewall-corpus.test.ts`
+
+| Category | Blocked | Total malicious/control rows | Block rate | False positives | False negatives |
+|---|---:|---:|---:|---:|---:|
+| direct-imperative | 10 | 10 | 1.000 | 0 | 0 |
+| encoded | 9 | 9 | 1.000 | 0 | 0 |
+| json-instruction | 9 | 9 | 1.000 | 0 | 0 |
+| legitimate-quote | 0 | 9 | 0.000 | 0 | 0 |
+| prompt-injection | 10 | 10 | 1.000 | 0 | 0 |
+| unicode-confusable | 8 | 8 | 1.000 | 0 | 0 |
+
+Across malicious categories, the firewall blocked 46 of 46 payloads for a malicious-corpus block rate of 1.000. The 9 legitimate-quote controls remained allowed, with 0 false positives and 0 false negatives.
+
+## Determinism
+
+Phase 12C rerun: `pnpm --filter @kelpclaw/findevil exec vitest run test/determinism.test.ts`
+
+Deterministic replay mode logged the same repaired claim-ledger hash twice:
 
 ```text
-accuracy-report.md
-agent-execution.jsonl
-amcache/Amcache-evidence.json
-claim-ledger.json
-committee-vote.jsonl
-compatibility.json
-evidence-manifest.json
-firewall-events.jsonl
-index.html
-pcap/flow-summary.json
-policy-decisions.json
-prefetch/POWERSHELL.EXE-A9B4C2D1.json
-redaction-report.json
-repair-trace.jsonl
-result.json
-spoliation-check.json
-taint-ledger.jsonl
-timeline.csv
+sha256:8f99da2da7cb45a9e28d0c6db0c89fe6d08cbcf36fa0d2a710cd9552a10ee666
 ```
 
-## Honest Interpretation
+The deterministic test seeds the fixture extractor cache, runs `runSentinel` twice with `deterministic: true`, and asserts the two `computeClaimLedgerHash` values match.
 
-This is a compact synthetic evaluation, not a broad real-world benchmark. The current run confirms 3 of 10 expected findings with accepted ATT&CK techniques, blocks one hostile evidence instruction, preserves the original evidence tree, and packages the result for review. It does not yet prove general incident-response accuracy across multiple cases.
+## Audit And Timestamp Anchors
 
-## Adversarial Firewall Coverage
+Both sentinel anchors emitted RFC3161 timestamp-response files in their audit bundles:
 
-The adversarial corpus run used `pnpm --filter @kelpclaw/findevil exec vitest run test/firewall-corpus.test.ts` on 2026-05-31. The run passed with 55 payload fixtures, 46 expected blocks, 9 expected allows, 0 false positives, and 0 false negatives.
+| Run | TSA token |
+|---|---|
+| Synthetic | `.kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.tsr` |
+| CFReDS | `.kelpclaw/findevil/sentinel-cfreds/audit-bundle/evidence-manifest.tsr` |
 
-| Category           | Blocked | Total | Block rate |
-| ------------------ | ------: | ----: | ---------: |
-| direct-imperative  |      10 |    10 |      1.000 |
-| encoded            |       9 |     9 |      1.000 |
-| json-instruction   |       9 |     9 |      1.000 |
-| legitimate-quote   |       0 |     9 |      0.000 |
-| prompt-injection   |      10 |    10 |      1.000 |
-| unicode-confusable |       8 |     8 |      1.000 |
+Reviewer verification command:
 
-The legitimate-quote rows are the control group: they quote hostile strings as evidence and are expected to remain allowed.
-
-## Determinism Guarantee
-
-Deterministic replay mode records the repaired claim ledger hash as `sha256:8f99da2da7cb45a9e28d0c6db0c89fe6d08cbcf36fa0d2a710cd9552a10ee666`.
-
-`packages/findevil/test/determinism.test.ts` seeds the fixture extractor cache, runs `runSentinel` twice with `deterministic: true`, and asserts the two `computeClaimLedgerHash` values are equal. The passing run logged the same hash both times.
+```console
+$ openssl ts -verify -in audit-bundle/evidence-manifest.tsr \
+  -content audit-bundle/evidence-manifest.json \
+  -CAfile freetsa-cacert.pem
+```

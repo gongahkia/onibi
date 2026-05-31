@@ -4,76 +4,105 @@ Public repository: `https://github.com/gongahkia/kelp-claw`
 
 Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
 
-Use the published container to run the deterministic offline Protocol SIFT-style fixture. It mounts the case bundle read-only and writes fresh reviewer outputs to `.kelpclaw/findevil/sentinel/`.
-
-```bash
-docker run -v $PWD/examples/findevil-sift-sentinel/case-data:/data/case/case-data:ro \
-           -v $PWD/examples/findevil-sift-sentinel/case.yml:/data/case/case.yml:ro \
-           -v $PWD/.kelpclaw/findevil/sentinel:/data/out \
-           ghcr.io/gongahkia/kelp-claw:latest \
-           findevil sentinel --case /data/case/case.yml \
-                              --evidence-root /data/case/case-data \
-                              --trace /app/fixtures/protocol-sift-baseline/baseline.jsonl \
-                              --max-iterations 3 \
-                              --out /data/out
-```
-
-Live SIFT Workstation mode is available for reviewers with the VM; deterministic offline `--trace` mode is the fallback source-build path.
-
-## Live SIFT Workstation Mode
-
-Run this inside the SIFT Workstation VM after following `docs/sift-workstation-setup.md`:
+## Build The v3 Container
 
 ```console
-$ git clone https://github.com/gongahkia/kelp-claw.git
-$ cd kelp-claw
-$ corepack enable
-$ pnpm install --frozen-lockfile
-$ pnpm -r --if-present build
-$ sudo mkdir -p /mnt/case-source /mnt/case-ro
-$ sudo mount --bind "$PWD/examples/findevil-sift-sentinel/case-data" /mnt/case-source
-$ sudo mount --bind /mnt/case-source /mnt/case-ro
-$ sudo mount -o remount,bind,ro /mnt/case-ro
-$ rm -rf /tmp/kelpclaw-findevil-sift-live
-$ mkdir -p /tmp/kelpclaw-findevil-sift-live
-$ ./node_modules/.bin/kelp-claw findevil sentinel \
-  --case examples/findevil-sift-sentinel/case.yml \
-  --evidence-root /mnt/case-ro \
-  --sift-command "protocol-sift run --case-dir /mnt/case-ro --output-jsonl" \
-  --max-iterations 3 \
-  --out /tmp/kelpclaw-findevil-sift-live \
-  | tee /tmp/kelpclaw-findevil-sift-live/sentinel-result.json
-$ sed -n '1,50p' /tmp/kelpclaw-findevil-sift-live/agent-execution.jsonl
-$ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-sift-live/audit-bundle --profile reviewer
+$ docker build -f Dockerfile.kelp -t kelp:v3 .
 ```
 
-The live runtime budget is `siftIntegration.maxRuntimeSeconds: 900` in `examples/findevil-sift-sentinel/case.yml`.
-
-## Offline Trace Fallback
+## Synthetic Sentinel Anchor
 
 ```console
-$ corepack enable
-$ pnpm install --frozen-lockfile
-$ pnpm -r --if-present build
-$ rm -rf /tmp/kelpclaw-findevil-sentinel
-$ ./node_modules/.bin/kelp-claw findevil sentinel \
-  --case examples/findevil-sift-sentinel/case.yml \
-  --evidence-root examples/findevil-sift-sentinel/case-data \
-  --trace fixtures/protocol-sift-baseline/baseline.jsonl \
+$ rm -rf .kelpclaw/findevil/sentinel-synthetic
+$ docker run --rm \
+  -v "$PWD/.kelpclaw/findevil/sentinel-synthetic:/data/out" \
+  kelp:v3 findevil sentinel \
+  --case /app/examples/findevil-sift-sentinel/case.yml \
+  --evidence-root /app/examples/findevil-sift-sentinel/case-data \
+  --trace /app/fixtures/protocol-sift-baseline/baseline.jsonl \
   --max-iterations 3 \
-  --out /tmp/kelpclaw-findevil-sentinel
-$ sed -n '1,80p' /tmp/kelpclaw-findevil-sentinel/accuracy-report.md
-$ jq '{ok, checkedAt, changed:(.changed|length), added:(.added|length), removed:(.removed|length)}' /tmp/kelpclaw-findevil-sentinel/spoliation-check.json
-$ wc -l /tmp/kelpclaw-findevil-sentinel/{agent-execution,committee-vote,repair-trace,firewall-events,taint-ledger}.jsonl
-$ test -s /tmp/kelpclaw-findevil-sentinel/accuracy-report.md && test -s /tmp/kelpclaw-findevil-sentinel/audit-bundle/index.html
-$ ./node_modules/.bin/kelp-claw verify-audit-bundle /tmp/kelpclaw-findevil-sentinel/audit-bundle --profile reviewer
+  --out /data/out
 ```
 
 Expected high-level result:
 
-- The sentinel command returns `ok: true`, `status: "succeeded"`, `policyDenials: 1`, and `uncorrectedPolicyDenials: 0`.
-- The accuracy report shows 10 baseline claims, 10 repaired claims, 11 repair prompts, 11 repair results, 5 successful status changes, and 1 firewall block.
-- The benchmark table shows 10 expected findings, 10 evaluated claims, 3 true positives, 0 false positives, 7 false negatives, precision 1.000, recall 0.300, and F1 0.462.
-- The ATT&CK table covers T1003, T1021, T1059, T1071, T1204, and T1547.
-- The spoliation check shows `ok: true` with 13 files before, 13 files after, and zero changed, added, or removed files.
-- The audit-bundle verification returns `ok: true` with a valid reviewer signature and 18 checked files.
+- `ok: true`, `status: "succeeded"`, `policyDenials: 1`, `uncorrectedPolicyDenials: 0`.
+- Precision 1.000, recall 0.500, F1 0.667.
+- 13 evidence files before, 13 after, 0 added, 0 removed, 0 changed.
+- `attack-navigator-layer.json` contains 6 ATT&CK techniques.
+- `audit-bundle/evidence-manifest.tsr` exists for RFC3161 verification.
+
+## CFReDS Anchor
+
+```console
+$ node scripts/fetch-cfreds-case.mjs
+$ rm -rf .kelpclaw/findevil/sentinel-cfreds
+$ docker run --rm \
+  -v "$PWD/.kelpclaw/datasets/cfreds/forensics-image-test:/data/cfreds:ro" \
+  -v "$PWD/.kelpclaw/findevil/sentinel-cfreds:/data/out" \
+  kelp:v3 findevil sentinel \
+  --case /app/examples/findevil-cfreds-image-test/case.yml \
+  --evidence-root /data/cfreds \
+  --sift-command "<Protocol SIFT JSONL command>" \
+  --max-iterations 3 \
+  --out /data/out
+```
+
+Expected high-level result:
+
+- The fetch script returns `ok .kelpclaw/datasets/cfreds/forensics-image-test/2020JimmyWilson.E01`.
+- The evidence manifest contains one file, SHA-256 `6c18f662744d55e2769d9510f6173f04dab668c42b67ef27b675d22e628b4ed5`.
+- The conservative container anchor emits 25 worksheet claims and confirms 0 without recovered artifact proof.
+- The spoliation check reports 1 file before, 1 after, 0 changed.
+
+## DFIR-Metric Subset-10
+
+```console
+$ rm -rf .kelpclaw/findevil/benchmark/dfir-metric
+$ mkdir -p .kelpclaw/datasets/dfir-metric .kelpclaw/findevil/benchmark/dfir-metric
+$ docker run --rm \
+  -v "$PWD/.kelpclaw:/app/.kelpclaw" \
+  -v "$PWD/.kelpclaw/findevil/benchmark/dfir-metric:/data/out" \
+  kelp:v3 findevil benchmark \
+  --dataset dfir-metric \
+  --subset-size 10 \
+  --out /data/out
+```
+
+Expected high-level result:
+
+- Cases: 10.
+- Expected findings: 14.
+- True positives: 14.
+- False positives: 0.
+- False negatives: 0.
+- Precision 1.000, recall 1.000, F1 1.000.
+
+The first ten pinned DFIR-Metric rows include two rows with empty answer arrays, so they contribute 0 expected findings.
+
+## Verify Audit Bundle
+
+```console
+$ ./node_modules/.bin/kelp-claw verify-audit-bundle \
+  .kelpclaw/findevil/sentinel-synthetic/audit-bundle --profile reviewer
+```
+
+## Verify RFC3161 TSA Token
+
+```console
+$ openssl ts -verify \
+  -in .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.tsr \
+  -content .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.json \
+  -CAfile freetsa-cacert.pem
+```
+
+Judges need the FreeTSA CA certificate from `https://freetsa.org/files/`.
+
+## Open Reviewer UI And Navigator Layer
+
+```console
+$ open .kelpclaw/findevil/sentinel-synthetic/audit-bundle/index.html
+$ open https://mitre-attack.github.io/attack-navigator/
+```
+
+Drag `.kelpclaw/findevil/sentinel-synthetic/attack-navigator-layer.json` into ATT&CK Navigator.
