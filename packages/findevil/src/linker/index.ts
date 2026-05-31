@@ -18,6 +18,13 @@ import {
 import { matchBySrumApp, parseSrumOutput, srumEntryToEvidenceRef } from "./srum.js";
 import { matchSysmonNetworkConnect, matchSysmonProcessCreate, parseSysmonJson } from "./sysmon.js";
 import { matchClaimToRows, parseTimelineCsv, timelineMatchToEvidenceRef } from "./timeline.js";
+import {
+  matchVolatilityCmdline,
+  matchVolatilityMalfind,
+  matchVolatilityNetscan,
+  matchVolatilityPslist,
+  parseVolatilityJson
+} from "./memory.js";
 
 export { parseAmcacheOutput, matchByPathOrHash } from "./amcache.js";
 export {
@@ -34,6 +41,13 @@ export { parseShimcacheOutput, matchByShimcachePath } from "./shimcache.js";
 export { parseSrumOutput, matchBySrumApp } from "./srum.js";
 export { parseSysmonJson, matchSysmonNetworkConnect, matchSysmonProcessCreate } from "./sysmon.js";
 export { parseTimelineCsv, matchClaimToRows } from "./timeline.js";
+export {
+  matchVolatilityCmdline,
+  matchVolatilityMalfind,
+  matchVolatilityNetscan,
+  matchVolatilityPslist,
+  parseVolatilityJson
+} from "./memory.js";
 
 const programExecutionProof = [
   "prefetch_entry",
@@ -41,7 +55,9 @@ const programExecutionProof = [
   "shimcache_indicator",
   "srum_network_activity",
   "sysmon_process_create",
-  "security_4688_process_create"
+  "security_4688_process_create",
+  "volatility-pslist",
+  "volatility-malfind"
 ] as const;
 const persistenceProof = [
   "registry-run-key",
@@ -51,7 +67,7 @@ const persistenceProof = [
   "security_4702_scheduled_task",
   "system_7045_service_create"
 ] as const;
-const networkProof = ["netflow-or-pcap"] as const;
+const networkProof = ["netflow-or-pcap", "volatility-netscan"] as const;
 
 export function linkEvidence(claim: Claim, caseDir: string): Claim {
   const files = listCaseFiles(caseDir);
@@ -65,11 +81,13 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkSrumEvidence(claim, caseDir, files));
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
+      additions.push(...linkVolatilityProgramExecutionEvidence(claim, caseDir, files));
       break;
     case "network_connection":
       additions.push(...linkPcapEvidence(claim, caseDir, files));
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
       additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
+      additions.push(...linkVolatilityNetscanEvidence(claim, caseDir, files));
       break;
     case "file_presence":
       additions.push(...linkTimelineEvidence(claim, caseDir, files));
@@ -91,6 +109,8 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
       additions.push(...linkSysmonProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkEventLogProcessCreateEvidence(claim, caseDir, files));
       additions.push(...linkSysmonNetworkConnectEvidence(claim, caseDir, files));
+      additions.push(...linkVolatilityProgramExecutionEvidence(claim, caseDir, files));
+      additions.push(...linkVolatilityNetscanEvidence(claim, caseDir, files));
       break;
   }
 
@@ -238,6 +258,41 @@ function linkEventLogPersistenceEvidence(
     });
 }
 
+function linkVolatilityProgramExecutionEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isVolatilityFile(file))
+    .flatMap((file) => {
+      const records = parseVolatilityJson(file);
+      return [
+        ...matchVolatilityPslist(claim, records),
+        ...matchVolatilityMalfind(claim, records),
+        ...matchVolatilityCmdline(claim, records)
+      ].map((ref) => ({
+        ...ref,
+        artifact: relativeArtifact(caseDir, ref.artifact)
+      }));
+    });
+}
+
+function linkVolatilityNetscanEvidence(
+  claim: Claim,
+  caseDir: string,
+  files: readonly string[]
+): EvidenceRef[] {
+  return files
+    .filter((file) => isVolatilityFile(file))
+    .flatMap((file) =>
+      matchVolatilityNetscan(claim, parseVolatilityJson(file)).map((ref) => ({
+        ...ref,
+        artifact: relativeArtifact(caseDir, ref.artifact)
+      }))
+    );
+}
+
 function listCaseFiles(caseDir: string): string[] {
   if (!existsSync(caseDir)) {
     throw new Error(`case directory does not exist: ${caseDir}`);
@@ -312,6 +367,14 @@ function isEventLogFile(path: string): boolean {
   return (
     /\.(?:json|jsonl|ndjson)$/u.test(lower) &&
     /(?:evtx|event[-_ ]?log|security|system|hayabusa|chainsaw|winevent)/u.test(lower)
+  );
+}
+
+function isVolatilityFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    /\.(?:json|jsonl|ndjson|log)$/u.test(lower) &&
+    /(?:volatility|vol3|pslist|netscan|malfind|cmdline)/u.test(lower)
   );
 }
 

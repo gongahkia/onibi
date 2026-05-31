@@ -5,7 +5,9 @@ const directExecutionEvidence = new Set([
   "amcache_execution_record",
   "shimcache_indicator",
   "srum_network_activity",
-  "sysmon_process_create"
+  "sysmon_process_create",
+  "volatility-pslist",
+  "volatility-malfind"
 ]);
 
 export function verifyProgramExecutionClaim(claim: Claim): ClaimStatus {
