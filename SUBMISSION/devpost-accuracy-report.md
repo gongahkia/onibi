@@ -143,6 +143,6 @@ Reviewer verification command:
 
 ```console
 $ openssl ts -verify -in audit-bundle/evidence-manifest.tsr \
-  -content audit-bundle/evidence-manifest.json \
+  -data audit-bundle/evidence-manifest.json \
   -CAfile freetsa-cacert.pem
 ```

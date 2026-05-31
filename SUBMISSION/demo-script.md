@@ -97,7 +97,7 @@ $ ./node_modules/.bin/kelp-claw verify-audit-bundle \
   .kelpclaw/findevil/sentinel-synthetic/audit-bundle --profile reviewer
 $ openssl ts -verify \
   -in .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.tsr \
-  -content .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.json \
+  -data .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.json \
   -CAfile freetsa-cacert.pem
 $ open .kelpclaw/findevil/sentinel-synthetic/audit-bundle/index.html
 ```
