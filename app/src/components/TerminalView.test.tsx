@@ -71,6 +71,10 @@ function createTerminalMock() {
   };
 }
 
+function terminalWriteText(value: string | Uint8Array): string {
+  return typeof value === "string" ? value : new TextDecoder().decode(value);
+}
+
 describe("TerminalView", () => {
   beforeEach(() => {
     terminalConstructor.mockReset();
@@ -116,8 +120,36 @@ describe("TerminalView", () => {
     const term = terminalConstructor.mock.results[0]
       .value as ReturnType<typeof createTerminalMock>;
     await waitFor(() => expect(term.write).toHaveBeenCalled());
-    const bytes = term.write.mock.calls[0][0] as Uint8Array;
-    expect(new TextDecoder().decode(bytes)).toBe("hello");
+    expect(terminalWriteText(term.write.mock.calls[0][0])).toBe("hello");
+  });
+
+  test("does not resend duplicate pty resizes for repeated layout passes", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return null;
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />,
+    );
+
+    await waitFor(() =>
+      expect(
+        globalThis.__TAURI_MOCKS__.invoke.mock.calls.filter(
+          ([command]) => command === "pty_resize",
+        ),
+      ).toHaveLength(1),
+    );
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(
+      globalThis.__TAURI_MOCKS__.invoke.mock.calls.filter(
+        ([command]) => command === "pty_resize",
+      ),
+    ).toHaveLength(1);
   });
 
   test("merges replay and queued live output without duplication", async () => {
@@ -159,7 +191,7 @@ describe("TerminalView", () => {
       .value as ReturnType<typeof createTerminalMock>;
     await waitFor(() => expect(term.write).toHaveBeenCalledTimes(2));
     const output = term.write.mock.calls
-      .map(([bytes]) => new TextDecoder().decode(bytes as Uint8Array))
+      .map(([value]) => terminalWriteText(value))
       .join("");
     expect(output).toBe("hello world");
   });
@@ -196,8 +228,7 @@ describe("TerminalView", () => {
     const term = terminalConstructor.mock.results[0]
       .value as ReturnType<typeof createTerminalMock>;
     await waitFor(() => expect(term.write).toHaveBeenCalled());
-    const bytes = term.write.mock.calls[0][0] as Uint8Array;
-    expect(new TextDecoder().decode(bytes)).toBe("hi");
+    expect(terminalWriteText(term.write.mock.calls[0][0])).toBe("hi");
   });
 
   test("reports unavailable ptys when replay attach fails", async () => {

@@ -13,7 +13,6 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import {
   DEFAULT_SETTINGS,
@@ -273,6 +272,7 @@ export function TerminalView({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const lastResizeRef = useRef<{ rows: number; cols: number } | null>(null);
   const textDecoderRef = useRef(new TextDecoder());
   const triggerLineBufferRef = useRef("");
   const activeCommandRef = useRef<SessionCommandMarker | null>(null);
@@ -378,7 +378,12 @@ export function TerminalView({
       if (shouldFocus) {
         term.focus();
       }
-      void ptyResize(ptyId, term.rows, term.cols);
+      const nextSize = { rows: term.rows, cols: term.cols };
+      const lastSize = lastResizeRef.current;
+      if (!lastSize || lastSize.rows !== nextSize.rows || lastSize.cols !== nextSize.cols) {
+        lastResizeRef.current = nextSize;
+        void ptyResize(ptyId, nextSize.rows, nextSize.cols);
+      }
     };
 
     run(focusTerminal);
@@ -398,6 +403,7 @@ export function TerminalView({
     if (!container) {
       return undefined;
     }
+    lastResizeRef.current = null;
 
     const term = new Terminal({
       allowProposedApi: true,
@@ -438,19 +444,6 @@ export function TerminalView({
     });
 
     term.open(container);
-
-    let webglAddon: WebglAddon | null = null;
-    try {
-      webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon?.dispose();
-        webglAddon = null;
-      });
-      term.loadAddon(webglAddon);
-    } catch {
-      // WebGL2 unavailable; xterm falls back to canvas/DOM renderer.
-      webglAddon = null;
-    }
     refreshTerminalLayout(visibleRef.current);
 
     let frame = 0;
@@ -601,7 +594,7 @@ export function TerminalView({
       const text = textDecoderRef.current.decode(bytes, { stream: true });
       applyOutputMetadata(text);
       applyTriggers(text);
-      term.write(bytes);
+      term.write(text);
     };
     const writePtyData = (data: string) => writePtyBytes(decodeBase64(data));
     const writePtyEventData = (event: { data: string; offset: number }) => {
@@ -724,7 +717,6 @@ export function TerminalView({
       fitAddon.dispose();
       unicode11Addon.dispose();
       serializeAddon.dispose();
-      webglAddon?.dispose();
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
