@@ -163,4 +163,28 @@ describe("TerminalView", () => {
       .join("");
     expect(output).toBe("hello world");
   });
+
+  test("reports unavailable ptys when replay attach fails", async () => {
+    const onUnavailable = vi.fn();
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          throw new Error("pty session missing was not found");
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView
+        ptyId="missing"
+        settings={DEFAULT_SETTINGS}
+        visible={false}
+        onUnavailable={onUnavailable}
+      />,
+    );
+
+    await waitFor(() => expect(onUnavailable).toHaveBeenCalled());
+    expect(String(onUnavailable.mock.calls[0][0])).toContain("not found");
+  });
 });

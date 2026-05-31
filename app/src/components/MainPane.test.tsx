@@ -4,9 +4,22 @@ import { MainPane } from "./MainPane";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
 vi.mock("./TerminalView", () => ({
-  TerminalView: ({ ptyId, visible }: { ptyId: string; visible?: boolean }) => (
+  TerminalView: ({
+    ptyId,
+    visible,
+    onUnavailable,
+  }: {
+    ptyId: string;
+    visible?: boolean;
+    onUnavailable?: () => void;
+  }) => (
     <div data-testid="terminal-view" data-visible={String(visible)}>
       {ptyId}
+      <button
+        type="button"
+        aria-label={`detach ${ptyId}`}
+        onClick={() => onUnavailable?.()}
+      />
     </div>
   ),
 }));
@@ -130,6 +143,56 @@ describe("MainPane", () => {
     });
     expect(screen.getByTestId("terminal-view").textContent).toContain("pty-restored");
     expect(screen.queryByText("Session is stale")).toBeNull();
+  });
+
+  test("marks missing running ptys stale so they restart instead of blanking", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "pty_spawn") {
+        return "pty-restored";
+      }
+      return null;
+    });
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-missing",
+          agent: "opencode",
+          workspaceId: "workspace:/repo",
+          title: "OpenCode",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          restart: {
+            command: "opencode",
+            args: [],
+            cwd: "/repo",
+            env: [],
+          },
+        },
+      ],
+      activeSessionId: "pty-missing",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-missing" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<MainPane />);
+    fireEvent.click(screen.getByLabelText("detach pty-missing"));
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("pty-restored");
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_spawn", {
+      req: {
+        command: "opencode",
+        args: [],
+        cwd: "/repo",
+        env: [],
+        rows: 30,
+        cols: 100,
+      },
+    });
   });
 
   test("opens the new-session picker for a split shortcut", () => {
