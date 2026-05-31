@@ -26,9 +26,8 @@ use fs::{
 };
 #[cfg(feature = "gui")]
 use git::{
-    git_commit, git_create_worktree, git_diff_file, git_discard_paths, git_remove_worktree,
-    git_clone_repository, git_stage_paths, git_status, git_sync, git_unstage_paths,
-    git_worktrees,
+    git_clone_repository, git_commit, git_create_worktree, git_diff_file, git_discard_paths,
+    git_remove_worktree, git_stage_paths, git_status, git_sync, git_unstage_paths, git_worktrees,
 };
 #[cfg(feature = "gui")]
 use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
@@ -239,6 +238,13 @@ pub fn run() {
         .try_init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(PtyManager::new())
         .manage(Arc::new(AgentReviewManager::new()))
         .plugin(tauri_plugin_dialog::init())
