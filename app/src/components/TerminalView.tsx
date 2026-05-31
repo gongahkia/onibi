@@ -389,6 +389,7 @@ export function TerminalView({
     }
 
     const term = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       convertEol: false,
       fontFamily: resolvedFontFamily,
