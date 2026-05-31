@@ -584,6 +584,12 @@ export function CommandPalette() {
                   selectedFile?.path ?? null,
                   sessionEvents,
                 ),
+                activeTerminalPaneId
+                  ? {
+                      type: "tab",
+                      targetPaneId: activeTerminalPaneId,
+                    }
+                  : null,
               );
             },
           });

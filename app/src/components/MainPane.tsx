@@ -471,9 +471,8 @@ function AgentHandoffDialog({
         workspace,
         buildAgentHandoffPrompt(session, workspace, selectedPath, sessionEvents),
         {
-          type: "split",
+          type: "tab",
           targetPaneId: paneId,
-          direction: "vertical",
         },
         {
           cwd:

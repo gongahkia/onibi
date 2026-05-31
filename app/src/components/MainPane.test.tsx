@@ -363,9 +363,12 @@ describe("MainPane", () => {
       });
     });
     expect(useSessionStore.getState().activeSessionId).toBe("pty-codex");
-    expect(useSessionStore.getState().terminalLayout).toMatchObject({
-      type: "split",
-      direction: "vertical",
+    expect(useSessionStore.getState().activeTerminalPaneId).toBe("pane-1");
+    expect(useSessionStore.getState().terminalLayout).toEqual({
+      type: "leaf",
+      paneId: "pane-1",
+      sessionId: "pty-codex",
+      sessionIds: ["pty-1", "pty-codex"],
     });
   });
 });

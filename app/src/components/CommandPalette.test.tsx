@@ -192,6 +192,49 @@ describe("CommandPalette", () => {
     expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
   });
 
+  test("hands off to another agent as a tab in the active pane", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "pty_spawn") {
+        return "pty-codex";
+      }
+      return null;
+    });
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo",
+          title: "Claude · repo",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "handoff codex" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("pty-codex");
+    });
+    expect(useSessionStore.getState().terminalLayout).toEqual({
+      type: "leaf",
+      paneId: "pane-1",
+      sessionId: "pty-codex",
+      sessionIds: ["pty-1", "pty-codex"],
+    });
+  });
+
   test("saves and restores terminal arrangements from the palette", async () => {
     vi.mocked(window.prompt).mockReturnValue("Pairing layout");
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
