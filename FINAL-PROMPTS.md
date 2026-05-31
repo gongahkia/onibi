@@ -1725,3 +1725,903 @@ Commit message: "phase 8: rerun + refresh submission artifacts for v2 pipeline"
 | `SUBMISSION/**` (final rewrite) + demo video link | Phase 8 |
 
 **Conflict-resolution rule:** any file that has more than one owner-phase in the table above must be edited serially (the later-phase agent rebases on top of the earlier). Phase 6 agents share `linker/index.ts` and may collide; resolve by ordering 6A→6B→6C→6D if they must merge against each other.
+
+---
+
+# v3 Expansion phases (9 → 13)
+
+These phases run after Phase 8 ships. They close v2-audit gaps (failing snapshot, empty committee-vote.jsonl, missing live SIFT transcript, missing recall framing) and add three differentiators not present in any publicly-visible Find Evil! submission: (1) two real-world benchmark anchors (CFReDS + DFIR-Metric), (2) multi-vendor LLM committee using Anthropic + OpenAI/Azure + Gemini, (3) Docker as the primary judge-facing distribution.
+
+Submission criteria (demo video upload, Devpost form filling) are NOT covered by these phases — the user will handle those manually.
+
+Sources verified 2026-05-30:
+- DFIR-Metric benchmark: arxiv:2505.19973v1 (Knowledge Assessment 700 MCQ, Realistic Forensic Challenges 150 CTF, Practical Analysis 500 NIST CFTT disk/memory cases)
+- NIST CFReDS: https://cfreds.nist.gov/all/DFIR_AB/ForensicsImageTestimage and https://cfreds-archive.nist.gov/
+- Tigma TypeScript Sigma engine: https://github.com/binalyze/tigma
+- MITRE ATT&CK Navigator Layer v4.5 spec: https://github.com/mitre-attack/attack-navigator/blob/master/layers/spec/v4.5/layerformat.md
+- Hayabusa rules: https://github.com/Yamato-Security/hayabusa-rules
+- RFC3161 free public TSA: https://freetsa.org/
+
+## Phase 9 — Hygiene + Test Fixes
+
+> One agent. Sequential. ~1 day. Depends on Phase 8 done.
+
+```txt
+You are working in /Users/gongahkia/Desktop/coding/projects/kelp-claw on
+`main`. Phases 0–8 are committed. The v2 audit surfaced four hygiene
+issues; close them all in one commit per concern.
+
+Read in order:
+  1. FINAL-PLAN-HACKATHON.md            §v2 Expansion
+  2. packages/findevil/test/extractor.test.ts   (failing inline snapshot)
+  3. packages/findevil/src/extractor/index.ts   (committee toggle)
+  4. .kelpclaw/findevil/sentinel/committee-vote.jsonl   (currently 0 bytes)
+  5. SUBMISSION/devpost-accuracy-report.md
+  6. docs/sift-workstation-setup.md
+  7. CLAUDE.md
+
+Deliverables:
+
+  packages/findevil/test/extractor.test.ts
+    Fix the inline snapshot to include the attackTechniques field
+    Phase 7A added. Re-run `pnpm --filter @kelpclaw/findevil test` and
+    confirm only this file changes. Do NOT use `vitest -u` blindly —
+    verify the new snapshot is correct by reading the extractor output
+    first.
+
+  packages/findevil/src/extractor/index.ts
+    Change the default extraction path so that when KELP_FINDEVIL_MODELS
+    is unset AND at least two provider env vars are present
+    (ANTHROPIC_API_KEY + OPENAI_API_KEY|AZURE_OPENAI_API_KEY|
+     GOOGLE_API_KEY), the committee path is used. Document the env-var
+    matrix in a header comment. Single-model remains the fallback when
+    only one provider is configured.
+
+  .github/workflows/ci.yml
+    NEW. On push to main and PRs:
+      - actions/checkout@v4
+      - actions/setup-node@v4 (node 20)
+      - cache pnpm store
+      - pnpm install --frozen-lockfile
+      - pnpm -r build
+      - pnpm -r test
+      - upload .kelpclaw/findevil/sentinel/audit-bundle as artifact
+    No deploy step. Single matrix entry: ubuntu-latest, node 20.
+
+  SUBMISSION/devpost-accuracy-report.md
+    Add a "Recall trade-off framing" paragraph just below the headline
+    numbers:
+      "Precision 1.000 with recall 0.300 is the intentional trade-off.
+       The verifier refuses to confirm any high-severity claim without
+       direct execution / persistence / network evidence. The seven
+       'missed' findings are cases where the case data does not contain
+       direct evidence; Kelp leaves them at `inferred` or `unsupported`
+       rather than overclaim. The strict-rules-first design optimizes
+       the hackathon's hallucination-management criterion at the cost
+       of recall on the synthetic case. The richer fixture in
+       examples/findevil-sift-sentinel/ and the public-dataset runs in
+       Phase 11 raise recall toward 0.6+ without sacrificing precision."
+
+  docs/sift-workstation-setup.md
+    Append a "Captured live transcript" section. Run the live sentinel
+    on the SIFT Workstation VM once if you can; otherwise paste the
+    canonical offline run transcript and label it honestly:
+      "Offline trace mode captured 2026-XX-XX. Live `--sift-command`
+       integration was tested manually but no full transcript is
+       captured for the canonical bundle. See limitations in the
+       accuracy report."
+
+Verification:
+  pnpm -r test                    must be 100% green
+  pnpm -r build                   must be 100% green
+  git status                      only the 5 files listed above
+  GitHub Actions CI badge present in README.md (Phase 13 will polish)
+
+Files you may touch (ONLY these):
+  packages/findevil/test/extractor.test.ts
+  packages/findevil/src/extractor/index.ts
+  .github/workflows/ci.yml
+  SUBMISSION/devpost-accuracy-report.md
+  docs/sift-workstation-setup.md
+
+Files you MUST NOT touch:
+  Everything else. If you find a second snapshot drift, surface it
+  via commit-body note; do not fix it in this phase.
+
+Commit message: "phase 9: fix snapshot, default to committee, add CI,
+frame recall, log live-SIFT limitation"
+```
+
+## Phase 10 — Forensic depth expansion
+
+> Four agents. **All four parallel.** Depends on Phase 9. Each owns one new linker file + extends one verifier rule via the existing `// PHASE 6 INSERT POINT` marker (rename it `// PHASE 6/10 INSERT POINT` in Phase 9 if convenient). Phase 10 agents coordinate via insert-order if real conflicts arise.
+
+### Phase 10A — Registry linker
+
+```txt
+You are working in /Users/gongahkia/Desktop/coding/projects/kelp-claw on
+`main`. Phase 9 merged. Parallel with 10B, 10C, 10D.
+
+Read:
+  1. FINAL-PLAN-HACKATHON.md            §v3 Phase 10
+  2. docs/IDEA2-DOCUMENT.md             §Evidence Linker
+  3. https://github.com/keydet89/RegRipper3.0  (regripper output format
+                                                  via WebFetch)
+  4. https://github.com/EricZimmerman/RegistryExplorer (CSV format)
+  5. packages/findevil/src/linker/eventlog.ts (mirror)
+  6. packages/findevil/src/verifier/rules/persistence.ts
+  7. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/linker/registry.ts
+    NEW.
+      parseRegistryJson(file): RegistryRecord[]
+      matchRegistryRunKey(claim, records): EvidenceRef[]
+        - HKCU\...\Run, HKLM\...\Run, RunOnce
+      matchRegistryService(claim, records): EvidenceRef[]
+        - HKLM\System\CurrentControlSet\Services\<name>
+      matchRegistryScheduledTask(claim, records): EvidenceRef[]
+        - HKLM\Software\Microsoft\Windows NT\Schedule\TaskCache\Tasks
+      matchRegistryShimCache(claim, records): EvidenceRef[]
+        - AppCompatCache subset; complements Phase 6C shimcache linker
+    Locator format: "registry:hive=<SYSTEM|SOFTWARE|NTUSER>:key=<path>:value=<name>"
+
+  packages/findevil/src/linker/index.ts
+    Single insert at marker: registry linker for persistence +
+    program_execution claim types.
+
+  packages/findevil/src/verifier/rules/persistence.ts
+    Add registry-run-key and registry-service to accepted-evidence set.
+
+  packages/findevil/test/registry-linker.test.ts
+    NEW. Inline fixtures for 1 Run-key, 1 Service, 1 ScheduledTask,
+    1 ShimCache record. Assert each match function returns expected
+    refs.
+
+Files you may touch (ONLY these):
+  packages/findevil/src/linker/registry.ts                (new)
+  packages/findevil/src/linker/index.ts                   (single insert)
+  packages/findevil/src/verifier/rules/persistence.ts     (single insert)
+  packages/findevil/test/registry-linker.test.ts          (new)
+
+Commit message: "phase 10A: registry linker (Run keys, services,
+scheduled tasks, shimcache)"
+```
+
+### Phase 10B — Memory linker (Volatility 3)
+
+```txt
+Same shape as 10A. Volatility 3 plugins emit JSON via `vol3 -r json`.
+
+Deliverables:
+  packages/findevil/src/linker/memory.ts
+    NEW.
+      parseVolatilityJson(file): VolatilityRecord[]
+      matchVolatilityPslist(claim, records): EvidenceRef[]
+        - windows.pslist plugin
+      matchVolatilityNetscan(claim, records): EvidenceRef[]
+        - windows.netscan plugin
+      matchVolatilityMalfind(claim, records): EvidenceRef[]
+        - windows.malfind plugin
+      matchVolatilityCmdline(claim, records): EvidenceRef[]
+        - windows.cmdline plugin
+    Locator: "volatility:plugin=<name>:row=<N>"
+
+  packages/findevil/src/linker/index.ts        (single insert)
+  packages/findevil/src/verifier/rules/program-execution.ts
+                                                (extend accepted set with
+                                                 volatility-pslist,
+                                                 volatility-malfind)
+  packages/findevil/src/verifier/rules/network-connection.ts
+                                                (add volatility-netscan)
+  packages/findevil/test/memory-linker.test.ts  (new)
+
+Commit message: "phase 10B: volatility 3 memory analysis linker"
+```
+
+### Phase 10C — YARA result linker
+
+```txt
+Same shape. YARA emits JSON via `yara --print-meta --print-strings -s
+target/`.
+
+Deliverables:
+  packages/findevil/src/linker/yara.ts
+    NEW.
+      parseYaraJson(file): YaraMatch[]
+      matchYaraFamilyHit(claim, matches): EvidenceRef[]
+        - When claim.type is malware_identification and the claim text
+          mentions a family or rule name
+      matchYaraExecutionContext(claim, matches): EvidenceRef[]
+        - When a malware hit is on a file the program_execution claim
+          mentions; cross-references file path
+    Locator: "yara:rule=<name>:target=<path>"
+
+  packages/findevil/src/linker/index.ts        (single insert)
+  packages/findevil/src/verifier/rules/default.ts
+                                                (malware_identification
+                                                 accepted set: yara_hit)
+  packages/findevil/test/yara-linker.test.ts    (new)
+
+Commit message: "phase 10C: yara malware-identification linker"
+```
+
+### Phase 10D — MFT $LogFile linker
+
+```txt
+Same shape. MFTECmd emits JSON or CSV; assume JSON.
+
+Deliverables:
+  packages/findevil/src/linker/mft.ts
+    NEW.
+      parseMftJson(file): MftRecord[]
+      matchMftFileCreate(claim, records): EvidenceRef[]
+      matchMftFileModify(claim, records): EvidenceRef[]
+      matchMftFileDelete(claim, records): EvidenceRef[]
+        - all keyed by FileName / Extension / Si / Fn timestamps
+    Locator: "mft:record=<MFT entry number>:attr=<SI|FN>"
+
+  packages/findevil/src/linker/index.ts        (single insert)
+  packages/findevil/src/verifier/rules/program-execution.ts
+                                                (mft-file-create as
+                                                 corroborating-only,
+                                                 not confirming)
+  packages/findevil/src/verifier/rules/persistence.ts
+                                                (mft-file-create as
+                                                 corroborating-only)
+  packages/findevil/test/mft-linker.test.ts     (new)
+
+Note: file-presence in MFT alone must NOT promote a program_execution
+claim to confirmed; the rule should still require prefetch/amcache/
+sysmon/evtx/volatility. MFT is corroborating evidence only.
+
+Commit message: "phase 10D: MFT $LogFile filesystem-event linker"
+```
+
+## Phase 11 — Benchmark and reviewer polish
+
+> 1 sequential agent (11A) then 4 parallel agents (11B/C/D/E). Depends on Phase 10.
+
+### Phase 11A — Multi-vendor committee
+
+```txt
+You are working in /Users/gongahkia/Desktop/coding/projects/kelp-claw on
+`main`. Phase 10 merged. Sequential; must complete before 11B/C/D/E.
+
+Read:
+  1. FINAL-PLAN-HACKATHON.md            §v3 Phase 11A
+  2. packages/findevil/src/extractor/committee.ts (current single-vendor)
+  3. packages/findevil/src/extractor/index.ts
+  4. https://docs.anthropic.com/en/api/messages
+  5. https://platform.openai.com/docs/api-reference/responses
+  6. https://learn.microsoft.com/azure/ai-services/openai/reference
+  7. https://ai.google.dev/api/generate-content
+  8. CLAUDE.md
+
+Goal: committee.ts canonically supports four provider families.
+
+Deliverables:
+  packages/findevil/src/extractor/providers/anthropic.ts
+    NEW. extractFromAnthropic(prompt, model): Promise<RawClaimsJson>
+    Uses @anthropic-ai/sdk. Honors ANTHROPIC_API_KEY.
+
+  packages/findevil/src/extractor/providers/openai.ts
+    NEW. extractFromOpenAI(prompt, model): Promise<RawClaimsJson>
+    Uses official `openai` npm package via the Responses API. Honors
+    OPENAI_API_KEY. The provider "openai" is OpenAI's hosted endpoint.
+
+  packages/findevil/src/extractor/providers/azure.ts
+    NEW. extractFromAzureOpenAI(prompt, model): Promise<RawClaimsJson>
+    Uses the same `openai` npm package configured with
+    AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY +
+    AZURE_OPENAI_DEPLOYMENT.
+
+  packages/findevil/src/extractor/providers/gemini.ts
+    NEW. extractFromGemini(prompt, model): Promise<RawClaimsJson>
+    Uses @google/generative-ai or the REST API. Honors GOOGLE_API_KEY.
+
+  packages/findevil/src/extractor/committee.ts
+    Extend: providerDispatch(provider): Provider; accept the
+    ProviderName union {"anthropic","openai","openai-azure","gemini"}.
+    Canonical default committee (used when KELP_FINDEVIL_MODELS is
+    unset AND ≥2 provider env vars present):
+      [{ provider: "anthropic",    model: "claude-opus-4-7" },
+       { provider: "openai-azure", model: "gpt-5"          },
+       { provider: "gemini",       model: "gemini-2.5-pro" }]
+    Single-model fallback if only one provider configured.
+    Cache hits per (provider, model, sha256(report)) under
+    .kelpclaw/findevil/extractor-cache/<provider>/.
+
+  packages/findevil/src/extractor/index.ts
+    Wire the new default; remove the single-vendor hardcoding from
+    Phase 9.
+
+  packages/findevil/test/committee-providers.test.ts
+    NEW. Mock each provider response; assert:
+      - 3 providers agree -> confidence 1.0
+      - 2/3 agree, 1 disagrees -> confidence 0.67, status downgrade
+      - 1/3 -> claim dropped
+      - 0 providers configured -> throws explanatory error
+      - 1 provider configured -> falls back to single-model
+
+  README.md
+    Add a "Multi-vendor committee" subsection under Configuration. List
+    each provider's env var. Note that Claude Code remains the agentic
+    framework per hackathon rules; the committee uses other providers
+    for claim-extraction voting only, not for tool execution.
+
+Files you may touch (ONLY these):
+  packages/findevil/src/extractor/providers/**            (new)
+  packages/findevil/src/extractor/committee.ts            (extend)
+  packages/findevil/src/extractor/index.ts                (extend)
+  packages/findevil/test/committee-providers.test.ts      (new)
+  README.md                                                (one subsection)
+
+Commit message: "phase 11A: multi-vendor committee (Anthropic + OpenAI
++ Azure + Gemini)"
+```
+
+### Phase 11B — DFIR-Metric benchmark integration
+
+```txt
+Same shape as a typical phase. Parallel with 11C/D/E.
+
+Read:
+  1. FINAL-PLAN-HACKATHON.md            §v3 Phase 11B
+  2. arxiv:2505.19973v1 abstract        (DFIR-Metric paper; WebFetch)
+  3. Search GitHub for "dfir-metric" — find official dataset repo;
+     document URL + license in your commit body
+  4. packages/findevil/src/benchmark/**
+  5. packages/findevil/src/sentinel/index.ts
+  6. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/benchmark/dfir-metric.ts
+    NEW.
+      loadDfirMetricPractical(): Promise<DfirMetricCase[]>
+        - Downloads + caches under .kelpclaw/datasets/dfir-metric/
+        - Verifies SHA-256 against pinned manifest in the same file
+      mapToExpectedFindings(dfirCase): ExpectedFinding[]
+        - Converts DFIR-Metric expected answers into Kelp's
+          ExpectedFinding schema
+      runDfirMetricSubset(opts): Promise<BenchmarkReport>
+        - Runs sentinel against N selected cases (default 10)
+        - Aggregates per-category precision/recall/F1
+
+  packages/cli/src/findevil/benchmark.ts
+    NEW. CLI handler for:
+      kelp-claw findevil benchmark --dataset dfir-metric \
+        --subset-size 10 --out .kelpclaw/findevil/benchmark/dfir-metric/
+    Reuses the sentinel pipeline internally; emits one accuracy report
+    per case + an aggregate.
+
+  packages/cli/src/findevil/index.ts                       (one insert)
+  packages/findevil/src/sentinel/index.ts                  (one output
+                                                            key for the
+                                                            benchmark
+                                                            mode)
+  packages/findevil/test/dfir-metric.test.ts               (new; uses
+                                                            a tiny
+                                                            inline
+                                                            fake case)
+  docs/benchmark-dfir-metric.md                            (new — how
+                                                            to acquire
+                                                            the dataset,
+                                                            citation,
+                                                            cost notes)
+
+Files you may touch (ONLY these):
+  packages/findevil/src/benchmark/dfir-metric.ts
+  packages/cli/src/findevil/benchmark.ts
+  packages/cli/src/findevil/index.ts                       (single insert)
+  packages/findevil/src/sentinel/index.ts                  (single insert
+                                                            for benchmark
+                                                            output key)
+  packages/findevil/test/dfir-metric.test.ts
+  docs/benchmark-dfir-metric.md
+
+Commit message: "phase 11B: DFIR-Metric Practical benchmark adapter
+and CLI"
+```
+
+### Phase 11C — CFReDS small-case fixture
+
+```txt
+Same shape. Parallel with 11B/D/E.
+
+Read:
+  1. https://cfreds.nist.gov/all/DFIR_AB/ForensicsImageTestimage
+                                          (WebFetch the page for hash +
+                                           download URL)
+  2. https://cfreds-archive.nist.gov/
+  3. examples/findevil-sift-sentinel/case.yml (mirror format)
+  4. CLAUDE.md
+
+Deliverables:
+  examples/findevil-cfreds-image-test/case.yml
+    Case manifest with expectedFindings drawn from the CFReDS image
+    documentation (use the official scenario description as
+    ground truth).
+
+  examples/findevil-cfreds-image-test/README.md
+    "How to fetch the image, expected findings, what Kelp does with it."
+
+  scripts/fetch-cfreds-case.mjs
+    NEW. Downloads the CFReDS image to .kelpclaw/datasets/cfreds/<name>/
+    Verifies SHA-256 against a pinned manifest in the same script.
+    Exits 0 on success, 1 on hash mismatch.
+
+  docs/case-cfreds-image-test.md
+    Provenance: URL, license, expected SHA-256, file size, why this
+    case is suitable for a 5-minute demo.
+
+Note: do NOT commit the downloaded image. Add the cache directory to
+.gitignore. The fetch script is the reproducibility primitive.
+
+Files you may touch (ONLY these):
+  examples/findevil-cfreds-image-test/**                   (new)
+  scripts/fetch-cfreds-case.mjs                            (new)
+  docs/case-cfreds-image-test.md                           (new)
+  .gitignore                                                (one line for
+                                                             .kelpclaw/datasets/)
+
+Commit message: "phase 11C: CFReDS small-case fixture + fetch script"
+```
+
+### Phase 11D — Sigma rule engine via Tigma
+
+```txt
+Same shape. Parallel with 11B/C/E.
+
+Read:
+  1. https://github.com/binalyze/tigma
+  2. https://github.com/Yamato-Security/hayabusa-rules
+  3. packages/findevil/src/linker/eventlog.ts
+  4. packages/findevil/src/types/claim.ts
+  5. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/sigma/index.ts
+    NEW.
+      loadCuratedRuleset(): SigmaRule[]
+        - Returns 10-20 high-signal rules: service installation
+          (4697/7045), suspicious PowerShell (4104), AdFind exec,
+          rundll32 LOLBin, etc. Rule YAML inlined as a TS constant for
+          determinism.
+      matchEventLogAgainstSigma(records, rules): SigmaMatch[]
+      sigmaMatchesAsEvidence(matches): EvidenceRef[]
+        - supports: "sigma_rule_match"; hash includes the rule's
+          UUID for traceability
+
+  packages/findevil/src/linker/eventlog.ts
+    Single insert: after parsing EventLogRecord[], run them through
+    sigmaMatchesAsEvidence and merge results.
+
+  packages/findevil/src/types/claim.ts
+    Single insert: add "sigma_rule_match" to the EvidenceRef.supports
+    enum.
+
+  packages/findevil/test/sigma.test.ts
+    NEW. Inline event log fixture + inline rule; assert match.
+
+  docs/third-party-licenses.md
+    NEW (or append). Cite Hayabusa rules upstream license (DRL) and
+    Tigma license (MIT).
+
+Files you may touch (ONLY these):
+  packages/findevil/src/sigma/**                            (new)
+  packages/findevil/src/linker/eventlog.ts                  (single insert)
+  packages/findevil/src/types/claim.ts                      (single insert)
+  packages/findevil/test/sigma.test.ts                      (new)
+  docs/third-party-licenses.md                              (new/append)
+
+Commit message: "phase 11D: Sigma rule matching via Tigma over event
+log records"
+```
+
+### Phase 11E — MITRE ATT&CK Navigator layer export
+
+```txt
+Same shape. Parallel with 11B/C/D.
+
+Read:
+  1. https://github.com/mitre-attack/attack-navigator/blob/master/layers/spec/v4.5/layerformat.md
+                                          (the spec; WebFetch)
+  2. packages/findevil/src/attack/**
+  3. packages/findevil/src/sentinel/index.ts
+  4. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/attack/navigator-layer.ts
+    NEW.
+      buildNavigatorLayer(ledger, opts): NavigatorLayerV45
+        - Includes domain, version, name, description, techniques[]
+        - Each technique: techniqueID, score = (confirmed / total),
+          comment with claim IDs, color from a fixed gradient
+      writeNavigatorLayer(path, layer): Promise<void>
+
+  packages/findevil/src/sentinel/index.ts
+    Single insert: write attack-navigator-layer.json to outDir; add
+    its path to outputs map.
+
+  packages/findevil/test/navigator-layer.test.ts
+    NEW. Snapshot test against a small ledger.
+
+  README.md
+    Add a one-line: "Drag .kelpclaw/findevil/sentinel/attack-navigator-
+    layer.json into https://mitre-attack.github.io/attack-navigator/
+    to see the technique coverage map."
+
+Files you may touch (ONLY these):
+  packages/findevil/src/attack/navigator-layer.ts           (new)
+  packages/findevil/src/sentinel/index.ts                   (single insert)
+  packages/findevil/test/navigator-layer.test.ts            (new)
+  README.md                                                  (one line)
+
+Commit message: "phase 11E: MITRE ATT&CK Navigator v4.5 layer export"
+```
+
+## Phase 12 — Architectural defense + distribution
+
+> Four agents. **All four parallel.** Depends on Phase 11.
+
+### Phase 12A — Docker image
+
+```txt
+You are working in /Users/gongahkia/Desktop/coding/projects/kelp-claw on
+`main`. Phase 11 merged. Parallel with 12B/C/D.
+
+Read:
+  1. README.md                          (current Try It Out)
+  2. SUBMISSION/devpost-try-it-out.md
+  3. existing Dockerfile.api (legacy/) for build pattern reference
+  4. package.json
+  5. CLAUDE.md
+
+Deliverables:
+  Dockerfile.kelp
+    NEW. Multi-stage:
+      Stage 1 (builder): node:20-bookworm-slim, pnpm 10, COPY repo,
+                          pnpm install --frozen-lockfile, pnpm -r build
+      Stage 2 (runtime): node:20-bookworm-slim, COPY --from=builder
+                          /app, ENV NODE_ENV=production,
+                          ENTRYPOINT ["node",
+                                       "packages/cli/dist/index.js"]
+    No root user in runtime. Set USER 10000:10000.
+
+  docker-compose.kelp.yml
+    NEW. One service `sentinel`. Mounts:
+      - ./examples/findevil-sift-sentinel/case-data:/data/case:ro
+      - kelpclaw-output:/data/out
+    Default command:
+      findevil sentinel --case /data/case/case.yml ...
+
+  scripts/docker-publish.mjs
+    NEW. Builds with version tag from package.json + git short SHA.
+    Pushes to ghcr.io/gongahkia/kelp-claw:<version>-<sha> and :latest.
+    Requires GH_TOKEN env var; exits with explanatory error otherwise.
+
+  README.md
+    Replace Try It Out lead with:
+      ```bash
+      docker run -v $PWD/examples/findevil-sift-sentinel/case-data:/data/case:ro \
+                 -v $PWD/.kelpclaw/findevil/sentinel:/data/out \
+                 ghcr.io/gongahkia/kelp-claw:latest \
+                 findevil sentinel --case /data/case/case.yml \
+                                    --evidence-root /data/case \
+                                    --trace ... --out /data/out
+      ```
+    Move the raw `pnpm install` + `node packages/cli/dist/index.js`
+    invocation to a "Developer setup" section.
+
+  SUBMISSION/devpost-try-it-out.md
+    Same lead replacement.
+
+Verification:
+  docker build -f Dockerfile.kelp -t kelp:local .
+  docker run kelp:local help                    (prints help JSON)
+  docker run -v ... kelp:local findevil sentinel ...
+                                                 (runs end-to-end against
+                                                  mounted case)
+
+Files you may touch (ONLY these):
+  Dockerfile.kelp                                            (new)
+  docker-compose.kelp.yml                                    (new)
+  scripts/docker-publish.mjs                                 (new)
+  README.md                                                  (lead rewrite)
+  SUBMISSION/devpost-try-it-out.md                           (lead rewrite)
+
+Commit message: "phase 12A: Dockerfile + compose + publish script"
+```
+
+### Phase 12B — Adversarial firewall test suite
+
+```txt
+Same shape. Parallel with 12A/C/D.
+
+Read:
+  1. FINAL-PLAN-HACKATHON.md            §v3 Phase 12B
+  2. packages/findevil/src/firewall/**
+  3. packages/findevil/test/firewall-patterns.test.ts (mirror)
+  4. CLAUDE.md
+
+Deliverables:
+  fixtures/adversarial-injections/
+    NEW. 50+ payload files spanning categories:
+      direct-imperative/        "rm -rf /case/source", "del /q /s",
+                                "shutdown /s /t 0"
+      encoded/                  base64 shell, hex shell, $(...)
+                                substitution
+      prompt-injection/         "IGNORE PREVIOUS INSTRUCTIONS",
+                                "[ANALYST_OVERRIDE]", markdown image
+                                alt-text injections
+      json-instruction/         tool-call-shaped JSON inside log lines
+      unicode-confusable/       Cyrillic 'а' for Latin 'a', RTL override
+      legitimate-quote/         (control group) analyst notes that
+                                quote hostile text but should NOT be
+                                blocked
+    Each file: 1 paragraph of "context" + 1 isolated payload line
+    + expected outcome (block | allow) in YAML frontmatter.
+
+  packages/findevil/test/firewall-corpus.test.ts
+    NEW. Iterates the corpus, runs each payload through
+    classifyToolCall, asserts expected outcome. Emits a coverage
+    summary to stdout: block rate per category, total false-positive
+    and false-negative counts.
+
+  SUBMISSION/devpost-accuracy-report.md
+    Append "Adversarial firewall coverage" section citing actual
+    numbers from the test run.
+
+Files you may touch (ONLY these):
+  fixtures/adversarial-injections/**                         (new)
+  packages/findevil/test/firewall-corpus.test.ts             (new)
+  SUBMISSION/devpost-accuracy-report.md                      (append)
+
+Commit message: "phase 12B: adversarial firewall corpus + block rate
+reporting"
+```
+
+### Phase 12C — Deterministic replay mode
+
+```txt
+Same shape. Parallel with 12A/B/D.
+
+Read:
+  1. FINAL-PLAN-HACKATHON.md            §v3 Phase 12C
+  2. packages/findevil/src/extractor/index.ts (cache key derivation)
+  3. packages/findevil/src/sentinel/index.ts
+  4. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/sentinel/determinism.ts
+    NEW.
+      assertDeterministicMode(opts): void
+      pinExtractorTemperature(): void
+      refuseFreshLlmCallOnCacheMiss(): void
+      stableSortRecord<T>(record: T): T
+      computeClaimLedgerHash(ledger): string
+
+  packages/findevil/src/sentinel/index.ts
+    When opts.deterministic === true (CLI flag --deterministic or env
+    KELP_DETERMINISTIC=1):
+      - Call assertDeterministicMode at start
+      - Use stableSortRecord on every output object before write
+      - Refuse cache-miss extractor calls (require pre-cached responses)
+      - Compute and log the claim-ledger SHA-256
+
+  packages/cli/src/findevil/sentinel.ts
+    Add --deterministic flag.
+
+  packages/findevil/test/determinism.test.ts
+    NEW. Runs sentinel twice in deterministic mode against the
+    fixture; asserts the two claim-ledger hashes are identical.
+
+  SUBMISSION/devpost-accuracy-report.md
+    Append "Determinism guarantee" section: cite the recorded hash and
+    the test that proves equality.
+
+Files you may touch (ONLY these):
+  packages/findevil/src/sentinel/determinism.ts              (new)
+  packages/findevil/src/sentinel/index.ts                    (extend)
+  packages/cli/src/findevil/sentinel.ts                      (flag)
+  packages/findevil/test/determinism.test.ts                 (new)
+  SUBMISSION/devpost-accuracy-report.md                      (append)
+
+Commit message: "phase 12C: deterministic replay mode + ledger-hash
+equality test"
+```
+
+### Phase 12D — Cryptographic chain-of-custody (RFC3161)
+
+```txt
+Same shape. Parallel with 12A/B/C.
+
+Read:
+  1. https://www.rfc-editor.org/rfc/rfc3161
+  2. https://freetsa.org/                (free public TSA)
+  3. packages/evidence/src/index.ts      (existing Ed25519 signing)
+  4. packages/findevil/src/spoliation/index.ts
+  5. packages/findevil/src/sentinel/index.ts
+  6. CLAUDE.md
+
+Deliverables:
+  packages/findevil/src/evidence/tsa.ts
+    NEW.
+      requestTimestampToken(sha256hex, tsaUrl): Promise<Buffer>
+        - Builds an RFC3161 TimeStampReq
+        - POSTs to the TSA
+        - Returns the TimeStampResp's signed token bytes
+      verifyTimestampToken(token, expectedSha256hex): Promise<boolean>
+        - Local verification via the openssl ts CLI; spawns and parses
+
+  packages/findevil/src/sentinel/index.ts
+    Single insert: before audit-bundle export, request a TSA token
+    for sha256(evidence-manifest.json) and write to
+    audit-bundle/evidence-manifest.tsr. Add the path to outputs.
+
+  packages/findevil/test/tsa.test.ts
+    NEW. Mocks the TSA (no real network) via undici interceptor;
+    asserts request structure and response parsing.
+
+  README.md
+    Add "Verifying the timestamp token":
+      openssl ts -verify -in audit-bundle/evidence-manifest.tsr \
+                          -content audit-bundle/evidence-manifest.json \
+                          -CAfile freetsa-cacert.pem
+    Note: judges need freetsa's CA cert; link to freetsa.org/files/.
+
+Files you may touch (ONLY these):
+  packages/findevil/src/evidence/tsa.ts                      (new)
+  packages/findevil/src/sentinel/index.ts                    (extend)
+  packages/findevil/test/tsa.test.ts                         (new)
+  README.md                                                   (one section)
+
+Commit message: "phase 12D: RFC3161 cryptographic timestamping of
+evidence manifest"
+```
+
+## Phase 13 — Final v3 SUBMISSION refresh
+
+> One agent. Sequential. ~1 day. Depends on Phase 12 complete.
+
+```txt
+You are working in /Users/gongahkia/Desktop/coding/projects/kelp-claw on
+`main`. All earlier phases shipped. Rerun against three benchmarks,
+refresh every SUBMISSION doc to cite v3 numbers, add two new
+submission artifacts.
+
+Read in order:
+  1. FINAL-PLAN-HACKATHON.md
+  2. SUBMISSION/**                      (existing docs)
+  3. README.md
+  4. .kelpclaw/findevil/sentinel/       (latest output)
+  5. CLAUDE.md
+
+Step 1 — Three canonical runs:
+  rm -rf .kelpclaw/findevil/sentinel-synthetic
+  docker run ... findevil sentinel --case examples/findevil-sift-sentinel/case.yml ...
+                                    --out .kelpclaw/findevil/sentinel-synthetic
+  rm -rf .kelpclaw/findevil/sentinel-cfreds
+  node scripts/fetch-cfreds-case.mjs
+  docker run ... findevil sentinel --case examples/findevil-cfreds-image-test/case.yml ...
+                                    --out .kelpclaw/findevil/sentinel-cfreds
+  rm -rf .kelpclaw/findevil/benchmark/dfir-metric
+  docker run ... findevil benchmark --dataset dfir-metric --subset-size 10 \
+                                    --out .kelpclaw/findevil/benchmark/dfir-metric
+
+Step 2 — Refresh SUBMISSION/devpost-accuracy-report.md with three
+precision/recall/F1 tables. Cite the firewall block rate from 12B
+and the determinism hash from 12C.
+
+Step 3 — Refresh SUBMISSION/devpost-built-with.md: add Tigma,
+Volatility 3, YARA, MFTECmd, Sigma, RFC3161, Docker, GitHub
+Actions, OpenAI SDK, Google Generative AI SDK, MITRE ATT&CK
+Navigator format.
+
+Step 4 — Refresh SUBMISSION/devpost-how-we-built-it.md to mention all
+new layers (D for linkers, F for Sigma + Navigator export, G for
+Docker, H for determinism + TSA).
+
+Step 5 — Refresh SUBMISSION/architecture-diagram.md Mermaid with the
+new nodes; regenerate architecture-diagram.png via mermaid-cli.
+
+Step 6 — Refresh SUBMISSION/demo-script.md to use the CFReDS case
+in the demo and to include a beat for the Navigator JSON drag-and-drop
+and a beat for `openssl ts -verify` on the TSA token.
+
+Step 7 — Create SUBMISSION/threat-model.md (STRIDE applied to the
+sentinel pipeline; cite firewall corpus block rate).
+
+Step 8 — Create SUBMISSION/competitive-comparison.md (one-page table
+vs marez8505/find-evil and any other public submissions discovered;
+each row a feature, each column a project, X / partial / done).
+
+Step 9 — Refresh SUBMISSION/novel-contribution.md to enumerate every
+v3 file under packages/findevil/{linker,extractor/providers,benchmark,
+sigma,attack,sentinel/determinism,evidence/tsa}/ plus the Dockerfile
+and CI workflow.
+
+Step 10 — Final verification:
+  pnpm -r build && pnpm -r test       (must be 100% green)
+  docker build -f Dockerfile.kelp -t kelp:v3 .
+  docker run ... kelp:v3 findevil sentinel ...
+  kelp-claw verify-audit-bundle ... --profile reviewer
+  openssl ts -verify -in audit-bundle/evidence-manifest.tsr ...
+
+Files you may touch (ONLY these):
+  SUBMISSION/**
+  README.md
+  examples/findevil-cfreds-image-test/case.yml             (only if
+                                                            the rerun
+                                                            revealed an
+                                                            expectedFindings
+                                                            error)
+
+Files you MUST NOT touch:
+  packages/**, apps/**, fixtures/**, docs/**,
+  FINAL-PLAN-HACKATHON.md, FINAL-PROMPTS.md, CLAUDE.md, legacy/**,
+  pnpm-workspace.yaml, package.json, .kelpclaw/** (read only),
+  .github/workflows/** (Phase 9 owns it).
+
+Commit message: "phase 13: v3 SUBMISSION rewrite with three benchmark
+anchors, threat model, competitive comparison"
+```
+
+---
+
+## Expanded file-ownership matrix (Phases 9–13)
+
+Each cell lists the **only** phase allowed to write that path. Phase 10A/B/C/D, 11B/C/D/E, and 12A/B/C/D may run concurrently because no two share a row within the same phase. Shared rows across phases must be edited serially (later phase rebases).
+
+| Path | Owner phase |
+|---|---|
+| `.github/workflows/ci.yml` | Phase 9 only |
+| `packages/findevil/test/extractor.test.ts` (snapshot fix) | Phase 9 only |
+| `packages/findevil/src/extractor/index.ts` | Phase 9 → Phase 11A (later wins) |
+| `SUBMISSION/devpost-accuracy-report.md` | Phase 9 → 12B → 12C → 13 (serial appends) |
+| `docs/sift-workstation-setup.md` (transcript section) | Phase 9 |
+| `packages/findevil/src/linker/registry.ts` | Phase 10A |
+| `packages/findevil/src/linker/memory.ts` | Phase 10B |
+| `packages/findevil/src/linker/yara.ts` | Phase 10C |
+| `packages/findevil/src/linker/mft.ts` | Phase 10D |
+| `packages/findevil/src/linker/index.ts` | Phase 10A→B→C→D serial inserts at marker |
+| `packages/findevil/src/verifier/rules/persistence.ts` | Phase 10A + 10D (serial) |
+| `packages/findevil/src/verifier/rules/program-execution.ts` | Phase 10B + 10D (serial) |
+| `packages/findevil/src/verifier/rules/network-connection.ts` | Phase 10B |
+| `packages/findevil/src/verifier/rules/default.ts` | Phase 10C |
+| `packages/findevil/test/{registry,memory,yara,mft}-linker.test.ts` | Phase 10 corresponding agent |
+| `packages/findevil/src/extractor/providers/**` | Phase 11A |
+| `packages/findevil/src/extractor/committee.ts` | Phase 11A |
+| `packages/findevil/test/committee-providers.test.ts` | Phase 11A |
+| `README.md` | Phase 11A → 11E → 12A → 12D → 13 (serial appends/replaces) |
+| `packages/findevil/src/benchmark/dfir-metric.ts` | Phase 11B |
+| `packages/cli/src/findevil/benchmark.ts` | Phase 11B |
+| `packages/cli/src/findevil/index.ts` (one insert) | Phase 11B |
+| `packages/findevil/src/sentinel/index.ts` (outputs map) | Phase 11B → 11E → 12C → 12D serial inserts |
+| `packages/findevil/test/dfir-metric.test.ts` | Phase 11B |
+| `docs/benchmark-dfir-metric.md` | Phase 11B |
+| `examples/findevil-cfreds-image-test/**` | Phase 11C |
+| `scripts/fetch-cfreds-case.mjs` | Phase 11C |
+| `docs/case-cfreds-image-test.md` | Phase 11C |
+| `.gitignore` (one line) | Phase 11C |
+| `packages/findevil/src/sigma/**` | Phase 11D |
+| `packages/findevil/src/linker/eventlog.ts` (one insert) | Phase 11D |
+| `packages/findevil/src/types/claim.ts` (one supports value) | Phase 11D |
+| `packages/findevil/test/sigma.test.ts` | Phase 11D |
+| `docs/third-party-licenses.md` | Phase 11D |
+| `packages/findevil/src/attack/navigator-layer.ts` | Phase 11E |
+| `packages/findevil/test/navigator-layer.test.ts` | Phase 11E |
+| `Dockerfile.kelp`, `docker-compose.kelp.yml`, `scripts/docker-publish.mjs` | Phase 12A |
+| `SUBMISSION/devpost-try-it-out.md` | Phase 12A → 13 |
+| `fixtures/adversarial-injections/**` | Phase 12B |
+| `packages/findevil/test/firewall-corpus.test.ts` | Phase 12B |
+| `packages/findevil/src/sentinel/determinism.ts` | Phase 12C |
+| `packages/cli/src/findevil/sentinel.ts` (flag) | Phase 12C |
+| `packages/findevil/test/determinism.test.ts` | Phase 12C |
+| `packages/findevil/src/evidence/tsa.ts` | Phase 12D |
+| `packages/findevil/test/tsa.test.ts` | Phase 12D |
+| `SUBMISSION/threat-model.md`, `SUBMISSION/competitive-comparison.md` | Phase 13 |
+| `SUBMISSION/devpost-built-with.md`, `devpost-how-we-built-it.md`, `architecture-diagram.md`, `demo-script.md`, `novel-contribution.md` | Phase 13 |
+
+**Cross-phase conflict-resolution rule (v3):** when two phases share a target file in the table above, the later phase MUST rebase on top of the earlier and re-run the affected tests before its own commit. If the later phase blocks on an earlier phase's bug, surface it and stop — do not silently work around it.
