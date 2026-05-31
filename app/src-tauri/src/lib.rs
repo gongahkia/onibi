@@ -54,9 +54,18 @@ use tracing_subscriber::EnvFilter;
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum PtyWireEvent {
-    Data { data: String },
+    Data { data: String, offset: u64 },
     Exit { code: u32, signal: Option<String> },
     Notification(crate::pty::OscNotification),
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtyReplay {
+    data: String,
+    start_offset: u64,
+    end_offset: u64,
 }
 
 #[cfg(feature = "gui")]
@@ -78,12 +87,19 @@ async fn approval_server_config() -> Result<ApprovalServerConfig, String> {
 }
 
 #[cfg(feature = "gui")]
-fn emit_pty_data(window: &tauri::Window, id: PtyId, pending: &mut Vec<u8>) -> bool {
+fn emit_pty_data(
+    window: &tauri::Window,
+    id: PtyId,
+    pending: &mut Vec<u8>,
+    pending_offset: &mut Option<u64>,
+) -> bool {
     if pending.is_empty() {
+        *pending_offset = None;
         return true;
     }
     let payload = PtyWireEvent::Data {
         data: STANDARD.encode(&pending),
+        offset: pending_offset.take().unwrap_or(0),
     };
     pending.clear();
     window.emit(&format!("pty:{id}"), payload).is_ok()
@@ -100,25 +116,29 @@ async fn pty_spawn(
     let mut rx = state.subscribe(id).map_err(|err| err.to_string())?;
     tauri::async_runtime::spawn(async move {
         let mut pending = Vec::with_capacity(64 * 1024);
+        let mut pending_offset: Option<u64> = None;
         let mut flush = time::interval(Duration::from_millis(16));
         flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
                 _ = flush.tick() => {
-                    if !emit_pty_data(&window, id, &mut pending) {
+                    if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
                         break;
                     }
                 }
                 event = rx.recv() => match event {
-                    Ok(PtyEvent::Data(bytes)) => {
+                    Ok(PtyEvent::Data { bytes, offset }) => {
+                        if pending.is_empty() {
+                            pending_offset = Some(offset);
+                        }
                         pending.extend_from_slice(&bytes);
-                        if pending.len() >= 64 * 1024 && !emit_pty_data(&window, id, &mut pending) {
+                        if pending.len() >= 64 * 1024 && !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
                             break;
                         }
                     }
                     Ok(PtyEvent::Notification(notice)) => {
-                        if !emit_pty_data(&window, id, &mut pending) {
+                        if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
                             break;
                         }
                         if let Some(hook) = pty::notification_hook() {
@@ -132,7 +152,7 @@ async fn pty_spawn(
                         }
                     }
                     Ok(PtyEvent::Exit(exit)) => {
-                        if !emit_pty_data(&window, id, &mut pending) {
+                        if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
                             break;
                         }
                         let _ = window.emit(
@@ -192,6 +212,23 @@ async fn pty_list(state: tauri::State<'_, Arc<PtyManager>>) -> Result<Vec<PtyId>
 }
 
 #[cfg(feature = "gui")]
+#[tauri::command]
+async fn pty_replay(
+    state: tauri::State<'_, Arc<PtyManager>>,
+    id: PtyId,
+) -> Result<Option<PtyReplay>, String> {
+    let output = state.output_snapshot(id).map_err(|err| err.to_string())?;
+    if output.data.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(PtyReplay {
+        data: STANDARD.encode(output.data.as_ref()),
+        start_offset: output.start_offset,
+        end_offset: output.end_offset,
+    }))
+}
+
+#[cfg(feature = "gui")]
 #[cfg_attr(all(feature = "gui", mobile), tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
@@ -213,6 +250,7 @@ pub fn run() {
             pty_resize,
             pty_kill,
             pty_list,
+            pty_replay,
             approval_server_config,
             fs_list_dir,
             fs_read_file,

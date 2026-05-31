@@ -2,12 +2,19 @@ use bytes::Bytes;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{Child, MasterPty};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::Write,
+    path::PathBuf,
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
 pub type PtyId = Uuid;
+
+const OUTPUT_REPLAY_LIMIT: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum PtyError {
@@ -68,9 +75,16 @@ impl From<portable_pty::ExitStatus> for PtyExitStatus {
 
 #[derive(Debug, Clone)]
 pub enum PtyEvent {
-    Data(Bytes),
+    Data { bytes: Bytes, offset: u64 },
     Exit(PtyExitStatus),
     Notification(super::notifications::OscNotification),
+}
+
+#[derive(Debug, Clone)]
+pub struct PtyOutputSnapshot {
+    pub data: Bytes,
+    pub start_offset: u64,
+    pub end_offset: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +105,13 @@ struct PtySessionInner {
     writer: Arc<tokio::sync::Mutex<Box<dyn Write + Send>>>,
     tx: broadcast::Sender<PtyEvent>,
     state: Arc<RwLock<PtySessionState>>,
+    output: Arc<Mutex<PtyOutputBuffer>>,
+}
+
+#[derive(Default)]
+struct PtyOutputBuffer {
+    bytes: VecDeque<u8>,
+    end_offset: u64,
 }
 
 impl PtySession {
@@ -109,6 +130,7 @@ impl PtySession {
                 writer: Arc::new(tokio::sync::Mutex::new(writer)),
                 tx,
                 state: Arc::new(RwLock::new(PtySessionState::Running)),
+                output: Arc::new(Mutex::new(PtyOutputBuffer::default())),
             }),
         }
     }
@@ -135,6 +157,49 @@ impl PtySession {
 
     pub fn subscribe(&self) -> broadcast::Receiver<PtyEvent> {
         self.inner.tx.subscribe()
+    }
+
+    pub fn append_output(&self, bytes: &[u8]) -> u64 {
+        let mut output = self.inner.output.lock();
+        let start_offset = output.end_offset;
+        if bytes.is_empty() {
+            return start_offset;
+        }
+        output.end_offset = output.end_offset.saturating_add(bytes.len() as u64);
+        if bytes.len() >= OUTPUT_REPLAY_LIMIT {
+            output.bytes.clear();
+            output
+                .bytes
+                .extend(bytes[bytes.len() - OUTPUT_REPLAY_LIMIT..].iter().copied());
+            return start_offset;
+        }
+        let overflow = output.bytes.len() + bytes.len();
+        if overflow > OUTPUT_REPLAY_LIMIT {
+            for _ in 0..overflow - OUTPUT_REPLAY_LIMIT {
+                output.bytes.pop_front();
+            }
+        }
+        output.bytes.extend(bytes.iter().copied());
+        start_offset
+    }
+
+    pub fn output_snapshot(&self) -> PtyOutputSnapshot {
+        let output = self.inner.output.lock();
+        let start_offset = output.end_offset.saturating_sub(output.bytes.len() as u64);
+        let (front, back) = output.bytes.as_slices();
+        let data = if back.is_empty() {
+            Bytes::copy_from_slice(front)
+        } else {
+            let mut snapshot = Vec::with_capacity(output.bytes.len());
+            snapshot.extend_from_slice(front);
+            snapshot.extend_from_slice(back);
+            Bytes::from(snapshot)
+        };
+        PtyOutputSnapshot {
+            data,
+            start_offset,
+            end_offset: output.end_offset,
+        }
     }
 
     pub fn is_terminated(&self) -> bool {

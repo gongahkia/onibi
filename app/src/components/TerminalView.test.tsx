@@ -92,4 +92,75 @@ describe("TerminalView", () => {
       allowProposedApi: true,
     });
   });
+
+  test("replays buffered pty output after the event listener attaches", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return { data: "aGVsbG8=", startOffset: 0, endOffset: 5 };
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+        "pty_replay",
+        { id: "pty-1" },
+      );
+    });
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(term.write).toHaveBeenCalled());
+    const bytes = term.write.mock.calls[0][0] as Uint8Array;
+    expect(new TextDecoder().decode(bytes)).toBe("hello");
+  });
+
+  test("merges replay and queued live output without duplication", async () => {
+    let emitPty: ((payload: unknown) => void) | undefined;
+    let resolveReplay:
+      | ((snapshot: { data: string; startOffset: number; endOffset: number }) => void)
+      | undefined;
+    const replay = new Promise<{
+      data: string;
+      startOffset: number;
+      endOffset: number;
+    }>((resolve) => {
+      resolveReplay = resolve;
+    });
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(
+      async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
+        emitPty = (payload) => callback({ payload });
+        return globalThis.__TAURI_MOCKS__.unlisten;
+      },
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return replay;
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(emitPty).toBeDefined());
+    emitPty?.({ type: "data", data: "bGxvIHdvcmxk", offset: 2 });
+    resolveReplay?.({ data: "aGU=", startOffset: 0, endOffset: 2 });
+
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(term.write).toHaveBeenCalledTimes(2));
+    const output = term.write.mock.calls
+      .map(([bytes]) => new TextDecoder().decode(bytes as Uint8Array))
+      .join("");
+    expect(output).toBe("hello world");
+  });
 });

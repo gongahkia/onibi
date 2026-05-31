@@ -20,9 +20,15 @@ export interface PtyNotificationPayload {
 }
 
 export type PtyWireEvent =
-  | { type: "data"; data: string }
+  | { type: "data"; data: string; offset: number }
   | { type: "exit"; code: number; signal: string | null }
   | ({ type: "notification" } & PtyNotificationPayload);
+
+export interface PtyReplaySnapshot {
+  data: string;
+  startOffset: number;
+  endOffset: number;
+}
 
 export function shellPath(): string {
   return "";
@@ -46,6 +52,10 @@ export function ptyKill(id: PtyId): Promise<void> {
 
 export function ptyList(): Promise<PtyId[]> {
   return invoke<PtyId[]>("pty_list");
+}
+
+export function ptyReplay(id: PtyId): Promise<PtyReplaySnapshot | null> {
+  return invoke<PtyReplaySnapshot | null>("pty_replay", { id });
 }
 
 export function subscribePty(

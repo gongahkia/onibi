@@ -26,7 +26,14 @@ import {
   type TerminalKeybindingAction,
   type TerminalTriggerMatch,
 } from "../lib/sessions";
-import { ptyResize, ptyWrite, subscribePty, type PtyId } from "../lib/tauri-bridge";
+import {
+  ptyReplay,
+  ptyResize,
+  ptyWrite,
+  subscribePty,
+  type PtyId,
+  type PtyWireEvent,
+} from "../lib/tauri-bridge";
 
 export interface TerminalShellUpdate {
   cwd?: string;
@@ -569,16 +576,31 @@ export function TerminalView({
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void subscribePty(ptyId, (event) => {
-      if (disposed) {
+    let replayReady = false;
+    let replayEndOffset = 0;
+    const queuedEvents: PtyWireEvent[] = [];
+    const writePtyBytes = (bytes: Uint8Array) => {
+      const text = textDecoderRef.current.decode(bytes, { stream: true });
+      applyOutputMetadata(text);
+      applyTriggers(text);
+      term.write(bytes);
+    };
+    const writePtyData = (data: string) => writePtyBytes(decodeBase64(data));
+    const writePtyEventData = (event: { data: string; offset: number }) => {
+      const bytes = decodeBase64(event.data);
+      if (event.offset < replayEndOffset) {
+        const overlap = replayEndOffset - event.offset;
+        if (overlap >= bytes.length) {
+          return;
+        }
+        writePtyBytes(bytes.subarray(overlap));
         return;
       }
+      writePtyBytes(bytes);
+    };
+    const handlePtyEvent = (event: PtyWireEvent) => {
       if (event.type === "data") {
-        const bytes = decodeBase64(event.data);
-        const text = textDecoderRef.current.decode(bytes, { stream: true });
-        applyOutputMetadata(text);
-        applyTriggers(text);
-        term.write(bytes);
+        writePtyEventData(event);
       } else if (event.type === "notification") {
         window.dispatchEvent(
           new CustomEvent("onibi:pty-notification", {
@@ -596,13 +618,50 @@ export function TerminalView({
         term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);
         onExit?.({ code: event.code, signal: event.signal });
       }
-    }).then((dispose) => {
-      if (disposed) {
-        dispose();
-      } else {
-        unlisten = dispose;
+    };
+    const flushQueuedEvents = () => {
+      for (const event of queuedEvents.splice(0)) {
+        handlePtyEvent(event);
       }
-    });
+    };
+
+    void subscribePty(ptyId, (event) => {
+      if (disposed) {
+        return;
+      }
+      if (!replayReady) {
+        queuedEvents.push(event);
+        return;
+      }
+      handlePtyEvent(event);
+    })
+      .then((dispose) => {
+        if (disposed) {
+          dispose();
+          return null;
+        } else {
+          unlisten = dispose;
+        }
+        return ptyReplay(ptyId);
+      })
+      .then((replay) => {
+        if (disposed) {
+          return;
+        }
+        if (replay) {
+          replayEndOffset = replay.endOffset;
+          writePtyData(replay.data);
+        }
+        replayReady = true;
+        flushQueuedEvents();
+      })
+      .catch((error) => {
+        if (!disposed) {
+          replayReady = true;
+          flushQueuedEvents();
+          console.warn("failed to attach pty output", error);
+        }
+      });
 
     function handleJumpToLastPrompt(event: Event) {
       if ((event as CustomEvent<{ ptyId?: string }>).detail?.ptyId === ptyId) {

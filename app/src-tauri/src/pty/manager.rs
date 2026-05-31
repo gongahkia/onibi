@@ -1,5 +1,6 @@
 use super::session::{
-    PtyError, PtyEvent, PtyExitStatus, PtyId, PtySession, PtySpawnRequest, PtyStore,
+    PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
+    PtyStore,
 };
 use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -70,7 +71,7 @@ impl PtyManager {
         let (tx, _) = broadcast::channel(1024);
         let session = PtySession::new(id, pair.master, child, writer, tx);
         self.sessions.write().insert(id, session.clone());
-        self.spawn_reader(id, session.sender(), &mut reader);
+        self.spawn_reader(session.clone(), &mut reader);
         self.spawn_waiter(session.clone(), shell_integration_dir);
         info!(%id, command, rows, cols, "spawned pty");
         Ok(id)
@@ -132,6 +133,10 @@ impl PtyManager {
         Ok(self.session(id)?.subscribe())
     }
 
+    pub fn output_snapshot(&self, id: PtyId) -> Result<PtyOutputSnapshot> {
+        Ok(self.session(id)?.output_snapshot())
+    }
+
     pub async fn list(&self) -> Vec<PtyId> {
         self.sessions
             .read()
@@ -148,12 +153,9 @@ impl PtyManager {
             .ok_or(PtyError::NotFound(id))
     }
 
-    fn spawn_reader(
-        &self,
-        id: PtyId,
-        tx: broadcast::Sender<PtyEvent>,
-        reader: &mut Box<dyn Read + Send>,
-    ) {
+    fn spawn_reader(&self, session: PtySession, reader: &mut Box<dyn Read + Send>) {
+        let id = session.id();
+        let tx = session.sender();
         let mut reader = std::mem::replace(reader, Box::new(std::io::empty()));
         let (chunk_tx, mut chunk_rx) = mpsc::unbounded_channel::<Bytes>();
         task::spawn_blocking(move || {
@@ -188,15 +190,15 @@ impl PtyManager {
                             }
                             pending.extend_from_slice(&bytes);
                             if pending.len() >= 64 * 1024 {
-                                broadcast_pending(&tx, &mut pending);
+                                broadcast_pending(&session, &tx, &mut pending);
                             }
                         }
                         None => {
-                            broadcast_pending(&tx, &mut pending);
+                            broadcast_pending(&session, &tx, &mut pending);
                             break;
                         }
                     },
-                    _ = flush.tick() => broadcast_pending(&tx, &mut pending),
+                    _ = flush.tick() => broadcast_pending(&session, &tx, &mut pending),
                 }
             }
         });
@@ -407,11 +409,17 @@ fn configure_shell_integration(
     }
 }
 
-fn broadcast_pending(tx: &broadcast::Sender<PtyEvent>, pending: &mut Vec<u8>) {
+fn broadcast_pending(
+    session: &PtySession,
+    tx: &broadcast::Sender<PtyEvent>,
+    pending: &mut Vec<u8>,
+) {
     if pending.is_empty() {
         return;
     }
-    let _ = tx.send(PtyEvent::Data(Bytes::copy_from_slice(pending)));
+    let bytes = Bytes::copy_from_slice(pending);
+    let offset = session.append_output(&bytes);
+    let _ = tx.send(PtyEvent::Data { bytes, offset });
     pending.clear();
 }
 
@@ -431,7 +439,7 @@ mod tests {
             assert!(now < deadline, "timed out waiting for pty exit");
             let remaining = deadline - now;
             match timeout(remaining, rx.recv()).await.unwrap().unwrap() {
-                PtyEvent::Data(bytes) => output.extend_from_slice(&bytes),
+                PtyEvent::Data { bytes, .. } => output.extend_from_slice(&bytes),
                 PtyEvent::Exit(status) => return (output, status),
                 PtyEvent::Notification(_) => {}
             }
@@ -449,7 +457,9 @@ mod tests {
             let now = Instant::now();
             assert!(now < deadline, "timed out waiting for pty output");
             let remaining = deadline - now;
-            if let PtyEvent::Data(bytes) = timeout(remaining, rx.recv()).await.unwrap().unwrap() {
+            if let PtyEvent::Data { bytes, .. } =
+                timeout(remaining, rx.recv()).await.unwrap().unwrap()
+            {
                 output.extend_from_slice(&bytes);
                 if output.windows(needle.len()).any(|window| window == needle) {
                     return output;
@@ -539,5 +549,24 @@ mod tests {
         let (output, status) = collect_until_exit(&mut rx, Duration::from_secs(2)).await;
         assert!(String::from_utf8_lossy(&output).contains("hi"));
         assert_eq!(status.code, 7);
+    }
+
+    #[tokio::test]
+    async fn output_snapshot_replays_data_emitted_before_subscribe() {
+        let manager = PtyManager::new();
+        let id = manager
+            .spawn(sh_req("printf early; sleep 0.2"))
+            .await
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let snapshot = manager.output_snapshot(id).unwrap();
+            if String::from_utf8_lossy(&snapshot.data).contains("early") {
+                manager.kill(id).await.unwrap();
+                return;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for replay");
+            time::sleep(Duration::from_millis(10)).await;
+        }
     }
 }
