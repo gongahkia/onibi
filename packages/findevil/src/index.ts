@@ -12,3 +12,4 @@ export * from "./taint/index.js";
 export * from "./sentinel/types.js";
 export * from "./sentinel/accuracy-report.js";
 export * from "./sentinel/index.js";
+export * from "./mcp/server.js";

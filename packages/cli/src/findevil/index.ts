@@ -1,5 +1,6 @@
 import { runFindEvilBenchmarkCommand } from "./benchmark.js";
 import { runFindEvilFirewallCommand } from "./firewall.js";
+import { runFindEvilMcpCommand } from "./mcp.js";
 import { runFindEvilSentinelCommand } from "./sentinel.js";
 import { runFindEvilVerifyCommand } from "./verify.js";
 
@@ -12,9 +13,11 @@ export async function runFindEvilCommand(args: readonly string[]): Promise<void>
       return runFindEvilVerifyCommand(commandArgs);
     case "firewall":
       return runFindEvilFirewallCommand(commandArgs);
+    case "mcp":
+      return runFindEvilMcpCommand(commandArgs);
     case "sentinel":
       return runFindEvilSentinelCommand(commandArgs);
     default:
-      throw new Error("Usage: kelp-claw findevil <benchmark|verify|firewall|sentinel>");
+      throw new Error("Usage: kelp-claw findevil <benchmark|verify|firewall|mcp|sentinel>");
   }
 }
