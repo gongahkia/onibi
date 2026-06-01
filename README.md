@@ -12,13 +12,13 @@ Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
 
 ## v3 Benchmark Anchors
 
-| Anchor | Output | Precision | Recall | F1 |
-|---|---|---:|---:|---:|
-| Synthetic Sentinel | `.kelpclaw/findevil/sentinel-synthetic/` | 1.000 | 0.500 | 0.667 |
-| CFReDS Forensics Image Test | `.kelpclaw/findevil/sentinel-cfreds/` | 0.000 | 0.000 | 0.000 |
-| DFIR-Metric subset-10 | `.kelpclaw/findevil/benchmark/dfir-metric/` | 1.000 | 1.000 | 1.000 |
+| Anchor                      | Output                                      | Precision | Recall |    F1 |
+| --------------------------- | ------------------------------------------- | --------: | -----: | ----: |
+| Synthetic Sentinel          | `.kelpclaw/findevil/sentinel-synthetic/`    |     1.000 |  0.500 | 0.667 |
+| CFReDS Forensics Image Test | `.kelpclaw/findevil/sentinel-cfreds/`       |     0.000 |  0.000 | 0.000 |
+| DFIR-Metric blind subset-10 | `.kelpclaw/findevil/benchmark/dfir-metric/` |     0.000 |  0.000 | 0.000 |
 
-The CFReDS score is intentionally conservative: the container anchor verifies the pinned E01 and emits 25 official worksheet prompts, but confirms none without recovered artifact proof.
+The CFReDS and DFIR-Metric scores are intentionally conservative: KelpClaw does not promote worksheet prompts or benchmark answers to confirmed findings without recovered artifact proof.
 
 ## What Is Novel In This Submission
 
@@ -96,6 +96,8 @@ $ openssl ts -verify \
   -data .kelpclaw/findevil/sentinel-synthetic/audit-bundle/evidence-manifest.json \
   -CAfile freetsa-cacert.pem
 ```
+
+For offline or CI-only reruns, add `--timestamp skip` to `findevil sentinel`, `findevil verify`, or `findevil firewall`; the run will omit `evidence-manifest.tsr` instead of calling the timestamp authority.
 
 Drag `.kelpclaw/findevil/sentinel-synthetic/attack-navigator-layer.json` into https://mitre-attack.github.io/attack-navigator/ to inspect technique coverage.
 

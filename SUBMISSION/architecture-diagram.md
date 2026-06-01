@@ -68,4 +68,4 @@ flowchart LR
   E --> DOCKER["Docker image<br/>Dockerfile.kelp / kelp:v3"]
 ```
 
-This v3 architecture produced three submission anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric subset-10 precision 1.000 / recall 1.000 / F1 1.000.
+This v3 architecture produced three submission anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000.

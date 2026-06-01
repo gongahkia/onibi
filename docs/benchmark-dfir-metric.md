@@ -23,7 +23,7 @@ The adapter downloads `DFIR-Metric-NSS.json` into `.kelpclaw/datasets/dfir-metri
 
 ## Outputs
 
-The benchmark command writes one case directory per selected DFIR-Metric case. Each case directory contains the generated case manifest, evidence scaffold, sentinel artifacts, `benchmark-report.json`, and `accuracy-report.md`.
+The benchmark command writes one case directory per selected DFIR-Metric case. The default mode is `blind-trace-no-answer-evidence`: expected answer values stay in the scorer only and are not written into evidence files or trace claims. Cases with non-empty expected answers contain the generated case manifest, evidence scaffold, sentinel artifacts, `benchmark-report.json`, and `accuracy-report.md`; empty-answer cases are scored directly without invoking the sentinel.
 
 The aggregate files are:
 

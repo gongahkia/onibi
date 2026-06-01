@@ -179,6 +179,17 @@ async function runDfirMetricCase(input: {
   const expectedFindings = mapToExpectedFindings(input.dfirCase);
   await writeCaseEvidence(evidenceRoot, input.dfirCase, expectedFindings);
   await writeFile(casePath, renderCaseManifest(input.dfirCase, expectedFindings), "utf8");
+  const category = input.dfirCase.category ?? categoryFor(input.dfirCase);
+  if (expectedFindings.length === 0) {
+    return writeDfirMetricCaseReport({
+      caseId: input.dfirCase.id,
+      dfirCase: input.dfirCase,
+      category,
+      caseOutDir,
+      expectedFindings,
+      report: runBenchmark(expectedFindings, emptyLedger())
+    });
+  }
   await writeFile(tracePath, renderTrace(input.dfirCase, expectedFindings), "utf8");
 
   const sentinelResult = await input.runSentinelImpl({
@@ -191,24 +202,41 @@ async function runDfirMetricCase(input: {
   });
   const ledger = sentinelResult.claimLedger ?? sentinelResult.baselineLedger ?? emptyLedger();
   const report = runBenchmark(expectedFindings, ledger);
-  const category = input.dfirCase.category ?? categoryFor(input.dfirCase);
-  await writeJson(join(caseOutDir, "benchmark-report.json"), {
+  return writeDfirMetricCaseReport({
     caseId: input.dfirCase.id,
+    dfirCase: input.dfirCase,
     category,
-    report,
-    expectedFindings
+    caseOutDir,
+    expectedFindings,
+    report
+  });
+}
+
+async function writeDfirMetricCaseReport(input: {
+  readonly caseId: string;
+  readonly dfirCase: DfirMetricCase;
+  readonly category: string;
+  readonly caseOutDir: string;
+  readonly expectedFindings: readonly ExpectedFinding[];
+  readonly report: BenchmarkReport;
+}): Promise<DfirMetricCaseReport> {
+  await writeJson(join(input.caseOutDir, "benchmark-report.json"), {
+    caseId: input.caseId,
+    category: input.category,
+    report: input.report,
+    expectedFindings: input.expectedFindings
   });
   await writeFile(
-    join(caseOutDir, "accuracy-report.md"),
-    renderCaseAccuracyReport(input.dfirCase, category, report),
+    join(input.caseOutDir, "accuracy-report.md"),
+    renderCaseAccuracyReport(input.dfirCase, input.category, input.report),
     "utf8"
   );
   return {
-    caseId: input.dfirCase.id,
-    category,
-    outDir: caseOutDir,
-    expectedFindings,
-    report
+    caseId: input.caseId,
+    category: input.category,
+    outDir: input.caseOutDir,
+    expectedFindings: input.expectedFindings,
+    report: input.report
   };
 }
 

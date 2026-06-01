@@ -6,16 +6,16 @@ This document separates pre-existing KelpClaw foundation code from Find Evil hac
 
 ## Pre-Existing Foundation
 
-| Pre-existing subsystem | Reused in Find Evil submission |
-|---|---|
-| `packages/evidence` | Ed25519 audit-bundle signing and reviewer verification |
-| `packages/policy` | Policy evaluator and policy-pack machinery |
-| `packages/agent-hooks` | Claude Code hook normalization into JSONL |
-| `packages/nanoclaw` | Run manifest and replay concepts |
-| `packages/codegen` | SHA-256 content-addressed artifact helpers |
-| `packages/cli` | Existing command framework extended with `findevil` |
-| `packages/workflow-spec` | Stable JSON helpers and shared schema style |
-| `packages/testing` | Existing deterministic test harness patterns |
+| Pre-existing subsystem   | Reused in Find Evil submission                         |
+| ------------------------ | ------------------------------------------------------ |
+| `packages/evidence`      | Ed25519 audit-bundle signing and reviewer verification |
+| `packages/policy`        | Policy evaluator and policy-pack machinery             |
+| `packages/agent-hooks`   | Claude Code hook normalization into JSONL              |
+| `packages/nanoclaw`      | Run manifest and replay concepts                       |
+| `packages/codegen`       | SHA-256 content-addressed artifact helpers             |
+| `packages/cli`           | Existing command framework extended with `findevil`    |
+| `packages/workflow-spec` | Stable JSON helpers and shared schema style            |
+| `packages/testing`       | Existing deterministic test harness patterns           |
 
 ## Find Evil-Specific v3 Files
 
@@ -80,10 +80,10 @@ The following files are the v3 contribution surface called out by the submission
 
 The v3 rerun produced three benchmark anchors:
 
-| Anchor | Output | Precision | Recall | F1 |
-|---|---|---:|---:|---:|
-| Synthetic Sentinel | `.kelpclaw/findevil/sentinel-synthetic/` | 1.000 | 0.500 | 0.667 |
-| CFReDS Forensics Image Test | `.kelpclaw/findevil/sentinel-cfreds/` | 0.000 | 0.000 | 0.000 |
-| DFIR-Metric subset-10 | `.kelpclaw/findevil/benchmark/dfir-metric/` | 1.000 | 1.000 | 1.000 |
+| Anchor                      | Output                                      | Precision | Recall |    F1 |
+| --------------------------- | ------------------------------------------- | --------: | -----: | ----: |
+| Synthetic Sentinel          | `.kelpclaw/findevil/sentinel-synthetic/`    |     1.000 |  0.500 | 0.667 |
+| CFReDS Forensics Image Test | `.kelpclaw/findevil/sentinel-cfreds/`       |     0.000 |  0.000 | 0.000 |
+| DFIR-Metric blind subset-10 | `.kelpclaw/findevil/benchmark/dfir-metric/` |     0.000 |  0.000 | 0.000 |
 
 The novel behavior is not a generic wrapper around SIFT. It is the verification and containment layer: claim-to-evidence rules, ATT&CK tagging, Sigma/Navigator export, targeted repair, taint-aware firewalling, spoliation checks, deterministic claim-ledger hashing, RFC3161 timestamping, Docker packaging, and signed reviewer bundles.

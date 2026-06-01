@@ -18,4 +18,4 @@ Layer G packages the runtime with Docker. The v3 anchors were run through `kelp:
 
 Layer H adds deterministic replay and timestamp anchoring. Phase 12C replay logs the stable claim-ledger hash `sha256:8f99da2da7cb45a9e28d0c6db0c89fe6d08cbcf36fa0d2a710cd9552a10ee666`, and the v3 sentinel bundles include RFC3161 `evidence-manifest.tsr` tokens for `openssl ts -verify`.
 
-The three v3 anchors show different operating modes: a synthetic self-correction case with precision 1.000 / recall 0.500 / F1 0.667, a conservative CFReDS container run with no unsupported worksheet prompt promoted to confirmed, and a DFIR-Metric subset-10 run with 14/14 non-empty expected answers confirmed.
+The three v3 anchors show different operating modes: a synthetic self-correction case with precision 1.000 / recall 0.500 / F1 0.667, a conservative CFReDS container run with no unsupported worksheet prompt promoted to confirmed, and a DFIR-Metric blind subset-10 run where 14 non-empty expected answers are withheld from the evidence path and remain unconfirmed.

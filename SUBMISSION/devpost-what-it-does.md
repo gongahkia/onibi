@@ -18,4 +18,4 @@ It:
 - Exports Sigma/ATT&CK coverage as a MITRE ATT&CK Navigator JSON layer.
 - Exports a signed audit bundle with normalized agent trace, claim ledger, repair trace, firewall events, spoliation check, benchmarked accuracy report, manifest, RFC3161 timestamp token, and reviewer HTML UI.
 
-v3 reports three anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667; CFReDS precision 0.000 / recall 0.000 / F1 0.000 because no worksheet prompt is promoted without artifact proof; and DFIR-Metric subset-10 precision 1.000 / recall 1.000 / F1 1.000 over 14 non-empty expected answers.
+v3 reports three anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667; CFReDS precision 0.000 / recall 0.000 / F1 0.000 because no worksheet prompt is promoted without artifact proof; and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000 because expected answers are used only by the scorer.

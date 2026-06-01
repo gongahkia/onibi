@@ -73,12 +73,12 @@ Expected high-level result:
 
 - Cases: 10.
 - Expected findings: 14.
-- True positives: 14.
+- True positives: 0.
 - False positives: 0.
-- False negatives: 0.
-- Precision 1.000, recall 1.000, F1 1.000.
+- False negatives: 14.
+- Precision 0.000, recall 0.000, F1 0.000.
 
-The first ten pinned DFIR-Metric rows include two rows with empty answer arrays, so they contribute 0 expected findings.
+The first ten pinned DFIR-Metric rows include two rows with empty answer arrays, so they contribute 0 expected findings. The blind trace does not write answer values into evidence or trace claims.
 
 ## Verify Audit Bundle
 
@@ -97,6 +97,8 @@ $ openssl ts -verify \
 ```
 
 Judges need the FreeTSA CA certificate from `https://freetsa.org/files/`.
+
+Offline reruns can add `--timestamp skip` to the sentinel, verify, or firewall command. That preserves the audit bundle but omits `audit-bundle/evidence-manifest.tsr`.
 
 ## Open Reviewer UI And Navigator Layer
 

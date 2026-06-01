@@ -104,7 +104,7 @@ $ open .kelpclaw/findevil/sentinel-synthetic/audit-bundle/index.html
 
 ## 4:30 Three-Anchor Accuracy Close
 
-Spoken: "The v3 submission reports three anchors: synthetic precision 1.000, recall 0.500, F1 0.667; CFReDS precision 0.000, recall 0.000, F1 0.000 because no worksheet answer is promoted without direct artifact proof; and DFIR-Metric subset-10 precision 1.000, recall 1.000, F1 1.000 over 14 non-empty expected answers."
+Spoken: "The v3 submission reports three anchors: synthetic precision 1.000, recall 0.500, F1 0.667; CFReDS precision 0.000, recall 0.000, F1 0.000 because no worksheet answer is promoted without direct artifact proof; and DFIR-Metric blind subset-10 precision 0.000, recall 0.000, F1 0.000 because benchmark answers are scorer-only."
 
 On screen:
 

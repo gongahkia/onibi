@@ -35,4 +35,4 @@ Public repository: `https://github.com/gongahkia/kelp-claw`
 
 v3 adds Sigma-rule mapping and ATT&CK Navigator export to the reporting path, RFC3161 timestamp tokens to the audit bundle, Docker packaging through `Dockerfile.kelp`, and CI coverage through `.github/workflows/ci.yml`.
 
-The v3 rerun anchors are synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric subset-10 precision 1.000 / recall 1.000 / F1 1.000.
+The v3 rerun anchors are synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000.
