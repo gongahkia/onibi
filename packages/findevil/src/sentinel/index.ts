@@ -1,5 +1,5 @@
 import { createHash, createPrivateKey, generateKeyPairSync, sign as signBytes } from "node:crypto";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { normalizeClaudeCodeHook } from "@kelpclaw/agent-hooks";
 import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/workflow-spec";
@@ -37,14 +37,16 @@ import type {
   SentinelMode,
   SentinelOptions,
   SentinelOutputPaths,
-  SentinelResult
+  SentinelResult,
+  TimestampMode
 } from "./types.js";
 
 export type {
   SentinelMode,
   SentinelOptions,
   SentinelOutputPaths,
-  SentinelResult
+  SentinelResult,
+  TimestampMode
 } from "./types.js";
 export { renderAccuracyReport } from "./accuracy-report.js";
 export { buildReviewerHtml } from "./reviewer-html.js";
@@ -62,6 +64,7 @@ interface NormalizedSentinelOptions {
   readonly spoliationEnabled: boolean;
   readonly claimExtractionEnabled: boolean;
   readonly deterministic: boolean;
+  readonly timestampMode: TimestampMode;
 }
 
 interface AgentExecution {
@@ -136,6 +139,7 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
   const options = await normalizeOptions(opts, deterministic);
   const outputs = outputPaths(options.outDir);
   const caseMetadata = await readCaseMetadata(options.casePath);
+  const caseManifest = await readFile(options.casePath, "utf8");
   const runId = options.deterministic
     ? `${caseMetadata.id ?? "findevil-sentinel"}-deterministic`
     : `${caseMetadata.id ?? "findevil-sentinel"}-${Date.now().toString(36)}`;
@@ -197,7 +201,8 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
         baselineLedger,
         repairedLedger,
         repairTrace,
-        firewallEvents
+        firewallEvents,
+        caseManifest
       }),
       "utf8"
     );
@@ -236,10 +241,14 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
     evidenceManifest(caseMetadata, options, beforeHashes),
     options.deterministic
   );
-  await writeEvidenceManifestTimestampToken(
-    outputs.evidenceManifest,
-    outputs.evidenceManifestTimestampToken
-  );
+  if (options.timestampMode === "live") {
+    await writeEvidenceManifestTimestampToken(
+      outputs.evidenceManifest,
+      outputs.evidenceManifestTimestampToken
+    );
+  } else {
+    await rm(outputs.evidenceManifestTimestampToken, { force: true });
+  }
 
   const uncorrectedPolicyDenials = 0;
   const status = uncorrectedPolicyDenials > 0 ? "policy_denied" : "succeeded";
@@ -252,6 +261,7 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
     mode: options.mode,
     policyDenials: firewallEvents.length,
     uncorrectedPolicyDenials,
+    timestampMode: options.timestampMode,
     deterministic: options.deterministic
   });
 
@@ -310,6 +320,7 @@ async function normalizeOptions(
     throw new Error("Sentinel mode must be sentinel, verify, or firewall.");
   }
   const maxRuntimeSeconds = await resolveMaxRuntimeSeconds(opts, casePath);
+  const timestampMode = validateTimestampMode(opts.timestampMode ?? "live");
   return {
     casePath,
     evidenceRoot,
@@ -322,8 +333,16 @@ async function normalizeOptions(
     firewallEnabled: opts.skipFirewall === true ? false : mode !== "verify",
     spoliationEnabled: opts.skipSpoliation === true ? false : mode !== "verify",
     claimExtractionEnabled: opts.skipClaimExtraction === true ? false : mode !== "firewall",
-    deterministic
+    deterministic,
+    timestampMode
   };
+}
+
+function validateTimestampMode(mode: TimestampMode): TimestampMode {
+  if (mode !== "live" && mode !== "skip") {
+    throw new Error("Sentinel timestampMode must be live or skip.");
+  }
+  return mode;
 }
 
 async function resolveTracePath(path: string): Promise<string> {

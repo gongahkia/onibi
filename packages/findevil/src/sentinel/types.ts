@@ -6,6 +6,7 @@ import type { RepairTraceRow } from "../repair/loop.js";
 
 export type SentinelMode = "sentinel" | "verify" | "firewall";
 export type SentinelStatus = "succeeded" | "policy_denied";
+export type TimestampMode = "live" | "skip";
 
 export interface SentinelOptions {
   readonly casePath: string;
@@ -18,6 +19,7 @@ export interface SentinelOptions {
   readonly skipFirewall?: boolean | undefined;
   readonly skipSpoliation?: boolean | undefined;
   readonly skipClaimExtraction?: boolean | undefined;
+  readonly timestampMode?: TimestampMode | undefined;
 }
 
 export interface SentinelOutputPaths {
