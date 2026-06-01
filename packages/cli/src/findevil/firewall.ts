@@ -4,7 +4,8 @@ import {
   loadRunSentinel,
   option,
   printResult,
-  requiredOption
+  requiredOption,
+  timestampModeOption
 } from "./sentinel.js";
 
 export async function runFindEvilFirewallCommand(args: readonly string[]): Promise<void> {
@@ -18,6 +19,7 @@ export async function runFindEvilFirewallCommand(args: readonly string[]): Promi
       maxIterations: options.maxIterations,
       mode: "firewall",
       skipClaimExtraction: true,
+      timestampMode: options.timestampMode,
       ...(options.siftCommand ? { siftCommand: options.siftCommand } : {}),
       ...(options.tracePath ? { tracePath: options.tracePath } : {})
     });
@@ -36,6 +38,7 @@ interface ParsedFirewallArgs {
   readonly maxIterations: number;
   readonly siftCommand?: string | undefined;
   readonly tracePath?: string | undefined;
+  readonly timestampMode: "live" | "skip";
 }
 
 function parseFirewallArgs(args: readonly string[]): ParsedFirewallArgs {
@@ -45,7 +48,8 @@ function parseFirewallArgs(args: readonly string[]): ParsedFirewallArgs {
     "--trace",
     "--max-iterations",
     "--evidence-root",
-    "--out"
+    "--out",
+    "--timestamp"
   ]);
   const siftCommand = option(args, "--sift-command");
   const tracePath = option(args, "--trace");
@@ -59,6 +63,7 @@ function parseFirewallArgs(args: readonly string[]): ParsedFirewallArgs {
     evidenceRoot: requiredOption(args, "--evidence-root"),
     outDir: requiredOption(args, "--out"),
     maxIterations: integerOption(option(args, "--max-iterations") ?? "0", "--max-iterations"),
+    timestampMode: timestampModeOption(args),
     ...(siftCommand ? { siftCommand } : {}),
     ...(tracePath ? { tracePath } : {})
   };

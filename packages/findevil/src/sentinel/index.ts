@@ -670,6 +670,7 @@ async function writeAuditBundle(input: {
   readonly mode: SentinelMode;
   readonly policyDenials: number;
   readonly uncorrectedPolicyDenials: number;
+  readonly timestampMode: TimestampMode;
   readonly deterministic: boolean;
 }): Promise<void> {
   const bundleDir = input.outputs.auditBundle;
@@ -700,7 +701,7 @@ async function writeAuditBundle(input: {
       runnable: true,
       toolsDetected: ["@kelpclaw/agent-hooks", "@kelpclaw/findevil"],
       requiredSecrets: [],
-      network: "none",
+      network: input.timestampMode === "live" ? "tsa" : "none",
       sandboxProfile: "workspace-write",
       policyFindings: []
     },

@@ -10,6 +10,7 @@ interface SentinelCliOptions {
   readonly skipSpoliation?: boolean | undefined;
   readonly skipClaimExtraction?: boolean | undefined;
   readonly deterministic?: boolean | undefined;
+  readonly timestampMode?: TimestampMode | undefined;
 }
 
 interface SentinelCliResult {
@@ -24,6 +25,7 @@ interface SentinelCliResult {
 }
 
 type RunSentinel = (opts: SentinelCliOptions) => Promise<SentinelCliResult>;
+type TimestampMode = "live" | "skip";
 
 export async function runFindEvilSentinelCommand(args: readonly string[]): Promise<void> {
   try {
@@ -36,6 +38,7 @@ export async function runFindEvilSentinelCommand(args: readonly string[]): Promi
       maxIterations: options.maxIterations,
       mode: "sentinel",
       deterministic: options.deterministic,
+      timestampMode: options.timestampMode,
       ...(options.siftCommand ? { siftCommand: options.siftCommand } : {}),
       ...(options.tracePath ? { tracePath: options.tracePath } : {})
     });
@@ -55,6 +58,7 @@ export interface ParsedSentinelArgs {
   readonly siftCommand?: string | undefined;
   readonly tracePath?: string | undefined;
   readonly deterministic: boolean;
+  readonly timestampMode: TimestampMode;
 }
 
 export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
@@ -65,7 +69,8 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
     "--max-iterations",
     "--evidence-root",
     "--out",
-    "--deterministic"
+    "--deterministic",
+    "--timestamp"
   ]);
   const casePath = requiredOption(args, "--case");
   const evidenceRoot = requiredOption(args, "--evidence-root");
@@ -74,6 +79,7 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
   const siftCommand = option(args, "--sift-command");
   const tracePath = option(args, "--trace");
   const deterministic = args.includes("--deterministic");
+  const timestampMode = timestampModeOption(args);
   if ((siftCommand ? 1 : 0) + (tracePath ? 1 : 0) !== 1) {
     throw new Error(
       "Usage: kelp-claw findevil sentinel requires exactly one of --sift-command or --trace."
@@ -85,6 +91,7 @@ export function parseSentinelArgs(args: readonly string[]): ParsedSentinelArgs {
     outDir,
     maxIterations,
     deterministic,
+    timestampMode,
     ...(siftCommand ? { siftCommand } : {}),
     ...(tracePath ? { tracePath } : {})
   };
@@ -141,6 +148,14 @@ export function integerOption(value: string, name: string): number {
     throw new Error(`${name} must be a non-negative integer.`);
   }
   return Number(value);
+}
+
+export function timestampModeOption(args: readonly string[]): TimestampMode {
+  const value = option(args, "--timestamp") ?? "live";
+  if (value !== "live" && value !== "skip") {
+    throw new Error("--timestamp must be live or skip.");
+  }
+  return value;
 }
 
 export function assertKnownFlags(args: readonly string[], knownFlags: readonly string[]): void {
