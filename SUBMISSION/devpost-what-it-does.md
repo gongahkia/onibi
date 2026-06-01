@@ -1,10 +1,12 @@
 # What It Does
 
-KelpClaw SIFT Sentinel runs an offline Protocol SIFT-style trace or a live SIFT command and produces a reviewable DFIR audit package.
+KelpClaw SIFT Sentinel gives Protocol SIFT a read-only autonomous DFIR lane and then makes every finding reviewable. It can run an offline Protocol SIFT-style trace, a live SIFT command, or a typed read-only MCP server for forensic operations, then produce a signed audit package.
 
 It:
 
 - Parses the agent's final report into atomic incident-response claims.
+- Exposes purpose-built MCP tools for evidence inventory, hashing, Sleuth Kit partition/file inspection, inode extraction, and literal artifact search without arbitrary shell.
+- Runs a SIFT-side CFReDS Hacking Case triage wrapper that uses `ewfverify`, `ewfinfo`, `mmls`, `fsstat`, `tsk_recover`, and RegRipper where available.
 - Tags claims with deterministic MITRE ATT&CK technique IDs.
 - Links claims to concrete evidence artifacts such as timeline rows, Prefetch entries, Amcache records, MFT-style rows, registry exports, PCAP/Zeek flow summaries, Sysmon JSON, EVTX-style JSON, ShimCache, SRUM, memory-provider outputs, and YARA hits.
 - Applies claim-specific verification rules, including the rule that file presence alone does not prove program execution.
@@ -18,4 +20,4 @@ It:
 - Exports Sigma/ATT&CK coverage as a MITRE ATT&CK Navigator JSON layer.
 - Exports a signed audit bundle with normalized agent trace, claim ledger, repair trace, firewall events, spoliation check, benchmarked accuracy report, manifest, RFC3161 timestamp token, and reviewer HTML UI.
 
-v3 reports three anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667; CFReDS precision 0.000 / recall 0.000 / F1 0.000 because no worksheet prompt is promoted without artifact proof; and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000 because expected answers are used only by the scorer.
+v3 reports three completed anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667; CFReDS Forensics Image Test precision 0.000 / recall 0.000 / F1 0.000 because no worksheet prompt is promoted without artifact proof; and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000 because expected answers are used only by the scorer. The CFReDS Hacking Case pilot is implemented as a SIFT VM run path and should be recorded before final submission.

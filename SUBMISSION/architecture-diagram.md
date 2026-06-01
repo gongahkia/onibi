@@ -5,7 +5,10 @@ flowchart LR
   A["case.yml<br/>expectedFindings + threatModel"] --> B["Evidence root<br/>mounted read-only"]
   A --> C["Offline trace<br/>baseline.jsonl"]
   A --> D["Live SIFT command<br/>Protocol SIFT / Claude Code"]
+  A --> D0["Read-only MCP server<br/>typed SIFT forensic tools"]
   D --> D1["SIFT tools<br/>Volatility 3 + MFTECmd + YARA"]
+  D0 --> D1
+  D0 --> D2["No arbitrary shell<br/>no writes / deletes / remounts"]
   C --> E["Sentinel runner"]
   D1 --> E
 
@@ -68,4 +71,4 @@ flowchart LR
   E --> DOCKER["Docker image<br/>Dockerfile.kelp / kelp:v3"]
 ```
 
-This v3 architecture produced three submission anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000.
+This v3 architecture produced three completed submission anchors: synthetic precision 1.000 / recall 0.500 / F1 0.667, CFReDS precision 0.000 / recall 0.000 / F1 0.000, and DFIR-Metric blind subset-10 precision 0.000 / recall 0.000 / F1 0.000. The CFReDS Hacking Case pilot and read-only MCP server are included as the SIFT VM path for the final public-image rerun.

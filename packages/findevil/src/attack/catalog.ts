@@ -49,6 +49,31 @@ export const attackCatalog = Object.freeze({
     name: "Exfiltration Over C2 Channel",
     tactic: "exfiltration"
   }),
+  T1005: Object.freeze({
+    id: "T1005",
+    name: "Data from Local System",
+    tactic: "collection"
+  }),
+  T1033: Object.freeze({
+    id: "T1033",
+    name: "System Owner/User Discovery",
+    tactic: "discovery"
+  }),
+  T1040: Object.freeze({
+    id: "T1040",
+    name: "Network Sniffing",
+    tactic: "credential-access"
+  }),
+  T1046: Object.freeze({
+    id: "T1046",
+    name: "Network Service Discovery",
+    tactic: "discovery"
+  }),
+  T1082: Object.freeze({
+    id: "T1082",
+    name: "System Information Discovery",
+    tactic: "discovery"
+  }),
   T1078: Object.freeze({
     id: "T1078",
     name: "Valid Accounts",

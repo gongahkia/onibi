@@ -22,7 +22,10 @@ export function parseMcpArgs(args: readonly string[]): FindEvilMcpCliOptions {
   assertKnownFlags(args, ["--evidence-root", "--max-runtime-seconds"]);
   return {
     evidenceRoot: requiredOption(args, "--evidence-root"),
-    maxRuntimeSeconds: integerOption(option(args, "--max-runtime-seconds") ?? "120", "--max-runtime-seconds")
+    maxRuntimeSeconds: integerOption(
+      option(args, "--max-runtime-seconds") ?? "120",
+      "--max-runtime-seconds"
+    )
   };
 }
 

@@ -2,9 +2,9 @@
 
 ## What This Is
 
-KelpClaw SIFT Sentinel turns Protocol SIFT output into a defensible autonomous DFIR record: claim-to-evidence verification, hostile-evidence firewall, spoliation check, ATT&CK Navigator export, deterministic replay, RFC3161 timestamping, and a signed audit trail.
+KelpClaw SIFT Sentinel gives Protocol SIFT a safer autonomous DFIR path: a typed read-only MCP surface for SIFT evidence operations, a SIFT-side CFReDS Hacking Case triage wrapper, and a verifier that turns agent output into evidence-backed claims with self-correction traces.
 
-KelpClaw is the verification and containment harness around Claude Code and Protocol SIFT for the SANS Find Evil! hackathon. Claude Code provides the agentic framework. Protocol SIFT provides the SIFT Workstation bridge. KelpClaw makes the agent's incident-response output reviewable by checking claims against evidence, blocking evidence-borne instructions, proving original evidence hashes still match, and preserving a signed audit trail.
+Claude Code provides the agentic framework. Protocol SIFT provides the SIFT Workstation bridge. KelpClaw constrains what the agent can do, checks what it says, and preserves a signed audit trail: claim-to-evidence verification, hostile-evidence firewall, spoliation check, ATT&CK Navigator export, deterministic replay, RFC3161 timestamping, and reviewer HTML.
 
 Public repository: https://github.com/gongahkia/kelp-claw
 
@@ -20,13 +20,18 @@ Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
 
 The CFReDS and DFIR-Metric scores are intentionally conservative: KelpClaw does not promote worksheet prompts or benchmark answers to confirmed findings without recovered artifact proof.
 
+The new CFReDS Hacking Case pilot is ready to run on SIFT via `examples/findevil-cfreds-hacking-case/` and `scripts/run-cfreds-hacking-case-triage.mjs`. It is not reported as a benchmark anchor here until the SIFT VM run produces recovered artifacts and an audit bundle.
+
 ## What Is Novel In This Submission
 
 The following work is scoped as post-2026-04-15 hackathon contribution:
 
 - `packages/findevil/` - claim schema, report extraction, evidence linking, verifier rules, repair prompts, taint tracking, instruction firewall, spoliation guard, benchmark scoring, ATT&CK tagging, Sigma mapping, Navigator export, deterministic replay, and TSA timestamping.
+- `packages/findevil/src/mcp/server.ts` - purpose-built read-only MCP server exposing typed forensic tools instead of arbitrary shell.
 - `examples/findevil-sift-sentinel/` - runnable synthetic case with hostile-evidence fixtures and demo commands.
 - `examples/findevil-cfreds-image-test/` - public CFReDS image manifest and expected worksheet findings.
+- `examples/findevil-cfreds-hacking-case/` - public NIST CFReDS Hacking Case pilot manifest, MCP config, and SIFT triage instructions.
+- `scripts/fetch-cfreds-hacking-case.mjs` and `scripts/run-cfreds-hacking-case-triage.mjs` - reproducible public-image acquisition and SIFT-native triage wrapper.
 - `fixtures/protocol-sift-baseline/` - captured Protocol SIFT-style baseline output for repeatable offline judging and regression tests.
 - `Dockerfile.kelp` - packaged v3 CLI runtime.
 - `.github/workflows/ci.yml` - CI build and test verification.
@@ -79,6 +84,30 @@ $ docker run --rm \
   --dataset dfir-metric \
   --subset-size 10 \
   --out /data/out
+```
+
+Run the CFReDS Hacking Case pilot on a SIFT VM:
+
+```console
+$ node scripts/fetch-cfreds-hacking-case.mjs
+$ node scripts/run-cfreds-hacking-case-triage.mjs \
+  --dataset .kelpclaw/datasets/cfreds/hacking-case \
+  --out .kelpclaw/findevil/cfreds-hacking-case/triage
+$ ./node_modules/.bin/kelp-claw findevil sentinel \
+  --case examples/findevil-cfreds-hacking-case/case.yml \
+  --evidence-root .kelpclaw/findevil/cfreds-hacking-case/triage/evidence \
+  --trace .kelpclaw/findevil/cfreds-hacking-case/triage/trace.jsonl \
+  --max-iterations 3 \
+  --timestamp skip \
+  --out .kelpclaw/findevil/sentinel-cfreds-hacking-case
+```
+
+Start the custom read-only MCP server:
+
+```console
+$ ./node_modules/.bin/kelp-claw findevil mcp \
+  --evidence-root .kelpclaw/datasets/cfreds/hacking-case \
+  --max-runtime-seconds 180
 ```
 
 Verify the reviewer bundle:

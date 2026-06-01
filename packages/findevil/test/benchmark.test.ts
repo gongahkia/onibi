@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { attackCatalog } from "../src/attack/index.js";
 import { runBenchmark } from "../src/benchmark/benchmark.js";
@@ -6,6 +9,7 @@ import type { ExpectedFinding } from "../src/benchmark/types.js";
 import { claimLedgerSchema, type Claim } from "../src/types/claim.js";
 
 const testEvidenceHash = `sha256:${"0".repeat(64)}`;
+const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 const expectedFindings: readonly ExpectedFinding[] = [
   {
@@ -89,6 +93,24 @@ describe("ground-truth benchmark scoring", () => {
       recall: 1,
       f1: 1
     });
+  });
+
+  it("parses the CFReDS Hacking Case pilot manifest", async () => {
+    const manifest = await readFile(
+      join(repoRoot, "examples/findevil-cfreds-hacking-case/case.yml"),
+      "utf8"
+    );
+    const report = runBenchmark(
+      manifest,
+      claimLedgerSchema.parse({
+        id: "ledger-hacking-case-smoke-test",
+        generatedAt: "2026-05-30T00:00:00.000Z",
+        claims: [claim("claim-001", "confirmed", "T1005")]
+      })
+    );
+
+    expect(report.expectedFindings).toBe(8);
+    expect(report.truePositives).toBe(1);
   });
 });
 

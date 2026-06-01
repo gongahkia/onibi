@@ -34,6 +34,7 @@ import {
 import { buildReviewerHtml } from "./reviewer-html.js";
 import { runProtocolSift } from "./sift-runner.js";
 import type {
+  RepairRunnerMode,
   SentinelMode,
   SentinelOptions,
   SentinelOutputPaths,
@@ -42,6 +43,7 @@ import type {
 } from "./types.js";
 
 export type {
+  RepairRunnerMode,
   SentinelMode,
   SentinelOptions,
   SentinelOutputPaths,
@@ -65,6 +67,7 @@ interface NormalizedSentinelOptions {
   readonly claimExtractionEnabled: boolean;
   readonly deterministic: boolean;
   readonly timestampMode: TimestampMode;
+  readonly repairRunnerMode: RepairRunnerMode;
 }
 
 interface AgentExecution {
@@ -183,9 +186,13 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
     });
     baselineLedger = verifyLedger(extractedLedger);
     const linkedLedger = verifyLedger(linkLedger(baselineLedger, options.evidenceRoot));
+    const repairRunner =
+      options.repairRunnerMode === "evidence-linked"
+        ? evidenceBackedRepairRunner(linkedLedger)
+        : undefined;
     const repairResult = await runRepairLoop(baselineLedger, options.maxIterations, {
       tracePath: outputs.repairTrace,
-      runner: evidenceBackedRepairRunner(linkedLedger),
+      ...(repairRunner ? { runner: repairRunner } : {}),
       now: () => sentinelTimestamp(options)
     });
     repairedLedger = repairResult.ledger;
@@ -321,6 +328,10 @@ async function normalizeOptions(
   }
   const maxRuntimeSeconds = await resolveMaxRuntimeSeconds(opts, casePath);
   const timestampMode = validateTimestampMode(opts.timestampMode ?? "live");
+  const repairRunnerMode = validateRepairRunnerMode(opts.repairRunnerMode ?? "evidence-linked");
+  if (deterministic && repairRunnerMode === "claude-code") {
+    throw new Error("Deterministic sentinel mode refuses live Claude Code repair.");
+  }
   return {
     casePath,
     evidenceRoot,
@@ -334,13 +345,21 @@ async function normalizeOptions(
     spoliationEnabled: opts.skipSpoliation === true ? false : mode !== "verify",
     claimExtractionEnabled: opts.skipClaimExtraction === true ? false : mode !== "firewall",
     deterministic,
-    timestampMode
+    timestampMode,
+    repairRunnerMode
   };
 }
 
 function validateTimestampMode(mode: TimestampMode): TimestampMode {
   if (mode !== "live" && mode !== "skip") {
     throw new Error("Sentinel timestampMode must be live or skip.");
+  }
+  return mode;
+}
+
+function validateRepairRunnerMode(mode: RepairRunnerMode): RepairRunnerMode {
+  if (mode !== "evidence-linked" && mode !== "claude-code") {
+    throw new Error("Sentinel repairRunnerMode must be evidence-linked or claude-code.");
   }
   return mode;
 }

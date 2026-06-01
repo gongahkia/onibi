@@ -138,7 +138,9 @@ async function runClaudeCodeRepair(request: RepairAgentRequest): Promise<RepairA
   const output = await runCommand(command, args, {
     KELPCLAW_REPAIR_TARGET_TOOLS: request.targetTools.join(",")
   });
+  const repairedClaim = parseRepairedClaim(output.stdout);
   return {
+    ...(repairedClaim ? { claim: repairedClaim } : {}),
     output: output.stdout,
     events: [
       {
@@ -157,6 +159,37 @@ async function runClaudeCodeRepair(request: RepairAgentRequest): Promise<RepairA
       }
     ]
   };
+}
+
+function parseRepairedClaim(output: string): Claim | undefined {
+  const parsed = parseJsonCandidate(output);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  const candidate = record.claim ?? record;
+  const result = claimSchema.safeParse(candidate);
+  return result.success ? result.data : undefined;
+}
+
+function parseJsonCandidate(output: string): unknown {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/iu.exec(trimmed)?.[1];
+    if (!fenced) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(fenced) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 function shouldRepairClaim(claim: Claim): boolean {

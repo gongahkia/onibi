@@ -55,6 +55,45 @@ Expected high-level result:
 - The conservative container anchor emits 25 worksheet claims and confirms 0 without recovered artifact proof.
 - The spoliation check reports 1 file before, 1 after, 0 changed.
 
+## CFReDS Hacking Case Pilot On SIFT
+
+Run this inside the SIFT VM, from the repository root:
+
+```console
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm -r --if-present build
+$ node scripts/fetch-cfreds-hacking-case.mjs
+$ node scripts/run-cfreds-hacking-case-triage.mjs \
+  --dataset .kelpclaw/datasets/cfreds/hacking-case \
+  --out .kelpclaw/findevil/cfreds-hacking-case/triage
+$ ./node_modules/.bin/kelp-claw findevil sentinel \
+  --case examples/findevil-cfreds-hacking-case/case.yml \
+  --evidence-root .kelpclaw/findevil/cfreds-hacking-case/triage/evidence \
+  --trace .kelpclaw/findevil/cfreds-hacking-case/triage/trace.jsonl \
+  --max-iterations 3 \
+  --timestamp skip \
+  --out .kelpclaw/findevil/sentinel-cfreds-hacking-case
+```
+
+Then attach these generated files to the final submission:
+
+- `.kelpclaw/findevil/sentinel-cfreds-hacking-case/accuracy-report.md`
+- `.kelpclaw/findevil/sentinel-cfreds-hacking-case/agent-execution.jsonl`
+- `.kelpclaw/findevil/sentinel-cfreds-hacking-case/claim-ledger.json`
+- `.kelpclaw/findevil/sentinel-cfreds-hacking-case/audit-bundle/`
+
+## Read-Only MCP Server
+
+```console
+$ ./node_modules/.bin/kelp-claw findevil mcp \
+  --evidence-root .kelpclaw/datasets/cfreds/hacking-case \
+  --max-runtime-seconds 180
+```
+
+This server exposes typed forensic functions only: inventory, hashing, Sleuth
+Kit partition/file inspection, inode extraction, and literal artifact search.
+
 ## DFIR-Metric Subset-10
 
 ```console

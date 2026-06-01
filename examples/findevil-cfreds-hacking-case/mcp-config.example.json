@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "kelpclaw-findevil-readonly-sift": {
+      "command": "./node_modules/.bin/kelp-claw",
+      "args": [
+        "findevil",
+        "mcp",
+        "--evidence-root",
+        ".kelpclaw/datasets/cfreds/hacking-case",
+        "--max-runtime-seconds",
+        "180"
+      ]
+    }
+  }
+}

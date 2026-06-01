@@ -208,7 +208,11 @@ async function handleMcpMethod(
       return { tools: findEvilMcpTools };
     case "tools/call":
       return toolContent(
-        await callTool(options, stringArg(request.params, "name"), jsonObject(request.params?.arguments))
+        await callTool(
+          options,
+          stringArg(request.params, "name"),
+          jsonObject(request.params?.arguments)
+        )
       );
     default:
       throw new Error(`Unsupported MCP method '${request.method}'.`);
@@ -238,11 +242,11 @@ async function callTool(
   }
 }
 
-async function caseInventory(
-  options: NormalizedMcpOptions,
-  args: JsonRecord
-): Promise<JsonRecord> {
-  const startPath = await resolveContainedPath(options.evidenceRoot, optionalString(args.path) ?? ".");
+async function caseInventory(options: NormalizedMcpOptions, args: JsonRecord): Promise<JsonRecord> {
+  const startPath = await resolveContainedPath(
+    options.evidenceRoot,
+    optionalString(args.path) ?? "."
+  );
   const maxFiles = boundedInteger(args.maxFiles, defaultMaxInventoryFiles, 1, 100_000);
   const files: EvidenceFileRecord[] = [];
   for await (const file of walkFiles(startPath, options.evidenceRoot)) {
@@ -268,7 +272,9 @@ async function hashEvidenceFile(
   const path = await resolveContainedPath(options.evidenceRoot, stringArg(args, "path"));
   const metadata = await stat(path);
   if (!metadata.isFile()) {
-    throw new Error(`Hash target must be a file under evidenceRoot: ${displayPath(options.evidenceRoot, path)}`);
+    throw new Error(
+      `Hash target must be a file under evidenceRoot: ${displayPath(options.evidenceRoot, path)}`
+    );
   }
   const algorithm = enumArg(args.algorithm, ["sha256", "md5"], "sha256");
   return {
@@ -365,7 +371,10 @@ async function searchRecoveredArtifacts(
   args: JsonRecord
 ): Promise<JsonRecord> {
   const pattern = stringArg(args, "pattern");
-  const searchRoot = await resolveContainedPath(options.evidenceRoot, optionalString(args.path) ?? ".");
+  const searchRoot = await resolveContainedPath(
+    options.evidenceRoot,
+    optionalString(args.path) ?? "."
+  );
   const maxMatches = boundedInteger(args.maxMatches, defaultMaxSearchMatches, 1, 10_000);
   const maxFileBytes = boundedInteger(args.maxFileBytes, defaultMaxSearchFileBytes, 1, 100_000_000);
   const matches: TextSearchMatch[] = [];
@@ -374,7 +383,15 @@ async function searchRecoveredArtifacts(
     if (!metadata.isFile() || metadata.size > maxFileBytes) {
       continue;
     }
-    matches.push(...textMatches(file, options.evidenceRoot, await readFile(file), pattern, maxMatches - matches.length));
+    matches.push(
+      ...textMatches(
+        file,
+        options.evidenceRoot,
+        await readFile(file),
+        pattern,
+        maxMatches - matches.length
+      )
+    );
     if (matches.length >= maxMatches) {
       break;
     }
@@ -423,10 +440,13 @@ async function defaultRunner(
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let truncated = false;
-    const runtimeTimer = setTimeout(() => {
-      truncated = true;
-      child.kill("SIGTERM");
-    }, Math.ceil(options.maxRuntimeSeconds * 1000));
+    const runtimeTimer = setTimeout(
+      () => {
+        truncated = true;
+        child.kill("SIGTERM");
+      },
+      Math.ceil(options.maxRuntimeSeconds * 1000)
+    );
     runtimeTimer.unref?.();
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -553,24 +573,22 @@ function textMatches(
 }
 
 function parseMmls(stdoutText: string): readonly JsonRecord[] {
-  return stdoutText
-    .split(/\r?\n/u)
-    .flatMap((line) => {
-      const match = /^\s*(\d+):\s+([^\s].*?)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$/u.exec(line);
-      if (!match?.[1] || !match[2] || !match[3] || !match[4] || !match[5]) {
-        return [];
+  return stdoutText.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+):\s+([^\s].*?)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$/u.exec(line);
+    if (!match?.[1] || !match[2] || !match[3] || !match[4] || !match[5]) {
+      return [];
+    }
+    return [
+      {
+        slot: Number(match[1]),
+        description: match[2].trim(),
+        startSector: Number(match[3]),
+        endSector: Number(match[4]),
+        lengthSectors: Number(match[5]),
+        ...(match[6] ? { notes: match[6].trim() } : {})
       }
-      return [
-        {
-          slot: Number(match[1]),
-          description: match[2].trim(),
-          startSector: Number(match[3]),
-          endSector: Number(match[4]),
-          lengthSectors: Number(match[5]),
-          ...(match[6] ? { notes: match[6].trim() } : {})
-        }
-      ];
-    });
+    ];
+  });
 }
 
 function parseFls(stdoutText: string): readonly JsonRecord[] {

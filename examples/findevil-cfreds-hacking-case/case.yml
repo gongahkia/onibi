@@ -1,0 +1,90 @@
+id: findevil-cfreds-hacking-case-001
+name: NIST CFReDS Hacking Case
+evidenceRoot: ../../.kelpclaw/findevil/cfreds-hacking-case/triage/evidence
+readonly: true
+description: >
+  Public NIST CFReDS Hacking Case fixture. The scored pilot set focuses on
+  artifact-backed findings that demonstrate autonomous triage on real evidence:
+  EWF acquisition verification, Windows system identity, user identity, hacking
+  tool presence, and sniffed-data artifacts.
+source:
+  archivePage: https://cfreds-archive.nist.gov/Hacking_Case.html
+  answerPdf: https://cfreds-archive.nist.gov/images/TestAnswers.pdf
+  imageParts:
+    - filename: 4Dell Latitude CPi.E01
+      url: https://cfreds-archive.nist.gov/images/4Dell%20Latitude%20CPi.E01
+      sizeBytes: 671094597
+    - filename: 4Dell Latitude CPi.E02
+      url: https://cfreds-archive.nist.gov/images/4Dell%20Latitude%20CPi.E02
+      sizeBytes: 419384951
+  expectedImageMd5: AEE4FCD9301C03B3B054623CA261959A
+siftIntegration:
+  fetchCommand: "node scripts/fetch-cfreds-hacking-case.mjs"
+  triageCommand: "node scripts/run-cfreds-hacking-case-triage.mjs --dataset .kelpclaw/datasets/cfreds/hacking-case --out .kelpclaw/findevil/cfreds-hacking-case/triage"
+  mcpCommand: "kelp-claw findevil mcp --evidence-root .kelpclaw/datasets/cfreds/hacking-case"
+  maxRuntimeSeconds: 1800
+expectedFindings:
+  - id: finding-001
+    claimId: claim-001
+    type: file_presence
+    acceptedTechniques: [T1005]
+    description: Verify that the EWF acquisition MD5 is AEE4FCD9301C03B3B054623CA261959A and that verification matches acquisition.
+    acceptedEvidence:
+      - ewfverify_hash_match
+      - image_hash_manifest
+  - id: finding-002
+    claimId: claim-002
+    type: incident_conclusion
+    acceptedTechniques: [T1082]
+    description: Confirm the operating system as Windows XP from registry OS metadata.
+    acceptedEvidence:
+      - registry_os_metadata
+  - id: finding-003
+    claimId: claim-003
+    type: user_activity
+    acceptedTechniques: [T1033]
+    description: Confirm Greg Schardt as the registered owner from registry owner metadata.
+    acceptedEvidence:
+      - registry_registered_owner
+  - id: finding-004
+    claimId: claim-004
+    type: incident_conclusion
+    acceptedTechniques: [T1082]
+    description: Link the host identity to computer account N-1A9ODN6ZXK4LQ or primary domain Evil.
+    acceptedEvidence:
+      - registry_computer_identity
+  - id: finding-005
+    claimId: claim-005
+    type: user_activity
+    acceptedTechniques: [T1033]
+    description: Confirm Mr. Evil as the primary user account from SAM or profile artifacts.
+    acceptedEvidence:
+      - user_account_artifact
+  - id: finding-006
+    claimId: claim-006
+    type: user_activity
+    acceptedTechniques: [T1033]
+    description: Confirm that Look@LAN irunin.ini links Greg Schardt / Mr. Evil identity evidence to the administrator context.
+    acceptedEvidence:
+      - lookatlan_identity_config
+  - id: finding-007
+    claimId: claim-007
+    type: file_presence
+    acceptedTechniques: [T1046]
+    description: Confirm installed hacking or dual-use tools such as Look@LAN, Ethereal, Cain, or NetStumbler from recovered artifacts.
+    acceptedEvidence:
+      - hacking_tool_indicator_search
+  - id: finding-008
+    claimId: claim-008
+    type: file_presence
+    acceptedTechniques: [T1040]
+    description: Confirm the Interception artifact consistent with captured network traffic output.
+    acceptedEvidence:
+      - captured_traffic_file
+scoring:
+  scope: pilot-real-image-artifacts
+  fullCaseQuestions: 31
+  scoredFindings: 8
+  requireEvidenceForHighSeverity: true
+  requireSpoliationCheck: true
+  requireSelfCorrectionTrace: true

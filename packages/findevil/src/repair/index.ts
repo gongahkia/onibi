@@ -21,7 +21,8 @@ export function generateRepairPrompt(claim: Claim): RepairPrompt {
       `Current status: ${claim.status}`,
       `Missing evidence: ${claim.missingEvidence.length > 0 ? claim.missingEvidence.join(", ") : "none recorded"}`,
       `Target tools/artifacts: ${targetTools.join(", ")}`,
-      "Return only evidence-backed corrections. Do not keep high-severity claims without direct proof."
+      "Return only evidence-backed corrections. Do not keep high-severity claims without direct proof.",
+      "If the claim changes, return JSON with a full corrected claim under key `claim`."
     ].join("\n");
   return { prompt, targetTools };
 }

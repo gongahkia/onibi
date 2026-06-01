@@ -21,8 +21,10 @@ Sources checked on 2026-05-30:
    ```text
    cd2edb7d707f1ff71db02ca3aca1967ecc76e34d378a522f184c5b70de311a09
    ```
-5. Import the VM into VMware or VirtualBox and boot it.
-6. Default login:
+5. Import the VM into VMware Fusion on the Mac: `File` -> `Import...` -> select the SIFT OVA -> choose a local VM folder.
+6. Before first boot, allocate at least 4 CPU cores, 12-16 GB RAM, and 80 GB disk growth space. The Hacking Case E01/E02 plus recovered files need room.
+7. Boot it and log in.
+8. Default login:
    ```text
    username: sansforensics
    password: forensics
@@ -78,6 +80,60 @@ findmnt -no TARGET,OPTIONS /mnt/case-ro
 ```
 
 The final command must show `ro` in the options. The sentinel spoliation check hashes `/mnt/case-ro` before and after execution.
+
+## 4A. Run The CFReDS Hacking Case Pilot
+
+Use this path to replace the current public-benchmark 0.000 anchor with recovered artifact evidence. It requires the SIFT VM because it calls `ewfverify`, `ewfmount`, Sleuth Kit, and RegRipper.
+
+```bash
+cd ~/kelp-claw
+corepack enable
+pnpm install --frozen-lockfile
+pnpm -r --if-present build
+node scripts/fetch-cfreds-hacking-case.mjs
+node scripts/run-cfreds-hacking-case-triage.mjs \
+  --dataset .kelpclaw/datasets/cfreds/hacking-case \
+  --out .kelpclaw/findevil/cfreds-hacking-case/triage
+./node_modules/.bin/kelp-claw findevil sentinel \
+  --case examples/findevil-cfreds-hacking-case/case.yml \
+  --evidence-root .kelpclaw/findevil/cfreds-hacking-case/triage/evidence \
+  --trace .kelpclaw/findevil/cfreds-hacking-case/triage/trace.jsonl \
+  --max-iterations 3 \
+  --timestamp skip \
+  --out .kelpclaw/findevil/sentinel-cfreds-hacking-case
+```
+
+Expected output paths:
+
+```text
+.kelpclaw/findevil/cfreds-hacking-case/triage/trace.jsonl
+.kelpclaw/findevil/cfreds-hacking-case/triage/evidence/artifacts/
+.kelpclaw/findevil/sentinel-cfreds-hacking-case/accuracy-report.md
+.kelpclaw/findevil/sentinel-cfreds-hacking-case/audit-bundle/
+```
+
+If `ewfmount` fails inside VMware Fusion, install FUSE support in the SIFT VM or run `ewfmount` manually and pass the exposed raw image:
+
+```bash
+mkdir -p /tmp/hacking-ewf
+ewfmount ".kelpclaw/datasets/cfreds/hacking-case/4Dell Latitude CPi.E01" /tmp/hacking-ewf
+node scripts/run-cfreds-hacking-case-triage.mjs \
+  --dataset .kelpclaw/datasets/cfreds/hacking-case \
+  --raw-image /tmp/hacking-ewf/ewf1 \
+  --out .kelpclaw/findevil/cfreds-hacking-case/triage
+```
+
+## 4B. Start The Read-Only Find Evil MCP Server
+
+This is the custom MCP architecture path. It gives Claude Code or Protocol SIFT typed functions instead of arbitrary shell:
+
+```bash
+./node_modules/.bin/kelp-claw findevil mcp \
+  --evidence-root .kelpclaw/datasets/cfreds/hacking-case \
+  --max-runtime-seconds 180
+```
+
+For Claude Code, use `examples/findevil-cfreds-hacking-case/mcp-config.example.json` as the MCP config template and keep the evidence directory read-only at the VM or mount layer.
 
 ## 5. Run Live Sentinel Mode
 

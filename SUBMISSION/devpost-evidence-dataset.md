@@ -2,7 +2,7 @@
 
 Public repository: `https://github.com/gongahkia/kelp-claw`
 
-v3 uses three evidence anchors.
+v3 uses three completed evidence anchors plus one SIFT-required public-image pilot.
 
 ## 1. Synthetic Sentinel Case
 
@@ -80,3 +80,26 @@ The requested subset size is 10. Two selected upstream rows have empty answer ar
 | Precision         | 0.000 |
 | Recall            | 0.000 |
 | F1                | 0.000 |
+
+## 4. CFReDS Hacking Case Pilot
+
+Paths:
+
+- Case manifest: `examples/findevil-cfreds-hacking-case/case.yml`
+- Fetch script: `scripts/fetch-cfreds-hacking-case.mjs`
+- SIFT triage wrapper: `scripts/run-cfreds-hacking-case-triage.mjs`
+- MCP config template: `examples/findevil-cfreds-hacking-case/mcp-config.example.json`
+- Dataset cache: `.kelpclaw/datasets/cfreds/hacking-case/`
+- Triage output: `.kelpclaw/findevil/cfreds-hacking-case/triage/`
+
+The pilot uses the official NIST CFReDS Hacking Case:
+
+| File                     |  Size bytes | Verification                                                               |
+| ------------------------ | ----------: | -------------------------------------------------------------------------- |
+| `4Dell Latitude CPi.E01` | 671,094,597 | Size checked by fetch script; EWF MD5 via SIFT                             |
+| `4Dell Latitude CPi.E02` | 419,384,951 | Size checked by fetch script; EWF MD5 via SIFT                             |
+| `TestAnswers.pdf`        |      66,916 | SHA-256 `ee1795a7efe150ae3ecddaea2a1ee4ab2431a2c28ed3df009e759628bfda87f8` |
+
+The official answer PDF lists the acquisition image MD5 as `AEE4FCD9301C03B3B054623CA261959A`. The SIFT triage wrapper records `ewfverify`, `ewfinfo`, `mmls`, `fsstat`, `tsk_recover`, RegRipper outputs where available, recovered-inventory rows, and indicator searches. It then emits a Protocol-SIFT-style JSONL trace for 8 pilot findings only when recovered artifacts exist.
+
+This pilot is intentionally not reported as a completed benchmark anchor until the SIFT VM run is captured and the generated `.kelpclaw/findevil/sentinel-cfreds-hacking-case/accuracy-report.md` is attached.

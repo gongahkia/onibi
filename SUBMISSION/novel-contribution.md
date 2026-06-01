@@ -53,6 +53,12 @@ The following files are the v3 contribution surface called out by the submission
 - `packages/findevil/src/benchmark/scorer.ts`
 - `packages/findevil/src/benchmark/types.ts`
 
+### Purpose-Built MCP
+
+- `packages/findevil/src/mcp/server.ts`
+- `packages/cli/src/findevil/mcp.ts`
+- `examples/findevil-cfreds-hacking-case/mcp-config.example.json`
+
 ### Sigma
 
 - `packages/findevil/src/sigma/index.ts`
@@ -76,6 +82,13 @@ The following files are the v3 contribution surface called out by the submission
 - `Dockerfile.kelp`
 - `.github/workflows/ci.yml`
 
+### Public Image Pilot
+
+- `examples/findevil-cfreds-hacking-case/case.yml`
+- `examples/findevil-cfreds-hacking-case/README.md`
+- `scripts/fetch-cfreds-hacking-case.mjs`
+- `scripts/run-cfreds-hacking-case-triage.mjs`
+
 ## v3 Runtime Evidence
 
 The v3 rerun produced three benchmark anchors:
@@ -86,4 +99,4 @@ The v3 rerun produced three benchmark anchors:
 | CFReDS Forensics Image Test | `.kelpclaw/findevil/sentinel-cfreds/`       |     0.000 |  0.000 | 0.000 |
 | DFIR-Metric blind subset-10 | `.kelpclaw/findevil/benchmark/dfir-metric/` |     0.000 |  0.000 | 0.000 |
 
-The novel behavior is not a generic wrapper around SIFT. It is the verification and containment layer: claim-to-evidence rules, ATT&CK tagging, Sigma/Navigator export, targeted repair, taint-aware firewalling, spoliation checks, deterministic claim-ledger hashing, RFC3161 timestamping, Docker packaging, and signed reviewer bundles.
+The novel behavior is not a generic wrapper around SIFT. It is the typed read-only forensic action surface plus the verification and containment layer: claim-to-evidence rules, ATT&CK tagging, Sigma/Navigator export, targeted repair, taint-aware firewalling, spoliation checks, deterministic claim-ledger hashing, RFC3161 timestamping, Docker packaging, public-image triage, and signed reviewer bundles.
