@@ -4,7 +4,8 @@ import { createReadStream } from "node:fs";
 import { opendir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { stdin, stdout } from "node:process";
-import type { JsonRecord } from "@kelpclaw/workflow-spec";
+
+type JsonRecord = Record<string, unknown>;
 
 export interface FindEvilMcpOptions {
   readonly evidenceRoot: string;
