@@ -106,40 +106,8 @@ export type RepairAction = z.infer<typeof repairActionSchema>;
 export type Claim = z.infer<typeof claimSchema>;
 export type ClaimLedger = z.infer<typeof claimLedgerSchema>;
 
-export const placeholderEvidenceHash = `sha256:${"0".repeat(64)}`;
-
-// TODO: phase 2A replace placeholder fixtures with extracted Protocol SIFT claims.
-export const placeholderClaim: Claim = claimSchema.parse({
-  id: "claim-0000",
-  text: "placeholder claim awaiting Protocol SIFT report extraction",
-  type: "program_execution",
-  severity: "low",
-  status: "unverifiable",
-  confidence: 0,
-  attackTechniques: [
-    {
-      id: "T1059",
-      name: "Command and Scripting Interpreter",
-      tactic: "execution"
-    }
-  ],
-  evidenceRefs: [
-    {
-      artifact: "placeholder.txt",
-      locator: "line:1",
-      supports: "placeholder",
-      hash: placeholderEvidenceHash
-    }
-  ],
-  missingEvidence: ["prefetch_entry"],
-  repairAction: {
-    kind: "targeted_reanalysis",
-    prompt: "Re-run targeted analysis for this placeholder claim."
-  }
-});
-
 export const emptyClaimLedger: ClaimLedger = claimLedgerSchema.parse({
-  id: "claim-ledger-placeholder",
+  id: "claim-ledger-empty",
   generatedAt: "1970-01-01T00:00:00.000Z",
   claims: []
 });

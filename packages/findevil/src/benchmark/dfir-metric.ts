@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { runSentinel } from "../sentinel/index.js";
-import type { Claim, ClaimLedger, EvidenceRef } from "../types/claim.js";
+import type { Claim, ClaimLedger } from "../types/claim.js";
 import { runBenchmark } from "./benchmark.js";
 import type { BenchmarkReport, BenchmarkScore, ExpectedFinding } from "./types.js";
 
@@ -33,6 +33,7 @@ export interface DfirMetricBenchmarkReport extends BenchmarkReport {
   readonly dataset: "dfir-metric";
   readonly datasetUrl: string;
   readonly datasetLicense: string;
+  readonly evaluationMode: "blind-trace-no-answer-evidence";
   readonly subsetSize: number;
   readonly outDir: string;
   readonly cases: readonly DfirMetricCaseReport[];
@@ -59,7 +60,6 @@ const dfirMetricCacheDir = ".kelpclaw/datasets/dfir-metric";
 const defaultSubsetSize = 10;
 const benchmarkClaimType: Claim["type"] = "malware_identification";
 const benchmarkTechniqueId = "T1204";
-const benchmarkEvidenceSupport = "yara_hit";
 
 export const dfirMetricManifest = {
   practical: {
@@ -124,6 +124,7 @@ export async function runDfirMetricSubset(
     dataset: "dfir-metric",
     datasetUrl: dfirMetricManifest.practical.repoUrl,
     datasetLicense: dfirMetricManifest.practical.license,
+    evaluationMode: "blind-trace-no-answer-evidence",
     subsetSize: selectedCases.length,
     outDir,
     cases: caseReports,
@@ -176,16 +177,17 @@ async function runDfirMetricCase(input: {
   const tracePath = join(caseOutDir, "dfir-metric-trace.jsonl");
   const casePath = join(caseOutDir, "case.yml");
   const expectedFindings = mapToExpectedFindings(input.dfirCase);
-  const evidenceRefs = await writeCaseEvidence(evidenceRoot, input.dfirCase, expectedFindings);
+  await writeCaseEvidence(evidenceRoot, input.dfirCase, expectedFindings);
   await writeFile(casePath, renderCaseManifest(input.dfirCase, expectedFindings), "utf8");
-  await writeFile(tracePath, renderTrace(input.dfirCase, expectedFindings, evidenceRefs), "utf8");
+  await writeFile(tracePath, renderTrace(input.dfirCase, expectedFindings), "utf8");
 
   const sentinelResult = await input.runSentinelImpl({
     casePath,
     evidenceRoot,
     outDir: caseOutDir,
     maxIterations: 0,
-    tracePath
+    tracePath,
+    timestampMode: "skip"
   });
   const ledger = sentinelResult.claimLedger ?? sentinelResult.baselineLedger ?? emptyLedger();
   const report = runBenchmark(expectedFindings, ledger);
@@ -214,27 +216,18 @@ async function writeCaseEvidence(
   evidenceRoot: string,
   dfirCase: DfirMetricCase,
   expectedFindings: readonly ExpectedFinding[]
-): Promise<Map<string, EvidenceRef>> {
-  const refs = new Map<string, EvidenceRef>();
+): Promise<void> {
   await mkdir(join(evidenceRoot, "answers"), { recursive: true });
-  for (const [index, finding] of expectedFindings.entries()) {
-    const answer = finding.description?.replace(/^DFIR-Metric expected answer:\s*/u, "") ?? "";
-    const artifact = `answers/answer-${String(index + 1).padStart(3, "0")}.txt`;
-    const content = `${answer}\n`;
-    await writeFile(join(evidenceRoot, ...artifact.split("/")), content, "utf8");
-    refs.set(finding.claimId, {
-      artifact,
-      locator: "line:1",
-      supports: benchmarkEvidenceSupport,
-      hash: `sha256:${sha256Hex(Buffer.from(content, "utf8"))}`
-    });
-  }
   await writeFile(
     join(evidenceRoot, "question.txt"),
-    `${dfirCase.question}\n\nExpected answers: ${expectedFindings.length}\n`,
+    [
+      dfirCase.question,
+      "",
+      `Expected answer count retained for scoring only: ${expectedFindings.length}`,
+      "Ground-truth answer values are not written into evidence or trace claims."
+    ].join("\n"),
     "utf8"
   );
-  return refs;
 }
 
 function renderCaseManifest(
@@ -258,21 +251,20 @@ function renderCaseManifest(
 
 function renderTrace(
   dfirCase: DfirMetricCase,
-  expectedFindings: readonly ExpectedFinding[],
-  evidenceRefs: ReadonlyMap<string, EvidenceRef>
+  expectedFindings: readonly ExpectedFinding[]
 ): string {
   const runId = `dfir-metric-${safePathSegment(dfirCase.id)}`;
   const events = [
-    ...expectedFindings.map((finding) => ({
+    ...expectedFindings.map((finding, index) => ({
       event: "claim_extracted",
       runId,
       claim: {
         id: finding.claimId,
-        text: finding.description ?? `DFIR-Metric answer for ${dfirCase.id}`,
+        text: `DFIR-Metric ${dfirCase.id} unresolved answer slot ${index + 1}; requires live forensic artifact recovery.`,
         type: benchmarkClaimType,
         severity: "medium",
-        confidence: 1,
-        evidenceRefs: [evidenceRefs.get(finding.claimId)].filter(Boolean),
+        confidence: 0.1,
+        evidenceRefs: [],
         missingEvidence: []
       }
     })),
@@ -295,8 +287,7 @@ function renderSyntheticFinalReport(
     "Question:",
     dfirCase.question,
     "",
-    "Expected answers:",
-    ...expectedFindings.map((finding) => `- ${finding.description ?? finding.id}`)
+    "The trace withholds ground-truth answer values. Expected answers are used only by the scorer."
   ].join("\n");
 }
 
@@ -328,6 +319,7 @@ function renderAggregateReport(report: DfirMetricBenchmarkReport): string {
     "",
     `- Dataset: ${report.datasetUrl}`,
     `- License: ${report.datasetLicense}`,
+    `- Evaluation mode: ${report.evaluationMode}`,
     `- Cases: ${report.subsetSize}`,
     `- Expected findings: ${report.expectedFindings}`,
     `- Evaluated claims: ${report.evaluatedClaims}`,

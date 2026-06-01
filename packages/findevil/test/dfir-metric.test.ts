@@ -52,22 +52,23 @@ describe("DFIR-Metric Practical benchmark adapter", () => {
 
     expect(report).toMatchObject({
       dataset: "dfir-metric",
+      evaluationMode: "blind-trace-no-answer-evidence",
       subsetSize: 1,
       expectedFindings: 1,
       evaluatedClaims: 1,
-      truePositives: 1,
+      truePositives: 0,
       falsePositives: 0,
-      falseNegatives: 0,
-      precision: 1,
-      recall: 1,
-      f1: 1,
+      falseNegatives: 1,
+      precision: 0,
+      recall: 0,
+      f1: 0,
       perCategory: [
         expect.objectContaining({
           category: "nss-count",
           cases: 1,
-          precision: 1,
-          recall: 1,
-          f1: 1
+          precision: 0,
+          recall: 0,
+          f1: 0
         })
       ]
     });

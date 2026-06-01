@@ -34,18 +34,3 @@ export const taintLedgerEntrySchema = z.object({
 export type SensitivityLabel = z.infer<typeof sensitivityLabelSchema>;
 export type TaintSource = z.infer<typeof taintSourceSchema>;
 export type TaintLedgerEntry = z.infer<typeof taintLedgerEntrySchema>;
-
-// TODO: phase 2C replace placeholder taint rows with case-derived text spans.
-export const placeholderTaintLedgerEntry: TaintLedgerEntry = taintLedgerEntrySchema.parse({
-  id: "taint-0000",
-  source: {
-    kind: "case_artifact",
-    path: "case-data/placeholder.txt",
-    sha256: `sha256:${"0".repeat(64)}`,
-    locator: "line:1"
-  },
-  text: "placeholder tainted case text",
-  extractionTool: "placeholder",
-  extractedAt: "1970-01-01T00:00:00.000Z",
-  sensitivity: "case-data"
-});

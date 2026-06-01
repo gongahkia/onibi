@@ -3,7 +3,9 @@ import { attackCatalog } from "../src/attack/index.js";
 import { runBenchmark } from "../src/benchmark/benchmark.js";
 import { score } from "../src/benchmark/scorer.js";
 import type { ExpectedFinding } from "../src/benchmark/types.js";
-import { claimLedgerSchema, placeholderEvidenceHash, type Claim } from "../src/types/claim.js";
+import { claimLedgerSchema, type Claim } from "../src/types/claim.js";
+
+const testEvidenceHash = `sha256:${"0".repeat(64)}`;
 
 const expectedFindings: readonly ExpectedFinding[] = [
   {
@@ -108,7 +110,7 @@ function claim(
         artifact: "fixture.txt",
         locator: `claim:${id}`,
         supports: "synthetic",
-        hash: placeholderEvidenceHash
+        hash: testEvidenceHash
       }
     ],
     missingEvidence: []

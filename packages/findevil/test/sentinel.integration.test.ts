@@ -17,7 +17,8 @@ describe("sentinel integration", () => {
       tracePath: join(repoRoot, "fixtures/protocol-sift-baseline/baseline.jsonl"),
       maxIterations: 3,
       evidenceRoot: join(repoRoot, "examples/findevil-sift-sentinel/case-data"),
-      outDir
+      outDir,
+      timestampMode: "skip"
     });
 
     expect(result.ok).toBe(true);
@@ -32,6 +33,9 @@ describe("sentinel integration", () => {
     await expectExists(join(outDir, "audit-bundle", "index.html"));
     await expectExists(join(outDir, "audit-bundle", "manifest.json"));
     await expectExists(join(outDir, "audit-bundle", "attestation.json"));
+    await expect(
+      readFile(join(outDir, "audit-bundle", "evidence-manifest.tsr"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
 
     expect(claimFlippedAfterRepair(result)).toBe(true);
     expect(jsonl(await readFile(join(outDir, "firewall-events.jsonl"), "utf8"))).not.toHaveLength(
