@@ -94,6 +94,10 @@ $ ./node_modules/.bin/kelp-claw findevil mcp \
 This server exposes typed forensic functions only: inventory, hashing, Sleuth
 Kit partition/file inspection, inode extraction, and literal artifact search.
 
+For the demo video's live self-correction beat, run sentinel with
+`--repair-runner claude-code`. CI and deterministic replay should keep the
+default `--repair-runner evidence-linked`.
+
 ## DFIR-Metric Subset-10
 
 ```console

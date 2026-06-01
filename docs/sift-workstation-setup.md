@@ -192,6 +192,7 @@ mkdir -p /tmp/kelpclaw-findevil-sift-live
   --case examples/findevil-sift-sentinel/case.yml \
   --evidence-root /mnt/case-ro \
   --sift-command "protocol-sift run --case-dir /mnt/case-ro --output-jsonl" \
+  --repair-runner claude-code \
   --max-iterations 3 \
   --out /tmp/kelpclaw-findevil-sift-live \
   | tee /tmp/kelpclaw-findevil-sift-live/sentinel-result.json

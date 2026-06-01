@@ -110,6 +110,8 @@ $ ./node_modules/.bin/kelp-claw findevil mcp \
   --max-runtime-seconds 180
 ```
 
+For a live repair-loop demo, add `--repair-runner claude-code` to `findevil sentinel`. Deterministic replay keeps the default `--repair-runner evidence-linked` mode.
+
 Verify the reviewer bundle:
 
 ```console

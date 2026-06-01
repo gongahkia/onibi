@@ -4,6 +4,8 @@ We kept KelpClaw's existing governance foundation and built the Find Evil submis
 
 Layer A extracts incident-response claims, tags them with ATT&CK techniques, links them to evidence, scores them against ground truth, and runs targeted repair when claims are unsupported or contradicted.
 
+Repair has two explicit modes: deterministic `evidence-linked` for reproducible judging, and opt-in `claude-code` for a live self-correction sequence in the demo.
+
 Layer B hashes the evidence tree before and after analysis and emits `spoliation-check.json`. The v3 synthetic run hashed 13 files before and after with 0 added, 0 removed, and 0 changed files. The CFReDS run hashed the pinned 309,818,835-byte E01 before and after with the same 0-change result.
 
 Layer C treats case text as tainted input. The v3 synthetic run blocked 1 tainted operational use, while the Phase 12B firewall corpus blocked 46 of 46 malicious payloads and allowed all 9 legitimate quote controls.

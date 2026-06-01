@@ -36,6 +36,21 @@ describe("sentinel deterministic mode", () => {
     ]);
     expect(first).toBe(second);
   });
+
+  it("refuses live Claude Code repair in deterministic mode", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "findevil-determinism-repair-"));
+    await expect(
+      runSentinel({
+        casePath: fixtureCasePath,
+        tracePath: fixtureTracePath,
+        maxIterations: 1,
+        evidenceRoot: fixtureEvidenceRoot,
+        outDir,
+        deterministic: true,
+        repairRunnerMode: "claude-code"
+      })
+    ).rejects.toThrow("refuses live Claude Code repair");
+  });
 });
 
 function stubTimestampAuthority(): void {
