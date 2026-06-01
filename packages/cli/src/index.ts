@@ -337,6 +337,7 @@ export function runHelpCommand(): JsonRecord {
           "cross-agent-replay-smoke",
           "findevil verify",
           "findevil firewall",
+          "findevil mcp",
           "findevil sentinel"
         ]
       },
