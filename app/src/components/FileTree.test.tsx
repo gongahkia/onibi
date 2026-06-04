@@ -116,7 +116,7 @@ describe("FileTree", () => {
     expect(screen.getByLabelText("Modified").textContent).toBe("M");
   });
 
-  test("scopes the visible tree to the active session workspace", async () => {
+  test("shows all workspace containers and expands the active session workspace", async () => {
     useSessionStore.setState({
       sessions: [
         {
@@ -154,7 +154,7 @@ describe("FileTree", () => {
 
     render(<FileTree />);
 
-    expect(screen.queryByText("bob_frontend")).toBeNull();
+    expect(screen.getByText("bob_frontend")).toBeTruthy();
     expect(screen.getByText("kelp-claw")).toBeTruthy();
     expect(await screen.findByText("package.json")).toBeTruthy();
     expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("fs_list_dir", {
@@ -163,7 +163,7 @@ describe("FileTree", () => {
     });
   });
 
-  test("does not show every saved workspace when no session is active", () => {
+  test("shows saved workspace containers when no session is active", async () => {
     useSessionStore.setState({
       sessions: [],
       activeSessionId: null,
@@ -187,16 +187,19 @@ describe("FileTree", () => {
         size: 24,
       },
     });
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce([]);
 
     render(<FileTree />);
 
-    expect(screen.queryByText("bob_frontend")).toBeNull();
-    expect(screen.queryByText("kelp-claw")).toBeNull();
-    expect(screen.getByLabelText("New file").hasAttribute("disabled")).toBe(true);
-    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
-      "fs_list_dir",
-      expect.anything(),
-    );
+    expect(screen.getByText("bob_frontend")).toBeTruthy();
+    expect(screen.getByText("kelp-claw")).toBeTruthy();
+    expect(screen.getByLabelText("New file").hasAttribute("disabled")).toBe(false);
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("fs_list_dir", {
+        root: "/repo/bob_frontend",
+        path: "/repo/bob_frontend",
+      });
+    });
   });
 
   test("switches the tree when the active session changes workspaces", async () => {
@@ -264,7 +267,7 @@ describe("FileTree", () => {
     render(<FileTree />);
 
     expect(screen.getByText("bob_frontend")).toBeTruthy();
-    expect(screen.queryByText("kelp-claw")).toBeNull();
+    expect(screen.getByText("kelp-claw")).toBeTruthy();
     expect(await screen.findByText("vite.config.js")).toBeTruthy();
 
     useSessionStore.getState().setActiveSession("session-kelp");
@@ -272,7 +275,7 @@ describe("FileTree", () => {
     await waitFor(() => {
       expect(screen.getByText("kelp-claw")).toBeTruthy();
     });
-    expect(screen.queryByText("bob_frontend")).toBeNull();
+    expect(screen.getByText("bob_frontend")).toBeTruthy();
     expect(await screen.findByText("pnpm-workspace.yaml")).toBeTruthy();
   });
 

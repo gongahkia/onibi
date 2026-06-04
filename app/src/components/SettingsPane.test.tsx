@@ -230,19 +230,16 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.terminalShellIntegration).toBe(false);
   });
 
-  test("applies config.json edits", () => {
+  test("applies config.toml edits", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "config.json" }));
-    fireEvent.change(screen.getByLabelText("Onibi config JSON"), {
+    fireEvent.click(screen.getByRole("button", { name: "config.toml" }));
+    fireEvent.change(screen.getByLabelText("Onibi config TOML"), {
       target: {
-        value: JSON.stringify({
-          version: 1,
-          settings: { ...DEFAULT_SETTINGS, theme: "github-light" },
-          workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
-        }),
+        value:
+          'version = 1\n\n[settings]\ntheme = "github-light"\n\n[[workspaces]]\nid = "workspace:/repo"\npath = "/repo"\nname = "repo"\n',
       },
     });
-    fireEvent.click(screen.getByText("Apply JSON"));
+    fireEvent.click(screen.getByText("Apply TOML"));
 
     expect(useSessionStore.getState().settings.theme).toBe("github-light");
     expect(useSessionStore.getState().workspaces[0].path).toBe("/repo");

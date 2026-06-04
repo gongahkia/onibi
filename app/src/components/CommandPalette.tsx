@@ -186,6 +186,8 @@ export function CommandPalette() {
         target instanceof Element &&
         (target.closest("input, textarea, select") ||
           target.closest('[contenteditable="true"]'));
+      const terminalTarget =
+        target instanceof Element && Boolean(target.closest(".terminal-view"));
       const bindings = new Map(
         settings.appKeybindings.map((binding) => [binding.keys, binding.action]),
       );
@@ -254,7 +256,7 @@ export function CommandPalette() {
         return;
       }
 
-      if (prefix && chord === prefix && !editable) {
+      if (prefix && chord === prefix && (!editable || terminalTarget)) {
         event.preventDefault();
         prefixArmedRef.current = true;
         prefixTimerRef.current = window.setTimeout(clearPrefix, 1800);
@@ -262,7 +264,10 @@ export function CommandPalette() {
       }
 
       const action = bindings.get(chord);
-      if (!action || (editable && action !== "commandPalette.open")) {
+      if (
+        !action ||
+        (editable && !terminalTarget && action !== "commandPalette.open")
+      ) {
         return;
       }
       event.preventDefault();

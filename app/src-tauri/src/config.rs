@@ -189,6 +189,7 @@ pub fn load() -> Result<OnibiConfig> {
     toml::from_str(&raw).with_context(|| format!("parse Onibi config {}", path.display()))
 }
 
+#[allow(dead_code)]
 pub fn read_raw() -> Result<Option<String>> {
     let path = path()?;
     if !path.exists() {
@@ -199,6 +200,7 @@ pub fn read_raw() -> Result<Option<String>> {
         .with_context(|| format!("read Onibi config {}", path.display()))
 }
 
+#[allow(dead_code)]
 pub fn write_raw(raw: &str) -> Result<()> {
     let path = path()?;
     let _: OnibiConfig = toml::from_str(raw).context("parse Onibi config before writing")?;
@@ -210,6 +212,5 @@ pub fn write_raw(raw: &str) -> Result<()> {
 }
 
 pub fn default_config_toml() -> String {
-    toml::to_string_pretty(&OnibiConfig::default())
-        .unwrap_or_else(|_| "version = 1\n".to_string())
+    toml::to_string_pretty(&OnibiConfig::default()).unwrap_or_else(|_| "version = 1\n".to_string())
 }
