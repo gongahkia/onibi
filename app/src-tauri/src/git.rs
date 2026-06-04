@@ -376,8 +376,8 @@ fn validate_clone_name(name: &str) -> Result<String, String> {
 }
 
 fn canonical_dir(path: &Path) -> Result<PathBuf, String> {
-    let resolved =
-        fs::canonicalize(path).map_err(|err| format!("failed to resolve {}: {err}", path.display()))?;
+    let resolved = fs::canonicalize(path)
+        .map_err(|err| format!("failed to resolve {}: {err}", path.display()))?;
     let metadata = fs::metadata(&resolved).map_err(|err| err.to_string())?;
     if !metadata.is_dir() {
         return Err(format!("{} is not a directory", resolved.display()));

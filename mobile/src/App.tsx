@@ -253,6 +253,9 @@ function InboxView({
       };
       socket.onmessage = (event) => {
         const message = JSON.parse(String(event.data)) as ServerMessage;
+        if (message.type === "ping" && socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "pong" }));
+        }
         applyServerMessage(message, setPending, setRecent, setTerminalOutput, setSelectedSession);
       };
       socket.onerror = () => setError("Realtime connection failed.");

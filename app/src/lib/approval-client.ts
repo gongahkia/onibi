@@ -156,7 +156,11 @@ export async function subscribeApprovalEvents(
     );
     socket.addEventListener("message", (event) => {
       try {
-        handler(JSON.parse(event.data) as ApprovalRealtimeMessage);
+        const message = JSON.parse(event.data) as ApprovalRealtimeMessage;
+        if (message.type === "ping" && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "pong" }));
+        }
+        handler(message);
       } catch {
         // Ignore malformed daemon messages. The Rust side keeps the source of truth.
       }

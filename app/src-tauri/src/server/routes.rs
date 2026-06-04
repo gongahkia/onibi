@@ -4,27 +4,51 @@ use crate::{
     approval::store::now_millis,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopSessionInputBody,
-        DesktopSessionLaunchBody, DesktopSnapshotBody, PairRequest, PairResponse,
-        PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
+        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
+        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody, PairRequest,
+        PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
     push,
     transport::{lan, TransportSnapshot},
 };
 use anyhow::Result;
+use async_trait::async_trait;
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{rejection::JsonRejection, FromRequest, Path, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
-use serde_json::{json, Value};
 use serde::Deserialize;
+use serde_json::{json, Value};
 use tokio::time;
 use ulid::Ulid;
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
+
+pub struct ApiJson<T>(pub T);
+
+#[async_trait]
+impl<S, T> FromRequest<S> for ApiJson<T>
+where
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<ApiError>);
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        Json::<T>::from_request(req, state)
+            .await
+            .map(|Json(value)| Self(value))
+            .map_err(|rejection| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(rejection.body_text())),
+                )
+            })
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CommandBlockQuery {
@@ -40,7 +64,7 @@ pub async fn healthz() -> Json<Value> {
 
 pub async fn approval_request(
     State(state): State<AppState>,
-    Json(body): Json<ApprovalRequestBody>,
+    ApiJson(body): ApiJson<ApprovalRequestBody>,
 ) -> ApiResult<ApprovalDecisionResponse> {
     validate_version(body.protocol_version.as_deref())?;
     wait_for_approval_decision(&state, body)
@@ -56,7 +80,7 @@ pub async fn approval_pending(State(state): State<AppState>) -> ApiResult<Vec<Ap
 pub async fn approval_decide(
     State(state): State<AppState>,
     Path(approval_id): Path<String>,
-    Json(mut body): Json<ApprovalDecisionBody>,
+    ApiJson(mut body): ApiJson<ApprovalDecisionBody>,
 ) -> ApiResult<ApprovalDecisionResponse> {
     if body.by.is_none() {
         body.by = Some("desktop".to_string());
@@ -102,7 +126,7 @@ pub async fn approval_decide(
 
 pub async fn run_event(
     State(state): State<AppState>,
-    Json(body): Json<RunEventBody>,
+    ApiJson(body): ApiJson<RunEventBody>,
 ) -> ApiResult<Value> {
     validate_version(body.protocol_version.as_deref())?;
     let machine_id = body.machine_id.unwrap_or_else(|| state.machine_id.clone());
@@ -132,7 +156,7 @@ pub async fn run_recent(State(state): State<AppState>) -> ApiResult<Vec<RunEvent
 
 pub async fn pty_output(
     State(state): State<AppState>,
-    Json(body): Json<PtyOutputBody>,
+    ApiJson(body): ApiJson<PtyOutputBody>,
 ) -> ApiResult<Value> {
     validate_version(body.protocol_version.as_deref())?;
     let machine_id = body.machine_id.unwrap_or_else(|| state.machine_id.clone());
@@ -150,7 +174,7 @@ pub async fn pty_output(
 
 pub async fn desktop_state(
     State(state): State<AppState>,
-    Json(mut body): Json<DesktopSnapshotBody>,
+    ApiJson(mut body): ApiJson<DesktopSnapshotBody>,
 ) -> ApiResult<Value> {
     validate_version(body.protocol_version.as_deref())?;
     body.protocol_version = Some(PROTOCOL_VERSION.to_string());
@@ -191,7 +215,7 @@ pub async fn desktop_attention(State(state): State<AppState>) -> ApiResult<Value
 
 pub async fn desktop_command_block(
     State(state): State<AppState>,
-    Json(mut block): Json<DesktopCommandBlock>,
+    ApiJson(mut block): ApiJson<DesktopCommandBlock>,
 ) -> ApiResult<Value> {
     validate_version(block.protocol_version.as_deref())?;
     block.protocol_version = Some(PROTOCOL_VERSION.to_string());
@@ -219,7 +243,7 @@ pub async fn desktop_command_blocks(
 
 pub async fn desktop_session_launch(
     State(state): State<AppState>,
-    Json(body): Json<DesktopSessionLaunchBody>,
+    ApiJson(body): ApiJson<DesktopSessionLaunchBody>,
 ) -> ApiResult<DesktopCommandResponse> {
     validate_version(body.protocol_version.as_deref())?;
     Ok(Json(broadcast_desktop_command(
@@ -237,7 +261,7 @@ pub async fn desktop_session_launch(
 pub async fn desktop_session_input(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
-    Json(body): Json<DesktopSessionInputBody>,
+    ApiJson(body): ApiJson<DesktopSessionInputBody>,
 ) -> ApiResult<DesktopCommandResponse> {
     validate_version(body.protocol_version.as_deref())?;
     Ok(Json(broadcast_desktop_command(
@@ -275,7 +299,7 @@ pub async fn desktop_arrangement_restore(
 pub async fn desktop_pane_split(
     State(state): State<AppState>,
     Path(pane_id): Path<String>,
-    Json(body): Json<DesktopPaneSplitBody>,
+    ApiJson(body): ApiJson<DesktopPaneSplitBody>,
 ) -> ApiResult<DesktopCommandResponse> {
     validate_version(body.protocol_version.as_deref())?;
     let direction = if body.direction == "horizontal" {
@@ -337,7 +361,7 @@ fn broadcast_desktop_command(
 
 pub async fn pair(
     State(state): State<AppState>,
-    Json(body): Json<PairRequest>,
+    ApiJson(body): ApiJson<PairRequest>,
 ) -> ApiResult<PairResponse> {
     let device_id = Ulid::new().to_string();
     state
@@ -429,7 +453,7 @@ pub async fn lan_cert_qr() -> Result<Response, (StatusCode, Json<ApiError>)> {
 
 pub async fn claude_code_hook(
     State(state): State<AppState>,
-    Json(payload): Json<Value>,
+    ApiJson(payload): ApiJson<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     adapters::claude_code::handle_http_hook(&state, payload)
         .await
@@ -439,7 +463,7 @@ pub async fn claude_code_hook(
 
 pub async fn codex_hook(
     State(state): State<AppState>,
-    Json(payload): Json<Value>,
+    ApiJson(payload): ApiJson<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     adapters::codex::handle_http_hook(&state, payload)
         .await
@@ -627,6 +651,64 @@ mod tests {
             decision.updated_input,
             Some(json!({"command": "echo skipped"}))
         );
+    }
+
+    #[tokio::test]
+    async fn malformed_json_returns_protocol_error_envelope() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/run/event")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{not-json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["protocol_version"], PROTOCOL_VERSION);
+        assert!(value["error"].as_str().unwrap_or_default().contains("JSON"));
+    }
+
+    #[tokio::test]
+    async fn explicit_protocol_mismatch_returns_upgrade_required() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/run/event")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "protocol_version": "2.0",
+                            "session_id": "pty-1",
+                            "kind": "started",
+                            "payload": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["protocol_version"], PROTOCOL_VERSION);
+        assert_eq!(value["error"], "protocol_version mismatch");
     }
 
     #[tokio::test]

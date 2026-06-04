@@ -1,6 +1,5 @@
 use crate::protocol::{
-    Approval, ApprovalDecisionBody, Decision, DesktopCommandBlock, RunEvent,
-    PROTOCOL_VERSION,
+    Approval, ApprovalDecisionBody, Decision, DesktopCommandBlock, RunEvent, PROTOCOL_VERSION,
 };
 use anyhow::{Context, Result};
 use r2d2::Pool;

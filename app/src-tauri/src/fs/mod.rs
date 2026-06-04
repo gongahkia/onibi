@@ -641,12 +641,7 @@ pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>
             "kitty",
             home.join(".config/kitty/kitty.conf"),
         )?;
-        push_terminal_config(
-            &mut configs,
-            "tmux",
-            "tmux",
-            home.join(".tmux.conf"),
-        )?;
+        push_terminal_config(&mut configs, "tmux", "tmux", home.join(".tmux.conf"))?;
         push_terminal_config(
             &mut configs,
             "tmux",
@@ -684,12 +679,7 @@ pub async fn fs_detect_terminal_configs() -> Result<Vec<TerminalConfigCandidate>
             "Tabby",
             home.join("Library/Application Support/tabby/config.yaml"),
         )?;
-        push_terminal_config(
-            &mut configs,
-            "hyper",
-            "Hyper",
-            home.join(".hyper.js"),
-        )?;
+        push_terminal_config(&mut configs, "hyper", "Hyper", home.join(".hyper.js"))?;
         push_terminal_config(
             &mut configs,
             "contour",
@@ -892,7 +882,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(created.name, ".env.example");
-        assert_eq!(fs::read_to_string(root.path().join(".env.example")).unwrap(), "API_KEY=\n");
+        assert_eq!(
+            fs::read_to_string(root.path().join(".env.example")).unwrap(),
+            "API_KEY=\n"
+        );
     }
 
     #[tokio::test]
@@ -909,7 +902,10 @@ mod tests {
         .await;
 
         assert!(result.unwrap_err().contains("already exists"));
-        assert_eq!(fs::read(root.path().join(".env.example")).unwrap(), b"before");
+        assert_eq!(
+            fs::read(root.path().join(".env.example")).unwrap(),
+            b"before"
+        );
     }
 
     #[tokio::test]
@@ -919,7 +915,11 @@ mod tests {
         let ignored = root.path().join("node_modules");
         fs::create_dir(&src).unwrap();
         fs::create_dir(&ignored).unwrap();
-        fs::write(src.join("main.rs"), "fn main() {\n  println!(\"Onibi\");\n}\n").unwrap();
+        fs::write(
+            src.join("main.rs"),
+            "fn main() {\n  println!(\"Onibi\");\n}\n",
+        )
+        .unwrap();
         fs::write(ignored.join("copy.rs"), "Onibi should not appear\n").unwrap();
 
         let results = fs_search_workspace(root.path().to_path_buf(), "onibi".to_string())

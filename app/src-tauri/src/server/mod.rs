@@ -237,8 +237,14 @@ pub fn router(state: AppState) -> Router {
             "/v1/desktop/arrangement/:id/restore",
             post(routes::desktop_arrangement_restore),
         )
-        .route("/v1/desktop/pane/:id/split", post(routes::desktop_pane_split))
-        .route("/v1/desktop/pane/:id/focus", post(routes::desktop_pane_focus))
+        .route(
+            "/v1/desktop/pane/:id/split",
+            post(routes::desktop_pane_split),
+        )
+        .route(
+            "/v1/desktop/pane/:id/focus",
+            post(routes::desktop_pane_focus),
+        )
         .route(
             "/v1/desktop/pane/:id/maximize",
             post(routes::desktop_pane_maximize),

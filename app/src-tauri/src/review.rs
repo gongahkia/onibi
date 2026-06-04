@@ -146,7 +146,13 @@ fn git_visible_paths(root: &Path) -> Option<Vec<String>> {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -166,7 +172,17 @@ fn git_visible_paths(root: &Path) -> Option<Vec<String>> {
 fn should_skip_dir(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some(".git" | "node_modules" | "target" | "dist" | "build" | ".next" | ".turbo" | "coverage" | "DerivedData")
+        Some(
+            ".git"
+                | "node_modules"
+                | "target"
+                | "dist"
+                | "build"
+                | ".next"
+                | ".turbo"
+                | "coverage"
+                | "DerivedData"
+        )
     )
 }
 
@@ -269,7 +285,11 @@ impl AgentReviewManager {
         let root = canonicalize_existing(&root)?;
         let (_, relative) = path_inside(&root, &path)?;
         let mut inner = self.inner.lock();
-        for session in inner.sessions.values_mut().filter(|session| session.root == root) {
+        for session in inner
+            .sessions
+            .values_mut()
+            .filter(|session| session.root == root)
+        {
             session.human_write_skips.insert(relative.clone(), 8);
         }
         Ok(())
@@ -332,7 +352,10 @@ impl AgentReviewManager {
     pub fn accept(&self, root: PathBuf, path: PathBuf) -> Result<(), String> {
         let root = canonicalize_existing(&root)?;
         let (_, relative) = path_inside(&root, &path)?;
-        self.inner.lock().records.remove(&record_key(&root, &relative));
+        self.inner
+            .lock()
+            .records
+            .remove(&record_key(&root, &relative));
         Ok(())
     }
 
@@ -390,7 +413,8 @@ impl AgentReviewManager {
             };
             let mut guard = inner.lock();
             let Some((baseline, should_skip)) = guard.sessions.get_mut(session_id).map(|session| {
-                let should_skip = if let Some(skips) = session.human_write_skips.get_mut(&relative) {
+                let should_skip = if let Some(skips) = session.human_write_skips.get_mut(&relative)
+                {
                     *skips = skips.saturating_sub(1);
                     let remove = *skips == 0;
                     if remove {

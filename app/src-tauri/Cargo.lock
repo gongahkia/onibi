@@ -3831,6 +3831,7 @@ dependencies = [
  "dialoguer",
  "directories",
  "fontdb",
+ "futures-util",
  "hex",
  "if-addrs 0.13.4",
  "keyring",
