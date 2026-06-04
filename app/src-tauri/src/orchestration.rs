@@ -65,6 +65,7 @@ pub enum OrchestrationEvent {
     SessionStatus {
         session_id: String,
         status: AgentStatus,
+        session: Option<SessionInfo>,
     },
     PtyOutput {
         session_id: String,
@@ -83,6 +84,9 @@ pub enum OrchestrationEvent {
         session_id: String,
         pane_id: String,
         notification: crate::pty::OscNotification,
+    },
+    AgentFocusRequested {
+        session: SessionInfo,
     },
 }
 
@@ -121,6 +125,7 @@ pub struct OrchestrationState {
     manager: Arc<PtyManager>,
     token: String,
     sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
+    screens: Arc<RwLock<HashMap<String, TerminalScreen>>>,
     events: broadcast::Sender<OrchestrationEvent>,
 }
 
@@ -131,6 +136,7 @@ impl OrchestrationState {
             manager: PtyManager::new(),
             token,
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            screens: Arc::new(RwLock::new(HashMap::new())),
             events,
         })
     }
@@ -204,9 +210,23 @@ impl OrchestrationState {
                 let _ = self.events.send(OrchestrationEvent::SessionStatus {
                     session_id: session_id.to_string(),
                     status,
+                    session: Some(session.clone()),
                 });
             }
         }
+    }
+
+    async fn set_heuristic_status(&self, session_id: &str, status: AgentStatus) {
+        let current = self
+            .sessions
+            .read()
+            .await
+            .get(session_id)
+            .map(|session| session.status);
+        if matches!(current, Some(AgentStatus::Blocked | AgentStatus::Done)) {
+            return;
+        }
+        self.set_status(session_id, status).await;
     }
 
     async fn dispatch(&self, command: &str, payload: Value) -> Result<Value> {
@@ -246,7 +266,7 @@ impl OrchestrationState {
             "wait.agent_status" => self.wait_agent_status(payload).await,
             "agent.send" => self.write(payload).await,
             "agent.start" => self.spawn(payload).await,
-            "agent.focus" => Ok(json!({"ok": true})),
+            "agent.focus" => self.focus(payload).await,
             other => Err(anyhow!("unknown orchestration command: {other}")),
         }
     }
@@ -291,6 +311,10 @@ impl OrchestrationState {
             .write()
             .await
             .insert(id_string.clone(), session.clone());
+        self.screens.write().await.insert(
+            id_string.clone(),
+            TerminalScreen::new(req.rows as usize, req.cols as usize),
+        );
         let _ = self.events.send(OrchestrationEvent::SessionStarted {
             session: session.clone(),
         });
@@ -313,6 +337,12 @@ impl OrchestrationState {
                         let text = String::from_utf8_lossy(&bytes).to_string();
                         let encoded = STANDARD.encode(&bytes);
                         let id = id.to_string();
+                        if let Some(status) = infer_status_from_output(&text) {
+                            state.set_heuristic_status(&id, status).await;
+                        }
+                        if let Some(screen) = state.screens.write().await.get_mut(&id) {
+                            screen.feed(&text);
+                        }
                         let _ = state.events.send(OrchestrationEvent::PtyOutput {
                             session_id: id.clone(),
                             pane_id: id,
@@ -347,7 +377,7 @@ impl OrchestrationState {
     }
 
     async fn write(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let bytes = if let Some(data) = payload.get("data").and_then(Value::as_str) {
             STANDARD.decode(data).context("decode base64 data")?
         } else {
@@ -363,7 +393,7 @@ impl OrchestrationState {
     }
 
     async fn send_keys(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let mut bytes = Vec::new();
         if let Some(keys) = payload.get("keys").and_then(Value::as_array) {
             for key in keys {
@@ -378,7 +408,7 @@ impl OrchestrationState {
     }
 
     async fn resize(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let rows = payload.get("rows").and_then(Value::as_u64).unwrap_or(30) as u16;
         let cols = payload.get("cols").and_then(Value::as_u64).unwrap_or(100) as u16;
         self.manager.resize(id, rows, cols).await?;
@@ -386,11 +416,14 @@ impl OrchestrationState {
             session.rows = rows;
             session.cols = cols;
         }
+        if let Some(screen) = self.screens.write().await.get_mut(&id.to_string()) {
+            screen.resize(rows as usize, cols as usize);
+        }
         Ok(json!({"ok": true}))
     }
 
     async fn kill(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         self.manager.kill(id).await?;
         Ok(json!({"ok": true}))
     }
@@ -412,12 +445,12 @@ impl OrchestrationState {
     }
 
     async fn replay(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         Ok(snapshot_json(self.manager.output_snapshot(id)?))
     }
 
     async fn read(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let source = payload
             .get("source")
             .and_then(Value::as_str)
@@ -434,15 +467,24 @@ impl OrchestrationState {
             bytes = bytes[bytes.len() - limit..].to_vec();
         }
         let raw_text = String::from_utf8_lossy(&bytes).to_string();
-        let mut text = if format == "ansi" {
-            raw_text
-        } else {
-            strip_ansi(&raw_text)
+        let text = match source {
+            "visible" => self
+                .screens
+                .read()
+                .await
+                .get(&id.to_string())
+                .map(TerminalScreen::visible_text)
+                .unwrap_or_else(|| {
+                    let rows = session.as_ref().map(|item| item.rows).unwrap_or(30) as usize;
+                    tail_lines(&strip_ansi(&raw_text), rows)
+                }),
+            "recent-unwrapped" => {
+                let cols = session.as_ref().map(|item| item.cols).unwrap_or(100) as usize;
+                unwrap_recent_lines(&strip_ansi(&raw_text), cols)
+            }
+            _ if format == "ansi" => raw_text,
+            _ => strip_ansi(&raw_text),
         };
-        if source == "visible" {
-            let rows = session.map(|item| item.rows).unwrap_or(30) as usize;
-            text = tail_lines(&text, rows);
-        }
         Ok(json!({
             "id": id.to_string(),
             "source": source,
@@ -455,7 +497,7 @@ impl OrchestrationState {
     }
 
     async fn wait_output(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let timeout_ms = payload
             .get("timeoutMs")
             .or_else(|| payload.get("timeout_ms"))
@@ -492,7 +534,7 @@ impl OrchestrationState {
     }
 
     async fn wait_agent_status(&self, payload: Value) -> Result<Value> {
-        let id = target_id(&payload)?;
+        let id = self.resolve_target_id(&payload).await?;
         let target_status: AgentStatus = serde_json::from_value(
             payload
                 .get("status")
@@ -517,7 +559,10 @@ impl OrchestrationState {
         let mut rx = self.events.subscribe();
         let wait = async {
             loop {
-                if let OrchestrationEvent::SessionStatus { session_id, status } = rx.recv().await? {
+                if let OrchestrationEvent::SessionStatus {
+                    session_id, status, ..
+                } = rx.recv().await?
+                {
                     if session_id == id.to_string() && status == target_status {
                         return Ok::<_, anyhow::Error>(json!({"matched": true, "status": status}));
                     }
@@ -527,6 +572,81 @@ impl OrchestrationState {
         time::timeout(Duration::from_millis(timeout_ms), wait)
             .await
             .map_err(|_| anyhow!("timeout waiting for agent status"))?
+    }
+
+    async fn focus(&self, payload: Value) -> Result<Value> {
+        let id = self.resolve_target_id(&payload).await?;
+        let id_string = id.to_string();
+        if self
+            .sessions
+            .read()
+            .await
+            .get(&id_string)
+            .is_some_and(|session| session.status == AgentStatus::Done)
+        {
+            self.set_status(&id_string, AgentStatus::Idle).await;
+        }
+        let session = self
+            .sessions
+            .read()
+            .await
+            .get(&id_string)
+            .cloned()
+            .ok_or_else(|| anyhow!("session not found: {id}"))?;
+        let _ = self.events.send(OrchestrationEvent::AgentFocusRequested {
+            session: session.clone(),
+        });
+        Ok(json!({"ok": true, "session": session}))
+    }
+
+    async fn resolve_target_id(&self, payload: &Value) -> Result<PtyId> {
+        for key in ["id", "paneId", "sessionId", "agentId"] {
+            if let Some(raw) = payload.get(key).and_then(Value::as_str) {
+                if let Ok(id) = raw.parse() {
+                    return Ok(id);
+                }
+                if let Some(id) = self.resolve_agent_label(raw).await? {
+                    return Ok(id);
+                }
+            }
+        }
+        if let Some(raw) = payload.get("agent").and_then(Value::as_str) {
+            if let Some(id) = self.resolve_agent_label(raw).await? {
+                return Ok(id);
+            }
+        }
+        Err(anyhow!(
+            "missing or ambiguous session, pane, or agent target"
+        ))
+    }
+
+    async fn resolve_agent_label(&self, raw: &str) -> Result<Option<PtyId>> {
+        let needle = raw.to_lowercase();
+        let matches = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .filter(|session| {
+                session
+                    .agent
+                    .as_deref()
+                    .is_some_and(|agent| agent.eq_ignore_ascii_case(raw))
+                    || session
+                        .title
+                        .as_deref()
+                        .is_some_and(|title| title.to_lowercase() == needle)
+            })
+            .map(|session| session.id.clone())
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => Ok(None),
+            [id] => id
+                .parse()
+                .map(Some)
+                .with_context(|| format!("parse pty id {id}")),
+            _ => Err(anyhow!("agent target is ambiguous: {raw}")),
+        }
     }
 }
 
@@ -554,6 +674,224 @@ impl OutputMatcher {
             Self::Literal(needle) => text.contains(needle),
             Self::Regex(regex) => regex.is_match(text),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TerminalScreen {
+    rows: usize,
+    cols: usize,
+    cursor_row: usize,
+    cursor_col: usize,
+    cells: Vec<Vec<char>>,
+    parser: ScreenParser,
+}
+
+#[derive(Debug, Clone)]
+enum ScreenParser {
+    Normal,
+    Esc,
+    Csi(String),
+    Osc,
+    OscEsc,
+}
+
+impl TerminalScreen {
+    fn new(rows: usize, cols: usize) -> Self {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        Self {
+            rows,
+            cols,
+            cursor_row: 0,
+            cursor_col: 0,
+            cells: vec![vec![' '; cols]; rows],
+            parser: ScreenParser::Normal,
+        }
+    }
+
+    fn resize(&mut self, rows: usize, cols: usize) {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        self.cells.resize_with(rows, || vec![' '; cols]);
+        for row in &mut self.cells {
+            row.resize(cols, ' ');
+        }
+        self.rows = rows;
+        self.cols = cols;
+        self.cursor_row = self.cursor_row.min(rows - 1);
+        self.cursor_col = self.cursor_col.min(cols - 1);
+    }
+
+    fn feed(&mut self, text: &str) {
+        for ch in text.chars() {
+            match std::mem::replace(&mut self.parser, ScreenParser::Normal) {
+                ScreenParser::Normal => self.feed_normal(ch),
+                ScreenParser::Esc => match ch {
+                    '[' => self.parser = ScreenParser::Csi(String::new()),
+                    ']' => self.parser = ScreenParser::Osc,
+                    _ => self.parser = ScreenParser::Normal,
+                },
+                ScreenParser::Csi(mut raw) => {
+                    if ch.is_ascii_alphabetic() || matches!(ch, '@' | '`' | '~') {
+                        self.apply_csi(&raw, ch);
+                        self.parser = ScreenParser::Normal;
+                    } else {
+                        raw.push(ch);
+                        self.parser = ScreenParser::Csi(raw);
+                    }
+                }
+                ScreenParser::Osc => {
+                    self.parser = match ch {
+                        '\u{7}' => ScreenParser::Normal,
+                        '\u{1b}' => ScreenParser::OscEsc,
+                        _ => ScreenParser::Osc,
+                    };
+                }
+                ScreenParser::OscEsc => {
+                    self.parser = if ch == '\\' {
+                        ScreenParser::Normal
+                    } else {
+                        ScreenParser::Osc
+                    };
+                }
+            }
+        }
+    }
+
+    fn feed_normal(&mut self, ch: char) {
+        match ch {
+            '\u{1b}' => self.parser = ScreenParser::Esc,
+            '\r' => self.cursor_col = 0,
+            '\n' => {
+                self.linefeed();
+                self.cursor_col = 0;
+            }
+            '\u{8}' => self.cursor_col = self.cursor_col.saturating_sub(1),
+            '\t' => {
+                let next = ((self.cursor_col / 8) + 1) * 8;
+                self.cursor_col = next.min(self.cols - 1);
+            }
+            ch if ch.is_control() => {}
+            ch => self.put_char(ch),
+        }
+    }
+
+    fn apply_csi(&mut self, raw: &str, command: char) {
+        let params = csi_params(raw);
+        match command {
+            'A' => self.cursor_row = self.cursor_row.saturating_sub(param_or(&params, 0, 1)),
+            'B' => self.cursor_row = (self.cursor_row + param_or(&params, 0, 1)).min(self.rows - 1),
+            'C' => self.cursor_col = (self.cursor_col + param_or(&params, 0, 1)).min(self.cols - 1),
+            'D' => self.cursor_col = self.cursor_col.saturating_sub(param_or(&params, 0, 1)),
+            'G' | '`' => {
+                self.cursor_col = param_or(&params, 0, 1).saturating_sub(1).min(self.cols - 1)
+            }
+            'H' | 'f' => {
+                self.cursor_row = param_or(&params, 0, 1).saturating_sub(1).min(self.rows - 1);
+                self.cursor_col = param_or(&params, 1, 1).saturating_sub(1).min(self.cols - 1);
+            }
+            'J' => {
+                if param_or(&params, 0, 0) == 2 {
+                    self.clear_all();
+                }
+            }
+            'K' => self.clear_line(param_or(&params, 0, 0)),
+            'm' | 'h' | 'l' | '?' => {}
+            _ => {}
+        }
+    }
+
+    fn put_char(&mut self, ch: char) {
+        if self.cursor_row >= self.rows {
+            self.cursor_row = self.rows - 1;
+        }
+        if self.cursor_col >= self.cols {
+            self.linefeed();
+            self.cursor_col = 0;
+        }
+        self.cells[self.cursor_row][self.cursor_col] = ch;
+        self.cursor_col += 1;
+        if self.cursor_col >= self.cols {
+            self.linefeed();
+            self.cursor_col = 0;
+        }
+    }
+
+    fn linefeed(&mut self) {
+        if self.cursor_row + 1 >= self.rows {
+            self.cells.remove(0);
+            self.cells.push(vec![' '; self.cols]);
+        } else {
+            self.cursor_row += 1;
+        }
+    }
+
+    fn clear_all(&mut self) {
+        for row in &mut self.cells {
+            row.fill(' ');
+        }
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+    }
+
+    fn clear_line(&mut self, mode: usize) {
+        let row = &mut self.cells[self.cursor_row];
+        match mode {
+            1 => {
+                for cell in row.iter_mut().take(self.cursor_col + 1) {
+                    *cell = ' ';
+                }
+            }
+            2 => row.fill(' '),
+            _ => {
+                for cell in row.iter_mut().skip(self.cursor_col) {
+                    *cell = ' ';
+                }
+            }
+        }
+    }
+
+    fn visible_text(&self) -> String {
+        let mut lines = self
+            .cells
+            .iter()
+            .map(|row| row.iter().collect::<String>().trim_end().to_string())
+            .collect::<Vec<_>>();
+        while lines.last().is_some_and(|line| line.is_empty()) {
+            lines.pop();
+        }
+        lines.join("\n")
+    }
+}
+
+fn csi_params(raw: &str) -> Vec<usize> {
+    raw.trim_start_matches('?')
+        .split(';')
+        .map(|part| part.parse::<usize>().unwrap_or(0))
+        .collect()
+}
+
+fn param_or(params: &[usize], index: usize, default: usize) -> usize {
+    params
+        .get(index)
+        .copied()
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn infer_status_from_output(text: &str) -> Option<AgentStatus> {
+    let command_start = text.rfind("\u{1b}]133;C");
+    let command_done = text
+        .rfind("\u{1b}]133;D")
+        .into_iter()
+        .chain(text.rfind("\u{1b}]133;A"))
+        .max();
+    match (command_start, command_done) {
+        (Some(start), Some(done)) if done > start => Some(AgentStatus::Idle),
+        (Some(_), _) => Some(AgentStatus::Working),
+        (_, Some(_)) => Some(AgentStatus::Idle),
+        _ => None,
     }
 }
 
@@ -751,6 +1089,24 @@ fn strip_ansi(text: &str) -> String {
         .to_string()
 }
 
+fn unwrap_recent_lines(text: &str, cols: usize) -> String {
+    let cols = cols.max(1);
+    let mut out = String::new();
+    let mut previous_soft_wrapped = false;
+    for line in text.lines() {
+        if previous_soft_wrapped {
+            out.push_str(line);
+        } else {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(line);
+        }
+        previous_soft_wrapped = line.chars().count() >= cols && !line.trim().is_empty();
+    }
+    out
+}
+
 fn tail_lines(text: &str, rows: usize) -> String {
     if rows == 0 {
         return String::new();
@@ -889,5 +1245,31 @@ mod tests {
     #[test]
     fn tail_lines_limits_rows() {
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
+    }
+
+    #[test]
+    fn unwraps_soft_wrapped_recent_lines() {
+        assert_eq!(unwrap_recent_lines("abcd\nef\ng", 4), "abcdef\ng");
+    }
+
+    #[test]
+    fn terminal_screen_tracks_visible_output() {
+        let mut screen = TerminalScreen::new(2, 6);
+        screen.feed("hello\nworld");
+        assert_eq!(screen.visible_text(), "hello\nworld");
+        screen.feed("\r\x1b[2Kdone");
+        assert_eq!(screen.visible_text(), "hello\ndone");
+    }
+
+    #[test]
+    fn infers_shell_status_markers() {
+        assert_eq!(
+            infer_status_from_output("\x1b]133;C;make test\x07"),
+            Some(AgentStatus::Working)
+        );
+        assert_eq!(
+            infer_status_from_output("\x1b]133;D;0\x07\x1b]133;A\x07"),
+            Some(AgentStatus::Idle)
+        );
     }
 }

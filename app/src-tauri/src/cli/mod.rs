@@ -271,19 +271,19 @@ async fn run(cli: Cli) -> Result<()> {
     }
 
     match cli.command {
-        Some(Command::Setup) => setup::run(cli.port).await,
-        Some(Command::Status) => status::run(cli.port).await,
-        Some(Command::Doctor) => doctor::run(cli.port).await,
+        Some(Command::Setup) => setup::run(cli.port, cli.json).await,
+        Some(Command::Status) => status::run(cli.port, cli.json).await,
+        Some(Command::Doctor) => doctor::run(cli.port, cli.json).await,
         Some(Command::Token { command }) => token(command, cli.json),
         Some(Command::Adapter { command }) => adapter(command, cli.json),
         Some(Command::Transport { command }) => transport(command, cli.port, cli.json).await,
         Some(Command::Session { command }) => session(command, cli.port, cli.json).await,
         Some(Command::Pane { command }) => pane(command, cli.port, cli.json).await,
         Some(Command::Wait { command }) => wait(command, cli.json).await,
-        Some(Command::Agent { command }) => agent(command, cli.json).await,
+        Some(Command::Agent { command }) => agent(command, cli.port, cli.json).await,
         Some(Command::Events { command }) => events(command, cli.json).await,
-        Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention"),
-        Some(Command::Arrangement { command }) => arrangement(command, cli.port),
+        Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention", cli.json),
+        Some(Command::Arrangement { command }) => arrangement(command, cli.port, cli.json),
         Some(Command::Hook { name }) => hook(&name, cli.port),
         None => {
             Cli::command().print_help()?;
@@ -375,51 +375,43 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
                 "protocol_version": "1.0",
                 "direction": direction,
             });
-            println!(
-                "{}",
-                authed_http(
+            print_raw_json_or_text(
+                &authed_http(
                     port,
                     "POST",
                     &format!("/v1/desktop/pane/{}/split", path_segment(&id)),
                     Some(&body.to_string()),
-                )?
-            );
-            Ok(())
+                )?,
+                json_output,
+            )
         }
-        PaneCommand::Focus { id } => {
-            println!(
-                "{}",
-                authed_http(
-                    port,
-                    "POST",
-                    &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
-                    Some("{}"),
-                )?
-            );
-            Ok(())
-        }
-        PaneCommand::Maximize { id } => {
-            println!(
-                "{}",
-                authed_http(
-                    port,
-                    "POST",
-                    &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
-                    Some("{}"),
-                )?
-            );
-            Ok(())
-        }
+        PaneCommand::Focus { id } => print_raw_json_or_text(
+            &authed_http(
+                port,
+                "POST",
+                &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
+                Some("{}"),
+            )?,
+            json_output,
+        ),
+        PaneCommand::Maximize { id } => print_raw_json_or_text(
+            &authed_http(
+                port,
+                "POST",
+                &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
+                Some("{}"),
+            )?,
+            json_output,
+        ),
     }
 }
 
-fn arrangement(command: ArrangementCommand, port: u16) -> Result<()> {
+fn arrangement(command: ArrangementCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         ArrangementCommand::Restore { id_or_name } => {
             ensure_daemon_running(port)?;
-            println!(
-                "{}",
-                authed_http(
+            print_raw_json_or_text(
+                &authed_http(
                     port,
                     "POST",
                     &format!(
@@ -427,17 +419,16 @@ fn arrangement(command: ArrangementCommand, port: u16) -> Result<()> {
                         path_segment(&id_or_name)
                     ),
                     Some("{}"),
-                )?
-            );
-            Ok(())
+                )?,
+                json_output,
+            )
         }
     }
 }
 
-fn desktop_get(port: u16, path: &str) -> Result<()> {
+fn desktop_get(port: u16, path: &str, json_output: bool) -> Result<()> {
     ensure_daemon_running(port)?;
-    println!("{}", authed_http(port, "GET", path, None)?);
-    Ok(())
+    print_raw_json_or_text(&authed_http(port, "GET", path, None)?, json_output)
 }
 
 fn path_segment(value: &str) -> String {
@@ -483,10 +474,20 @@ fn adapter(command: AdapterCommand, json_output: bool) -> Result<()> {
         }
         AdapterCommand::Install { name } => {
             let token = secret::load_or_create_token()?.token;
-            println!("{}", adapters::install(&name, &token)?);
+            let message = adapters::install(&name, &token)?;
+            if json_output {
+                print_value(json!({"ok": true, "name": name, "message": message}), true)?;
+            } else {
+                println!("{message}");
+            }
         }
         AdapterCommand::Uninstall { name } => {
-            println!("{}", adapters::uninstall(&name)?);
+            let message = adapters::uninstall(&name)?;
+            if json_output {
+                print_value(json!({"ok": true, "name": name, "message": message}), true)?;
+            } else {
+                println!("{message}");
+            }
         }
     }
     Ok(())
@@ -529,27 +530,27 @@ async fn transport(command: TransportCommand, port: u16, json_output: bool) -> R
         }
         TransportCommand::Enable { name } => {
             ensure_daemon_running(port)?;
-            println!(
-                "{}",
-                authed_http(
+            print_raw_json_or_text(
+                &authed_http(
                     port,
                     "POST",
                     &format!("/v1/transport/{name}/enable"),
                     Some("{}"),
-                )?
-            );
+                )?,
+                json_output,
+            )?;
         }
         TransportCommand::Disable { name } => {
             ensure_daemon_running(port)?;
-            println!(
-                "{}",
-                authed_http(
+            print_raw_json_or_text(
+                &authed_http(
                     port,
                     "POST",
                     &format!("/v1/transport/{name}/disable"),
                     Some("{}"),
-                )?
-            );
+                )?,
+                json_output,
+            )?;
         }
     }
     Ok(())
@@ -568,7 +569,9 @@ async fn wait(command: WaitCommand, json_output: bool) -> Result<()> {
             let response = orchestration::client::request(
                 "wait.output",
                 json!({
-                    "id": pane.or(session).or(agent).ok_or_else(|| anyhow::anyhow!("missing target"))?,
+                    "paneId": pane,
+                    "sessionId": session,
+                    "agent": agent,
                     "match": match_text,
                     "regex": regex,
                     "timeoutMs": timeout_ms,
@@ -586,7 +589,8 @@ async fn wait(command: WaitCommand, json_output: bool) -> Result<()> {
             let response = orchestration::client::request(
                 "wait.agent_status",
                 json!({
-                    "id": session.or(agent).ok_or_else(|| anyhow::anyhow!("missing target"))?,
+                    "sessionId": session,
+                    "agent": agent,
                     "status": status,
                     "timeoutMs": timeout_ms,
                 }),
@@ -597,7 +601,7 @@ async fn wait(command: WaitCommand, json_output: bool) -> Result<()> {
     }
 }
 
-async fn agent(command: AgentCommand, json_output: bool) -> Result<()> {
+async fn agent(command: AgentCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         AgentCommand::List => print_orchestration("agent.list", json!({}), json_output).await,
         AgentCommand::Read { id, source, format } => {
@@ -625,7 +629,26 @@ async fn agent(command: AgentCommand, json_output: bool) -> Result<()> {
             .await
         }
         AgentCommand::Focus { id } => {
-            print_orchestration("agent.focus", json!({"id": id}), json_output).await
+            let mut response =
+                orchestration::client::request("agent.focus", json!({"id": id})).await?;
+            if healthz(port) {
+                if let Some(session_id) = response
+                    .get("session")
+                    .and_then(|session| session.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    let focus = authed_http(
+                        port,
+                        "POST",
+                        &format!("/v1/desktop/session/{}/focus", path_segment(session_id)),
+                        Some("{}"),
+                    )?;
+                    if let Ok(value) = serde_json::from_str::<Value>(&focus) {
+                        response["desktopFocus"] = value;
+                    }
+                }
+            }
+            print_value(response, json_output)
         }
         AgentCommand::Start {
             agent,

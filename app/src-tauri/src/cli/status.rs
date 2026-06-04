@@ -1,10 +1,11 @@
 use crate::{adapters, approval::store::now_millis, secret, server};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
-use serde_json::Value;
+use serde::Serialize;
+use serde_json::{json, Value};
 use std::path::Path;
 
-#[derive(Default)]
+#[derive(Default, Serialize)]
 struct DbSummary {
     pending_approvals: i64,
     resolved_24h: i64,
@@ -12,12 +13,13 @@ struct DbSummary {
     devices: Vec<DeviceSummary>,
 }
 
+#[derive(Serialize)]
 struct DeviceSummary {
     label: String,
     last_seen: Option<i64>,
 }
 
-pub async fn run(port: u16) -> Result<()> {
+pub async fn run(port: u16, json_output: bool) -> Result<()> {
     let config_dir = secret::config_dir()?;
     let db_path = secret::db_path()?;
     let daemon_running = super::healthz(port);
@@ -28,6 +30,23 @@ pub async fn run(port: u16) -> Result<()> {
     } else {
         "headless-only build"
     };
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "mode": mode,
+                "daemonRunning": daemon_running,
+                "configDir": config_dir,
+                "database": db_path,
+                "databaseSummary": db_summary,
+                "transports": transport_values(port, daemon_running).await?,
+                "adapters": adapters::list(),
+            }))?
+        );
+        return Ok(());
+    }
+
     println!("Onibi {} ({mode})", env!("CARGO_PKG_VERSION"));
     println!(
         "Daemon:    {}",
@@ -85,6 +104,30 @@ pub async fn run(port: u16) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn transport_values(port: u16, daemon_running: bool) -> Result<Vec<Value>> {
+    if daemon_running {
+        if let Ok(raw) = super::authed_http(port, "GET", "/v1/status", None) {
+            if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                if let Some(transports) = value.get("transports").and_then(Value::as_array) {
+                    return Ok(transports.clone());
+                }
+            }
+        }
+        return super::authed_http(port, "GET", "/v1/transport/status", None).and_then(|raw| {
+            serde_json::from_str::<Vec<Value>>(&raw).context("parse transport status")
+        });
+    }
+    let state = server::AppState::from_config(port)?;
+    state
+        .transports
+        .status_snapshot()
+        .await
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("serialize transport status")
 }
 
 fn print_status_json(raw: &str) {

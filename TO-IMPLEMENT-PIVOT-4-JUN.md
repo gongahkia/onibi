@@ -27,17 +27,16 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added global CLI `--json` support and JSON output for the new orchestration commands plus several existing commands.
 - Added canonical status values: `idle`, `working`, `blocked`, `done`.
 - Wired approval blocking to set agent status to `blocked`, approval decisions back to `working`, and PTY exit to `done`.
+- Added visible pane reads from a maintained terminal-screen model and `recent-unwrapped` reads.
+- Added unambiguous agent-target resolution by PTY/session ID, pane ID, agent ID, agent label, or title.
+- Routed `agent focus` through orchestration status updates and the existing desktop focus bridge.
+- Completed JSON output handling for the remaining CLI command families, including status, doctor, setup, desktop HTTP commands, transports, and adapter install/uninstall.
 - Verified with `cargo test`, `cargo fmt --check`, `git diff --check`, and `cargo check --no-default-features`.
 
-### Still partial after the orchestration pass
+### Still out of scope after the orchestration pass
 
-- `pane read --source visible` is currently a tail-of-buffer approximation, not a full terminal-screen/VT snapshot.
-- `recent-unwrapped` is not implemented yet.
-- Agent targeting still resolves to PTY/session IDs; there is no stable semantic agent selector or per-agent aliasing.
-- `agent focus` exists at the protocol level but is not yet a rich GUI focus operation. CLI `session focus` still uses the existing desktop focus route.
-- The status model exists, but does not yet implement done-unviewed → idle-on-focus, process heuristics, screen heuristics, or state arbitration.
-- `--json` is not yet uniform for every legacy CLI command path, especially older desktop HTTP and adapter install/uninstall outputs.
 - Daemon-owned PTYs survive GUI bridge changes while the daemon is alive, but there is still no named session attach, stop, restart persistence, or live binary handoff.
+- Agent status heuristics are intentionally lightweight and based on shell integration/output signals; deeper process-tree detection and third-party integration hooks remain future Phase B work.
 
 ---
 
@@ -60,7 +59,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | No |
 | **Agent detection** | 18 agents (auto, process + heuristic) | 7 adapters (2 real, 5 stubs) |
-| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Partial — canonical statuses exist; approval/exit transitions wired; no done-unviewed/focus heuristic |
+| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, output heuristics, and focus clear are wired |
 | **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | 2 working: claude-code (HTTP), codex (shell); 5 stubs |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | None |
 | **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | No |
@@ -68,10 +67,10 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Edit tool input before approve** | N/A | Yes (Claude Code `updatedInput`) |
 | **Socket API for agents** | Yes — Unix socket, wire protocol v12, bincode | Yes — HTTP/WebSocket plus JSON-lines orchestration over Unix socket + localhost TCP |
 | **API: wait-for-output** | Yes (`herdr wait output --match … --regex`) | Yes |
-| **API: wait-for-agent-status** | Yes (`herdr wait agent-status`) | API yes; status source still partial |
-| **API: pane read (visible/recent/ANSI)** | Yes | Partial — structured recent/ANSI reads; visible is tail-of-buffer approximation |
+| **API: wait-for-agent-status** | Yes (`herdr wait agent-status`) | Yes |
+| **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
 | **API: pane send-text / send-keys / run** | Yes | Partial — PTY write + common `send-keys`; no explicit `run` helper |
-| **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/events; legacy JSON still partial |
+| **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/events with global JSON output |
 | **Remote attach** | Yes — SSH bootstrap, auto-install on remote | N/A (uses transports for phone, not SSH attach) |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
 | **Transport: Tailscale Funnel** | No | Yes |
@@ -130,7 +129,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 
 ### 2.2 Agent detection
 8. **Heuristic agent detection** (process name + terminal-output regex) for 11 agents that have no hook: Cursor, Cline, Copilot, Gemini, Grok, Kimi, Kiro, Droid, Amp, Antigravity, Kilo.
-9. **[PARTIAL] 4-state agent model**: `idle` / `working` / `blocked` / `done(unviewed)` — canonical values exist and some transitions are wired; done-unviewed/focus semantics and heuristic state sources remain.
+9. **[DONE] 4-state agent model**: `idle` / `working` / `blocked` / `done(unviewed)` — canonical values, approval/exit transitions, lightweight output heuristics, and focus clear are wired.
 10. **Smart state arbitration** combining: foreground process + integration hook + screen heuristic, with conflict resolution rules.
 11. **Done-vs-idle distinction** (unviewed completion → idle once user focuses pane).
 12. **Per-agent label override** (`herdr agent rename`).
@@ -147,12 +146,12 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 
 ### 2.4 Socket / orchestration API
 21. **[DONE] `wait output --match <text>/--regex --timeout`** — block until pane emits matching text.
-22. **[PARTIAL] `wait agent-status --status {idle|working|blocked|done}`** — API exists; richer status sources and focus semantics remain under item 9.
-23. **[PARTIAL] `pane read --source {visible|recent|recent-unwrapped} --format ansi`** — structured recent/ANSI reads exist; `visible` is tail-of-buffer and `recent-unwrapped` is missing.
+22. **[DONE] `wait agent-status --status {idle|working|blocked|done}`** — block until agent state transitions.
+23. **[DONE] `pane read --source {visible|recent|recent-unwrapped} --format ansi`** — structured snapshot reads with ANSI preservation.
 24. **[DONE] `pane send-keys`** distinct from `send-text` (raw keys, e.g. `Enter`, `Ctrl+C`).
-25. **[PARTIAL] `agent send` / `agent read` / `agent focus` / `agent start`** — commands exist; stable semantic agent addressing and richer focus behavior remain.
+25. **[DONE] `agent send` / `agent read` / `agent focus` / `agent start`** — commands exist with unambiguous ID or agent-label targeting.
 26. **[DONE] Event subscriptions** — pub/sub for session/status/PTY lifecycle events exists through `events subscribe`.
-27. **[PARTIAL] JSON output flag on every CLI subcommand** for automation — global flag exists; legacy command paths still need uniform JSON envelopes.
+27. **[DONE] JSON output flag on every CLI subcommand** for automation.
 
 ### 2.5 Session persistence
 28. **Detach / reattach a running session** (client exits, processes survive, reattach later).
@@ -239,17 +238,16 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.18 GitHub issue coverage
 
 Open issues created from the orchestration plan:
-- #55 — daemon-owned PTY/session runtime. Implemented in the 2026-06-04 pass.
-- #56 — JSON-lines socket protocol over Unix socket and localhost TCP. Implemented in the 2026-06-04 pass.
-- #57 — hard GUI PTY bridge cutover to daemon runtime. Implemented in the 2026-06-04 pass.
-- #58 — consistent `--json` output. Partially implemented; legacy CLI paths still need uniform JSON envelopes.
-- #59 — pane read/send-keys/wait output. Mostly implemented; full VT-visible snapshot and `recent-unwrapped` remain.
-- #60 — canonical agent status and `wait agent-status`. API implemented; state semantics and heuristics remain.
-- #61 — agent-targeted commands and event subscriptions. Commands/events implemented; semantic agent addressing remains.
+- #55 — daemon-owned PTY/session runtime. Closed.
+- #56 — JSON-lines socket protocol over Unix socket and localhost TCP. Closed.
+- #57 — hard GUI PTY bridge cutover to daemon runtime. Closed.
+- #58 — consistent `--json` output. Implemented.
+- #59 — pane read/send-keys/wait output. Implemented.
+- #60 — canonical agent status and `wait agent-status`. Implemented.
+- #61 — agent-targeted commands and event subscriptions. Implemented.
 
 Issue cleanup recommendation after the implementation commit lands:
-- Close #55, #56, and #57.
-- Keep #58, #59, #60, and #61 open or split them into narrower follow-ups matching the remaining gaps above.
+- Close #58, #59, #60, and #61 after verification.
 
 ---
 
@@ -257,11 +255,11 @@ Issue cleanup recommendation after the implementation commit lands:
 
 Order is by leverage (high-value, low-blast-radius first). Numbers reference items above.
 
-**Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04:**
-1, 2, 5, 6, 9, 23, 28, 29, 30, 48, 64.
+**Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04 orchestration completion:**
+1, 2, 5, 6, 28, 29, 30, 48, 64.
 
 Completed or mostly completed from original Phase A:
-21, 22, 24.
+9, 21, 22, 23, 24.
 
 Additional orchestration items completed or partially completed outside original Phase A:
 25, 26, 27.

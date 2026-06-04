@@ -1,14 +1,17 @@
 use crate::secret;
 use anyhow::Result;
+use serde::Serialize;
 use std::{fs::OpenOptions, net::TcpListener, path::Path, process::Command};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum Level {
     Ok,
     Warn,
     Fail,
 }
 
+#[derive(Serialize)]
 struct Check {
     level: Level,
     name: String,
@@ -16,19 +19,9 @@ struct Check {
     hint: Option<String>,
 }
 
-pub async fn run(port: u16) -> Result<()> {
+pub async fn run(port: u16, json_output: bool) -> Result<()> {
     let mut checks = vec![check_token(), check_database(), check_port(port)];
     checks.extend(check_adapters());
-
-    println!("Onibi doctor {}", env!("CARGO_PKG_VERSION"));
-    println!();
-    for check in &checks {
-        println!("{} {:<22} {}", label(check.level), check.name, check.detail);
-        if let Some(hint) = &check.hint {
-            println!("    hint: {hint}");
-        }
-    }
-    println!();
 
     let ok = checks
         .iter()
@@ -42,6 +35,31 @@ pub async fn run(port: u16) -> Result<()> {
         .iter()
         .filter(|check| check.level == Level::Fail)
         .count();
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "summary": {
+                    "ok": ok,
+                    "warning": warn,
+                    "failed": fail,
+                },
+                "checks": checks,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Onibi doctor {}", env!("CARGO_PKG_VERSION"));
+    println!();
+    for check in &checks {
+        println!("{} {:<22} {}", label(check.level), check.name, check.detail);
+        if let Some(hint) = &check.hint {
+            println!("    hint: {hint}");
+        }
+    }
+    println!();
     println!("Summary: {ok} ok, {warn} warning, {fail} failed");
     println!("Support: paste this whole output into the GitHub issue.");
     Ok(())

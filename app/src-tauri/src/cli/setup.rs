@@ -2,10 +2,14 @@ use crate::{adapters, secret, server, transport::TransportStatus};
 use anyhow::{Context, Result};
 use dialoguer::{theme::ColorfulTheme, MultiSelect};
 use qrcode::{render::unicode, QrCode};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::io::IsTerminal;
 
-pub async fn run(port: u16) -> Result<()> {
+pub async fn run(port: u16, json_output: bool) -> Result<()> {
+    if json_output {
+        return run_json(port).await;
+    }
+
     println!("Welcome to Onibi setup.");
     println!();
 
@@ -42,6 +46,60 @@ pub async fn run(port: u16) -> Result<()> {
     println!("token_source={:?}", token.source);
     println!("vapid_public_key={}", vapid.public_key);
     Ok(())
+}
+
+async fn run_json(port: u16) -> Result<()> {
+    let token = secret::load_or_create_token()?;
+    let vapid = secret::load_or_create_vapid_keys()?;
+    let state = server::AppState::from_config(port)?;
+    let daemon_running = super::healthz(port);
+    let transports = if daemon_running {
+        enable_daemon_transports_json(port)
+    } else {
+        state
+            .transports
+            .status_snapshot()
+            .await
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let adapters = install_selected_adapters_json(&token.token);
+    let pair_uri = pairing_uri(port, &state, daemon_running).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "ok": true,
+            "configDir": secret::config_dir()?,
+            "dbPath": state.store.path(),
+            "machineId": state.machine_id,
+            "tokenSource": format!("{:?}", token.source),
+            "vapidPublicKey": vapid.public_key,
+            "daemonRunning": daemon_running,
+            "transports": transports,
+            "adapters": adapters,
+            "pairUri": pair_uri,
+        }))?
+    );
+    Ok(())
+}
+
+fn enable_daemon_transports_json(port: u16) -> Vec<Value> {
+    ["lan", "tailscale-funnel", "cloudflared"]
+        .into_iter()
+        .map(|name| {
+            match super::authed_http(
+                port,
+                "POST",
+                &format!("/v1/transport/{name}/enable"),
+                Some("{}"),
+            ) {
+                Ok(raw) => serde_json::from_str::<Value>(&raw)
+                    .unwrap_or_else(|_| json!({"name": name, "ok": true, "message": raw})),
+                Err(error) => json!({"name": name, "ok": false, "error": error.to_string()}),
+            }
+        })
+        .collect()
 }
 
 fn enable_daemon_transports(port: u16) {
@@ -141,6 +199,26 @@ fn install_selected_adapters(interactive: bool, token: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn install_selected_adapters_json(token: &str) -> Vec<Value> {
+    adapters::list()
+        .into_iter()
+        .filter(|adapter| adapter.support == "full" || adapter.support == "bash-only")
+        .filter(|adapter| adapter.installed || adapter_detected(adapter.name))
+        .map(|adapter| match adapters::install(adapter.name, token) {
+            Ok(message) => json!({
+                "name": adapter.name,
+                "ok": true,
+                "message": message,
+            }),
+            Err(error) => json!({
+                "name": adapter.name,
+                "ok": false,
+                "error": error.to_string(),
+            }),
+        })
+        .collect()
 }
 
 async fn pairing_uri(port: u16, state: &server::AppState, daemon_running: bool) -> Result<String> {
