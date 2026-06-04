@@ -191,6 +191,9 @@ describe("MainPane", () => {
         env: [],
         rows: 30,
         cols: 100,
+        agent: "opencode",
+        workspaceId: "workspace:/repo",
+        title: "OpenCode",
       },
     });
   });
@@ -422,6 +425,9 @@ describe("MainPane", () => {
           env: [],
           rows: 30,
           cols: 100,
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex · repo",
         },
       });
     });

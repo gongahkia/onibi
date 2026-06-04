@@ -39,11 +39,14 @@ use review::{
     agent_review_reject, agent_review_start, agent_review_stop, AgentReviewManager,
 };
 #[cfg(feature = "gui")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "gui")]
 use serde_json::{json, Value};
 #[cfg(feature = "gui")]
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, OnceLock},
+};
 #[cfg(feature = "gui")]
 use tauri::{Emitter, Manager};
 #[cfg(feature = "gui")]
@@ -79,12 +82,62 @@ struct PtyReplay {
 }
 
 #[cfg(feature = "gui")]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtySessionRestart {
+    command: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+    env: Vec<(String, String)>,
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtySessionMetadata {
+    id: String,
+    pane_id: String,
+    name: Option<String>,
+    agent: Option<String>,
+    workspace_id: Option<String>,
+    cwd: Option<String>,
+    title: Option<String>,
+    status: String,
+    lifecycle: String,
+    rows: u16,
+    cols: u16,
+    created_at: i64,
+    updated_at: i64,
+    stopped_at: Option<i64>,
+    exit_code: Option<u32>,
+    exit_signal: Option<String>,
+    restart: Option<PtySessionRestart>,
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtyAttachResult {
+    ok: bool,
+    attached: bool,
+    relaunched: bool,
+    previous_session_id: Option<String>,
+    id: String,
+    session_id: String,
+    pane_id: String,
+    session: PtySessionMetadata,
+}
+
+#[cfg(feature = "gui")]
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ApprovalServerConfig {
     port: u16,
     token: String,
 }
+
+#[cfg(feature = "gui")]
+static RELAYED_PTY_IDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[cfg(feature = "gui")]
 #[tauri::command]
@@ -109,8 +162,30 @@ async fn pty_spawn(window: tauri::Window, req: PtySpawnRequest) -> Result<PtyId,
         .ok_or_else(|| "daemon did not return a PTY id".to_string())?
         .parse()
         .map_err(|err| format!("parse daemon PTY id: {err}"))?;
-    relay_orchestration_events(window, id).await?;
+    ensure_orchestration_relay(window, id).await?;
     Ok(id)
+}
+
+#[cfg(feature = "gui")]
+async fn ensure_orchestration_relay(window: tauri::Window, id: PtyId) -> Result<(), String> {
+    let id_string = id.to_string();
+    let inserted = {
+        let relayed = RELAYED_PTY_IDS.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut relayed = relayed.lock().map_err(|err| err.to_string())?;
+        relayed.insert(id_string.clone())
+    };
+    if !inserted {
+        return Ok(());
+    }
+    if let Err(error) = relay_orchestration_events(window, id).await {
+        if let Some(relayed) = RELAYED_PTY_IDS.get() {
+            if let Ok(mut relayed) = relayed.lock() {
+                relayed.remove(&id_string);
+            }
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(feature = "gui")]
@@ -119,6 +194,7 @@ async fn relay_orchestration_events(window: tauri::Window, id: PtyId) -> Result<
         .await
         .map_err(|err| err.to_string())?;
     tauri::async_runtime::spawn(async move {
+        let id_string = id.to_string();
         while let Some(frame) = rx.recv().await {
             let Some(event) = frame.get("event") else {
                 continue;
@@ -126,7 +202,7 @@ async fn relay_orchestration_events(window: tauri::Window, id: PtyId) -> Result<
             let Some(session_id) = event.get("session_id").and_then(Value::as_str) else {
                 continue;
             };
-            if session_id != id.to_string() {
+            if session_id != id_string {
                 continue;
             }
             match event.get("type").and_then(Value::as_str) {
@@ -187,6 +263,11 @@ async fn relay_orchestration_events(window: tauri::Window, id: PtyId) -> Result<
                     }
                 }
                 _ => {}
+            }
+        }
+        if let Some(relayed) = RELAYED_PTY_IDS.get() {
+            if let Ok(mut relayed) = relayed.lock() {
+                relayed.remove(&id_string);
             }
         }
     });
@@ -278,6 +359,51 @@ async fn pty_list() -> Result<Vec<PtyId>, String> {
 
 #[cfg(feature = "gui")]
 #[tauri::command]
+async fn pty_sessions(window: tauri::Window) -> Result<Vec<PtySessionMetadata>, String> {
+    let response = orchestration::client::request("session.list", json!({}))
+        .await
+        .map_err(|err| err.to_string())?;
+    let sessions = response
+        .get("sessions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| {
+            serde_json::from_value::<PtySessionMetadata>(value).map_err(|err| err.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for session in sessions
+        .iter()
+        .filter(|session| session.lifecycle == "running")
+    {
+        let id: PtyId = session
+            .id
+            .parse()
+            .map_err(|err| format!("parse daemon PTY id: {err}"))?;
+        ensure_orchestration_relay(window.clone(), id).await?;
+    }
+    Ok(sessions)
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn session_attach(window: tauri::Window, id: String) -> Result<PtyAttachResult, String> {
+    let response = orchestration::client::request("session.attach", json!({"id": id}))
+        .await
+        .map_err(|err| err.to_string())?;
+    let result: PtyAttachResult =
+        serde_json::from_value(response).map_err(|err| err.to_string())?;
+    let pty_id: PtyId = result
+        .id
+        .parse()
+        .map_err(|err| format!("parse daemon PTY id: {err}"))?;
+    ensure_orchestration_relay(window, pty_id).await?;
+    Ok(result)
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
 async fn pty_replay(id: PtyId) -> Result<Option<PtyReplay>, String> {
     let response = orchestration::client::request("pty.replay", json!({"id": id.to_string()}))
         .await
@@ -331,6 +457,8 @@ pub fn run() {
             pty_resize,
             pty_kill,
             pty_list,
+            pty_sessions,
+            session_attach,
             pty_replay,
             approval_server_config,
             fs_list_dir,

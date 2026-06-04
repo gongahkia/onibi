@@ -11,11 +11,13 @@ use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use bytes::Bytes;
 use regex::Regex;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    fs,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -41,19 +43,52 @@ pub enum AgentStatus {
     Done,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionLifecycle {
+    Running,
+    Stale,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRestartMetadata {
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    pub env: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub id: String,
     pub pane_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub status: AgentStatus,
+    pub lifecycle: SessionLifecycle,
     pub rows: u16,
     pub cols: u16,
     pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stopped_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_signal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<SessionRestartMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +123,131 @@ pub enum OrchestrationEvent {
     AgentFocusRequested {
         session: SessionInfo,
     },
+}
+
+#[derive(Debug)]
+struct SessionMetadataStore {
+    path: PathBuf,
+}
+
+impl SessionMetadataStore {
+    fn open_default() -> Result<Self> {
+        Self::open(secret::db_path()?)
+    }
+
+    fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create db directory {}", parent.display()))?;
+        }
+        let store = Self { path };
+        store.init()?;
+        Ok(store)
+    }
+
+    fn init(&self) -> Result<()> {
+        let conn = self.connect()?;
+        conn.execute_batch(
+            r#"
+            PRAGMA journal_mode = WAL;
+            CREATE TABLE IF NOT EXISTS orchestration_sessions (
+              id          TEXT PRIMARY KEY,
+              name        TEXT,
+              lifecycle   TEXT NOT NULL,
+              updated_at  INTEGER NOT NULL,
+              data        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_orchestration_sessions_updated
+              ON orchestration_sessions(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_orchestration_sessions_name
+              ON orchestration_sessions(name);
+            "#,
+        )
+        .context("initialize orchestration session metadata")?;
+        Ok(())
+    }
+
+    fn connect(&self) -> Result<Connection> {
+        Connection::open(&self.path)
+            .with_context(|| format!("open session metadata db {}", self.path.display()))
+    }
+
+    fn upsert(&self, session: &SessionInfo) -> Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO orchestration_sessions(id, name, lifecycle, updated_at, data)
+            VALUES(?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              lifecycle = excluded.lifecycle,
+              updated_at = excluded.updated_at,
+              data = excluded.data
+            "#,
+            params![
+                session.id,
+                session.name,
+                serde_json::to_string(&session.lifecycle)?,
+                session.updated_at,
+                serde_json::to_string(session)?,
+            ],
+        )
+        .with_context(|| format!("persist orchestration session {}", session.id))?;
+        Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<SessionInfo>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT data
+            FROM orchestration_sessions
+            ORDER BY updated_at DESC
+            "#,
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut sessions = Vec::new();
+        while let Some(row) = rows.next()? {
+            let raw: String = row.get(0)?;
+            match serde_json::from_str::<SessionInfo>(&raw) {
+                Ok(session) => sessions.push(session),
+                Err(error) => {
+                    tracing::warn!(%error, "skipping invalid orchestration session metadata");
+                }
+            }
+        }
+        Ok(sessions)
+    }
+}
+
+fn load_persisted_sessions(store: &SessionMetadataStore) -> HashMap<String, SessionInfo> {
+    let now = now_millis();
+    let mut loaded = HashMap::new();
+    let sessions = match store.list() {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            tracing::warn!(%error, "failed to load persisted orchestration sessions");
+            return loaded;
+        }
+    };
+    for mut session in sessions {
+        if session.lifecycle == SessionLifecycle::Running {
+            session.lifecycle = SessionLifecycle::Stale;
+            session.status = AgentStatus::Done;
+            session.updated_at = now;
+            session.stopped_at.get_or_insert(now);
+            session.exit_code.get_or_insert(1);
+            session
+                .exit_signal
+                .get_or_insert_with(|| "daemon restart".to_string());
+            if let Err(error) = store.upsert(&session) {
+                tracing::warn!(session_id = %session.id, %error, "failed to mark session stale");
+            }
+        }
+        loaded.insert(session.id.clone(), session);
+    }
+    loaded
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,17 +285,34 @@ pub struct OrchestrationState {
     manager: Arc<PtyManager>,
     token: String,
     sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
+    store: Option<Arc<SessionMetadataStore>>,
     screens: Arc<RwLock<HashMap<String, TerminalScreen>>>,
     events: broadcast::Sender<OrchestrationEvent>,
 }
 
 impl OrchestrationState {
     pub fn new(token: String) -> Arc<Self> {
+        let store = match SessionMetadataStore::open_default() {
+            Ok(store) => Some(Arc::new(store)),
+            Err(error) => {
+                tracing::warn!(%error, "session metadata persistence unavailable");
+                None
+            }
+        };
+        Self::with_store(token, store)
+    }
+
+    fn with_store(token: String, store: Option<Arc<SessionMetadataStore>>) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
+        let sessions = store
+            .as_ref()
+            .map(|store| load_persisted_sessions(store))
+            .unwrap_or_default();
         Arc::new(Self {
             manager: PtyManager::new(),
             token,
-            sessions: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(sessions)),
+            store,
             screens: Arc::new(RwLock::new(HashMap::new())),
             events,
         })
@@ -207,13 +384,60 @@ impl OrchestrationState {
         if let Some(session) = sessions.get_mut(session_id) {
             if session.status != status {
                 session.status = status;
+                session.updated_at = now_millis();
+                let updated = session.clone();
+                drop(sessions);
+                self.persist_session(&updated);
                 let _ = self.events.send(OrchestrationEvent::SessionStatus {
                     session_id: session_id.to_string(),
                     status,
-                    session: Some(session.clone()),
+                    session: Some(updated),
                 });
             }
         }
+    }
+
+    fn persist_session(&self, session: &SessionInfo) {
+        if let Some(store) = &self.store {
+            if let Err(error) = store.upsert(session) {
+                tracing::warn!(session_id = %session.id, %error, "failed to persist session metadata");
+            }
+        }
+    }
+
+    async fn upsert_session(&self, session: SessionInfo) {
+        self.sessions
+            .write()
+            .await
+            .insert(session.id.clone(), session.clone());
+        self.persist_session(&session);
+    }
+
+    async fn mark_session_stopped(
+        &self,
+        session_id: &str,
+        exit: Option<crate::pty::PtyExitStatus>,
+    ) -> Option<SessionInfo> {
+        let now = now_millis();
+        let mut sessions = self.sessions.write().await;
+        let session = sessions.get_mut(session_id)?;
+        session.status = AgentStatus::Done;
+        session.lifecycle = SessionLifecycle::Stopped;
+        session.updated_at = now;
+        session.stopped_at = Some(now);
+        if let Some(exit) = exit {
+            session.exit_code = Some(exit.code);
+            session.exit_signal = exit.signal;
+        }
+        let updated = session.clone();
+        drop(sessions);
+        self.persist_session(&updated);
+        let _ = self.events.send(OrchestrationEvent::SessionStatus {
+            session_id: session_id.to_string(),
+            status: AgentStatus::Done,
+            session: Some(updated.clone()),
+        });
+        Some(updated)
     }
 
     async fn set_heuristic_status(&self, session_id: &str, status: AgentStatus) {
@@ -240,6 +464,9 @@ impl OrchestrationState {
                     "pty.kill",
                     "pty.list",
                     "pty.replay",
+                    "session.list",
+                    "session.attach",
+                    "session.stop",
                     "pane.read",
                     "pane.send_keys",
                     "wait.output",
@@ -258,8 +485,11 @@ impl OrchestrationState {
             "pty.write" => self.write(payload).await,
             "pty.resize" => self.resize(payload).await,
             "pty.kill" => self.kill(payload).await,
-            "pty.list" | "agent.list" => self.list().await,
+            "pty.list" | "agent.list" => self.list_live().await,
             "pty.replay" => self.replay(payload).await,
+            "session.list" => self.list_sessions().await,
+            "session.attach" => self.attach(payload).await,
+            "session.stop" => self.stop(payload).await,
             "pane.read" | "agent.read" => self.read(payload).await,
             "pane.send_keys" => self.send_keys(payload).await,
             "wait.output" => self.wait_output(payload).await,
@@ -280,51 +510,58 @@ impl OrchestrationState {
         if req.cols == 0 {
             req.cols = 100;
         }
-        let agent = payload
-            .get("agent")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let workspace_id = payload
-            .get("workspaceId")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let title = payload
-            .get("title")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let cwd = req.cwd.as_ref().map(|path| path.display().to_string());
-        let id = self.manager.spawn(req.clone()).await?;
-        let id_string = id.to_string();
-        let session = SessionInfo {
-            id: id_string.clone(),
-            pane_id: id_string.clone(),
-            agent,
-            workspace_id,
-            cwd,
-            title,
-            status: AgentStatus::Working,
-            rows: req.rows,
-            cols: req.cols,
-            created_at: now_millis(),
-        };
-        self.sessions
-            .write()
-            .await
-            .insert(id_string.clone(), session.clone());
-        self.screens.write().await.insert(
-            id_string.clone(),
-            TerminalScreen::new(req.rows as usize, req.cols as usize),
-        );
-        let _ = self.events.send(OrchestrationEvent::SessionStarted {
-            session: session.clone(),
-        });
-        self.spawn_event_relay(id).await?;
+        let metadata = SpawnMetadata::from_payload(&payload, &req);
+        let session = self.spawn_from_request(req, metadata).await?;
         Ok(json!({
-            "id": id_string,
+            "id": session.id,
             "sessionId": session.id,
             "paneId": session.pane_id,
             "session": session,
         }))
+    }
+
+    async fn spawn_from_request(
+        &self,
+        req: PtySpawnRequest,
+        metadata: SpawnMetadata,
+    ) -> Result<SessionInfo> {
+        self.ensure_name_available(metadata.name.as_deref(), None)
+            .await?;
+        let restart = restart_metadata_from_request(&req);
+        let rows = req.rows.max(1);
+        let cols = req.cols.max(1);
+        let id = self.manager.spawn(req).await?;
+        let id_string = id.to_string();
+        let now = now_millis();
+        let session = SessionInfo {
+            id: id_string.clone(),
+            pane_id: id_string.clone(),
+            name: metadata.name,
+            agent: metadata.agent,
+            workspace_id: metadata.workspace_id,
+            cwd: metadata.cwd,
+            title: metadata.title,
+            status: AgentStatus::Working,
+            lifecycle: SessionLifecycle::Running,
+            rows,
+            cols,
+            created_at: now,
+            updated_at: now,
+            stopped_at: None,
+            exit_code: None,
+            exit_signal: None,
+            restart: Some(restart),
+        };
+        self.upsert_session(session.clone()).await;
+        self.screens
+            .write()
+            .await
+            .insert(id_string, TerminalScreen::new(rows as usize, cols as usize));
+        let _ = self.events.send(OrchestrationEvent::SessionStarted {
+            session: session.clone(),
+        });
+        self.spawn_event_relay(id).await?;
+        Ok(session)
     }
 
     async fn spawn_event_relay(&self, id: PtyId) -> Result<()> {
@@ -353,7 +590,9 @@ impl OrchestrationState {
                     }
                     PtyEvent::Exit(status) => {
                         let id_string = id.to_string();
-                        state.set_status(&id_string, AgentStatus::Done).await;
+                        state
+                            .mark_session_stopped(&id_string, Some(status.clone()))
+                            .await;
                         let _ = state.events.send(OrchestrationEvent::PtyExit {
                             session_id: id_string.clone(),
                             pane_id: id_string,
@@ -415,6 +654,8 @@ impl OrchestrationState {
         if let Some(session) = self.sessions.write().await.get_mut(&id.to_string()) {
             session.rows = rows;
             session.cols = cols;
+            session.updated_at = now_millis();
+            self.persist_session(&session.clone());
         }
         if let Some(screen) = self.screens.write().await.get_mut(&id.to_string()) {
             screen.resize(rows as usize, cols as usize);
@@ -425,10 +666,92 @@ impl OrchestrationState {
     async fn kill(&self, payload: Value) -> Result<Value> {
         let id = self.resolve_target_id(&payload).await?;
         self.manager.kill(id).await?;
-        Ok(json!({"ok": true}))
+        let session = self.mark_session_stopped(&id.to_string(), None).await;
+        Ok(json!({"ok": true, "session": session}))
     }
 
-    async fn list(&self) -> Result<Value> {
+    async fn stop(&self, payload: Value) -> Result<Value> {
+        let session = self.resolve_session_record(&payload).await?;
+        if session.lifecycle == SessionLifecycle::Running {
+            if let Ok(id) = session.id.parse() {
+                let _ = self.manager.kill(id).await;
+            }
+        }
+        let stopped = self
+            .mark_session_stopped(&session.id, None)
+            .await
+            .unwrap_or(session);
+        Ok(json!({"ok": true, "session": stopped}))
+    }
+
+    async fn attach(&self, payload: Value) -> Result<Value> {
+        let session = self.resolve_session_record(&payload).await?;
+        if session.lifecycle == SessionLifecycle::Running && self.session_is_live(&session.id).await
+        {
+            let _ = self.events.send(OrchestrationEvent::AgentFocusRequested {
+                session: session.clone(),
+            });
+            return Ok(json!({
+                "ok": true,
+                "attached": true,
+                "relaunched": false,
+                "id": session.id,
+                "sessionId": session.id,
+                "paneId": session.pane_id,
+                "session": session,
+            }));
+        }
+
+        let restart = session
+            .restart
+            .clone()
+            .ok_or_else(|| anyhow!("session has no restart metadata: {}", session.id))?;
+        let previous_id = session.id.clone();
+        self.mark_session_stopped(&previous_id, None).await;
+        let req = PtySpawnRequest {
+            command: restart.command,
+            args: restart.args,
+            cwd: restart.cwd.map(PathBuf::from),
+            env: restart.env,
+            rows: session.rows.max(1),
+            cols: session.cols.max(1),
+            name: session.name.clone(),
+            agent: session.agent.clone(),
+            workspace_id: session.workspace_id.clone(),
+            title: session.title.clone(),
+        };
+        let metadata = SpawnMetadata {
+            name: session.name.clone(),
+            agent: session.agent.clone(),
+            workspace_id: session.workspace_id.clone(),
+            cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
+            title: session.title.clone(),
+        };
+        let relaunched = self.spawn_from_request(req, metadata).await?;
+        Ok(json!({
+            "ok": true,
+            "attached": true,
+            "relaunched": true,
+            "previousSessionId": previous_id,
+            "id": relaunched.id,
+            "sessionId": relaunched.id,
+            "paneId": relaunched.pane_id,
+            "session": relaunched,
+        }))
+    }
+
+    async fn session_is_live(&self, session_id: &str) -> bool {
+        let live = self
+            .manager
+            .list()
+            .await
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>();
+        live.iter().any(|id| id == session_id)
+    }
+
+    async fn list_live(&self) -> Result<Value> {
         let active = self
             .manager
             .list()
@@ -442,6 +765,49 @@ impl OrchestrationState {
             .filter_map(|id| sessions.get(id).cloned())
             .collect::<Vec<_>>();
         Ok(json!({"sessions": items}))
+    }
+
+    async fn list_sessions(&self) -> Result<Value> {
+        let mut items = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| right.created_at.cmp(&left.created_at))
+        });
+        Ok(json!({"sessions": items}))
+    }
+
+    async fn ensure_name_available(
+        &self,
+        name: Option<&str>,
+        replacing_id: Option<&str>,
+    ) -> Result<()> {
+        let Some(name) = name else {
+            return Ok(());
+        };
+        let needle = name.to_lowercase();
+        let sessions = self.sessions.read().await;
+        if let Some(existing) = sessions.values().find(|session| {
+            session.lifecycle != SessionLifecycle::Stopped
+                && replacing_id != Some(session.id.as_str())
+                && session
+                    .name
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.to_lowercase() == needle)
+        }) {
+            return Err(anyhow!(
+                "session name is already in use by {}: {name}",
+                existing.id
+            ));
+        }
+        Ok(())
     }
 
     async fn replay(&self, payload: Value) -> Result<Value> {
@@ -599,6 +965,44 @@ impl OrchestrationState {
         Ok(json!({"ok": true, "session": session}))
     }
 
+    async fn resolve_session_record(&self, payload: &Value) -> Result<SessionInfo> {
+        let raw = ["id", "sessionId", "paneId", "name", "target"]
+            .iter()
+            .find_map(|key| payload.get(key).and_then(Value::as_str))
+            .or_else(|| payload.as_str())
+            .ok_or_else(|| anyhow!("missing session id or name"))?;
+        let sessions = self.sessions.read().await;
+        if let Some(session) = sessions.get(raw) {
+            return Ok(session.clone());
+        }
+        let needle = raw.to_lowercase();
+        let mut matches = sessions
+            .values()
+            .filter(|session| {
+                session
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.to_lowercase() == needle)
+                    || session
+                        .title
+                        .as_deref()
+                        .is_some_and(|title| title.to_lowercase() == needle)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|session| match session.lifecycle {
+            SessionLifecycle::Running => 0,
+            SessionLifecycle::Stale => 1,
+            SessionLifecycle::Stopped => 2,
+        });
+        match matches.as_slice() {
+            [] => Err(anyhow!("session not found: {raw}")),
+            [session] => Ok(session.clone()),
+            [first, second, ..] if first.lifecycle != second.lifecycle => Ok(first.clone()),
+            _ => Err(anyhow!("session target is ambiguous: {raw}")),
+        }
+    }
+
     async fn resolve_target_id(&self, payload: &Value) -> Result<PtyId> {
         for key in ["id", "paneId", "sessionId", "agentId"] {
             if let Some(raw) = payload.get(key).and_then(Value::as_str) {
@@ -628,14 +1032,19 @@ impl OrchestrationState {
             .await
             .values()
             .filter(|session| {
-                session
-                    .agent
-                    .as_deref()
-                    .is_some_and(|agent| agent.eq_ignore_ascii_case(raw))
-                    || session
-                        .title
+                session.lifecycle == SessionLifecycle::Running
+                    && (session
+                        .name
                         .as_deref()
-                        .is_some_and(|title| title.to_lowercase() == needle)
+                        .is_some_and(|name| name.to_lowercase() == needle)
+                        || session
+                            .agent
+                            .as_deref()
+                            .is_some_and(|agent| agent.eq_ignore_ascii_case(raw))
+                        || session
+                            .title
+                            .as_deref()
+                            .is_some_and(|title| title.to_lowercase() == needle))
             })
             .map(|session| session.id.clone())
             .collect::<Vec<_>>();
@@ -647,6 +1056,57 @@ impl OrchestrationState {
                 .with_context(|| format!("parse pty id {id}")),
             _ => Err(anyhow!("agent target is ambiguous: {raw}")),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SpawnMetadata {
+    name: Option<String>,
+    agent: Option<String>,
+    workspace_id: Option<String>,
+    cwd: Option<String>,
+    title: Option<String>,
+}
+
+impl SpawnMetadata {
+    fn from_payload(payload: &Value, req: &PtySpawnRequest) -> Self {
+        Self {
+            name: payload
+                .get("name")
+                .and_then(Value::as_str)
+                .or(req.name.as_deref())
+                .and_then(normalize_session_name),
+            agent: payload
+                .get("agent")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| req.agent.clone()),
+            workspace_id: payload
+                .get("workspaceId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| req.workspace_id.clone()),
+            cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
+            title: payload
+                .get("title")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| req.title.clone()),
+        }
+    }
+}
+
+fn normalize_session_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadata {
+    SessionRestartMetadata {
+        command: req.command.clone(),
+        args: req.args.clone(),
+        cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
+        env: req.env.clone(),
     }
 }
 
@@ -1271,5 +1731,54 @@ mod tests {
             infer_status_from_output("\x1b]133;D;0\x07\x1b]133;A\x07"),
             Some(AgentStatus::Idle)
         );
+    }
+
+    #[test]
+    fn normalizes_session_names() {
+        assert_eq!(
+            normalize_session_name("  build  "),
+            Some("build".to_string())
+        );
+        assert_eq!(normalize_session_name("  "), None);
+    }
+
+    #[test]
+    fn persisted_running_sessions_become_stale_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionMetadataStore::open(dir.path().join("onibi.db")).unwrap();
+        let session = SessionInfo {
+            id: "session-1".to_string(),
+            pane_id: "session-1".to_string(),
+            name: Some("dev".to_string()),
+            agent: Some("codex".to_string()),
+            workspace_id: Some("workspace:/repo".to_string()),
+            cwd: Some("/repo".to_string()),
+            title: Some("Codex".to_string()),
+            status: AgentStatus::Working,
+            lifecycle: SessionLifecycle::Running,
+            rows: 30,
+            cols: 100,
+            created_at: 1,
+            updated_at: 1,
+            stopped_at: None,
+            exit_code: None,
+            exit_signal: None,
+            restart: Some(SessionRestartMetadata {
+                command: "codex".to_string(),
+                args: vec![],
+                cwd: Some("/repo".to_string()),
+                env: vec![],
+            }),
+        };
+        store.upsert(&session).unwrap();
+
+        let loaded = load_persisted_sessions(&store);
+        let stale = loaded.get("session-1").unwrap();
+        assert_eq!(stale.lifecycle, SessionLifecycle::Stale);
+        assert_eq!(stale.status, AgentStatus::Done);
+        assert_eq!(stale.exit_signal.as_deref(), Some("daemon restart"));
+
+        let persisted = store.list().unwrap();
+        assert_eq!(persisted[0].lifecycle, SessionLifecycle::Stale);
     }
 }

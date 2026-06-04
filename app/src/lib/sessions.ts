@@ -4,8 +4,11 @@ import { create } from "zustand";
 import {
   ptyKill,
   ptyList,
+  ptySessions,
   ptySpawn,
+  sessionAttach,
   shellPath,
+  type PtySessionMetadata,
   type PtyId,
   type PtySpawnRequest,
 } from "./tauri-bridge";
@@ -39,6 +42,7 @@ export type SessionStatus =
 
 export interface Session {
   id: string;
+  name?: string;
   agent: AgentKind;
   workspaceId: string;
   title: string;
@@ -3136,6 +3140,161 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
 }));
 
+async function loadDaemonSessions(): Promise<PtySessionMetadata[]> {
+  try {
+    return await ptySessions();
+  } catch {
+    const liveIds = await ptyList().catch(() => []);
+    const now = Date.now();
+    return liveIds.map((id) => ({
+      id,
+      paneId: id,
+      status: "working",
+      lifecycle: "running",
+      rows: 30,
+      cols: 100,
+      createdAt: now,
+      updatedAt: now,
+    }));
+  }
+}
+
+function mergeDaemonWorkspaces(
+  stored: Workspace[],
+  daemonSessions: PtySessionMetadata[],
+): Workspace[] {
+  const byId = new Map(stored.map((workspace) => [workspace.id, workspace]));
+  for (const session of daemonSessions) {
+    const workspace = workspaceFromDaemonSession(session);
+    if (workspace && !byId.has(workspace.id)) {
+      byId.set(workspace.id, workspace);
+    }
+  }
+  return Array.from(byId.values());
+}
+
+function mergeDaemonSessionRecords(
+  stored: Session[],
+  daemonSessions: PtySessionMetadata[],
+  daemonById: Map<string, PtySessionMetadata>,
+  livePtys: Set<string>,
+): Session[] {
+  const merged = stored.map((session) => {
+    const daemon = daemonById.get(session.id);
+    if (daemon) {
+      return mergeDaemonSession(session, daemon);
+    }
+    const live = livePtys.has(session.id);
+    return {
+      ...session,
+      status: live
+        ? session.status === "stale"
+          ? "running"
+          : session.status
+        : "stale",
+      pendingApprovals: session.pendingApprovals ?? [],
+    } satisfies Session;
+  });
+  const knownIds = new Set(merged.map((session) => session.id));
+  for (const daemon of daemonSessions) {
+    if (knownIds.has(daemon.id) || daemon.lifecycle === "stopped") {
+      continue;
+    }
+    merged.push(sessionFromDaemonMetadata(daemon));
+    knownIds.add(daemon.id);
+  }
+  return merged;
+}
+
+function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Session {
+  return {
+    ...session,
+    name: daemon.name ?? session.name,
+    agent: agentKindFromDaemon(daemon.agent) ?? session.agent,
+    workspaceId: daemon.workspaceId ?? session.workspaceId,
+    title: daemon.title ?? daemon.name ?? session.title,
+    status: sessionStatusFromDaemon(daemon),
+    createdAt: daemon.createdAt || session.createdAt,
+    pendingApprovals: session.pendingApprovals ?? [],
+    cwd: daemon.cwd ?? session.cwd,
+    lastExitCode: daemon.exitCode ?? session.lastExitCode ?? null,
+    restart: daemon.restart ?? session.restart ?? null,
+  };
+}
+
+function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
+  const cwd = daemon.cwd ?? daemonWorkspacePath(daemon) ?? "/";
+  const agent = agentKindFromDaemon(daemon.agent) ?? "shell";
+  return {
+    id: daemon.id,
+    name: daemon.name ?? undefined,
+    agent,
+    workspaceId: daemon.workspaceId ?? workspaceIdForPath(cwd),
+    title: daemon.title ?? daemon.name ?? sessionTitle(agent, workspaceFromPathSync(cwd)),
+    status: sessionStatusFromDaemon(daemon),
+    createdAt: daemon.createdAt || Date.now(),
+    pendingApprovals: [],
+    cwd,
+    lastExitCode: daemon.exitCode ?? null,
+    lastTrigger: null,
+    lastCommandBlockId: null,
+    transcript: null,
+    restart: daemon.restart ?? null,
+  };
+}
+
+function agentKindFromDaemon(agent: string | null | undefined): AgentKind | null {
+  return AGENT_KINDS.includes(agent as AgentKind) ? (agent as AgentKind) : null;
+}
+
+function sessionStatusFromDaemon(daemon: PtySessionMetadata): SessionStatus {
+  if (daemon.lifecycle !== "running") {
+    return "stale";
+  }
+  switch (daemon.status) {
+    case "blocked":
+      return "awaiting-approval";
+    case "done":
+      return "completed";
+    case "idle":
+      return "idle";
+    default:
+      return "running";
+  }
+}
+
+function workspaceFromDaemonSession(
+  session: PtySessionMetadata,
+): Workspace | null {
+  const path = daemonWorkspacePath(session);
+  if (!path) {
+    return null;
+  }
+  return {
+    id: session.workspaceId ?? workspaceIdForPath(path),
+    path,
+    name: pathBasename(path),
+  };
+}
+
+function daemonWorkspacePath(session: PtySessionMetadata): string | null {
+  if (session.cwd) {
+    return session.cwd;
+  }
+  if (session.workspaceId?.startsWith("workspace:")) {
+    return session.workspaceId.slice("workspace:".length);
+  }
+  return null;
+}
+
+function workspaceFromPathSync(path: string): Workspace {
+  return {
+    id: workspaceIdForPath(path),
+    path,
+    name: pathBasename(path),
+  };
+}
+
 export async function hydrateSessionStore(): Promise<void> {
   const state = useSessionStore.getState();
   if (state.hydrated) {
@@ -3171,19 +3330,20 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<MainSelection[]>("closedBufferStack"),
       store.get<string[]>("bufferAccessOrder"),
     ]);
-    const livePtys = new Set(await ptyList().catch(() => []));
-    const restoredSessions = (sessions ?? []).map((session) => {
-      const live = livePtys.has(session.id);
-      return {
-        ...session,
-        status: live
-          ? session.status === "stale"
-            ? "running"
-            : session.status
-          : "stale",
-        pendingApprovals: session.pendingApprovals ?? [],
-      } satisfies Session;
-    });
+    const daemonSessions = await loadDaemonSessions();
+    const daemonById = new Map(daemonSessions.map((session) => [session.id, session]));
+    const livePtys = new Set(
+      daemonSessions
+        .filter((session) => session.lifecycle === "running")
+        .map((session) => session.id),
+    );
+    const restoredWorkspaces = mergeDaemonWorkspaces(workspaces ?? [], daemonSessions);
+    const restoredSessions = mergeDaemonSessionRecords(
+      sessions ?? [],
+      daemonSessions,
+      daemonById,
+      livePtys,
+    );
     const restoredTerminalSessions = restoredSessions.filter((session) =>
       sessionHasRestorableTerminal(session),
     );
@@ -3209,7 +3369,7 @@ export async function hydrateSessionStore(): Promise<void> {
         : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
-    const workspaceIds = new Set((workspaces ?? []).map((w) => w.id));
+    const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
     const restoredBuffers = (openBuffers ?? []).filter((buffer) =>
       workspaceIds.has(buffer.workspaceId),
     );
@@ -3238,7 +3398,7 @@ export async function hydrateSessionStore(): Promise<void> {
           : null,
       arrangements: normalizeArrangements(arrangements),
       activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
-      workspaces: workspaces ?? [],
+      workspaces: restoredWorkspaces,
       sessionEvents: sessionEvents ?? [],
       openBuffers: restoredBuffers,
       activeBufferKey: restoredActiveKey,
@@ -3566,6 +3726,9 @@ export async function spawnSessionFromLaunchSpec(
     env: spec.env,
     rows: 30,
     cols: 100,
+    agent: spec.agent,
+    workspaceId: spec.workspaceId,
+    title: spec.title,
   });
   useSessionStore.getState().addSession(
     {
@@ -3667,6 +3830,36 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
   if (!session?.restart) {
     return null;
   }
+  if (session.status === "stale") {
+    try {
+      const attached = await sessionAttach(session.id);
+      if (attached?.session?.id) {
+        const replacement: Session = {
+          ...mergeDaemonSession(session, attached.session),
+          id: attached.session.id,
+          status: "running",
+          pendingApprovals: [],
+          lastExitCode: null,
+          lastTrigger: null,
+          lastCommandBlockId: null,
+          transcript: null,
+        };
+        if (session.agent !== "shell") {
+          await stopAgentReview(session.id).catch(() => undefined);
+          const workspace = workspaceForSession(session, state.workspaces);
+          if (workspace) {
+            void startAgentReview(replacement.id, workspace.path).catch((error) => {
+              console.warn("failed to start agent review tracking", error);
+            });
+          }
+        }
+        useSessionStore.getState().replaceSession(session.id, replacement);
+        return replacement.id;
+      }
+    } catch (error) {
+      console.warn("daemon session attach failed, falling back to spawn", error);
+    }
+  }
   const id = await ptySpawn({
     command: session.restart.command,
     args: session.restart.args,
@@ -3674,6 +3867,9 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     env: session.restart.env,
     rows: 30,
     cols: 100,
+    agent: session.agent,
+    workspaceId: session.workspaceId,
+    title: session.title,
   });
   const replacement: Session = {
     ...session,
@@ -3754,6 +3950,9 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       env: launch.env,
       rows: 30,
       cols: 100,
+      agent: savedSession.agent,
+      workspaceId: savedSession.workspaceId,
+      title: savedSession.title,
     });
     sessionIds.set(savedSession.sessionId, id);
     newSessions.push({

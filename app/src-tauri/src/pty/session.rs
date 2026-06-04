@@ -45,6 +45,14 @@ pub struct PtySpawnRequest {
     pub rows: u16,
     #[serde(default = "default_cols")]
     pub cols: u16,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 fn default_rows() -> u16 {

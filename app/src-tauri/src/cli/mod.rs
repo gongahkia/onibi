@@ -106,11 +106,19 @@ enum SessionCommand {
     List,
     Launch {
         #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
         agent: Option<String>,
         #[arg(long)]
         workspace: PathBuf,
         #[arg(long)]
         prompt: Option<String>,
+    },
+    Attach {
+        id: String,
+    },
+    Stop {
+        id: String,
     },
     Send {
         id: String,
@@ -295,8 +303,9 @@ async fn run(cli: Cli) -> Result<()> {
 
 async fn session(command: SessionCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
-        SessionCommand::List => print_orchestration("pty.list", json!({}), json_output).await,
+        SessionCommand::List => print_orchestration("session.list", json!({}), json_output).await,
         SessionCommand::Launch {
+            name,
             agent,
             workspace,
             prompt,
@@ -309,6 +318,7 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
                     "command": command,
                     "args": args,
                     "cwd": workspace.display().to_string(),
+                    "name": name,
                     "agent": agent,
                     "workspaceId": format!("workspace:{}", workspace.display()),
                 }),
@@ -316,6 +326,31 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
             .await?;
             print_value(response, json_output)?;
             Ok(())
+        }
+        SessionCommand::Attach { id } => {
+            let mut response =
+                orchestration::client::request("session.attach", json!({"id": id})).await?;
+            if healthz(port) {
+                if let Some(session_id) = response
+                    .get("session")
+                    .and_then(|session| session.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    let focus = authed_http(
+                        port,
+                        "POST",
+                        &format!("/v1/desktop/session/{}/focus", path_segment(session_id)),
+                        Some("{}"),
+                    )?;
+                    if let Ok(value) = serde_json::from_str::<Value>(&focus) {
+                        response["desktopFocus"] = value;
+                    }
+                }
+            }
+            print_value(response, json_output)
+        }
+        SessionCommand::Stop { id } => {
+            print_orchestration("session.stop", json!({"id": id}), json_output).await
         }
         SessionCommand::Send { id, text } => {
             print_orchestration(

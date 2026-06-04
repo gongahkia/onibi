@@ -54,6 +54,9 @@ describe("NewSessionDialog", () => {
           env: [["ONIBI_SHELL_INTEGRATION", "1"]],
           rows: 30,
           cols: 100,
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Plain shell · repo",
         },
       });
     });
@@ -132,6 +135,9 @@ describe("NewSessionDialog", () => {
           env: [],
           rows: 30,
           cols: 100,
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex · repo",
         },
       });
     });

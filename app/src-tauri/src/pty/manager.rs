@@ -476,6 +476,10 @@ mod tests {
             env: vec![],
             rows: 24,
             cols: 80,
+            name: None,
+            agent: None,
+            workspace_id: None,
+            title: None,
         }
     }
 
@@ -500,6 +504,10 @@ mod tests {
                 env: vec![],
                 rows: 24,
                 cols: 80,
+                name: None,
+                agent: None,
+                workspace_id: None,
+                title: None,
             })
             .await
             .unwrap();
@@ -521,6 +529,10 @@ mod tests {
                 env: vec![],
                 rows: 24,
                 cols: 80,
+                name: None,
+                agent: None,
+                workspace_id: None,
+                title: None,
             })
             .await
             .unwrap();

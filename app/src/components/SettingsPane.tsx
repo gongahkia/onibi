@@ -165,6 +165,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       env: [],
       rows: 30,
       cols: 100,
+      agent: "shell",
+      workspaceId: workspace.id,
+      title: `Install ${AGENT_LABELS[agent]} · ${workspace.name}`,
     });
     addSession({
       id,

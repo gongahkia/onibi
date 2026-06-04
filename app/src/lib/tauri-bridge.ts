@@ -10,6 +10,10 @@ export interface PtySpawnRequest {
   env: Array<[string, string]>;
   rows: number;
   cols: number;
+  name?: string | null;
+  agent?: string | null;
+  workspaceId?: string | null;
+  title?: string | null;
 }
 
 export interface PtyNotificationPayload {
@@ -28,6 +32,44 @@ export interface PtyReplaySnapshot {
   data: string;
   startOffset: number;
   endOffset: number;
+}
+
+export interface PtySessionRestart {
+  command: string;
+  args: string[];
+  cwd: string | null;
+  env: Array<[string, string]>;
+}
+
+export interface PtySessionMetadata {
+  id: string;
+  paneId: string;
+  name?: string | null;
+  agent?: string | null;
+  workspaceId?: string | null;
+  cwd?: string | null;
+  title?: string | null;
+  status: "idle" | "working" | "blocked" | "done";
+  lifecycle: "running" | "stale" | "stopped";
+  rows: number;
+  cols: number;
+  createdAt: number;
+  updatedAt: number;
+  stoppedAt?: number | null;
+  exitCode?: number | null;
+  exitSignal?: string | null;
+  restart?: PtySessionRestart | null;
+}
+
+export interface PtyAttachResult {
+  ok: boolean;
+  attached: boolean;
+  relaunched: boolean;
+  previousSessionId?: string | null;
+  id: string;
+  sessionId: string;
+  paneId: string;
+  session: PtySessionMetadata;
 }
 
 export function shellPath(): string {
@@ -52,6 +94,14 @@ export function ptyKill(id: PtyId): Promise<void> {
 
 export function ptyList(): Promise<PtyId[]> {
   return invoke<PtyId[]>("pty_list");
+}
+
+export function ptySessions(): Promise<PtySessionMetadata[]> {
+  return invoke<PtySessionMetadata[]>("pty_sessions");
+}
+
+export function sessionAttach(id: string): Promise<PtyAttachResult> {
+  return invoke<PtyAttachResult>("session_attach", { id });
 }
 
 export function ptyReplay(id: PtyId): Promise<PtyReplaySnapshot | null> {

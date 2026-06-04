@@ -33,9 +33,27 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Completed JSON output handling for the remaining CLI command families, including status, doctor, setup, desktop HTTP commands, transports, and adapter install/uninstall.
 - Verified with `cargo test`, `cargo fmt --check`, `git diff --check`, and `cargo check --no-default-features`.
 
+### Implemented in the session-persistence pass
+
+- Created GitHub tracking issues #62–#64 for session persistence, CLI session control, and GUI rehydration.
+- Added persisted daemon session metadata in `onibi.db`, including optional names, lifecycle state, dimensions, restart command metadata, and exit/stale markers.
+- Added orchestration commands:
+  - `session.list`
+  - `session.attach`
+  - `session.stop`
+- Added CLI support for:
+  - `onibi session launch --name <name>`
+  - `onibi session list`
+  - `onibi session attach <id-or-name>`
+  - `onibi session stop <id-or-name>`
+- Added case-insensitive name resolution with duplicate-name rejection among active sessions.
+- Added stale-session relaunch from saved command metadata after daemon restart. This restores workflows by spawning a replacement PTY; it is not true process survival across daemon restart.
+- Added GUI daemon metadata hydration so live daemon sessions are rebuilt in the desktop store and relayed to xterm, while stale restartable sessions keep restart metadata.
+- Verified with `cargo fmt --check`, `cargo test`, `cargo check --no-default-features`, `pnpm --dir app typecheck`, `pnpm --dir app test`, and `git diff --check`.
+
 ### Still out of scope after the orchestration pass
 
-- Daemon-owned PTYs survive GUI bridge changes while the daemon is alive, but there is still no named session attach, stop, restart persistence, or live binary handoff.
+- True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Agent status heuristics are intentionally lightweight and based on shell integration/output signals; deeper process-tree detection and third-party integration hooks remain future Phase B work.
 
 ---
@@ -50,9 +68,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Render engine** | ratatui + libghostty-vt (vendored) | xterm.js + CodeMirror 6 + React 19 |
 | **Distribution** | Single binary (herdr installer, brew, nix) | DMG / AppImage / deb / brew / pi-install.sh |
 | **Cross-platform** | macOS x86_64/arm64, Linux x86_64/arm64 (glibc) | macOS, Linux, Pi (headless), iOS/Android (PWA) |
-| **Persistent sessions** | Yes — server/client, named sessions, survive restart | Partial — SQLite store, approvals rehydrate; daemon-owned PTYs while daemon is alive; no restart pane resume |
+| **Persistent sessions** | Yes — server/client, named sessions, survive restart | Partial — SQLite metadata, named sessions, live daemon attach, and relaunch-based restart resume; no true process survival across daemon restart |
 | **Multi-client attach** | Yes — multiple terminals on same session | Partial — multiple clients via WebSocket and orchestration event subscriptions |
-| **Detach / reattach** | Yes — full | Partial — GUI can attach to daemon-owned PTYs while daemon is alive; no named attach/restart resume |
+| **Detach / reattach** | Yes — full | Partial — GUI/CLI can attach to daemon-owned PTYs while daemon is alive; stale sessions relaunch from metadata after daemon restart |
 | **Workspaces** | First-class (project containers, persistent identity) | Workspace path only; no container abstraction |
 | **Tabs** | First-class | Yes (agent/editor/terminal tabs) |
 | **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Yes — vertical/horizontal split with focus |
@@ -62,7 +80,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, output heuristics, and focus clear are wired |
 | **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | 2 working: claude-code (HTTP), codex (shell); 5 stubs |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | None |
-| **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | No |
+| **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command metadata can relaunch sessions; provider-native conversation IDs are not restored |
 | **Approval / gating layer** | No | Yes (primary feature) |
 | **Edit tool input before approve** | N/A | Yes (Claude Code `updatedInput`) |
 | **Socket API for agents** | Yes — Unix socket, wire protocol v12, bincode | Yes — HTTP/WebSocket plus JSON-lines orchestration over Unix socket + localhost TCP |
@@ -154,10 +172,10 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 27. **[DONE] JSON output flag on every CLI subcommand** for automation.
 
 ### 2.5 Session persistence
-28. **Detach / reattach a running session** (client exits, processes survive, reattach later).
-29. **Named sessions** with isolated namespaces (`herdr session attach <name>`).
-30. **`herdr session list / stop`**.
-31. **Native agent session resume** — restore Claude/Codex/Pi/Hermes/OpenCode conversations on server restart.
+28. **[DONE] Detach / reattach a running session** — daemon-owned PTYs survive GUI/CLI detach while the daemon is alive; GUI hydration reattaches and relays live sessions.
+29. **[DONE] Named sessions** with case-insensitive active-name uniqueness and `onibi session attach <name>`.
+30. **[DONE] `herdr session list / stop` equivalent** — `onibi session list`, `onibi session stop <id-or-name>`, and JSON output exist.
+31. **[PARTIAL] Native agent session resume** — saved command metadata can relaunch stale sessions after daemon restart, but provider-native Claude/Codex/Pi/Hermes/OpenCode conversation IDs are not restored.
 32. **Live server handoff** — transfer running PTYs from old binary to new without interruption (experimental but spec'd).
 33. **Pane history opt-in** (screen scrollback survives restart).
 
@@ -241,13 +259,13 @@ Open issues created from the orchestration plan:
 - #55 — daemon-owned PTY/session runtime. Closed.
 - #56 — JSON-lines socket protocol over Unix socket and localhost TCP. Closed.
 - #57 — hard GUI PTY bridge cutover to daemon runtime. Closed.
-- #58 — consistent `--json` output. Implemented.
-- #59 — pane read/send-keys/wait output. Implemented.
-- #60 — canonical agent status and `wait agent-status`. Implemented.
-- #61 — agent-targeted commands and event subscriptions. Implemented.
-
-Issue cleanup recommendation after the implementation commit lands:
-- Close #58, #59, #60, and #61 after verification.
+- #58 — consistent `--json` output. Closed.
+- #59 — pane read/send-keys/wait output. Closed.
+- #60 — canonical agent status and `wait agent-status`. Closed.
+- #61 — agent-targeted commands and event subscriptions. Closed.
+- #62 — session metadata persistence and restartable session model. Implemented; close after this commit lands.
+- #63 — named session CLI list/attach/stop. Implemented; close after this commit lands.
+- #64 — GUI rehydrate and attach/relaunch behavior. Implemented; close after this commit lands.
 
 ---
 
@@ -256,13 +274,13 @@ Issue cleanup recommendation after the implementation commit lands:
 Order is by leverage (high-value, low-blast-radius first). Numbers reference items above.
 
 **Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04 orchestration completion:**
-1, 2, 5, 6, 28, 29, 30, 48, 64.
+1, 2, 5, 6, 48, 64.
 
 Completed or mostly completed from original Phase A:
 9, 21, 22, 23, 24.
 
 Additional orchestration items completed or partially completed outside original Phase A:
-25, 26, 27.
+25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
 
 **Phase B — agent ecosystem reach:**
 8, 10, 11, 13, 14, 15 (replace stub), 16, 17, 18, 19, 20, 31.

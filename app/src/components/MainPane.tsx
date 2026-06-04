@@ -56,6 +56,9 @@ async function spawnShellReplacement(
     env: [],
     rows: 30,
     cols: 100,
+    agent: "shell",
+    workspaceId: workspace.id,
+    title: sessionTitle("shell", workspace),
   });
   return {
     ...session,
