@@ -342,11 +342,16 @@ function TerminalPaneTree({
     return (
       <PanelGroup
         orientation={panelOrientation(node.direction)}
-        onLayout={(nextSizes) => updateTerminalSplitSizes(node.paneId, nextSizes)}
+        onLayoutChanged={(layout) =>
+          updateTerminalSplitSizes(
+            node.paneId,
+            node.children.map((child) => layout[child.paneId] ?? 0),
+          )
+        }
       >
         {node.children.map((child, index) => (
           <Fragment key={child.paneId}>
-            <Panel minSize={12} defaultSize={sizes?.[index]}>
+            <Panel id={child.paneId} minSize={12} defaultSize={sizes?.[index]}>
               <TerminalPaneTree
                 node={child}
                 sessions={sessions}

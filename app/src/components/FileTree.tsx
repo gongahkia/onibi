@@ -471,7 +471,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     return draggedWorkspaceId || event.dataTransfer.getData(WORKSPACE_DRAG_MIME) || null;
   }
 
-  function workspaceDropBefore(event: DragEvent<HTMLElement>): boolean {
+  function workspaceDropBefore(event: DragEvent): boolean {
     const rect = event.currentTarget.getBoundingClientRect();
     return event.clientY < rect.top + rect.height / 2;
   }
@@ -491,7 +491,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   }
 
   function handleWorkspaceDragOver(
-    event: DragEvent<HTMLElement>,
+    event: DragEvent,
     workspace: Workspace,
   ): boolean {
     const fromId = workspaceDragIdFromEvent(event);
@@ -509,7 +509,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   }
 
   function handleWorkspaceDragLeave(
-    event: DragEvent<HTMLElement>,
+    event: DragEvent,
     workspace: Workspace,
   ) {
     if (
@@ -525,7 +525,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   }
 
   function handleWorkspaceDrop(
-    event: DragEvent<HTMLElement>,
+    event: DragEvent,
     workspace: Workspace,
   ): boolean {
     const fromId = workspaceDragIdFromEvent(event);
