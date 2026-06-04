@@ -108,6 +108,7 @@ pub struct PtySession {
 
 struct PtySessionInner {
     id: PtyId,
+    child_process_id: Option<u32>,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     writer: Arc<tokio::sync::Mutex<Box<dyn Write + Send>>>,
@@ -130,9 +131,11 @@ impl PtySession {
         writer: Box<dyn Write + Send>,
         tx: broadcast::Sender<PtyEvent>,
     ) -> Self {
+        let child_process_id = child.process_id();
         Self {
             inner: Arc::new(PtySessionInner {
                 id,
+                child_process_id,
                 master: Arc::new(Mutex::new(master)),
                 child: Arc::new(Mutex::new(child)),
                 writer: Arc::new(tokio::sync::Mutex::new(writer)),
@@ -149,6 +152,10 @@ impl PtySession {
 
     pub fn child(&self) -> Arc<Mutex<Box<dyn Child + Send + Sync>>> {
         self.inner.child.clone()
+    }
+
+    pub fn child_process_id(&self) -> Option<u32> {
+        self.inner.child_process_id
     }
 
     pub fn master(&self) -> Arc<Mutex<Box<dyn MasterPty + Send>>> {

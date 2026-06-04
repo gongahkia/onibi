@@ -92,6 +92,14 @@ export interface TerminalPanePlacement {
   direction?: TerminalSplitDirection;
 }
 
+export type TerminalPaneDropPosition = "before" | "after";
+export type TerminalLayoutPreset =
+  | "even-horizontal"
+  | "even-vertical"
+  | "main-horizontal"
+  | "main-vertical"
+  | "tiled";
+
 export function leafSessionIds(leaf: TerminalLeafPane): string[] {
   if (leaf.sessionIds && leaf.sessionIds.length > 0) {
     return leaf.sessionIds;
@@ -180,7 +188,12 @@ export interface SessionCommandMarker {
 export type CommandBlockStatus = "running" | "succeeded" | "failed" | "aborted";
 export type CommandBlockSource = "shell-integration" | "manual" | "trigger";
 export type EditorKeybindingMode = "standard" | "emacs" | "vim";
-export type NewPaneCwdMode = "workspace" | "active" | "home";
+export type NewPaneCwdMode =
+  | "workspace"
+  | "active"
+  | "home"
+  | "follow"
+  | `fixed:${string}`;
 
 export type AppKeybindingAction =
   | "commandPalette.open"
@@ -672,6 +685,12 @@ type SessionStore = {
   focusRelativeWorkspace: (delta: number) => void;
   focusRelativeWorkspaceTab: (delta: number) => void;
   updateTerminalSplitSizes: (splitPaneId: string, sizes: number[]) => void;
+  moveTerminalPane: (
+    sourcePaneId: string,
+    targetPaneId: string,
+    position: TerminalPaneDropPosition,
+  ) => void;
+  applyTerminalLayoutPreset: (preset: TerminalLayoutPreset) => void;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   setActivePaneSession: (paneId: string, sessionId: string) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
@@ -1799,10 +1818,56 @@ export function displayKeyChord(value: string): string {
     .join("+");
 }
 
-function normalizeNewPaneCwdMode(value: unknown): NewPaneCwdMode {
-  return value === "workspace" || value === "home" || value === "active"
-    ? value
-    : DEFAULT_SETTINGS.newPaneCwd;
+export function isAbsoluteCwdPath(value: string | null | undefined): value is string {
+  if (!value) {
+    return false;
+  }
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
+}
+
+export function normalizeNewPaneCwdMode(value: unknown): NewPaneCwdMode {
+  if (typeof value !== "string") {
+    return DEFAULT_SETTINGS.newPaneCwd;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed === "workspace" ||
+    trimmed === "home" ||
+    trimmed === "active" ||
+    trimmed === "follow"
+  ) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("fixed:")) {
+    const path = trimmed.slice("fixed:".length).trim();
+    if (isAbsoluteCwdPath(path)) {
+      return `fixed:${path}`;
+    }
+  }
+  return DEFAULT_SETTINGS.newPaneCwd;
+}
+
+export function fixedNewPaneCwdPath(value: NewPaneCwdMode): string | null {
+  return value.startsWith("fixed:") ? value.slice("fixed:".length) : null;
+}
+
+export function resolveNewPaneCwd(
+  settings: AppSettings,
+  activeSession: Session | null | undefined,
+  activeWorkspace: Workspace | null | undefined,
+): string | null {
+  const mode = normalizeNewPaneCwdMode(settings.newPaneCwd);
+  const fixedPath = fixedNewPaneCwdPath(mode);
+  if (fixedPath) {
+    return fixedPath;
+  }
+  if (mode === "home") {
+    return null;
+  }
+  if (mode === "workspace") {
+    return activeWorkspace?.path ?? null;
+  }
+  return activeSession?.cwd ?? activeWorkspace?.path ?? null;
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -2241,6 +2306,142 @@ function updateTerminalSplitSizesInLayout(
       updateTerminalSplitSizesInLayout(child, splitPaneId, sizes),
     ) as TerminalPaneNode[],
   };
+}
+
+function replaceTerminalLeavesInOrder(
+  node: TerminalPaneNode,
+  leaves: TerminalLeafPane[],
+  index: { value: number },
+): TerminalPaneNode {
+  if (node.type === "leaf") {
+    return leaves[index.value++] ?? node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      replaceTerminalLeavesInOrder(child, leaves, index),
+    ),
+  };
+}
+
+function moveTerminalPaneInLayout(
+  node: TerminalPaneNode | null,
+  sourcePaneId: string,
+  targetPaneId: string,
+  position: TerminalPaneDropPosition,
+): TerminalPaneNode | null {
+  if (!node || sourcePaneId === targetPaneId) {
+    return node;
+  }
+  const leaves = terminalLeafOrder(node);
+  const source = leaves.find((leaf) => leaf.paneId === sourcePaneId);
+  if (!source || !leaves.some((leaf) => leaf.paneId === targetPaneId)) {
+    return node;
+  }
+  const reordered = leaves.filter((leaf) => leaf.paneId !== sourcePaneId);
+  const targetIndex = reordered.findIndex((leaf) => leaf.paneId === targetPaneId);
+  if (targetIndex < 0) {
+    return node;
+  }
+  reordered.splice(position === "before" ? targetIndex : targetIndex + 1, 0, source);
+  return replaceTerminalLeavesInOrder(node, reordered, { value: 0 });
+}
+
+function evenSplitSizes(count: number): number[] {
+  if (count <= 0) {
+    return [];
+  }
+  const raw = Math.round((100 / count) * 100) / 100;
+  const sizes = Array.from({ length: count }, () => raw);
+  sizes[sizes.length - 1] =
+    Math.round((100 - raw * (count - 1)) * 100) / 100;
+  return sizes;
+}
+
+function linearTerminalLayout(
+  leaves: TerminalLeafPane[],
+  direction: TerminalSplitDirection,
+): TerminalPaneNode | null {
+  if (leaves.length === 0) {
+    return null;
+  }
+  if (leaves.length === 1) {
+    return leaves[0];
+  }
+  return {
+    type: "split",
+    paneId: makeId("split"),
+    direction,
+    sizes: evenSplitSizes(leaves.length),
+    children: leaves,
+  };
+}
+
+function mainTerminalLayout(
+  leaves: TerminalLeafPane[],
+  direction: TerminalSplitDirection,
+): TerminalPaneNode | null {
+  if (leaves.length <= 2) {
+    return linearTerminalLayout(leaves, direction);
+  }
+  const secondary = linearTerminalLayout(leaves.slice(1), direction);
+  if (!secondary) {
+    return leaves[0] ?? null;
+  }
+  return {
+    type: "split",
+    paneId: makeId("split"),
+    direction,
+    sizes: [55, 45],
+    children: [leaves[0], secondary],
+  };
+}
+
+function tiledTerminalLayout(
+  leaves: TerminalLeafPane[],
+  depth = 0,
+): TerminalPaneNode | null {
+  if (leaves.length === 0) {
+    return null;
+  }
+  if (leaves.length === 1) {
+    return leaves[0];
+  }
+  const midpoint = Math.ceil(leaves.length / 2);
+  const left = tiledTerminalLayout(leaves.slice(0, midpoint), depth + 1);
+  const right = tiledTerminalLayout(leaves.slice(midpoint), depth + 1);
+  if (!left || !right) {
+    return left ?? right;
+  }
+  return {
+    type: "split",
+    paneId: makeId("split"),
+    direction: depth % 2 === 0 ? "vertical" : "horizontal",
+    sizes: [50, 50],
+    children: [left, right],
+  };
+}
+
+function applyTerminalLayoutPresetToNode(
+  node: TerminalPaneNode | null,
+  preset: TerminalLayoutPreset,
+): TerminalPaneNode | null {
+  const leaves = terminalLeafOrder(node);
+  if (leaves.length <= 1) {
+    return node;
+  }
+  switch (preset) {
+    case "even-horizontal":
+      return linearTerminalLayout(leaves, "vertical");
+    case "even-vertical":
+      return linearTerminalLayout(leaves, "horizontal");
+    case "main-horizontal":
+      return mainTerminalLayout(leaves, "vertical");
+    case "main-vertical":
+      return mainTerminalLayout(leaves, "horizontal");
+    case "tiled":
+      return tiledTerminalLayout(leaves);
+  }
 }
 
 function ensureWorkspaceHasTab(
@@ -3280,6 +3481,87 @@ export const useSessionStore = create<SessionStore>((set) => ({
       return {
         workspaceTabs,
         terminalLayout,
+      };
+    });
+    persistLater();
+  },
+  moveTerminalPane: (sourcePaneId, targetPaneId, position) => {
+    set((state) => {
+      const tab = activeWorkspaceTab(state);
+      const baseLayout = tab?.terminalLayout ?? state.terminalLayout;
+      const terminalLayout = moveTerminalPaneInLayout(
+        baseLayout,
+        sourcePaneId,
+        targetPaneId,
+        position,
+      );
+      if (terminalLayout === baseLayout) {
+        return {};
+      }
+      const activeTerminalPaneId =
+        state.activeTerminalPaneId &&
+        paneContainsPane(terminalLayout, state.activeTerminalPaneId)
+          ? state.activeTerminalPaneId
+          : firstLeaf(terminalLayout)?.paneId ?? null;
+      const maximizedTerminalPaneId =
+        state.maximizedTerminalPaneId &&
+        paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
+          ? state.maximizedTerminalPaneId
+          : null;
+      const workspaceTabs = tab
+        ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+            terminalLayout,
+            activeTerminalPaneId,
+            maximizedTerminalPaneId,
+          })
+        : state.workspaceTabs;
+      return {
+        workspaceTabs,
+        terminalLayout,
+        activeTerminalPaneId,
+        maximizedTerminalPaneId,
+        activeSessionId: activeTerminalPaneId
+          ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
+          : state.activeSessionId,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  applyTerminalLayoutPreset: (preset) => {
+    set((state) => {
+      const tab = activeWorkspaceTab(state);
+      const baseLayout = tab?.terminalLayout ?? state.terminalLayout;
+      const terminalLayout = applyTerminalLayoutPresetToNode(baseLayout, preset);
+      if (terminalLayout === baseLayout) {
+        return {};
+      }
+      const activeTerminalPaneId =
+        state.activeTerminalPaneId &&
+        paneContainsPane(terminalLayout, state.activeTerminalPaneId)
+          ? state.activeTerminalPaneId
+          : firstLeaf(terminalLayout)?.paneId ?? null;
+      const maximizedTerminalPaneId =
+        state.maximizedTerminalPaneId &&
+        paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
+          ? state.maximizedTerminalPaneId
+          : null;
+      const workspaceTabs = tab
+        ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+            terminalLayout,
+            activeTerminalPaneId,
+            maximizedTerminalPaneId,
+          })
+        : state.workspaceTabs;
+      return {
+        workspaceTabs,
+        terminalLayout,
+        activeTerminalPaneId,
+        maximizedTerminalPaneId,
+        activeSessionId: activeTerminalPaneId
+          ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
+          : state.activeSessionId,
+        selectedFile: null,
       };
     });
     persistLater();
@@ -5210,8 +5492,7 @@ export async function spawnAgentSession(
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
-  const cwd =
-    options?.cwd && options.cwd.startsWith(workspace.path) ? options.cwd : workspace.path;
+  const cwd = isAbsoluteCwdPath(options?.cwd) ? options.cwd : workspace.path;
   const env: Array<[string, string]> =
     shellIntegrationEnv(agent, settings);
   return spawnSessionFromLaunchSpec(

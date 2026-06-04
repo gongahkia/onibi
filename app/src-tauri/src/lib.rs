@@ -110,6 +110,8 @@ struct PtySessionMetadata {
     cols: u16,
     created_at: i64,
     updated_at: i64,
+    #[serde(default)]
+    process_id: Option<u32>,
     stopped_at: Option<i64>,
     exit_code: Option<u32>,
     exit_signal: Option<String>,

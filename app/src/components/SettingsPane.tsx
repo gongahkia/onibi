@@ -17,6 +17,7 @@ import {
   type CustomColorScheme,
   type DiffViewMode,
   type EditorKeybindingMode,
+  type NewPaneCwdMode,
   type TabBarOrientation,
   type TabBarPosition,
   type TerminalConfigCandidate,
@@ -273,6 +274,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontSize={settings.terminalFontSize}
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalConfirmClose={settings.terminalConfirmClose}
+              newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
               editorKeybindingMode={settings.editorKeybindingMode}
               editorVimRelativeLineNumbers={settings.editorVimRelativeLineNumbers}
@@ -304,6 +306,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onTerminalConfirmClose={(terminalConfirmClose) =>
                 updateSettings({ terminalConfirmClose })
               }
+              onNewPaneCwd={(newPaneCwd) => updateSettings({ newPaneCwd })}
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
               onEditorKeybindingMode={(editorKeybindingMode) =>
                 updateSettings({ editorKeybindingMode })
@@ -518,6 +521,7 @@ interface GeneralSettingsProps {
   terminalFontSize: number;
   terminalScrollbackLines: number;
   terminalConfirmClose: boolean;
+  newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
   editorVimRelativeLineNumbers: boolean;
@@ -537,6 +541,7 @@ interface GeneralSettingsProps {
   onTerminalFontSize: (fontSize: number) => void;
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
+  onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
   onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
   onEditorVimRelativeLineNumbers: (enabled: boolean) => void;
@@ -560,6 +565,7 @@ function GeneralSettings({
   terminalFontSize,
   terminalScrollbackLines,
   terminalConfirmClose,
+  newPaneCwd,
   editorFontSize,
   editorKeybindingMode,
   editorVimRelativeLineNumbers,
@@ -579,6 +585,7 @@ function GeneralSettings({
   onTerminalFontSize,
   onTerminalScrollbackLines,
   onTerminalConfirmClose,
+  onNewPaneCwd,
   onEditorFontSize,
   onEditorKeybindingMode,
   onEditorVimRelativeLineNumbers,
@@ -702,6 +709,7 @@ function GeneralSettings({
           Confirm before closing running terminals
         </span>
       </label>
+      <NewPaneCwdControl value={newPaneCwd} onChange={onNewPaneCwd} />
       <FontFamilyControl
         label="File content font"
         value={editorFontFamily}
@@ -871,6 +879,68 @@ function TriggersSettings({
     <section className="settings-section" aria-label="Terminal trigger settings">
       <TerminalTriggersControl triggers={triggers} onChange={onTriggers} />
     </section>
+  );
+}
+
+function newPaneCwdSelectValue(
+  value: NewPaneCwdMode,
+): "active" | "follow" | "workspace" | "home" | "fixed" {
+  return value.startsWith("fixed:")
+    ? "fixed"
+    : (value as "active" | "follow" | "workspace" | "home");
+}
+
+function newPaneCwdFixedPath(value: NewPaneCwdMode): string {
+  return value.startsWith("fixed:") ? value.slice("fixed:".length) : "/";
+}
+
+function NewPaneCwdControl({
+  value,
+  onChange,
+}: {
+  value: NewPaneCwdMode;
+  onChange: (mode: NewPaneCwdMode) => void;
+}) {
+  const fixedPath = newPaneCwdFixedPath(value);
+  const selected = newPaneCwdSelectValue(value);
+  return (
+    <label className="settings-row settings-row-top">
+      <span>New pane cwd</span>
+      <span className="settings-stacked-control">
+        <select
+          className="settings-select"
+          aria-label="New pane cwd"
+          value={selected}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next === "fixed") {
+              onChange(`fixed:${fixedPath || "/"}`);
+              return;
+            }
+            onChange(next as NewPaneCwdMode);
+          }}
+        >
+          <option value="active">Active pane cwd</option>
+          <option value="follow">Follow active pane cwd</option>
+          <option value="workspace">Workspace root</option>
+          <option value="home">Home directory</option>
+          <option value="fixed">Fixed path</option>
+        </select>
+        {selected === "fixed" ? (
+          <input
+            className="settings-input"
+            aria-label="Fixed new pane cwd"
+            value={fixedPath}
+            onChange={(event) => {
+              const next = event.target.value.trim();
+              if (next.startsWith("/") || /^[A-Za-z]:[\\/]/.test(next)) {
+                onChange(`fixed:${next}`);
+              }
+            }}
+          />
+        ) : null}
+      </span>
+    </label>
   );
 }
 

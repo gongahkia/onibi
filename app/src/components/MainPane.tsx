@@ -31,6 +31,7 @@ import {
   newCommandBlockId,
   pruneTerminalLayout,
   restartSession,
+  resolveNewPaneCwd,
   sessionAttentionState,
   sessionCanHandoff,
   sessionHasRestorableTerminal,
@@ -39,6 +40,7 @@ import {
   spawnAgentSession,
   terminalPaneNodeForId,
   useSessionStore,
+  isAbsoluteCwdPath,
   type AgentKind,
   type CommandBlock,
   type Session,
@@ -55,6 +57,7 @@ import { persistCommandBlock } from "../lib/command-blocks";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 const WORKSPACE_TAB_DRAG_MIME = "application/x-onibi-workspace-terminal-tab";
+const TERMINAL_PANE_DRAG_MIME = "application/x-onibi-terminal-pane";
 
 async function spawnShellReplacement(
   session: Session,
@@ -335,7 +338,11 @@ function TerminalPaneTree({
   const updateTerminalSplitSizes = useSessionStore(
     (state) => state.updateTerminalSplitSizes,
   );
+  const moveTerminalPane = useSessionStore((state) => state.moveTerminalPane);
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [paneDropPosition, setPaneDropPosition] = useState<"before" | "after" | null>(
+    null,
+  );
   if (node.type === "split") {
     const sizes =
       node.sizes && node.sizes.length === node.children.length ? node.sizes : undefined;
@@ -398,11 +405,47 @@ function TerminalPaneTree({
   const attentionState = sessionAttentionState(session);
   const needsAttention = sessionNeedsAttention(session);
   const autoRestarting = autoRestartingSessionIds.has(session.id);
+  function dragPaneId(event: ReactDragEvent): string | null {
+    const value = event.dataTransfer.getData(TERMINAL_PANE_DRAG_MIME);
+    return value.trim() || null;
+  }
+
+  function paneDropPositionFromEvent(event: ReactDragEvent<HTMLElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const useHorizontalAxis = rect.width >= rect.height;
+    const midpoint = useHorizontalAxis
+      ? rect.left + rect.width / 2
+      : rect.top + rect.height / 2;
+    const pointer = useHorizontalAxis ? event.clientX : event.clientY;
+    return pointer < midpoint ? "before" : "after";
+  }
+
   return (
     <section
-      className={`terminal-pane ${active ? "active" : ""} ${needsAttention ? "attention" : ""}`}
+      className={`terminal-pane ${active ? "active" : ""} ${needsAttention ? "attention" : ""} ${paneDropPosition ? `drop-${paneDropPosition}` : ""}`}
       data-attention={attentionState}
       onPointerDown={() => setActiveTerminalPane(node.paneId)}
+      onDragOver={(event) => {
+        if (dragPaneId(event) && dragPaneId(event) !== node.paneId) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setPaneDropPosition(paneDropPositionFromEvent(event));
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setPaneDropPosition(null);
+        }
+      }}
+      onDrop={(event) => {
+        const sourcePaneId = dragPaneId(event);
+        setPaneDropPosition(null);
+        if (!sourcePaneId || sourcePaneId === node.paneId) {
+          return;
+        }
+        event.preventDefault();
+        moveTerminalPane(sourcePaneId, node.paneId, paneDropPositionFromEvent(event));
+      }}
     >
       <div className="terminal-pane-toolbar">
         <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
@@ -426,6 +469,21 @@ function TerminalPaneTree({
           </span>
         ) : null}
         <div className="terminal-pane-actions">
+          <button
+            type="button"
+            className="terminal-pane-icon-button drag-handle"
+            aria-label="Drag pane"
+            title="Drag pane"
+            draggable
+            onDragStart={(event) => {
+              event.stopPropagation();
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(TERMINAL_PANE_DRAG_MIME, node.paneId);
+            }}
+            onDragEnd={() => setPaneDropPosition(null)}
+          >
+            <i className="codicon codicon-gripper" aria-hidden="true" />
+          </button>
           {session.preview ? (
             <button
               type="button"
@@ -655,10 +713,7 @@ function AgentHandoffDialog({
           targetPaneId: paneId,
         },
         {
-          cwd:
-            session.cwd && session.cwd.startsWith(workspace.path)
-              ? session.cwd
-              : workspace.path,
+          cwd: isAbsoluteCwdPath(session.cwd) ? session.cwd : workspace.path,
         },
       );
       onClose();
@@ -1171,12 +1226,11 @@ export function MainPane() {
         : layout;
     const splitWorkspaceId =
       activeTerminalSession?.workspaceId ?? activeWorkspace?.id ?? null;
-    const splitDefaultCwd =
-      settings.newPaneCwd === "home"
-        ? null
-        : settings.newPaneCwd === "workspace"
-          ? activeWorkspace?.path ?? null
-          : activeTerminalSession?.cwd ?? activeWorkspace?.path ?? null;
+    const splitDefaultCwd = resolveNewPaneCwd(
+      settings,
+      activeTerminalSession,
+      activeWorkspace,
+    );
     return (
       <>
         <main

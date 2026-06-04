@@ -137,6 +137,10 @@ impl PtyManager {
         Ok(self.session(id)?.output_snapshot())
     }
 
+    pub fn process_id(&self, id: PtyId) -> Result<Option<u32>> {
+        Ok(self.session(id)?.child_process_id())
+    }
+
     pub async fn list(&self) -> Vec<PtyId> {
         self.sessions
             .read()

@@ -159,6 +159,9 @@ export function CommandPalette() {
   const toggleMaximizedTerminalPane = useSessionStore(
     (state) => state.toggleMaximizedTerminalPane,
   );
+  const applyTerminalLayoutPreset = useSessionStore(
+    (state) => state.applyTerminalLayoutPreset,
+  );
   const focusRelativeTerminalPane = useSessionStore(
     (state) => state.focusRelativeTerminalPane,
   );
@@ -450,6 +453,46 @@ export function CommandPalette() {
         run: () => focusRelativeTerminalPane(-1),
       },
       {
+        id: "terminal.layout.even-horizontal",
+        label: "Layout Panes Evenly Horizontal",
+        group: "Layout",
+        description: "Arrange panes side by side",
+        keywords: ["pane", "split", "preset", "columns"],
+        run: () => applyTerminalLayoutPreset("even-horizontal"),
+      },
+      {
+        id: "terminal.layout.even-vertical",
+        label: "Layout Panes Evenly Vertical",
+        group: "Layout",
+        description: "Arrange panes top to bottom",
+        keywords: ["pane", "split", "preset", "rows"],
+        run: () => applyTerminalLayoutPreset("even-vertical"),
+      },
+      {
+        id: "terminal.layout.main-horizontal",
+        label: "Layout Panes Main Horizontal",
+        group: "Layout",
+        description: "Keep the first pane as the left main pane",
+        keywords: ["pane", "split", "preset", "main", "columns"],
+        run: () => applyTerminalLayoutPreset("main-horizontal"),
+      },
+      {
+        id: "terminal.layout.main-vertical",
+        label: "Layout Panes Main Vertical",
+        group: "Layout",
+        description: "Keep the first pane as the top main pane",
+        keywords: ["pane", "split", "preset", "main", "rows"],
+        run: () => applyTerminalLayoutPreset("main-vertical"),
+      },
+      {
+        id: "terminal.layout.tiled",
+        label: "Layout Panes Tiled",
+        group: "Layout",
+        description: "Balance panes into a grid",
+        keywords: ["pane", "split", "preset", "grid"],
+        run: () => applyTerminalLayoutPreset("tiled"),
+      },
+      {
         id: "file.clear-selection",
         label: "Clear File Selection",
         group: "Workspace",
@@ -726,6 +769,7 @@ export function CommandPalette() {
     setActiveSession,
     setActiveSidebarView,
     settings,
+    applyTerminalLayoutPreset,
     toggleMaximizedTerminalPane,
     focusRelativeTerminalPane,
     updateSettings,

@@ -55,6 +55,7 @@ export interface PtySessionMetadata {
   cols: number;
   createdAt: number;
   updatedAt: number;
+  processId?: number | null;
   stoppedAt?: number | null;
   exitCode?: number | null;
   exitSignal?: string | null;

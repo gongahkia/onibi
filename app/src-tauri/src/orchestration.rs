@@ -15,9 +15,10 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -81,6 +82,8 @@ pub struct SessionInfo {
     pub cols: u16,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stopped_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -559,6 +562,7 @@ impl OrchestrationState {
         let rows = req.rows.max(1);
         let cols = req.cols.max(1);
         let id = self.manager.spawn(req).await?;
+        let process_id = self.manager.process_id(id).ok().flatten();
         let id_string = id.to_string();
         let now = now_millis();
         let session = SessionInfo {
@@ -575,6 +579,7 @@ impl OrchestrationState {
             cols,
             created_at: now,
             updated_at: now,
+            process_id,
             stopped_at: None,
             exit_code: None,
             exit_signal: None,
@@ -589,6 +594,7 @@ impl OrchestrationState {
             session: session.clone(),
         });
         self.spawn_event_relay(id).await?;
+        self.spawn_process_detection_relay(id);
         Ok(session)
     }
 
@@ -647,6 +653,31 @@ impl OrchestrationState {
             }
         });
         Ok(())
+    }
+
+    fn spawn_process_detection_relay(&self, id: PtyId) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let id_string = id.to_string();
+            let mut interval = time::interval(Duration::from_millis(750));
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                if state.session_agent(&id_string).await.is_some() {
+                    break;
+                }
+                if !state.session_is_live(&id_string).await {
+                    break;
+                }
+                let Some(root_pid) = state.manager.process_id(id).ok().flatten() else {
+                    break;
+                };
+                if let Some(agent) = infer_agent_from_process_tree(root_pid) {
+                    state.set_heuristic_agent(&id_string, agent).await;
+                    break;
+                }
+            }
+        });
     }
 
     async fn write(&self, payload: Value) -> Result<Value> {
@@ -1275,6 +1306,74 @@ fn infer_agent_from_output(text: &str) -> Option<&'static str> {
         .iter()
         .find(|spec| contains_any_phrase(&normalized, spec.output_markers))
         .map(|spec| spec.canonical)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessInfo {
+    pid: u32,
+    ppid: u32,
+    command: String,
+}
+
+fn infer_agent_from_processes(
+    root_pid: u32,
+    processes: &[ProcessInfo],
+) -> Option<&'static str> {
+    let mut descendants = HashSet::from([root_pid]);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for process in processes {
+            if !descendants.contains(&process.pid) && descendants.contains(&process.ppid) {
+                descendants.insert(process.pid);
+                changed = true;
+            }
+        }
+    }
+    processes
+        .iter()
+        .filter(|process| descendants.contains(&process.pid))
+        .filter_map(|process| canonical_agent(&process.command))
+        .next()
+}
+
+#[cfg(unix)]
+fn infer_agent_from_process_tree(root_pid: u32) -> Option<&'static str> {
+    process_snapshot()
+        .ok()
+        .and_then(|processes| infer_agent_from_processes(root_pid, &processes))
+}
+
+#[cfg(not(unix))]
+fn infer_agent_from_process_tree(_root_pid: u32) -> Option<&'static str> {
+    None
+}
+
+#[cfg(unix)]
+fn process_snapshot() -> std::io::Result<Vec<ProcessInfo>> {
+    let output = Command::new("ps")
+        .args(["-eo", "pid=,ppid=,comm="])
+        .output()?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_process_line)
+        .collect())
+}
+
+#[cfg(unix)]
+fn parse_process_line(line: &str) -> Option<ProcessInfo> {
+    let mut parts = line.trim().splitn(3, char::is_whitespace);
+    let pid = parts.next()?.trim().parse().ok()?;
+    let ppid = parts.next()?.trim().parse().ok()?;
+    let command = parts.next()?.trim();
+    (!command.is_empty()).then(|| ProcessInfo {
+        pid,
+        ppid,
+        command: command.to_string(),
+    })
 }
 
 fn normalized_agent_token(raw: &str) -> String {
@@ -2084,6 +2183,43 @@ mod tests {
         assert_eq!(infer_status_from_output(Some("shell"), "done"), None);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn parses_process_snapshot_lines() {
+        assert_eq!(
+            parse_process_line("  123   45 /opt/bin/gemini"),
+            Some(ProcessInfo {
+                pid: 123,
+                ppid: 45,
+                command: "/opt/bin/gemini".to_string(),
+            })
+        );
+        assert_eq!(parse_process_line("not-a-pid 45 gemini"), None);
+    }
+
+    #[test]
+    fn infers_agent_from_process_descendants() {
+        let processes = vec![
+            ProcessInfo {
+                pid: 10,
+                ppid: 1,
+                command: "zsh".to_string(),
+            },
+            ProcessInfo {
+                pid: 20,
+                ppid: 10,
+                command: "node".to_string(),
+            },
+            ProcessInfo {
+                pid: 30,
+                ppid: 20,
+                command: "/usr/local/bin/gemini".to_string(),
+            },
+        ];
+        assert_eq!(infer_agent_from_processes(10, &processes), Some("gemini"));
+        assert_eq!(infer_agent_from_processes(99, &processes), None);
+    }
+
     #[tokio::test]
     async fn heuristic_status_does_not_override_blocked_or_done() {
         let state = OrchestrationState::with_store("token".to_string(), None);
@@ -2151,6 +2287,7 @@ mod tests {
             cols: 100,
             created_at: 1,
             updated_at: 1,
+            process_id: None,
             stopped_at: None,
             exit_code: None,
             exit_signal: None,
@@ -2208,6 +2345,7 @@ mod tests {
             cols: 100,
             created_at: 1,
             updated_at: 1,
+            process_id: None,
             stopped_at: None,
             exit_code: None,
             exit_signal: None,
