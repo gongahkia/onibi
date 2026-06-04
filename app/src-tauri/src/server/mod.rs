@@ -6,6 +6,7 @@ pub mod ws_hub;
 
 use crate::{
     approval::{pending::PendingApprovals, store::ApprovalStore},
+    config,
     orchestration::OrchestrationState,
     protocol::{DesktopSnapshotBody, ServerMessage},
     secret::{self, VapidKeys},
@@ -40,7 +41,6 @@ use tower_governor::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use ulid::Ulid;
 
-const DEFAULT_RING_LIMIT: usize = 5_000;
 const APPROVAL_BODY_LIMIT: usize = 1024 * 1024;
 const PTY_OUTPUT_BODY_LIMIT: usize = 5 * 1024 * 1024;
 
@@ -62,6 +62,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn from_config(port: u16) -> Result<Self> {
+        let app_config = config::load()?;
         let token = secret::load_or_create_token()?.token;
         mirror_token_file(&token);
         let vapid = secret::load_or_create_vapid_keys()?;
@@ -88,10 +89,10 @@ impl AppState {
                 vapid.public_key,
             ),
             orchestration: OrchestrationState::new(token.clone()),
-            approval_timeout: Duration::from_secs(600),
+            approval_timeout: Duration::from_secs(app_config.approval_timeout_secs()),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
-            ring_limit: DEFAULT_RING_LIMIT,
+            ring_limit: app_config.pty_ring_limit(),
         })
     }
 
@@ -117,7 +118,7 @@ impl AppState {
             approval_timeout: Duration::from_secs(5),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
-            ring_limit: DEFAULT_RING_LIMIT,
+            ring_limit: config::DEFAULT_PTY_RING_LIMIT,
         }
     }
 

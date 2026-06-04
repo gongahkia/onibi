@@ -1,4 +1,4 @@
-use crate::{secret, server};
+use crate::{config, secret, server};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
@@ -14,7 +14,8 @@ pub async fn run(opts: HeadlessOpts) -> Result<()> {
         std::env::set_var("ONIBI_CONFIG_DIR", config_dir);
     }
 
-    let port = opts.port.unwrap_or(17893);
+    let config = config::load()?;
+    let port = opts.port.unwrap_or_else(|| config.server_port());
     let state = server::AppState::from_config(port)?;
 
     if opts.auto_transports {

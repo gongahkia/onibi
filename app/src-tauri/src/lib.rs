@@ -1,4 +1,6 @@
 #[cfg(feature = "gui")]
+pub mod config;
+#[cfg(feature = "gui")]
 pub mod fonts;
 #[cfg(feature = "gui")]
 pub mod fs;
@@ -143,10 +145,31 @@ static RELAYED_PTY_IDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 #[tauri::command]
 async fn approval_server_config() -> Result<ApprovalServerConfig, String> {
     let token = secret::load_or_create_token().map_err(|err| err.to_string())?;
+    let port = config::load()
+        .map(|config| config.server_port())
+        .unwrap_or(config::DEFAULT_PORT);
     Ok(ApprovalServerConfig {
-        port: 17893,
+        port,
         token: token.token,
     })
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn onibi_read_config_toml() -> Result<Option<String>, String> {
+    config::read_raw().map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn onibi_write_config_toml(toml: String) -> Result<(), String> {
+    config::write_raw(&toml).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn onibi_default_config_toml() -> Result<String, String> {
+    Ok(config::default_config_toml())
 }
 
 #[cfg(feature = "gui")]
@@ -461,6 +484,9 @@ pub fn run() {
             session_attach,
             pty_replay,
             approval_server_config,
+            onibi_read_config_toml,
+            onibi_write_config_toml,
+            onibi_default_config_toml,
             fs_list_dir,
             fs_read_file,
             fs_read_preview_file,

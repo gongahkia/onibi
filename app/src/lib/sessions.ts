@@ -4746,6 +4746,32 @@ function assignTomlSetting(
 ) {
   if (path === "settings") {
     settings[camelFromTomlKey(key)] = value;
+  } else if (path === "ui") {
+    const mappedKey =
+      key === "tab_bar_position"
+        ? "tabBarPosition"
+        : key === "default_agent"
+          ? "defaultAgent"
+          : key === "new_pane_cwd"
+            ? "newPaneCwd"
+            : camelFromTomlKey(key);
+    settings[mappedKey] = value;
+  } else if (path === "terminal") {
+    const mappedKey =
+      key === "shell_integration"
+        ? "terminalShellIntegration"
+        : key === "font_family"
+          ? "terminalFontFamily"
+          : key === "font_size"
+            ? "terminalFontSize"
+            : key === "scrollback_lines"
+              ? "terminalScrollbackLines"
+              : camelFromTomlKey(key);
+    settings[mappedKey] = value;
+  } else if (path === "keybindings") {
+    if (key === "prefix") {
+      settings.keybindingPrefix = value;
+    }
   } else if (path === "settings.agent_commands") {
     const target = (settings.agentCommands ??= {}) as Record<string, unknown>;
     target[key] = value;
@@ -4777,6 +4803,8 @@ function pushTomlTable(
   const key =
     path === "settings.app_keybindings"
       ? "appKeybindings"
+      : path === "keybindings.app"
+        ? "appKeybindings"
       : path === "settings.terminal_keybindings"
         ? "terminalKeybindings"
         : path === "settings.terminal_triggers"
@@ -4795,6 +4823,11 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
   const settings = mergeSettings(config.settings);
   const lines: string[] = [
     "version = 1",
+    "",
+    "[server]",
+    "port = 17893",
+    "approval_timeout_secs = 600",
+    "pty_ring_limit = 5000",
     "",
     "[settings]",
     settingLine("theme", settings.theme),

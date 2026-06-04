@@ -2,7 +2,7 @@ pub mod doctor;
 pub mod setup;
 pub mod status;
 
-use crate::{adapters, headless, orchestration, secret, server, transport, util};
+use crate::{adapters, config, headless, orchestration, secret, server, transport, util};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
@@ -17,8 +17,10 @@ use std::{io::Write, net::TcpStream, path::PathBuf};
 pub struct Cli {
     #[arg(long, help = "Run the approval server without launching the Tauri UI")]
     headless: bool,
-    #[arg(long, default_value_t = 17893, help = "Local approval server port")]
-    port: u16,
+    #[arg(long, help = "Override the local approval server port")]
+    port: Option<u16>,
+    #[arg(long, help = "Print the default ~/.config/onibi/config.toml and exit")]
+    default_config: bool,
     #[arg(
         long,
         help = "Enable LAN, Tailscale Funnel, and Cloudflare Tunnel at headless startup"
@@ -242,7 +244,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
     args.iter().skip(1).any(|arg| {
         matches!(
             arg.as_str(),
-            "--headless" | "--help" | "-h" | "--version" | "-V"
+            "--headless" | "--default-config" | "--help" | "-h" | "--version" | "-V"
         ) || COMMANDS.contains(&arg.as_str())
     })
 }
@@ -265,34 +267,45 @@ pub fn run_blocking(args: Vec<String>) -> Result<()> {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    if let Some(config_dir) = cli.config_dir.as_ref() {
+        std::env::set_var("ONIBI_CONFIG_DIR", config_dir);
+    }
+
+    if cli.default_config {
+        print!("{}", config::default_config_toml());
+        return Ok(());
+    }
+
     if cli.headless {
         return headless::run(headless::HeadlessOpts {
-            config_dir: cli.config_dir,
-            port: Some(cli.port),
+            config_dir: None,
+            port: cli.port,
             auto_transports: cli.auto_transports,
         })
         .await;
     }
 
-    if let Some(config_dir) = cli.config_dir {
-        std::env::set_var("ONIBI_CONFIG_DIR", config_dir);
-    }
+    let port = cli.port.unwrap_or_else(|| {
+        config::load()
+            .map(|config| config.server_port())
+            .unwrap_or(config::DEFAULT_PORT)
+    });
 
     match cli.command {
-        Some(Command::Setup) => setup::run(cli.port, cli.json).await,
-        Some(Command::Status) => status::run(cli.port, cli.json).await,
-        Some(Command::Doctor) => doctor::run(cli.port, cli.json).await,
+        Some(Command::Setup) => setup::run(port, cli.json).await,
+        Some(Command::Status) => status::run(port, cli.json).await,
+        Some(Command::Doctor) => doctor::run(port, cli.json).await,
         Some(Command::Token { command }) => token(command, cli.json),
         Some(Command::Adapter { command }) => adapter(command, cli.json),
-        Some(Command::Transport { command }) => transport(command, cli.port, cli.json).await,
-        Some(Command::Session { command }) => session(command, cli.port, cli.json).await,
-        Some(Command::Pane { command }) => pane(command, cli.port, cli.json).await,
+        Some(Command::Transport { command }) => transport(command, port, cli.json).await,
+        Some(Command::Session { command }) => session(command, port, cli.json).await,
+        Some(Command::Pane { command }) => pane(command, port, cli.json).await,
         Some(Command::Wait { command }) => wait(command, cli.json).await,
-        Some(Command::Agent { command }) => agent(command, cli.port, cli.json).await,
+        Some(Command::Agent { command }) => agent(command, port, cli.json).await,
         Some(Command::Events { command }) => events(command, cli.json).await,
-        Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention", cli.json),
-        Some(Command::Arrangement { command }) => arrangement(command, cli.port, cli.json),
-        Some(Command::Hook { name }) => hook(&name, cli.port),
+        Some(Command::Attention) => desktop_get(port, "/v1/desktop/attention", cli.json),
+        Some(Command::Arrangement { command }) => arrangement(command, port, cli.json),
+        Some(Command::Hook { name }) => hook(&name, port),
         None => {
             Cli::command().print_help()?;
             println!();

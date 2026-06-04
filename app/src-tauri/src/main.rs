@@ -4,6 +4,7 @@
 mod adapters;
 mod approval;
 mod cli;
+mod config;
 mod headless;
 mod orchestration;
 mod protocol;
@@ -49,7 +50,10 @@ fn main() {
                 ));
             }
         }));
-        server::start_background_server(17893);
+        let port = config::load()
+            .map(|config| config.server_port())
+            .unwrap_or(config::DEFAULT_PORT);
+        server::start_background_server(port);
         app_lib::run()
     }
 
