@@ -120,6 +120,17 @@ export interface Workspace {
   name: string;
 }
 
+export interface WorkspaceTab {
+  id: string;
+  workspaceId: string;
+  title: string;
+  terminalLayout: TerminalPaneNode | null;
+  activeTerminalPaneId: string | null;
+  maximizedTerminalPaneId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SessionRestartMetadata {
   command: string;
   args: string[];
@@ -569,6 +580,9 @@ export interface OnibiConfigExport {
 type PersistedState = {
   sessions?: Session[];
   workspaces?: Workspace[];
+  workspaceTabs?: WorkspaceTab[];
+  activeWorkspaceId?: string | null;
+  activeWorkspaceTabId?: string | null;
   terminalLayout?: TerminalPaneNode | null;
   activeTerminalPaneId?: string | null;
   maximizedTerminalPaneId?: string | null;
@@ -589,6 +603,9 @@ type SessionStore = {
   terminalLayout: TerminalPaneNode | null;
   activeTerminalPaneId: string | null;
   maximizedTerminalPaneId: string | null;
+  workspaceTabs: WorkspaceTab[];
+  activeWorkspaceId: string | null;
+  activeWorkspaceTabId: string | null;
   arrangements: Arrangement[];
   activeSidebarView: WorkspaceSidebarView;
   workspaces: Workspace[];
@@ -609,6 +626,9 @@ type SessionStore = {
   toggleMaximizedTerminalPane: (paneId?: string | null) => void;
   focusRelativeTerminalPane: (delta: number) => void;
   focusRelativeAttentionSession: (delta: number) => void;
+  setActiveWorkspace: (workspaceId: string | null) => void;
+  setActiveWorkspaceTab: (workspaceId: string, tabId: string) => void;
+  createWorkspaceTab: (workspaceId: string, title?: string) => string;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   setActivePaneSession: (paneId: string, sessionId: string) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
