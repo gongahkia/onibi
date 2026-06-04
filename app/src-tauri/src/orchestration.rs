@@ -453,6 +453,34 @@ impl OrchestrationState {
         self.set_status(session_id, status).await;
     }
 
+    async fn set_heuristic_agent(&self, session_id: &str, agent: &'static str) -> Option<String> {
+        let mut sessions = self.sessions.write().await;
+        let session = sessions.get_mut(session_id)?;
+        if session.agent.is_some() {
+            return session.agent.clone();
+        }
+        session.agent = Some(agent.to_string());
+        session.updated_at = now_millis();
+        let status = session.status;
+        let updated = session.clone();
+        drop(sessions);
+        self.persist_session(&updated);
+        let _ = self.events.send(OrchestrationEvent::SessionStatus {
+            session_id: session_id.to_string(),
+            status,
+            session: Some(updated.clone()),
+        });
+        updated.agent
+    }
+
+    async fn session_agent(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .read()
+            .await
+            .get(session_id)
+            .and_then(|session| session.agent.clone())
+    }
+
     async fn dispatch(&self, command: &str, payload: Value) -> Result<Value> {
         match command {
             "hello" => Ok(json!({
@@ -574,7 +602,13 @@ impl OrchestrationState {
                         let text = String::from_utf8_lossy(&bytes).to_string();
                         let encoded = STANDARD.encode(&bytes);
                         let id = id.to_string();
-                        if let Some(status) = infer_status_from_output(&text) {
+                        let mut agent = state.session_agent(&id).await;
+                        if agent.is_none() {
+                            if let Some(detected_agent) = infer_agent_from_output(&text) {
+                                agent = state.set_heuristic_agent(&id, detected_agent).await;
+                            }
+                        }
+                        if let Some(status) = infer_status_from_output(agent.as_deref(), &text) {
                             state.set_heuristic_status(&id, status).await;
                         }
                         if let Some(screen) = state.screens.write().await.get_mut(&id) {
@@ -1070,35 +1104,194 @@ struct SpawnMetadata {
 
 impl SpawnMetadata {
     fn from_payload(payload: &Value, req: &PtySpawnRequest) -> Self {
+        let title = payload
+            .get("title")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| req.title.clone());
+        let explicit_agent = payload
+            .get("agent")
+            .and_then(Value::as_str)
+            .or(req.agent.as_deref())
+            .and_then(normalize_agent_label);
+        let agent = explicit_agent.or_else(|| infer_agent_from_launch(req, title.as_deref()));
         Self {
             name: payload
                 .get("name")
                 .and_then(Value::as_str)
                 .or(req.name.as_deref())
                 .and_then(normalize_session_name),
-            agent: payload
-                .get("agent")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .or_else(|| req.agent.clone()),
+            agent,
             workspace_id: payload
                 .get("workspaceId")
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned)
                 .or_else(|| req.workspace_id.clone()),
             cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
-            title: payload
-                .get("title")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .or_else(|| req.title.clone()),
+            title,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AgentDetectionSpec {
+    canonical: &'static str,
+    command_aliases: &'static [&'static str],
+    title_markers: &'static [&'static str],
+    output_markers: &'static [&'static str],
+}
+
+const AGENT_DETECTION_SPECS: &[AgentDetectionSpec] = &[
+    AgentDetectionSpec {
+        canonical: "cursor",
+        command_aliases: &["cursor", "cursor-agent"],
+        title_markers: &["cursor", "cursor agent"],
+        output_markers: &["cursor agent"],
+    },
+    AgentDetectionSpec {
+        canonical: "cline",
+        command_aliases: &["cline", "cline-agent"],
+        title_markers: &["cline"],
+        output_markers: &["cline agent", "cline wants", "welcome to cline"],
+    },
+    AgentDetectionSpec {
+        canonical: "copilot",
+        command_aliases: &["copilot", "gh-copilot"],
+        title_markers: &["copilot", "github copilot"],
+        output_markers: &["github copilot", "copilot cli"],
+    },
+    AgentDetectionSpec {
+        canonical: "gemini",
+        command_aliases: &["gemini", "gemini-cli"],
+        title_markers: &["gemini"],
+        output_markers: &["gemini cli", "welcome to gemini"],
+    },
+    AgentDetectionSpec {
+        canonical: "grok",
+        command_aliases: &["grok", "grok-cli"],
+        title_markers: &["grok"],
+        output_markers: &["grok cli", "welcome to grok"],
+    },
+    AgentDetectionSpec {
+        canonical: "kimi",
+        command_aliases: &["kimi", "kimi-cli"],
+        title_markers: &["kimi"],
+        output_markers: &["kimi cli", "welcome to kimi"],
+    },
+    AgentDetectionSpec {
+        canonical: "kiro",
+        command_aliases: &["kiro", "kiro-agent", "kiro-cli"],
+        title_markers: &["kiro"],
+        output_markers: &["kiro agent", "kiro cli", "welcome to kiro"],
+    },
+    AgentDetectionSpec {
+        canonical: "droid",
+        command_aliases: &["droid", "droid-cli", "droid-agent"],
+        title_markers: &["droid"],
+        output_markers: &["droid agent", "droid cli", "welcome to droid"],
+    },
+    AgentDetectionSpec {
+        canonical: "amp",
+        command_aliases: &["amp", "ampcode"],
+        title_markers: &["amp"],
+        output_markers: &["amp agent", "amp code", "amp cli"],
+    },
+    AgentDetectionSpec {
+        canonical: "antigravity",
+        command_aliases: &["antigravity", "antigravity-agent", "antigravity-cli"],
+        title_markers: &["antigravity"],
+        output_markers: &["antigravity agent", "antigravity cli"],
+    },
+    AgentDetectionSpec {
+        canonical: "kilo",
+        command_aliases: &["kilo", "kilo-code", "kilo-cli"],
+        title_markers: &["kilo", "kilo code"],
+        output_markers: &["kilo code", "kilo agent", "kilo cli"],
+    },
+];
+
 fn normalize_session_name(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn normalize_agent_label(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(
+        canonical_agent(trimmed)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| trimmed.to_string()),
+    )
+}
+
+fn canonical_agent(raw: &str) -> Option<&'static str> {
+    let token = normalized_agent_token(raw);
+    AGENT_DETECTION_SPECS
+        .iter()
+        .find(|spec| spec.canonical == token || spec.command_aliases.contains(&token.as_str()))
+        .map(|spec| spec.canonical)
+}
+
+fn infer_agent_from_launch(req: &PtySpawnRequest, title: Option<&str>) -> Option<String> {
+    let command = normalized_agent_token(&req.command);
+    if command == "gh"
+        && req
+            .args
+            .first()
+            .is_some_and(|arg| normalized_agent_token(arg) == "copilot")
+    {
+        return Some("copilot".to_string());
+    }
+
+    for spec in AGENT_DETECTION_SPECS {
+        if spec.command_aliases.contains(&command.as_str()) {
+            return Some(spec.canonical.to_string());
+        }
+        if req.args.iter().take(2).any(|arg| {
+            let token = normalized_agent_token(arg);
+            spec.command_aliases.contains(&token.as_str())
+        }) {
+            return Some(spec.canonical.to_string());
+        }
+    }
+
+    let title = title.map(normalize_detection_text);
+    title
+        .as_deref()
+        .and_then(|title| {
+            AGENT_DETECTION_SPECS
+                .iter()
+                .find(|spec| contains_any_phrase(title, spec.title_markers))
+        })
+        .map(|spec| spec.canonical.to_string())
+}
+
+fn infer_agent_from_output(text: &str) -> Option<&'static str> {
+    let normalized = normalize_detection_text(&strip_ansi(text));
+    AGENT_DETECTION_SPECS
+        .iter()
+        .find(|spec| contains_any_phrase(&normalized, spec.output_markers))
+        .map(|spec| spec.canonical)
+}
+
+fn normalized_agent_token(raw: &str) -> String {
+    let trimmed = raw.trim().trim_matches('"').trim_matches('\'');
+    let basename = Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(trimmed);
+    basename.to_ascii_lowercase()
+}
+
+fn normalize_detection_text(raw: &str) -> String {
+    raw.to_ascii_lowercase()
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadata {
@@ -1340,19 +1533,109 @@ fn param_or(params: &[usize], index: usize, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-fn infer_status_from_output(text: &str) -> Option<AgentStatus> {
+fn infer_status_from_output(agent: Option<&str>, text: &str) -> Option<AgentStatus> {
     let command_start = text.rfind("\u{1b}]133;C");
     let command_done = text
         .rfind("\u{1b}]133;D")
         .into_iter()
         .chain(text.rfind("\u{1b}]133;A"))
         .max();
-    match (command_start, command_done) {
+    let shell_status = match (command_start, command_done) {
         (Some(start), Some(done)) if done > start => Some(AgentStatus::Idle),
         (Some(_), _) => Some(AgentStatus::Working),
         (_, Some(_)) => Some(AgentStatus::Idle),
         _ => None,
+    };
+    if shell_status.is_some() {
+        return shell_status;
     }
+
+    let Some(agent) = agent.and_then(canonical_agent) else {
+        return None;
+    };
+    if agent == "shell" {
+        return None;
+    }
+
+    let normalized = normalize_detection_text(&strip_ansi(text));
+    if contains_any_phrase(
+        &normalized,
+        &[
+            "waiting for approval",
+            "approval required",
+            "requires approval",
+            "needs approval",
+            "awaiting approval",
+            "waiting for confirmation",
+            "permission required",
+            "confirm to continue",
+        ],
+    ) {
+        return Some(AgentStatus::Blocked);
+    }
+    if contains_any_phrase(
+        &normalized,
+        &[
+            "task complete",
+            "task completed",
+            "completed successfully",
+            "implementation complete",
+            "changes applied",
+            "all set",
+            "finished",
+            "done",
+        ],
+    ) {
+        return Some(AgentStatus::Done);
+    }
+    if contains_any_phrase(
+        &normalized,
+        &[
+            "thinking",
+            "working",
+            "running",
+            "processing",
+            "generating",
+            "editing",
+            "reading",
+            "searching",
+            "calling tool",
+            "executing",
+            "applying",
+            "analyzing",
+            "planning",
+        ],
+    ) {
+        return Some(AgentStatus::Working);
+    }
+    if contains_any_phrase(
+        &normalized,
+        &[
+            "waiting for input",
+            "ready for your next",
+            "what would you like",
+            "how can i help",
+            "ask me anything",
+            "type your request",
+        ],
+    ) {
+        return Some(AgentStatus::Idle);
+    }
+
+    None
+}
+
+fn contains_any_phrase(haystack: &str, needles: &[&str]) -> bool {
+    needles
+        .iter()
+        .any(|needle| contains_phrase(haystack, needle))
+}
+
+fn contains_phrase(haystack: &str, needle: &str) -> bool {
+    if needle.contains(' ') {
+        return haystack.contains(needle);
+    }
+    haystack.split_whitespace().any(|token| token == needle)
 }
 
 async fn handle_connection<S>(
@@ -1724,12 +2007,120 @@ mod tests {
     #[test]
     fn infers_shell_status_markers() {
         assert_eq!(
-            infer_status_from_output("\x1b]133;C;make test\x07"),
+            infer_status_from_output(None, "\x1b]133;C;make test\x07"),
             Some(AgentStatus::Working)
         );
         assert_eq!(
-            infer_status_from_output("\x1b]133;D;0\x07\x1b]133;A\x07"),
+            infer_status_from_output(None, "\x1b]133;D;0\x07\x1b]133;A\x07"),
             Some(AgentStatus::Idle)
+        );
+    }
+
+    #[test]
+    fn detects_heuristic_agents_from_launch_commands() {
+        let cases = vec![
+            ("cursor-agent", vec![], "cursor"),
+            ("cline", vec![], "cline"),
+            ("gh", vec!["copilot"], "copilot"),
+            ("gemini", vec![], "gemini"),
+            ("grok-cli", vec![], "grok"),
+            ("kimi", vec![], "kimi"),
+            ("kiro-agent", vec![], "kiro"),
+            ("droid", vec![], "droid"),
+            ("amp", vec![], "amp"),
+            ("antigravity-agent", vec![], "antigravity"),
+            ("kilo-code", vec![], "kilo"),
+        ];
+        for (command, args, expected) in cases {
+            let req = test_spawn_request(command, &args, None, None);
+            let metadata = SpawnMetadata::from_payload(&json!({}), &req);
+            assert_eq!(
+                metadata.agent.as_deref(),
+                Some(expected),
+                "detect {command:?} {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_agent_metadata_wins_over_launch_detection() {
+        let req = test_spawn_request("gemini", &[], None, Some("shell"));
+        let metadata = SpawnMetadata::from_payload(&json!({}), &req);
+        assert_eq!(metadata.agent.as_deref(), Some("shell"));
+
+        let req = test_spawn_request("bash", &[], None, Some("cursor-agent"));
+        let metadata = SpawnMetadata::from_payload(&json!({}), &req);
+        assert_eq!(metadata.agent.as_deref(), Some("cursor"));
+    }
+
+    #[test]
+    fn detects_heuristic_agents_from_output_markers() {
+        assert_eq!(
+            infer_agent_from_output("Welcome to Gemini CLI"),
+            Some("gemini")
+        );
+        assert_eq!(
+            infer_agent_from_output("Cursor Agent is ready"),
+            Some("cursor")
+        );
+        assert_eq!(infer_agent_from_output("an example line"), None);
+    }
+
+    #[test]
+    fn infers_agent_status_only_for_known_agents() {
+        assert_eq!(
+            infer_status_from_output(Some("gemini"), "Thinking about the patch"),
+            Some(AgentStatus::Working)
+        );
+        assert_eq!(
+            infer_status_from_output(Some("gemini"), "Task complete"),
+            Some(AgentStatus::Done)
+        );
+        assert_eq!(
+            infer_status_from_output(Some("gemini"), "Waiting for approval"),
+            Some(AgentStatus::Blocked)
+        );
+        assert_eq!(infer_status_from_output(None, "done"), None);
+        assert_eq!(infer_status_from_output(Some("shell"), "done"), None);
+    }
+
+    #[tokio::test]
+    async fn heuristic_status_does_not_override_blocked_or_done() {
+        let state = OrchestrationState::with_store("token".to_string(), None);
+        state
+            .upsert_session(test_session(
+                "session-1",
+                AgentStatus::Working,
+                Some("gemini"),
+            ))
+            .await;
+
+        state.set_status("session-1", AgentStatus::Blocked).await;
+        state
+            .set_heuristic_status("session-1", AgentStatus::Working)
+            .await;
+        assert_eq!(
+            state
+                .sessions
+                .read()
+                .await
+                .get("session-1")
+                .map(|session| session.status),
+            Some(AgentStatus::Blocked)
+        );
+
+        state.set_status("session-1", AgentStatus::Done).await;
+        state
+            .set_heuristic_status("session-1", AgentStatus::Working)
+            .await;
+        assert_eq!(
+            state
+                .sessions
+                .read()
+                .await
+                .get("session-1")
+                .map(|session| session.status),
+            Some(AgentStatus::Done)
         );
     }
 
@@ -1780,5 +2171,47 @@ mod tests {
 
         let persisted = store.list().unwrap();
         assert_eq!(persisted[0].lifecycle, SessionLifecycle::Stale);
+    }
+
+    fn test_spawn_request(
+        command: &str,
+        args: &[&str],
+        title: Option<&str>,
+        agent: Option<&str>,
+    ) -> PtySpawnRequest {
+        PtySpawnRequest {
+            command: command.to_string(),
+            args: args.iter().map(|arg| arg.to_string()).collect(),
+            cwd: None,
+            env: vec![],
+            rows: 30,
+            cols: 100,
+            name: None,
+            agent: agent.map(ToOwned::to_owned),
+            workspace_id: None,
+            title: title.map(ToOwned::to_owned),
+        }
+    }
+
+    fn test_session(id: &str, status: AgentStatus, agent: Option<&str>) -> SessionInfo {
+        SessionInfo {
+            id: id.to_string(),
+            pane_id: id.to_string(),
+            name: None,
+            agent: agent.map(ToOwned::to_owned),
+            workspace_id: None,
+            cwd: None,
+            title: None,
+            status,
+            lifecycle: SessionLifecycle::Running,
+            rows: 30,
+            cols: 100,
+            created_at: 1,
+            updated_at: 1,
+            stopped_at: None,
+            exit_code: None,
+            exit_signal: None,
+            restart: None,
+        }
     }
 }
