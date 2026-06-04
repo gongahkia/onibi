@@ -7,8 +7,9 @@ pub mod goose;
 pub mod opencode;
 
 use anyhow::{bail, Result};
+use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AdapterInfo {
     pub name: &'static str,
     pub support: &'static str,

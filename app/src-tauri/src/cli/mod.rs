@@ -2,10 +2,10 @@ pub mod doctor;
 pub mod setup;
 pub mod status;
 
-use crate::{adapters, headless, secret, server, transport};
+use crate::{adapters, headless, orchestration, secret, server, transport, util};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::{io::Write, net::TcpStream, path::PathBuf};
 
 #[derive(Debug, Parser)]
@@ -26,6 +26,8 @@ pub struct Cli {
     auto_transports: bool,
     #[arg(long, help = "Override the Onibi config directory")]
     config_dir: Option<PathBuf>,
+    #[arg(long, global = true, help = "Emit machine-readable JSON output")]
+    json: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -54,6 +56,18 @@ enum Command {
     Pane {
         #[command(subcommand)]
         command: PaneCommand,
+    },
+    Wait {
+        #[command(subcommand)]
+        command: WaitCommand,
+    },
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
+    Events {
+        #[command(subcommand)]
+        command: EventsCommand,
     },
     Attention,
     Arrangement {
@@ -109,6 +123,19 @@ enum SessionCommand {
 
 #[derive(Debug, Subcommand)]
 enum PaneCommand {
+    Read {
+        id: String,
+        #[arg(long, default_value = "recent")]
+        source: String,
+        #[arg(long, default_value = "text")]
+        format: String,
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    SendKeys {
+        id: String,
+        keys: Vec<String>,
+    },
     Split {
         id: String,
         #[arg(long, default_value = "vertical")]
@@ -120,6 +147,65 @@ enum PaneCommand {
     Maximize {
         id: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum WaitCommand {
+    Output {
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long = "match")]
+        match_text: Option<String>,
+        #[arg(long)]
+        regex: Option<String>,
+        #[arg(long, default_value_t = 30_000)]
+        timeout_ms: u64,
+    },
+    AgentStatus {
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        status: String,
+        #[arg(long, default_value_t = 30_000)]
+        timeout_ms: u64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    List,
+    Read {
+        id: String,
+        #[arg(long, default_value = "recent")]
+        source: String,
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+    Send {
+        id: String,
+        text: Vec<String>,
+    },
+    Focus {
+        id: String,
+    },
+    Start {
+        agent: Option<String>,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        prompt: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum EventsCommand {
+    Subscribe,
 }
 
 #[derive(Debug, Subcommand)]
@@ -136,6 +222,10 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "adapter",
         "transport",
         "session",
+        "pane",
+        "wait",
+        "agent",
+        "events",
         "attention",
         "arrangement",
         "_hook",
@@ -184,11 +274,14 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Setup) => setup::run(cli.port).await,
         Some(Command::Status) => status::run(cli.port).await,
         Some(Command::Doctor) => doctor::run(cli.port).await,
-        Some(Command::Token { command }) => token(command),
-        Some(Command::Adapter { command }) => adapter(command),
-        Some(Command::Transport { command }) => transport(command, cli.port).await,
-        Some(Command::Session { command }) => session(command, cli.port),
-        Some(Command::Pane { command }) => pane(command, cli.port),
+        Some(Command::Token { command }) => token(command, cli.json),
+        Some(Command::Adapter { command }) => adapter(command, cli.json),
+        Some(Command::Transport { command }) => transport(command, cli.port, cli.json).await,
+        Some(Command::Session { command }) => session(command, cli.port, cli.json).await,
+        Some(Command::Pane { command }) => pane(command, cli.port, cli.json).await,
+        Some(Command::Wait { command }) => wait(command, cli.json).await,
+        Some(Command::Agent { command }) => agent(command, cli.json).await,
+        Some(Command::Events { command }) => events(command, cli.json).await,
         Some(Command::Attention) => desktop_get(cli.port, "/v1/desktop/attention"),
         Some(Command::Arrangement { command }) => arrangement(command, cli.port),
         Some(Command::Hook { name }) => hook(&name, cli.port),
@@ -200,68 +293,76 @@ async fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn session(command: SessionCommand, port: u16) -> Result<()> {
+async fn session(command: SessionCommand, _port: u16, json_output: bool) -> Result<()> {
     match command {
-        SessionCommand::List => desktop_get(port, "/v1/desktop/sessions"),
+        SessionCommand::List => print_orchestration("pty.list", json!({}), json_output).await,
         SessionCommand::Launch {
             agent,
             workspace,
             prompt,
         } => {
-            ensure_daemon_running(port)?;
-            let body = json!({
-                "protocol_version": "1.0",
-                "agent": agent,
-                "workspace": workspace.display().to_string(),
-                "prompt": prompt,
-            });
-            println!(
-                "{}",
-                authed_http(
-                    port,
-                    "POST",
-                    "/v1/desktop/session/launch",
-                    Some(&body.to_string()),
-                )?
-            );
+            let command = agent.clone().unwrap_or_else(util::shell::default_shell);
+            let args = prompt.into_iter().collect::<Vec<_>>();
+            let response = orchestration::client::request(
+                "pty.spawn",
+                json!({
+                    "command": command,
+                    "args": args,
+                    "cwd": workspace.display().to_string(),
+                    "agent": agent,
+                    "workspaceId": format!("workspace:{}", workspace.display()),
+                }),
+            )
+            .await?;
+            print_value(response, json_output)?;
             Ok(())
         }
         SessionCommand::Send { id, text } => {
-            ensure_daemon_running(port)?;
-            let body = json!({
-                "protocol_version": "1.0",
-                "text": text.join(" "),
-            });
-            println!(
-                "{}",
-                authed_http(
-                    port,
-                    "POST",
-                    &format!("/v1/desktop/session/{}/input", path_segment(&id)),
-                    Some(&body.to_string()),
-                )?
-            );
-            Ok(())
+            print_orchestration(
+                "pty.write",
+                json!({"id": id, "text": text.join(" ")}),
+                json_output,
+            )
+            .await
         }
         SessionCommand::Focus { id } => {
-            ensure_daemon_running(port)?;
-            println!(
-                "{}",
-                authed_http(
-                    port,
-                    "POST",
-                    &format!("/v1/desktop/session/{}/focus", path_segment(&id)),
-                    Some("{}"),
-                )?
-            );
-            Ok(())
+            print_orchestration("agent.focus", json!({"id": id}), json_output).await
         }
     }
 }
 
-fn pane(command: PaneCommand, port: u16) -> Result<()> {
+async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> {
     ensure_daemon_running(port)?;
     match command {
+        PaneCommand::Read {
+            id,
+            source,
+            format,
+            limit,
+        } => {
+            let response = orchestration::client::request(
+                "pane.read",
+                json!({"id": id, "source": source, "format": format, "limit": limit}),
+            )
+            .await?;
+            if json_output {
+                print_value(response, true)
+            } else {
+                println!(
+                    "{}",
+                    response.get("text").and_then(Value::as_str).unwrap_or("")
+                );
+                Ok(())
+            }
+        }
+        PaneCommand::SendKeys { id, keys } => {
+            print_orchestration(
+                "pane.send_keys",
+                json!({"id": id, "keys": keys}),
+                json_output,
+            )
+            .await
+        }
         PaneCommand::Split { id, direction } => {
             let body = json!({
                 "protocol_version": "1.0",
@@ -344,28 +445,33 @@ fn path_segment(value: &str) -> String {
         .collect()
 }
 
-fn token(command: TokenCommand) -> Result<()> {
+fn token(command: TokenCommand, json_output: bool) -> Result<()> {
     match command {
         TokenCommand::Rotate => {
             let token = secret::rotate_token()?;
-            println!("{}", token.token);
+            print_value(json!({"token": token.token}), json_output)?;
         }
         TokenCommand::Show => {
             let token = secret::load_or_create_token()?;
-            println!("{}", token.token);
+            print_value(json!({"token": token.token}), json_output)?;
         }
     }
     Ok(())
 }
 
-fn adapter(command: AdapterCommand) -> Result<()> {
+fn adapter(command: AdapterCommand, json_output: bool) -> Result<()> {
     match command {
         AdapterCommand::List => {
-            for adapter in adapters::list() {
-                println!(
-                    "{}\tsupport={}\tinstalled={}",
-                    adapter.name, adapter.support, adapter.installed
-                );
+            let adapters = adapters::list();
+            if json_output {
+                print_value(serde_json::to_value(adapters)?, true)?;
+            } else {
+                for adapter in adapters {
+                    println!(
+                        "{}\tsupport={}\tinstalled={}",
+                        adapter.name, adapter.support, adapter.installed
+                    );
+                }
             }
         }
         AdapterCommand::Install { name } => {
@@ -379,28 +485,38 @@ fn adapter(command: AdapterCommand) -> Result<()> {
     Ok(())
 }
 
-async fn transport(command: TransportCommand, port: u16) -> Result<()> {
+async fn transport(command: TransportCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         TransportCommand::List => {
-            for name in transport::default_transport_names() {
-                println!("{name}");
+            let names = transport::default_transport_names();
+            if json_output {
+                print_value(json!({"transports": names}), true)?;
+            } else {
+                for name in names {
+                    println!("{name}");
+                }
             }
         }
         TransportCommand::Status => {
             if healthz(port) {
-                println!(
-                    "{}",
-                    authed_http(port, "GET", "/v1/transport/status", None)?
-                );
+                print_raw_json_or_text(
+                    &authed_http(port, "GET", "/v1/transport/status", None)?,
+                    json_output,
+                )?;
             } else {
                 let state = server::AppState::from_config(port)?;
-                for snapshot in state.transports.status_snapshot().await {
-                    println!(
-                        "{}\tenabled={}\tstatus={}",
-                        snapshot.name,
-                        snapshot.enabled,
-                        serde_json::to_string(&snapshot.status)?
-                    );
+                let snapshots = state.transports.status_snapshot().await;
+                if json_output {
+                    print_value(serde_json::to_value(snapshots)?, true)?;
+                } else {
+                    for snapshot in snapshots {
+                        println!(
+                            "{}\tenabled={}\tstatus={}",
+                            snapshot.name,
+                            snapshot.enabled,
+                            serde_json::to_string(&snapshot.status)?
+                        );
+                    }
                 }
             }
         }
@@ -430,6 +546,141 @@ async fn transport(command: TransportCommand, port: u16) -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn wait(command: WaitCommand, json_output: bool) -> Result<()> {
+    match command {
+        WaitCommand::Output {
+            pane,
+            session,
+            agent,
+            match_text,
+            regex,
+            timeout_ms,
+        } => {
+            let response = orchestration::client::request(
+                "wait.output",
+                json!({
+                    "id": pane.or(session).or(agent).ok_or_else(|| anyhow::anyhow!("missing target"))?,
+                    "match": match_text,
+                    "regex": regex,
+                    "timeoutMs": timeout_ms,
+                }),
+            )
+            .await?;
+            print_value(response, json_output)
+        }
+        WaitCommand::AgentStatus {
+            agent,
+            session,
+            status,
+            timeout_ms,
+        } => {
+            let response = orchestration::client::request(
+                "wait.agent_status",
+                json!({
+                    "id": session.or(agent).ok_or_else(|| anyhow::anyhow!("missing target"))?,
+                    "status": status,
+                    "timeoutMs": timeout_ms,
+                }),
+            )
+            .await?;
+            print_value(response, json_output)
+        }
+    }
+}
+
+async fn agent(command: AgentCommand, json_output: bool) -> Result<()> {
+    match command {
+        AgentCommand::List => print_orchestration("agent.list", json!({}), json_output).await,
+        AgentCommand::Read { id, source, format } => {
+            let response = orchestration::client::request(
+                "agent.read",
+                json!({"id": id, "source": source, "format": format}),
+            )
+            .await?;
+            if json_output {
+                print_value(response, true)
+            } else {
+                println!(
+                    "{}",
+                    response.get("text").and_then(Value::as_str).unwrap_or("")
+                );
+                Ok(())
+            }
+        }
+        AgentCommand::Send { id, text } => {
+            print_orchestration(
+                "agent.send",
+                json!({"id": id, "text": text.join(" ")}),
+                json_output,
+            )
+            .await
+        }
+        AgentCommand::Focus { id } => {
+            print_orchestration("agent.focus", json!({"id": id}), json_output).await
+        }
+        AgentCommand::Start {
+            agent,
+            workspace,
+            prompt,
+        } => {
+            let command = agent.clone().unwrap_or_else(util::shell::default_shell);
+            print_orchestration(
+                "agent.start",
+                json!({
+                    "command": command,
+                    "args": prompt.into_iter().collect::<Vec<_>>(),
+                    "cwd": workspace.map(|path| path.display().to_string()),
+                    "agent": agent,
+                }),
+                json_output,
+            )
+            .await
+        }
+    }
+}
+
+async fn events(command: EventsCommand, json_output: bool) -> Result<()> {
+    match command {
+        EventsCommand::Subscribe => {
+            let mut rx = orchestration::client::event_receiver(json!({})).await?;
+            while let Some(frame) = rx.recv().await {
+                if json_output {
+                    println!("{}", serde_json::to_string(&frame)?);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&frame)?);
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn print_orchestration(command: &str, payload: Value, json_output: bool) -> Result<()> {
+    let response = orchestration::client::request(command, payload).await?;
+    print_value(response, json_output)
+}
+
+fn print_value(value: Value, json_output: bool) -> Result<()> {
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else if let Some(text) = value.as_str() {
+        println!("{text}");
+    } else {
+        println!("{}", serde_json::to_string(&value)?);
+    }
+    Ok(())
+}
+
+fn print_raw_json_or_text(raw: &str, json_output: bool) -> Result<()> {
+    if json_output {
+        let value = serde_json::from_str::<Value>(raw)?;
+        print_value(value, true)
+    } else {
+        println!("{raw}");
+        Ok(())
+    }
 }
 
 fn hook(name: &str, port: u16) -> Result<()> {

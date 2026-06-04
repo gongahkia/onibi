@@ -5,6 +5,8 @@ pub mod fs;
 #[cfg(feature = "gui")]
 pub mod git;
 #[cfg(feature = "gui")]
+mod orchestration;
+#[cfg(feature = "gui")]
 pub mod pty;
 #[cfg(feature = "gui")]
 pub mod review;
@@ -30,7 +32,7 @@ use git::{
     git_remove_worktree, git_stage_paths, git_status, git_sync, git_unstage_paths, git_worktrees,
 };
 #[cfg(feature = "gui")]
-use pty::{PtyEvent, PtyId, PtyManager, PtySpawnRequest};
+use pty::{PtyId, PtySpawnRequest};
 #[cfg(feature = "gui")]
 use review::{
     agent_review_accept, agent_review_diff, agent_review_note_human_write, agent_review_records,
@@ -39,13 +41,11 @@ use review::{
 #[cfg(feature = "gui")]
 use serde::Serialize;
 #[cfg(feature = "gui")]
+use serde_json::{json, Value};
+#[cfg(feature = "gui")]
 use std::sync::Arc;
 #[cfg(feature = "gui")]
 use tauri::{Emitter, Manager};
-#[cfg(feature = "gui")]
-use tokio::time::{self, Duration, MissedTickBehavior};
-#[cfg(feature = "gui")]
-use tracing::warn;
 #[cfg(feature = "gui")]
 use tracing_subscriber::EnvFilter;
 
@@ -53,9 +53,20 @@ use tracing_subscriber::EnvFilter;
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum PtyWireEvent {
-    Data { data: String, offset: u64 },
-    Exit { code: u32, signal: Option<String> },
-    Notification(crate::pty::OscNotification),
+    Data {
+        data: String,
+        offset: u64,
+    },
+    Exit {
+        code: u32,
+        signal: Option<String>,
+    },
+    Notification {
+        source: String,
+        title: String,
+        body: Option<String>,
+        urgency: Option<String>,
+    },
 }
 
 #[cfg(feature = "gui")]
@@ -86,144 +97,209 @@ async fn approval_server_config() -> Result<ApprovalServerConfig, String> {
 }
 
 #[cfg(feature = "gui")]
-fn emit_pty_data(
-    window: &tauri::Window,
-    id: PtyId,
-    pending: &mut Vec<u8>,
-    pending_offset: &mut Option<u64>,
-) -> bool {
-    if pending.is_empty() {
-        *pending_offset = None;
-        return true;
-    }
-    let payload = PtyWireEvent::Data {
-        data: STANDARD.encode(&pending),
-        offset: pending_offset.take().unwrap_or(0),
-    };
-    pending.clear();
-    window.emit(&format!("pty:{id}"), payload).is_ok()
-}
-
-#[cfg(feature = "gui")]
 #[tauri::command]
-async fn pty_spawn(
-    window: tauri::Window,
-    state: tauri::State<'_, Arc<PtyManager>>,
-    req: PtySpawnRequest,
-) -> Result<PtyId, String> {
-    let id = state.spawn(req).await.map_err(|err| err.to_string())?;
-    let mut rx = state.subscribe(id).map_err(|err| err.to_string())?;
-    tauri::async_runtime::spawn(async move {
-        let mut pending = Vec::with_capacity(64 * 1024);
-        let mut pending_offset: Option<u64> = None;
-        let mut flush = time::interval(Duration::from_millis(16));
-        flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        loop {
-            tokio::select! {
-                _ = flush.tick() => {
-                    if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
-                        break;
-                    }
-                }
-                event = rx.recv() => match event {
-                    Ok(PtyEvent::Data { bytes, offset }) => {
-                        if pending.is_empty() {
-                            pending_offset = Some(offset);
-                        }
-                        pending.extend_from_slice(&bytes);
-                        if pending.len() >= 64 * 1024 && !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
-                            break;
-                        }
-                    }
-                    Ok(PtyEvent::Notification(notice)) => {
-                        if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
-                            break;
-                        }
-                        if let Some(hook) = pty::notification_hook() {
-                            hook(id.to_string(), notice.clone());
-                        }
-                        if window
-                            .emit(&format!("pty:{id}"), PtyWireEvent::Notification(notice))
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Ok(PtyEvent::Exit(exit)) => {
-                        if !emit_pty_data(&window, id, &mut pending, &mut pending_offset) {
-                            break;
-                        }
-                        let _ = window.emit(
-                            &format!("pty:{id}"),
-                            PtyWireEvent::Exit {
-                                code: exit.code,
-                                signal: exit.signal,
-                            },
-                        );
-                        break;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(%id, skipped, "pty event relay lagged");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        }
-    });
+async fn pty_spawn(window: tauri::Window, req: PtySpawnRequest) -> Result<PtyId, String> {
+    let payload = serde_json::to_value(&req).map_err(|err| err.to_string())?;
+    let response = orchestration::client::request("pty.spawn", payload)
+        .await
+        .map_err(|err| err.to_string())?;
+    let id: PtyId = response
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "daemon did not return a PTY id".to_string())?
+        .parse()
+        .map_err(|err| format!("parse daemon PTY id: {err}"))?;
+    relay_orchestration_events(window, id).await?;
     Ok(id)
 }
 
 #[cfg(feature = "gui")]
-#[tauri::command]
-async fn pty_write(
-    state: tauri::State<'_, Arc<PtyManager>>,
-    id: PtyId,
-    data: Vec<u8>,
-) -> Result<(), String> {
-    state.write(id, &data).await.map_err(|err| err.to_string())
+async fn relay_orchestration_events(window: tauri::Window, id: PtyId) -> Result<(), String> {
+    let mut rx = orchestration::client::event_receiver(json!({"sessionId": id.to_string()}))
+        .await
+        .map_err(|err| err.to_string())?;
+    tauri::async_runtime::spawn(async move {
+        while let Some(frame) = rx.recv().await {
+            let Some(event) = frame.get("event") else {
+                continue;
+            };
+            let Some(session_id) = event.get("session_id").and_then(Value::as_str) else {
+                continue;
+            };
+            if session_id != id.to_string() {
+                continue;
+            }
+            match event.get("type").and_then(Value::as_str) {
+                Some("pty-output") => {
+                    let payload = PtyWireEvent::Data {
+                        data: event
+                            .get("data")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        offset: event.get("offset").and_then(Value::as_u64).unwrap_or(0),
+                    };
+                    if window.emit(&format!("pty:{id}"), payload).is_err() {
+                        break;
+                    }
+                }
+                Some("pty-exit") => {
+                    let payload = PtyWireEvent::Exit {
+                        code: event.get("code").and_then(Value::as_u64).unwrap_or(1) as u32,
+                        signal: event
+                            .get("signal")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned),
+                    };
+                    let _ = window.emit(&format!("pty:{id}"), payload);
+                    break;
+                }
+                Some("pty-notification") => {
+                    let Some(notification) = event.get("notification") else {
+                        continue;
+                    };
+                    let notice = pty_notification_from_value(notification);
+                    if let Some(hook) = pty::notification_hook() {
+                        hook(id.to_string(), notice.clone());
+                    }
+                    let payload = PtyWireEvent::Notification {
+                        source: notification
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .unwrap_or("osc9")
+                            .to_string(),
+                        title: notification
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        body: notification
+                            .get("body")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned),
+                        urgency: notification
+                            .get("urgency")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned),
+                    };
+                    if window.emit(&format!("pty:{id}"), payload).is_err() {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+    Ok(())
+}
+
+#[cfg(feature = "gui")]
+fn pty_notification_from_value(value: &Value) -> pty::OscNotification {
+    let source = match value
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or("osc9")
+    {
+        "osc99" => pty::NotificationSource::Osc99,
+        "osc777" => pty::NotificationSource::Osc777,
+        _ => pty::NotificationSource::Osc9,
+    };
+    pty::OscNotification {
+        source,
+        title: value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        body: value
+            .get("body")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        urgency: value
+            .get("urgency")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+    }
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
-async fn pty_resize(
-    state: tauri::State<'_, Arc<PtyManager>>,
-    id: PtyId,
-    rows: u16,
-    cols: u16,
-) -> Result<(), String> {
-    state
-        .resize(id, rows, cols)
+async fn pty_write(id: PtyId, data: Vec<u8>) -> Result<(), String> {
+    orchestration::client::request(
+        "pty.write",
+        json!({"id": id.to_string(), "data": STANDARD.encode(data)}),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn pty_resize(id: PtyId, rows: u16, cols: u16) -> Result<(), String> {
+    orchestration::client::request(
+        "pty.resize",
+        json!({"id": id.to_string(), "rows": rows, "cols": cols}),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn pty_kill(id: PtyId) -> Result<(), String> {
+    orchestration::client::request("pty.kill", json!({"id": id.to_string()}))
         .await
+        .map(|_| ())
         .map_err(|err| err.to_string())
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
-async fn pty_kill(state: tauri::State<'_, Arc<PtyManager>>, id: PtyId) -> Result<(), String> {
-    state.kill(id).await.map_err(|err| err.to_string())
+async fn pty_list() -> Result<Vec<PtyId>, String> {
+    let response = orchestration::client::request("pty.list", json!({}))
+        .await
+        .map_err(|err| err.to_string())?;
+    let sessions = response
+        .get("sessions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    sessions
+        .iter()
+        .filter_map(|session| session.get("id").and_then(Value::as_str))
+        .map(|id| {
+            id.parse()
+                .map_err(|err| format!("parse daemon PTY id: {err}"))
+        })
+        .collect()
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
-async fn pty_list(state: tauri::State<'_, Arc<PtyManager>>) -> Result<Vec<PtyId>, String> {
-    Ok(state.list().await)
-}
-
-#[cfg(feature = "gui")]
-#[tauri::command]
-async fn pty_replay(
-    state: tauri::State<'_, Arc<PtyManager>>,
-    id: PtyId,
-) -> Result<Option<PtyReplay>, String> {
-    let output = state.output_snapshot(id).map_err(|err| err.to_string())?;
-    if output.data.is_empty() {
+async fn pty_replay(id: PtyId) -> Result<Option<PtyReplay>, String> {
+    let response = orchestration::client::request("pty.replay", json!({"id": id.to_string()}))
+        .await
+        .map_err(|err| err.to_string())?;
+    let data = response
+        .get("data")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if data.is_empty() {
         return Ok(None);
     }
     Ok(Some(PtyReplay {
-        data: STANDARD.encode(output.data.as_ref()),
-        start_offset: output.start_offset,
-        end_offset: output.end_offset,
+        data,
+        start_offset: response
+            .get("startOffset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        end_offset: response
+            .get("endOffset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
     }))
 }
 
@@ -245,7 +321,6 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(PtyManager::new())
         .manage(Arc::new(AgentReviewManager::new()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -293,18 +368,6 @@ pub fn run() {
             agent_review_reject,
             list_font_families
         ])
-        .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                if let Some(manager) = window.try_state::<Arc<PtyManager>>() {
-                    let manager = manager.inner().clone();
-                    tauri::async_runtime::spawn(async move {
-                        for id in manager.list().await {
-                            let _ = manager.kill(id).await;
-                        }
-                    });
-                }
-            }
-        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

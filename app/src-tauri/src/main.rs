@@ -5,11 +5,18 @@ mod adapters;
 mod approval;
 mod cli;
 mod headless;
+mod orchestration;
 mod protocol;
 mod push;
 mod secret;
 mod server;
 mod transport;
+mod util;
+
+#[cfg(feature = "gui")]
+use app_lib::pty;
+#[cfg(not(feature = "gui"))]
+mod pty;
 
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();

@@ -2,6 +2,7 @@ use super::{pairing, AppState};
 use crate::{
     adapters,
     approval::store::now_millis,
+    orchestration::AgentStatus,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
         Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
@@ -112,6 +113,12 @@ pub async fn approval_decide(
         .flatten()
         .map(|approval| approval.machine_id)
         .unwrap_or_else(|| state.machine_id.clone());
+    if let Ok(Some(approval)) = state.store.get_approval(&approval_id) {
+        state
+            .orchestration
+            .set_status(&approval.session_id, AgentStatus::Working)
+            .await;
+    }
     state.broadcast(ServerMessage::ApprovalResolved {
         protocol_version: PROTOCOL_VERSION.to_string(),
         approval_id,
@@ -496,6 +503,10 @@ pub async fn wait_for_approval_decision(
 
     state.store.insert_approval(&approval)?;
     let rx = state.pending.insert(approval_id.clone()).await;
+    state
+        .orchestration
+        .set_status(&approval.session_id, AgentStatus::Blocked)
+        .await;
     state.broadcast(ServerMessage::from(&approval));
     tokio::spawn(push::fanout_approval_pending(
         state.store.clone(),
@@ -521,6 +532,10 @@ pub async fn wait_for_approval_decision(
                 by: Some("system".to_string()),
             };
             let _ = state.store.decide(&approval_id, &body)?;
+            state
+                .orchestration
+                .set_status(&approval.session_id, AgentStatus::Done)
+                .await;
             let response = ApprovalDecisionResponse::denied_timeout(approval_id.clone());
             state.broadcast(ServerMessage::ApprovalResolved {
                 protocol_version: PROTOCOL_VERSION.to_string(),

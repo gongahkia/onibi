@@ -6,6 +6,7 @@ pub mod ws_hub;
 
 use crate::{
     approval::{pending::PendingApprovals, store::ApprovalStore},
+    orchestration::OrchestrationState,
     protocol::{DesktopSnapshotBody, ServerMessage},
     secret::{self, VapidKeys},
     transport::TransportManager,
@@ -52,6 +53,7 @@ pub struct AppState {
     pub token: String,
     pub vapid: VapidKeys,
     pub transports: TransportManager,
+    pub orchestration: Arc<OrchestrationState>,
     pub approval_timeout: Duration,
     pty_ring: Arc<RwLock<HashMap<String, VecDeque<u8>>>>,
     desktop_snapshot: Arc<RwLock<DesktopSnapshotBody>>,
@@ -85,6 +87,7 @@ impl AppState {
                 token.clone(),
                 vapid.public_key,
             ),
+            orchestration: OrchestrationState::new(token.clone()),
             approval_timeout: Duration::from_secs(600),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
@@ -110,6 +113,7 @@ impl AppState {
                 "test-token".to_string(),
                 "test-vapid".to_string(),
             ),
+            orchestration: OrchestrationState::new("test-token".to_string()),
             approval_timeout: Duration::from_secs(5),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
@@ -280,6 +284,12 @@ pub fn router(state: AppState) -> Router {
 }
 
 pub async fn start_server(state: AppState, port: u16) -> Result<()> {
+    state
+        .orchestration
+        .clone()
+        .start_listeners()
+        .await
+        .context("start orchestration listeners")?;
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr)
         .await

@@ -30,7 +30,7 @@ pub enum PtyError {
     Pty(#[from] anyhow::Error),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtySpawnRequest {
     #[serde(default = "crate::util::shell::default_shell")]

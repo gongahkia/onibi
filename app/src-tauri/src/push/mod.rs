@@ -69,7 +69,7 @@ pub async fn fanout_pty_notification(
     store: ApprovalStore,
     vapid: VapidKeys,
     session_id: String,
-    notification: app_lib::pty::OscNotification,
+    notification: crate::pty::OscNotification,
 ) {
     let subscriptions = match store.list_push_subscriptions() {
         Ok(subscriptions) => subscriptions,
