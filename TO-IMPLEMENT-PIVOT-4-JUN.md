@@ -73,10 +73,20 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added `newPaneCwd` policy support for new split panes (`active`, `workspace`, `home`).
 - Verified with `pnpm --dir app typecheck`, `pnpm --dir app test`, `cargo check --manifest-path app/src-tauri/Cargo.toml`, and targeted React tests for FileTree, SettingsPane, MainPane, and CommandPalette.
 
+### Implemented in the agent-detection heuristics pass
+
+- Added a daemon-side heuristic detection registry for Cursor, Cline, Copilot, Gemini, Grok, Kimi, Kiro, Droid, Amp, Antigravity, and Kilo.
+- Auto-populated `SessionInfo.agent` from explicit metadata first, then launch command/args/title, then conservative banner-style terminal output.
+- Added agent-aware output status heuristics for known agent sessions, while preserving generic shell status inference from OSC 133 shell-integration markers.
+- Added arbitration guardrails so explicit agent metadata wins over launch detection, approval-blocked sessions stay `blocked`, and exited/completed sessions stay `done` against weaker output heuristics.
+- Expanded the frontend agent catalog and labels so newly detected daemon labels hydrate as real agents instead of falling back to plain shell.
+- Added Rust tests for all 11 launch-command detections, output-marker detection, status inference, and arbitration; added a React/store hydration test for daemon-detected heuristic agent labels.
+- Verified with `cargo fmt --check`, `cargo test`, `cargo check --no-default-features`, `pnpm --dir app typecheck`, `pnpm --dir app test -- --run`, and `git diff --check`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
-- Agent status heuristics are intentionally lightweight and based on shell integration/output signals; deeper process-tree detection and third-party integration hooks remain future Phase B work.
+- Agent status heuristics are intentionally lightweight and based on shell integration, launch metadata, and conservative output signals; deeper foreground process-tree detection and third-party integration hooks remain future Phase B work.
 
 ---
 
@@ -98,10 +108,10 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Partial — vertical/horizontal split with focus, pane zoom, persisted sizes, and per-workspace-tab persistence; no pane drag-reorder |
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | Partial — workspace reorder and workspace terminal-tab reorder are done; pane reorder is not |
-| **Agent detection** | 18 agents (auto, process + heuristic) | 7 adapters (2 real, 5 stubs) |
-| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, output heuristics, and focus clear are wired |
+| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata plus command/title/banner-output heuristics for 11 no-hook agents; no foreground process polling |
+| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
 | **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | 2 working: claude-code (HTTP), codex (shell); 5 stubs |
-| **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | None |
+| **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | Partial — launch/title/banner-output detection for all 11; foreground process polling still missing |
 | **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command metadata can relaunch sessions; provider-native conversation IDs are not restored |
 | **Approval / gating layer** | No | Yes (primary feature) |
 | **Edit tool input before approve** | N/A | Yes (Claude Code `updatedInput`) |
@@ -168,10 +178,10 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 7. **[DONE] Zoom-pane toggle** (fullscreen a pane within tab).
 
 ### 2.2 Agent detection
-8. **Heuristic agent detection** (process name + terminal-output regex) for 11 agents that have no hook: Cursor, Cline, Copilot, Gemini, Grok, Kimi, Kiro, Droid, Amp, Antigravity, Kilo.
+8. **[PARTIAL] Heuristic agent detection** (process name + terminal-output regex) for 11 agents that have no hook: Cursor, Cline, Copilot, Gemini, Grok, Kimi, Kiro, Droid, Amp, Antigravity, Kilo. Launch command/args/title and conservative banner-output detection are done; foreground process polling is still missing.
 9. **[DONE] 4-state agent model**: `idle` / `working` / `blocked` / `done(unviewed)` — canonical values, approval/exit transitions, lightweight output heuristics, and focus clear are wired.
-10. **Smart state arbitration** combining: foreground process + integration hook + screen heuristic, with conflict resolution rules.
-11. **Done-vs-idle distinction** (unviewed completion → idle once user focuses pane).
+10. **[PARTIAL] Smart state arbitration** combining: foreground process + integration hook + screen heuristic, with conflict resolution rules. Current guardrails preserve explicit metadata, approval `blocked`, and PTY `done`; foreground process and native-hook arbitration remain.
+11. **[DONE] Done-vs-idle distinction** (unviewed completion → idle once user focuses pane).
 12. **Per-agent label override** (`herdr agent rename`).
 
 ### 2.3 Integrations (versioned hooks/plugins)
