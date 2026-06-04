@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AGENT_KINDS,
   AGENT_LABELS,
+  APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_COLOR_KEYS,
   COLOR_SCHEME_COLOR_LABELS,
   COLOR_SCHEME_OPTIONS,
@@ -9,6 +10,8 @@ import {
   DEFAULT_AGENT_INSTALL_COMMANDS,
   DEFAULT_TERMINAL_TRIGGERS,
   type AgentKind,
+  type AppKeybinding,
+  type AppKeybindingAction,
   type ColorSchemeColorKey,
   type ColorSchemeColors,
   type CustomColorScheme,
@@ -24,14 +27,19 @@ import {
   type TerminalTriggerAction,
   type ThemeMode,
   type WebOpenMode,
+  appKeybindingConflicts,
   applyOnibiConfig,
   detectTerminalConfigImports,
+  displayKeyChord,
   listLocalFontFamilies,
-  parseOnibiConfigJson,
+  normalizeAppKeyChord,
+  parseOnibiConfigText,
   parseTerminalConfigImport,
+  readOnibiConfigTomlText,
   resolveAgentBinary,
-  serializeOnibiConfig,
+  serializeOnibiConfigToml,
   useSessionStore,
+  writeOnibiConfigTomlFile,
   workspaceFromPath,
 } from "../lib/sessions";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
@@ -48,6 +56,7 @@ type SettingsSection =
   | "workspaces"
   | "shell-integration"
   | "triggers"
+  | "keybindings"
   | "config-json"
   | "import-config";
 type BinaryStatus = Record<AgentKind, string | null>;
@@ -118,7 +127,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
 
   useEffect(() => {
     if (open) {
-      setConfigJson(serializeOnibiConfig());
+      setConfigJson(serializeOnibiConfigToml());
       setConfigStatus(null);
     }
   }, [open]);
@@ -197,7 +206,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   function selectSection(item: SettingsSection) {
     setSection(item);
     if (item === "config-json") {
-      setConfigJson(serializeOnibiConfig());
+      setConfigJson(serializeOnibiConfigToml());
       setConfigStatus(null);
     }
     if (item === "import-config" && terminalImports.length === 0) {
@@ -236,6 +245,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 "workspaces",
                 "shell-integration",
                 "triggers",
+                "keybindings",
                 "config-json",
                 "import-config",
               ] as const
@@ -374,21 +384,50 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onTriggers={(terminalTriggers) => updateSettings({ terminalTriggers })}
             />
           ) : null}
+          {section === "keybindings" ? (
+            <KeybindingsSettings
+              prefix={settings.keybindingPrefix}
+              bindings={settings.appKeybindings}
+              onPrefix={(keybindingPrefix) => updateSettings({ keybindingPrefix })}
+              onBindings={(appKeybindings) => updateSettings({ appKeybindings })}
+            />
+          ) : null}
           {section === "config-json" ? (
             <ConfigJsonSettings
               value={configJson}
               status={configStatus}
               onValue={setConfigJson}
               onRefresh={() => {
-                setConfigJson(serializeOnibiConfig());
+                setConfigJson(serializeOnibiConfigToml());
                 setConfigStatus("Refreshed from current settings.");
+              }}
+              onLoadFile={async () => {
+                try {
+                  const raw = await readOnibiConfigTomlText();
+                  if (raw?.trim()) {
+                    setConfigJson(raw);
+                    setConfigStatus("Loaded ~/.config/onibi/config.toml.");
+                  } else {
+                    setConfigStatus("No ~/.config/onibi/config.toml found.");
+                  }
+                } catch (caught) {
+                  setConfigStatus(caught instanceof Error ? caught.message : String(caught));
+                }
+              }}
+              onSaveFile={async () => {
+                try {
+                  await writeOnibiConfigTomlFile(configJson);
+                  setConfigStatus("Saved ~/.config/onibi/config.toml.");
+                } catch (caught) {
+                  setConfigStatus(caught instanceof Error ? caught.message : String(caught));
+                }
               }}
               onApply={() => {
                 try {
-                  const config = parseOnibiConfigJson(configJson);
+                  const config = parseOnibiConfigText(configJson);
                   applyOnibiConfig(config);
-                  setConfigJson(serializeOnibiConfig());
-                  setConfigStatus("Applied config.json.");
+                  setConfigJson(serializeOnibiConfigToml());
+                  setConfigStatus("Applied config.toml.");
                 } catch (caught) {
                   setConfigStatus(caught instanceof Error ? caught.message : String(caught));
                 }
@@ -453,7 +492,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
 
 function labelFor(value: string): string {
   if (value === "config-json") {
-    return "config.json";
+    return "config.toml";
   }
   if (value === "import-config") {
     return "Import terminal settings";
@@ -1211,27 +1250,151 @@ function ShellIntegrationSettings({
   );
 }
 
+const APP_KEYBINDING_ACTIONS = Object.entries(
+  APP_KEYBINDING_ACTION_LABELS,
+) as Array<[AppKeybindingAction, string]>;
+
+function KeybindingsSettings({
+  prefix,
+  bindings,
+  onPrefix,
+  onBindings,
+}: {
+  prefix: string;
+  bindings: AppKeybinding[];
+  onPrefix: (prefix: string) => void;
+  onBindings: (bindings: AppKeybinding[]) => void;
+}) {
+  const [draftPrefix, setDraftPrefix] = useState(prefix);
+  const [draftBindings, setDraftBindings] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setDraftPrefix(prefix);
+  }, [prefix]);
+
+  useEffect(() => {
+    setDraftBindings(
+      Object.fromEntries(
+        APP_KEYBINDING_ACTIONS.map(([action]) => [
+          action,
+          bindings
+            .filter((binding) => binding.action === action)
+            .map((binding) => binding.keys)
+            .join(", "),
+        ]),
+      ),
+    );
+  }, [bindings]);
+
+  function commitPrefix() {
+    const normalized = normalizeAppKeyChord(draftPrefix);
+    if (normalized) {
+      onPrefix(normalized);
+      setDraftPrefix(normalized);
+    } else {
+      setDraftPrefix(prefix);
+    }
+  }
+
+  function commitAction(action: AppKeybindingAction) {
+    const nextBindings = (draftBindings[action] ?? "")
+      .split(",")
+      .map((item) => normalizeAppKeyChord(item))
+      .filter(Boolean)
+      .map((keys) => ({ keys, action }));
+    const withoutAction = bindings.filter((binding) => binding.action !== action);
+    onBindings([...withoutAction, ...nextBindings]);
+    setDraftBindings((state) => ({
+      ...state,
+      [action]: nextBindings.map((binding) => binding.keys).join(", "),
+    }));
+  }
+
+  const conflicts = appKeybindingConflicts(bindings);
+
+  return (
+    <section className="settings-section" aria-label="Keybinding settings">
+      <label className="settings-row">
+        <span>Prefix chord</span>
+        <input
+          className="settings-input"
+          aria-label="Prefix chord"
+          value={draftPrefix}
+          onChange={(event) => setDraftPrefix(event.target.value)}
+          onBlur={commitPrefix}
+        />
+      </label>
+      <div className="keybinding-list">
+        {APP_KEYBINDING_ACTIONS.map(([action, label]) => (
+          <label key={action} className="keybinding-row">
+            <span>
+              <strong>{label}</strong>
+              <code>{action}</code>
+            </span>
+            <input
+              className="settings-input"
+              aria-label={`${label} keybinding`}
+              value={draftBindings[action] ?? ""}
+              placeholder="prefix+x"
+              onChange={(event) =>
+                setDraftBindings((state) => ({
+                  ...state,
+                  [action]: event.target.value,
+                }))
+              }
+              onBlur={() => commitAction(action)}
+            />
+            <kbd>
+              {(draftBindings[action] ?? "")
+                .split(",")
+                .map((item) => displayKeyChord(item.trim()))
+                .filter(Boolean)
+                .join(", ")}
+            </kbd>
+          </label>
+        ))}
+      </div>
+      {conflicts.length > 0 ? (
+        <div className="settings-note settings-warning">
+          {conflicts.map((conflict) => (
+            <div key={conflict.keys}>
+              {displayKeyChord(conflict.keys)} conflicts across{" "}
+              {conflict.actions.map((action) => APP_KEYBINDING_ACTION_LABELS[action]).join(", ")}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="settings-note">No app keybinding conflicts.</div>
+      )}
+    </section>
+  );
+}
+
 function ConfigJsonSettings({
   value,
   status,
   onValue,
   onRefresh,
+  onLoadFile,
+  onSaveFile,
   onApply,
 }: {
   value: string;
   status: string | null;
   onValue: (value: string) => void;
   onRefresh: () => void;
+  onLoadFile: () => Promise<void>;
+  onSaveFile: () => Promise<void>;
   onApply: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   function exportConfig() {
-    const blob = new Blob([value], { type: "application/json" });
+    const blob = new Blob([value], { type: "application/toml" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "onibi.config.json";
+    link.download = "onibi.config.toml";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -1244,13 +1407,27 @@ function ConfigJsonSettings({
   }
 
   return (
-    <section className="settings-section" aria-label="config.json settings">
+    <section className="settings-section" aria-label="config.toml settings">
       <div className="config-json-actions">
         <button type="button" className="text-button" onClick={onRefresh}>
           Refresh
         </button>
         <button type="button" className="text-button primary" onClick={onApply}>
-          Apply JSON
+          Apply TOML
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => void onLoadFile()}
+        >
+          Load file
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => void onSaveFile()}
+        >
+          Save file
         </button>
         <button type="button" className="text-button" onClick={exportConfig}>
           Export
@@ -1265,14 +1442,14 @@ function ConfigJsonSettings({
         <input
           ref={inputRef}
           type="file"
-          accept="application/json,.json"
+          accept=".toml,.json,application/json"
           className="visually-hidden"
           onChange={(event) => void importConfig(event.target.files?.[0])}
         />
       </div>
       <textarea
         className="settings-textarea config-json-editor"
-        aria-label="Onibi config JSON"
+        aria-label="Onibi config TOML"
         spellCheck={false}
         value={value}
         onChange={(event) => onValue(event.target.value)}

@@ -4961,8 +4961,12 @@ export function parseOnibiConfigJson(json: string): OnibiConfigExport {
 }
 
 export async function readOnibiConfigTomlFile(): Promise<OnibiConfigExport | null> {
-  const raw = await invoke<string | null>("onibi_read_config_toml");
+  const raw = await readOnibiConfigTomlText();
   return typeof raw === "string" && raw.trim() ? parseOnibiConfigToml(raw) : null;
+}
+
+export async function readOnibiConfigTomlText(): Promise<string | null> {
+  return invoke<string | null>("onibi_read_config_toml");
 }
 
 export async function writeOnibiConfigTomlFile(toml: string): Promise<void> {

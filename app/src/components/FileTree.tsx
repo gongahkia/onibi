@@ -295,6 +295,10 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   const selectFile = useSessionStore((state) => state.selectFile);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
+  const reorderWorkspaces = useSessionStore((state) => state.reorderWorkspaces);
+  const toggleWorkspaceCollapsed = useSessionStore(
+    (state) => state.toggleWorkspaceCollapsed,
+  );
   const settings = useSessionStore((state) => state.settings);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const [filter, setFilter] = useState("");
@@ -306,6 +310,11 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dragged, setDragged] = useState<DragPayload | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
+  const [workspaceDropIndicator, setWorkspaceDropIndicator] = useState<{
+    workspaceId: string;
+    before: boolean;
+  } | null>(null);
 
   const normalizedFilter = filter.trim().toLowerCase();
   const activeSession = useMemo(
@@ -316,11 +325,12 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     return (
       workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
       workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ??
+      workspaces.find((workspace) => workspace.id === selectedFile?.workspaceId) ??
       null
     );
-  }, [activeSession?.workspaceId, activeWorkspaceId, workspaces]);
-  const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : [];
-  const actionWorkspace = activeWorkspace;
+  }, [activeSession?.workspaceId, activeWorkspaceId, selectedFile?.workspaceId, workspaces]);
+  const visibleWorkspaces = workspaces;
+  const actionWorkspace = activeWorkspace ?? workspaces[0] ?? null;
 
   const visibleEntries = useCallback(
     (entries: FsEntry[]) =>
@@ -455,6 +465,79 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   function handleDragEnd() {
     setDragged(null);
     setDropTargetKey(null);
+  }
+
+  function workspaceDragIdFromEvent(event: DragEvent): string | null {
+    return draggedWorkspaceId || event.dataTransfer.getData(WORKSPACE_DRAG_MIME) || null;
+  }
+
+  function workspaceDropBefore(event: DragEvent<HTMLElement>): boolean {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientY < rect.top + rect.height / 2;
+  }
+
+  function handleWorkspaceDragStart(event: DragEvent, workspace: Workspace) {
+    event.stopPropagation();
+    setDraggedWorkspaceId(workspace.id);
+    setContextMenu(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(WORKSPACE_DRAG_MIME, workspace.id);
+    event.dataTransfer.setData("text/plain", workspace.name);
+  }
+
+  function handleWorkspaceDragEnd() {
+    setDraggedWorkspaceId(null);
+    setWorkspaceDropIndicator(null);
+  }
+
+  function handleWorkspaceDragOver(
+    event: DragEvent<HTMLElement>,
+    workspace: Workspace,
+  ): boolean {
+    const fromId = workspaceDragIdFromEvent(event);
+    if (!fromId || fromId === workspace.id) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setWorkspaceDropIndicator({
+      workspaceId: workspace.id,
+      before: workspaceDropBefore(event),
+    });
+    return true;
+  }
+
+  function handleWorkspaceDragLeave(
+    event: DragEvent<HTMLElement>,
+    workspace: Workspace,
+  ) {
+    if (
+      event.currentTarget instanceof Node &&
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return;
+    }
+    setWorkspaceDropIndicator((current) =>
+      current?.workspaceId === workspace.id ? null : current,
+    );
+  }
+
+  function handleWorkspaceDrop(
+    event: DragEvent<HTMLElement>,
+    workspace: Workspace,
+  ): boolean {
+    const fromId = workspaceDragIdFromEvent(event);
+    setDraggedWorkspaceId(null);
+    setWorkspaceDropIndicator(null);
+    if (!fromId || fromId === workspace.id) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    reorderWorkspaces(fromId, workspace.id, workspaceDropBefore(event));
+    return true;
   }
 
   function handleDragOver(event: DragEvent, target: ContextTarget) {
@@ -757,27 +840,64 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
         <WorkspaceRoot
           key={workspace.id}
           workspace={workspace}
-          expanded={Boolean(expanded[nodeKey(workspace, workspace.path)])}
+          expanded={
+            !workspace.collapsed &&
+            Boolean(expanded[nodeKey(workspace, workspace.path)])
+          }
+          collapsed={workspace.collapsed === true}
           loading={Boolean(loading[nodeKey(workspace, workspace.path)])}
           error={errors[nodeKey(workspace, workspace.path)]}
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
           showFileIcons={settings.showFileIcons}
           gitStatusByPath={gitStatusByPath}
           active={workspace.id === activeWorkspace?.id}
+          dragging={draggedWorkspaceId === workspace.id}
           isDropTarget={dropTargetKey === nodeKey(workspace, workspace.path)}
-          onToggle={() => void toggleDir(workspace, workspace.path)}
+          workspaceDropIndicator={
+            workspaceDropIndicator?.workspaceId === workspace.id
+              ? workspaceDropIndicator.before
+                ? "before"
+                : "after"
+              : null
+          }
+          rollup={workspaceRollup(workspace, sessions)}
+          onToggle={() => {
+            if (workspace.collapsed) {
+              toggleWorkspaceCollapsed(workspace.id);
+              setExpanded((state) => ({
+                ...state,
+                [nodeKey(workspace, workspace.path)]: true,
+              }));
+              void loadChildren(workspace, workspace.path);
+            } else if (expanded[nodeKey(workspace, workspace.path)]) {
+              toggleWorkspaceCollapsed(workspace.id);
+            } else {
+              void toggleDir(workspace, workspace.path);
+            }
+          }}
           onSelectRoot={() => {
             setActiveWorkspace(workspace.id);
             selectFile(null);
           }}
           onContextMenu={(event) => openContextMenu(event, workspace)}
+          onWorkspaceDragStart={(event) => handleWorkspaceDragStart(event, workspace)}
+          onWorkspaceDragEnd={handleWorkspaceDragEnd}
           onDragOver={(event) =>
+            handleWorkspaceDragOver(event, workspace) ||
             handleDragOver(event, contextTargetFor(workspace))
           }
           onDragLeave={(event) =>
-            handleDragLeave(event, contextTargetFor(workspace))
+            {
+              handleWorkspaceDragLeave(event, workspace);
+              handleDragLeave(event, contextTargetFor(workspace));
+            }
           }
-          onDrop={(event) => void handleDrop(event, contextTargetFor(workspace))}
+          onDrop={(event) => {
+            if (handleWorkspaceDrop(event, workspace)) {
+              return;
+            }
+            void handleDrop(event, contextTargetFor(workspace));
+          }}
           renderNode={(entry, depth) => (
             <TreeNode
               key={entry.path}
@@ -832,6 +952,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
       errors,
       expanded,
       dragged,
+      draggedWorkspaceId,
+      workspaceDropIndicator,
       dropTargetKey,
       loading,
       selectFile,
@@ -843,6 +965,9 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
       visibleWorkspaces,
       activeWorkspace?.id,
       setActiveWorkspace,
+      sessions,
+      reorderWorkspaces,
+      toggleWorkspaceCollapsed,
     ],
   );
 
@@ -1070,16 +1195,22 @@ function FileTreeContextMenu({
 interface WorkspaceRootProps {
   workspace: Workspace;
   expanded: boolean;
+  collapsed: boolean;
   loading: boolean;
   error?: string;
   entries: FsEntry[];
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
   active: boolean;
+  dragging: boolean;
   isDropTarget: boolean;
+  workspaceDropIndicator: "before" | "after" | null;
+  rollup: WorkspaceRollup;
   onToggle: () => void;
   onSelectRoot: () => void;
   onContextMenu: (event: MouseEvent) => void;
+  onWorkspaceDragStart: (event: DragEvent) => void;
+  onWorkspaceDragEnd: (event: DragEvent) => void;
   onDragOver: (event: DragEvent) => void;
   onDragLeave: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
@@ -1089,16 +1220,22 @@ interface WorkspaceRootProps {
 function WorkspaceRoot({
   workspace,
   expanded,
+  collapsed,
   loading,
   error,
   entries,
   showFileIcons,
   gitStatusByPath,
   active,
+  dragging,
   isDropTarget,
+  workspaceDropIndicator,
+  rollup,
   onToggle,
   onSelectRoot,
   onContextMenu,
+  onWorkspaceDragStart,
+  onWorkspaceDragEnd,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -1109,18 +1246,29 @@ function WorkspaceRoot({
     <section>
       <button
         type="button"
+        draggable
         className={`workspace-row ${showFileIcons ? "with-icons" : ""} ${
           active ? "active" : ""
-        } ${isDropTarget ? "drop-target" : ""}`}
+        } ${dragging ? "dragging" : ""} ${isDropTarget ? "drop-target" : ""} ${
+          workspaceDropIndicator ? `drop-${workspaceDropIndicator}` : ""
+        }`}
         onClick={onSelectRoot}
         onDoubleClick={onToggle}
         onContextMenu={onContextMenu}
+        onDragStart={onWorkspaceDragStart}
+        onDragEnd={onWorkspaceDragEnd}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        <span className="tree-glyph" onClick={onToggle}>
-          {expanded ? "v" : ">"}
+        <span
+          className="tree-glyph"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          {expanded && !collapsed ? "v" : ">"}
         </span>
         {showFileIcons ? (
           <TreeFileIcon
@@ -1129,10 +1277,21 @@ function WorkspaceRoot({
         ) : null}
         <span className="workspace-name">{workspace.name}</span>
         <span className="workspace-path">{loading ? "loading" : ""}</span>
+        <span
+          className={`workspace-rollup tone-${rollup.tone}`}
+          title={rollup.title}
+          aria-label={rollup.title}
+        >
+          {rollup.label}
+        </span>
         <GitStateBadge state={gitState} />
       </button>
       {error ? <div className="tree-error">{error}</div> : null}
-      {expanded ? <div className="tree-children">{entries.map((entry) => renderNode(entry, 1))}</div> : null}
+      {expanded && !collapsed ? (
+        <div className="tree-children">
+          {entries.map((entry) => renderNode(entry, 1))}
+        </div>
+      ) : null}
     </section>
   );
 }
