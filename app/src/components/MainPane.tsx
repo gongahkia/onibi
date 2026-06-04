@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+} from "react";
 import {
   Group as PanelGroup,
   Panel,
@@ -45,6 +53,8 @@ import {
 import { getGitStatus } from "../lib/git";
 import { persistCommandBlock } from "../lib/command-blocks";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
+
+const WORKSPACE_TAB_DRAG_MIME = "application/x-onibi-workspace-terminal-tab";
 
 async function spawnShellReplacement(
   session: Session,
@@ -148,6 +158,7 @@ function WorkspaceTerminalTabStrip({
   activeTabId,
   onSelect,
   onCreate,
+  onReorder,
 }: {
   workspace: Workspace;
   tabs: WorkspaceTab[];
@@ -155,7 +166,28 @@ function WorkspaceTerminalTabStrip({
   activeTabId: string | null;
   onSelect: (workspaceId: string, tabId: string) => void;
   onCreate: (workspaceId: string) => void;
+  onReorder: (
+    workspaceId: string,
+    fromTabId: string,
+    toTabId: string,
+    before: boolean,
+  ) => void;
 }) {
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{
+    tabId: string;
+    before: boolean;
+  } | null>(null);
+
+  function draggedTabId(event: ReactDragEvent): string | null {
+    return draggingTabId || event.dataTransfer.getData(WORKSPACE_TAB_DRAG_MIME) || null;
+  }
+
+  function dropBefore(event: ReactDragEvent<HTMLButtonElement>): boolean {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientX < rect.left + rect.width / 2;
+  }
+
   return (
     <div
       className="workspace-terminal-tab-strip"
@@ -178,9 +210,59 @@ function WorkspaceTerminalTabStrip({
             type="button"
             role="tab"
             aria-selected={active}
-            className={`workspace-terminal-tab ${active ? "active" : ""}`}
+            draggable
+            className={`workspace-terminal-tab ${active ? "active" : ""} ${
+              draggingTabId === tab.id ? "dragging" : ""
+            } ${
+              dropIndicator?.tabId === tab.id
+                ? dropIndicator.before
+                  ? "drop-before"
+                  : "drop-after"
+                : ""
+            }`}
             title={`${workspace.name}: ${label}`}
             onClick={() => onSelect(workspace.id, tab.id)}
+            onDragStart={(event) => {
+              setDraggingTabId(tab.id);
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(WORKSPACE_TAB_DRAG_MIME, tab.id);
+              event.dataTransfer.setData("text/plain", label);
+            }}
+            onDragOver={(event) => {
+              const fromId = draggedTabId(event);
+              if (!fromId || fromId === tab.id) {
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDropIndicator({ tabId: tab.id, before: dropBefore(event) });
+            }}
+            onDragLeave={(event) => {
+              if (
+                event.currentTarget instanceof Node &&
+                event.relatedTarget instanceof Node &&
+                event.currentTarget.contains(event.relatedTarget)
+              ) {
+                return;
+              }
+              setDropIndicator((current) =>
+                current?.tabId === tab.id ? null : current,
+              );
+            }}
+            onDrop={(event) => {
+              const fromId = draggedTabId(event);
+              setDraggingTabId(null);
+              setDropIndicator(null);
+              if (!fromId || fromId === tab.id) {
+                return;
+              }
+              event.preventDefault();
+              onReorder(workspace.id, fromId, tab.id, dropBefore(event));
+            }}
+            onDragEnd={() => {
+              setDraggingTabId(null);
+              setDropIndicator(null);
+            }}
           >
             <i className="codicon codicon-terminal" aria-hidden="true" />
             <span className="workspace-terminal-tab-label">{label}</span>
@@ -250,13 +332,21 @@ function TerminalPaneTree({
   onClose: (session: Session) => void;
 }) {
   const setActiveTerminalPane = useSessionStore((state) => state.setActiveTerminalPane);
+  const updateTerminalSplitSizes = useSessionStore(
+    (state) => state.updateTerminalSplitSizes,
+  );
   const [handoffOpen, setHandoffOpen] = useState(false);
   if (node.type === "split") {
+    const sizes =
+      node.sizes && node.sizes.length === node.children.length ? node.sizes : undefined;
     return (
-      <PanelGroup orientation={panelOrientation(node.direction)}>
+      <PanelGroup
+        orientation={panelOrientation(node.direction)}
+        onLayout={(nextSizes) => updateTerminalSplitSizes(node.paneId, nextSizes)}
+      >
         {node.children.map((child, index) => (
           <Fragment key={child.paneId}>
-            <Panel minSize={12}>
+            <Panel minSize={12} defaultSize={sizes?.[index]}>
               <TerminalPaneTree
                 node={child}
                 sessions={sessions}
@@ -709,6 +799,9 @@ export function MainPane() {
   const createWorkspaceTab = useSessionStore(
     (state) => state.createWorkspaceTab,
   );
+  const reorderWorkspaceTab = useSessionStore(
+    (state) => state.reorderWorkspaceTab,
+  );
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
   const activeTerminalSession = session;
   const activeWorkspace = useMemo(() => {
@@ -760,6 +853,17 @@ export function MainPane() {
     },
     [activeTerminalPaneId, activeTerminalSession],
   );
+
+  useEffect(() => {
+    function handleSplitEvent(event: Event) {
+      const direction = (event as CustomEvent<{ direction?: TerminalSplitDirection }>)
+        .detail?.direction;
+      requestSplit(direction === "horizontal" ? "horizontal" : "vertical");
+    }
+
+    window.addEventListener("onibi:terminal-split", handleSplitEvent);
+    return () => window.removeEventListener("onibi:terminal-split", handleSplitEvent);
+  }, [requestSplit]);
 
   useEffect(() => {
     function handleSplitShortcut(event: KeyboardEvent) {
@@ -1063,7 +1167,11 @@ export function MainPane() {
     const splitWorkspaceId =
       activeTerminalSession?.workspaceId ?? activeWorkspace?.id ?? null;
     const splitDefaultCwd =
-      activeTerminalSession?.cwd ?? activeWorkspace?.path ?? null;
+      settings.newPaneCwd === "home"
+        ? null
+        : settings.newPaneCwd === "workspace"
+          ? activeWorkspace?.path ?? null
+          : activeTerminalSession?.cwd ?? activeWorkspace?.path ?? null;
     return (
       <>
         <main
@@ -1084,6 +1192,7 @@ export function MainPane() {
                 activeTabId={activeWorkspaceTabId}
                 onSelect={setActiveWorkspaceTab}
                 onCreate={createWorkspaceTab}
+                onReorder={reorderWorkspaceTab}
               />
             ) : null}
             <div className="workspace-terminal-body">

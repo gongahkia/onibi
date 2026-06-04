@@ -1397,8 +1397,11 @@ export const DEFAULT_KEYBINDING_PREFIX = "ctrl+b";
 
 export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
   { keys: "cmd+p", action: "commandPalette.open" },
+  { keys: "ctrl+p", action: "commandPalette.open" },
   { keys: "cmd+n", action: "session.new" },
+  { keys: "ctrl+n", action: "session.new" },
   { keys: "cmd+shift+t", action: "editor.reopenClosed" },
+  { keys: "ctrl+shift+t", action: "editor.reopenClosed" },
   { keys: "prefix+v", action: "terminal.splitRight" },
   { keys: "prefix+s", action: "terminal.splitDown" },
   { keys: "prefix+z", action: "terminal.toggleMaximize" },
@@ -2492,6 +2495,7 @@ function insertTerminalSplit(
       type: "split",
       paneId: makeId("split"),
       direction,
+      sizes: [50, 50],
       children: [node, newLeaf],
     };
   }
@@ -3157,6 +3161,110 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }));
     persistLater();
     return tab.id;
+  },
+  reorderWorkspaces: (fromId, toId, before) => {
+    set((state) => ({
+      workspaces: reorderItemsById(state.workspaces, fromId, toId, before),
+    }));
+    persistLater();
+  },
+  toggleWorkspaceCollapsed: (workspaceId) => {
+    set((state) => ({
+      workspaces: state.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? { ...workspace, collapsed: !workspace.collapsed }
+          : workspace,
+      ),
+    }));
+    persistLater();
+  },
+  reorderWorkspaceTab: (workspaceId, fromTabId, toTabId, before) => {
+    set((state) => {
+      const workspaceTabs = state.workspaceTabs.filter(
+        (tab) => tab.workspaceId === workspaceId,
+      );
+      const reordered = reorderItemsById(workspaceTabs, fromTabId, toTabId, before);
+      const nextTabs = state.workspaceTabs.map((tab) => {
+        if (tab.workspaceId !== workspaceId) {
+          return tab;
+        }
+        return reordered.shift() ?? tab;
+      });
+      return { workspaceTabs: nextTabs };
+    });
+    persistLater();
+  },
+  focusRelativeWorkspace: (delta) => {
+    set((state) => {
+      if (state.workspaces.length === 0) {
+        return {};
+      }
+      const currentIndex = Math.max(
+        state.workspaces.findIndex(
+          (workspace) => workspace.id === state.activeWorkspaceId,
+        ),
+        0,
+      );
+      const workspace =
+        state.workspaces[
+          (currentIndex + delta + state.workspaces.length) % state.workspaces.length
+        ];
+      const { tabs, tab } = ensureWorkspaceHasTab(state, workspace.id);
+      return {
+        workspaceTabs: tabs,
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  focusRelativeWorkspaceTab: (delta) => {
+    set((state) => {
+      const workspaceId = state.activeWorkspaceId;
+      if (!workspaceId) {
+        return {};
+      }
+      const tabs = state.workspaceTabs.filter((tab) => tab.workspaceId === workspaceId);
+      if (tabs.length === 0) {
+        return {};
+      }
+      const currentIndex = Math.max(
+        tabs.findIndex((tab) => tab.id === state.activeWorkspaceTabId),
+        0,
+      );
+      const tab = tabs[(currentIndex + delta + tabs.length) % tabs.length];
+      return {
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  updateTerminalSplitSizes: (splitPaneId, sizes) => {
+    set((state) => {
+      const tab = activeWorkspaceTab(state);
+      if (!tab?.terminalLayout) {
+        const terminalLayout = updateTerminalSplitSizesInLayout(
+          state.terminalLayout,
+          splitPaneId,
+          sizes,
+        );
+        return { terminalLayout };
+      }
+      const terminalLayout = updateTerminalSplitSizesInLayout(
+        tab.terminalLayout,
+        splitPaneId,
+        sizes,
+      );
+      const workspaceTabs = updateWorkspaceTab(state.workspaceTabs, tab.id, {
+        terminalLayout,
+      });
+      return {
+        workspaceTabs,
+        terminalLayout,
+      };
+    });
+    persistLater();
   },
   setActiveSidebarView: (view) => {
     set({ activeSidebarView: view });
@@ -4189,6 +4297,7 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<MainSelection[]>("closedBufferStack"),
       store.get<string[]>("bufferAccessOrder"),
     ]);
+    const tomlConfig = await readOnibiConfigTomlFile().catch(() => null);
     const daemonSessions = await loadDaemonSessions();
     const daemonById = new Map(daemonSessions.map((session) => [session.id, session]));
     const livePtys = new Set(
@@ -4196,7 +4305,16 @@ export async function hydrateSessionStore(): Promise<void> {
         .filter((session) => session.lifecycle === "running")
         .map((session) => session.id),
     );
-    const restoredWorkspaces = mergeDaemonWorkspaces(workspaces ?? [], daemonSessions);
+    const configuredWorkspaceIds = new Set(
+      (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
+    );
+    const workspaceSources = [
+      ...(tomlConfig?.workspaces ?? []),
+      ...(workspaces ?? []).filter(
+        (workspace) => !configuredWorkspaceIds.has(workspace.id),
+      ),
+    ];
+    const restoredWorkspaces = mergeDaemonWorkspaces(workspaceSources, daemonSessions);
     const restoredSessions = mergeDaemonSessionRecords(
       sessions ?? [],
       daemonSessions,
@@ -4227,7 +4345,13 @@ export async function hydrateSessionStore(): Promise<void> {
           null
         : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
-    const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
+    const mergedSettings = applyGhosttyDefaults(
+      mergeSettings({
+        ...(settings ?? {}),
+        ...(tomlConfig?.settings ?? {}),
+      }),
+      ghosttyTheme,
+    );
     const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
     let restoredWorkspaceTabs = normalizeWorkspaceTabs(
       storedWorkspaceTabs,
@@ -4514,8 +4638,312 @@ export function getOnibiConfigSnapshot(): OnibiConfigExport {
   };
 }
 
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlArray(values: string[]): string {
+  return `[${values.map(tomlString).join(", ")}]`;
+}
+
+function tomlScalar(value: string | number | boolean): string {
+  return typeof value === "string" ? tomlString(value) : String(value);
+}
+
+function settingLine(key: string, value: string | number | boolean): string {
+  return `${key} = ${tomlScalar(value)}`;
+}
+
+function stripTomlComment(line: string): string {
+  let quoted = false;
+  let escaped = false;
+  let result = "";
+  for (const char of line) {
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quoted) {
+      result += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      result += char;
+      continue;
+    }
+    if (char === "#" && !quoted) {
+      break;
+    }
+    result += char;
+  }
+  return result.trim();
+}
+
+function parseTomlValue(raw: string): unknown {
+  const value = raw.trim();
+  if (value.startsWith("[") && value.endsWith("]")) {
+    const inner = value.slice(1, -1).trim();
+    if (!inner) {
+      return [];
+    }
+    const parts: string[] = [];
+    let quoted = false;
+    let escaped = false;
+    let current = "";
+    for (const char of inner) {
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\" && quoted) {
+        current += char;
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        quoted = !quoted;
+        current += char;
+        continue;
+      }
+      if (char === "," && !quoted) {
+        parts.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    parts.push(current.trim());
+    return parts.map(parseTomlValue);
+  }
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  if (value === "true" || value === "false") {
+    return value === "true";
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : value;
+}
+
+function camelFromTomlKey(key: string): string {
+  return key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+function assignTomlSetting(
+  settings: Record<string, unknown>,
+  path: string,
+  key: string,
+  value: unknown,
+  currentObject: Record<string, unknown> | null,
+) {
+  if (path === "settings") {
+    settings[camelFromTomlKey(key)] = value;
+  } else if (path === "settings.agent_commands") {
+    const target = (settings.agentCommands ??= {}) as Record<string, unknown>;
+    target[key] = value;
+  } else if (path === "settings.agent_install_commands") {
+    const target = (settings.agentInstallCommands ??= {}) as Record<string, unknown>;
+    target[key] = value;
+  } else if (path === "settings.custom_color_scheme") {
+    const target = (settings.customColorScheme ??= {}) as Record<string, unknown>;
+    target[camelFromTomlKey(key)] = value;
+  } else if (path === "settings.custom_color_scheme.colors") {
+    const scheme = (settings.customColorScheme ??= {}) as Record<string, unknown>;
+    const target = (scheme.colors ??= {}) as Record<string, unknown>;
+    target[camelFromTomlKey(key)] = value;
+  } else if (currentObject) {
+    currentObject[camelFromTomlKey(key)] = value;
+  }
+}
+
+function pushTomlTable(
+  settings: Record<string, unknown>,
+  workspaces: Record<string, unknown>[],
+  path: string,
+): Record<string, unknown> | null {
+  if (path === "workspaces") {
+    const workspace: Record<string, unknown> = {};
+    workspaces.push(workspace);
+    return workspace;
+  }
+  const key =
+    path === "settings.app_keybindings"
+      ? "appKeybindings"
+      : path === "settings.terminal_keybindings"
+        ? "terminalKeybindings"
+        : path === "settings.terminal_triggers"
+          ? "terminalTriggers"
+          : null;
+  if (!key) {
+    return null;
+  }
+  const list = (settings[key] ??= []) as Record<string, unknown>[];
+  const item: Record<string, unknown> = {};
+  list.push(item);
+  return item;
+}
+
+export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): string {
+  const settings = mergeSettings(config.settings);
+  const lines: string[] = [
+    "version = 1",
+    "",
+    "[settings]",
+    settingLine("theme", settings.theme),
+    settingLine("font_family", settings.fontFamily),
+    settingLine("ui_font_family", settings.uiFontFamily),
+    settingLine("terminal_font_family", settings.terminalFontFamily),
+    settingLine("editor_font_family", settings.editorFontFamily),
+    settingLine("ui_font_size", settings.uiFontSize),
+    settingLine("terminal_font_size", settings.terminalFontSize),
+    settingLine("terminal_scrollback_lines", settings.terminalScrollbackLines),
+    settingLine("terminal_shell_integration", settings.terminalShellIntegration),
+    settingLine("terminal_confirm_close", settings.terminalConfirmClose),
+    `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
+    settingLine("keybinding_prefix", settings.keybindingPrefix),
+    settingLine("new_pane_cwd", settings.newPaneCwd),
+    settingLine("editor_font_size", settings.editorFontSize),
+    settingLine("editor_keybinding_mode", settings.editorKeybindingMode),
+    settingLine("editor_vim_relative_line_numbers", settings.editorVimRelativeLineNumbers),
+    settingLine("editor_vim_system_clipboard", settings.editorVimSystemClipboard),
+    settingLine("editor_emacs_system_clipboard", settings.editorEmacsSystemClipboard),
+    settingLine("editor_open_limit", settings.editorOpenLimit),
+    settingLine("closed_buffer_history_limit", settings.closedBufferHistoryLimit),
+    settingLine("diff_view_mode", settings.diffViewMode),
+    settingLine("tab_bar_orientation", settings.tabBarOrientation),
+    settingLine("tab_bar_position", settings.tabBarPosition),
+    settingLine("show_hidden_files", settings.showHiddenFiles),
+    settingLine("show_file_icons", settings.showFileIcons),
+    settingLine("web_open_mode", settings.webOpenMode),
+    settingLine("preferred_browser", settings.preferredBrowser),
+    settingLine("default_agent", settings.defaultAgent),
+    "",
+    "[settings.agent_commands]",
+    ...AGENT_KINDS.map((agent) => settingLine(agent, settings.agentCommands[agent] ?? "")),
+    "",
+    "[settings.agent_install_commands]",
+    ...Object.entries(settings.agentInstallCommands).map(([agent, command]) =>
+      settingLine(agent, command ?? ""),
+    ),
+    "",
+    "[settings.custom_color_scheme]",
+    settingLine("label", settings.customColorScheme.label),
+    "",
+    "[settings.custom_color_scheme.colors]",
+    ...COLOR_SCHEME_COLOR_KEYS.map((key) =>
+      settingLine(
+        key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+        settings.customColorScheme.colors[key],
+      ),
+    ),
+  ];
+
+  for (const binding of settings.appKeybindings) {
+    lines.push(
+      "",
+      "[[settings.app_keybindings]]",
+      settingLine("keys", binding.keys),
+      settingLine("action", binding.action),
+    );
+  }
+
+  for (const binding of settings.terminalKeybindings) {
+    lines.push(
+      "",
+      "[[settings.terminal_keybindings]]",
+      settingLine("keys", binding.keys),
+      settingLine("action", binding.action),
+      ...(binding.source ? [settingLine("source", binding.source)] : []),
+    );
+  }
+
+  for (const trigger of settings.terminalTriggers) {
+    lines.push(
+      "",
+      "[[settings.terminal_triggers]]",
+      settingLine("id", trigger.id),
+      settingLine("label", trigger.label),
+      settingLine("pattern", trigger.pattern),
+      settingLine("enabled", trigger.enabled),
+      `actions = ${tomlArray(trigger.actions)}`,
+      settingLine("source", trigger.source),
+    );
+  }
+
+  for (const workspace of config.workspaces) {
+    lines.push(
+      "",
+      "[[workspaces]]",
+      settingLine("id", workspace.id),
+      settingLine("path", workspace.path),
+      settingLine("name", workspace.name),
+      settingLine("collapsed", workspace.collapsed === true),
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 export function serializeOnibiConfig(): string {
   return `${JSON.stringify(getOnibiConfigSnapshot(), null, 2)}\n`;
+}
+
+export function parseOnibiConfigToml(toml: string): OnibiConfigExport {
+  const settings: Record<string, unknown> = {};
+  const workspaces: Record<string, unknown>[] = [];
+  let section = "";
+  let currentObject: Record<string, unknown> | null = null;
+
+  for (const rawLine of toml.split(/\r?\n/)) {
+    const line = stripTomlComment(rawLine);
+    if (!line) {
+      continue;
+    }
+    if (line.startsWith("[[") && line.endsWith("]]")) {
+      section = line.slice(2, -2).trim();
+      currentObject = pushTomlTable(settings, workspaces, section);
+      continue;
+    }
+    if (line.startsWith("[") && line.endsWith("]")) {
+      section = line.slice(1, -1).trim();
+      currentObject = null;
+      continue;
+    }
+    const separator = line.indexOf("=");
+    if (separator < 0) {
+      continue;
+    }
+    const key = line.slice(0, separator).trim();
+    const value = parseTomlValue(line.slice(separator + 1));
+    if (section === "" && key === "version") {
+      continue;
+    }
+    if (section === "workspaces") {
+      currentObject ??= pushTomlTable(settings, workspaces, section);
+    }
+    assignTomlSetting(settings, section, key, value, currentObject);
+  }
+
+  return {
+    version: 1,
+    settings: mergeSettings(settings as Partial<AppSettings>),
+    workspaces: normalizeWorkspaces(workspaces),
+  };
+}
+
+export function parseOnibiConfigText(text: string): OnibiConfigExport {
+  const trimmed = text.trim();
+  return trimmed.startsWith("{")
+    ? parseOnibiConfigJson(trimmed)
+    : parseOnibiConfigToml(trimmed);
 }
 
 export function parseOnibiConfigJson(json: string): OnibiConfigExport {
@@ -4530,6 +4958,15 @@ export function parseOnibiConfigJson(json: string): OnibiConfigExport {
     ),
     workspaces: normalizeWorkspaces(parsed.workspaces),
   };
+}
+
+export async function readOnibiConfigTomlFile(): Promise<OnibiConfigExport | null> {
+  const raw = await invoke<string | null>("onibi_read_config_toml");
+  return typeof raw === "string" && raw.trim() ? parseOnibiConfigToml(raw) : null;
+}
+
+export async function writeOnibiConfigTomlFile(toml: string): Promise<void> {
+  await invoke("onibi_write_config_toml", { toml });
 }
 
 export function applyOnibiConfig(config: OnibiConfigExport): void {

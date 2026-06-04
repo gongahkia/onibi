@@ -11,11 +11,15 @@ import {
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   type AppSettings,
+  type AppKeybindingAction,
   type Session,
   type Workspace,
   buildAgentHandoffPrompt,
   closeSession,
+  displayKeyChord,
   duplicateSession,
+  keyChordFromKeyboardEvent,
+  normalizeAppKeyChord,
   restartSession,
   restoreArrangement,
   sessionCanHandoff,
@@ -46,6 +50,15 @@ function isApplePlatform(): boolean {
 
 function primaryShortcut(key: string): string {
   return isApplePlatform() ? `⌘${key}` : `Ctrl ${key}`;
+}
+
+function appShortcut(
+  settings: AppSettings,
+  action: AppKeybindingAction,
+  fallback?: string,
+): string | undefined {
+  const binding = settings.appKeybindings.find((item) => item.action === action);
+  return binding ? displayKeyChord(binding.keys) : fallback;
 }
 
 function commandText(command: PaletteCommand): string {
@@ -149,29 +162,111 @@ export function CommandPalette() {
   const focusRelativeTerminalPane = useSessionStore(
     (state) => state.focusRelativeTerminalPane,
   );
+  const focusRelativeWorkspace = useSessionStore(
+    (state) => state.focusRelativeWorkspace,
+  );
+  const focusRelativeWorkspaceTab = useSessionStore(
+    (state) => state.focusRelativeWorkspaceTab,
+  );
+
+  const prefixArmedRef = useRef(false);
+  const prefixTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     function handleGlobalKeyDown(event: KeyboardEvent) {
-      if (
-        event.key.toLowerCase() === "p" &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey
-      ) {
-        event.preventDefault();
-        setOpen(true);
+      if (event.defaultPrevented) {
         return;
       }
-      // Cmd/Ctrl + Shift + T → reopen closed tab (VSCode parity)
-      if (
-        event.key.toLowerCase() === "t" &&
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        reopenClosedBuffer();
+      const chord = keyChordFromKeyboardEvent(event);
+      if (!chord) {
+        return;
       }
+      const target = event.target;
+      const editable =
+        target instanceof Element &&
+        (target.closest("input, textarea, select") ||
+          target.closest('[contenteditable="true"]'));
+      const bindings = new Map(
+        settings.appKeybindings.map((binding) => [binding.keys, binding.action]),
+      );
+      const prefix = normalizeAppKeyChord(settings.keybindingPrefix);
+
+      function clearPrefix() {
+        prefixArmedRef.current = false;
+        if (prefixTimerRef.current !== null) {
+          window.clearTimeout(prefixTimerRef.current);
+          prefixTimerRef.current = null;
+        }
+      }
+
+      function executeAction(action: AppKeybindingAction) {
+        if (action === "commandPalette.open") {
+          setOpen(true);
+        } else if (action === "session.new") {
+          setNewSessionOpen(true);
+        } else if (action === "editor.reopenClosed") {
+          reopenClosedBuffer();
+        } else if (action === "terminal.splitRight") {
+          window.dispatchEvent(
+            new CustomEvent("onibi:terminal-split", {
+              detail: { direction: "vertical" },
+            }),
+          );
+        } else if (action === "terminal.splitDown") {
+          window.dispatchEvent(
+            new CustomEvent("onibi:terminal-split", {
+              detail: { direction: "horizontal" },
+            }),
+          );
+        } else if (action === "terminal.focusNextPane") {
+          focusRelativeTerminalPane(1);
+        } else if (action === "terminal.focusPreviousPane") {
+          focusRelativeTerminalPane(-1);
+        } else if (action === "terminal.toggleMaximize") {
+          toggleMaximizedTerminalPane();
+        } else if (action === "session.closeActive") {
+          const id = useSessionStore.getState().activeSessionId;
+          if (id) {
+            void closeSession(id).catch((error) => {
+              console.warn("command failed", error);
+            });
+          }
+        } else if (action === "workspace.next") {
+          focusRelativeWorkspace(1);
+        } else if (action === "workspace.previous") {
+          focusRelativeWorkspace(-1);
+        } else if (action === "workspace.tab.next") {
+          focusRelativeWorkspaceTab(1);
+        } else if (action === "workspace.tab.previous") {
+          focusRelativeWorkspaceTab(-1);
+        } else {
+          console.warn("unknown app keybinding action", action);
+        }
+      }
+
+      if (prefixArmedRef.current) {
+        const action = bindings.get(`prefix+${chord}`);
+        clearPrefix();
+        if (action) {
+          event.preventDefault();
+          executeAction(action);
+        }
+        return;
+      }
+
+      if (prefix && chord === prefix && !editable) {
+        event.preventDefault();
+        prefixArmedRef.current = true;
+        prefixTimerRef.current = window.setTimeout(clearPrefix, 1800);
+        return;
+      }
+
+      const action = bindings.get(chord);
+      if (!action || (editable && action !== "commandPalette.open")) {
+        return;
+      }
+      event.preventDefault();
+      executeAction(action);
     }
 
     function handleOpenEvent() {
@@ -186,8 +281,20 @@ export function CommandPalette() {
         "onibi:open-command-palette",
         handleOpenEvent as EventListener,
       );
+      if (prefixTimerRef.current !== null) {
+        window.clearTimeout(prefixTimerRef.current);
+        prefixTimerRef.current = null;
+      }
     };
-  }, [reopenClosedBuffer]);
+  }, [
+    focusRelativeTerminalPane,
+    focusRelativeWorkspace,
+    focusRelativeWorkspaceTab,
+    reopenClosedBuffer,
+    settings.appKeybindings,
+    settings.keybindingPrefix,
+    toggleMaximizedTerminalPane,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -208,7 +315,7 @@ export function CommandPalette() {
         label: "New Session",
         group: "Session",
         description: "Choose an agent, workspace, and initial prompt",
-        shortcut: primaryShortcut("N"),
+        shortcut: appShortcut(settings, "session.new", primaryShortcut("N")),
         keywords: ["agent", "terminal", "spawn", "start"],
         run: () => setNewSessionOpen(true),
       },
@@ -237,7 +344,7 @@ export function CommandPalette() {
           closedBufferStack.length > 0
             ? `Reopen ${closedBufferStack[0].path}`
             : "No recently closed editors",
-        shortcut: `${primaryShortcut("⇧")}T`,
+        shortcut: appShortcut(settings, "editor.reopenClosed", `${primaryShortcut("⇧")}T`),
         keywords: ["restore", "undo", "close", "tab", "file"],
         run: () => {
           reopenClosedBuffer();
@@ -317,7 +424,7 @@ export function CommandPalette() {
         label: "Maximize or Restore Active Pane",
         group: "Layout",
         description: "Toggle the active terminal pane",
-        shortcut: primaryShortcut("⇧↵"),
+        shortcut: appShortcut(settings, "terminal.toggleMaximize", primaryShortcut("⇧↵")),
         keywords: ["pane", "split", "zoom"],
         run: () => toggleMaximizedTerminalPane(),
       },
@@ -557,7 +664,7 @@ export function CommandPalette() {
           label: "Close Active Session",
           group: "Session",
           description: activeSession.title,
-          shortcut: primaryShortcut("W"),
+          shortcut: appShortcut(settings, "session.closeActive", primaryShortcut("W")),
           keywords: ["remove", "tab"],
           run: async () => {
             await closeSession(activeSession.id);
@@ -709,7 +816,9 @@ export function CommandPalette() {
                 }}
                 onKeyDown={handleInputKeyDown}
               />
-              <kbd className="command-palette-trigger">{primaryShortcut("P")}</kbd>
+              <kbd className="command-palette-trigger">
+                {appShortcut(settings, "commandPalette.open", primaryShortcut("P"))}
+              </kbd>
             </div>
             <div className="command-list" role="listbox" aria-label="Commands">
               {filteredCommands.length === 0 ? (
