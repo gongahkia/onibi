@@ -1384,6 +1384,9 @@ function getStore(): Promise<Store> {
     defaults: {
       sessions: [],
       workspaces: [],
+      workspaceTabs: [],
+      activeWorkspaceId: null,
+      activeWorkspaceTabId: null,
       terminalLayout: null,
       activeTerminalPaneId: null,
       maximizedTerminalPaneId: null,
@@ -1814,6 +1817,261 @@ export function newCommandBlockId(): string {
 
 function makeTerminalLeaf(sessionId: string): TerminalLeafPane {
   return { type: "leaf", paneId: makeId("pane"), sessionId, sessionIds: [sessionId] };
+}
+
+function makeWorkspaceTab(
+  workspaceId: string,
+  title = "Terminal",
+  terminalLayout: TerminalPaneNode | null = null,
+  activeTerminalPaneId: string | null = null,
+  maximizedTerminalPaneId: string | null = null,
+): WorkspaceTab {
+  const now = Date.now();
+  return {
+    id: makeId("workspace-tab"),
+    workspaceId,
+    title,
+    terminalLayout,
+    activeTerminalPaneId:
+      activeTerminalPaneId && paneContainsPane(terminalLayout, activeTerminalPaneId)
+        ? activeTerminalPaneId
+        : firstLeaf(terminalLayout)?.paneId ?? null,
+    maximizedTerminalPaneId:
+      maximizedTerminalPaneId && paneContainsPane(terminalLayout, maximizedTerminalPaneId)
+        ? maximizedTerminalPaneId
+        : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function workspaceTabSessionId(tab: WorkspaceTab | null | undefined): string | null {
+  if (!tab?.terminalLayout || !tab.activeTerminalPaneId) {
+    return firstLeaf(tab?.terminalLayout ?? null)?.sessionId ?? null;
+  }
+  return (
+    sessionIdForPane(tab.terminalLayout, tab.activeTerminalPaneId) ??
+    firstLeaf(tab.terminalLayout)?.sessionId ??
+    null
+  );
+}
+
+function sessionIdsInTerminalLayout(node: TerminalPaneNode | null): Set<string> {
+  const ids = new Set<string>();
+  for (const leaf of terminalLeafOrder(node)) {
+    for (const id of leafSessionIds(leaf)) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function tabContainsSession(tab: WorkspaceTab, sessionId: string): boolean {
+  return sessionIdsInTerminalLayout(tab.terminalLayout).has(sessionId);
+}
+
+function activeWorkspaceTab(state: SessionStore): WorkspaceTab | null {
+  const active =
+    state.workspaceTabs.find(
+      (tab) =>
+        tab.id === state.activeWorkspaceTabId &&
+        (!state.activeWorkspaceId || tab.workspaceId === state.activeWorkspaceId),
+    ) ?? null;
+  if (active) {
+    return active;
+  }
+  return (
+    state.workspaceTabs.find((tab) => tab.workspaceId === state.activeWorkspaceId) ??
+    state.workspaceTabs[0] ??
+    null
+  );
+}
+
+function tabForSession(state: SessionStore, sessionId: string): WorkspaceTab | null {
+  return state.workspaceTabs.find((tab) => tabContainsSession(tab, sessionId)) ?? null;
+}
+
+function mirrorWorkspaceTab(tab: WorkspaceTab | null): {
+  terminalLayout: TerminalPaneNode | null;
+  activeTerminalPaneId: string | null;
+  maximizedTerminalPaneId: string | null;
+  activeWorkspaceId: string | null;
+  activeWorkspaceTabId: string | null;
+  activeSessionId: string | null;
+} {
+  const activeSessionId = workspaceTabSessionId(tab);
+  return {
+    terminalLayout: tab?.terminalLayout ?? null,
+    activeTerminalPaneId: tab?.activeTerminalPaneId ?? null,
+    maximizedTerminalPaneId: tab?.maximizedTerminalPaneId ?? null,
+    activeWorkspaceId: tab?.workspaceId ?? null,
+    activeWorkspaceTabId: tab?.id ?? null,
+    activeSessionId,
+  };
+}
+
+function updateWorkspaceTab(
+  tabs: WorkspaceTab[],
+  tabId: string,
+  patch: Partial<WorkspaceTab>,
+): WorkspaceTab[] {
+  const now = Date.now();
+  return tabs.map((tab) =>
+    tab.id === tabId
+      ? {
+          ...tab,
+          ...patch,
+          id: tab.id,
+          workspaceId: patch.workspaceId ?? tab.workspaceId,
+          updatedAt: now,
+        }
+      : tab,
+  );
+}
+
+function ensureWorkspaceHasTab(
+  state: SessionStore,
+  workspaceId: string,
+): { tabs: WorkspaceTab[]; tab: WorkspaceTab } {
+  const existing =
+    state.workspaceTabs.find((tab) => tab.id === state.activeWorkspaceTabId && tab.workspaceId === workspaceId) ??
+    state.workspaceTabs.find((tab) => tab.workspaceId === workspaceId);
+  if (existing) {
+    return { tabs: state.workspaceTabs, tab: existing };
+  }
+  const tab = makeWorkspaceTab(workspaceId);
+  return { tabs: [...state.workspaceTabs, tab], tab };
+}
+
+function activeTabOrWorkspaceTabForSession(
+  state: SessionStore,
+  session: Session,
+): { tabs: WorkspaceTab[]; tab: WorkspaceTab } {
+  const existing = tabForSession(state, session.id);
+  if (existing) {
+    return { tabs: state.workspaceTabs, tab: existing };
+  }
+  const active = activeWorkspaceTab(state);
+  if (active?.workspaceId === session.workspaceId) {
+    return { tabs: state.workspaceTabs, tab: active };
+  }
+  return ensureWorkspaceHasTab(state, session.workspaceId);
+}
+
+function pruneWorkspaceTabs(
+  tabs: WorkspaceTab[],
+  liveSessionIds: Set<string>,
+): WorkspaceTab[] {
+  return tabs.map((tab) => {
+    const terminalLayout = pruneTerminalLayout(tab.terminalLayout, liveSessionIds);
+    return {
+      ...tab,
+      terminalLayout,
+      activeTerminalPaneId:
+        tab.activeTerminalPaneId && paneContainsPane(terminalLayout, tab.activeTerminalPaneId)
+          ? tab.activeTerminalPaneId
+          : firstLeaf(terminalLayout)?.paneId ?? null,
+      maximizedTerminalPaneId:
+        tab.maximizedTerminalPaneId &&
+        paneContainsPane(terminalLayout, tab.maximizedTerminalPaneId)
+          ? tab.maximizedTerminalPaneId
+          : null,
+    };
+  });
+}
+
+function synthesizeWorkspaceTabs(
+  workspaces: Workspace[],
+  sessions: Session[],
+  legacyLayout: TerminalPaneNode | null,
+  legacyActivePaneId: string | null,
+  legacyMaximizedPaneId: string | null,
+): WorkspaceTab[] {
+  const tabs: WorkspaceTab[] = [];
+  for (const workspace of workspaces) {
+    const workspaceSessionIds = new Set(
+      sessions
+        .filter(
+          (session) =>
+            session.workspaceId === workspace.id && sessionHasRestorableTerminal(session),
+        )
+        .map((session) => session.id),
+    );
+    if (workspaceSessionIds.size === 0) {
+      continue;
+    }
+    const terminalLayout =
+      pruneTerminalLayout(legacyLayout, workspaceSessionIds) ??
+      makeTerminalLeaf([...workspaceSessionIds][0]);
+    tabs.push(
+      makeWorkspaceTab(
+        workspace.id,
+        "Terminal",
+        terminalLayout,
+        legacyActivePaneId,
+        legacyMaximizedPaneId,
+      ),
+    );
+  }
+  return tabs;
+}
+
+function normalizeWorkspaceTabs(
+  value: unknown,
+  workspaceIds: Set<string>,
+): WorkspaceTab[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const tabs: WorkspaceTab[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const workspaceId =
+      typeof item.workspaceId === "string" ? item.workspaceId.trim() : "";
+    if (!workspaceId || !workspaceIds.has(workspaceId)) {
+      continue;
+    }
+    const id =
+      typeof item.id === "string" && item.id.trim()
+        ? item.id.trim()
+        : makeId("workspace-tab");
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const title =
+      typeof item.title === "string" && item.title.trim()
+        ? item.title.trim().slice(0, 80)
+        : "Terminal";
+    const terminalLayout = isRecord(item.terminalLayout)
+      ? (item.terminalLayout as unknown as TerminalPaneNode)
+      : null;
+    const activeTerminalPaneId =
+      typeof item.activeTerminalPaneId === "string"
+        ? item.activeTerminalPaneId
+        : null;
+    const maximizedTerminalPaneId =
+      typeof item.maximizedTerminalPaneId === "string"
+        ? item.maximizedTerminalPaneId
+        : null;
+    const tab = makeWorkspaceTab(
+      workspaceId,
+      title,
+      terminalLayout,
+      activeTerminalPaneId,
+      maximizedTerminalPaneId,
+    );
+    tabs.push({
+      ...tab,
+      id,
+      createdAt: typeof item.createdAt === "number" ? item.createdAt : tab.createdAt,
+      updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : tab.updatedAt,
+    });
+  }
+  return tabs;
 }
 
 function paneIdForSession(
@@ -2326,6 +2584,9 @@ function snapshot(state: SessionStore): PersistedState {
   return {
     sessions: state.sessions,
     workspaces: state.workspaces,
+    workspaceTabs: state.workspaceTabs,
+    activeWorkspaceId: state.activeWorkspaceId,
+    activeWorkspaceTabId: state.activeWorkspaceTabId,
     terminalLayout: state.terminalLayout,
     activeTerminalPaneId: state.activeTerminalPaneId,
     maximizedTerminalPaneId: state.maximizedTerminalPaneId,
@@ -2353,6 +2614,9 @@ export async function persistNow(): Promise<void> {
     const state = snapshot(useSessionStore.getState());
     await store.set("sessions", state.sessions);
     await store.set("workspaces", state.workspaces);
+    await store.set("workspaceTabs", state.workspaceTabs);
+    await store.set("activeWorkspaceId", state.activeWorkspaceId);
+    await store.set("activeWorkspaceTabId", state.activeWorkspaceTabId);
     await store.set("terminalLayout", state.terminalLayout);
     await store.set("activeTerminalPaneId", state.activeTerminalPaneId);
     await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
@@ -2377,6 +2641,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
   terminalLayout: null,
   activeTerminalPaneId: null,
   maximizedTerminalPaneId: null,
+  workspaceTabs: [],
+  activeWorkspaceId: null,
+  activeWorkspaceTabId: null,
   arrangements: [],
   activeSidebarView: "files",
   workspaces: [],
@@ -2392,34 +2659,54 @@ export const useSessionStore = create<SessionStore>((set) => ({
   settings: DEFAULT_SETTINGS,
   setHydrated: (hydrated) => set({ hydrated }),
   setActiveSession: (id) => {
-    set((state) => ({
-      activeSessionId: id,
-      activeTerminalPaneId: id
-        ? paneIdForSession(state.terminalLayout, id) ?? state.activeTerminalPaneId
-        : null,
-      selectedFile: null,
-    }));
+    set((state) => {
+      if (!id) {
+        return {
+          activeSessionId: null,
+          activeTerminalPaneId: null,
+          selectedFile: null,
+        };
+      }
+      const targetSession = state.sessions.find((session) => session.id === id);
+      const targetTab = tabForSession(state, id);
+      if (!targetSession || !targetTab) {
+        return {
+          activeSessionId: id,
+          activeTerminalPaneId:
+            paneIdForSession(state.terminalLayout, id) ?? state.activeTerminalPaneId,
+          selectedFile: null,
+        };
+      }
+      const activeTerminalPaneId =
+        paneIdForSession(targetTab.terminalLayout, id) ??
+        targetTab.activeTerminalPaneId;
+      const workspaceTabs = updateWorkspaceTab(state.workspaceTabs, targetTab.id, {
+        activeTerminalPaneId,
+      });
+      return {
+        ...mirrorWorkspaceTab({
+          ...targetTab,
+          activeTerminalPaneId,
+        }),
+        workspaceTabs,
+        activeSessionId: id,
+        selectedFile: null,
+      };
+    });
     persistLater();
   },
   setActiveTerminalPane: (paneId) => {
     set((state) => {
-      function sessionForPane(node: TerminalPaneNode | null): string | null {
-        if (!node) {
-          return null;
-        }
-        if (node.type === "leaf") {
-          return node.paneId === paneId ? node.sessionId : null;
-        }
-        for (const child of node.children) {
-          const sessionId = sessionForPane(child);
-          if (sessionId) {
-            return sessionId;
-          }
-        }
-        return null;
-      }
-      const sessionId = paneId ? sessionForPane(state.terminalLayout) : null;
+      const tab = activeWorkspaceTab(state);
+      const sessionId = paneId && tab ? sessionIdForPane(tab.terminalLayout, paneId) : null;
+      const tabs =
+        tab && paneId
+          ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+              activeTerminalPaneId: paneId,
+            })
+          : state.workspaceTabs;
       return {
+        workspaceTabs: tabs,
         activeTerminalPaneId: paneId,
         activeSessionId: sessionId ?? state.activeSessionId,
         selectedFile: null,
@@ -2428,28 +2715,47 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   setMaximizedTerminalPane: (paneId) => {
-    set((state) => ({
-      maximizedTerminalPaneId:
-        paneId && paneContainsPane(state.terminalLayout, paneId) ? paneId : null,
-    }));
+    set((state) => {
+      const tab = activeWorkspaceTab(state);
+      const nextPaneId =
+        paneId && tab && paneContainsPane(tab.terminalLayout, paneId) ? paneId : null;
+      return {
+        workspaceTabs: tab
+          ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+              maximizedTerminalPaneId: nextPaneId,
+            })
+          : state.workspaceTabs,
+        maximizedTerminalPaneId: nextPaneId,
+      };
+    });
     persistLater();
   },
   toggleMaximizedTerminalPane: (paneId) => {
     set((state) => {
+      const tab = activeWorkspaceTab(state);
       const targetPaneId = paneId ?? state.activeTerminalPaneId;
       const next =
+        tab &&
         targetPaneId &&
-        state.maximizedTerminalPaneId !== targetPaneId &&
-        paneContainsPane(state.terminalLayout, targetPaneId)
+        tab.maximizedTerminalPaneId !== targetPaneId &&
+        paneContainsPane(tab.terminalLayout, targetPaneId)
           ? targetPaneId
           : null;
-      return { maximizedTerminalPaneId: next };
+      return {
+        workspaceTabs: tab
+          ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+              maximizedTerminalPaneId: next,
+            })
+          : state.workspaceTabs,
+        maximizedTerminalPaneId: next,
+      };
     });
     persistLater();
   },
   focusRelativeTerminalPane: (delta) => {
     set((state) => {
-      const leaves = terminalLeafOrder(state.terminalLayout);
+      const tab = activeWorkspaceTab(state);
+      const leaves = terminalLeafOrder(tab?.terminalLayout ?? null);
       if (leaves.length === 0) {
         return {};
       }
@@ -2458,7 +2764,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
         0,
       );
       const next = leaves[(currentIndex + delta + leaves.length) % leaves.length];
+      const tabs = tab
+        ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+            activeTerminalPaneId: next.paneId,
+          })
+        : state.workspaceTabs;
       return {
+        workspaceTabs: tabs,
         activeTerminalPaneId: next.paneId,
         activeSessionId: next.sessionId,
         selectedFile: null,
@@ -2477,14 +2789,71 @@ export const useSessionStore = create<SessionStore>((set) => ({
         0,
       );
       const next = sessions[(currentIndex + delta + sessions.length) % sessions.length];
+      const targetTab = tabForSession(state, next.id);
+      const activeTerminalPaneId =
+        targetTab && paneIdForSession(targetTab.terminalLayout, next.id)
+          ? paneIdForSession(targetTab.terminalLayout, next.id)
+          : state.activeTerminalPaneId;
       return {
+        ...(targetTab
+          ? mirrorWorkspaceTab({
+              ...targetTab,
+              activeTerminalPaneId,
+            })
+          : {}),
         activeSessionId: next.id,
-        activeTerminalPaneId:
-          paneIdForSession(state.terminalLayout, next.id) ?? state.activeTerminalPaneId,
+        activeTerminalPaneId,
         selectedFile: null,
       };
     });
     persistLater();
+  },
+  setActiveWorkspace: (workspaceId) => {
+    set((state) => {
+      if (!workspaceId) {
+        return {
+          activeWorkspaceId: null,
+          activeWorkspaceTabId: null,
+          terminalLayout: null,
+          activeTerminalPaneId: null,
+          maximizedTerminalPaneId: null,
+          activeSessionId: null,
+          selectedFile: null,
+        };
+      }
+      const { tabs, tab } = ensureWorkspaceHasTab(state, workspaceId);
+      return {
+        workspaceTabs: tabs,
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  setActiveWorkspaceTab: (workspaceId, tabId) => {
+    set((state) => {
+      const tab = state.workspaceTabs.find(
+        (item) => item.workspaceId === workspaceId && item.id === tabId,
+      );
+      if (!tab) {
+        return {};
+      }
+      return {
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  createWorkspaceTab: (workspaceId, title) => {
+    const tab = makeWorkspaceTab(workspaceId, title?.trim() || "Terminal");
+    set((state) => ({
+      workspaceTabs: [...state.workspaceTabs, tab],
+      ...mirrorWorkspaceTab(tab),
+      selectedFile: null,
+    }));
+    persistLater();
+    return tab.id;
   },
   setActiveSidebarView: (view) => {
     set({ activeSidebarView: view });
@@ -2492,19 +2861,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   addSession: (session, placement) => {
     set((state) => {
+      const ensured = activeTabOrWorkspaceTabForSession(state, session);
+      const currentTab = ensured.tab;
+      const currentLayout = currentTab.terminalLayout;
       let terminalLayout: TerminalPaneNode | null;
       let resolvedPaneId: string;
-      if (placement?.type === "tab" && state.terminalLayout) {
+      if (placement?.type === "tab" && currentLayout) {
         terminalLayout = attachTabToPane(
-          state.terminalLayout,
+          currentLayout,
           placement.targetPaneId,
           session.id,
         );
         resolvedPaneId = placement.targetPaneId;
-      } else if (placement?.type === "split" && state.terminalLayout && placement.direction) {
+      } else if (placement?.type === "split" && currentLayout && placement.direction) {
         const leaf = makeTerminalLeaf(session.id);
         terminalLayout = insertTerminalSplit(
-          state.terminalLayout,
+          currentLayout,
           placement.targetPaneId,
           placement.direction,
           leaf,
@@ -2515,16 +2887,27 @@ export const useSessionStore = create<SessionStore>((set) => ({
         terminalLayout = leaf;
         resolvedPaneId = leaf.paneId;
       }
+      const workspaceTabs = updateWorkspaceTab(ensured.tabs, currentTab.id, {
+        terminalLayout,
+        activeTerminalPaneId: resolvedPaneId,
+        maximizedTerminalPaneId: currentTab.maximizedTerminalPaneId
+          ? resolvedPaneId
+          : null,
+      });
+      const maximizedTerminalPaneId = currentTab.maximizedTerminalPaneId
+        ? resolvedPaneId
+        : null;
       return {
         sessions: [
           ...state.sessions.filter((existing) => existing.id !== session.id),
           session,
         ],
+        workspaceTabs,
+        activeWorkspaceId: session.workspaceId,
+        activeWorkspaceTabId: currentTab.id,
         terminalLayout,
         activeTerminalPaneId: resolvedPaneId,
-        maximizedTerminalPaneId: state.maximizedTerminalPaneId
-          ? resolvedPaneId
-          : state.maximizedTerminalPaneId,
+        maximizedTerminalPaneId,
         activeSessionId: session.id,
         selectedFile: null,
         sessionEvents: appendEvent(state.sessionEvents, {
@@ -2551,12 +2934,20 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   setActivePaneSession: (paneId, sessionId) => {
     set((state) => {
-      if (!state.terminalLayout) return {};
-      const nextLayout = setActiveTabInPane(state.terminalLayout, paneId, sessionId);
+      const tab = activeWorkspaceTab(state);
+      if (!tab?.terminalLayout) return {};
+      const nextLayout = setActiveTabInPane(tab.terminalLayout, paneId, sessionId);
+      const workspaceTabs = updateWorkspaceTab(state.workspaceTabs, tab.id, {
+        terminalLayout: nextLayout,
+        activeTerminalPaneId: paneId,
+      });
       return {
+        workspaceTabs,
         terminalLayout: nextLayout,
         activeTerminalPaneId: paneId,
         activeSessionId: sessionId,
+        activeWorkspaceId: tab.workspaceId,
+        activeWorkspaceTabId: tab.id,
         selectedFile: null,
       };
     });
@@ -2571,55 +2962,78 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   replaceSession: (id, replacement) => {
-    set((state) => ({
-      sessions: state.sessions.map((session) =>
-        session.id === id ? replacement : session,
-      ),
-      terminalLayout: replacePaneSession(state.terminalLayout, id, replacement.id),
-      activeSessionId:
-        state.activeSessionId === id ? replacement.id : state.activeSessionId,
-      activeTerminalPaneId:
-        state.activeSessionId === id
-          ? paneIdForSession(
-              replacePaneSession(state.terminalLayout, id, replacement.id),
-              replacement.id,
-            ) ?? state.activeTerminalPaneId
-          : state.activeTerminalPaneId,
-      maximizedTerminalPaneId:
-        state.maximizedTerminalPaneId &&
-        paneContainsPane(
-          replacePaneSession(state.terminalLayout, id, replacement.id),
-          state.maximizedTerminalPaneId,
-        )
-          ? state.maximizedTerminalPaneId
-          : state.maximizedTerminalPaneId,
-    }));
+    set((state) => {
+      const workspaceTabs = state.workspaceTabs.map((tab) => ({
+        ...tab,
+        terminalLayout: replacePaneSession(tab.terminalLayout, id, replacement.id),
+      }));
+      const nextState = { ...state, workspaceTabs };
+      const targetTab =
+        tabForSession(nextState, replacement.id) ?? activeWorkspaceTab(nextState);
+      const mirrored = targetTab
+        ? mirrorWorkspaceTab({
+            ...targetTab,
+            activeTerminalPaneId:
+              state.activeSessionId === id
+                ? paneIdForSession(targetTab.terminalLayout, replacement.id) ??
+                  targetTab.activeTerminalPaneId
+                : targetTab.activeTerminalPaneId,
+          })
+        : mirrorWorkspaceTab(null);
+      return {
+        sessions: state.sessions.map((session) =>
+          session.id === id ? replacement : session,
+        ),
+        workspaceTabs,
+        ...mirrored,
+        activeSessionId:
+          state.activeSessionId === id
+            ? replacement.id
+            : mirrored.activeSessionId ?? state.activeSessionId,
+      };
+    });
     persistLater();
   },
   removeSession: (id) => {
     set((state) => {
       const sessions = state.sessions.filter((session) => session.id !== id);
-      const terminalLayout = removePaneSession(state.terminalLayout, id);
-      const activeLeaf = firstLeaf(terminalLayout);
+      const workspaceTabs = state.workspaceTabs
+        .map((tab) => {
+          const terminalLayout = removePaneSession(tab.terminalLayout, id);
+          return {
+            ...tab,
+            terminalLayout,
+            activeTerminalPaneId:
+              tab.activeTerminalPaneId && paneContainsPane(terminalLayout, tab.activeTerminalPaneId)
+                ? tab.activeTerminalPaneId
+                : firstLeaf(terminalLayout)?.paneId ?? null,
+            maximizedTerminalPaneId:
+              tab.maximizedTerminalPaneId &&
+              paneContainsPane(terminalLayout, tab.maximizedTerminalPaneId)
+                ? tab.maximizedTerminalPaneId
+                : null,
+          };
+        })
+        .filter(
+          (tab) =>
+            tab.terminalLayout !== null ||
+            tab.id === state.activeWorkspaceTabId ||
+            sessions.some((session) => session.workspaceId === tab.workspaceId),
+        );
+      const nextState = { ...state, sessions, workspaceTabs };
+      const activeRemoved = state.activeSessionId === id;
+      const activeTab = activeWorkspaceTab(nextState);
+      const mirrored = mirrorWorkspaceTab(activeTab);
       const { [id]: _removedCommandBlock, ...activeCommandBlocks } =
         state.activeCommandBlocks;
       return {
         sessions,
-        terminalLayout,
+        workspaceTabs,
         activeCommandBlocks,
-        maximizedTerminalPaneId:
-          state.maximizedTerminalPaneId &&
-          paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
-            ? state.maximizedTerminalPaneId
-            : null,
-        activeTerminalPaneId:
-          state.activeSessionId === id
-            ? activeLeaf?.paneId ?? null
-            : state.activeTerminalPaneId,
-        activeSessionId:
-          state.activeSessionId === id
-            ? activeLeaf?.sessionId ?? sessions[sessions.length - 1]?.id ?? null
-            : state.activeSessionId,
+        ...mirrored,
+        activeSessionId: activeRemoved
+          ? mirrored.activeSessionId
+          : state.activeSessionId,
       };
     });
     persistLater();
@@ -2785,43 +3199,90 @@ export const useSessionStore = create<SessionStore>((set) => ({
     const openInApp =
       mode === "in-app" ||
       (mode === "ask" && window.confirm(`Open ${url} inside Onibi?`));
-    set((state) => ({
-      sessionEvents: appendEvent(state.sessionEvents, {
-        type: "web-opened",
-        workspaceId: openerSession?.workspaceId,
-        sessionId: openerSession?.id,
-        agent: openerSession?.agent,
-        summary: `Opened ${url}`,
-        metadata: { url },
-      }),
-      selectedFile:
-        openInApp && workspace
-          ? {
-              type: "web",
-              workspaceId: workspace.id,
-              workspaceRoot: workspace.path,
-              path: url,
-              name: url,
-              url,
-            }
-          : state.selectedFile,
-    }));
+    set((state) => {
+      const targetWorkspaceId = workspace?.id ?? openerSession?.workspaceId ?? null;
+      const targetTab = targetWorkspaceId
+        ? state.workspaceTabs.find((tab) => tab.workspaceId === targetWorkspaceId) ?? null
+        : null;
+      return {
+        sessionEvents: appendEvent(state.sessionEvents, {
+          type: "web-opened",
+          workspaceId: openerSession?.workspaceId,
+          sessionId: openerSession?.id,
+          agent: openerSession?.agent,
+          summary: `Opened ${url}`,
+          metadata: { url },
+        }),
+        selectedFile:
+          openInApp && workspace
+            ? {
+                type: "web",
+                workspaceId: workspace.id,
+                workspaceRoot: workspace.path,
+                path: url,
+                name: url,
+                url,
+              }
+            : state.selectedFile,
+        ...(targetTab ? mirrorWorkspaceTab(targetTab) : {}),
+        activeWorkspaceId: targetWorkspaceId ?? state.activeWorkspaceId,
+      };
+    });
     if (!openInApp) {
       window.open(url, "_blank", "noopener,noreferrer");
     }
     persistLater();
   },
   setWorkspaces: (workspaces) => {
-    set({ workspaces });
+    set((state) => {
+      const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+      const workspaceTabs = state.workspaceTabs.filter((tab) =>
+        workspaceIds.has(tab.workspaceId),
+      );
+      for (const workspace of workspaces) {
+        if (!workspaceTabs.some((tab) => tab.workspaceId === workspace.id)) {
+          workspaceTabs.push(makeWorkspaceTab(workspace.id));
+        }
+      }
+      const activeTab =
+        workspaceTabs.find((tab) => tab.id === state.activeWorkspaceTabId) ??
+        workspaceTabs.find((tab) => tab.workspaceId === state.activeWorkspaceId) ??
+        workspaceTabs[0] ??
+        null;
+      return {
+        workspaces,
+        workspaceTabs,
+        ...mirrorWorkspaceTab(activeTab),
+      };
+    });
     persistLater();
   },
   addWorkspace: (workspace) => {
-    set((state) => ({
-      workspaces: [
+    set((state) => {
+      const workspaces = [
         ...state.workspaces.filter((existing) => existing.id !== workspace.id),
         workspace,
-      ],
-    }));
+      ];
+      const existingTab =
+        state.workspaceTabs.find((tab) => tab.workspaceId === workspace.id) ?? null;
+      const tab = existingTab ?? makeWorkspaceTab(workspace.id);
+      const workspaceTabs = existingTab
+        ? state.workspaceTabs
+        : [...state.workspaceTabs, tab];
+      const shouldActivate = state.activeWorkspaceId === null;
+      return {
+        workspaces,
+        workspaceTabs,
+        ...(shouldActivate
+          ? mirrorWorkspaceTab(tab)
+          : {
+              activeWorkspaceId: state.activeWorkspaceId,
+              activeWorkspaceTabId:
+                state.activeWorkspaceTabId ??
+                (state.activeWorkspaceId === workspace.id ? tab.id : null),
+            }),
+      };
+    });
     persistLater();
   },
   removeWorkspace: (id) => {
@@ -2836,41 +3297,42 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const nextSelected = nextActiveKey
         ? remainingBuffers.find((buffer) => bufferKey(buffer) === nextActiveKey) ?? null
         : null;
+      const workspaces = state.workspaces.filter((workspace) => workspace.id !== id);
+      const sessions = state.sessions.filter((session) => session.workspaceId !== id);
+      const workspaceTabs = state.workspaceTabs.filter((tab) => tab.workspaceId !== id);
+      const removedActiveWorkspace = state.activeWorkspaceId === id;
+      const nextTab = removedActiveWorkspace
+        ? workspaceTabs[0] ?? null
+        : activeWorkspaceTab({ ...state, workspaceTabs });
+      const mirrored = mirrorWorkspaceTab(nextTab);
       return {
-      workspaces: state.workspaces.filter((workspace) => workspace.id !== id),
-      selectedFile: nextSelected,
-      openBuffers: remainingBuffers,
-      activeBufferKey: nextActiveKey,
-      closedBufferStack: state.closedBufferStack.filter(
-        (buffer) => buffer.workspaceId !== id,
-      ),
-      dirtyBufferKeys: state.dirtyBufferKeys.filter((key) =>
-        remainingBuffers.some((buffer) => bufferKey(buffer) === key),
-      ),
-      bufferAccessOrder: state.bufferAccessOrder.filter((key) =>
-        remainingBuffers.some((buffer) => bufferKey(buffer) === key),
-      ),
-      sessions: state.sessions.filter((session) => session.workspaceId !== id),
-      arrangements: state.arrangements.filter(
-        (arrangement) => arrangement.workspaceId !== id,
-      ),
-      terminalLayout: state.sessions.some((session) => session.workspaceId === id)
-        ? null
-        : state.terminalLayout,
-      maximizedTerminalPaneId: state.sessions.some((session) => session.workspaceId === id)
-        ? null
-        : state.maximizedTerminalPaneId,
-      activeTerminalPaneId: state.sessions.some(
-        (session) => session.workspaceId === id && session.id === state.activeSessionId,
-      )
-        ? null
-        : state.activeTerminalPaneId,
-      activeSessionId:
-        state.sessions.some(
-          (session) => session.workspaceId === id && session.id === state.activeSessionId,
-        )
-          ? null
-          : state.activeSessionId,
+        workspaces,
+        selectedFile: nextSelected,
+        openBuffers: remainingBuffers,
+        activeBufferKey: nextActiveKey,
+        closedBufferStack: state.closedBufferStack.filter(
+          (buffer) => buffer.workspaceId !== id,
+        ),
+        dirtyBufferKeys: state.dirtyBufferKeys.filter((key) =>
+          remainingBuffers.some((buffer) => bufferKey(buffer) === key),
+        ),
+        bufferAccessOrder: state.bufferAccessOrder.filter((key) =>
+          remainingBuffers.some((buffer) => bufferKey(buffer) === key),
+        ),
+        sessions,
+        workspaceTabs,
+        arrangements: state.arrangements.filter(
+          (arrangement) => arrangement.workspaceId !== id,
+        ),
+        ...(removedActiveWorkspace ? mirrored : {}),
+        activeSessionId: removedActiveWorkspace
+          ? mirrored.activeSessionId
+          : state.sessions.some(
+              (session) =>
+                session.workspaceId === id && session.id === state.activeSessionId,
+            )
+            ? mirrored.activeSessionId
+            : state.activeSessionId,
       };
     });
     persistLater();
@@ -2879,7 +3341,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => {
       if (file === null) {
         // hide editor surface, keep tabs in store
+        const tab = activeWorkspaceTab(state);
         return {
+          ...(tab ? mirrorWorkspaceTab(tab) : {}),
           selectedFile: null,
           activeBufferKey: null,
         };
@@ -2910,7 +3374,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
           .map((b) => bufferKey(b)),
       );
       const prunedAccessOrder = nextAccessOrder.filter((k) => !evictedKeys.has(k));
+      const ensured = ensureWorkspaceHasTab(state, file.workspaceId);
+      const targetTab = ensured.tab;
       return {
+        workspaceTabs: ensured.tabs,
+        ...mirrorWorkspaceTab(targetTab),
+        activeWorkspaceId: file.workspaceId,
         selectedFile: file,
         openBuffers: limited.openBuffers,
         closedBufferStack: limited.closedBufferStack,
@@ -3322,9 +3791,19 @@ export async function hydrateSessionStore(): Promise<void> {
   }
   try {
     const store = await getStore();
-    const [sessions, workspaces, settings] = await Promise.all([
+    const [
+      sessions,
+      workspaces,
+      storedWorkspaceTabs,
+      storedActiveWorkspaceId,
+      storedActiveWorkspaceTabId,
+      settings,
+    ] = await Promise.all([
       store.get<Session[]>("sessions"),
       store.get<Workspace[]>("workspaces"),
+      store.get<WorkspaceTab[]>("workspaceTabs"),
+      store.get<string | null>("activeWorkspaceId"),
+      store.get<string | null>("activeWorkspaceTabId"),
       store.get<Partial<AppSettings>>("settings"),
     ]);
     const [
@@ -3370,26 +3849,53 @@ export async function hydrateSessionStore(): Promise<void> {
     const restoredTerminalIds = new Set(
       restoredTerminalSessions.map((session) => session.id),
     );
-    const prunedLayout =
+    const legacyPrunedLayout =
       pruneTerminalLayout(terminalLayout, restoredTerminalIds) ??
       (restoredTerminalSessions.length > 0
         ? makeTerminalLeaf(
             restoredTerminalSessions[restoredTerminalSessions.length - 1].id,
           )
         : null);
-    const activeLeaf =
-      (activeTerminalPaneId && paneContainsPane(prunedLayout, activeTerminalPaneId)
+    const legacyActiveLeaf =
+      (activeTerminalPaneId && paneContainsPane(legacyPrunedLayout, activeTerminalPaneId)
         ? activeTerminalPaneId
-        : null) ?? firstLeaf(prunedLayout)?.paneId ?? null;
-    const activeSessionId =
-      activeLeaf && prunedLayout
-        ? sessionIdForPane(prunedLayout, activeLeaf) ??
+        : null) ?? firstLeaf(legacyPrunedLayout)?.paneId ?? null;
+    const legacyActiveSessionId =
+      legacyActiveLeaf && legacyPrunedLayout
+        ? sessionIdForPane(legacyPrunedLayout, legacyActiveLeaf) ??
           restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ??
           null
         : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(mergeSettings(settings), ghosttyTheme);
     const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
+    let restoredWorkspaceTabs = normalizeWorkspaceTabs(
+      storedWorkspaceTabs,
+      workspaceIds,
+    );
+    if (restoredWorkspaceTabs.length > 0) {
+      restoredWorkspaceTabs = pruneWorkspaceTabs(
+        restoredWorkspaceTabs,
+        restoredTerminalIds,
+      );
+    } else {
+      restoredWorkspaceTabs = synthesizeWorkspaceTabs(
+        restoredWorkspaces,
+        restoredSessions,
+        legacyPrunedLayout,
+        activeTerminalPaneId ?? legacyActiveLeaf,
+        maximizedTerminalPaneId ?? null,
+      );
+    }
+    const tabWorkspaceIds = new Set(
+      restoredWorkspaceTabs.map((tab) => tab.workspaceId),
+    );
+    for (const workspace of restoredWorkspaces) {
+      if (!tabWorkspaceIds.has(workspace.id)) {
+        restoredWorkspaceTabs.push(makeWorkspaceTab(workspace.id));
+        tabWorkspaceIds.add(workspace.id);
+      }
+    }
     const restoredBuffers = (openBuffers ?? []).filter((buffer) =>
       workspaceIds.has(buffer.workspaceId),
     );
@@ -3401,6 +3907,41 @@ export async function hydrateSessionStore(): Promise<void> {
     const restoredSelected = restoredActiveKey
       ? restoredBuffers.find((buffer) => bufferKey(buffer) === restoredActiveKey) ?? null
       : null;
+    const activeSessionWorkspaceId =
+      restoredSessions.find((session) => session.id === legacyActiveSessionId)
+        ?.workspaceId ?? null;
+    const restoredActiveWorkspaceId =
+      storedActiveWorkspaceId && workspaceIds.has(storedActiveWorkspaceId)
+        ? storedActiveWorkspaceId
+        : restoredSelected?.workspaceId ??
+          activeSessionWorkspaceId ??
+          restoredWorkspaceTabs[0]?.workspaceId ??
+          restoredWorkspaces[0]?.id ??
+          null;
+    const restoredActiveWorkspaceTabId =
+      storedActiveWorkspaceTabId &&
+      restoredWorkspaceTabs.some(
+        (tab) =>
+          tab.id === storedActiveWorkspaceTabId &&
+          (!restoredActiveWorkspaceId ||
+            tab.workspaceId === restoredActiveWorkspaceId),
+      )
+        ? storedActiveWorkspaceTabId
+        : restoredWorkspaceTabs.find(
+            (tab) =>
+              tab.workspaceId === restoredActiveWorkspaceId &&
+              legacyActiveSessionId &&
+              tabContainsSession(tab, legacyActiveSessionId),
+          )?.id ??
+          restoredWorkspaceTabs.find(
+            (tab) => tab.workspaceId === restoredActiveWorkspaceId,
+          )?.id ??
+          restoredWorkspaceTabs[0]?.id ??
+          null;
+    const restoredActiveTab =
+      restoredWorkspaceTabs.find((tab) => tab.id === restoredActiveWorkspaceTabId) ??
+      null;
+    const mirroredActiveTab = mirrorWorkspaceTab(restoredActiveTab);
     const restoredClosedStack = capClosedStack(
       (closedBufferStack ?? []).filter((buffer) =>
         workspaceIds.has(buffer.workspaceId),
@@ -3409,13 +3950,13 @@ export async function hydrateSessionStore(): Promise<void> {
     );
     useSessionStore.setState({
       sessions: restoredSessions,
-      activeSessionId,
-      terminalLayout: prunedLayout,
-      activeTerminalPaneId: activeLeaf,
-      maximizedTerminalPaneId:
-        maximizedTerminalPaneId && paneContainsPane(prunedLayout, maximizedTerminalPaneId)
-          ? maximizedTerminalPaneId
-          : null,
+      activeSessionId: mirroredActiveTab.activeSessionId,
+      terminalLayout: mirroredActiveTab.terminalLayout,
+      activeTerminalPaneId: mirroredActiveTab.activeTerminalPaneId,
+      maximizedTerminalPaneId: mirroredActiveTab.maximizedTerminalPaneId,
+      workspaceTabs: restoredWorkspaceTabs,
+      activeWorkspaceId: restoredActiveWorkspaceId,
+      activeWorkspaceTabId: restoredActiveWorkspaceTabId,
       arrangements: normalizeArrangements(arrangements),
       activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
       workspaces: restoredWorkspaces,
@@ -3627,9 +4168,28 @@ export function parseOnibiConfigJson(json: string): OnibiConfigExport {
 }
 
 export function applyOnibiConfig(config: OnibiConfigExport): void {
-  useSessionStore.setState({
-    settings: mergeSettings(config.settings),
-    workspaces: normalizeWorkspaces(config.workspaces),
+  const workspaces = normalizeWorkspaces(config.workspaces);
+  useSessionStore.setState((state) => {
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+    const workspaceTabs = state.workspaceTabs.filter((tab) =>
+      workspaceIds.has(tab.workspaceId),
+    );
+    for (const workspace of workspaces) {
+      if (!workspaceTabs.some((tab) => tab.workspaceId === workspace.id)) {
+        workspaceTabs.push(makeWorkspaceTab(workspace.id));
+      }
+    }
+    const activeTab =
+      workspaceTabs.find((tab) => tab.id === state.activeWorkspaceTabId) ??
+      workspaceTabs.find((tab) => tab.workspaceId === state.activeWorkspaceId) ??
+      workspaceTabs[0] ??
+      null;
+    return {
+      settings: mergeSettings(config.settings),
+      workspaces,
+      workspaceTabs,
+      ...mirrorWorkspaceTab(activeTab),
+    };
   });
   persistLater();
 }
@@ -4018,6 +4578,16 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
     activeTerminalPaneId && terminalLayout
       ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
       : newSessions[0]?.id ?? null;
+  const workspaceId = arrangement.workspaceId ?? newSessions[0]?.workspaceId ?? null;
+  const restoredTab = workspaceId
+    ? makeWorkspaceTab(
+        workspaceId,
+        arrangement.name,
+        terminalLayout,
+        activeTerminalPaneId,
+        arrangement.maximizedTerminalPaneId,
+      )
+    : null;
   // restore buffers if the saved arrangement had any; otherwise fall back
   // to the single legacy `selectedFile` (old arrangements).
   const savedBuffers = arrangement.openBuffers ?? [];
@@ -4036,6 +4606,14 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
     : null;
   useSessionStore.setState((current) => ({
     sessions: newSessions,
+    workspaceTabs: restoredTab
+      ? [
+          ...current.workspaceTabs.filter((tab) => tab.workspaceId !== restoredTab.workspaceId),
+          restoredTab,
+        ]
+      : current.workspaceTabs,
+    activeWorkspaceId: restoredTab?.workspaceId ?? current.activeWorkspaceId,
+    activeWorkspaceTabId: restoredTab?.id ?? current.activeWorkspaceTabId,
     terminalLayout,
     activeTerminalPaneId,
     maximizedTerminalPaneId:
