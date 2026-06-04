@@ -20,7 +20,9 @@ import {
   renameWorkspacePath,
   selectedFileFromEntry,
   type FsEntry,
+  type Session,
   type Workspace,
+  sessionNeedsAttention,
   useSessionStore,
 } from "../lib/sessions";
 import type { AgentReviewRecord } from "../lib/agent-review";
@@ -30,6 +32,15 @@ import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 type ChildrenByPath = Record<string, FsEntry[]>;
 type ErrorByPath = Record<string, string>;
 const FILE_TREE_DRAG_MIME = "application/x-onibi-file-tree-entry";
+const WORKSPACE_DRAG_MIME = "application/x-onibi-workspace";
+
+type WorkspaceRollupTone = "idle" | "running" | "attention" | "stale" | "done" | "error";
+
+interface WorkspaceRollup {
+  label: string;
+  title: string;
+  tone: WorkspaceRollupTone;
+}
 
 interface ContextTarget {
   workspace: Workspace;
@@ -65,6 +76,38 @@ function rootEntry(workspace: Workspace): FsEntry {
     kind: "dir",
     size: 0,
   };
+}
+
+function workspaceRollup(workspace: Workspace, sessions: Session[]): WorkspaceRollup {
+  const scoped = sessions.filter((session) => session.workspaceId === workspace.id);
+  if (scoped.length === 0) {
+    return { label: "0", title: "No sessions", tone: "idle" };
+  }
+  if (
+    scoped.some(
+      (session) =>
+        session.pendingApprovals.length > 0 ||
+        session.status === "awaiting-approval" ||
+        sessionNeedsAttention(session),
+    )
+  ) {
+    return { label: String(scoped.length), title: "Workspace needs attention", tone: "attention" };
+  }
+  if (scoped.some((session) => session.status === "error")) {
+    return { label: String(scoped.length), title: "Workspace has failed sessions", tone: "error" };
+  }
+  if (scoped.some((session) => session.status === "stale")) {
+    return { label: String(scoped.length), title: "Workspace has stale sessions", tone: "stale" };
+  }
+  if (
+    scoped.some(
+      (session) =>
+        session.status === "running" || session.status === "awaiting-approval",
+    )
+  ) {
+    return { label: String(scoped.length), title: "Workspace has running sessions", tone: "running" };
+  }
+  return { label: String(scoped.length), title: "Workspace sessions complete", tone: "done" };
 }
 
 function parentPath(path: string): string {
