@@ -74,6 +74,7 @@ export interface TerminalSplitPane {
   type: "split";
   paneId: string;
   direction: TerminalSplitDirection;
+  sizes?: number[];
   children: TerminalPaneNode[];
 }
 
@@ -118,6 +119,7 @@ export interface Workspace {
   id: string;
   path: string;
   name: string;
+  collapsed?: boolean;
 }
 
 export interface WorkspaceTab {
@@ -172,6 +174,27 @@ export interface SessionCommandMarker {
 export type CommandBlockStatus = "running" | "succeeded" | "failed" | "aborted";
 export type CommandBlockSource = "shell-integration" | "manual" | "trigger";
 export type EditorKeybindingMode = "standard" | "emacs" | "vim";
+export type NewPaneCwdMode = "workspace" | "active" | "home";
+
+export type AppKeybindingAction =
+  | "commandPalette.open"
+  | "session.new"
+  | "session.closeActive"
+  | "editor.reopenClosed"
+  | "terminal.splitRight"
+  | "terminal.splitDown"
+  | "terminal.focusNextPane"
+  | "terminal.focusPreviousPane"
+  | "terminal.toggleMaximize"
+  | "workspace.next"
+  | "workspace.previous"
+  | "workspace.tab.next"
+  | "workspace.tab.previous";
+
+export interface AppKeybinding {
+  keys: string;
+  action: AppKeybindingAction;
+}
 
 export interface CommandBlock {
   id: string;
@@ -547,6 +570,9 @@ export interface AppSettings {
   terminalShaderPaths: string[];
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
+  keybindingPrefix: string;
+  appKeybindings: AppKeybinding[];
+  newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
   editorVimRelativeLineNumbers: boolean;
@@ -629,6 +655,17 @@ type SessionStore = {
   setActiveWorkspace: (workspaceId: string | null) => void;
   setActiveWorkspaceTab: (workspaceId: string, tabId: string) => void;
   createWorkspaceTab: (workspaceId: string, title?: string) => string;
+  reorderWorkspaces: (fromId: string, toId: string, before: boolean) => void;
+  toggleWorkspaceCollapsed: (workspaceId: string) => void;
+  reorderWorkspaceTab: (
+    workspaceId: string,
+    fromTabId: string,
+    toTabId: string,
+    before: boolean,
+  ) => void;
+  focusRelativeWorkspace: (delta: number) => void;
+  focusRelativeWorkspaceTab: (delta: number) => void;
+  updateTerminalSplitSizes: (splitPaneId: string, sizes: number[]) => void;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   setActivePaneSession: (paneId: string, sessionId: string) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
@@ -1340,6 +1377,40 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
   },
 ];
 
+export const APP_KEYBINDING_ACTION_LABELS: Record<AppKeybindingAction, string> = {
+  "commandPalette.open": "Open command palette",
+  "session.new": "New session",
+  "session.closeActive": "Close active session",
+  "editor.reopenClosed": "Reopen closed editor",
+  "terminal.splitRight": "Split terminal right",
+  "terminal.splitDown": "Split terminal down",
+  "terminal.focusNextPane": "Focus next terminal pane",
+  "terminal.focusPreviousPane": "Focus previous terminal pane",
+  "terminal.toggleMaximize": "Maximize or restore terminal pane",
+  "workspace.next": "Focus next workspace",
+  "workspace.previous": "Focus previous workspace",
+  "workspace.tab.next": "Focus next workspace terminal tab",
+  "workspace.tab.previous": "Focus previous workspace terminal tab",
+};
+
+export const DEFAULT_KEYBINDING_PREFIX = "ctrl+b";
+
+export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
+  { keys: "cmd+p", action: "commandPalette.open" },
+  { keys: "cmd+n", action: "session.new" },
+  { keys: "cmd+shift+t", action: "editor.reopenClosed" },
+  { keys: "prefix+v", action: "terminal.splitRight" },
+  { keys: "prefix+s", action: "terminal.splitDown" },
+  { keys: "prefix+z", action: "terminal.toggleMaximize" },
+  { keys: "prefix+n", action: "terminal.focusNextPane" },
+  { keys: "prefix+p", action: "terminal.focusPreviousPane" },
+  { keys: "prefix+w", action: "session.closeActive" },
+  { keys: "prefix+right", action: "workspace.next" },
+  { keys: "prefix+left", action: "workspace.previous" },
+  { keys: "prefix+shift+right", action: "workspace.tab.next" },
+  { keys: "prefix+shift+left", action: "workspace.tab.previous" },
+];
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "vscode-dark-plus",
   fontFamily: "Menlo, Monaco, monospace",
@@ -1355,6 +1426,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalShaderPaths: [],
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
+  keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
+  appKeybindings: DEFAULT_APP_KEYBINDINGS,
+  newPaneCwd: "active",
   editorFontSize: 13,
   editorKeybindingMode: "standard",
   editorVimRelativeLineNumbers: false,
@@ -1552,6 +1626,162 @@ function normalizeTerminalKeybindings(value: unknown): TerminalKeybinding[] {
     });
   }
   return keybindings;
+}
+
+function normalizeKeyboardKeyName(value: string): string {
+  const key = value.trim().toLowerCase();
+  if (!key) {
+    return "";
+  }
+  if (key === "return") {
+    return "enter";
+  }
+  if (key === "escape") {
+    return "esc";
+  }
+  if (key === "spacebar" || key === " ") {
+    return "space";
+  }
+  if (key === "arrowright") {
+    return "right";
+  }
+  if (key === "arrowleft") {
+    return "left";
+  }
+  if (key === "arrowup") {
+    return "up";
+  }
+  if (key === "arrowdown") {
+    return "down";
+  }
+  if (key === "del") {
+    return "delete";
+  }
+  return key.length === 1 ? key : key;
+}
+
+export function normalizeAppKeyChord(value: string): string {
+  const parts = value
+    .trim()
+    .replace(/-/g, "+")
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const modifiers = new Set<string>();
+  let prefix = false;
+  let key = "";
+  for (const part of parts) {
+    if (part === "prefix") {
+      prefix = true;
+    } else if (["cmd", "command", "meta", "super"].includes(part)) {
+      modifiers.add("cmd");
+    } else if (["ctrl", "control"].includes(part)) {
+      modifiers.add("ctrl");
+    } else if (["alt", "option", "opt"].includes(part)) {
+      modifiers.add("alt");
+    } else if (part === "shift") {
+      modifiers.add("shift");
+    } else {
+      key = normalizeKeyboardKeyName(part);
+    }
+  }
+  if (!key) {
+    return "";
+  }
+  return [
+    ...(prefix ? ["prefix"] : []),
+    ...(["cmd", "ctrl", "alt", "shift"] as const).filter((modifier) =>
+      modifiers.has(modifier),
+    ),
+    key,
+  ].join("+");
+}
+
+function normalizeAppKeybindingAction(value: unknown): AppKeybindingAction | null {
+  return typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(APP_KEYBINDING_ACTION_LABELS, value)
+    ? (value as AppKeybindingAction)
+    : null;
+}
+
+function normalizeAppKeybindings(value: unknown): AppKeybinding[] {
+  const source = Array.isArray(value) ? value : DEFAULT_APP_KEYBINDINGS;
+  const seen = new Set<string>();
+  const bindings: AppKeybinding[] = [];
+  for (const item of source) {
+    if (!isRecord(item) || typeof item.keys !== "string") {
+      continue;
+    }
+    const action = normalizeAppKeybindingAction(item.action);
+    const keys = normalizeAppKeyChord(item.keys);
+    if (!keys || !action) {
+      continue;
+    }
+    const id = `${keys}:${action}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    bindings.push({ keys, action });
+  }
+  return bindings.length > 0 ? bindings : DEFAULT_APP_KEYBINDINGS;
+}
+
+export interface AppKeybindingConflict {
+  keys: string;
+  actions: AppKeybindingAction[];
+}
+
+export function appKeybindingConflicts(
+  bindings: AppKeybinding[],
+): AppKeybindingConflict[] {
+  const byKeys = new Map<string, AppKeybindingAction[]>();
+  for (const binding of normalizeAppKeybindings(bindings)) {
+    const actions = byKeys.get(binding.keys) ?? [];
+    if (!actions.includes(binding.action)) {
+      actions.push(binding.action);
+    }
+    byKeys.set(binding.keys, actions);
+  }
+  return [...byKeys.entries()]
+    .filter(([, actions]) => actions.length > 1)
+    .map(([keys, actions]) => ({ keys, actions }));
+}
+
+export function keyChordFromKeyboardEvent(event: KeyboardEvent): string {
+  const key = normalizeKeyboardKeyName(event.key);
+  if (!key || ["meta", "control", "ctrl", "alt", "shift"].includes(key)) {
+    return "";
+  }
+  return [
+    ...(event.metaKey ? ["cmd"] : []),
+    ...(event.ctrlKey ? ["ctrl"] : []),
+    ...(event.altKey ? ["alt"] : []),
+    ...(event.shiftKey ? ["shift"] : []),
+    key,
+  ].join("+");
+}
+
+export function displayKeyChord(value: string): string {
+  const normalized = normalizeAppKeyChord(value);
+  return normalized
+    .split("+")
+    .map((part) => {
+      if (part === "cmd") return "Cmd";
+      if (part === "ctrl") return "Ctrl";
+      if (part === "alt") return "Alt";
+      if (part === "shift") return "Shift";
+      if (part === "prefix") return "Prefix";
+      if (part.length === 1) return part.toUpperCase();
+      return part[0].toUpperCase() + part.slice(1);
+    })
+    .join("+");
+}
+
+function normalizeNewPaneCwdMode(value: unknown): NewPaneCwdMode {
+  return value === "workspace" || value === "home" || value === "active"
+    ? value
+    : DEFAULT_SETTINGS.newPaneCwd;
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -1761,6 +1991,10 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
+    keybindingPrefix:
+      normalizeAppKeyChord(merged.keybindingPrefix) || DEFAULT_SETTINGS.keybindingPrefix,
+    appKeybindings: normalizeAppKeybindings(merged.appKeybindings),
+    newPaneCwd: normalizeNewPaneCwdMode(merged.newPaneCwd),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     editorKeybindingMode: normalizeEditorKeybindingMode(merged.editorKeybindingMode),
     editorVimRelativeLineNumbers:
@@ -1927,6 +2161,65 @@ function updateWorkspaceTab(
         }
       : tab,
   );
+}
+
+function reorderItemsById<T extends { id: string }>(
+  items: T[],
+  fromId: string,
+  toId: string,
+  before: boolean,
+): T[] {
+  if (fromId === toId) {
+    return items;
+  }
+  const fromIndex = items.findIndex((item) => item.id === fromId);
+  const toIndex = items.findIndex((item) => item.id === toId);
+  if (fromIndex < 0 || toIndex < 0) {
+    return items;
+  }
+  const next = [...items];
+  const [moved] = next.splice(fromIndex, 1);
+  const targetIndex = next.findIndex((item) => item.id === toId);
+  next.splice(before ? targetIndex : targetIndex + 1, 0, moved);
+  return next;
+}
+
+function normalizedSplitSizes(sizes: number[], childCount: number): number[] | undefined {
+  if (sizes.length !== childCount) {
+    return undefined;
+  }
+  const parsed = sizes.map((size) => Number(size));
+  if (parsed.some((size) => !Number.isFinite(size) || size <= 0)) {
+    return undefined;
+  }
+  const total = parsed.reduce((sum, size) => sum + size, 0);
+  if (total <= 0) {
+    return undefined;
+  }
+  return parsed.map((size) => Math.round((size / total) * 10_000) / 100);
+}
+
+function updateTerminalSplitSizesInLayout(
+  node: TerminalPaneNode | null,
+  splitPaneId: string,
+  sizes: number[],
+): TerminalPaneNode | null {
+  if (!node) {
+    return null;
+  }
+  if (node.type === "leaf") {
+    return node;
+  }
+  if (node.paneId === splitPaneId) {
+    const nextSizes = normalizedSplitSizes(sizes, node.children.length);
+    return nextSizes ? { ...node, sizes: nextSizes } : node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      updateTerminalSplitSizesInLayout(child, splitPaneId, sizes),
+    ) as TerminalPaneNode[],
+  };
 }
 
 function ensureWorkspaceHasTab(
@@ -4202,7 +4495,12 @@ function normalizeWorkspaces(value: unknown): Workspace[] {
       typeof item.id === "string" && item.id.trim()
         ? item.id.trim()
         : workspaceIdForPath(path);
-    workspaces.push({ id, path, name });
+    workspaces.push({
+      id,
+      path,
+      name,
+      collapsed: item.collapsed === true,
+    });
   }
   return workspaces;
 }
