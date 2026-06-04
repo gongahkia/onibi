@@ -225,6 +225,10 @@ impl OrchestrationState {
                     "wait.output",
                     "wait.agent_status",
                     "agent.list",
+                    "agent.read",
+                    "agent.send",
+                    "agent.start",
+                    "agent.focus",
                     "events.subscribe"
                 ],
                 "tcpPort": DEFAULT_ORCHESTRATION_PORT,

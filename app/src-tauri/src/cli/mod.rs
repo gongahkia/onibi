@@ -293,7 +293,7 @@ async fn run(cli: Cli) -> Result<()> {
     }
 }
 
-async fn session(command: SessionCommand, _port: u16, json_output: bool) -> Result<()> {
+async fn session(command: SessionCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         SessionCommand::List => print_orchestration("pty.list", json!({}), json_output).await,
         SessionCommand::Launch {
@@ -326,7 +326,14 @@ async fn session(command: SessionCommand, _port: u16, json_output: bool) -> Resu
             .await
         }
         SessionCommand::Focus { id } => {
-            print_orchestration("agent.focus", json!({"id": id}), json_output).await
+            ensure_daemon_running(port)?;
+            let response = authed_http(
+                port,
+                "POST",
+                &format!("/v1/desktop/session/{}/focus", path_segment(&id)),
+                Some("{}"),
+            )?;
+            print_raw_json_or_text(&response, json_output)
         }
     }
 }
