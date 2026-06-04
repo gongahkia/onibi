@@ -12,6 +12,7 @@ export function EmptyState() {
   const [cloneOpen, setCloneOpen] = useState(false);
   const workspaces = useSessionStore((state) => state.workspaces);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
+  const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const recentWorkspaces = useMemo(() => workspaces.slice(0, 5), [workspaces]);
 
@@ -19,6 +20,7 @@ export function EmptyState() {
     const workspace = await chooseWorkspaceFolder();
     if (workspace) {
       addWorkspace(workspace);
+      setActiveWorkspace(workspace.id);
       setActiveSidebarView("files");
     }
   }
@@ -56,7 +58,10 @@ export function EmptyState() {
                   key={workspace.id}
                   type="button"
                   className="welcome-link"
-                  onClick={() => setActiveSidebarView("files")}
+                  onClick={() => {
+                    setActiveWorkspace(workspace.id);
+                    setActiveSidebarView("files");
+                  }}
                   title={workspace.path}
                 >
                   <i className="codicon codicon-folder" aria-hidden="true" />
@@ -73,6 +78,7 @@ export function EmptyState() {
         onClose={() => setCloneOpen(false)}
         onCloned={(workspace) => {
           addWorkspace(workspace);
+          setActiveWorkspace(workspace.id);
           setActiveSidebarView("files");
           setCloneOpen(false);
         }}

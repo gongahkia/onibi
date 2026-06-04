@@ -29,6 +29,9 @@ function resetStore() {
       },
     ],
     activeSessionId: "pty-1",
+    workspaceTabs: [],
+    activeWorkspaceId: "workspace:/repo",
+    activeWorkspaceTabId: null,
     activeTerminalPaneId: null,
     terminalLayout: null,
     workspaces: [

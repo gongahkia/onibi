@@ -35,6 +35,9 @@ function resetStore() {
     hydrated: true,
     sessions: [],
     activeSessionId: null,
+    workspaceTabs: [],
+    activeWorkspaceId: null,
+    activeWorkspaceTabId: null,
     terminalLayout: null,
     activeTerminalPaneId: null,
     maximizedTerminalPaneId: null,
@@ -102,6 +105,97 @@ describe("MainPane", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
       "true",
     );
+  });
+
+  test("renders an empty active workspace tab", () => {
+    useSessionStore.setState({
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      workspaceTabs: [
+        {
+          id: "workspace-tab-1",
+          workspaceId: "workspace:/repo",
+          title: "Terminal",
+          terminalLayout: null,
+          activeTerminalPaneId: null,
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "workspace-tab-1",
+    });
+
+    render(<MainPane />);
+
+    expect(screen.getByRole("tab", { name: /Terminal/ })).toBeTruthy();
+    expect(screen.getByText("empty")).toBeTruthy();
+    expect(screen.getByTestId("empty-state")).toBeTruthy();
+  });
+
+  test("switches workspace terminal tabs and mirrors the active layout", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell one",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-2",
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex two",
+          status: "running",
+          createdAt: 2,
+          pendingApprovals: [],
+        },
+      ],
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      workspaceTabs: [
+        {
+          id: "workspace-tab-1",
+          workspaceId: "workspace:/repo",
+          title: "One",
+          terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+          activeTerminalPaneId: "pane-1",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: "workspace-tab-2",
+          workspaceId: "workspace:/repo",
+          title: "Two",
+          terminalLayout: { type: "leaf", paneId: "pane-2", sessionId: "pty-2" },
+          activeTerminalPaneId: "pane-2",
+          maximizedTerminalPaneId: null,
+          createdAt: 2,
+          updatedAt: 2,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "workspace-tab-1",
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+    });
+
+    render(<MainPane />);
+    fireEvent.click(screen.getByRole("tab", { name: /Two/ }));
+
+    expect(screen.getByTestId("terminal-view").textContent).toContain("pty-2");
+    expect(useSessionStore.getState().activeWorkspaceTabId).toBe("workspace-tab-2");
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
+    expect(useSessionStore.getState().terminalLayout).toEqual({
+      type: "leaf",
+      paneId: "pane-2",
+      sessionId: "pty-2",
+    });
   });
 
   test("auto-restarts stale saved sessions with restart metadata", async () => {
@@ -222,7 +316,7 @@ describe("MainPane", () => {
     fireEvent.keyDown(window, { key: "d", metaKey: true });
 
     expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
-    expect(screen.getByText("/repo")).toBeTruthy();
+    expect(screen.getAllByText("/repo").length).toBeGreaterThan(0);
   });
 
   test("keeps the active terminal mounted behind a selected file", () => {

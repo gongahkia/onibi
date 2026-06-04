@@ -245,8 +245,10 @@ function GitStateBadge({ state }: { state: GitTreeState | null }) {
 export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps = {}) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
+  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const selectedFile = useSessionStore((state) => state.selectedFile);
+  const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
   const selectFile = useSessionStore((state) => state.selectFile);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
@@ -269,10 +271,11 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   );
   const activeWorkspace = useMemo(() => {
     return (
+      workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
       workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ??
       null
     );
-  }, [activeSession?.workspaceId, workspaces]);
+  }, [activeSession?.workspaceId, activeWorkspaceId, workspaces]);
   const visibleWorkspaces = activeWorkspace ? [activeWorkspace] : [];
   const actionWorkspace = activeWorkspace;
 
@@ -657,13 +660,12 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
         return;
       }
       addWorkspace(workspace);
-      if (activeWorkspace?.id === workspace.id) {
-        await loadChildren(workspace, workspace.path);
-        setExpanded((state) => ({
-          ...state,
-          [nodeKey(workspace, workspace.path)]: true,
-        }));
-      }
+      setActiveWorkspace(workspace.id);
+      await loadChildren(workspace, workspace.path);
+      setExpanded((state) => ({
+        ...state,
+        [nodeKey(workspace, workspace.path)]: true,
+      }));
     } catch (caught) {
       setErrors((state) => ({
         ...state,
@@ -718,9 +720,13 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
           showFileIcons={settings.showFileIcons}
           gitStatusByPath={gitStatusByPath}
+          active={workspace.id === activeWorkspace?.id}
           isDropTarget={dropTargetKey === nodeKey(workspace, workspace.path)}
           onToggle={() => void toggleDir(workspace, workspace.path)}
-          onSelectRoot={() => selectFile(null)}
+          onSelectRoot={() => {
+            setActiveWorkspace(workspace.id);
+            selectFile(null);
+          }}
           onContextMenu={(event) => openContextMenu(event, workspace)}
           onDragOver={(event) =>
             handleDragOver(event, contextTargetFor(workspace))
@@ -792,6 +798,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
       agentReviewsByPath,
       visibleEntries,
       visibleWorkspaces,
+      activeWorkspace?.id,
+      setActiveWorkspace,
     ],
   );
 
@@ -1024,6 +1032,7 @@ interface WorkspaceRootProps {
   entries: FsEntry[];
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
+  active: boolean;
   isDropTarget: boolean;
   onToggle: () => void;
   onSelectRoot: () => void;
@@ -1042,6 +1051,7 @@ function WorkspaceRoot({
   entries,
   showFileIcons,
   gitStatusByPath,
+  active,
   isDropTarget,
   onToggle,
   onSelectRoot,
@@ -1057,8 +1067,8 @@ function WorkspaceRoot({
       <button
         type="button"
         className={`workspace-row ${showFileIcons ? "with-icons" : ""} ${
-          isDropTarget ? "drop-target" : ""
-        }`}
+          active ? "active" : ""
+        } ${isDropTarget ? "drop-target" : ""}`}
         onClick={onSelectRoot}
         onDoubleClick={onToggle}
         onContextMenu={onContextMenu}

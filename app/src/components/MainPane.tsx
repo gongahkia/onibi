@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Group as PanelGroup,
   Panel,
@@ -40,6 +40,7 @@ import {
   type TerminalPanePlacement,
   type TerminalSplitDirection,
   type Workspace,
+  type WorkspaceTab,
 } from "../lib/sessions";
 import { getGitStatus } from "../lib/git";
 import { persistCommandBlock } from "../lib/command-blocks";
@@ -125,9 +126,86 @@ function layoutContainsSession(node: TerminalPaneNode | null, sessionId: string)
     return false;
   }
   if (node.type === "leaf") {
-    return node.sessionId === sessionId;
+    return leafSessionIds(node).includes(sessionId);
   }
   return node.children.some((child) => layoutContainsSession(child, sessionId));
+}
+
+function sessionIdsForLayout(node: TerminalPaneNode | null): string[] {
+  if (!node) {
+    return [];
+  }
+  if (node.type === "leaf") {
+    return leafSessionIds(node);
+  }
+  return node.children.flatMap(sessionIdsForLayout);
+}
+
+function WorkspaceTerminalTabStrip({
+  workspace,
+  tabs,
+  sessions,
+  activeTabId,
+  onSelect,
+  onCreate,
+}: {
+  workspace: Workspace;
+  tabs: WorkspaceTab[];
+  sessions: Session[];
+  activeTabId: string | null;
+  onSelect: (workspaceId: string, tabId: string) => void;
+  onCreate: (workspaceId: string) => void;
+}) {
+  return (
+    <div
+      className="workspace-terminal-tab-strip"
+      role="tablist"
+      aria-label={`${workspace.name} terminal tabs`}
+    >
+      {tabs.map((tab) => {
+        const tabSessionIds = sessionIdsForLayout(tab.terminalLayout);
+        const firstSession = sessions.find((session) =>
+          tabSessionIds.includes(session.id),
+        );
+        const label =
+          tab.title ||
+          firstSession?.title ||
+          (tabSessionIds.length > 0 ? "Terminal" : "Empty");
+        const active = tab.id === activeTabId;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={`workspace-terminal-tab ${active ? "active" : ""}`}
+            title={`${workspace.name}: ${label}`}
+            onClick={() => onSelect(workspace.id, tab.id)}
+          >
+            <i className="codicon codicon-terminal" aria-hidden="true" />
+            <span className="workspace-terminal-tab-label">{label}</span>
+            {tabSessionIds.length > 1 ? (
+              <span className="workspace-terminal-tab-count">
+                {tabSessionIds.length}
+              </span>
+            ) : null}
+            {tabSessionIds.length === 0 ? (
+              <span className="workspace-terminal-tab-empty">empty</span>
+            ) : null}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        className="workspace-terminal-tab-add"
+        aria-label="New workspace terminal tab"
+        title="New terminal tab"
+        onClick={() => onCreate(workspace.id)}
+      >
+        <i className="codicon codicon-add" aria-hidden="true" />
+      </button>
+    </div>
+  );
 }
 
 function TerminalPaneTree({
@@ -600,6 +678,11 @@ export function MainPane() {
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const workspaceTabs = useSessionStore((state) => state.workspaceTabs);
+  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceTabId = useSessionStore(
+    (state) => state.activeWorkspaceTabId,
+  );
   const activeTerminalPaneId = useSessionStore((state) => state.activeTerminalPaneId);
   const maximizedTerminalPaneId = useSessionStore(
     (state) => state.maximizedTerminalPaneId,
@@ -620,8 +703,33 @@ export function MainPane() {
   const focusRelativeTerminalPane = useSessionStore(
     (state) => state.focusRelativeTerminalPane,
   );
+  const setActiveWorkspaceTab = useSessionStore(
+    (state) => state.setActiveWorkspaceTab,
+  );
+  const createWorkspaceTab = useSessionStore(
+    (state) => state.createWorkspaceTab,
+  );
   const session = sessions.find((item) => item.id === activeSessionId) ?? null;
   const activeTerminalSession = session;
+  const activeWorkspace = useMemo(() => {
+    return (
+      workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
+      (activeTerminalSession
+        ? workspaces.find(
+            (workspace) => workspace.id === activeTerminalSession.workspaceId,
+          )
+        : null) ??
+      workspaces[0] ??
+      null
+    );
+  }, [activeTerminalSession, activeWorkspaceId, workspaces]);
+  const activeWorkspaceTabs = useMemo(
+    () =>
+      activeWorkspace
+        ? workspaceTabs.filter((tab) => tab.workspaceId === activeWorkspace.id)
+        : [],
+    [activeWorkspace, workspaceTabs],
+  );
   const renderableSessionIds = new Set(
     sessions
       .filter((item) => sessionHasRestorableTerminal(item))
@@ -941,20 +1049,21 @@ export function MainPane() {
       });
   }, [activeTerminalSession, updateSession]);
 
-  if (activeTerminalSession) {
+  if (activeTerminalSession || activeWorkspace) {
     const terminalVisible = selectedFile === null;
-    const layout = layoutContainsSession(
-      renderableTerminalLayout,
-      activeTerminalSession.id,
-    )
-      ? renderableTerminalLayout!
-      : fallbackLayout(activeTerminalSession);
+    const layout = activeTerminalSession
+      ? layoutContainsSession(renderableTerminalLayout, activeTerminalSession.id)
+        ? renderableTerminalLayout!
+        : fallbackLayout(activeTerminalSession)
+      : null;
     const visibleLayout =
-      maximizedTerminalPaneId && terminalPaneNodeForId(layout, maximizedTerminalPaneId)
+      layout && maximizedTerminalPaneId && terminalPaneNodeForId(layout, maximizedTerminalPaneId)
         ? terminalPaneNodeForId(layout, maximizedTerminalPaneId)!
         : layout;
-    const splitWorkspaceId = activeTerminalSession.workspaceId;
-    const splitDefaultCwd = activeTerminalSession.cwd ?? null;
+    const splitWorkspaceId =
+      activeTerminalSession?.workspaceId ?? activeWorkspace?.id ?? null;
+    const splitDefaultCwd =
+      activeTerminalSession?.cwd ?? activeWorkspace?.path ?? null;
     return (
       <>
         <main
@@ -967,27 +1076,45 @@ export function MainPane() {
             }`}
             aria-hidden={!terminalVisible}
           >
-              <TerminalPaneTree
-                node={visibleLayout}
+            {activeWorkspace ? (
+              <WorkspaceTerminalTabStrip
+                workspace={activeWorkspace}
+                tabs={activeWorkspaceTabs}
                 sessions={sessions}
-                workspaces={workspaces}
-                selectedPath={selectedFile?.path ?? null}
-                sessionEvents={sessionEvents}
-                activeSessionId={activeSessionId}
-                terminalVisible={terminalVisible}
-                settings={settings}
-                onTerminalExit={handleTerminalExit}
-                onTerminalUnavailable={handleTerminalUnavailable}
-                onShellUpdate={handleShellUpdate}
-                onTerminalTrigger={handleTerminalTrigger}
-                maximizedPaneId={maximizedTerminalPaneId}
-                autoRestartingSessionIds={autoRestartingSessionIds}
-                onToggleMaximize={toggleMaximizedTerminalPane}
-                onRestart={handleRestartSession}
-                onDuplicate={handleDuplicateSession}
-                onAddTab={handleAddTab}
-                onClose={handleCloseSession}
+                activeTabId={activeWorkspaceTabId}
+                onSelect={setActiveWorkspaceTab}
+                onCreate={createWorkspaceTab}
               />
+            ) : null}
+            <div className="workspace-terminal-body">
+              {activeTerminalSession && visibleLayout ? (
+                <TerminalPaneTree
+                  node={visibleLayout}
+                  sessions={sessions}
+                  workspaces={workspaces}
+                  selectedPath={selectedFile?.path ?? null}
+                  sessionEvents={sessionEvents}
+                  activeSessionId={activeSessionId}
+                  terminalVisible={terminalVisible}
+                  settings={settings}
+                  onTerminalExit={handleTerminalExit}
+                  onTerminalUnavailable={handleTerminalUnavailable}
+                  onShellUpdate={handleShellUpdate}
+                  onTerminalTrigger={handleTerminalTrigger}
+                  maximizedPaneId={maximizedTerminalPaneId}
+                  autoRestartingSessionIds={autoRestartingSessionIds}
+                  onToggleMaximize={toggleMaximizedTerminalPane}
+                  onRestart={handleRestartSession}
+                  onDuplicate={handleDuplicateSession}
+                  onAddTab={handleAddTab}
+                  onClose={handleCloseSession}
+                />
+              ) : (
+                <div className="workspace-tab-empty">
+                  <EmptyState />
+                </div>
+              )}
+            </div>
           </section>
           {selectedFile ? (
             <section className="main-pane-surface editor-surface">

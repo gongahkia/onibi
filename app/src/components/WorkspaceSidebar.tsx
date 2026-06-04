@@ -15,10 +15,19 @@ import { WorkspaceSearchView } from "./WorkspaceSearchView";
 function activeWorkspaceFor(
   sessions: Session[],
   workspaces: Workspace[],
+  activeWorkspaceId: string | null,
   activeSessionId: string | null,
 ): Workspace | null {
+  const activeWorkspace = workspaces.find(
+    (workspace) => workspace.id === activeWorkspaceId,
+  );
+  if (activeWorkspace) {
+    return activeWorkspace;
+  }
   const activeSession = sessions.find((session) => session.id === activeSessionId);
-  return workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ?? null;
+  return (
+    workspaces.find((workspace) => workspace.id === activeSession?.workspaceId) ?? null
+  );
 }
 
 const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
@@ -36,13 +45,14 @@ export function WorkspaceSidebar() {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const view = useSessionStore((state) => state.activeSidebarView);
   const showHiddenFiles = useSessionStore((state) => state.settings.showHiddenFiles);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const activeWorkspace = useMemo(
-    () => activeWorkspaceFor(sessions, workspaces, activeSessionId),
-    [activeSessionId, sessions, workspaces],
+    () => activeWorkspaceFor(sessions, workspaces, activeWorkspaceId, activeSessionId),
+    [activeSessionId, activeWorkspaceId, sessions, workspaces],
   );
 
   const refreshGitStatus = useCallback(async () => {

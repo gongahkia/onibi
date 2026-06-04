@@ -51,6 +51,17 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added GUI daemon metadata hydration so live daemon sessions are rebuilt in the desktop store and relayed to xterm, while stale restartable sessions keep restart metadata.
 - Verified with `cargo fmt --check`, `cargo test`, `cargo check --no-default-features`, `pnpm --dir app typecheck`, `pnpm --dir app test`, and `git diff --check`.
 
+### Implemented in the workspace-tabs foundation pass
+
+- Added persisted `WorkspaceTab` state with `activeWorkspaceId` and `activeWorkspaceTabId`.
+- Migrated legacy global terminal layouts into workspace-scoped terminal tabs during hydration.
+- Kept legacy top-level terminal layout fields as mirrors for compatibility with older UI/store callers.
+- Added a workspace-level terminal tab strip in the main pane.
+- Scoped active terminal pane, maximized pane, split/tab placement, session replacement, session removal, file selection, and web-open flows through the active workspace tab.
+- Wired the file tree, sidebar, welcome screen, and workspace picker to explicit active-workspace selection.
+- Added focused React tests for empty workspace tabs and workspace-tab switching.
+- Verified with `pnpm --dir app typecheck`, `pnpm --dir app test -- --run`, `cargo fmt --check`, `cargo test`, `cargo check --no-default-features`, and `git diff --check`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -71,9 +82,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Persistent sessions** | Yes — server/client, named sessions, survive restart | Partial — SQLite metadata, named sessions, live daemon attach, and relaunch-based restart resume; no true process survival across daemon restart |
 | **Multi-client attach** | Yes — multiple terminals on same session | Partial — multiple clients via WebSocket and orchestration event subscriptions |
 | **Detach / reattach** | Yes — full | Partial — GUI/CLI can attach to daemon-owned PTYs while daemon is alive; stale sessions relaunch from metadata after daemon restart |
-| **Workspaces** | First-class (project containers, persistent identity) | Workspace path only; no container abstraction |
-| **Tabs** | First-class | Yes (agent/editor/terminal tabs) |
-| **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Yes — vertical/horizontal split with focus |
+| **Workspaces** | First-class (project containers, persistent identity) | Partial — persistent workspace identity with active workspace selection and workspace-scoped terminal tabs; no reorder/collapse roll-up yet |
+| **Tabs** | First-class | Yes — editor/agent tabs plus workspace-scoped terminal tabs with independent pane layouts |
+| **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Partial — vertical/horizontal split with focus and per-workspace-tab persistence; no mouse border drag-resize |
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | No |
 | **Agent detection** | 18 agents (auto, process + heuristic) | 7 adapters (2 real, 5 stubs) |
@@ -137,12 +148,12 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 Grouped by subsystem. Each item is concrete and scoped for implementation. Items marked `[DONE]` or `[PARTIAL]` were touched by the 2026-06-04 orchestration pass and are left here to preserve the original numbering used by the phase plan and GitHub issues.
 
 ### 2.1 Multiplexer model
-1. **Workspace as first-class container** — persistent identity derived from git repo / folder; sidebar grouping; reorderable.
-2. **Tabs scoped to workspace** — independent pane layouts per tab; not just agent tabs.
+1. **[PARTIAL] Workspace as first-class container** — persistent identity and active workspace selection exist; sidebar grouping, roll-up state, and reorder remain.
+2. **[DONE] Tabs scoped to workspace** — independent terminal pane layouts per workspace tab.
 3. **Drag-reorder for workspaces / tabs / panes** in sidebar.
 4. **Workspace-level collapse with roll-up state** (most-urgent agent state across panes).
 5. **Mouse-native pane border drag-resize**.
-6. **Pane tiling layout math** (true tmux-style splits beyond a fixed two-pane split).
+6. **[PARTIAL] Pane tiling layout math** — split tree persists per workspace tab; deeper tmux-style layout controls remain.
 7. **Zoom-pane toggle** (fullscreen a pane within tab).
 
 ### 2.2 Agent detection
@@ -263,9 +274,11 @@ Open issues created from the orchestration plan:
 - #59 — pane read/send-keys/wait output. Closed.
 - #60 — canonical agent status and `wait agent-status`. Closed.
 - #61 — agent-targeted commands and event subscriptions. Closed.
-- #62 — session metadata persistence and restartable session model. Implemented; close after this commit lands.
-- #63 — named session CLI list/attach/stop. Implemented; close after this commit lands.
-- #64 — GUI rehydrate and attach/relaunch behavior. Implemented; close after this commit lands.
+- #62 — session metadata persistence and restartable session model. Closed.
+- #63 — named session CLI list/attach/stop. Closed.
+- #64 — GUI rehydrate and attach/relaunch behavior. Closed.
+
+Current open issue count: 0.
 
 ---
 
@@ -274,13 +287,13 @@ Open issues created from the orchestration plan:
 Order is by leverage (high-value, low-blast-radius first). Numbers reference items above.
 
 **Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04 orchestration completion:**
-1, 2, 5, 6, 48, 64.
+1 (finish grouping/reorder/roll-up), 5, 6 (finish tmux-style layout controls), 48, 64.
 
 Completed or mostly completed from original Phase A:
 9, 21, 22, 23, 24.
 
 Additional orchestration items completed or partially completed outside original Phase A:
-25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
+2, 25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
 
 **Phase B — agent ecosystem reach:**
 8, 10, 11, 13, 14, 15 (replace stub), 16, 17, 18, 19, 20, 31.

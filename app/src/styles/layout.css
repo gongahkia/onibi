@@ -878,6 +878,12 @@ button.status-bar-item:hover {
   color: var(--fg-0);
 }
 
+.workspace-row.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg-0);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .workspace-row.drop-target,
 .tree-row.drop-target {
   color: var(--fg-0);
@@ -1837,6 +1843,9 @@ button.status-bar-item:hover {
 
 .terminal-surface {
   z-index: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .terminal-surface.is-background {
@@ -1855,6 +1864,20 @@ button.status-bar-item:hover {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
+}
+
+.workspace-terminal-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.workspace-tab-empty {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .buffer-mount {
@@ -2095,6 +2118,71 @@ button.status-bar-item:hover {
 
 .terminal-pane {
   grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.workspace-terminal-tab-strip {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 34px;
+  min-width: 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workspace-terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 104px;
+  max-width: 240px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border);
+  color: var(--fg-1);
+  cursor: pointer;
+}
+
+.workspace-terminal-tab.active {
+  background: var(--bg-2);
+  color: var(--fg-0);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.workspace-terminal-tab:hover:not(.active),
+.workspace-terminal-tab-add:hover {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.workspace-terminal-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.workspace-terminal-tab-count,
+.workspace-terminal-tab-empty {
+  flex: 0 0 auto;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.workspace-terminal-tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg-1);
+  cursor: pointer;
 }
 
 .terminal-tab-strip {

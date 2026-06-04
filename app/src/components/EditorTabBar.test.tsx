@@ -23,6 +23,9 @@ function reset() {
   useSessionStore.setState({
     openBuffers: [],
     activeBufferKey: null,
+    workspaceTabs: [],
+    activeWorkspaceId: null,
+    activeWorkspaceTabId: null,
     selectedFile: null,
     sessionEvents: [],
   });

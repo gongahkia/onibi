@@ -1951,6 +1951,16 @@ function activeTabOrWorkspaceTabForSession(
   if (existing) {
     return { tabs: state.workspaceTabs, tab: existing };
   }
+  if (state.workspaceTabs.length === 0 && state.terminalLayout) {
+    const tab = makeWorkspaceTab(
+      session.workspaceId,
+      "Terminal",
+      state.terminalLayout,
+      state.activeTerminalPaneId,
+      state.maximizedTerminalPaneId,
+    );
+    return { tabs: [tab], tab };
+  }
   const active = activeWorkspaceTab(state);
   if (active?.workspaceId === session.workspaceId) {
     return { tabs: state.workspaceTabs, tab: active };
@@ -2935,7 +2945,16 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setActivePaneSession: (paneId, sessionId) => {
     set((state) => {
       const tab = activeWorkspaceTab(state);
-      if (!tab?.terminalLayout) return {};
+      if (!tab?.terminalLayout) {
+        if (!state.terminalLayout) return {};
+        const nextLayout = setActiveTabInPane(state.terminalLayout, paneId, sessionId);
+        return {
+          terminalLayout: nextLayout,
+          activeTerminalPaneId: paneId,
+          activeSessionId: sessionId,
+          selectedFile: null,
+        };
+      }
       const nextLayout = setActiveTabInPane(tab.terminalLayout, paneId, sessionId);
       const workspaceTabs = updateWorkspaceTab(state.workspaceTabs, tab.id, {
         terminalLayout: nextLayout,
@@ -2963,6 +2982,27 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   replaceSession: (id, replacement) => {
     set((state) => {
+      if (state.workspaceTabs.length === 0) {
+        const terminalLayout = replacePaneSession(
+          state.terminalLayout,
+          id,
+          replacement.id,
+        );
+        const activeTerminalPaneId =
+          state.activeSessionId === id
+            ? paneIdForSession(terminalLayout, replacement.id) ??
+              state.activeTerminalPaneId
+            : state.activeTerminalPaneId;
+        return {
+          sessions: state.sessions.map((session) =>
+            session.id === id ? replacement : session,
+          ),
+          terminalLayout,
+          activeTerminalPaneId,
+          activeSessionId:
+            state.activeSessionId === id ? replacement.id : state.activeSessionId,
+        };
+      }
       const workspaceTabs = state.workspaceTabs.map((tab) => ({
         ...tab,
         terminalLayout: replacePaneSession(tab.terminalLayout, id, replacement.id),
@@ -2997,6 +3037,33 @@ export const useSessionStore = create<SessionStore>((set) => ({
   removeSession: (id) => {
     set((state) => {
       const sessions = state.sessions.filter((session) => session.id !== id);
+      if (state.workspaceTabs.length === 0) {
+        const terminalLayout = removePaneSession(state.terminalLayout, id);
+        const activeTerminalPaneId =
+          state.activeTerminalPaneId &&
+          paneContainsPane(terminalLayout, state.activeTerminalPaneId)
+            ? state.activeTerminalPaneId
+            : firstLeaf(terminalLayout)?.paneId ?? null;
+        const { [id]: _removedCommandBlock, ...activeCommandBlocks } =
+          state.activeCommandBlocks;
+        return {
+          sessions,
+          activeCommandBlocks,
+          terminalLayout,
+          activeTerminalPaneId,
+          maximizedTerminalPaneId:
+            state.maximizedTerminalPaneId &&
+            paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
+              ? state.maximizedTerminalPaneId
+              : null,
+          activeSessionId:
+            state.activeSessionId === id
+              ? activeTerminalPaneId
+                ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
+                : null
+              : state.activeSessionId,
+        };
+      }
       const workspaceTabs = state.workspaceTabs
         .map((tab) => {
           const terminalLayout = removePaneSession(tab.terminalLayout, id);
