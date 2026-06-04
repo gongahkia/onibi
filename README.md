@@ -109,7 +109,6 @@ Hosted relays optimize for convenience. Onibi is local-first: no accounts, no te
 - [Adapter capabilities](docs/adapters.md)
 - [Transports](docs/transports.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Protocol spec](SPEC.md)
 
 ## Roadmap
 
