@@ -830,6 +830,7 @@ terminal_screen_reader_mode = true
 terminal_copy_format = "html"
 terminal_osc52_clipboard = true
 terminal_transparent_background = true
+terminal_inline_images = "auto"
 
 [settings.agent_label_overrides]
 codex = "Local Codex"
@@ -859,6 +860,7 @@ command = "pnpm test"
     expect(parsed.settings.terminalCopyFormat).toBe("html");
     expect(parsed.settings.terminalOsc52Clipboard).toBe(true);
     expect(parsed.settings.terminalTransparentBackground).toBe(true);
+    expect(parsed.settings.terminalInlineImages).toBe("auto");
     expect(agentDisplayLabel("codex", parsed.settings)).toBe("Local Codex");
     expect(agentDisplayLabel("shell", parsed.settings)).toBe("Terminal");
     expect(parsed.settings.appKeybindings).toContainEqual({
@@ -883,6 +885,7 @@ command = "pnpm test"
     expect(serialized).toContain('terminal_copy_format = "html"');
     expect(serialized).toContain("terminal_osc52_clipboard = true");
     expect(serialized).toContain("terminal_transparent_background = true");
+    expect(serialized).toContain('terminal_inline_images = "auto"');
     expect(serialized).toContain('terminal_shell_mode = "login"');
     expect(serialized).toContain("show_terminal_pane_agent_labels = false");
     expect(serialized).toContain("[settings.agent_label_overrides]");

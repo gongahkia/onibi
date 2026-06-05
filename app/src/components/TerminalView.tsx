@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon, type IImageAddonOptions } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -24,9 +25,15 @@ import {
   type SessionCommandMarker,
   type SessionPreview,
   type TerminalCopyFormat,
+  type TerminalInlineImageMode,
   type TerminalKeybindingAction,
   type TerminalTriggerMatch,
 } from "../lib/sessions";
+import {
+  recordTerminalRenderProfile,
+  terminalRenderProfilingEnabled,
+  type TerminalRenderProfileReason,
+} from "../lib/terminal-render-profile";
 import {
   ptyReplay,
   ptyResize,
@@ -87,6 +94,9 @@ const TERMINAL_STANDARD_FONT_FALLBACKS = [
 const TERMINAL_STANDARD_FONT_KEYS = new Set(
   TERMINAL_STANDARD_FONT_FALLBACKS.map((family) => fontFamilyKey(family)),
 );
+const TERMINAL_IMAGE_PIXEL_LIMIT = 4_194_304;
+const TERMINAL_IMAGE_STORAGE_LIMIT_MB = 64;
+const TERMINAL_IMAGE_SEQUENCE_LIMIT_BYTES = 10_000_000;
 
 interface CopyModePosition {
   row: number;
@@ -119,7 +129,7 @@ interface RenderProfile {
 const OSC52_CLIPBOARD_MAX_BYTES = 1024 * 1024;
 
 function terminalDebug(message: string, metadata?: Record<string, unknown>) {
-  if (terminalDebugEnabled()) {
+  if (terminalRenderProfilingEnabled()) {
     console.debug(`[onibi:terminal] ${message}`, metadata ?? {});
   }
 }
@@ -128,19 +138,29 @@ function isImeCompositionEvent(event: KeyboardEvent): boolean {
   return event.isComposing || event.key === "Process" || event.key === "Dead";
 }
 
-function terminalDebugEnabled(): boolean {
-  try {
-    return globalThis.localStorage?.getItem("onibiTerminalDebug") === "1";
-  } catch {
-    return false;
-  }
-}
-
 function terminalThemeForTransparency(
   theme: ReturnType<typeof terminalThemeForSettings>,
   transparent: boolean,
 ): ReturnType<typeof terminalThemeForSettings> {
   return transparent ? { ...theme, background: "transparent" } : theme;
+}
+
+function terminalImageAddonOptions(
+  mode: TerminalInlineImageMode,
+): IImageAddonOptions | null {
+  if (mode === "off") {
+    return null;
+  }
+  return {
+    enableSizeReports: true,
+    pixelLimit: TERMINAL_IMAGE_PIXEL_LIMIT,
+    storageLimit: TERMINAL_IMAGE_STORAGE_LIMIT_MB,
+    showPlaceholder: true,
+    sixelSupport: mode === "sixel" || mode === "auto",
+    iipSupport: mode === "iterm" || mode === "auto",
+    sixelSizeLimit: TERMINAL_IMAGE_SEQUENCE_LIMIT_BYTES,
+    iipSizeLimit: TERMINAL_IMAGE_SEQUENCE_LIMIT_BYTES,
+  };
 }
 
 function textFromBytes(bytes: Uint8Array): string | null {
@@ -761,11 +781,20 @@ export function TerminalView({
     const webLinksAddon = new WebLinksAddon(handleTerminalLink);
     const unicode11Addon = new Unicode11Addon();
     const serializeAddon = new SerializeAddon();
+    const imageAddonOptions = terminalImageAddonOptions(settings.terminalInlineImages);
+    const imageAddon = imageAddonOptions ? new ImageAddon(imageAddonOptions) : null;
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
     term.loadAddon(webLinksAddon);
     term.loadAddon(unicode11Addon);
     term.loadAddon(serializeAddon);
+    if (imageAddon) {
+      term.loadAddon(imageAddon);
+      terminalDebug("inline images enabled", {
+        ptyId,
+        mode: settings.terminalInlineImages,
+      });
+    }
     term.unicode.activeVersion = "11";
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -815,6 +844,7 @@ export function TerminalView({
     term.open(container);
     let webglAddon: WebglAddon | null = null;
     let webglContextLossDisposable: { dispose: () => void } | null = null;
+    let renderer: "webgl" | "dom" = "dom";
     try {
       webglAddon = new WebglAddon();
       webglContextLossDisposable =
@@ -822,8 +852,10 @@ export function TerminalView({
           terminalDebug("webgl context lost", { ptyId });
           webglAddon?.dispose();
           webglAddon = null;
+          renderer = "dom";
         }) ?? null;
       term.loadAddon(webglAddon);
+      renderer = "webgl";
       terminalDebug("renderer selected", { ptyId, renderer: "webgl" });
     } catch (error) {
       terminalDebug("renderer fallback", {
@@ -1125,6 +1157,37 @@ export function TerminalView({
       replayBytes: 0,
       replayDurationMs: null,
     };
+    const captureRenderProfile = (reason: TerminalRenderProfileReason) => {
+      if (!terminalRenderProfilingEnabled()) {
+        return;
+      }
+      const report = {
+        ptyId,
+        renderer,
+        inlineImageMode: settings.terminalInlineImages,
+        rows: term.rows,
+        cols: term.cols,
+        bytes: renderProfile.bytes,
+        chunks: renderProfile.chunks,
+        batches: renderProfile.batches,
+        maxBatchBytes: renderProfile.maxBatchBytes,
+        avgFlushLatencyMs:
+          renderProfile.batches > 0
+            ? Math.round(renderProfile.totalFlushLatencyMs / renderProfile.batches)
+            : 0,
+        maxFlushLatencyMs: Math.round(renderProfile.maxFlushLatencyMs),
+        replayBytes: renderProfile.replayBytes,
+        replayDurationMs:
+          renderProfile.replayDurationMs === null
+            ? null
+            : Math.round(renderProfile.replayDurationMs),
+        totalDurationMs: Math.round(performance.now() - renderProfile.startedAt),
+        capturedAt: Date.now(),
+        reason,
+      };
+      recordTerminalRenderProfile(report);
+      terminalDebug("render profile", report);
+    };
     const queuedEvents: PtyWireEvent[] = [];
     const pendingWriteChunks: Uint8Array[] = [];
     let pendingWriteBytes = 0;
@@ -1299,8 +1362,18 @@ export function TerminalView({
         enterCopyMode();
       }
     }
+    function handleRenderProfileRequest(event: Event) {
+      const requestedPtyId = (event as CustomEvent<{ ptyId?: string }>).detail?.ptyId;
+      if (!requestedPtyId || requestedPtyId === ptyId) {
+        captureRenderProfile("request");
+      }
+    }
     window.addEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
     window.addEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
+    window.addEventListener(
+      "onibi:terminal-render-profile-request",
+      handleRenderProfileRequest,
+    );
 
     return () => {
       disposed = true;
@@ -1317,28 +1390,16 @@ export function TerminalView({
       container.removeEventListener("dblclick", handleDoubleClick);
       window.removeEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
       window.removeEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
+      window.removeEventListener(
+        "onibi:terminal-render-profile-request",
+        handleRenderProfileRequest,
+      );
       inputDisposable.dispose();
       webLinksAddon.dispose();
       webglContextLossDisposable?.dispose();
       webglAddon?.dispose();
-      terminalDebug("render profile", {
-        ptyId,
-        bytes: renderProfile.bytes,
-        chunks: renderProfile.chunks,
-        batches: renderProfile.batches,
-        maxBatchBytes: renderProfile.maxBatchBytes,
-        avgFlushLatencyMs:
-          renderProfile.batches > 0
-            ? Math.round(renderProfile.totalFlushLatencyMs / renderProfile.batches)
-            : 0,
-        maxFlushLatencyMs: Math.round(renderProfile.maxFlushLatencyMs),
-        replayBytes: renderProfile.replayBytes,
-        replayDurationMs:
-          renderProfile.replayDurationMs === null
-            ? null
-            : Math.round(renderProfile.replayDurationMs),
-        totalDurationMs: Math.round(performance.now() - renderProfile.startedAt),
-      });
+      imageAddon?.dispose();
+      captureRenderProfile("dispose");
       searchAddon.dispose();
       fitAddon.dispose();
       unicode11Addon.dispose();
@@ -1355,6 +1416,7 @@ export function TerminalView({
     openSearch,
     ptyId,
     settings.terminalCopyFormat,
+    settings.terminalInlineImages,
     settings.terminalOsc52Clipboard,
     settings.terminalScreenReaderMode,
     triggerMatchers,

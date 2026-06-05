@@ -2,9 +2,11 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TerminalView } from "./TerminalView";
 import { DEFAULT_SETTINGS } from "../lib/sessions";
+import { clearTerminalRenderProfiles } from "../lib/terminal-render-profile";
 
 const terminalConstructor = vi.hoisted(() => vi.fn());
 const webglConstructor = vi.hoisted(() => vi.fn());
+const imageConstructor = vi.hoisted(() => vi.fn());
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: terminalConstructor,
@@ -15,6 +17,10 @@ vi.mock("@xterm/addon-fit", () => ({
     fit = vi.fn();
     dispose = vi.fn();
   },
+}));
+
+vi.mock("@xterm/addon-image", () => ({
+  ImageAddon: imageConstructor,
 }));
 
 vi.mock("@xterm/addon-search", () => ({
@@ -117,10 +123,20 @@ describe("TerminalView", () => {
     terminalConstructor.mockReset();
     terminalConstructor.mockImplementation(createTerminalMock);
     webglConstructor.mockReset();
-    webglConstructor.mockImplementation(() => ({
+    webglConstructor.mockImplementation(function () {
+      return {
       dispose: vi.fn(),
       onContextLoss: vi.fn(),
-    }));
+      };
+    });
+    imageConstructor.mockReset();
+    imageConstructor.mockImplementation(function () {
+      return {
+        dispose: vi.fn(),
+      };
+    });
+    clearTerminalRenderProfiles();
+    localStorage.removeItem("onibiTerminalDebug");
     globalThis.__TAURI_MOCKS__.invoke.mockReset();
     globalThis.__TAURI_MOCKS__.listen.mockReset();
     globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
@@ -157,6 +173,33 @@ describe("TerminalView", () => {
       screenReaderMode: true,
     });
     expect(webglConstructor).toHaveBeenCalled();
+  });
+
+  test("loads inline image support only when enabled", async () => {
+    const first = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    expect(imageConstructor).not.toHaveBeenCalled();
+    first.unmount();
+
+    terminalConstructor.mockClear();
+    imageConstructor.mockClear();
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalInlineImages: "auto" }}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(imageConstructor).toHaveBeenCalled());
+    expect(imageConstructor.mock.calls[0][0]).toMatchObject({
+      sixelSupport: true,
+      iipSupport: true,
+      storageLimit: 64,
+    });
   });
 
   test("lets IME composition key events reach xterm", async () => {
@@ -441,6 +484,11 @@ describe("TerminalView", () => {
   test("emits render profile diagnostics only when terminal debug is enabled", async () => {
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     localStorage.setItem("onibiTerminalDebug", "1");
+    const profiles: unknown[] = [];
+    const handleProfile = (event: Event) => {
+      profiles.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("onibi:terminal-render-profile", handleProfile);
     let emitPty: ((payload: unknown) => void) | undefined;
     globalThis.__TAURI_MOCKS__.listen.mockImplementation(
       async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
@@ -462,7 +510,24 @@ describe("TerminalView", () => {
 
     await waitFor(() => expect(emitPty).toBeDefined());
     emitPty?.({ type: "data", data: "aGk=", offset: 0 });
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(term.write).toHaveBeenCalled());
     await waitFor(() => expect(debug).toHaveBeenCalled());
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-render-profile-request", {
+        detail: { ptyId: "pty-1" },
+      }),
+    );
+    expect(profiles).toContainEqual(
+      expect.objectContaining({
+        ptyId: "pty-1",
+        reason: "request",
+        renderer: "webgl",
+        inlineImageMode: "off",
+        bytes: 2,
+      }),
+    );
     unmount();
 
     expect(
@@ -470,8 +535,37 @@ describe("TerminalView", () => {
         String(message).includes("[onibi:terminal] render profile"),
       ),
     ).toBe(true);
+    expect(profiles).toContainEqual(
+      expect.objectContaining({
+        ptyId: "pty-1",
+        reason: "dispose",
+      }),
+    );
+    window.removeEventListener("onibi:terminal-render-profile", handleProfile);
     localStorage.removeItem("onibiTerminalDebug");
     debug.mockRestore();
+  });
+
+  test("does not emit render profile events when terminal debug is disabled", async () => {
+    const profiles: unknown[] = [];
+    const handleProfile = (event: Event) => {
+      profiles.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("onibi:terminal-render-profile", handleProfile);
+    const { unmount } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-render-profile-request", {
+        detail: { ptyId: "pty-1" },
+      }),
+    );
+    unmount();
+
+    expect(profiles).toEqual([]);
+    window.removeEventListener("onibi:terminal-render-profile", handleProfile);
   });
 
   test("copy mode enter copies the current line without visual selection", async () => {

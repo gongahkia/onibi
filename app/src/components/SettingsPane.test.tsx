@@ -217,11 +217,15 @@ describe("SettingsPane", () => {
     });
     fireEvent.click(screen.getByLabelText("Enable OSC 52 clipboard writes"));
     fireEvent.click(screen.getByLabelText("Use transparent terminal background"));
+    fireEvent.change(screen.getByLabelText("Terminal inline images"), {
+      target: { value: "auto" },
+    });
 
     const settings = useSessionStore.getState().settings;
     expect(settings.terminalCopyFormat).toBe("html");
     expect(settings.terminalOsc52Clipboard).toBe(true);
     expect(settings.terminalTransparentBackground).toBe(true);
+    expect(settings.terminalInlineImages).toBe("auto");
   });
 
   test("adds custom command keybindings", () => {

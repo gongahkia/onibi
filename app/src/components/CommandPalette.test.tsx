@@ -2,6 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 import { DEFAULT_SETTINGS, type Session, useSessionStore } from "../lib/sessions";
+import {
+  clearTerminalRenderProfiles,
+  recordTerminalRenderProfile,
+} from "../lib/terminal-render-profile";
 
 function resetStore() {
   useSessionStore.setState({
@@ -27,6 +31,8 @@ function resetStore() {
   vi.mocked(window.confirm).mockReturnValue(true);
   vi.mocked(window.prompt).mockReset();
   vi.mocked(window.prompt).mockReturnValue(null);
+  clearTerminalRenderProfiles();
+  localStorage.removeItem("onibiTerminalDebug");
 }
 
 describe("CommandPalette", () => {
@@ -545,5 +551,67 @@ describe("CommandPalette", () => {
         data: Array.from(new TextEncoder().encode("pnpm test\r")),
       });
     });
+  });
+
+  test("copies the active terminal render profile", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    localStorage.setItem("onibiTerminalDebug", "1");
+    const handleRequest = (event: Event) => {
+      expect((event as CustomEvent<{ ptyId?: string }>).detail?.ptyId).toBe("pty-1");
+      recordTerminalRenderProfile({
+        ptyId: "pty-1",
+        renderer: "webgl",
+        inlineImageMode: "auto",
+        rows: 24,
+        cols: 80,
+        bytes: 2048,
+        chunks: 4,
+        batches: 2,
+        maxBatchBytes: 1024,
+        avgFlushLatencyMs: 8,
+        maxFlushLatencyMs: 12,
+        replayBytes: 128,
+        replayDurationMs: 5,
+        totalDurationMs: 40,
+        capturedAt: 1,
+        reason: "request",
+      });
+    };
+    window.addEventListener("onibi:terminal-render-profile-request", handleRequest);
+
+    try {
+      render(<CommandPalette />);
+      fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      const input = screen.getByLabelText("Search commands");
+      fireEvent.change(input, { target: { value: "copy terminal render profile" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+      expect(vi.mocked(navigator.clipboard.writeText).mock.calls[0][0]).toContain(
+        '"ptyId": "pty-1"',
+      );
+      expect(vi.mocked(navigator.clipboard.writeText).mock.calls[0][0]).toContain(
+        '"inlineImageMode": "auto"',
+      );
+    } finally {
+      window.removeEventListener(
+        "onibi:terminal-render-profile-request",
+        handleRequest,
+      );
+    }
   });
 });

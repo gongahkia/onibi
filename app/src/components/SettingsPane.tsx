@@ -25,6 +25,7 @@ import {
   type TerminalConfigImport,
   type TerminalConfigSource,
   type TerminalCopyFormat,
+  type TerminalInlineImageMode,
   type TerminalKeybinding,
   type TerminalShellMode,
   type TerminalTrigger,
@@ -298,6 +299,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalCopyFormat={settings.terminalCopyFormat}
               terminalOsc52Clipboard={settings.terminalOsc52Clipboard}
               terminalTransparentBackground={settings.terminalTransparentBackground}
+              terminalInlineImages={settings.terminalInlineImages}
               terminalShellMode={settings.terminalShellMode}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
@@ -342,6 +344,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalTransparentBackground={(terminalTransparentBackground) =>
                 updateSettings({ terminalTransparentBackground })
+              }
+              onTerminalInlineImages={(terminalInlineImages) =>
+                updateSettings({ terminalInlineImages })
               }
               onTerminalShellMode={(terminalShellMode) =>
                 updateSettings({ terminalShellMode })
@@ -576,6 +581,7 @@ interface GeneralSettingsProps {
   terminalCopyFormat: TerminalCopyFormat;
   terminalOsc52Clipboard: boolean;
   terminalTransparentBackground: boolean;
+  terminalInlineImages: TerminalInlineImageMode;
   terminalShellMode: TerminalShellMode;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
@@ -601,6 +607,7 @@ interface GeneralSettingsProps {
   onTerminalCopyFormat: (format: TerminalCopyFormat) => void;
   onTerminalOsc52Clipboard: (enabled: boolean) => void;
   onTerminalTransparentBackground: (enabled: boolean) => void;
+  onTerminalInlineImages: (mode: TerminalInlineImageMode) => void;
   onTerminalShellMode: (mode: TerminalShellMode) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
@@ -631,6 +638,7 @@ function GeneralSettings({
   terminalCopyFormat,
   terminalOsc52Clipboard,
   terminalTransparentBackground,
+  terminalInlineImages,
   terminalShellMode,
   newPaneCwd,
   editorFontSize,
@@ -656,6 +664,7 @@ function GeneralSettings({
   onTerminalCopyFormat,
   onTerminalOsc52Clipboard,
   onTerminalTransparentBackground,
+  onTerminalInlineImages,
   onTerminalShellMode,
   onNewPaneCwd,
   onEditorFontSize,
@@ -833,6 +842,22 @@ function GeneralSettings({
           />
           Use transparent terminal background
         </span>
+      </label>
+      <label className="settings-row">
+        <span>Inline images</span>
+        <select
+          className="settings-select"
+          aria-label="Terminal inline images"
+          value={terminalInlineImages}
+          onChange={(event) =>
+            onTerminalInlineImages(event.target.value as TerminalInlineImageMode)
+          }
+        >
+          <option value="off">Off</option>
+          <option value="sixel">Sixel</option>
+          <option value="iterm">iTerm images</option>
+          <option value="auto">Auto</option>
+        </select>
       </label>
       <label className="settings-row">
         <span>Shell mode</span>

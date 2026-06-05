@@ -36,6 +36,10 @@ import {
 } from "../lib/sessions";
 import { listGitWorktrees, type GitWorktree } from "../lib/git";
 import { ptyWrite } from "../lib/tauri-bridge";
+import {
+  copyTerminalRenderProfile,
+  terminalRenderProfilingEnabled,
+} from "../lib/terminal-render-profile";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
@@ -141,6 +145,15 @@ function focusActiveTerminal(): void {
     return;
   }
   document.querySelector<HTMLElement>(".terminal-view")?.focus();
+}
+
+async function copyActiveTerminalRenderProfile(ptyId?: string | null): Promise<void> {
+  const report = await copyTerminalRenderProfile(ptyId);
+  if (!report) {
+    await navigator.clipboard?.writeText(
+      'No terminal render profile is available. Enable it with localStorage.onibiTerminalDebug = "1" and run this command again.',
+    );
+  }
 }
 
 function indexedActionValue(
@@ -571,6 +584,18 @@ export function CommandPalette() {
           : "No active terminal session",
         keywords: ["shell", "pty", "agent"],
         run: focusActiveTerminal,
+      },
+      {
+        id: "terminal.copy-render-profile",
+        label: "Copy Terminal Render Profile",
+        group: "Terminal",
+        description: terminalRenderProfilingEnabled()
+          ? activeSession?.title ?? "Latest captured terminal profile"
+          : "Requires localStorage.onibiTerminalDebug = \"1\"",
+        keywords: ["render", "profile", "performance", "debug", "xterm"],
+        run: async () => {
+          await copyActiveTerminalRenderProfile(activeSession?.id ?? null);
+        },
       },
       {
         id: "terminal.maximize",

@@ -551,6 +551,7 @@ export type TerminalKeybindingAction =
   | "find";
 
 export type TerminalCopyFormat = "plain" | "ansi" | "html";
+export type TerminalInlineImageMode = "off" | "sixel" | "iterm" | "auto";
 
 export interface TerminalKeybinding {
   keys: string;
@@ -625,6 +626,7 @@ export interface AppSettings {
   terminalCopyFormat: TerminalCopyFormat;
   terminalOsc52Clipboard: boolean;
   terminalTransparentBackground: boolean;
+  terminalInlineImages: TerminalInlineImageMode;
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
   keybindingPrefix: string;
@@ -1578,6 +1580,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalCopyFormat: "plain",
   terminalOsc52Clipboard: false,
   terminalTransparentBackground: false,
+  terminalInlineImages: "off",
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
@@ -1794,6 +1797,12 @@ function normalizeTerminalCopyFormat(value: unknown): TerminalCopyFormat {
   return value === "ansi" || value === "html" || value === "plain"
     ? value
     : DEFAULT_SETTINGS.terminalCopyFormat;
+}
+
+function normalizeTerminalInlineImageMode(value: unknown): TerminalInlineImageMode {
+  return value === "off" || value === "sixel" || value === "iterm" || value === "auto"
+    ? value
+    : DEFAULT_SETTINGS.terminalInlineImages;
 }
 
 function normalizeTerminalKeybindings(value: unknown): TerminalKeybinding[] {
@@ -2312,6 +2321,9 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       typeof merged.terminalTransparentBackground === "boolean"
         ? merged.terminalTransparentBackground
         : DEFAULT_SETTINGS.terminalTransparentBackground,
+    terminalInlineImages: normalizeTerminalInlineImageMode(
+      merged.terminalInlineImages,
+    ),
     terminalConfirmClose:
       typeof merged.terminalConfirmClose === "boolean"
         ? merged.terminalConfirmClose
@@ -5589,7 +5601,9 @@ function assignTomlSetting(
                     ? "terminalOsc52Clipboard"
                     : key === "transparent_background"
                       ? "terminalTransparentBackground"
-                : camelFromTomlKey(key);
+                      : key === "inline_images"
+                        ? "terminalInlineImages"
+                        : camelFromTomlKey(key);
     settings[mappedKey] = value;
   } else if (path === "keybindings") {
     if (key === "prefix") {
@@ -5674,6 +5688,7 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_copy_format", settings.terminalCopyFormat),
     settingLine("terminal_osc52_clipboard", settings.terminalOsc52Clipboard),
     settingLine("terminal_transparent_background", settings.terminalTransparentBackground),
+    settingLine("terminal_inline_images", settings.terminalInlineImages),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
     settingLine("keybinding_prefix", settings.keybindingPrefix),
