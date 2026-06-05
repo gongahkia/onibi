@@ -11,6 +11,8 @@ mod orchestration;
 #[cfg(feature = "gui")]
 pub mod pty;
 #[cfg(feature = "gui")]
+pub mod remote;
+#[cfg(feature = "gui")]
 pub mod review;
 #[cfg(feature = "gui")]
 pub mod secret;
@@ -480,6 +482,37 @@ async fn pty_replay(id: PtyId) -> Result<Option<PtyReplay>, String> {
 }
 
 #[cfg(feature = "gui")]
+#[tauri::command]
+async fn clipboard_read_image_png() -> Result<Option<Vec<u8>>, String> {
+    tauri::async_runtime::spawn_blocking(remote::read_clipboard_image_png)
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn remote_ssh_bootstrap(
+    req: remote::RemoteSshBootstrapRequest,
+) -> Result<remote::RemoteSshBootstrapResult, String> {
+    tauri::async_runtime::spawn_blocking(move || remote::remote_ssh_bootstrap(req))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
+async fn remote_ssh_stage_file(
+    req: remote::RemoteSshStageFileRequest,
+) -> Result<remote::RemoteSshStageFileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || remote::remote_ssh_stage_file(req))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
 #[cfg_attr(all(feature = "gui", mobile), tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
@@ -510,6 +543,9 @@ pub fn run() {
             pty_sessions,
             session_attach,
             pty_replay,
+            clipboard_read_image_png,
+            remote_ssh_bootstrap,
+            remote_ssh_stage_file,
             approval_server_config,
             onibi_read_config_toml,
             onibi_write_config_toml,

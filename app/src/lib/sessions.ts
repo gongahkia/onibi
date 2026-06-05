@@ -2,12 +2,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import {
+  clipboardReadImagePng,
   ptyKill,
   ptyList,
   ptySessions,
   ptySpawn,
+  ptyWrite,
+  remoteSshBootstrap,
+  remoteSshStageFile,
   sessionAttach,
   shellPath,
+  type RemoteSshBootstrapRequest,
+  type RemoteSshBootstrapResult,
+  type RemoteSshStageFileRequest,
+  type RemoteSshStageFileResult,
   type PtySessionMetadata,
   type PtyId,
   type PtyShellMode,
@@ -201,6 +209,10 @@ export type NewPaneCwdMode =
   | `fixed:${string}`;
 export type TerminalShellMode = PtyShellMode;
 export type RemoteKeybindingPolicy = "local" | "remote";
+export type RemoteBootstrapStatus = "unknown" | "ready" | "failed";
+
+export const DEFAULT_REMOTE_HELPER_PATH = "~/.onibi/bin/onibi";
+export const DEFAULT_REMOTE_STAGING_DIR = "~/.onibi/staged";
 
 export interface RemoteSessionMetadata {
   kind: "ssh";
@@ -210,6 +222,11 @@ export interface RemoteSessionMetadata {
   port?: number;
   remoteCwd?: string | null;
   keybindingPolicy: RemoteKeybindingPolicy;
+  bootstrapStatus?: RemoteBootstrapStatus;
+  helperPath?: string;
+  helperVersion?: string;
+  stagingDir?: string;
+  lastBootstrapAt?: number;
 }
 
 export interface ParsedSshRemoteTarget {
@@ -2310,6 +2327,14 @@ export function normalizeRemoteKeybindingPolicy(
   return value === "remote" ? "remote" : "local";
 }
 
+function normalizeRemoteBootstrapStatus(
+  value: unknown,
+): RemoteBootstrapStatus | undefined {
+  return value === "unknown" || value === "ready" || value === "failed"
+    ? value
+    : undefined;
+}
+
 function normalizeRemoteSessionMetadata(
   value: unknown,
 ): RemoteSessionMetadata | null {
@@ -2341,6 +2366,23 @@ function normalizeRemoteSessionMetadata(
     normalized.remoteCwd = value.remoteCwd.trim();
   } else if (value.remoteCwd === null) {
     normalized.remoteCwd = null;
+  }
+  const bootstrapStatus = normalizeRemoteBootstrapStatus(value.bootstrapStatus);
+  if (bootstrapStatus) {
+    normalized.bootstrapStatus = bootstrapStatus;
+  }
+  if (typeof value.helperPath === "string" && value.helperPath.trim()) {
+    normalized.helperPath = value.helperPath.trim();
+  }
+  if (typeof value.helperVersion === "string" && value.helperVersion.trim()) {
+    normalized.helperVersion = value.helperVersion.trim();
+  }
+  if (typeof value.stagingDir === "string" && value.stagingDir.trim()) {
+    normalized.stagingDir = value.stagingDir.trim();
+  }
+  const lastBootstrapAt = Number(value.lastBootstrapAt);
+  if (Number.isFinite(lastBootstrapAt) && lastBootstrapAt > 0) {
+    normalized.lastBootstrapAt = lastBootstrapAt;
   }
   return normalized;
 }

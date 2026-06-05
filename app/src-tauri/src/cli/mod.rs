@@ -2,7 +2,7 @@ pub mod doctor;
 pub mod setup;
 pub mod status;
 
-use crate::{adapters, config, headless, orchestration, secret, server, transport, util};
+use crate::{adapters, config, headless, orchestration, remote, secret, server, transport, util};
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
@@ -289,6 +289,27 @@ enum RemoteCommand {
         #[arg(long = "ssh-command", default_value = "ssh")]
         ssh_command: String,
     },
+    Bootstrap {
+        #[command(subcommand)]
+        command: RemoteBootstrapCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RemoteBootstrapCommand {
+    Ssh {
+        target: String,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long = "ssh-command", default_value = "ssh")]
+        ssh_command: String,
+        #[arg(long)]
+        helper_path: Option<String>,
+        #[arg(long)]
+        staging_dir: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -542,6 +563,43 @@ async fn remote(command: RemoteCommand, json_output: bool) -> Result<()> {
             .await?;
             print_value(response, json_output)
         }
+        RemoteCommand::Bootstrap { command } => match command {
+            RemoteBootstrapCommand::Ssh {
+                target,
+                workspace,
+                cwd,
+                ssh_command,
+                helper_path,
+                staging_dir,
+            } => {
+                let parsed = parse_ssh_remote_target(&target)?;
+                let remote_cwd = cwd
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| parsed.remote_cwd.clone());
+                let result = remote::remote_ssh_bootstrap(remote::RemoteSshBootstrapRequest {
+                    target: parsed.target,
+                    user: parsed.user,
+                    host: parsed.host,
+                    port: parsed.port,
+                    remote_cwd,
+                    ssh_command: Some(ssh_command),
+                    helper_path,
+                    staging_dir,
+                })?;
+                if json_output {
+                    print_value(serde_json::to_value(result)?, true)
+                } else {
+                    println!("Bootstrapped remote SSH helper for {}", result.target);
+                    println!("Workspace: {}", workspace.display());
+                    println!("Helper: {}", result.helper_path);
+                    println!("Staging: {}", result.staging_dir);
+                    Ok(())
+                }
+            }
+        },
     }
 }
 

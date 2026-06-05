@@ -83,6 +83,48 @@ export interface PtySessionMetadata {
   remote?: import("./sessions").RemoteSessionMetadata | null;
 }
 
+export interface RemoteSshBootstrapRequest {
+  target: string;
+  user?: string | null;
+  host: string;
+  port?: number | null;
+  remoteCwd?: string | null;
+  sshCommand?: string | null;
+  helperPath?: string | null;
+  stagingDir?: string | null;
+}
+
+export interface RemoteSshBootstrapResult {
+  ok: boolean;
+  target: string;
+  helperPath: string;
+  helperVersion: string;
+  stagingDir: string;
+  bootstrappedAt: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface RemoteSshStageFileRequest {
+  target: string;
+  user?: string | null;
+  host: string;
+  port?: number | null;
+  remoteCwd?: string | null;
+  sshCommand?: string | null;
+  stagingDir?: string | null;
+  filename: string;
+  data: number[];
+}
+
+export interface RemoteSshStageFileResult {
+  ok: boolean;
+  remotePath: string;
+  bytes: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface PtyAttachResult {
   ok: boolean;
   attached: boolean;
@@ -104,6 +146,22 @@ export function ptySpawn(req: PtySpawnRequest): Promise<PtyId> {
 
 export function ptyWrite(id: PtyId, data: Uint8Array): Promise<void> {
   return invoke("pty_write", { id, data: Array.from(data) });
+}
+
+export function clipboardReadImagePng(): Promise<number[] | null> {
+  return invoke<number[] | null>("clipboard_read_image_png");
+}
+
+export function remoteSshBootstrap(
+  req: RemoteSshBootstrapRequest,
+): Promise<RemoteSshBootstrapResult> {
+  return invoke<RemoteSshBootstrapResult>("remote_ssh_bootstrap", { req });
+}
+
+export function remoteSshStageFile(
+  req: RemoteSshStageFileRequest,
+): Promise<RemoteSshStageFileResult> {
+  return invoke<RemoteSshStageFileResult>("remote_ssh_stage_file", { req });
 }
 
 export function ptyResize(id: PtyId, rows: number, cols: number): Promise<void> {

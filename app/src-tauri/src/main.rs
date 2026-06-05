@@ -9,6 +9,7 @@ mod headless;
 mod orchestration;
 mod protocol;
 mod push;
+mod remote;
 mod secret;
 mod server;
 mod transport;
