@@ -784,7 +784,7 @@ export const AGENT_LABELS: Record<AgentKind, string> = {
 };
 
 export const DEFAULT_AGENT_COMMANDS: Record<AgentKind, string> = {
-  "claude-code": "claude code",
+  "claude-code": "claude",
   codex: "codex",
   opencode: "opencode",
   gemini: "gemini",
@@ -804,6 +804,7 @@ export const DEFAULT_AGENT_COMMANDS: Record<AgentKind, string> = {
   crush: "crush",
   shell: "",
 };
+const LEGACY_CLAUDE_CODE_AGENT_COMMAND = "claude code";
 
 export const DEFAULT_AGENT_INSTALL_COMMANDS: Partial<Record<AgentKind, string>> = {
   "claude-code": "npm install -g @anthropic-ai/claude-code",
@@ -2170,13 +2171,28 @@ export function normalizeTerminalShellMode(value: unknown): TerminalShellMode {
     : DEFAULT_SETTINGS.terminalShellMode;
 }
 
-function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
+function normalizeAgentCommands(
+  settings: Partial<AppSettings> | undefined,
+): Record<AgentKind, string> {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
         ...DEFAULT_AGENT_COMMANDS,
         ...(settings?.agentCommands as Partial<Record<AgentKind, string>>),
       }
     : { ...DEFAULT_AGENT_COMMANDS };
+  const claudeCodeCommand = agentCommands["claude-code"];
+  if (
+    typeof claudeCodeCommand === "string" &&
+    claudeCodeCommand.trim().replace(/\s+/g, " ") ===
+      LEGACY_CLAUDE_CODE_AGENT_COMMAND
+  ) {
+    agentCommands["claude-code"] = DEFAULT_AGENT_COMMANDS["claude-code"];
+  }
+  return agentCommands;
+}
+
+function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
+  const agentCommands = normalizeAgentCommands(settings);
   const agentInstallCommands = isRecord(settings?.agentInstallCommands)
     ? {
         ...DEFAULT_AGENT_INSTALL_COMMANDS,

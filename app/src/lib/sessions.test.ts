@@ -7,6 +7,7 @@ import {
   appKeybindingConflicts,
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
+  launchCommandForAgent,
   normalizeNewPaneCwdMode,
   normalizeTerminalShellMode,
   parseOnibiConfigToml,
@@ -312,6 +313,30 @@ describe("session hydration", () => {
     expect(normalizeTerminalShellMode("login")).toBe("login");
     expect(normalizeTerminalShellMode("non_login")).toBe("non_login");
     expect(normalizeTerminalShellMode("interactive")).toBe("auto");
+  });
+
+  test("defaults Claude Code launch to the current CLI command", async () => {
+    expect(DEFAULT_SETTINGS.agentCommands["claude-code"]).toBe("claude");
+    expect(launchCommandForAgent("claude-code", DEFAULT_SETTINGS, "")).toMatchObject({
+      command: "claude",
+      args: [],
+    });
+  });
+
+  test("migrates legacy Claude Code command while preserving custom commands", async () => {
+    const legacy = parseOnibiConfigToml(`
+[settings.agent_commands]
+claude-code = "claude code"
+`);
+    expect(legacy.settings.agentCommands["claude-code"]).toBe("claude");
+
+    const custom = parseOnibiConfigToml(`
+[settings.agent_commands]
+claude-code = "claude --dangerously-skip-permissions"
+`);
+    expect(custom.settings.agentCommands["claude-code"]).toBe(
+      "claude --dangerously-skip-permissions",
+    );
   });
 
   test("defaults bind prefix number keys to workspace tabs", async () => {
