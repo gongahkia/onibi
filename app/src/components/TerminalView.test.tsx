@@ -426,13 +426,18 @@ describe("TerminalView", () => {
     expect(output).toBe("hello world");
   });
 
-  test("flushes live pty output when replay stalls", async () => {
+  test("queues live pty output until replay resolves", async () => {
     let emitPty: ((payload: unknown) => void) | undefined;
-    const stalledReplay = new Promise<{
+    let resolveReplay:
+      | ((snapshot: { data: string; startOffset: number; endOffset: number } | null) => void)
+      | undefined;
+    const replay = new Promise<{
       data: string;
       startOffset: number;
       endOffset: number;
-    }>(() => undefined);
+    } | null>((resolve) => {
+      resolveReplay = resolve;
+    });
     globalThis.__TAURI_MOCKS__.listen.mockImplementation(
       async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
         emitPty = (payload) => callback({ payload });
@@ -442,7 +447,7 @@ describe("TerminalView", () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
       async (command: string) => {
         if (command === "pty_replay") {
-          return stalledReplay;
+          return replay;
         }
         return null;
       },
@@ -457,6 +462,8 @@ describe("TerminalView", () => {
 
     const term = terminalConstructor.mock.results[0]
       .value as ReturnType<typeof createTerminalMock>;
+    expect(term.write).not.toHaveBeenCalled();
+    resolveReplay?.(null);
     await waitFor(() => expect(term.write).toHaveBeenCalled());
     expect(terminalWriteText(term.write.mock.calls[0][0])).toBe("hi");
   });

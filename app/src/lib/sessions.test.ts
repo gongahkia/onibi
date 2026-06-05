@@ -574,6 +574,161 @@ claude-code = "claude --dangerously-skip-permissions"
     expect(useSessionStore.getState().activeWorkspaceTabId).toBe("tab-3");
   });
 
+  test("removing the last session prunes the orphan workspace root", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo",
+          title: "Claude · repo",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      workspaceTabs: [
+        {
+          id: "tab-1",
+          workspaceId: "workspace:/repo",
+          title: "Terminal",
+          terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+          activeTerminalPaneId: "pane-1",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "tab-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      activeSessionId: "pty-1",
+      selectedFile: {
+        workspaceId: "workspace:/repo",
+        workspaceRoot: "/repo",
+        path: "/repo/README.md",
+        name: "README.md",
+        size: 12,
+      },
+      openBuffers: [
+        {
+          workspaceId: "workspace:/repo",
+          workspaceRoot: "/repo",
+          path: "/repo/README.md",
+          name: "README.md",
+          size: 12,
+        },
+      ],
+      activeBufferKey: "file:workspace:/repo:/repo/README.md",
+      closedBufferStack: [
+        {
+          workspaceId: "workspace:/repo",
+          workspaceRoot: "/repo",
+          path: "/repo/package.json",
+          name: "package.json",
+          size: 20,
+        },
+      ],
+      bufferAccessOrder: ["file:workspace:/repo:/repo/README.md"],
+      dirtyBufferKeys: ["file:workspace:/repo:/repo/README.md"],
+      activeCommandBlocks: {
+        "pty-1": {
+          id: "block-1",
+          sessionId: "pty-1",
+          workspaceId: "workspace:/repo",
+          agent: "claude-code",
+          command: "pnpm test",
+          cwd: "/repo",
+          startedAt: 1,
+          endedAt: null,
+          exitCode: null,
+          status: "running",
+          outputPreview: "",
+          changedFiles: [],
+          source: "manual",
+        },
+      },
+      arrangements: [
+        {
+          id: "arrangement-1",
+          name: "Repo",
+          workspaceId: "workspace:/repo",
+          terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+          activeTerminalPaneId: "pane-1",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          selectedFile: null,
+          activeSidebarView: "files",
+          sessions: [],
+        },
+      ],
+    });
+
+    useSessionStore.getState().removeSession("pty-1");
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.workspaces).toEqual([]);
+    expect(state.workspaceTabs).toEqual([]);
+    expect(state.activeSessionId).toBeNull();
+    expect(state.activeWorkspaceId).toBeNull();
+    expect(state.terminalLayout).toBeNull();
+    expect(state.selectedFile).toBeNull();
+    expect(state.openBuffers).toEqual([]);
+    expect(state.closedBufferStack).toEqual([]);
+    expect(state.bufferAccessOrder).toEqual([]);
+    expect(state.dirtyBufferKeys).toEqual([]);
+    expect(state.activeCommandBlocks).toEqual({});
+    expect(state.arrangements).toEqual([]);
+  });
+
+  test("setting workspaces to empty clears workspace-scoped sessions and tabs", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "opencode",
+          workspaceId: "workspace:/repo",
+          title: "OpenCode · repo",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      workspaceTabs: [
+        {
+          id: "tab-1",
+          workspaceId: "workspace:/repo",
+          title: "Terminal",
+          terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+          activeTerminalPaneId: "pane-1",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "tab-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      activeSessionId: "pty-1",
+    });
+
+    useSessionStore.getState().setWorkspaces([]);
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.workspaces).toEqual([]);
+    expect(state.workspaceTabs).toEqual([]);
+    expect(state.activeSessionId).toBeNull();
+    expect(state.activeWorkspaceId).toBeNull();
+    expect(state.terminalLayout).toBeNull();
+  });
+
   test("round-trips custom command keybindings through TOML", async () => {
     const parsed = parseOnibiConfigToml(`
 version = 1

@@ -2409,6 +2409,70 @@ function mirrorWorkspaceTab(tab: WorkspaceTab | null): {
   };
 }
 
+function workspaceIdsForSessions(sessions: Session[]): Set<string> {
+  return new Set(sessions.map((session) => session.workspaceId));
+}
+
+function pruneWorkspacesForSessions(
+  workspaces: Workspace[],
+  sessions: Session[],
+): Workspace[] {
+  const workspaceIds = workspaceIdsForSessions(sessions);
+  return workspaces.filter((workspace) => workspaceIds.has(workspace.id));
+}
+
+function pruneWorkspaceScopedData(
+  state: SessionStore,
+  workspaceIds: Set<string>,
+): Pick<
+  SessionStore,
+  | "selectedFile"
+  | "openBuffers"
+  | "activeBufferKey"
+  | "closedBufferStack"
+  | "dirtyBufferKeys"
+  | "bufferAccessOrder"
+> {
+  const openBuffers = state.openBuffers.filter((buffer) =>
+    workspaceIds.has(buffer.workspaceId),
+  );
+  const activeBufferKey =
+    state.activeBufferKey &&
+    openBuffers.some((buffer) => bufferKey(buffer) === state.activeBufferKey)
+      ? state.activeBufferKey
+      : null;
+  const selectedFile =
+    state.selectedFile && workspaceIds.has(state.selectedFile.workspaceId)
+      ? state.selectedFile
+      : activeBufferKey
+        ? openBuffers.find((buffer) => bufferKey(buffer) === activeBufferKey) ?? null
+        : null;
+
+  return {
+    selectedFile,
+    openBuffers,
+    activeBufferKey,
+    closedBufferStack: state.closedBufferStack.filter((buffer) =>
+      workspaceIds.has(buffer.workspaceId),
+    ),
+    dirtyBufferKeys: state.dirtyBufferKeys.filter((key) =>
+      openBuffers.some((buffer) => bufferKey(buffer) === key),
+    ),
+    bufferAccessOrder: state.bufferAccessOrder.filter((key) =>
+      openBuffers.some((buffer) => bufferKey(buffer) === key),
+    ),
+  };
+}
+
+function arrangementInWorkspaceIds(
+  arrangement: Arrangement,
+  workspaceIds: Set<string>,
+): boolean {
+  return Boolean(
+    arrangement.workspaceId && workspaceIds.has(arrangement.workspaceId),
+  );
+}
+
 function updateWorkspaceTab(
   tabs: WorkspaceTab[],
   tabId: string,
@@ -3972,39 +4036,54 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
-  removeSession: (id) => {
-    set((state) => {
-      const sessions = state.sessions.filter((session) => session.id !== id);
-      if (state.workspaceTabs.length === 0) {
-        const terminalLayout = removePaneSession(state.terminalLayout, id);
-        const activeTerminalPaneId =
-          state.activeTerminalPaneId &&
-          paneContainsPane(terminalLayout, state.activeTerminalPaneId)
-            ? state.activeTerminalPaneId
-            : firstLeaf(terminalLayout)?.paneId ?? null;
-        const { [id]: _removedCommandBlock, ...activeCommandBlocks } =
-          state.activeCommandBlocks;
-        return {
-          sessions,
-          activeCommandBlocks,
-          terminalLayout,
-          activeTerminalPaneId,
-          maximizedTerminalPaneId:
-            state.maximizedTerminalPaneId &&
-            paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
-              ? state.maximizedTerminalPaneId
-              : null,
-          activeSessionId:
-            state.activeSessionId === id
-              ? activeTerminalPaneId
-                ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
-                : null
-              : state.activeSessionId,
-        };
-      }
-      const workspaceTabs = state.workspaceTabs
-        .map((tab) => {
-          const terminalLayout = removePaneSession(tab.terminalLayout, id);
+	  removeSession: (id) => {
+	    set((state) => {
+	      const sessions = state.sessions.filter((session) => session.id !== id);
+	      const workspaces = pruneWorkspacesForSessions(state.workspaces, sessions);
+	      const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+	      const scopedData = pruneWorkspaceScopedData(state, workspaceIds);
+	      const liveSessionIds = new Set(sessions.map((session) => session.id));
+	      const activeCommandBlocks = Object.fromEntries(
+	        Object.entries(state.activeCommandBlocks).filter(([sessionId]) =>
+	          liveSessionIds.has(sessionId),
+	        ),
+	      );
+	      if (state.workspaceTabs.length === 0) {
+	        const terminalLayout = removePaneSession(state.terminalLayout, id);
+	        const activeTerminalPaneId =
+	          state.activeTerminalPaneId &&
+	          paneContainsPane(terminalLayout, state.activeTerminalPaneId)
+	            ? state.activeTerminalPaneId
+	            : firstLeaf(terminalLayout)?.paneId ?? null;
+	        const activeSessionId =
+	          state.activeSessionId === id
+	            ? activeTerminalPaneId
+	              ? sessionIdForPane(terminalLayout, activeTerminalPaneId)
+	              : null
+	            : state.activeSessionId;
+	        const activeWorkspaceId = activeSessionId
+	          ? sessions.find((session) => session.id === activeSessionId)?.workspaceId ?? null
+	          : workspaces[0]?.id ?? null;
+	        return {
+	          sessions,
+	          workspaces,
+	          activeCommandBlocks,
+	          ...scopedData,
+	          terminalLayout,
+	          activeTerminalPaneId,
+	          maximizedTerminalPaneId:
+	            state.maximizedTerminalPaneId &&
+	            paneContainsPane(terminalLayout, state.maximizedTerminalPaneId)
+	              ? state.maximizedTerminalPaneId
+	              : null,
+	          activeSessionId,
+	          activeWorkspaceId,
+	          activeWorkspaceTabId: null,
+	        };
+	      }
+	      const workspaceTabs = state.workspaceTabs
+	        .map((tab) => {
+	          const terminalLayout = removePaneSession(tab.terminalLayout, id);
           return {
             ...tab,
             terminalLayout,
@@ -4018,28 +4097,32 @@ export const useSessionStore = create<SessionStore>((set) => ({
                 ? tab.maximizedTerminalPaneId
                 : null,
           };
-        })
-        .filter(
-          (tab) =>
-            tab.terminalLayout !== null ||
-            tab.id === state.activeWorkspaceTabId ||
-            sessions.some((session) => session.workspaceId === tab.workspaceId),
-        );
-      const nextState = { ...state, sessions, workspaceTabs };
-      const activeRemoved = state.activeSessionId === id;
-      const activeTab = activeWorkspaceTab(nextState);
-      const mirrored = mirrorWorkspaceTab(activeTab);
-      const { [id]: _removedCommandBlock, ...activeCommandBlocks } =
-        state.activeCommandBlocks;
-      return {
-        sessions,
-        workspaceTabs,
-        activeCommandBlocks,
-        ...mirrored,
-        activeSessionId: activeRemoved
-          ? mirrored.activeSessionId
-          : state.activeSessionId,
-      };
+	        })
+	        .filter(
+	          (tab) =>
+	            workspaceIds.has(tab.workspaceId) &&
+	            (tab.terminalLayout !== null ||
+	              tab.id === state.activeWorkspaceTabId ||
+	              sessions.some((session) => session.workspaceId === tab.workspaceId)),
+	        );
+	      const nextState = { ...state, sessions, workspaceTabs };
+	      const activeRemoved = state.activeSessionId === id;
+	      const activeTab = activeWorkspaceTab(nextState);
+	      const mirrored = mirrorWorkspaceTab(activeTab);
+	      return {
+	        sessions,
+	        workspaces,
+	        workspaceTabs,
+	        activeCommandBlocks,
+	        ...scopedData,
+	        arrangements: state.arrangements.filter((arrangement) =>
+	          arrangementInWorkspaceIds(arrangement, workspaceIds),
+	        ),
+	        ...mirrored,
+	        activeSessionId: activeRemoved
+	          ? mirrored.activeSessionId
+	          : state.activeSessionId,
+	      };
     });
     persistLater();
   },
@@ -4238,30 +4321,46 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }
     persistLater();
   },
-  setWorkspaces: (workspaces) => {
-    set((state) => {
-      const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
-      const workspaceTabs = state.workspaceTabs.filter((tab) =>
-        workspaceIds.has(tab.workspaceId),
-      );
-      for (const workspace of workspaces) {
-        if (!workspaceTabs.some((tab) => tab.workspaceId === workspace.id)) {
-          workspaceTabs.push(makeWorkspaceTab(workspace.id));
-        }
-      }
+	  setWorkspaces: (workspaces) => {
+	    set((state) => {
+	      const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+	      const sessions = state.sessions.filter((session) =>
+	        workspaceIds.has(session.workspaceId),
+	      );
+	      const sessionIds = new Set(sessions.map((session) => session.id));
+	      const scopedData = pruneWorkspaceScopedData(state, workspaceIds);
+	      const workspaceTabs = pruneWorkspaceTabs(
+	        state.workspaceTabs.filter((tab) => workspaceIds.has(tab.workspaceId)),
+	        sessionIds,
+	      );
+	      for (const workspace of workspaces) {
+	        if (!workspaceTabs.some((tab) => tab.workspaceId === workspace.id)) {
+	          workspaceTabs.push(makeWorkspaceTab(workspace.id));
+	        }
+	      }
       const activeTab =
         workspaceTabs.find((tab) => tab.id === state.activeWorkspaceTabId) ??
         workspaceTabs.find((tab) => tab.workspaceId === state.activeWorkspaceId) ??
         workspaceTabs[0] ??
-        null;
-      return {
-        workspaces,
-        workspaceTabs,
-        ...mirrorWorkspaceTab(activeTab),
-      };
-    });
-    persistLater();
-  },
+	        null;
+	      return {
+	        sessions,
+	        workspaces,
+	        workspaceTabs,
+	        ...scopedData,
+	        arrangements: state.arrangements.filter((arrangement) =>
+	          arrangementInWorkspaceIds(arrangement, workspaceIds),
+	        ),
+	        activeCommandBlocks: Object.fromEntries(
+	          Object.entries(state.activeCommandBlocks).filter(([sessionId]) =>
+	            sessionIds.has(sessionId),
+	          ),
+	        ),
+	        ...mirrorWorkspaceTab(activeTab),
+	      };
+	    });
+	    persistLater();
+	  },
   addWorkspace: (workspace) => {
     set((state) => {
       const workspaces = [
@@ -5585,8 +5684,14 @@ export function applyOnibiConfig(config: OnibiConfigExport): void {
   const workspaces = normalizeWorkspaces(config.workspaces);
   useSessionStore.setState((state) => {
     const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
-    const workspaceTabs = state.workspaceTabs.filter((tab) =>
-      workspaceIds.has(tab.workspaceId),
+    const sessions = state.sessions.filter((session) =>
+      workspaceIds.has(session.workspaceId),
+    );
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    const scopedData = pruneWorkspaceScopedData(state, workspaceIds);
+    const workspaceTabs = pruneWorkspaceTabs(
+      state.workspaceTabs.filter((tab) => workspaceIds.has(tab.workspaceId)),
+      sessionIds,
     );
     for (const workspace of workspaces) {
       if (!workspaceTabs.some((tab) => tab.workspaceId === workspace.id)) {
@@ -5600,8 +5705,18 @@ export function applyOnibiConfig(config: OnibiConfigExport): void {
       null;
     return {
       settings: mergeSettings(config.settings),
+      sessions,
       workspaces,
       workspaceTabs,
+      ...scopedData,
+      arrangements: state.arrangements.filter((arrangement) =>
+        arrangementInWorkspaceIds(arrangement, workspaceIds),
+      ),
+      activeCommandBlocks: Object.fromEntries(
+        Object.entries(state.activeCommandBlocks).filter(([sessionId]) =>
+          sessionIds.has(sessionId),
+        ),
+      ),
       ...mirrorWorkspaceTab(activeTab),
     };
   });
