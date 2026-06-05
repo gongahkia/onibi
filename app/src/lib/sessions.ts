@@ -1929,11 +1929,12 @@ export function keyChordFromKeyboardEvent(event: KeyboardEvent): string {
   if (!key || ["meta", "control", "ctrl", "alt", "shift"].includes(key)) {
     return "";
   }
+  const shiftProducesKey = key === "?";
   return [
     ...(event.metaKey ? ["cmd"] : []),
     ...(event.ctrlKey ? ["ctrl"] : []),
     ...(event.altKey ? ["alt"] : []),
-    ...(event.shiftKey ? ["shift"] : []),
+    ...(event.shiftKey && !shiftProducesKey ? ["shift"] : []),
     key,
   ].join("+");
 }

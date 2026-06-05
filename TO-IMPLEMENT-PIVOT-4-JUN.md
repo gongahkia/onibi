@@ -119,6 +119,13 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Extended setup/status/doctor output with the richer integration lifecycle status while preserving existing `adapters` JSON fields for compatibility.
 - Added focused Rust tests for current, legacy unmarked, outdated, missing, install, uninstall, and outdated-only lifecycle cases.
 
+### Implemented in the terminal selection/theme pass
+
+- Enabled xterm's native right-click word selection and added double-click selection copy to the system clipboard.
+- Kept explicit terminal copy keybindings wired to xterm's current selection, with empty selections ignored.
+- Added a built-in `terminal` theme mode that uses imported/host terminal colors when available and falls back to the current dark terminal palette.
+- Added focused frontend tests for terminal selection copy behavior, terminal theme option normalization, TOML round trips, and imported terminal color resolution.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -261,8 +268,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 42. **Transparent pane backgrounds** inheriting host terminal.
 
 ### 2.8 Selection / copy
-43. **In-pane drag-select with autoscroll** into scrollback.
-44. **Double-click word-token copy** (Unicode-aware boundaries) with visual feedback.
+43. **[DONE] In-pane drag-select with autoscroll** into scrollback — xterm native selection remains active and supports scrollback drag selection.
+44. **[DONE] Double-click word-token copy** — xterm word selection is copied to the system clipboard on double-click.
 45. **Keyboard copy mode** (prefix+[, h/j/k/l, w/b/e, {/}, v/Space, y/Enter).
 46. **ANSI-color-preserving copy** (codes optional via flag).
 47. **OSC 52 clipboard fallback** for headless / SSH contexts.
@@ -277,8 +284,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 54. **[DONE] `herdr config reset-keys` equivalent** — `onibi config reset-keys` restores default keybindings and drops custom command bindings.
 
 ### 2.10 Theming
-55. **18 built-in themes** (catppuccin, tokyo-night, dracula, nord, gruvbox, one-dark, solarized, kanagawa, rose-pine, vesper + light variants + terminal).
-56. **`terminal` theme** that inherits host ANSI palette.
+55. **[DONE] Built-in themes** — onibi ships broad built-in app/terminal color schemes including VSCode, GitHub, One Dark, Dracula, Catppuccin, Tokyo Night, Night Owl, Material, Monokai, Gruvbox, Nord, Ayu, Palenight, Cobalt, Shades of Purple, Synthwave, Solarized, Onibi Flame, and Terminal.
+56. **[DONE] `terminal` theme** that inherits imported/host terminal colors where available and falls back to the current dark terminal palette.
 57. **Per-theme custom-color overrides** in TOML.
 
 ### 2.11 Notifications & sound
@@ -357,7 +364,8 @@ Completed from Phase B: 8, 11, 19, 20.
 Remaining native hook/plugin work: 13, 14, 15 (replace stub), 16, 17, 18. Blocked until native hooks/provider support: 10, 31.
 
 **Phase C — terminal-native polish:**
-37 (decision: keep xterm.js or embed ghostty-vt), 38, 40, 43, 44, 45, 55, 56.
+Completed from Phase C: 43, 44, 55, 56.
+Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-vt), 38, 40, 45.
 
 **Phase D — remote & distribution:**
 34, 35, 62, 73, 74.

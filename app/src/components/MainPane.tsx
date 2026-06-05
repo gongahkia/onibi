@@ -717,6 +717,137 @@ function TerminalPaneTree({
   );
 }
 
+function TerminalPaneContextMenu({
+  x,
+  y,
+  paneId,
+  session,
+  workspace,
+  canRestart,
+  canMaximize,
+  isMaximized,
+  canHandoff,
+  onClose,
+  onFocus,
+  onToggleMaximize,
+  onRestart,
+  onDuplicate,
+  onAddTab,
+  onHandoff,
+  onCloseSession,
+}: {
+  x: number;
+  y: number;
+  paneId: string;
+  session: Session;
+  workspace: Workspace | null;
+  canRestart: boolean;
+  canMaximize: boolean;
+  isMaximized: boolean;
+  canHandoff: boolean;
+  onClose: () => void;
+  onFocus: () => void;
+  onToggleMaximize: () => void;
+  onRestart: () => void;
+  onDuplicate: () => void;
+  onAddTab: () => void;
+  onHandoff: () => void;
+  onCloseSession: () => void;
+}) {
+  const left =
+    typeof window === "undefined" ? x : Math.min(x, Math.max(window.innerWidth - 272, 8));
+  const top =
+    typeof window === "undefined" ? y : Math.min(y, Math.max(window.innerHeight - 360, 8));
+
+  function run(action: () => void) {
+    action();
+    onClose();
+  }
+
+  function copy(value: string | null | undefined) {
+    if (value) {
+      void navigator.clipboard?.writeText(value);
+    }
+  }
+
+  return (
+    <div
+      className="file-context-menu terminal-pane-context-menu"
+      role="menu"
+      style={{ left, top }}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div className="context-menu-title">
+        {AGENT_LABELS[session.agent]} · {session.title}
+        <span>{workspace?.name ?? "Workspace"}</span>
+      </div>
+      <button type="button" role="menuitem" onClick={() => run(onFocus)}>
+        Focus Pane
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canMaximize}
+        onClick={() => run(onToggleMaximize)}
+      >
+        {isMaximized ? "Restore Pane" : "Maximize Pane"}
+      </button>
+      <div className="context-separator" role="separator" />
+      <button type="button" role="menuitem" onClick={() => run(onAddTab)}>
+        New Terminal Tab Here
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canRestart}
+        onClick={() => run(onDuplicate)}
+      >
+        Split Right with Duplicate
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canRestart}
+        onClick={() => run(onRestart)}
+      >
+        Restart Session
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canHandoff}
+        onClick={() => run(onHandoff)}
+      >
+        Handoff to Another Agent
+      </button>
+      <div className="context-separator" role="separator" />
+      <button type="button" role="menuitem" onClick={() => run(() => copy(paneId))}>
+        Copy Pane ID
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => copy(session.id))}
+      >
+        Copy Session ID
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!workspace}
+        onClick={() => run(() => copy(workspace?.path))}
+      >
+        Copy Workspace Path
+      </button>
+      <div className="context-separator" role="separator" />
+      <button type="button" role="menuitem" className="danger" onClick={() => run(onCloseSession)}>
+        Close Session
+      </button>
+    </div>
+  );
+}
+
 function defaultHandoffAgent(source: AgentKind): AgentKind {
   return (
     AGENT_KINDS.find((agent) => agent !== "shell" && agent !== source) ??
