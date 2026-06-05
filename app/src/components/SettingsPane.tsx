@@ -25,6 +25,7 @@ import {
   type TerminalConfigImport,
   type TerminalConfigSource,
   type TerminalKeybinding,
+  type TerminalShellMode,
   type TerminalTrigger,
   type TerminalTriggerAction,
   type ThemeMode,
@@ -275,6 +276,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontSize={settings.terminalFontSize}
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalConfirmClose={settings.terminalConfirmClose}
+              terminalShellMode={settings.terminalShellMode}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
               editorKeybindingMode={settings.editorKeybindingMode}
@@ -306,6 +308,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalConfirmClose={(terminalConfirmClose) =>
                 updateSettings({ terminalConfirmClose })
+              }
+              onTerminalShellMode={(terminalShellMode) =>
+                updateSettings({ terminalShellMode })
               }
               onNewPaneCwd={(newPaneCwd) => updateSettings({ newPaneCwd })}
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
@@ -530,6 +535,7 @@ interface GeneralSettingsProps {
   terminalFontSize: number;
   terminalScrollbackLines: number;
   terminalConfirmClose: boolean;
+  terminalShellMode: TerminalShellMode;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
@@ -550,6 +556,7 @@ interface GeneralSettingsProps {
   onTerminalFontSize: (fontSize: number) => void;
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
+  onTerminalShellMode: (mode: TerminalShellMode) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
   onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
@@ -574,6 +581,7 @@ function GeneralSettings({
   terminalFontSize,
   terminalScrollbackLines,
   terminalConfirmClose,
+  terminalShellMode,
   newPaneCwd,
   editorFontSize,
   editorKeybindingMode,
@@ -594,6 +602,7 @@ function GeneralSettings({
   onTerminalFontSize,
   onTerminalScrollbackLines,
   onTerminalConfirmClose,
+  onTerminalShellMode,
   onNewPaneCwd,
   onEditorFontSize,
   onEditorKeybindingMode,
@@ -717,6 +726,19 @@ function GeneralSettings({
           />
           Confirm before closing running terminals
         </span>
+      </label>
+      <label className="settings-row">
+        <span>Shell mode</span>
+        <select
+          className="settings-select"
+          aria-label="Shell mode"
+          value={terminalShellMode}
+          onChange={(event) => onTerminalShellMode(event.target.value as TerminalShellMode)}
+        >
+          <option value="auto">Auto</option>
+          <option value="login">Login shell</option>
+          <option value="non_login">Non-login shell</option>
+        </select>
       </label>
       <NewPaneCwdControl value={newPaneCwd} onChange={onNewPaneCwd} />
       <FontFamilyControl

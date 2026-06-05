@@ -10,6 +10,7 @@ import {
   shellPath,
   type PtySessionMetadata,
   type PtyId,
+  type PtyShellMode,
   type PtySpawnRequest,
 } from "./tauri-bridge";
 import { startAgentReview, stopAgentReview } from "./agent-review";
@@ -152,6 +153,7 @@ export interface SessionRestartMetadata {
   args: string[];
   cwd: string | null;
   env: Array<[string, string]>;
+  shellMode?: TerminalShellMode;
 }
 
 export interface TerminalLaunchSpec extends SessionRestartMetadata {
@@ -194,6 +196,7 @@ export type NewPaneCwdMode =
   | "home"
   | "follow"
   | `fixed:${string}`;
+export type TerminalShellMode = PtyShellMode;
 
 export const KEYBINDING_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export type KeybindingIndex = (typeof KEYBINDING_INDEXES)[number];
@@ -611,6 +614,7 @@ export interface AppSettings {
   terminalFontSize: number;
   terminalScrollbackLines: number;
   terminalShellIntegration: boolean;
+  terminalShellMode: TerminalShellMode;
   terminalKeybindings: TerminalKeybinding[];
   terminalShaderPaths: string[];
   terminalConfirmClose: boolean;
@@ -1555,6 +1559,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalFontSize: 13,
   terminalScrollbackLines: 0,
   terminalShellIntegration: true,
+  terminalShellMode: "auto",
   terminalKeybindings: [],
   terminalShaderPaths: [],
   terminalConfirmClose: true,
@@ -2155,6 +2160,12 @@ function normalizeEditorKeybindingMode(value: unknown): EditorKeybindingMode {
     : DEFAULT_SETTINGS.editorKeybindingMode;
 }
 
+export function normalizeTerminalShellMode(value: unknown): TerminalShellMode {
+  return value === "auto" || value === "login" || value === "non_login"
+    ? value
+    : DEFAULT_SETTINGS.terminalShellMode;
+}
+
 function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   const agentCommands = isRecord(settings?.agentCommands)
     ? {
@@ -2210,6 +2221,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       typeof merged.terminalShellIntegration === "boolean"
         ? merged.terminalShellIntegration
         : DEFAULT_SETTINGS.terminalShellIntegration,
+    terminalShellMode: normalizeTerminalShellMode(merged.terminalShellMode),
     terminalKeybindings: normalizeTerminalKeybindings(merged.terminalKeybindings),
     terminalShaderPaths: normalizeStringArray(merged.terminalShaderPaths),
     terminalConfirmClose:
@@ -3047,6 +3059,8 @@ function normalizeArrangementSessions(value: unknown): ArrangementSession[] {
       typeof item.launch.cwd === "string" && item.launch.cwd.trim()
         ? item.launch.cwd
         : null;
+    const shellMode =
+      agent === "shell" ? normalizeTerminalShellMode(item.launch.shellMode) : undefined;
     sessions.push({
       sessionId:
         typeof item.sessionId === "string" && item.sessionId.trim()
@@ -3066,6 +3080,7 @@ function normalizeArrangementSessions(value: unknown): ArrangementSession[] {
         args: normalizeStringList(item.launch.args),
         cwd,
         env: normalizeEnvPairs(item.launch.env),
+        ...(shellMode ? { shellMode } : {}),
       },
     });
   }
@@ -5345,6 +5360,7 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_font_size", settings.terminalFontSize),
     settingLine("terminal_scrollback_lines", settings.terminalScrollbackLines),
     settingLine("terminal_shell_integration", settings.terminalShellIntegration),
+    settingLine("terminal_shell_mode", settings.terminalShellMode),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
     settingLine("keybinding_prefix", settings.keybindingPrefix),
@@ -5602,9 +5618,9 @@ export function launchCommandForAgent(
   agent: AgentKind,
   settings: AppSettings,
   initialPrompt: string,
-): Pick<PtySpawnRequest, "command" | "args"> {
+): Pick<PtySpawnRequest, "command" | "args" | "shellMode"> {
   if (agent === "shell") {
-    return { command: shellPath(), args: [] };
+    return { command: shellPath(), args: [], shellMode: settings.terminalShellMode };
   }
   const commandLine =
     settings.agentCommands[agent] || DEFAULT_AGENT_COMMANDS[agent];
@@ -5651,6 +5667,12 @@ function shellIntegrationEnv(
     : [];
 }
 
+function shellModePatch(
+  shellMode: TerminalShellMode | null | undefined,
+): Pick<PtySpawnRequest, "shellMode"> | Record<string, never> {
+  return shellMode ? { shellMode } : {};
+}
+
 export async function spawnSessionFromLaunchSpec(
   spec: TerminalLaunchSpec,
   placement?: TerminalPanePlacement | null,
@@ -5665,7 +5687,15 @@ export async function spawnSessionFromLaunchSpec(
     agent: spec.agent,
     workspaceId: spec.workspaceId,
     title: spec.title,
+    ...shellModePatch(spec.shellMode),
   });
+  const restart: SessionRestartMetadata = {
+    command: spec.command,
+    args: spec.args,
+    cwd: spec.cwd,
+    env: spec.env,
+    ...(spec.shellMode ? { shellMode: spec.shellMode } : {}),
+  };
   useSessionStore.getState().addSession(
     {
       id,
@@ -5680,12 +5710,7 @@ export async function spawnSessionFromLaunchSpec(
       lastTrigger: null,
       lastCommandBlockId: null,
       transcript: null,
-      restart: {
-        command: spec.command,
-        args: spec.args,
-        cwd: spec.cwd,
-        env: spec.env,
-      },
+      restart,
     },
     placement,
   );
@@ -5721,6 +5746,7 @@ export async function spawnAgentSession(
       args: launch.args,
       cwd,
       env,
+      ...(launch.shellMode ? { shellMode: launch.shellMode } : {}),
       initialPrompt,
     },
     placement,
@@ -5805,6 +5831,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     agent: session.agent,
     workspaceId: session.workspaceId,
     title: session.title,
+    ...shellModePatch(session.restart.shellMode),
   });
   const replacement: Session = {
     ...session,
@@ -5850,6 +5877,7 @@ export async function duplicateSession(
       args: session.restart.args,
       cwd: session.cwd ?? session.restart.cwd,
       env: session.restart.env,
+      ...(session.restart.shellMode ? { shellMode: session.restart.shellMode } : {}),
     },
     placement,
   );
@@ -5888,6 +5916,7 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       agent: savedSession.agent,
       workspaceId: savedSession.workspaceId,
       title: savedSession.title,
+      ...shellModePatch(launch.shellMode),
     });
     sessionIds.set(savedSession.sessionId, id);
     newSessions.push({

@@ -4,7 +4,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    pty::{PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest},
+    pty::{PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest, ShellMode},
     secret,
 };
 use anyhow::{anyhow, Context, Result};
@@ -59,6 +59,8 @@ pub struct SessionRestartMetadata {
     pub args: Vec<String>,
     pub cwd: Option<String>,
     pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub shell_mode: ShellMode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -817,6 +819,7 @@ impl OrchestrationState {
             args: restart.args,
             cwd: restart.cwd.map(PathBuf::from),
             env: restart.env,
+            shell_mode: restart.shell_mode,
             rows: session.rows.max(1),
             cols: session.cols.max(1),
             name: session.name.clone(),
@@ -1435,6 +1438,7 @@ fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadat
         args: req.args.clone(),
         cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
         env: req.env.clone(),
+        shell_mode: req.shell_mode,
     }
 }
 
@@ -2121,6 +2125,27 @@ mod tests {
     }
 
     #[test]
+    fn pty_spawn_request_defaults_shell_mode_to_auto() {
+        let req: PtySpawnRequest = serde_json::from_value(json!({
+            "command": "/bin/sh",
+            "args": [],
+        }))
+        .unwrap();
+
+        assert_eq!(req.shell_mode, ShellMode::Auto);
+    }
+
+    #[test]
+    fn restart_metadata_preserves_shell_mode() {
+        let mut req = test_spawn_request("", &[], None, Some("shell"));
+        req.shell_mode = ShellMode::NonLogin;
+
+        let restart = restart_metadata_from_request(&req);
+
+        assert_eq!(restart.shell_mode, ShellMode::NonLogin);
+    }
+
+    #[test]
     fn tail_lines_limits_rows() {
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
     }
@@ -2332,6 +2357,7 @@ mod tests {
                 args: vec![],
                 cwd: Some("/repo".to_string()),
                 env: vec![],
+                shell_mode: ShellMode::Auto,
             }),
         };
         store.upsert(&session).unwrap();
@@ -2357,6 +2383,7 @@ mod tests {
             args: args.iter().map(|arg| arg.to_string()).collect(),
             cwd: None,
             env: vec![],
+            shell_mode: ShellMode::Auto,
             rows: 30,
             cols: 100,
             name: None,

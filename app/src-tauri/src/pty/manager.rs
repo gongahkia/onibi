@@ -1,6 +1,6 @@
 use super::session::{
     PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
-    PtyStore,
+    PtyStore, ShellMode,
 };
 use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -43,6 +43,8 @@ impl PtyManager {
             pixel_width: 0,
             pixel_height: 0,
         })?;
+        let apply_shell_mode = req.agent.as_deref() == Some("shell") && req.args.is_empty();
+        let shell_mode = req.shell_mode;
         let command = if req.command.trim().is_empty() {
             crate::util::shell::default_shell()
         } else {
@@ -52,6 +54,9 @@ impl PtyManager {
         let mut env_values = req.env;
         let shell_integration_dir =
             configure_shell_integration(id, &command, &mut args, &mut env_values)?;
+        if apply_shell_mode && shell_mode == ShellMode::Login {
+            apply_login_shell_mode(&command, &mut args);
+        }
         let mut cmd = CommandBuilder::new(&command);
         cmd.args(args.iter());
         cmd.env("TERM", "xterm-256color");
@@ -266,6 +271,25 @@ fn shell_name(command: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn login_shell_flag(command: &str) -> Option<&'static str> {
+    match shell_name(command)?.as_str() {
+        "bash" | "fish" => Some("--login"),
+        "zsh" => Some("-l"),
+        _ => None,
+    }
+}
+
+fn apply_login_shell_mode(command: &str, args: &mut Vec<String>) -> bool {
+    let Some(flag) = login_shell_flag(command) else {
+        warn!(command, "login shell mode requested for unsupported shell");
+        return false;
+    };
+    if !args.iter().any(|arg| arg == flag) {
+        args.insert(0, flag.to_string());
+    }
+    true
+}
+
 fn shell_integration_root(id: PtyId) -> PathBuf {
     env::temp_dir().join(format!("onibi-shell-{id}"))
 }
@@ -478,6 +502,7 @@ mod tests {
             args: vec!["-c".to_string(), script.to_string()],
             cwd: None,
             env: vec![],
+            shell_mode: ShellMode::Auto,
             rows: 24,
             cols: 80,
             name: None,
@@ -485,6 +510,30 @@ mod tests {
             workspace_id: None,
             title: None,
         }
+    }
+
+    #[test]
+    fn login_shell_mode_prepends_known_shell_flags() {
+        let mut bash_args = vec!["--rcfile".to_string(), "/tmp/onibi-bashrc".to_string()];
+        assert!(apply_login_shell_mode("/bin/bash", &mut bash_args));
+        assert_eq!(bash_args[0], "--login");
+        assert_eq!(bash_args[1], "--rcfile");
+
+        let mut zsh_args = Vec::new();
+        assert!(apply_login_shell_mode("/bin/zsh", &mut zsh_args));
+        assert_eq!(zsh_args, vec!["-l"]);
+
+        let mut fish_args = Vec::new();
+        assert!(apply_login_shell_mode("/usr/local/bin/fish", &mut fish_args));
+        assert_eq!(fish_args, vec!["--login"]);
+    }
+
+    #[test]
+    fn login_shell_mode_ignores_unsupported_shells() {
+        let mut args = Vec::new();
+
+        assert!(!apply_login_shell_mode("/bin/sh", &mut args));
+        assert!(args.is_empty());
     }
 
     #[tokio::test]
@@ -506,6 +555,7 @@ mod tests {
                 args: vec![],
                 cwd: None,
                 env: vec![],
+                shell_mode: ShellMode::Auto,
                 rows: 24,
                 cols: 80,
                 name: None,
@@ -531,6 +581,7 @@ mod tests {
                 args: vec!["10".to_string()],
                 cwd: None,
                 env: vec![],
+                shell_mode: ShellMode::Auto,
                 rows: 24,
                 cols: 80,
                 name: None,

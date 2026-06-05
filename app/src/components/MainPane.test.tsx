@@ -422,6 +422,7 @@ describe("MainPane", () => {
             args: [],
             cwd: "/repo",
             env: [["ONIBI_SHELL_INTEGRATION", "1"]],
+            shellMode: "login",
           },
         },
       ],
@@ -436,6 +437,12 @@ describe("MainPane", () => {
 
     await waitFor(() => {
       expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_spawn", {
+      req: expect.objectContaining({
+        command: "",
+        shellMode: "login",
+      }),
     });
     expect(useSessionStore.getState().terminalLayout).toEqual({
       type: "leaf",
@@ -468,6 +475,7 @@ describe("MainPane", () => {
             args: [],
             cwd: "/repo",
             env: [["ONIBI_SHELL_INTEGRATION", "1"]],
+            shellMode: "login",
           },
         },
       ],

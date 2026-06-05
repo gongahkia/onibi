@@ -57,6 +57,15 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.showTerminalPaneAgentLabels).toBe(false);
   });
 
+  test("updates terminal shell mode", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Shell mode"), {
+      target: { value: "non_login" },
+    });
+
+    expect(useSessionStore.getState().settings.terminalShellMode).toBe("non_login");
+  });
+
   test("updates a custom color scheme", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 

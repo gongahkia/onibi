@@ -16,6 +16,15 @@ pub type PtyId = Uuid;
 
 const OUTPUT_REPLAY_LIMIT: usize = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellMode {
+    #[default]
+    Auto,
+    Login,
+    NonLogin,
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("pty session {0} was not found")]
@@ -41,6 +50,8 @@ pub struct PtySpawnRequest {
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub shell_mode: ShellMode,
     #[serde(default = "default_rows")]
     pub rows: u16,
     #[serde(default = "default_cols")]

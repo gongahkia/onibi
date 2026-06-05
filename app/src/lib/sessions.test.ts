@@ -7,6 +7,7 @@ import {
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
   normalizeNewPaneCwdMode,
+  normalizeTerminalShellMode,
   parseOnibiConfigToml,
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
@@ -305,6 +306,13 @@ describe("session hydration", () => {
     );
   });
 
+  test("normalizes terminal shell mode", async () => {
+    expect(DEFAULT_SETTINGS.terminalShellMode).toBe("auto");
+    expect(normalizeTerminalShellMode("login")).toBe("login");
+    expect(normalizeTerminalShellMode("non_login")).toBe("non_login");
+    expect(normalizeTerminalShellMode("interactive")).toBe("auto");
+  });
+
   test("defaults bind prefix number keys to workspace tabs", async () => {
     expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
       keys: "prefix+1",
@@ -452,6 +460,7 @@ version = 1
 
 [settings]
 show_terminal_pane_agent_labels = false
+terminal_shell_mode = "login"
 
 [keybindings]
 prefix = "ctrl+a"
@@ -472,6 +481,7 @@ command = "pnpm test"
 
     expect(parsed.settings.keybindingPrefix).toBe("ctrl+a");
     expect(parsed.settings.showTerminalPaneAgentLabels).toBe(false);
+    expect(parsed.settings.terminalShellMode).toBe("login");
     expect(parsed.settings.appKeybindings).toContainEqual({
       keys: "prefix+1",
       action: "workspace.focusIndex1",
@@ -490,6 +500,7 @@ command = "pnpm test"
       workspaces: [],
     });
     expect(serialized).toContain("[[keybindings.command]]");
+    expect(serialized).toContain('terminal_shell_mode = "login"');
     expect(serialized).toContain("show_terminal_pane_agent_labels = false");
     expect(serialized).toContain('description = "Run tests"');
     expect(serialized).toContain('command = "pnpm test"');

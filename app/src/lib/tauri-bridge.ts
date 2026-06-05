@@ -2,12 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type PtyId = string;
+export type PtyShellMode = "auto" | "login" | "non_login";
 
 export interface PtySpawnRequest {
   command: string;
   args: string[];
   cwd: string | null;
   env: Array<[string, string]>;
+  shellMode?: PtyShellMode;
   rows: number;
   cols: number;
   name?: string | null;
@@ -39,6 +41,7 @@ export interface PtySessionRestart {
   args: string[];
   cwd: string | null;
   env: Array<[string, string]>;
+  shellMode?: PtyShellMode;
 }
 
 export interface PtySessionMetadata {

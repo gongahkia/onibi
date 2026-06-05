@@ -262,6 +262,7 @@ describe("CommandPalette", () => {
             args: [],
             cwd: "/repo",
             env: [["ONIBI_SHELL_INTEGRATION", "1"]],
+            shellMode: "login",
           },
         },
       ],
@@ -287,6 +288,12 @@ describe("CommandPalette", () => {
 
     await waitFor(() => {
       expect(useSessionStore.getState().activeSessionId).toBe("pty-restored");
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_spawn", {
+      req: expect.objectContaining({
+        command: "",
+        shellMode: "login",
+      }),
     });
     expect(useSessionStore.getState().terminalLayout).toEqual({
       type: "leaf",

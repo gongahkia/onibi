@@ -55,6 +55,7 @@ describe("NewSessionDialog", () => {
           args: [],
           cwd: "/repo",
           env: [["ONIBI_SHELL_INTEGRATION", "1"]],
+          shellMode: "auto",
           rows: 30,
           cols: 100,
           agent: "shell",

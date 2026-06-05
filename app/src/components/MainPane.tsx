@@ -63,11 +63,20 @@ async function spawnShellReplacement(
   session: Session,
   workspace: Workspace,
 ): Promise<Session> {
-  const id = await ptySpawn({
+  const shellMode = useSessionStore.getState().settings.terminalShellMode;
+  const restart = {
     command: shellPath(),
     args: [],
     cwd: workspace.path,
     env: [],
+    shellMode,
+  };
+  const id = await ptySpawn({
+    command: restart.command,
+    args: restart.args,
+    cwd: restart.cwd,
+    env: restart.env,
+    shellMode: restart.shellMode,
     rows: 30,
     cols: 100,
     agent: "shell",
@@ -86,12 +95,7 @@ async function spawnShellReplacement(
     lastExitCode: null,
     lastTrigger: null,
     lastCommandBlockId: null,
-    restart: {
-      command: shellPath(),
-      args: [],
-      cwd: workspace.path,
-      env: [],
-    },
+    restart,
   };
 }
 
