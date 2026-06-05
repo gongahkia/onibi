@@ -71,7 +71,6 @@ fn install_at(path: &Path) -> Result<()> {
             .as_array_mut()
             .with_context(|| format!("Qoder {event} hooks field must be an array"))?;
         groups.push(json!({
-            "matcher": "*",
             "hooks": [{
                 "type": "command",
                 "command": command_string_hook("qoder"),
@@ -162,4 +161,25 @@ fn onibi_handlers(settings: &Value) -> impl Iterator<Item = &Value> {
 
 fn is_onibi_handler(handler: &Value) -> bool {
     handler.get("command").and_then(Value::as_str) == Some(HOOK_COMMAND)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn install_uses_match_all_groups_without_invalid_star_matcher() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        install_at(&path).unwrap();
+        install_at(&path).unwrap();
+        let settings = read_json(&path, json!({})).unwrap();
+        let pre_tool_groups = settings["hooks"]["PreToolUse"].as_array().unwrap();
+
+        assert_eq!(onibi_handlers(&settings).count(), EVENTS.len());
+        assert_eq!(pre_tool_groups.len(), 1);
+        assert!(pre_tool_groups[0].get("matcher").is_none());
+    }
 }

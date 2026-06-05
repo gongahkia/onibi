@@ -155,11 +155,19 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Extended setup/doctor/status integration handling for `event-bridge`, `resume-only`, and `pending` support classes.
 - Verified with `cargo test --manifest-path app/src-tauri/Cargo.toml` and `pnpm --dir app typecheck`.
 
+### Implemented in the native provider blocking-approval pass
+
+- Upgraded Qoder, GitHub Copilot CLI, Goose, and OpenCode from observe-only provider events to synchronous pre-tool approval blocking through Onibi.
+- Added shared provider hook approval handling for stdin command hooks, including fail-closed deny behavior and provider-specific allow/deny response formats.
+- Fixed the Qoder hook matcher to use match-all groups without an invalid `"*"` regex matcher.
+- Bumped the Onibi integration marker so old observe-only hook installs are reported as outdated and can be reinstalled.
+- Updated adapter docs and tests for provider-specific blocking output, edited-input forwarding, installer config, and OpenCode plugin source.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
-- Provider-native blocking approval remains limited to Claude Code and Bash-only Codex; Qoder/Copilot/Goose/OpenCode currently feed lifecycle/status events but do not yet block tool execution through Onibi.
+- Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 ---
 
@@ -260,10 +268,10 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.3 Integrations (versioned hooks/plugins)
 13. **[BLOCKED] Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`) — registered as pending until a stable public native extension API is verified.
 14. **[BLOCKED] OMP extension** (`~/.omp/agent/extensions/…`) — registered as pending until a stable public native extension API is verified.
-15. **[DONE] OpenCode plugin** — versioned local plugin installer at `~/.config/opencode/plugins/onibi-provider-events.js`, provider-event ingestion, and `opencode --session <id>` resume metadata are wired.
+15. **[DONE] OpenCode plugin** — versioned local plugin installer at `~/.config/opencode/plugins/onibi-provider-events.js`, provider-event ingestion, synchronous `tool.execute.before` approval blocking, approve-with-edits arg updates, and `opencode --session <id>` resume metadata are wired.
 16. **[PARTIAL] Hermes Python plugin** (`~/.hermes-agent/plugins/…`) — Hermes is registered as resume-only with `hermes --resume <id>` metadata; plugin hook installation remains pending.
-17. **[DONE] Qoder CLI hook** — versioned command-hook installer records session/tool lifecycle events and native `qoder -r <id>` resume metadata.
-18. **[DONE] GitHub Copilot hook** — versioned hook config records session/tool/stop/error events through `onibi _hook copilot`.
+17. **[DONE] Qoder CLI hook** — versioned command-hook installer records session/tool lifecycle events, blocks `PreToolUse` through Onibi with exit-code-2 denial, supports `updatedInput`, and preserves native `qoder -r <id>` resume metadata.
+18. **[DONE] GitHub Copilot hook** — versioned hook config records session/tool/stop/error events through `onibi _hook copilot`, blocks `PreToolUse` through Onibi, and maps approved edits to Copilot `modifiedArgs`.
 19. **[DONE] Integration version tracking** — Onibi-native integration markers are tracked for Claude Code and Codex, and `integration status --outdated-only` reports stale/missing marker installs.
 20. **[DONE] `integration install/uninstall/status` CLI** as a unified subsystem, with existing `adapter` commands preserved as compatibility aliases.
 
@@ -392,7 +400,7 @@ Additional orchestration items completed or partially completed outside original
 **Phase B — agent ecosystem reach:**
 Completed from Phase B: 8, 10, 11, 15, 17, 18, 19, 20.
 Partial from Phase B: 16, 31.
-Remaining native hook/plugin work: 13, 14, plus full blocking-approval support for Qoder/Copilot/Goose/OpenCode if needed. Pi/OMP/Cursor remain pending on stable provider APIs.
+Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
 Completed from Phase C: 43, 44, 55, 56.

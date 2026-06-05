@@ -54,23 +54,23 @@ fn hook_config() -> Value {
         "version": 1,
         "onibiIntegrationVersion": INTEGRATION_VERSION,
         "hooks": {
-            "sessionStart": [hook(command)],
-            "sessionEnd": [hook(command)],
-            "userPromptSubmitted": [hook(command)],
-            "preToolUse": [hook(command)],
-            "postToolUse": [hook(command)],
-            "postToolUseFailure": [hook(command)],
-            "agentStop": [hook(command)],
-            "errorOccurred": [hook(command)]
+            "SessionStart": [hook(command, 30)],
+            "SessionEnd": [hook(command, 30)],
+            "UserPromptSubmit": [hook(command, 30)],
+            "PreToolUse": [hook(command, 660)],
+            "PostToolUse": [hook(command, 30)],
+            "PostToolUseFailure": [hook(command, 30)],
+            "Stop": [hook(command, 30)],
+            "ErrorOccurred": [hook(command, 30)]
         }
     })
 }
 
-fn hook(command: &str) -> Value {
+fn hook(command: &str, timeout_sec: u64) -> Value {
     json!({
         "type": "command",
         "bash": command,
-        "timeoutSec": 30
+        "timeoutSec": timeout_sec
     })
 }
 
@@ -103,4 +103,22 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
         install_path: Some(path.to_path_buf()),
         message: installed.then_some("GitHub Copilot provider-event hook installed".to_string()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pre_tool_hook_waits_long_enough_for_onibi_approval() {
+        let config = hook_config();
+        assert_eq!(
+            config["hooks"]["PreToolUse"][0]["timeoutSec"].as_u64(),
+            Some(660)
+        );
+        assert_eq!(
+            config["hooks"]["SessionStart"][0]["timeoutSec"].as_u64(),
+            Some(30)
+        );
+    }
 }

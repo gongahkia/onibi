@@ -1,4 +1,5 @@
 use super::{home_path, static_info, AdapterInfo, INTEGRATION_VERSION};
+use crate::protocol::PROTOCOL_VERSION;
 use anyhow::{Context, Result};
 use std::{fs, path::PathBuf};
 
@@ -86,6 +87,34 @@ async function post(event, payload) {{
   }} catch (_) {{}}
 }}
 
+async function requestApproval(input, output) {{
+  if (!ONIBI_TOKEN) throw new Error("Onibi approval token unavailable")
+  const providerSessionId = input?.sessionID || input?.sessionId || input?.session?.id
+  const response = await fetch(`http://127.0.0.1:${{ONIBI_PORT}}/v1/approval/request`, {{
+    method: "POST",
+    headers: {{
+      "Authorization": `Bearer ${{ONIBI_TOKEN}}`,
+      "Content-Type": "application/json"
+    }},
+    body: JSON.stringify({{
+      protocol_version: {protocol_version_json},
+      sessionId: providerSessionId,
+      agent: "opencode",
+      tool: input?.tool || input?.toolName || output?.tool || "unknown",
+      input: output?.args || input?.args || input?.toolArgs || {{}},
+      cwd: input?.cwd || input?.directory || input?.project?.root || "",
+      metadata: {{
+        source: "opencode",
+        providerSessionId,
+        providerEvent: "tool.execute.before",
+        raw: {{ input, output }}
+      }}
+    }})
+  }})
+  if (!response.ok) throw new Error(`Onibi approval failed with HTTP ${{response.status}}`)
+  return await response.json()
+}}
+
 export const OnibiProviderEvents = async () => ({{
   event: async (input) => {{
     const event = input?.event
@@ -93,6 +122,13 @@ export const OnibiProviderEvents = async () => ({{
   }},
   "tool.execute.before": async (input, output) => {{
     await post("tool.execute.before", {{ ...input, output }})
+    const decision = await requestApproval(input, output)
+    if (decision?.decision !== "allow") {{
+      throw new Error(decision?.reason || "Denied by Onibi")
+    }}
+    if (decision?.updatedInput && typeof decision.updatedInput === "object") {{
+      output.args = decision.updatedInput
+    }}
   }},
   "tool.execute.after": async (input, output) => {{
     await post("tool.execute.after", {{ ...input, output }})
@@ -101,5 +137,21 @@ export const OnibiProviderEvents = async () => ({{
 "#,
         marker = version_marker(),
         token_json = serde_json::to_string(token).unwrap_or_else(|_| "\"\"".to_string()),
+        protocol_version_json =
+            serde_json::to_string(PROTOCOL_VERSION).unwrap_or_else(|_| "\"1.0\"".to_string()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_source_blocks_tool_execution_through_approval_request() {
+        let source = plugin_source("token");
+        assert!(source.contains("/v1/approval/request"));
+        assert!(source.contains("throw new Error(decision?.reason || \"Denied by Onibi\")"));
+        assert!(source.contains("output.args = decision.updatedInput"));
+        assert!(source.contains(&version_marker()));
+    }
 }

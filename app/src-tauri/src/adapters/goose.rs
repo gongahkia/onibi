@@ -100,3 +100,21 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
         message: installed.then_some("goose lifecycle hooks installed".to_string()),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hook_config_installs_pre_tool_use_hook() {
+        let config = hook_config();
+        assert_eq!(
+            config["hooks"]["PreToolUse"][0]["command"].as_str(),
+            Some("onibi _hook goose")
+        );
+        assert_eq!(
+            config["onibiIntegrationVersion"].as_str(),
+            Some(INTEGRATION_VERSION)
+        );
+    }
+}

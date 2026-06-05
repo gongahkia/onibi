@@ -1,6 +1,6 @@
 # Adapters
 
-Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, and newer provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model.
+Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, and provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model. OpenCode, Qoder, Copilot CLI, and Goose also block native pre-tool hooks through Onibi where the provider exposes a synchronous hook.
 
 ## Capability Matrix
 
@@ -8,10 +8,10 @@ Adapters let Onibi sit between a local agent and a tool action. Claude Code rema
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` |
 | Codex CLI | Launch-tested current | Bash only | Bash only | Unverified | Yes | `~/.codex/hooks.json` shell hook |
-| OpenCode | No minimum | No | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
-| Qoder CLI | No minimum | No | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
-| GitHub Copilot CLI | No minimum | No | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
-| Goose | No minimum | No | Yes | Yes | Yes | `~/.agents/plugins/onibi/hooks/hooks.json` |
+| OpenCode | No minimum | Yes | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
+| Qoder CLI | No minimum | Yes | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
+| GitHub Copilot CLI | No minimum | Yes | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
+| Goose | No minimum | Yes | Yes | Yes | Yes | `~/.agents/plugins/onibi/hooks/hooks.json` |
 | Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
 | Hermes | No minimum | No | No | Yes | Yes | Resume-only metadata |
 | Aider | No minimum | No | No | History restore | Yes | Shell session only |
@@ -99,18 +99,21 @@ Supported features:
 - Agent appears as a first-class session kind.
 - PTY output can be mirrored to the phone.
 - Session/tool lifecycle events update Onibi's native provider metadata.
+- `tool.execute.before` blocks on Onibi approval and denies by throwing from the plugin.
+- Approve-with-edits maps Onibi's updated input onto OpenCode's mutable tool args.
 - Provider session IDs can relaunch stale sessions with `opencode --session <id>`.
 
 Known limitations:
 
-- No tool-call blocking in v1.5.
-- No edit-before-approve support.
+- Blocking depends on OpenCode loading local plugins from the global plugin directory.
 
 Sample interaction:
 
 ```text
 $ opencode
-Onibi hosts the process, mirrors output, and records run events where available.
+OpenCode proposes bash(rm -rf build)
+Onibi shows the approval on desktop and phone.
+User denies; the plugin throws and the tool is skipped.
 ```
 
 ## Gemini CLI
@@ -211,18 +214,19 @@ Supported features:
 - Launch from Onibi as a PTY session.
 - Terminal mirror and run visibility.
 - Session/tool lifecycle events update Onibi's native provider metadata.
+- `PreToolUse` blocks on Onibi approval.
 - Provider session IDs can relaunch stale sessions through the Goose session resume command.
 
 Known limitations:
 
-- No tool-call blocking.
-- No edit-before-approve.
+- Blocking depends on Goose's Open Plugins hook loader and the local plugin directory.
+- Edit-before-approve is returned only through Open Plugins-compatible `updatedInput`.
 
 Sample interaction:
 
 ```text
 $ goose session
-Onibi mirrors output and tracks the run as a Goose session.
+Goose proposes a tool call, Onibi blocks the hook, and a deny exits the hook with code 2.
 ```
 
 ## Qoder CLI
@@ -238,13 +242,14 @@ Hook surface: command hooks in `~/.qoder/settings.json`, invoking `onibi _hook q
 Supported features:
 
 - Session, prompt, tool, failure, and stop events feed Onibi's provider-event bridge.
+- `PreToolUse` blocks on Onibi approval; a denied approval exits with code 2 so Qoder skips the tool.
+- Approve-with-edits returns `updatedInput` through Qoder's `hookSpecificOutput`.
 - Qoder session IDs can relaunch stale sessions with `qoder -r <id>`.
 - Terminal mirror and run visibility.
 
 Known limitations:
 
-- The current Onibi Qoder hook records lifecycle/status events; it does not yet block tool execution for approval.
-- Edit-before-approve is not wired.
+- Blocking depends on Qoder's local hook loader and the installed `~/.qoder/settings.json` entry.
 
 ## GitHub Copilot CLI
 
@@ -259,12 +264,14 @@ Hook surface: hook configuration file at `~/.copilot/hooks/onibi-provider-events
 Supported features:
 
 - Session, prompt, tool, stop, and error events feed Onibi's provider-event bridge.
+- `PreToolUse` blocks on Onibi approval through Copilot's VS Code-compatible command hook JSON response.
+- Approve-with-edits maps Onibi's updated input to Copilot `modifiedArgs`.
 - Native `sessionId` values are preserved for arbitration and audit run events.
 
 Known limitations:
 
 - No provider-native resume command is wired.
-- Approval interception is not enabled by the Onibi Copilot hook.
+- This adapter targets local Copilot CLI hooks. Copilot cloud agent is remote and cannot call a local Onibi daemon unless separately networked.
 
 ## Hermes
 

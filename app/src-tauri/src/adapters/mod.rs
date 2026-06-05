@@ -13,7 +13,7 @@ pub mod qoder;
 
 use crate::{
     orchestration::{AgentStatus, ProviderEventUpdate, ProviderResumeMetadata},
-    protocol::{ProviderEventBody, PROTOCOL_VERSION},
+    protocol::{ApprovalRequestBody, ProviderEventBody, PROTOCOL_VERSION},
     secret,
 };
 use anyhow::{bail, Context, Result};
@@ -41,7 +41,7 @@ pub struct IntegrationInfo {
 
 pub type AdapterInfo = IntegrationInfo;
 
-pub const INTEGRATION_VERSION: &str = "1.0.0";
+pub const INTEGRATION_VERSION: &str = "1.1.0";
 pub const INTEGRATION_VERSION_HEADER: &str = "X-Onibi-Integration-Version";
 pub const INTEGRATION_VERSION_FIELD: &str = "onibiIntegrationVersion";
 pub const EVENT_ROUTE_PREFIX: &str = "/v1/adapters";
@@ -214,7 +214,44 @@ pub fn command_string_hook(name: &str) -> String {
     format!("onibi _hook {name}")
 }
 
-pub fn run_stdin_event_hook(name: &str, port: u16) -> Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderHookExit {
+    pub code: i32,
+}
+
+impl ProviderHookExit {
+    pub const SUCCESS: Self = Self { code: 0 };
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ProviderApprovalDecision {
+    decision: String,
+    reason: Option<String>,
+    updated_input: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ProviderHookCommandResult {
+    stdout: Option<Value>,
+    stderr: Option<String>,
+    exit_code: i32,
+}
+
+impl ProviderHookCommandResult {
+    fn emit(&self) -> Result<()> {
+        if let Some(stdout) = self.stdout.as_ref() {
+            println!("{}", serde_json::to_string(stdout)?);
+        }
+        if let Some(stderr) = self.stderr.as_ref() {
+            eprintln!("{stderr}");
+        }
+        Ok(())
+    }
+}
+
+pub fn run_stdin_provider_hook(name: &str, port: u16) -> Result<ProviderHookExit> {
+    let agent = normalize_agent_name(name)
+        .ok_or_else(|| anyhow::anyhow!("unsupported provider event agent: {name}"))?;
     let mut raw = String::new();
     std::io::stdin()
         .read_to_string(&mut raw)
@@ -224,14 +261,181 @@ pub fn run_stdin_event_hook(name: &str, port: u16) -> Result<()> {
     } else {
         serde_json::from_str(&raw).with_context(|| format!("parse {name} hook payload"))?
     };
+
+    if is_pre_tool_provider_payload(&payload) {
+        let result = match request_provider_approval(agent, port, &payload) {
+            Ok(decision) => provider_hook_result_from_decision(agent, &decision),
+            Err(error) => provider_hook_result_from_error(
+                agent,
+                &format!("Onibi approval unavailable: {error:#}"),
+            ),
+        };
+        result.emit()?;
+        return Ok(ProviderHookExit {
+            code: result.exit_code,
+        });
+    }
+
     let token = secret::load_or_create_token()?.token;
     let _ = post_json(
         port,
-        &format!("{EVENT_ROUTE_PREFIX}/{name}/event"),
+        &format!("{EVENT_ROUTE_PREFIX}/{agent}/event"),
         &token,
         &payload,
     )?;
-    Ok(())
+    Ok(ProviderHookExit::SUCCESS)
+}
+
+fn request_provider_approval(
+    agent: &str,
+    port: u16,
+    payload: &Value,
+) -> Result<ProviderApprovalDecision> {
+    let token = secret::load_or_create_token()?.token;
+    let event_response = post_json(
+        port,
+        &format!("{EVENT_ROUTE_PREFIX}/{agent}/event"),
+        &token,
+        payload,
+    )
+    .ok();
+    let correlated_session_id = event_response
+        .as_ref()
+        .and_then(correlated_session_id_from_event_response);
+    let body = approval_body_from_provider_payload(agent, payload, correlated_session_id)?;
+    let response = post_json(port, "/v1/approval/request", &token, &body)?;
+    Ok(approval_decision_from_response(&response))
+}
+
+fn approval_body_from_provider_payload(
+    agent: &str,
+    payload: &Value,
+    preferred_session_id: Option<String>,
+) -> Result<ApprovalRequestBody> {
+    let agent = normalize_agent_name(agent)
+        .ok_or_else(|| anyhow::anyhow!("unsupported approval agent: {agent}"))?;
+    let body = body_from_provider_payload(agent, payload.clone());
+    let session_id = preferred_session_id
+        .or_else(|| body.session_id.clone())
+        .or_else(|| body.provider_session_id.clone())
+        .or_else(|| body.conversation_id.clone());
+    let tool = body.tool.clone().unwrap_or_else(|| "unknown".to_string());
+    Ok(ApprovalRequestBody {
+        protocol_version: Some(PROTOCOL_VERSION.to_string()),
+        machine_id: None,
+        session_id,
+        agent: agent.to_string(),
+        tool,
+        input: body.input.clone(),
+        cwd: body.cwd.clone().unwrap_or_default(),
+        metadata: Some(json!({
+            "source": agent,
+            "providerSessionId": body.provider_session_id,
+            "conversationId": body.conversation_id,
+            "providerEvent": body.event,
+            "raw": payload,
+        })),
+    })
+}
+
+fn correlated_session_id_from_event_response(response: &Value) -> Option<String> {
+    response
+        .get("session")
+        .and_then(|session| session.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn approval_decision_from_response(response: &Value) -> ProviderApprovalDecision {
+    ProviderApprovalDecision {
+        decision: response
+            .get("decision")
+            .and_then(Value::as_str)
+            .unwrap_or("deny")
+            .to_string(),
+        reason: response
+            .get("reason")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        updated_input: response
+            .get("updatedInput")
+            .filter(|value| !value.is_null())
+            .cloned(),
+    }
+}
+
+fn provider_hook_result_from_error(agent: &str, message: &str) -> ProviderHookCommandResult {
+    provider_hook_result_from_decision(
+        agent,
+        &ProviderApprovalDecision {
+            decision: "deny".to_string(),
+            reason: Some(message.to_string()),
+            updated_input: None,
+        },
+    )
+}
+
+fn provider_hook_result_from_decision(
+    agent: &str,
+    approval: &ProviderApprovalDecision,
+) -> ProviderHookCommandResult {
+    let allowed = approval.decision == "allow";
+    match agent {
+        "copilot" => copilot_hook_result(allowed, approval),
+        "goose" | "qoder" => open_plugins_hook_result(allowed, approval),
+        _ => open_plugins_hook_result(allowed, approval),
+    }
+}
+
+fn copilot_hook_result(
+    allowed: bool,
+    approval: &ProviderApprovalDecision,
+) -> ProviderHookCommandResult {
+    let mut stdout = json!({
+        "permissionDecision": if allowed { "allow" } else { "deny" },
+    });
+    if let Some(reason) = approval.reason.as_ref() {
+        stdout["permissionDecisionReason"] = Value::String(reason.clone());
+    } else if !allowed {
+        stdout["permissionDecisionReason"] = Value::String("Denied by Onibi".to_string());
+    }
+    if allowed {
+        if let Some(updated_input) = approval.updated_input.as_ref() {
+            stdout["modifiedArgs"] = updated_input.clone();
+        }
+    }
+    ProviderHookCommandResult {
+        stdout: Some(stdout),
+        stderr: None,
+        exit_code: 0,
+    }
+}
+
+fn open_plugins_hook_result(
+    allowed: bool,
+    approval: &ProviderApprovalDecision,
+) -> ProviderHookCommandResult {
+    let reason = approval
+        .reason
+        .clone()
+        .unwrap_or_else(|| "Denied by Onibi".to_string());
+    let mut hook_specific = json!({
+        "hookEventName": "PreToolUse",
+        "permissionDecision": if allowed { "allow" } else { "deny" },
+    });
+    if approval.reason.is_some() || !allowed {
+        hook_specific["permissionDecisionReason"] = Value::String(reason.clone());
+    }
+    if allowed {
+        if let Some(updated_input) = approval.updated_input.as_ref() {
+            hook_specific["updatedInput"] = updated_input.clone();
+        }
+    }
+    ProviderHookCommandResult {
+        stdout: Some(json!({ "hookSpecificOutput": hook_specific })),
+        stderr: (!allowed).then_some(reason),
+        exit_code: if allowed { 0 } else { 2 },
+    }
 }
 
 pub fn post_json<T: serde::Serialize>(
@@ -417,6 +621,25 @@ fn body_from_provider_payload(agent: &str, payload: Value) -> ProviderEventBody 
             "payload": payload,
         })),
     }
+}
+
+fn is_pre_tool_provider_payload(payload: &Value) -> bool {
+    let Some(event) = string_field(
+        payload,
+        &[
+            "event",
+            "type",
+            "event.type",
+            "hookEventName",
+            "hook_event_name",
+        ],
+    ) else {
+        return false;
+    };
+    matches!(
+        normalize_event_token(&event).as_str(),
+        "pretooluse" | "tool.executebefore" | "tool.before" | "toolbefore"
+    )
 }
 
 fn normalize_agent_name(raw: &str) -> Option<&'static str> {
@@ -618,6 +841,81 @@ mod tests {
         assert_eq!(
             resume.args,
             vec!["--session".to_string(), "ses_123".to_string()]
+        );
+    }
+
+    #[test]
+    fn provider_approval_body_prefers_correlated_onibi_session() {
+        let body = approval_body_from_provider_payload(
+            "qoder",
+            &json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": "provider-session-1",
+                "cwd": "/repo",
+                "tool_name": "Bash",
+                "tool_input": { "command": "make test" }
+            }),
+            Some("onibi-session-1".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(body.session_id.as_deref(), Some("onibi-session-1"));
+        assert_eq!(body.agent, "qoder");
+        assert_eq!(body.tool, "Bash");
+        assert_eq!(body.input["command"], "make test");
+    }
+
+    #[test]
+    fn qoder_denial_blocks_with_exit_two_and_reason_on_stderr() {
+        let result = provider_hook_result_from_decision(
+            "qoder",
+            &ProviderApprovalDecision {
+                decision: "deny".to_string(),
+                reason: Some("too broad".to_string()),
+                updated_input: None,
+            },
+        );
+
+        assert_eq!(result.exit_code, 2);
+        assert_eq!(result.stderr.as_deref(), Some("too broad"));
+        assert_eq!(
+            result.stdout.unwrap()["hookSpecificOutput"]["permissionDecision"],
+            "deny"
+        );
+    }
+
+    #[test]
+    fn copilot_allow_uses_modified_args_for_updated_input() {
+        let result = provider_hook_result_from_decision(
+            "copilot",
+            &ProviderApprovalDecision {
+                decision: "allow".to_string(),
+                reason: Some("narrowed command".to_string()),
+                updated_input: Some(json!({ "command": "npm test" })),
+            },
+        );
+
+        assert_eq!(result.exit_code, 0);
+        let stdout = result.stdout.unwrap();
+        assert_eq!(stdout["permissionDecision"], "allow");
+        assert_eq!(stdout["modifiedArgs"]["command"], "npm test");
+    }
+
+    #[test]
+    fn goose_allow_uses_open_plugins_updated_input() {
+        let result = provider_hook_result_from_decision(
+            "goose",
+            &ProviderApprovalDecision {
+                decision: "allow".to_string(),
+                reason: None,
+                updated_input: Some(json!({ "file_path": "README.md" })),
+            },
+        );
+
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(
+            result.stdout.unwrap()["hookSpecificOutput"]["updatedInput"]["file_path"],
+            "README.md"
         );
     }
 }

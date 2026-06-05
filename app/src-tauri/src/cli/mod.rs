@@ -942,7 +942,11 @@ fn hook(name: &str, port: u16) -> Result<()> {
     match name {
         "codex" => adapters::codex::run_stdin_hook(env_port().unwrap_or(port)),
         "copilot" | "goose" | "qoder" => {
-            adapters::run_stdin_event_hook(name, env_port().unwrap_or(port))
+            let exit = adapters::run_stdin_provider_hook(name, env_port().unwrap_or(port))?;
+            if exit.code != 0 {
+                std::process::exit(exit.code);
+            }
+            Ok(())
         }
         other => bail!("unsupported internal hook adapter: {other}"),
     }
