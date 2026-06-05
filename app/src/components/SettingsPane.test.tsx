@@ -170,6 +170,26 @@ describe("SettingsPane", () => {
     expect(screen.queryByLabelText("Enable shell integration")).toBeNull();
   });
 
+  test("adds custom command keybindings", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Keybindings"));
+    fireEvent.click(screen.getByRole("button", { name: "Add command" }));
+
+    fireEvent.change(screen.getByLabelText("Custom command keybinding"), {
+      target: { value: "prefix+t" },
+    });
+    fireEvent.change(screen.getByLabelText("Custom command description"), {
+      target: { value: "Run tests" },
+    });
+    const command = screen.getByLabelText("Custom command shell command");
+    fireEvent.change(command, { target: { value: "pnpm test" } });
+    fireEvent.blur(command);
+
+    expect(useSessionStore.getState().settings.customCommandKeybindings).toEqual([
+      { keys: "prefix+t", description: "Run tests", command: "pnpm test" },
+    ]);
+  });
+
   test("shows terminal triggers as a top-level settings section", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 

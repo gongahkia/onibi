@@ -400,13 +400,54 @@ pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, 
 
 pub async fn status(State(state): State<AppState>) -> ApiResult<Value> {
     let pending_approvals = state.store.list_pending().map_err(internal_error)?.len();
+    let runtime_config = state.runtime_config().await;
+    let config_path = state
+        .config_path()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "~/.config/onibi/config.toml".to_string());
+    let orchestration = state.orchestration.summary().await;
     Ok(Json(json!({
         "ok": true,
         "protocol_version": PROTOCOL_VERSION,
         "version": env!("CARGO_PKG_VERSION"),
         "machine_id": state.machine_id.clone(),
+        "uptimeSecs": state.uptime_secs(),
+        "configPath": config_path,
+        "runtimeConfig": runtime_config,
         "pending_approvals": pending_approvals,
+        "orchestration": orchestration,
         "transports": state.transports.status_snapshot().await,
+    })))
+}
+
+pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
+    let runtime_config = state.runtime_config().await;
+    let validation = crate::config::validate().map_err(internal_error)?;
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "path": validation.path,
+        "exists": validation.exists,
+        "runtimeConfig": runtime_config,
+        "fileRuntimeConfig": validation.runtime,
+        "reloadableFields": ["server.approval_timeout_secs", "server.pty_ring_limit"],
+        "restartRequiredFields": ["server.port"],
+        "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
+    })))
+}
+
+pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
+    let runtime_config = state
+        .reload_runtime_config()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "runtimeConfig": runtime_config,
+        "appliedFields": ["server.approval_timeout_secs", "server.pty_ring_limit"],
+        "restartRequiredFields": ["server.port"],
+        "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
     })))
 }
 
@@ -514,7 +555,7 @@ pub async fn wait_for_approval_decision(
         approval.clone(),
     ));
 
-    match time::timeout(state.approval_timeout, rx).await {
+    match time::timeout(state.approval_timeout().await, rx).await {
         Ok(Ok(response)) => Ok(response),
         Ok(Err(_)) => Ok(ApprovalDecisionResponse {
             protocol_version: PROTOCOL_VERSION.to_string(),
@@ -841,5 +882,62 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].command, "pnpm test");
         assert_eq!(blocks[0].changed_files, vec!["src/main.ts"]);
+    }
+
+    #[tokio::test]
+    async fn status_includes_runtime_config_and_orchestration_summary() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/status")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["runtimeConfig"]["approvalTimeoutSecs"], 5);
+        assert_eq!(
+            value["runtimeConfig"]["ptyRingLimit"],
+            crate::config::DEFAULT_PTY_RING_LIMIT
+        );
+        assert!(value["uptimeSecs"].is_u64());
+        assert!(value["configPath"].is_string());
+        assert_eq!(value["orchestration"]["paneCount"], 0);
+    }
+
+    #[tokio::test]
+    async fn config_reload_reports_runtime_fields() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/config/reload")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(value["runtimeConfig"]["approvalTimeoutSecs"].is_u64());
+        assert!(value["runtimeConfig"]["ptyRingLimit"].is_u64());
+        assert_eq!(value["appliedFields"][0], "server.approval_timeout_secs");
+        assert_eq!(value["restartRequiredFields"][0], "server.port");
     }
 }

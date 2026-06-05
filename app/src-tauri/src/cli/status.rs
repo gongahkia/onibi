@@ -1,4 +1,4 @@
-use crate::{adapters, approval::store::now_millis, secret, server};
+use crate::{adapters, approval::store::now_millis, config, secret, server};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -19,11 +19,28 @@ struct DeviceSummary {
     last_seen: Option<i64>,
 }
 
-pub async fn run(port: u16, json_output: bool) -> Result<()> {
+pub enum StatusTarget {
+    All,
+    Server,
+    Client,
+}
+
+pub async fn run(port: u16, json_output: bool, target: StatusTarget) -> Result<()> {
+    match target {
+        StatusTarget::All => run_all(port, json_output).await,
+        StatusTarget::Server => run_server(port, json_output).await,
+        StatusTarget::Client => run_client(port, json_output).await,
+    }
+}
+
+async fn run_all(port: u16, json_output: bool) -> Result<()> {
     let config_dir = secret::config_dir()?;
+    let config_path = config::path()?;
     let db_path = secret::db_path()?;
     let daemon_running = super::healthz(port);
     let db_summary = db_summary(&db_path)?;
+    let config_validation = config::validate()?;
+    let server_status = server_status_value(port, daemon_running).await?;
 
     let mode = if cfg!(feature = "gui") {
         "gui-capable build"
@@ -38,6 +55,9 @@ pub async fn run(port: u16, json_output: bool) -> Result<()> {
                 "mode": mode,
                 "daemonRunning": daemon_running,
                 "configDir": config_dir,
+                "configPath": config_path,
+                "config": config_validation,
+                "server": server_status,
                 "database": db_path,
                 "databaseSummary": db_summary,
                 "transports": transport_values(port, daemon_running).await?,
@@ -53,6 +73,11 @@ pub async fn run(port: u16, json_output: bool) -> Result<()> {
         if daemon_running { "running" } else { "stopped" }
     );
     println!("Config:    {}", config_dir.display());
+    println!("Config TOML: {}", config_path.display());
+    println!(
+        "Runtime:   approval_timeout_secs={}, pty_ring_limit={}",
+        config_validation.runtime.approval_timeout_secs, config_validation.runtime.pty_ring_limit
+    );
     println!("Database:  {}", db_path.display());
     println!("Sessions:  {} active in last 24h", db_summary.sessions_24h);
     println!(
@@ -104,6 +129,156 @@ pub async fn run(port: u16, json_output: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_server(port: u16, json_output: bool) -> Result<()> {
+    let daemon_running = super::healthz(port);
+    let config_validation = config::validate()?;
+    let status = server_status_value(port, daemon_running).await?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "daemonRunning": daemon_running,
+                "config": config_validation,
+                "server": status,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Onibi server {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Daemon:    {}",
+        if daemon_running { "running" } else { "stopped" }
+    );
+    println!("Config:    {}", config_validation.path.display());
+    println!(
+        "Runtime:   approval_timeout_secs={}, pty_ring_limit={}",
+        config_validation.runtime.approval_timeout_secs, config_validation.runtime.pty_ring_limit
+    );
+    if daemon_running {
+        println!(
+            "Protocol:  {}",
+            status
+                .get("protocol_version")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+        );
+        println!(
+            "Uptime:    {}s",
+            status
+                .get("uptimeSecs")
+                .and_then(Value::as_u64)
+                .unwrap_or_default()
+        );
+        if let Some(orchestration) = status.get("orchestration") {
+            println!(
+                "Panes:     {} running",
+                orchestration
+                    .get("paneCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default()
+            );
+            if let Some(socket) = orchestration.get("socketPath").and_then(Value::as_str) {
+                println!("Socket:    {socket}");
+            }
+        }
+    } else {
+        println!("Protocol:  unavailable");
+        println!("Panes:     unavailable");
+    }
+    Ok(())
+}
+
+async fn run_client(port: u16, json_output: bool) -> Result<()> {
+    let config_dir = secret::config_dir()?;
+    let config_path = config::path()?;
+    let db_path = secret::db_path()?;
+    let daemon_running = super::healthz(port);
+    let db_summary = db_summary(&db_path)?;
+    let mode = if cfg!(feature = "gui") {
+        "gui-capable build"
+    } else {
+        "headless-only build"
+    };
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "mode": mode,
+                "daemonRunning": daemon_running,
+                "configDir": config_dir,
+                "configPath": config_path,
+                "database": db_path,
+                "databaseSummary": db_summary,
+                "adapters": adapters::list(),
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Onibi client {} ({mode})", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Daemon:    {}",
+        if daemon_running { "running" } else { "stopped" }
+    );
+    println!("Config:    {}", config_dir.display());
+    println!("Config TOML: {}", config_path.display());
+    println!("Database:  {}", db_path.display());
+    println!("Sessions:  {} active in last 24h", db_summary.sessions_24h);
+    println!(
+        "Approvals: {} pending, {} resolved in last 24h",
+        db_summary.pending_approvals, db_summary.resolved_24h
+    );
+    println!();
+    print_devices_and_adapters(db_summary);
+    Ok(())
+}
+
+async fn server_status_value(port: u16, daemon_running: bool) -> Result<Value> {
+    if daemon_running {
+        if let Ok(raw) = super::authed_http(port, "GET", "/v1/status", None) {
+            return serde_json::from_str::<Value>(&raw).context("parse daemon status");
+        }
+    }
+    Ok(json!({
+        "ok": false,
+        "daemonRunning": false,
+        "version": env!("CARGO_PKG_VERSION"),
+        "configPath": config::path()?,
+        "runtimeConfig": config::load()?.runtime_config(),
+    }))
+}
+
+fn print_devices_and_adapters(db_summary: DbSummary) {
+    println!("Paired devices:");
+    if db_summary.devices.is_empty() {
+        println!("  none");
+    } else {
+        for device in db_summary.devices {
+            let seen = device
+                .last_seen
+                .map(format_age)
+                .unwrap_or_else(|| "never".to_string());
+            println!("  {} (last seen {seen})", device.label);
+        }
+    }
+    println!();
+
+    println!("Adapters installed:");
+    let installed = adapters::list()
+        .into_iter()
+        .filter(|adapter| adapter.installed)
+        .collect::<Vec<_>>();
+    if installed.is_empty() {
+        println!("  none");
+    } else {
+        for adapter in installed {
+            println!("  {} ({})", adapter.name, adapter.support);
+        }
+    }
 }
 
 async fn transport_values(port: u16, daemon_running: bool) -> Result<Vec<Value>> {

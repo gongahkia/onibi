@@ -37,8 +37,15 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Setup,
-    Status,
+    Status {
+        #[command(subcommand)]
+        command: Option<StatusCommand>,
+    },
     Doctor,
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Token {
         #[command(subcommand)]
         command: TokenCommand,
@@ -80,6 +87,19 @@ enum Command {
     Hook {
         name: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum StatusCommand {
+    Server,
+    Client,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    Validate,
+    Reload,
+    ResetKeys,
 }
 
 #[derive(Debug, Subcommand)]
@@ -228,6 +248,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "setup",
         "status",
         "doctor",
+        "config",
         "token",
         "adapter",
         "transport",
@@ -293,8 +314,16 @@ async fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Some(Command::Setup) => setup::run(port, cli.json).await,
-        Some(Command::Status) => status::run(port, cli.json).await,
+        Some(Command::Status { command }) => {
+            let target = match command {
+                Some(StatusCommand::Server) => status::StatusTarget::Server,
+                Some(StatusCommand::Client) => status::StatusTarget::Client,
+                None => status::StatusTarget::All,
+            };
+            status::run(port, cli.json, target).await
+        }
         Some(Command::Doctor) => doctor::run(port, cli.json).await,
+        Some(Command::Config { command }) => config_command(command, port, cli.json),
         Some(Command::Token { command }) => token(command, cli.json),
         Some(Command::Adapter { command }) => adapter(command, cli.json),
         Some(Command::Transport { command }) => transport(command, port, cli.json).await,
@@ -489,6 +518,61 @@ fn path_segment(value: &str) -> String {
             _ => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
+}
+
+fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Result<()> {
+    match command {
+        ConfigCommand::Validate => {
+            let validation = config::validate()?;
+            if json_output {
+                print_value(serde_json::to_value(validation)?, true)
+            } else {
+                println!("Config:    {}", validation.path.display());
+                println!(
+                    "File:      {}",
+                    if validation.exists {
+                        "found"
+                    } else {
+                        "missing; defaults apply"
+                    }
+                );
+                println!(
+                    "Runtime:   approval_timeout_secs={}, pty_ring_limit={}",
+                    validation.runtime.approval_timeout_secs, validation.runtime.pty_ring_limit
+                );
+                Ok(())
+            }
+        }
+        ConfigCommand::Reload => {
+            ensure_daemon_running(port)?;
+            print_raw_json_or_text(
+                &authed_http(port, "POST", "/v1/config/reload", Some("{}"))?,
+                json_output,
+            )
+        }
+        ConfigCommand::ResetKeys => {
+            let reset = config::reset_keybindings()?;
+            if json_output {
+                print_value(serde_json::to_value(reset)?, true)
+            } else {
+                println!("Config:    {}", reset.path.display());
+                println!(
+                    "File:      {}",
+                    if reset.existed {
+                        "updated"
+                    } else {
+                        "created"
+                    }
+                );
+                println!("Prefix:    {}", reset.prefix);
+                println!(
+                    "Bindings:  app={}, command={}",
+                    reset.app_binding_count, reset.command_binding_count
+                );
+                Ok(())
+            }
+        }
+    }
 }
 
 fn token(command: TokenCommand, json_output: bool) -> Result<()> {

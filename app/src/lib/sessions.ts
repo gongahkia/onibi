@@ -195,7 +195,10 @@ export type NewPaneCwdMode =
   | "follow"
   | `fixed:${string}`;
 
-export type AppKeybindingAction =
+export const KEYBINDING_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+export type KeybindingIndex = (typeof KEYBINDING_INDEXES)[number];
+
+export type BaseAppKeybindingAction =
   | "commandPalette.open"
   | "session.new"
   | "session.closeActive"
@@ -210,9 +213,28 @@ export type AppKeybindingAction =
   | "workspace.tab.next"
   | "workspace.tab.previous";
 
+export type WorkspaceIndexAppKeybindingAction =
+  `workspace.focusIndex${KeybindingIndex}`;
+export type WorkspaceTabIndexAppKeybindingAction =
+  `workspace.tab.focusIndex${KeybindingIndex}`;
+export type TerminalPaneIndexAppKeybindingAction =
+  `terminal.focusPaneIndex${KeybindingIndex}`;
+
+export type AppKeybindingAction =
+  | BaseAppKeybindingAction
+  | WorkspaceIndexAppKeybindingAction
+  | WorkspaceTabIndexAppKeybindingAction
+  | TerminalPaneIndexAppKeybindingAction;
+
 export interface AppKeybinding {
   keys: string;
   action: AppKeybindingAction;
+}
+
+export interface CustomCommandKeybinding {
+  keys: string;
+  command: string;
+  description?: string;
 }
 
 export interface CommandBlock {
@@ -591,6 +613,7 @@ export interface AppSettings {
   terminalTriggers: TerminalTrigger[];
   keybindingPrefix: string;
   appKeybindings: AppKeybinding[];
+  customCommandKeybindings: CustomCommandKeybinding[];
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
@@ -670,6 +693,7 @@ type SessionStore = {
   setMaximizedTerminalPane: (paneId: string | null) => void;
   toggleMaximizedTerminalPane: (paneId?: string | null) => void;
   focusRelativeTerminalPane: (delta: number) => void;
+  focusTerminalPaneIndex: (index: number) => void;
   focusRelativeAttentionSession: (delta: number) => void;
   setActiveWorkspace: (workspaceId: string | null) => void;
   setActiveWorkspaceTab: (workspaceId: string, tabId: string) => void;
@@ -683,7 +707,9 @@ type SessionStore = {
     before: boolean,
   ) => void;
   focusRelativeWorkspace: (delta: number) => void;
+  focusWorkspaceIndex: (index: number) => void;
   focusRelativeWorkspaceTab: (delta: number) => void;
+  focusWorkspaceTabIndex: (index: number) => void;
   updateTerminalSplitSizes: (splitPaneId: string, sizes: number[]) => void;
   moveTerminalPane: (
     sourcePaneId: string,
@@ -1414,7 +1440,7 @@ export const DEFAULT_TERMINAL_TRIGGERS: TerminalTrigger[] = [
   },
 ];
 
-export const APP_KEYBINDING_ACTION_LABELS: Record<AppKeybindingAction, string> = {
+const BASE_APP_KEYBINDING_ACTION_LABELS: Record<BaseAppKeybindingAction, string> = {
   "commandPalette.open": "Open command palette",
   "session.new": "New session",
   "session.closeActive": "Close active session",
@@ -1428,6 +1454,34 @@ export const APP_KEYBINDING_ACTION_LABELS: Record<AppKeybindingAction, string> =
   "workspace.previous": "Focus previous workspace",
   "workspace.tab.next": "Focus next workspace terminal tab",
   "workspace.tab.previous": "Focus previous workspace terminal tab",
+};
+
+const WORKSPACE_INDEX_ACTION_LABELS = Object.fromEntries(
+  KEYBINDING_INDEXES.map((index) => [
+    `workspace.focusIndex${index}`,
+    `Focus workspace ${index}`,
+  ]),
+) as Record<WorkspaceIndexAppKeybindingAction, string>;
+
+const WORKSPACE_TAB_INDEX_ACTION_LABELS = Object.fromEntries(
+  KEYBINDING_INDEXES.map((index) => [
+    `workspace.tab.focusIndex${index}`,
+    `Focus workspace terminal tab ${index}`,
+  ]),
+) as Record<WorkspaceTabIndexAppKeybindingAction, string>;
+
+const TERMINAL_PANE_INDEX_ACTION_LABELS = Object.fromEntries(
+  KEYBINDING_INDEXES.map((index) => [
+    `terminal.focusPaneIndex${index}`,
+    `Focus terminal pane ${index}`,
+  ]),
+) as Record<TerminalPaneIndexAppKeybindingAction, string>;
+
+export const APP_KEYBINDING_ACTION_LABELS: Record<AppKeybindingAction, string> = {
+  ...BASE_APP_KEYBINDING_ACTION_LABELS,
+  ...WORKSPACE_INDEX_ACTION_LABELS,
+  ...WORKSPACE_TAB_INDEX_ACTION_LABELS,
+  ...TERMINAL_PANE_INDEX_ACTION_LABELS,
 };
 
 export const DEFAULT_KEYBINDING_PREFIX = "ctrl+b";
@@ -1449,7 +1503,13 @@ export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
   { keys: "prefix+left", action: "workspace.previous" },
   { keys: "prefix+shift+right", action: "workspace.tab.next" },
   { keys: "prefix+shift+left", action: "workspace.tab.previous" },
+  ...KEYBINDING_INDEXES.map((index) => ({
+    keys: `prefix+${index}`,
+    action: `workspace.tab.focusIndex${index}` as WorkspaceTabIndexAppKeybindingAction,
+  })),
 ];
+
+export const DEFAULT_CUSTOM_COMMAND_KEYBINDINGS: CustomCommandKeybinding[] = [];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "vscode-dark-plus",
@@ -1468,6 +1528,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
   appKeybindings: DEFAULT_APP_KEYBINDINGS,
+  customCommandKeybindings: DEFAULT_CUSTOM_COMMAND_KEYBINDINGS,
   newPaneCwd: "active",
   editorFontSize: 13,
   editorKeybindingMode: "standard",
@@ -1767,25 +1828,68 @@ function normalizeAppKeybindings(value: unknown): AppKeybinding[] {
   return bindings.length > 0 ? bindings : DEFAULT_APP_KEYBINDINGS;
 }
 
+function normalizeCustomCommandKeybindings(value: unknown): CustomCommandKeybinding[] {
+  if (!Array.isArray(value)) {
+    return DEFAULT_CUSTOM_COMMAND_KEYBINDINGS;
+  }
+  const seen = new Set<string>();
+  const bindings: CustomCommandKeybinding[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.keys !== "string") {
+      continue;
+    }
+    const keys = normalizeAppKeyChord(item.keys);
+    const command =
+      typeof item.command === "string" ? item.command.trim().slice(0, 4096) : "";
+    if (!keys || !command) {
+      continue;
+    }
+    const description =
+      typeof item.description === "string" && item.description.trim()
+        ? item.description.trim().slice(0, 120)
+        : undefined;
+    const id = `${keys}:${command}:${description ?? ""}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    bindings.push({ keys, command, ...(description ? { description } : {}) });
+  }
+  return bindings;
+}
+
 export interface AppKeybindingConflict {
   keys: string;
   actions: AppKeybindingAction[];
+  commands: string[];
 }
 
 export function appKeybindingConflicts(
   bindings: AppKeybinding[],
+  customCommands: CustomCommandKeybinding[] = [],
 ): AppKeybindingConflict[] {
-  const byKeys = new Map<string, AppKeybindingAction[]>();
+  const byKeys = new Map<
+    string,
+    { actions: AppKeybindingAction[]; commands: string[] }
+  >();
   for (const binding of normalizeAppKeybindings(bindings)) {
-    const actions = byKeys.get(binding.keys) ?? [];
-    if (!actions.includes(binding.action)) {
-      actions.push(binding.action);
+    const entry = byKeys.get(binding.keys) ?? { actions: [], commands: [] };
+    if (!entry.actions.includes(binding.action)) {
+      entry.actions.push(binding.action);
     }
-    byKeys.set(binding.keys, actions);
+    byKeys.set(binding.keys, entry);
+  }
+  for (const binding of normalizeCustomCommandKeybindings(customCommands)) {
+    const entry = byKeys.get(binding.keys) ?? { actions: [], commands: [] };
+    const label = binding.description || binding.command;
+    if (!entry.commands.includes(label)) {
+      entry.commands.push(label);
+    }
+    byKeys.set(binding.keys, entry);
   }
   return [...byKeys.entries()]
-    .filter(([, actions]) => actions.length > 1)
-    .map(([keys, actions]) => ({ keys, actions }));
+    .filter(([, entry]) => entry.actions.length + entry.commands.length > 1)
+    .map(([keys, entry]) => ({ keys, ...entry }));
 }
 
 export function keyChordFromKeyboardEvent(event: KeyboardEvent): string {
@@ -1806,6 +1910,7 @@ export function displayKeyChord(value: string): string {
   const normalized = normalizeAppKeyChord(value);
   return normalized
     .split("+")
+    .filter(Boolean)
     .map((part) => {
       if (part === "cmd") return "Cmd";
       if (part === "ctrl") return "Ctrl";
@@ -2080,6 +2185,9 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     keybindingPrefix:
       normalizeAppKeyChord(merged.keybindingPrefix) || DEFAULT_SETTINGS.keybindingPrefix,
     appKeybindings: normalizeAppKeybindings(merged.appKeybindings),
+    customCommandKeybindings: normalizeCustomCommandKeybindings(
+      merged.customCommandKeybindings,
+    ),
     newPaneCwd: normalizeNewPaneCwdMode(merged.newPaneCwd),
     editorFontSize: normalizeFontSize(merged.editorFontSize, legacyFontSize),
     editorKeybindingMode: normalizeEditorKeybindingMode(merged.editorKeybindingMode),
@@ -3304,6 +3412,28 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
+  focusTerminalPaneIndex: (index) => {
+    set((state) => {
+      const tab = activeWorkspaceTab(state);
+      const leaves = terminalLeafOrder(tab?.terminalLayout ?? null);
+      const target = leaves[Math.trunc(index) - 1];
+      if (!target) {
+        return {};
+      }
+      const tabs = tab
+        ? updateWorkspaceTab(state.workspaceTabs, tab.id, {
+            activeTerminalPaneId: target.paneId,
+          })
+        : state.workspaceTabs;
+      return {
+        workspaceTabs: tabs,
+        activeTerminalPaneId: target.paneId,
+        activeSessionId: target.sessionId,
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
   focusRelativeAttentionSession: (delta) => {
     set((state) => {
       const sessions = attentionSessions(state.sessions);
@@ -3437,6 +3567,21 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
+  focusWorkspaceIndex: (index) => {
+    set((state) => {
+      const workspace = state.workspaces[Math.trunc(index) - 1];
+      if (!workspace) {
+        return {};
+      }
+      const { tabs, tab } = ensureWorkspaceHasTab(state, workspace.id);
+      return {
+        workspaceTabs: tabs,
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
   focusRelativeWorkspaceTab: (delta) => {
     set((state) => {
       const workspaceId = state.activeWorkspaceId;
@@ -3452,6 +3597,24 @@ export const useSessionStore = create<SessionStore>((set) => ({
         0,
       );
       const tab = tabs[(currentIndex + delta + tabs.length) % tabs.length];
+      return {
+        ...mirrorWorkspaceTab(tab),
+        selectedFile: null,
+      };
+    });
+    persistLater();
+  },
+  focusWorkspaceTabIndex: (index) => {
+    set((state) => {
+      const workspaceId = state.activeWorkspaceId;
+      if (!workspaceId) {
+        return {};
+      }
+      const tabs = state.workspaceTabs.filter((tab) => tab.workspaceId === workspaceId);
+      const tab = tabs[Math.trunc(index) - 1];
+      if (!tab) {
+        return {};
+      }
       return {
         ...mirrorWorkspaceTab(tab),
         selectedFile: null,
@@ -5105,11 +5268,15 @@ function pushTomlTable(
       ? "appKeybindings"
       : path === "keybindings.app"
         ? "appKeybindings"
-      : path === "settings.terminal_keybindings"
-        ? "terminalKeybindings"
-        : path === "settings.terminal_triggers"
-          ? "terminalTriggers"
-          : null;
+        : path === "keybindings.command" ||
+            path === "settings.command_keybindings" ||
+            path === "settings.custom_command_keybindings"
+          ? "customCommandKeybindings"
+          : path === "settings.terminal_keybindings"
+            ? "terminalKeybindings"
+            : path === "settings.terminal_triggers"
+              ? "terminalTriggers"
+              : null;
   if (!key) {
     return null;
   }
@@ -5185,6 +5352,16 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
       "[[settings.app_keybindings]]",
       settingLine("keys", binding.keys),
       settingLine("action", binding.action),
+    );
+  }
+
+  for (const binding of settings.customCommandKeybindings) {
+    lines.push(
+      "",
+      "[[keybindings.command]]",
+      settingLine("keys", binding.keys),
+      settingLine("command", binding.command),
+      ...(binding.description ? [settingLine("description", binding.description)] : []),
     );
   }
 

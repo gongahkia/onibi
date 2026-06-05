@@ -3352,9 +3352,18 @@ button.status-bar-item:hover {
 .settings-stacked-control,
 .settings-check-row,
 .trigger-list,
-.trigger-row-main {
+.trigger-row-main,
+.custom-command-list {
   display: grid;
   gap: 8px;
+}
+
+.settings-section-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .keybinding-list {
@@ -3392,6 +3401,27 @@ button.status-bar-item:hover {
   color: var(--fg-1);
   font: 11px/1.35 var(--font-mono);
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-command-row {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 150px) minmax(130px, 180px) minmax(180px, 1fr)
+    minmax(70px, auto) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.custom-command-row kbd {
+  overflow: hidden;
+  color: var(--fg-1);
+  font: 11px/1.35 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3873,7 +3903,8 @@ button.status-bar-item:hover {
   .agent-command-row,
   .activity-toolbar,
   .workspace-picker-row,
-  .workspace-settings-row {
+  .workspace-settings-row,
+  .custom-command-row {
     grid-template-columns: 1fr;
   }
 

@@ -95,6 +95,18 @@ pub struct SessionInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestrationSummary {
+    pub total_sessions: usize,
+    pub running_sessions: usize,
+    pub stale_sessions: usize,
+    pub stopped_sessions: usize,
+    pub pane_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub socket_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum OrchestrationEvent {
     SessionStarted {
@@ -397,6 +409,33 @@ impl OrchestrationState {
                     session: Some(updated),
                 });
             }
+        }
+    }
+
+    pub async fn summary(&self) -> OrchestrationSummary {
+        let sessions = self.sessions.read().await;
+        let total_sessions = sessions.len();
+        let running_sessions = sessions
+            .values()
+            .filter(|session| session.lifecycle == SessionLifecycle::Running)
+            .count();
+        let stale_sessions = sessions
+            .values()
+            .filter(|session| session.lifecycle == SessionLifecycle::Stale)
+            .count();
+        let stopped_sessions = sessions
+            .values()
+            .filter(|session| session.lifecycle == SessionLifecycle::Stopped)
+            .count();
+        OrchestrationSummary {
+            total_sessions,
+            running_sessions,
+            stale_sessions,
+            stopped_sessions,
+            pane_count: running_sessions,
+            socket_path: orchestration_socket_path()
+                .ok()
+                .map(|path| path.display().to_string()),
         }
     }
 

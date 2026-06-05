@@ -2,9 +2,12 @@ import { load } from "@tauri-apps/plugin-store";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
   DEFAULT_SETTINGS,
+  appKeybindingConflicts,
   hydrateSessionStore,
   normalizeNewPaneCwdMode,
+  parseOnibiConfigToml,
   resolveNewPaneCwd,
+  serializeOnibiConfigToml,
   type TerminalPaneNode,
   useSessionStore,
 } from "./sessions";
@@ -297,5 +300,168 @@ describe("session hydration", () => {
     expect(normalizeNewPaneCwdMode("fixed:relative")).toBe(
       DEFAULT_SETTINGS.newPaneCwd,
     );
+  });
+
+  test("defaults bind prefix number keys to workspace tabs", async () => {
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+1",
+      action: "workspace.tab.focusIndex1",
+    });
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+9",
+      action: "workspace.tab.focusIndex9",
+    });
+  });
+
+  test("focuses workspaces tabs and terminal panes by one-based index", async () => {
+    const layout: TerminalPaneNode = {
+      type: "split",
+      paneId: "split-root",
+      direction: "vertical",
+      children: [
+        { type: "leaf", paneId: "pane-a", sessionId: "pty-a" },
+        { type: "leaf", paneId: "pane-b", sessionId: "pty-b" },
+      ],
+    };
+    const secondLayout: TerminalPaneNode = {
+      type: "leaf",
+      paneId: "pane-c",
+      sessionId: "pty-c",
+    };
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-a",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "A",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-b",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "B",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-c",
+          agent: "shell",
+          workspaceId: "workspace:/other",
+          title: "C",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      workspaces: [
+        { id: "workspace:/repo", path: "/repo", name: "repo" },
+        { id: "workspace:/other", path: "/other", name: "other" },
+      ],
+      workspaceTabs: [
+        {
+          id: "tab-1",
+          workspaceId: "workspace:/repo",
+          title: "One",
+          terminalLayout: layout,
+          activeTerminalPaneId: "pane-a",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: "tab-2",
+          workspaceId: "workspace:/repo",
+          title: "Two",
+          terminalLayout: secondLayout,
+          activeTerminalPaneId: "pane-c",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: "tab-3",
+          workspaceId: "workspace:/other",
+          title: "Other",
+          terminalLayout: secondLayout,
+          activeTerminalPaneId: "pane-c",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "tab-1",
+      terminalLayout: layout,
+      activeTerminalPaneId: "pane-a",
+      activeSessionId: "pty-a",
+    });
+
+    useSessionStore.getState().focusTerminalPaneIndex(2);
+    expect(useSessionStore.getState().activeTerminalPaneId).toBe("pane-b");
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-b");
+
+    useSessionStore.getState().focusWorkspaceTabIndex(2);
+    expect(useSessionStore.getState().activeWorkspaceTabId).toBe("tab-2");
+    expect(useSessionStore.getState().activeTerminalPaneId).toBe("pane-c");
+
+    useSessionStore.getState().focusWorkspaceIndex(2);
+    expect(useSessionStore.getState().activeWorkspaceId).toBe("workspace:/other");
+    expect(useSessionStore.getState().activeWorkspaceTabId).toBe("tab-3");
+  });
+
+  test("round-trips custom command keybindings through TOML", async () => {
+    const parsed = parseOnibiConfigToml(`
+version = 1
+
+[keybindings]
+prefix = "ctrl+a"
+
+[[keybindings.app]]
+keys = "prefix+1"
+action = "workspace.focusIndex1"
+
+[[keybindings.command]]
+keys = "prefix+t"
+description = "Run tests"
+command = "pnpm test"
+`);
+
+    expect(parsed.settings.keybindingPrefix).toBe("ctrl+a");
+    expect(parsed.settings.appKeybindings).toContainEqual({
+      keys: "prefix+1",
+      action: "workspace.focusIndex1",
+    });
+    expect(parsed.settings.customCommandKeybindings).toEqual([
+      { keys: "prefix+t", description: "Run tests", command: "pnpm test" },
+    ]);
+
+    const serialized = serializeOnibiConfigToml({
+      version: 1,
+      settings: parsed.settings,
+      workspaces: [],
+    });
+    expect(serialized).toContain("[[keybindings.command]]");
+    expect(serialized).toContain('description = "Run tests"');
+    expect(serialized).toContain('command = "pnpm test"');
+  });
+
+  test("reports conflicts between app and custom command keybindings", async () => {
+    const conflicts = appKeybindingConflicts(
+      [{ keys: "prefix+t", action: "workspace.tab.focusIndex1" }],
+      [{ keys: "prefix+t", command: "pnpm test", description: "Run tests" }],
+    );
+
+    expect(conflicts).toEqual([
+      {
+        keys: "prefix+t",
+        actions: ["workspace.tab.focusIndex1"],
+        commands: ["Run tests"],
+      },
+    ]);
   });
 });

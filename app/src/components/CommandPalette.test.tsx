@@ -295,4 +295,101 @@ describe("CommandPalette", () => {
       sessionIds: ["pty-restored"],
     });
   });
+
+  test("switches workspace tabs with indexed prefix bindings", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "One",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-2",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Two",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      workspaceTabs: [
+        {
+          id: "tab-1",
+          workspaceId: "workspace:/repo",
+          title: "One",
+          terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+          activeTerminalPaneId: "pane-1",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: "tab-2",
+          workspaceId: "workspace:/repo",
+          title: "Two",
+          terminalLayout: { type: "leaf", paneId: "pane-2", sessionId: "pty-2" },
+          activeTerminalPaneId: "pane-2",
+          maximizedTerminalPaneId: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+      activeWorkspaceTabId: "tab-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      activeSessionId: "pty-1",
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "2" });
+
+    expect(useSessionStore.getState().activeWorkspaceTabId).toBe("tab-2");
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
+  });
+
+  test("sends custom command keybindings to the active pane", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        customCommandKeybindings: [
+          { keys: "prefix+t", command: "pnpm test", description: "Run tests" },
+        ],
+      },
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "t" });
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
+        id: "pty-1",
+        data: Array.from(new TextEncoder().encode("pnpm test\r")),
+      });
+    });
+  });
 });

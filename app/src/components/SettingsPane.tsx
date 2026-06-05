@@ -14,6 +14,7 @@ import {
   type AppKeybindingAction,
   type ColorSchemeColorKey,
   type ColorSchemeColors,
+  type CustomCommandKeybinding,
   type CustomColorScheme,
   type DiffViewMode,
   type EditorKeybindingMode,
@@ -391,8 +392,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <KeybindingsSettings
               prefix={settings.keybindingPrefix}
               bindings={settings.appKeybindings}
+              commandBindings={settings.customCommandKeybindings}
               onPrefix={(keybindingPrefix) => updateSettings({ keybindingPrefix })}
               onBindings={(appKeybindings) => updateSettings({ appKeybindings })}
+              onCommandBindings={(customCommandKeybindings) =>
+                updateSettings({ customCommandKeybindings })
+              }
             />
           ) : null}
           {section === "config-json" ? (
@@ -1324,19 +1329,68 @@ const APP_KEYBINDING_ACTIONS = Object.entries(
   APP_KEYBINDING_ACTION_LABELS,
 ) as Array<[AppKeybindingAction, string]>;
 
+type CustomCommandDraft = {
+  id: string;
+  keys: string;
+  description: string;
+  command: string;
+};
+
+function commandDrafts(bindings: CustomCommandKeybinding[]): CustomCommandDraft[] {
+  return bindings.map((binding, index) => ({
+    id: `${index}:${binding.keys}:${binding.command}`,
+    keys: binding.keys,
+    description: binding.description ?? "",
+    command: binding.command,
+  }));
+}
+
+function normalizeCommandDrafts(
+  drafts: CustomCommandDraft[],
+): CustomCommandKeybinding[] {
+  const seen = new Set<string>();
+  const bindings: CustomCommandKeybinding[] = [];
+  for (const draft of drafts) {
+    const keys = normalizeAppKeyChord(draft.keys);
+    const command = draft.command.trim();
+    if (!keys || !command) {
+      continue;
+    }
+    const description = draft.description.trim();
+    const id = `${keys}:${command}:${description}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    bindings.push({
+      keys,
+      command,
+      ...(description ? { description } : {}),
+    });
+  }
+  return bindings;
+}
+
 function KeybindingsSettings({
   prefix,
   bindings,
+  commandBindings,
   onPrefix,
   onBindings,
+  onCommandBindings,
 }: {
   prefix: string;
   bindings: AppKeybinding[];
+  commandBindings: CustomCommandKeybinding[];
   onPrefix: (prefix: string) => void;
   onBindings: (bindings: AppKeybinding[]) => void;
+  onCommandBindings: (bindings: CustomCommandKeybinding[]) => void;
 }) {
   const [draftPrefix, setDraftPrefix] = useState(prefix);
   const [draftBindings, setDraftBindings] = useState<Record<string, string>>({});
+  const [draftCommands, setDraftCommands] = useState<CustomCommandDraft[]>(() =>
+    commandDrafts(commandBindings),
+  );
 
   useEffect(() => {
     setDraftPrefix(prefix);
@@ -1355,6 +1409,10 @@ function KeybindingsSettings({
       ),
     );
   }, [bindings]);
+
+  useEffect(() => {
+    setDraftCommands(commandDrafts(commandBindings));
+  }, [commandBindings]);
 
   function commitPrefix() {
     const normalized = normalizeAppKeyChord(draftPrefix);
@@ -1380,7 +1438,37 @@ function KeybindingsSettings({
     }));
   }
 
-  const conflicts = appKeybindingConflicts(bindings);
+  function commitCommandDrafts(nextDrafts = draftCommands) {
+    onCommandBindings(normalizeCommandDrafts(nextDrafts));
+  }
+
+  function updateCommandDraft(id: string, patch: Partial<CustomCommandDraft>) {
+    setDraftCommands((state) =>
+      state.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
+    );
+  }
+
+  function addCommandDraft() {
+    setDraftCommands((state) => [
+      ...state,
+      {
+        id: `custom-command-${Date.now()}-${state.length}`,
+        keys: "prefix+t",
+        description: "",
+        command: "",
+      },
+    ]);
+  }
+
+  function removeCommandDraft(id: string) {
+    setDraftCommands((state) => {
+      const next = state.filter((draft) => draft.id !== id);
+      onCommandBindings(normalizeCommandDrafts(next));
+      return next;
+    });
+  }
+
+  const conflicts = appKeybindingConflicts(bindings, commandBindings);
 
   return (
     <section className="settings-section" aria-label="Keybinding settings">
@@ -1424,12 +1512,71 @@ function KeybindingsSettings({
           </label>
         ))}
       </div>
+      <div className="settings-stacked-control">
+        <div className="settings-section-heading">
+          <strong>Custom commands</strong>
+          <button type="button" className="text-button" onClick={addCommandDraft}>
+            Add command
+          </button>
+        </div>
+        <div className="custom-command-list">
+          {draftCommands.map((binding) => (
+            <div className="custom-command-row" key={binding.id}>
+              <input
+                className="settings-input"
+                aria-label="Custom command keybinding"
+                value={binding.keys}
+                placeholder="prefix+t"
+                onChange={(event) =>
+                  updateCommandDraft(binding.id, { keys: event.target.value })
+                }
+                onBlur={() => commitCommandDrafts()}
+              />
+              <input
+                className="settings-input"
+                aria-label="Custom command description"
+                value={binding.description}
+                placeholder="Run tests"
+                onChange={(event) =>
+                  updateCommandDraft(binding.id, { description: event.target.value })
+                }
+                onBlur={() => commitCommandDrafts()}
+              />
+              <input
+                className="settings-input"
+                aria-label="Custom command shell command"
+                value={binding.command}
+                placeholder="pnpm test"
+                onChange={(event) =>
+                  updateCommandDraft(binding.id, { command: event.target.value })
+                }
+                onBlur={() => commitCommandDrafts()}
+              />
+              <kbd>{displayKeyChord(binding.keys)}</kbd>
+              <button
+                type="button"
+                className="text-button"
+                aria-label="Remove custom command"
+                onClick={() => removeCommandDraft(binding.id)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {draftCommands.length === 0 ? (
+            <div className="settings-note">No custom command bindings.</div>
+          ) : null}
+        </div>
+      </div>
       {conflicts.length > 0 ? (
         <div className="settings-note settings-warning">
           {conflicts.map((conflict) => (
             <div key={conflict.keys}>
               {displayKeyChord(conflict.keys)} conflicts across{" "}
-              {conflict.actions.map((action) => APP_KEYBINDING_ACTION_LABELS[action]).join(", ")}
+              {[
+                ...conflict.actions.map((action) => APP_KEYBINDING_ACTION_LABELS[action]),
+                ...conflict.commands.map((command) => `Command: ${command}`),
+              ].join(", ")}
             </div>
           ))}
         </div>

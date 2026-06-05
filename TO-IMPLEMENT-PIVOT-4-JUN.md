@@ -92,6 +92,24 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Expanded `newPaneCwd` to support `follow` and `fixed:/absolute/path`, including settings UI, TOML normalization, and split/handoff spawn behavior for absolute CWDs.
 - Added focused Rust process-inference tests and frontend store tests for pane reorder, layout presets, and CWD resolution.
 
+### Implemented in the config/status foundation pass
+
+- Added `onibi config validate` and `onibi config reload`.
+- Added authenticated `/v1/config/status` and `/v1/config/reload` endpoints.
+- Added server-runtime live reload for `server.approval_timeout_secs` and `server.pty_ring_limit`.
+- Extended `/v1/status` with runtime config, uptime, config path, orchestration socket path, and pane/session counts.
+- Added `onibi status server` and `onibi status client` while preserving the combined `onibi status` summary.
+- Added focused Rust tests for config validation, status payloads, and config reload responses.
+
+### Implemented in the keybinding finish pass
+
+- Added indexed keybinding actions for workspaces, workspace terminal tabs, and terminal panes.
+- Bound default `prefix+1..9` to workspace terminal tabs while keeping workspace and pane index actions configurable.
+- Added custom shell command keybindings with `keys`, `command`, and optional `description`; commands send text to the active pane and press Enter.
+- Added settings UI for custom command bindings and expanded conflict reporting across app actions and custom commands.
+- Added `onibi config reset-keys` to restore default keybindings while preserving unrelated TOML config.
+- Added focused Rust and frontend tests for indexed defaults, indexed focus, custom command dispatch, TOML round trips, conflict reporting, and key reset.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -244,10 +262,10 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 48. **[DONE] Explicit prefix-chord syntax v2** (`prefix+c`, `ctrl+alt+x`, `cmd+k`, `f1..f12`).
 49. **[DONE] Configurable prefix key** (default `Ctrl+B`).
 50. **[DONE] Per-action arrays** (multiple bindings per action).
-51. **Indexed bindings family** (`prefix+1..9` → switch workspace/tab/agent by index, configurable).
-52. **Custom command keybindings** (`[[keys.command]]` with trigger + shell action + description).
+51. **[DONE] Indexed bindings family** — default `prefix+1..9` switches workspace terminal tabs; workspace and pane index actions are configurable.
+52. **[DONE] Custom command keybindings** (`[[keybindings.command]]` with trigger + shell action + description).
 53. **[DONE] Conflict detection report** in settings.
-54. **`herdr config reset-keys`** to drop custom keymap.
+54. **[DONE] `herdr config reset-keys` equivalent** — `onibi config reset-keys` restores default keybindings and drops custom command bindings.
 
 ### 2.10 Theming
 55. **18 built-in themes** (catppuccin, tokyo-night, dracula, nord, gruvbox, one-dark, solarized, kanagawa, rose-pine, vesper + light variants + terminal).
@@ -267,7 +285,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.13 Configuration
 64. **[DONE] TOML config file** at `~/.config/onibi/config.toml` for keys, terminal shell defaults, scrollback, UI defaults, server port/limits, and workspaces.
 65. **[DONE] `--default-config` flag** to print the full default config.
-66. **Live config reload** (`herdr server reload-config`).
+66. **[DONE] Live config reload** — `onibi config reload` applies server-runtime fields (`approval_timeout_secs`, `pty_ring_limit`) without daemon restart; port/UI/keybinding/workspace changes remain restart/client-managed.
 67. **Shell-mode selector** (`auto | login | non_login`).
 68. **[DONE] `new_cwd` policy** — implemented `active`, `follow`, `workspace`, `home`, and `fixed:/absolute/path`.
 69. **Mobile-width threshold config** for the narrow layout.
@@ -283,7 +301,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 75. **Staged-docs / staged-CHANGELOG** discipline (`docs/next/` mirror of next release).
 
 ### 2.16 Diagnostics / status
-76. **`herdr status server | client`** with protocol version, socket path, uptime, pane count.
+76. **[DONE] `herdr status server | client` equivalent** — `onibi status server` and `onibi status client` report protocol/version, config path, runtime config, socket path, uptime, pane/session counts, DB/device/adapters, and daemon reachability.
 77. **Render-performance profiling** (`render_prof.rs`).
 
 ### 2.17 UI / UX details
@@ -317,10 +335,10 @@ Current open issue count: 0.
 Order is by leverage (high-value, low-blast-radius first). Numbers reference items above.
 
 **Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04 orchestration completion:**
-Phase A deepening is now mostly complete. Remaining foundation work is indexed bindings, custom command keybindings, and config reset/reload.
+Phase A deepening is complete except for native-hook-dependent blocked work tracked under Phase B.
 
 Completed or mostly completed from original Phase A:
-1, 2, 3, 4, 5, 6, 7, 9, 21, 22, 23, 24, 48, 49, 50, 53, 64, 65, 68.
+1, 2, 3, 4, 5, 6, 7, 9, 21, 22, 23, 24, 48, 49, 50, 51, 52, 53, 54, 64, 65, 66, 68, 76.
 
 Additional orchestration items completed or partially completed outside original Phase A:
 2, 25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
@@ -335,7 +353,7 @@ Additional orchestration items completed or partially completed outside original
 34, 35, 62, 73, 74.
 
 **Phase E — long tail:**
-46, 51, 52, 54, 58, 59, 60, 63, 66, 67, 75, 76, 78–83.
+46, 58, 59, 60, 63, 67, 75, 78–83.
 
 ---
 

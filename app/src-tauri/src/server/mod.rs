@@ -31,7 +31,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{net::TcpListener, sync::RwLock};
 use tower_governor::{
@@ -54,15 +54,16 @@ pub struct AppState {
     pub vapid: VapidKeys,
     pub transports: TransportManager,
     pub orchestration: Arc<OrchestrationState>,
-    pub approval_timeout: Duration,
+    started_at: Instant,
+    runtime_config: Arc<RwLock<config::RuntimeConfig>>,
     pty_ring: Arc<RwLock<HashMap<String, VecDeque<u8>>>>,
     desktop_snapshot: Arc<RwLock<DesktopSnapshotBody>>,
-    ring_limit: usize,
 }
 
 impl AppState {
     pub fn from_config(port: u16) -> Result<Self> {
         let app_config = config::load()?;
+        let runtime_config = app_config.runtime_config();
         let token = secret::load_or_create_token()?.token;
         mirror_token_file(&token);
         let vapid = secret::load_or_create_vapid_keys()?;
@@ -89,10 +90,10 @@ impl AppState {
                 vapid.public_key,
             ),
             orchestration: OrchestrationState::new(token.clone()),
-            approval_timeout: Duration::from_secs(app_config.approval_timeout_secs()),
+            started_at: Instant::now(),
+            runtime_config: Arc::new(RwLock::new(runtime_config)),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
-            ring_limit: app_config.pty_ring_limit(),
         })
     }
 
@@ -115,10 +116,13 @@ impl AppState {
                 "test-vapid".to_string(),
             ),
             orchestration: OrchestrationState::new("test-token".to_string()),
-            approval_timeout: Duration::from_secs(5),
+            started_at: Instant::now(),
+            runtime_config: Arc::new(RwLock::new(config::RuntimeConfig {
+                approval_timeout_secs: 5,
+                pty_ring_limit: config::DEFAULT_PTY_RING_LIMIT,
+            })),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
-            ring_limit: config::DEFAULT_PTY_RING_LIMIT,
         }
     }
 
@@ -127,12 +131,35 @@ impl AppState {
     }
 
     pub async fn append_pty_output(&self, session_id: &str, data: &str) {
+        let limit = self.runtime_config.read().await.pty_ring_limit;
         let mut ring = self.pty_ring.write().await;
         let buffer = ring.entry(session_id.to_string()).or_default();
         buffer.extend(data.as_bytes());
-        while buffer.len() > self.ring_limit {
+        while buffer.len() > limit {
             buffer.pop_front();
         }
+    }
+
+    pub async fn approval_timeout(&self) -> Duration {
+        Duration::from_secs(self.runtime_config.read().await.approval_timeout_secs)
+    }
+
+    pub async fn runtime_config(&self) -> config::RuntimeConfig {
+        self.runtime_config.read().await.clone()
+    }
+
+    pub async fn reload_runtime_config(&self) -> Result<config::RuntimeConfig> {
+        let runtime_config = config::load()?.runtime_config();
+        *self.runtime_config.write().await = runtime_config.clone();
+        Ok(runtime_config)
+    }
+
+    pub fn uptime_secs(&self) -> u64 {
+        self.started_at.elapsed().as_secs()
+    }
+
+    pub fn config_path(&self) -> Result<std::path::PathBuf> {
+        config::path()
     }
 
     pub async fn desktop_snapshot(&self) -> DesktopSnapshotBody {
@@ -255,6 +282,8 @@ pub fn router(state: AppState) -> Router {
             post(routes::desktop_pane_maximize),
         )
         .route("/v1/status", get(routes::status))
+        .route("/v1/config/status", get(routes::config_status))
+        .route("/v1/config/reload", post(routes::config_reload))
         .route("/v1/transport/status", get(routes::transport_status))
         .route("/v1/transport/:name/enable", post(routes::transport_enable))
         .route(

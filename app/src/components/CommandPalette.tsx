@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -12,6 +13,7 @@ import {
   DEFAULT_AGENT_COMMANDS,
   type AppSettings,
   type AppKeybindingAction,
+  type CustomCommandKeybinding,
   type Session,
   type Workspace,
   buildAgentHandoffPrompt,
@@ -28,11 +30,20 @@ import {
   spawnAgentSession,
   useSessionStore,
 } from "../lib/sessions";
+import { ptyWrite } from "../lib/tauri-bridge";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
-type CommandGroup = "Session" | "Workspace" | "Settings" | "Layout" | "View" | "Agent" | "Editor";
+type CommandGroup =
+  | "Session"
+  | "Workspace"
+  | "Settings"
+  | "Layout"
+  | "View"
+  | "Agent"
+  | "Editor"
+  | "Terminal";
 
 interface PaletteCommand {
   id: string;
@@ -127,6 +138,15 @@ function focusActiveTerminal(): void {
   document.querySelector<HTMLElement>(".terminal-view")?.focus();
 }
 
+function indexedActionValue(
+  action: AppKeybindingAction,
+  prefix: "workspace.focusIndex" | "workspace.tab.focusIndex" | "terminal.focusPaneIndex",
+): number | null {
+  const raw = action.startsWith(prefix) ? action.slice(prefix.length) : "";
+  const index = Number(raw);
+  return Number.isInteger(index) && index >= 1 && index <= 9 ? index : null;
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -165,15 +185,33 @@ export function CommandPalette() {
   const focusRelativeTerminalPane = useSessionStore(
     (state) => state.focusRelativeTerminalPane,
   );
+  const focusTerminalPaneIndex = useSessionStore(
+    (state) => state.focusTerminalPaneIndex,
+  );
   const focusRelativeWorkspace = useSessionStore(
     (state) => state.focusRelativeWorkspace,
   );
+  const focusWorkspaceIndex = useSessionStore((state) => state.focusWorkspaceIndex);
   const focusRelativeWorkspaceTab = useSessionStore(
     (state) => state.focusRelativeWorkspaceTab,
+  );
+  const focusWorkspaceTabIndex = useSessionStore(
+    (state) => state.focusWorkspaceTabIndex,
   );
 
   const prefixArmedRef = useRef(false);
   const prefixTimerRef = useRef<number | null>(null);
+  const sendCustomCommand = useCallback((binding: CustomCommandKeybinding) => {
+    const command = binding.command.trim();
+    const sessionId = useSessionStore.getState().activeSessionId;
+    if (!command || !sessionId) {
+      return;
+    }
+    void ptyWrite(sessionId, new TextEncoder().encode(`${command}\r`)).catch((error) => {
+      console.warn("custom command keybinding failed", error);
+    });
+    focusActiveTerminal();
+  }, []);
 
   useEffect(() => {
     function handleGlobalKeyDown(event: KeyboardEvent) {
@@ -193,6 +231,9 @@ export function CommandPalette() {
         target instanceof Element && Boolean(target.closest(".terminal-view"));
       const bindings = new Map(
         settings.appKeybindings.map((binding) => [binding.keys, binding.action]),
+      );
+      const customCommandBindings = new Map(
+        settings.customCommandKeybindings.map((binding) => [binding.keys, binding]),
       );
       const prefix = normalizeAppKeyChord(settings.keybindingPrefix);
 
@@ -244,17 +285,28 @@ export function CommandPalette() {
           focusRelativeWorkspaceTab(1);
         } else if (action === "workspace.tab.previous") {
           focusRelativeWorkspaceTab(-1);
+        } else if (indexedActionValue(action, "workspace.focusIndex")) {
+          focusWorkspaceIndex(indexedActionValue(action, "workspace.focusIndex")!);
+        } else if (indexedActionValue(action, "workspace.tab.focusIndex")) {
+          focusWorkspaceTabIndex(indexedActionValue(action, "workspace.tab.focusIndex")!);
+        } else if (indexedActionValue(action, "terminal.focusPaneIndex")) {
+          focusTerminalPaneIndex(indexedActionValue(action, "terminal.focusPaneIndex")!);
         } else {
           console.warn("unknown app keybinding action", action);
         }
       }
 
       if (prefixArmedRef.current) {
-        const action = bindings.get(`prefix+${chord}`);
+        const key = `prefix+${chord}`;
+        const action = bindings.get(key);
+        const command = customCommandBindings.get(key);
         clearPrefix();
         if (action) {
           event.preventDefault();
           executeAction(action);
+        } else if (command) {
+          event.preventDefault();
+          sendCustomCommand(command);
         }
         return;
       }
@@ -267,14 +319,21 @@ export function CommandPalette() {
       }
 
       const action = bindings.get(chord);
+      const command = customCommandBindings.get(chord);
       if (
-        !action ||
-        (editable && !terminalTarget && action !== "commandPalette.open")
+        (!action && !command) ||
+        (editable &&
+          !terminalTarget &&
+          (!action || action !== "commandPalette.open"))
       ) {
         return;
       }
       event.preventDefault();
-      executeAction(action);
+      if (action) {
+        executeAction(action);
+      } else if (command) {
+        sendCustomCommand(command);
+      }
     }
 
     function handleOpenEvent() {
@@ -298,9 +357,14 @@ export function CommandPalette() {
     focusRelativeTerminalPane,
     focusRelativeWorkspace,
     focusRelativeWorkspaceTab,
+    focusTerminalPaneIndex,
+    focusWorkspaceIndex,
+    focusWorkspaceTabIndex,
     reopenClosedBuffer,
     settings.appKeybindings,
+    settings.customCommandKeybindings,
     settings.keybindingPrefix,
+    sendCustomCommand,
     toggleMaximizedTerminalPane,
   ]);
 
@@ -590,6 +654,18 @@ export function CommandPalette() {
       },
     ];
 
+    settings.customCommandKeybindings.forEach((binding, index) => {
+      nextCommands.push({
+        id: `custom-command.${index}`,
+        label: binding.description || binding.command,
+        group: "Terminal",
+        description: binding.description ? binding.command : undefined,
+        shortcut: displayKeyChord(binding.keys),
+        keywords: ["custom", "command", "keybinding", "shell"],
+        run: () => sendCustomCommand(binding),
+      });
+    });
+
     for (const session of sessions) {
       nextCommands.push({
         id: `session.switch.${session.id}`,
@@ -769,6 +845,7 @@ export function CommandPalette() {
     setActiveSession,
     setActiveSidebarView,
     settings,
+    sendCustomCommand,
     applyTerminalLayoutPreset,
     toggleMaximizedTerminalPane,
     focusRelativeTerminalPane,
