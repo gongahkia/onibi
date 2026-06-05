@@ -228,6 +228,30 @@ fn check_adapters() -> Vec<Check> {
             min_version: None,
             hint: "install Goose for shell sessions",
         },
+        AdapterProbe {
+            name: "qoder",
+            binary: "qoder",
+            min_version: None,
+            hint: "install Qoder CLI for native hook events and resume",
+        },
+        AdapterProbe {
+            name: "copilot",
+            binary: "copilot",
+            min_version: None,
+            hint: "install GitHub Copilot CLI for native hook events",
+        },
+        AdapterProbe {
+            name: "hermes",
+            binary: "hermes",
+            min_version: None,
+            hint: "install Hermes for provider-native session resume",
+        },
+        AdapterProbe {
+            name: "pi",
+            binary: "pi",
+            min_version: None,
+            hint: "install Pi when native extension docs are available",
+        },
     ]
     .into_iter()
     .map(check_adapter)
@@ -237,13 +261,35 @@ fn check_adapters() -> Vec<Check> {
 fn check_integrations() -> Vec<Check> {
     adapters::status(false)
         .into_iter()
-        .filter(|integration| integration.support == "full" || integration.support == "bash-only")
+        .filter(|integration| {
+            matches!(
+                integration.support,
+                "full" | "bash-only" | "event-bridge" | "resume-only" | "pending"
+            )
+        })
         .map(|integration| {
             let path = integration
                 .install_path
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "unknown path".to_string());
+            if integration.support == "pending" || integration.support == "resume-only" {
+                return Check {
+                    level: if integration.support == "pending" {
+                        Level::Warn
+                    } else {
+                        Level::Ok
+                    },
+                    name: format!("integration:{}", integration.name),
+                    detail: integration.message.unwrap_or_else(|| {
+                        format!(
+                            "{} integration support is {}",
+                            integration.name, integration.support
+                        )
+                    }),
+                    hint: None,
+                };
+            }
             if integration.outdated {
                 return Check {
                     level: Level::Warn,

@@ -96,6 +96,26 @@ struct PtySessionRestart {
 #[cfg(feature = "gui")]
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PtyProviderResume {
+    command: String,
+    args: Vec<String>,
+    source: Option<String>,
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtyProviderSession {
+    agent: String,
+    provider_session_id: Option<String>,
+    conversation_id: Option<String>,
+    resume: Option<PtyProviderResume>,
+    updated_at: i64,
+}
+
+#[cfg(feature = "gui")]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PtySessionMetadata {
     id: String,
     pane_id: String,
@@ -116,6 +136,7 @@ struct PtySessionMetadata {
     exit_code: Option<u32>,
     exit_signal: Option<String>,
     restart: Option<PtySessionRestart>,
+    provider: Option<PtyProviderSession>,
 }
 
 #[cfg(feature = "gui")]

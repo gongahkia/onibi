@@ -519,6 +519,48 @@ pub async fn codex_hook(
         .map_err(internal_error)
 }
 
+pub async fn provider_event(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+    ApiJson(payload): ApiJson<Value>,
+) -> ApiResult<Value> {
+    let ingest = adapters::normalize_provider_event(&agent, payload).map_err(internal_error)?;
+    validate_version(ingest.body.protocol_version.as_deref())?;
+    let machine_id = ingest
+        .body
+        .machine_id
+        .clone()
+        .unwrap_or_else(|| state.machine_id.clone());
+    state
+        .store
+        .insert_run_event(
+            &machine_id,
+            &ingest.run_session_id,
+            &ingest.event_kind,
+            &ingest.payload,
+        )
+        .map_err(internal_error)?;
+    state.broadcast(ServerMessage::RunEvent {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        machine_id,
+        session_id: ingest.run_session_id.clone(),
+        kind: ingest.event_kind.clone(),
+        payload: ingest.payload.clone(),
+    });
+    let session = state
+        .orchestration
+        .apply_provider_event(ingest.update)
+        .await;
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "eventKind": ingest.event_kind,
+        "sessionId": ingest.run_session_id,
+        "correlated": session.is_some(),
+        "session": session,
+    })))
+}
+
 pub async fn wait_for_approval_decision(
     state: &AppState,
     body: ApprovalRequestBody,

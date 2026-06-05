@@ -1,14 +1,17 @@
-use super::{stub_info, stub_install, stub_uninstall, AdapterInfo};
+use super::{resume_only_info, AdapterInfo};
 use anyhow::Result;
 
 pub fn info() -> AdapterInfo {
-    stub_info("aider")
+    resume_only_info(
+        "aider",
+        "Aider can restore chat history, but Onibi has no provider session ID hook for it.",
+    )
 }
 
 pub fn install() -> Result<String> {
-    stub_install("aider")
+    Ok("aider is history-restore only; no hook files were installed".to_string())
 }
 
 pub fn uninstall() -> Result<String> {
-    stub_uninstall("aider")
+    Ok("aider is history-restore only; no hook files were removed".to_string())
 }

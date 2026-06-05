@@ -941,6 +941,9 @@ fn print_raw_json_or_text(raw: &str, json_output: bool) -> Result<()> {
 fn hook(name: &str, port: u16) -> Result<()> {
     match name {
         "codex" => adapters::codex::run_stdin_hook(env_port().unwrap_or(port)),
+        "copilot" | "goose" | "qoder" => {
+            adapters::run_stdin_event_hook(name, env_port().unwrap_or(port))
+        }
         other => bail!("unsupported internal hook adapter: {other}"),
     }
 }

@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub fn info() -> AdapterInfo {
-    match hooks_path() {
+    match hook_path() {
         Ok(path) => status_at(&path).unwrap_or_else(|error| AdapterInfo {
-            name: "goose",
+            name: "copilot",
             support: "event-bridge",
             installed: false,
             installed_version: None,
@@ -16,7 +16,7 @@ pub fn info() -> AdapterInfo {
             message: Some(error.to_string()),
         }),
         Err(error) => AdapterInfo {
-            name: "goose",
+            name: "copilot",
             support: "event-bridge",
             installed: false,
             installed_version: None,
@@ -29,36 +29,39 @@ pub fn info() -> AdapterInfo {
 }
 
 pub fn install() -> Result<String> {
-    write_json(&hooks_path()?, &hook_config())?;
-    Ok("goose lifecycle hooks installed".to_string())
+    write_json(&hook_path()?, &hook_config())?;
+    Ok("GitHub Copilot provider-event hook installed".to_string())
 }
 
 pub fn uninstall() -> Result<String> {
-    let path = hooks_path()?;
+    let path = hook_path()?;
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
-    Ok("goose lifecycle hooks uninstalled".to_string())
+    Ok("GitHub Copilot provider-event hook uninstalled".to_string())
 }
 
-fn hooks_path() -> Result<PathBuf> {
+fn hook_path() -> Result<PathBuf> {
     home_path(
-        "ONIBI_GOOSE_HOOKS",
-        &[".agents", "plugins", "onibi", "hooks", "hooks.json"],
+        "ONIBI_COPILOT_HOOK",
+        &[".copilot", "hooks", "onibi-provider-events.json"],
     )
 }
 
 fn hook_config() -> Value {
-    let command = "onibi _hook goose";
+    let command = "onibi _hook copilot";
     json!({
+        "version": 1,
         "onibiIntegrationVersion": INTEGRATION_VERSION,
         "hooks": {
-            "SessionStart": [hook(command)],
-            "UserPromptSubmit": [hook(command)],
-            "PreToolUse": [hook(command)],
-            "PostToolUse": [hook(command)],
-            "PostToolUseFailure": [hook(command)],
-            "Stop": [hook(command)]
+            "sessionStart": [hook(command)],
+            "sessionEnd": [hook(command)],
+            "userPromptSubmitted": [hook(command)],
+            "preToolUse": [hook(command)],
+            "postToolUse": [hook(command)],
+            "postToolUseFailure": [hook(command)],
+            "agentStop": [hook(command)],
+            "errorOccurred": [hook(command)]
         }
     })
 }
@@ -66,14 +69,15 @@ fn hook_config() -> Value {
 fn hook(command: &str) -> Value {
     json!({
         "type": "command",
-        "command": command
+        "bash": command,
+        "timeoutSec": 30
     })
 }
 
 fn status_at(path: &Path) -> Result<AdapterInfo> {
     if !path.exists() {
         return Ok(AdapterInfo {
-            name: "goose",
+            name: "copilot",
             support: "event-bridge",
             installed: false,
             installed_version: None,
@@ -90,13 +94,13 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
         .map(ToString::to_string);
     let installed = installed_version.is_some();
     Ok(AdapterInfo {
-        name: "goose",
+        name: "copilot",
         support: "event-bridge",
         installed,
         installed_version: installed_version.clone(),
         bundled_version: Some(INTEGRATION_VERSION),
         outdated: installed && installed_version.as_deref() != Some(INTEGRATION_VERSION),
         install_path: Some(path.to_path_buf()),
-        message: installed.then_some("goose lifecycle hooks installed".to_string()),
+        message: installed.then_some("GitHub Copilot provider-event hook installed".to_string()),
     })
 }

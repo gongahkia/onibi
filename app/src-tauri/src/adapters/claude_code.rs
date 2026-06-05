@@ -57,6 +57,12 @@ pub fn uninstall() -> Result<String> {
 }
 
 pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value> {
+    if let Ok(ingest) = super::normalize_provider_event("claude-code", payload.clone()) {
+        state
+            .orchestration
+            .apply_provider_event(ingest.update)
+            .await;
+    }
     let tool = payload
         .get("tool_name")
         .or_else(|| payload.get("tool"))

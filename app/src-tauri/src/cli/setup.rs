@@ -152,7 +152,7 @@ fn install_selected_adapters(interactive: bool, token: &str) -> Result<()> {
     let adapters = adapters::list();
     let supported = adapters
         .iter()
-        .filter(|adapter| adapter.support == "full" || adapter.support == "bash-only")
+        .filter(|adapter| installable_support(adapter.support))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -205,7 +205,7 @@ fn install_selected_adapters(interactive: bool, token: &str) -> Result<()> {
 fn install_selected_adapters_json(token: &str) -> Vec<Value> {
     adapters::list()
         .into_iter()
-        .filter(|adapter| adapter.support == "full" || adapter.support == "bash-only")
+        .filter(|adapter| installable_support(adapter.support))
         .filter(|adapter| adapter.installed || adapter_detected(adapter.name))
         .map(|adapter| match adapters::install(adapter.name, token) {
             Ok(message) => json!({
@@ -283,8 +283,16 @@ fn adapter_detected(name: &str) -> bool {
     match name {
         "claude-code" => which::which("claude").is_ok(),
         "codex" => which::which("codex").is_ok(),
+        "copilot" => which::which("copilot").is_ok(),
+        "goose" => which::which("goose").is_ok(),
+        "opencode" => which::which("opencode").is_ok(),
+        "qoder" => which::which("qoder").is_ok(),
         _ => false,
     }
+}
+
+fn installable_support(support: &str) -> bool {
+    matches!(support, "full" | "bash-only" | "event-bridge")
 }
 
 fn interactive_terminal() -> bool {

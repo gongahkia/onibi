@@ -111,6 +111,32 @@ pub struct RunEventBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProviderEventBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    #[serde(default)]
+    pub machine_id: Option<String>,
+    #[serde(default, rename = "sessionId", alias = "session_id")]
+    pub session_id: Option<String>,
+    #[serde(default, rename = "providerSessionId", alias = "provider_session_id")]
+    pub provider_session_id: Option<String>,
+    #[serde(default, rename = "conversationId", alias = "conversation_id")]
+    pub conversation_id: Option<String>,
+    #[serde(default)]
+    pub event: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub tool: Option<String>,
+    #[serde(default = "default_input")]
+    pub input: Value,
+    #[serde(default)]
+    pub raw: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RunEvent {
     pub id: i64,
     pub protocol_version: String,

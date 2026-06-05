@@ -44,6 +44,20 @@ export interface PtySessionRestart {
   shellMode?: PtyShellMode;
 }
 
+export interface PtyProviderResume {
+  command: string;
+  args: string[];
+  source?: string | null;
+}
+
+export interface PtyProviderSession {
+  agent: string;
+  providerSessionId?: string | null;
+  conversationId?: string | null;
+  resume?: PtyProviderResume | null;
+  updatedAt: number;
+}
+
 export interface PtySessionMetadata {
   id: string;
   paneId: string;
@@ -63,6 +77,7 @@ export interface PtySessionMetadata {
   exitCode?: number | null;
   exitSignal?: string | null;
   restart?: PtySessionRestart | null;
+  provider?: PtyProviderSession | null;
 }
 
 export interface PtyAttachResult {

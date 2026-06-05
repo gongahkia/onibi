@@ -1,14 +1,17 @@
-use super::{stub_info, stub_install, stub_uninstall, AdapterInfo};
+use super::{resume_only_info, AdapterInfo};
 use anyhow::Result;
 
 pub fn info() -> AdapterInfo {
-    stub_info("gemini")
+    resume_only_info(
+        "gemini",
+        "Gemini CLI supports checkpoint/resume, but no stable blocking hook installer is wired.",
+    )
 }
 
 pub fn install() -> Result<String> {
-    stub_install("gemini")
+    Ok("gemini is resume-only; no hook files were installed".to_string())
 }
 
 pub fn uninstall() -> Result<String> {
-    stub_uninstall("gemini")
+    Ok("gemini is resume-only; no hook files were removed".to_string())
 }

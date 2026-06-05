@@ -52,6 +52,12 @@ pub fn uninstall() -> Result<String> {
 }
 
 pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value> {
+    if let Ok(ingest) = super::normalize_provider_event("codex", payload.clone()) {
+        state
+            .orchestration
+            .apply_provider_event(ingest.update)
+            .await;
+    }
     let decision = routes::wait_for_approval_decision(state, body_from_payload(payload)?).await?;
     Ok(json!({
         "permissionDecision": decision.decision.as_str(),

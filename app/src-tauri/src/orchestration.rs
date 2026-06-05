@@ -63,6 +63,39 @@ pub struct SessionRestartMetadata {
     pub shell_mode: ShellMode,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderResumeMetadata {
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSessionMetadata {
+    pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume: Option<ProviderResumeMetadata>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderEventUpdate {
+    pub agent: String,
+    pub session_id: Option<String>,
+    pub provider_session_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub cwd: Option<String>,
+    pub status: Option<AgentStatus>,
+    pub resume: Option<ProviderResumeMetadata>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -94,6 +127,8 @@ pub struct SessionInfo {
     pub exit_signal: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<SessionRestartMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ProviderSessionMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -517,6 +552,53 @@ impl OrchestrationState {
         updated.agent
     }
 
+    pub async fn apply_provider_event(&self, update: ProviderEventUpdate) -> Option<SessionInfo> {
+        let now = now_millis();
+        let mut sessions = self.sessions.write().await;
+        let target_id = resolve_provider_event_session(&sessions, &update)?;
+        let session = sessions.get_mut(&target_id)?;
+        if session.agent.is_none() {
+            session.agent = Some(update.agent.clone());
+        }
+        if session.cwd.is_none() {
+            session.cwd = update.cwd.clone();
+        }
+        if let Some(status) = update.status {
+            session.status = status;
+        }
+        let previous_provider = session.provider.clone();
+        session.provider = Some(ProviderSessionMetadata {
+            agent: update.agent,
+            provider_session_id: update.provider_session_id.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.provider_session_id.clone())
+            }),
+            conversation_id: update.conversation_id.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.conversation_id.clone())
+            }),
+            resume: update.resume.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.resume.clone())
+            }),
+            updated_at: now,
+        });
+        session.updated_at = now;
+        let status = session.status;
+        let updated = session.clone();
+        drop(sessions);
+        self.persist_session(&updated);
+        let _ = self.events.send(OrchestrationEvent::SessionStatus {
+            session_id: target_id,
+            status,
+            session: Some(updated.clone()),
+        });
+        Some(updated)
+    }
+
     async fn session_agent(&self, session_id: &str) -> Option<String> {
         self.sessions
             .read()
@@ -625,6 +707,7 @@ impl OrchestrationState {
             exit_code: None,
             exit_signal: None,
             restart: Some(restart),
+            provider: None,
         };
         self.upsert_session(session.clone()).await;
         self.screens
@@ -808,9 +891,8 @@ impl OrchestrationState {
             }));
         }
 
-        let restart = session
-            .restart
-            .clone()
+        let restart = provider_restart_metadata(&session)
+            .or_else(|| session.restart.clone())
             .ok_or_else(|| anyhow!("session has no restart metadata: {}", session.id))?;
         let previous_id = session.id.clone();
         self.mark_session_stopped(&previous_id, None).await;
@@ -1206,6 +1288,65 @@ impl SpawnMetadata {
     }
 }
 
+fn resolve_provider_event_session(
+    sessions: &HashMap<String, SessionInfo>,
+    update: &ProviderEventUpdate,
+) -> Option<String> {
+    if let Some(session_id) = update.session_id.as_deref() {
+        if sessions.contains_key(session_id) {
+            return Some(session_id.to_string());
+        }
+    }
+
+    for session in sessions.values() {
+        let Some(provider) = session.provider.as_ref() else {
+            continue;
+        };
+        if update
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|id| provider.provider_session_id.as_deref() == Some(id))
+            || update
+                .conversation_id
+                .as_deref()
+                .is_some_and(|id| provider.conversation_id.as_deref() == Some(id))
+        {
+            return Some(session.id.clone());
+        }
+    }
+
+    let agent = update.agent.as_str();
+    let cwd = update.cwd.as_deref();
+    let matching = sessions
+        .values()
+        .filter(|session| {
+            session.lifecycle == SessionLifecycle::Running
+                && session
+                    .agent
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(agent))
+                && cwd.is_none_or(|cwd| session.cwd.as_deref() == Some(cwd))
+        })
+        .map(|session| session.id.clone())
+        .collect::<Vec<_>>();
+    if matching.len() == 1 {
+        return matching.into_iter().next();
+    }
+
+    let matching = sessions
+        .values()
+        .filter(|session| {
+            session.lifecycle == SessionLifecycle::Running
+                && session
+                    .agent
+                    .as_deref()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(agent))
+        })
+        .map(|session| session.id.clone())
+        .collect::<Vec<_>>();
+    (matching.len() == 1).then(|| matching[0].clone())
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AgentDetectionSpec {
     canonical: &'static str,
@@ -1440,6 +1581,28 @@ fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadat
         env: req.env.clone(),
         shell_mode: req.shell_mode,
     }
+}
+
+fn provider_restart_metadata(session: &SessionInfo) -> Option<SessionRestartMetadata> {
+    let resume = session.provider.as_ref()?.resume.as_ref()?;
+    Some(SessionRestartMetadata {
+        command: resume.command.clone(),
+        args: resume.args.clone(),
+        cwd: session
+            .cwd
+            .clone()
+            .or_else(|| session.restart.as_ref()?.cwd.clone()),
+        env: session
+            .restart
+            .as_ref()
+            .map(|restart| restart.env.clone())
+            .unwrap_or_default(),
+        shell_mode: session
+            .restart
+            .as_ref()
+            .map(|restart| restart.shell_mode)
+            .unwrap_or_default(),
+    })
 }
 
 #[derive(Debug)]
@@ -2321,6 +2484,76 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn provider_event_correlates_by_agent_and_cwd() {
+        let state = OrchestrationState::with_store("token".to_string(), None);
+        let mut session = test_session("session-1", AgentStatus::Working, Some("opencode"));
+        session.cwd = Some("/repo".to_string());
+        state.upsert_session(session).await;
+
+        let updated = state
+            .apply_provider_event(ProviderEventUpdate {
+                agent: "opencode".to_string(),
+                session_id: Some("provider-session-1".to_string()),
+                provider_session_id: Some("provider-session-1".to_string()),
+                conversation_id: None,
+                cwd: Some("/repo".to_string()),
+                status: Some(AgentStatus::Done),
+                resume: Some(ProviderResumeMetadata {
+                    command: "opencode".to_string(),
+                    args: vec!["--session".to_string(), "provider-session-1".to_string()],
+                    source: Some("test".to_string()),
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(updated.id, "session-1");
+        assert_eq!(updated.status, AgentStatus::Done);
+        let provider = updated.provider.unwrap();
+        assert_eq!(
+            provider.provider_session_id.as_deref(),
+            Some("provider-session-1")
+        );
+        assert_eq!(
+            provider.resume.unwrap().args,
+            vec!["--session".to_string(), "provider-session-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn provider_resume_metadata_overrides_relaunch_command() {
+        let mut session = test_session("session-1", AgentStatus::Done, Some("opencode"));
+        session.cwd = Some("/repo".to_string());
+        session.restart = Some(SessionRestartMetadata {
+            command: "opencode".to_string(),
+            args: vec![],
+            cwd: Some("/repo".to_string()),
+            env: vec![("A".to_string(), "B".to_string())],
+            shell_mode: ShellMode::Auto,
+        });
+        session.provider = Some(ProviderSessionMetadata {
+            agent: "opencode".to_string(),
+            provider_session_id: Some("provider-session-1".to_string()),
+            conversation_id: None,
+            resume: Some(ProviderResumeMetadata {
+                command: "opencode".to_string(),
+                args: vec!["--session".to_string(), "provider-session-1".to_string()],
+                source: Some("test".to_string()),
+            }),
+            updated_at: 1,
+        });
+
+        let restart = provider_restart_metadata(&session).unwrap();
+        assert_eq!(restart.command, "opencode");
+        assert_eq!(
+            restart.args,
+            vec!["--session".to_string(), "provider-session-1".to_string()]
+        );
+        assert_eq!(restart.cwd.as_deref(), Some("/repo"));
+        assert_eq!(restart.env, vec![("A".to_string(), "B".to_string())]);
+    }
+
     #[test]
     fn normalizes_session_names() {
         assert_eq!(
@@ -2359,6 +2592,7 @@ mod tests {
                 env: vec![],
                 shell_mode: ShellMode::Auto,
             }),
+            provider: None,
         };
         store.upsert(&session).unwrap();
 
@@ -2413,6 +2647,7 @@ mod tests {
             exit_code: None,
             exit_signal: None,
             restart: None,
+            provider: None,
         }
     }
 }

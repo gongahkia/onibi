@@ -66,6 +66,7 @@ export interface Session {
   lastCommandBlockId?: string | null;
   transcript?: SessionTranscript | null;
   shellPromptMarkerSeen?: boolean;
+  provider?: import("./tauri-bridge").PtyProviderSession | null;
 }
 
 export type TerminalSplitDirection = "vertical" | "horizontal";
@@ -4693,6 +4694,7 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
     cwd: daemon.cwd ?? session.cwd,
     lastExitCode: daemon.exitCode ?? session.lastExitCode ?? null,
     restart: daemon.restart ?? session.restart ?? null,
+    provider: daemon.provider ?? session.provider ?? null,
   };
 }
 
@@ -4714,6 +4716,7 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
     lastCommandBlockId: null,
     transcript: null,
     restart: daemon.restart ?? null,
+    provider: daemon.provider ?? null,
   };
 }
 
