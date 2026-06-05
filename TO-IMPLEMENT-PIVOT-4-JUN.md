@@ -199,6 +199,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added Command Palette support for `Copy Terminal Render Profile`, which requests the active terminal's current profile and copies JSON to the clipboard.
 - Added focused frontend tests for image-addon gating, opt-in profile events, profile copy, and config persistence.
 
+### Implemented in the notifications UX pass
+
+- Added quiet-default notification settings for delivery target, foreground-tab suppression, sound enablement, custom completion/request sound paths, and per-agent sound muting.
+- Added a shared frontend notification dispatcher for terminal triggers, OSC PTY notifications, in-app toasts, system notifications, terminal notices, and configured sounds.
+- Added in-app toast host with compact dismissible toasts and OSC PTY notification routing.
+- Routed terminal trigger `notify` actions and terminal-exit completion sound intents through the shared dispatcher.
+- Added focused tests for settings/config round trips, dispatcher delivery modes, foreground suppression, per-agent muting, OSC toast routing, and terminal notices.
+
 ### Implemented in the workspace-first UX polish pass
 
 - Added per-agent display label overrides in Settings, persisted through `settings.agent_label_overrides` in `config.toml`.
@@ -272,9 +280,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Kitty graphics / sixel** | Yes (experimental) | Sixel and iTerm inline images are opt-in through `@xterm/addon-image`; Kitty graphics remain open |
 | **Kitty keyboard protocol** | Yes | No |
 | **Notifications: in-app toast** | Yes | Yes |
-| **Notifications: terminal (OSC)** | Yes | Partial |
+| **Notifications: terminal (OSC)** | Yes | Yes — OSC PTY notifications route through the delivery selector |
 | **Notifications: system / push** | Yes (system) | Yes (Web Push VAPIR) |
-| **Sound alerts (per-agent muting)** | Yes (mp3, completion/request chimes) | No |
+| **Sound alerts (per-agent muting)** | Yes (mp3, completion/request chimes) | Yes — custom/generated completion/request chimes plus per-agent mute map |
 | **Auto-update / release-channel** | Yes (`herdr update`, latest.json, release notes modal) | No (manual brew/install.sh) |
 | **Live binary handoff (running panes)** | Yes (experimental) | No |
 | **Onboarding flow** | Yes | `onibi setup` interactive |
@@ -374,10 +382,10 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 57. **Per-theme custom-color overrides** in TOML.
 
 ### 2.11 Notifications & sound
-58. **Sound alerts** with custom mp3 paths (completion + request chimes).
-59. **Per-agent sound muting** (`[ui.sound.agents] droid = false`).
-60. **Tab-aware suppression** (foreground tab stays quiet, background tabs notify).
-61. **Toast delivery selector** — `in_app | terminal | system`.
+58. **[DONE] Sound alerts** with custom mp3 paths (completion + request chimes) — quiet by default, with custom paths or generated WebAudio chimes when enabled.
+59. **[DONE] Per-agent sound muting** (`[ui.sound.agents] droid = false`) — implemented as `settings.sound_agents`.
+60. **[DONE] Tab-aware suppression** (foreground tab stays quiet, background tabs notify).
+61. **[DONE] Toast delivery selector** — `in_app | terminal | system`.
 
 ### 2.12 Update / release
 62. **Built-in updater** (`herdr update`, periodic check against `latest.json`, in-app release-notes modal).
@@ -457,7 +465,7 @@ Remaining terminal-native polish: 37 as future libghostty-vt parity only if need
 34, 35, 62, 73, 74.
 
 **Phase E — long tail:**
-58, 59, 60, 63, 75, 81, 82.
+63, 75, 81, 82.
 
 ---
 
