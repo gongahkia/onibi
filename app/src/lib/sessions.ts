@@ -67,6 +67,7 @@ export interface Session {
   transcript?: SessionTranscript | null;
   shellPromptMarkerSeen?: boolean;
   provider?: import("./tauri-bridge").PtyProviderSession | null;
+  remote?: RemoteSessionMetadata | null;
 }
 
 export type TerminalSplitDirection = "vertical" | "horizontal";
@@ -155,6 +156,7 @@ export interface SessionRestartMetadata {
   cwd: string | null;
   env: Array<[string, string]>;
   shellMode?: TerminalShellMode;
+  remote?: RemoteSessionMetadata | null;
 }
 
 export interface TerminalLaunchSpec extends SessionRestartMetadata {
@@ -198,6 +200,34 @@ export type NewPaneCwdMode =
   | "follow"
   | `fixed:${string}`;
 export type TerminalShellMode = PtyShellMode;
+export type RemoteKeybindingPolicy = "local" | "remote";
+
+export interface RemoteSessionMetadata {
+  kind: "ssh";
+  target: string;
+  user?: string;
+  host: string;
+  port?: number;
+  remoteCwd?: string | null;
+  keybindingPolicy: RemoteKeybindingPolicy;
+}
+
+export interface ParsedSshRemoteTarget {
+  target: string;
+  sshTarget: string;
+  user?: string;
+  host: string;
+  port?: number;
+  remoteCwd?: string | null;
+}
+
+export interface RemoteSshLaunchOptions {
+  target: string;
+  remoteCwd?: string | null;
+  title?: string | null;
+  keybindingPolicy?: RemoteKeybindingPolicy | null;
+  sshCommand?: string | null;
+}
 
 export const KEYBINDING_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export type KeybindingIndex = (typeof KEYBINDING_INDEXES)[number];
@@ -629,6 +659,9 @@ export interface AppSettings {
   terminalTransparentBackground: boolean;
   terminalInlineImages: TerminalInlineImageMode;
   terminalConfirmClose: boolean;
+  paneHistoryEnabled: boolean;
+  remoteKeybindingPolicy: RemoteKeybindingPolicy;
+  remoteSshCommand: string;
   terminalTriggers: TerminalTrigger[];
   notificationDelivery: NotificationDelivery;
   soundAlertsEnabled: boolean;
