@@ -552,6 +552,7 @@ export type TerminalKeybindingAction =
 
 export type TerminalCopyFormat = "plain" | "ansi" | "html";
 export type TerminalInlineImageMode = "off" | "sixel" | "iterm" | "auto";
+export type NotificationDelivery = "in_app" | "terminal" | "system";
 
 export interface TerminalKeybinding {
   keys: string;
@@ -629,6 +630,12 @@ export interface AppSettings {
   terminalInlineImages: TerminalInlineImageMode;
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
+  notificationDelivery: NotificationDelivery;
+  soundAlertsEnabled: boolean;
+  soundCompletionPath: string;
+  soundRequestPath: string;
+  soundAgents: Partial<Record<AgentKind, boolean>>;
+  suppressForegroundTabNotifications: boolean;
   keybindingPrefix: string;
   appKeybindings: AppKeybinding[];
   customCommandKeybindings: CustomCommandKeybinding[];
@@ -1583,6 +1590,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalInlineImages: "off",
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
+  notificationDelivery: "in_app",
+  soundAlertsEnabled: false,
+  soundCompletionPath: "",
+  soundRequestPath: "",
+  soundAgents: {},
+  suppressForegroundTabNotifications: true,
   keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
   appKeybindings: DEFAULT_APP_KEYBINDINGS,
   customCommandKeybindings: DEFAULT_CUSTOM_COMMAND_KEYBINDINGS,
@@ -1803,6 +1816,26 @@ function normalizeTerminalInlineImageMode(value: unknown): TerminalInlineImageMo
   return value === "off" || value === "sixel" || value === "iterm" || value === "auto"
     ? value
     : DEFAULT_SETTINGS.terminalInlineImages;
+}
+
+function normalizeNotificationDelivery(value: unknown): NotificationDelivery {
+  return value === "in_app" || value === "terminal" || value === "system"
+    ? value
+    : DEFAULT_SETTINGS.notificationDelivery;
+}
+
+function normalizeSoundAgents(value: unknown): Partial<Record<AgentKind, boolean>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const result: Partial<Record<AgentKind, boolean>> = {};
+  for (const agent of AGENT_KINDS) {
+    const enabled = value[agent];
+    if (typeof enabled === "boolean") {
+      result[agent] = enabled;
+    }
+  }
+  return result;
 }
 
 function normalizeTerminalKeybindings(value: unknown): TerminalKeybinding[] {
@@ -2329,6 +2362,24 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
+    notificationDelivery: normalizeNotificationDelivery(merged.notificationDelivery),
+    soundAlertsEnabled:
+      typeof merged.soundAlertsEnabled === "boolean"
+        ? merged.soundAlertsEnabled
+        : DEFAULT_SETTINGS.soundAlertsEnabled,
+    soundCompletionPath:
+      typeof merged.soundCompletionPath === "string"
+        ? merged.soundCompletionPath
+        : DEFAULT_SETTINGS.soundCompletionPath,
+    soundRequestPath:
+      typeof merged.soundRequestPath === "string"
+        ? merged.soundRequestPath
+        : DEFAULT_SETTINGS.soundRequestPath,
+    soundAgents: normalizeSoundAgents(merged.soundAgents),
+    suppressForegroundTabNotifications:
+      typeof merged.suppressForegroundTabNotifications === "boolean"
+        ? merged.suppressForegroundTabNotifications
+        : DEFAULT_SETTINGS.suppressForegroundTabNotifications,
     keybindingPrefix:
       normalizeAppKeyChord(merged.keybindingPrefix) || DEFAULT_SETTINGS.keybindingPrefix,
     appKeybindings: normalizeAppKeybindings(merged.appKeybindings),
@@ -5618,6 +5669,9 @@ function assignTomlSetting(
   } else if (path === "settings.agent_label_overrides") {
     const target = (settings.agentLabelOverrides ??= {}) as Record<string, unknown>;
     target[key] = value;
+  } else if (path === "settings.sound_agents") {
+    const target = (settings.soundAgents ??= {}) as Record<string, unknown>;
+    target[key] = value;
   } else if (path === "settings.custom_color_scheme") {
     const target = (settings.customColorScheme ??= {}) as Record<string, unknown>;
     target[camelFromTomlKey(key)] = value;
@@ -5691,6 +5745,14 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_inline_images", settings.terminalInlineImages),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
+    settingLine("notification_delivery", settings.notificationDelivery),
+    settingLine("sound_alerts_enabled", settings.soundAlertsEnabled),
+    settingLine("sound_completion_path", settings.soundCompletionPath),
+    settingLine("sound_request_path", settings.soundRequestPath),
+    settingLine(
+      "suppress_foreground_tab_notifications",
+      settings.suppressForegroundTabNotifications,
+    ),
     settingLine("keybinding_prefix", settings.keybindingPrefix),
     settingLine("new_pane_cwd", settings.newPaneCwd),
     settingLine("editor_font_size", settings.editorFontSize),
@@ -5722,6 +5784,9 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     ...AGENT_KINDS.map((agent) =>
       settingLine(agent, settings.agentLabelOverrides[agent] ?? ""),
     ),
+    "",
+    "[settings.sound_agents]",
+    ...AGENT_KINDS.map((agent) => settingLine(agent, settings.soundAgents[agent] !== false)),
     "",
     "[settings.custom_color_scheme]",
     settingLine("label", settings.customColorScheme.label),
