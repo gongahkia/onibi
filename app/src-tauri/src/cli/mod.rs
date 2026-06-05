@@ -54,6 +54,10 @@ enum Command {
         #[command(subcommand)]
         command: AdapterCommand,
     },
+    Integration {
+        #[command(subcommand)]
+        command: IntegrationCommand,
+    },
     Transport {
         #[command(subcommand)]
         command: TransportCommand,
@@ -113,6 +117,24 @@ enum AdapterCommand {
     List,
     Install { name: String },
     Uninstall { name: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum IntegrationCommand {
+    Status {
+        #[arg(long)]
+        outdated_only: bool,
+    },
+    List {
+        #[arg(long)]
+        outdated_only: bool,
+    },
+    Install {
+        name: String,
+    },
+    Uninstall {
+        name: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -251,6 +273,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "config",
         "token",
         "adapter",
+        "integration",
         "transport",
         "session",
         "pane",
@@ -326,6 +349,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Config { command }) => config_command(command, port, cli.json),
         Some(Command::Token { command }) => token(command, cli.json),
         Some(Command::Adapter { command }) => adapter(command, cli.json),
+        Some(Command::Integration { command }) => integration(command, cli.json),
         Some(Command::Transport { command }) => transport(command, port, cli.json).await,
         Some(Command::Session { command }) => session(command, port, cli.json).await,
         Some(Command::Pane { command }) => pane(command, port, cli.json).await,
@@ -610,6 +634,79 @@ fn adapter(command: AdapterCommand, json_output: bool) -> Result<()> {
             }
         }
         AdapterCommand::Uninstall { name } => {
+            let message = adapters::uninstall(&name)?;
+            if json_output {
+                print_value(json!({"ok": true, "name": name, "message": message}), true)?;
+            } else {
+                println!("{message}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn integration(command: IntegrationCommand, json_output: bool) -> Result<()> {
+    match command {
+        IntegrationCommand::Status { outdated_only }
+        | IntegrationCommand::List { outdated_only } => {
+            let integrations = adapters::status(outdated_only);
+            if json_output {
+                print_value(serde_json::to_value(integrations)?, true)?;
+            } else if integrations.is_empty() {
+                println!(
+                    "{}",
+                    if outdated_only {
+                        "no outdated integrations"
+                    } else {
+                        "no integrations"
+                    }
+                );
+            } else {
+                for integration in integrations {
+                    let state = if integration.installed {
+                        if integration.outdated {
+                            "outdated"
+                        } else {
+                            "installed"
+                        }
+                    } else {
+                        "missing"
+                    };
+                    let installed_version = integration.installed_version.as_deref().unwrap_or(
+                        if integration.installed {
+                            "unknown"
+                        } else {
+                            "-"
+                        },
+                    );
+                    let bundled_version = integration.bundled_version.unwrap_or("-");
+                    let path = integration
+                        .install_path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "-".to_string());
+                    println!(
+                        "{}\tsupport={}\tstate={}\tinstalledVersion={}\tbundledVersion={}\tpath={}",
+                        integration.name,
+                        integration.support,
+                        state,
+                        installed_version,
+                        bundled_version,
+                        path
+                    );
+                }
+            }
+        }
+        IntegrationCommand::Install { name } => {
+            let token = secret::load_or_create_token()?.token;
+            let message = adapters::install(&name, &token)?;
+            if json_output {
+                print_value(json!({"ok": true, "name": name, "message": message}), true)?;
+            } else {
+                println!("{message}");
+            }
+        }
+        IntegrationCommand::Uninstall { name } => {
             let message = adapters::uninstall(&name)?;
             if json_output {
                 print_value(json!({"ok": true, "name": name, "message": message}), true)?;

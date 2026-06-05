@@ -8,32 +8,52 @@ pub mod opencode;
 
 use anyhow::{bail, Result};
 use serde::Serialize;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AdapterInfo {
+#[serde(rename_all = "camelCase")]
+pub struct IntegrationInfo {
     pub name: &'static str,
     pub support: &'static str,
     pub installed: bool,
+    pub installed_version: Option<String>,
+    pub bundled_version: Option<&'static str>,
+    pub outdated: bool,
+    pub install_path: Option<PathBuf>,
+    pub message: Option<String>,
 }
 
-pub fn list() -> Vec<AdapterInfo> {
+pub type AdapterInfo = IntegrationInfo;
+
+pub const INTEGRATION_VERSION: &str = "1.0.0";
+pub const INTEGRATION_VERSION_HEADER: &str = "X-Onibi-Integration-Version";
+pub const INTEGRATION_VERSION_FIELD: &str = "onibiIntegrationVersion";
+
+pub fn list() -> Vec<IntegrationInfo> {
+    integrations()
+}
+
+pub fn integrations() -> Vec<IntegrationInfo> {
     vec![
-        AdapterInfo {
-            name: "claude-code",
-            support: "full",
-            installed: claude_code::installed().unwrap_or(false),
-        },
-        AdapterInfo {
-            name: "codex",
-            support: "bash-only",
-            installed: codex::installed().unwrap_or(false),
-        },
+        claude_code::info(),
+        codex::info(),
         opencode::info(),
         gemini::info(),
         aider::info(),
         cursor::info(),
         goose::info(),
     ]
+}
+
+pub fn status(outdated_only: bool) -> Vec<IntegrationInfo> {
+    filter_status(integrations(), outdated_only)
+}
+
+fn filter_status(integrations: Vec<IntegrationInfo>, outdated_only: bool) -> Vec<IntegrationInfo> {
+    integrations
+        .into_iter()
+        .filter(|integration| !outdated_only || integration.outdated)
+        .collect()
 }
 
 pub fn install(name: &str, token: &str) -> Result<String> {
@@ -67,6 +87,11 @@ pub fn stub_info(name: &'static str) -> AdapterInfo {
         name,
         support: "stub",
         installed: false,
+        installed_version: None,
+        bundled_version: None,
+        outdated: false,
+        install_path: None,
+        message: Some("stub integration; no hook installer is available yet".to_string()),
     }
 }
 
@@ -80,4 +105,40 @@ pub fn stub_uninstall(name: &str) -> Result<String> {
     Ok(format!(
         "{name} adapter is a Phase-03 stub; no hooks were removed"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outdated_only_filters_current_and_missing_integrations() {
+        let integrations = vec![
+            IntegrationInfo {
+                name: "current",
+                support: "full",
+                installed: true,
+                installed_version: Some(INTEGRATION_VERSION.to_string()),
+                bundled_version: Some(INTEGRATION_VERSION),
+                outdated: false,
+                install_path: None,
+                message: None,
+            },
+            IntegrationInfo {
+                name: "old",
+                support: "full",
+                installed: true,
+                installed_version: Some("0.9.0".to_string()),
+                bundled_version: Some(INTEGRATION_VERSION),
+                outdated: true,
+                install_path: None,
+                message: None,
+            },
+            stub_info("stub"),
+        ];
+
+        let filtered = filter_status(integrations, true);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "old");
+    }
 }

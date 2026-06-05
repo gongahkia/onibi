@@ -41,6 +41,7 @@ async fn run_all(port: u16, json_output: bool) -> Result<()> {
     let db_summary = db_summary(&db_path)?;
     let config_validation = config::validate()?;
     let server_status = server_status_value(port, daemon_running).await?;
+    let integrations = adapters::status(false);
 
     let mode = if cfg!(feature = "gui") {
         "gui-capable build"
@@ -61,7 +62,8 @@ async fn run_all(port: u16, json_output: bool) -> Result<()> {
                 "database": db_path,
                 "databaseSummary": db_summary,
                 "transports": transport_values(port, daemon_running).await?,
-                "adapters": adapters::list(),
+                "adapters": integrations.clone(),
+                "integrations": integrations,
             }))?
         );
         return Ok(());
@@ -115,18 +117,7 @@ async fn run_all(port: u16, json_output: bool) -> Result<()> {
     }
     println!();
 
-    println!("Adapters installed:");
-    let installed = adapters::list()
-        .into_iter()
-        .filter(|adapter| adapter.installed)
-        .collect::<Vec<_>>();
-    if installed.is_empty() {
-        println!("  none");
-    } else {
-        for adapter in installed {
-            println!("  {} ({})", adapter.name, adapter.support);
-        }
-    }
+    print_installed_integrations();
 
     Ok(())
 }
@@ -197,6 +188,7 @@ async fn run_client(port: u16, json_output: bool) -> Result<()> {
     let db_path = secret::db_path()?;
     let daemon_running = super::healthz(port);
     let db_summary = db_summary(&db_path)?;
+    let integrations = adapters::status(false);
     let mode = if cfg!(feature = "gui") {
         "gui-capable build"
     } else {
@@ -213,7 +205,8 @@ async fn run_client(port: u16, json_output: bool) -> Result<()> {
                 "configPath": config_path,
                 "database": db_path,
                 "databaseSummary": db_summary,
-                "adapters": adapters::list(),
+                "adapters": integrations.clone(),
+                "integrations": integrations,
             }))?
         );
         return Ok(());
@@ -233,7 +226,7 @@ async fn run_client(port: u16, json_output: bool) -> Result<()> {
         db_summary.pending_approvals, db_summary.resolved_24h
     );
     println!();
-    print_devices_and_adapters(db_summary);
+    print_devices_and_integrations(db_summary);
     Ok(())
 }
 
@@ -252,7 +245,7 @@ async fn server_status_value(port: u16, daemon_running: bool) -> Result<Value> {
     }))
 }
 
-fn print_devices_and_adapters(db_summary: DbSummary) {
+fn print_devices_and_integrations(db_summary: DbSummary) {
     println!("Paired devices:");
     if db_summary.devices.is_empty() {
         println!("  none");
@@ -267,16 +260,32 @@ fn print_devices_and_adapters(db_summary: DbSummary) {
     }
     println!();
 
-    println!("Adapters installed:");
-    let installed = adapters::list()
+    print_installed_integrations();
+}
+
+fn print_installed_integrations() {
+    println!("Integrations installed:");
+    let installed = adapters::status(false)
         .into_iter()
-        .filter(|adapter| adapter.installed)
+        .filter(|integration| integration.installed)
         .collect::<Vec<_>>();
     if installed.is_empty() {
         println!("  none");
     } else {
-        for adapter in installed {
-            println!("  {} ({})", adapter.name, adapter.support);
+        for integration in installed {
+            let version = integration
+                .installed_version
+                .as_deref()
+                .unwrap_or("unknown");
+            let outdated = if integration.outdated {
+                ", outdated"
+            } else {
+                ""
+            };
+            println!(
+                "  {} ({}, version {version}{outdated})",
+                integration.name, integration.support
+            );
         }
     }
 }

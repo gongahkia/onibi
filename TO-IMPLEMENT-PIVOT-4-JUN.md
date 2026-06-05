@@ -110,6 +110,15 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added `onibi config reset-keys` to restore default keybindings while preserving unrelated TOML config.
 - Added focused Rust and frontend tests for indexed defaults, indexed focus, custom command dispatch, TOML round trips, conflict reporting, and key reset.
 
+### Implemented in the integration lifecycle pass
+
+- Added shared integration status metadata for adapter hooks, including install state, installed/bundled marker versions, outdated detection, install path, and status messages.
+- Added Onibi integration version markers to newly installed Claude Code and Codex hook entries.
+- Added `onibi integration status`, `onibi integration status --outdated-only`, `onibi integration list`, `onibi integration install <name>`, and `onibi integration uninstall <name>`.
+- Kept `onibi adapter list/install/uninstall` as compatibility aliases backed by the richer lifecycle model.
+- Extended setup/status/doctor output with the richer integration lifecycle status while preserving existing `adapters` JSON fields for compatibility.
+- Added focused Rust tests for current, legacy unmarked, outdated, missing, install, uninstall, and outdated-only lifecycle cases.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -218,8 +227,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 16. **Hermes Python plugin** (`~/.hermes-agent/plugins/…`).
 17. **Qoder CLI hook**.
 18. **GitHub Copilot hook**.
-19. **Integration version tracking** (`HERDR_INTEGRATION_VERSION` markers, `integration status --outdated-only`).
-20. **`integration install/uninstall/status` CLI** as a unified subsystem (onibi has per-adapter only).
+19. **[DONE] Integration version tracking** — Onibi-native integration markers are tracked for Claude Code and Codex, and `integration status --outdated-only` reports stale/missing marker installs.
+20. **[DONE] `integration install/uninstall/status` CLI** as a unified subsystem, with existing `adapter` commands preserved as compatibility aliases.
 
 ### 2.4 Socket / orchestration API
 21. **[DONE] `wait output --match <text>/--regex --timeout`** — block until pane emits matching text.
@@ -344,7 +353,8 @@ Additional orchestration items completed or partially completed outside original
 2, 25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
 
 **Phase B — agent ecosystem reach:**
-8, 11, 13, 14, 15 (replace stub), 16, 17, 18, 19, 20. Blocked until native hooks/provider support: 10, 31.
+Completed from Phase B: 8, 11, 19, 20.
+Remaining native hook/plugin work: 13, 14, 15 (replace stub), 16, 17, 18. Blocked until native hooks/provider support: 10, 31.
 
 **Phase C — terminal-native polish:**
 37 (decision: keep xterm.js or embed ghostty-vt), 38, 40, 43, 44, 45, 55, 56.

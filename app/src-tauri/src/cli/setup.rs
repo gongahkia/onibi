@@ -77,7 +77,8 @@ async fn run_json(port: u16) -> Result<()> {
             "vapidPublicKey": vapid.public_key,
             "daemonRunning": daemon_running,
             "transports": transports,
-            "adapters": adapters,
+            "adapters": adapters.clone(),
+            "integrations": adapters,
             "pairUri": pair_uri,
         }))?
     );

@@ -1,4 +1,5 @@
 use crate::{
+    adapters::{IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_HEADER},
     protocol::{ApprovalRequestBody, Decision},
     server::{routes, AppState},
 };
@@ -14,6 +15,31 @@ use std::{
 const HOOK_PATH: &str = "/v1/adapters/claude-code/hook";
 const MIN_VERSION: (u64, u64, u64) = (2, 0, 10);
 
+pub fn info() -> IntegrationInfo {
+    match settings_path() {
+        Ok(path) => status_at(&path).unwrap_or_else(|error| IntegrationInfo {
+            name: "claude-code",
+            support: "full",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: Some(path),
+            message: Some(error.to_string()),
+        }),
+        Err(error) => IntegrationInfo {
+            name: "claude-code",
+            support: "full",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: None,
+            message: Some(error.to_string()),
+        },
+    }
+}
+
 pub fn install(token: &str) -> Result<String> {
     let version = Command::new("claude")
         .arg("--version")
@@ -28,15 +54,6 @@ pub fn install(token: &str) -> Result<String> {
 pub fn uninstall() -> Result<String> {
     uninstall_at(&settings_path()?)?;
     Ok("claude-code adapter uninstalled".to_string())
-}
-
-pub fn installed() -> Result<bool> {
-    let path = settings_path()?;
-    if !path.exists() {
-        return Ok(false);
-    }
-    let raw = fs::read_to_string(path)?;
-    Ok(raw.contains(HOOK_PATH))
 }
 
 pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value> {
@@ -144,7 +161,8 @@ fn install_at(path: &Path, token: &str) -> Result<()> {
             "url": hook_url(),
             "timeout": 600000,
             "headers": {
-                "Authorization": format!("Bearer {token}")
+                "Authorization": format!("Bearer {token}"),
+                "X-Onibi-Integration-Version": INTEGRATION_VERSION
             }
         }]
     });
@@ -181,6 +199,36 @@ fn read_settings(path: &Path) -> Result<Value> {
         return Ok(json!({}));
     }
     serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
+}
+
+fn status_at(path: &Path) -> Result<IntegrationInfo> {
+    if !path.exists() {
+        return Ok(IntegrationInfo {
+            name: "claude-code",
+            support: "full",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: Some(path.to_path_buf()),
+            message: Some("not installed".to_string()),
+        });
+    }
+
+    let settings = read_settings(path)?;
+    let installed_version = onibi_handler_version(&settings);
+    let installed = installed_version.is_some() || contains_legacy_onibi_hook(&settings);
+    let outdated = installed && installed_version.as_deref() != Some(INTEGRATION_VERSION);
+    Ok(IntegrationInfo {
+        name: "claude-code",
+        support: "full",
+        installed,
+        installed_version,
+        bundled_version: Some(INTEGRATION_VERSION),
+        outdated,
+        install_path: Some(path.to_path_buf()),
+        message: installed.then_some("Claude Code PreToolUse hook installed".to_string()),
+    })
 }
 
 fn write_settings(path: &Path, settings: &Value) -> Result<()> {
@@ -225,7 +273,38 @@ fn is_onibi_handler(handler: &Value) -> bool {
     handler
         .get("url")
         .and_then(Value::as_str)
-        .is_some_and(|url| url.starts_with("http://127.0.0.1:") && url.ends_with(HOOK_PATH))
+        .is_some_and(is_onibi_hook_url)
+}
+
+fn onibi_handler_version(settings: &Value) -> Option<String> {
+    onibi_handlers(settings).find_map(|handler| {
+        handler
+            .get("headers")
+            .and_then(|headers| headers.get(INTEGRATION_VERSION_HEADER))
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+}
+
+fn contains_legacy_onibi_hook(settings: &Value) -> bool {
+    onibi_handlers(settings).next().is_some()
+}
+
+fn onibi_handlers(settings: &Value) -> impl Iterator<Item = &Value> {
+    settings
+        .get("hooks")
+        .and_then(|hooks| hooks.get("PreToolUse"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|group| group.get("hooks").and_then(Value::as_array))
+        .flatten()
+        .filter(|handler| is_onibi_handler(handler))
+}
+
+fn is_onibi_hook_url(url: &str) -> bool {
+    url.starts_with("http://127.0.0.1:")
+        && (url.ends_with(HOOK_PATH) || url.contains(&format!("{HOOK_PATH}?")))
 }
 
 #[cfg(test)]
@@ -270,13 +349,92 @@ mod tests {
         install_at(&path, "token-1").unwrap();
         let installed = fs::read_to_string(&path).unwrap();
         assert_eq!(installed.matches(HOOK_PATH).count(), 1);
+        assert!(installed.contains(INTEGRATION_VERSION_HEADER));
         assert!(installed.contains("/tmp/existing.sh"));
         assert!(installed.contains("/tmp/stop.sh"));
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(
+            status.installed_version.as_deref(),
+            Some(INTEGRATION_VERSION)
+        );
+        assert!(!status.outdated);
 
         uninstall_at(&path).unwrap();
         let uninstalled = fs::read_to_string(&path).unwrap();
         assert!(!uninstalled.contains(HOOK_PATH));
         assert!(uninstalled.contains("/tmp/existing.sh"));
         assert!(uninstalled.contains("/tmp/stop.sh"));
+    }
+
+    #[test]
+    fn status_marks_legacy_hook_without_marker_as_outdated() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "*",
+                        "hooks": [{
+                            "type": "http",
+                            "url": "http://127.0.0.1:17893/v1/adapters/claude-code/hook",
+                            "headers": {
+                                "Authorization": "Bearer token-1"
+                            }
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installed_version, None);
+        assert!(status.outdated);
+    }
+
+    #[test]
+    fn status_marks_old_hook_marker_as_outdated() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "*",
+                        "hooks": [{
+                            "type": "http",
+                            "url": "http://127.0.0.1:17893/v1/adapters/claude-code/hook",
+                            "headers": {
+                                "Authorization": "Bearer token-1",
+                                "X-Onibi-Integration-Version": "0.9.0"
+                            }
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installed_version.as_deref(), Some("0.9.0"));
+        assert!(status.outdated);
+    }
+
+    #[test]
+    fn status_reports_missing_hook_file_as_not_installed() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let status = status_at(&path).unwrap();
+        assert!(!status.installed);
+        assert!(!status.outdated);
+        assert_eq!(status.installed_version, None);
     }
 }

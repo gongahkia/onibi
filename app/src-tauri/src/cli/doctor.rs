@@ -1,4 +1,4 @@
-use crate::secret;
+use crate::{adapters, secret};
 use anyhow::Result;
 use serde::Serialize;
 use std::{fs::OpenOptions, net::TcpListener, path::Path, process::Command};
@@ -22,6 +22,7 @@ struct Check {
 pub async fn run(port: u16, json_output: bool) -> Result<()> {
     let mut checks = vec![check_token(), check_database(), check_port(port)];
     checks.extend(check_adapters());
+    checks.extend(check_integrations());
 
     let ok = checks
         .iter()
@@ -231,6 +232,61 @@ fn check_adapters() -> Vec<Check> {
     .into_iter()
     .map(check_adapter)
     .collect()
+}
+
+fn check_integrations() -> Vec<Check> {
+    adapters::status(false)
+        .into_iter()
+        .filter(|integration| integration.support == "full" || integration.support == "bash-only")
+        .map(|integration| {
+            let path = integration
+                .install_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "unknown path".to_string());
+            if integration.outdated {
+                return Check {
+                    level: Level::Warn,
+                    name: format!("integration:{}", integration.name),
+                    detail: format!(
+                        "installed version {} is older than bundled {} at {path}",
+                        integration
+                            .installed_version
+                            .as_deref()
+                            .unwrap_or("unknown"),
+                        integration.bundled_version.unwrap_or("unknown")
+                    ),
+                    hint: Some(format!(
+                        "run `onibi integration install {}`",
+                        integration.name
+                    )),
+                };
+            }
+            if integration.installed {
+                return Check {
+                    level: Level::Ok,
+                    name: format!("integration:{}", integration.name),
+                    detail: format!(
+                        "hook installed at {path} (version {})",
+                        integration
+                            .installed_version
+                            .as_deref()
+                            .unwrap_or("unknown")
+                    ),
+                    hint: None,
+                };
+            }
+            Check {
+                level: Level::Warn,
+                name: format!("integration:{}", integration.name),
+                detail: format!("hook not installed at {path}"),
+                hint: Some(format!(
+                    "run `onibi integration install {}`",
+                    integration.name
+                )),
+            }
+        })
+        .collect()
 }
 
 struct AdapterProbe {

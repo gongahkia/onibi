@@ -1,4 +1,5 @@
 use crate::{
+    adapters::{IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_FIELD},
     protocol::{ApprovalRequestBody, Decision, PROTOCOL_VERSION},
     secret,
     server::{routes, AppState},
@@ -15,6 +16,31 @@ use std::{
 
 const HOOK_COMMAND: &str = "onibi _hook codex";
 
+pub fn info() -> IntegrationInfo {
+    match hooks_path() {
+        Ok(path) => status_at(&path).unwrap_or_else(|error| IntegrationInfo {
+            name: "codex",
+            support: "bash-only",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: Some(path),
+            message: Some(error.to_string()),
+        }),
+        Err(error) => IntegrationInfo {
+            name: "codex",
+            support: "bash-only",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: None,
+            message: Some(error.to_string()),
+        },
+    }
+}
+
 pub fn install() -> Result<String> {
     install_at(&hooks_path()?)?;
     Ok("codex adapter installed for Bash tool calls".to_string())
@@ -23,14 +49,6 @@ pub fn install() -> Result<String> {
 pub fn uninstall() -> Result<String> {
     uninstall_at(&hooks_path()?)?;
     Ok("codex adapter uninstalled".to_string())
-}
-
-pub fn installed() -> Result<bool> {
-    let path = hooks_path()?;
-    if !path.exists() {
-        return Ok(false);
-    }
-    Ok(fs::read_to_string(path)?.contains(HOOK_COMMAND))
 }
 
 pub async fn handle_http_hook(state: &AppState, payload: Value) -> Result<Value> {
@@ -131,7 +149,8 @@ fn install_at(path: &Path) -> Result<()> {
     hooks.push(json!({
         "event": "tool",
         "tool": "Bash",
-        "command": ["onibi", "_hook", "codex"]
+        "command": ["onibi", "_hook", "codex"],
+        "onibiIntegrationVersion": INTEGRATION_VERSION
     }));
     write_hooks(path, &config)
 }
@@ -156,6 +175,36 @@ fn read_hooks(path: &Path) -> Result<Value> {
     serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
 }
 
+fn status_at(path: &Path) -> Result<IntegrationInfo> {
+    if !path.exists() {
+        return Ok(IntegrationInfo {
+            name: "codex",
+            support: "bash-only",
+            installed: false,
+            installed_version: None,
+            bundled_version: Some(INTEGRATION_VERSION),
+            outdated: false,
+            install_path: Some(path.to_path_buf()),
+            message: Some("not installed".to_string()),
+        });
+    }
+
+    let hooks = read_hooks(path)?;
+    let installed_version = onibi_hook_version(&hooks);
+    let installed = installed_version.is_some() || contains_legacy_onibi_hook(&hooks);
+    let outdated = installed && installed_version.as_deref() != Some(INTEGRATION_VERSION);
+    Ok(IntegrationInfo {
+        name: "codex",
+        support: "bash-only",
+        installed,
+        installed_version,
+        bundled_version: Some(INTEGRATION_VERSION),
+        outdated,
+        install_path: Some(path.to_path_buf()),
+        message: installed.then_some("Codex Bash hook installed".to_string()),
+    })
+}
+
 fn write_hooks(path: &Path, config: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -166,20 +215,43 @@ fn write_hooks(path: &Path, config: &Value) -> Result<()> {
 
 fn remove_onibi_hook(config: &mut Value) {
     if let Some(hooks) = config.get_mut("hooks").and_then(Value::as_array_mut) {
-        hooks.retain(|hook| {
-            hook.get("command")
-                .and_then(Value::as_array)
-                .map(|parts| {
-                    parts
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .as_deref()
-                != Some(HOOK_COMMAND)
-        });
+        hooks.retain(|hook| !is_onibi_hook(hook));
     }
+}
+
+fn onibi_hook_version(config: &Value) -> Option<String> {
+    onibi_hooks(config).find_map(|hook| {
+        hook.get(INTEGRATION_VERSION_FIELD)
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+}
+
+fn contains_legacy_onibi_hook(config: &Value) -> bool {
+    onibi_hooks(config).next().is_some()
+}
+
+fn onibi_hooks(config: &Value) -> impl Iterator<Item = &Value> {
+    config
+        .get("hooks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|hook| is_onibi_hook(hook))
+}
+
+fn is_onibi_hook(hook: &Value) -> bool {
+    hook.get("command")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .as_deref()
+        == Some(HOOK_COMMAND)
 }
 
 fn post_json<T: serde::Serialize>(port: u16, path: &str, token: &str, body: &T) -> Result<Value> {
@@ -212,5 +284,112 @@ fn _decision_from_str(raw: &str) -> Decision {
         Decision::Allow
     } else {
         Decision::Deny
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn install_uninstall_preserves_existing_hooks() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("hooks.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "hooks": [{
+                    "event": "tool",
+                    "tool": "Shell",
+                    "command": ["/tmp/existing-hook"]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        install_at(&path).unwrap();
+        install_at(&path).unwrap();
+        let installed = read_hooks(&path).unwrap();
+        assert_eq!(onibi_hooks(&installed).count(), 1);
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(
+            status.installed_version.as_deref(),
+            Some(INTEGRATION_VERSION)
+        );
+        assert!(!status.outdated);
+
+        uninstall_at(&path).unwrap();
+        let uninstalled = read_hooks(&path).unwrap();
+        assert_eq!(onibi_hooks(&uninstalled).count(), 0);
+        assert!(uninstalled
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_some_and(|hooks| hooks.iter().any(|hook| {
+                hook.get("command")
+                    .and_then(Value::as_array)
+                    .is_some_and(|command| {
+                        command.first().and_then(Value::as_str) == Some("/tmp/existing-hook")
+                    })
+            })));
+    }
+
+    #[test]
+    fn status_marks_legacy_hook_without_marker_as_outdated() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("hooks.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "hooks": [{
+                    "event": "tool",
+                    "tool": "Bash",
+                    "command": ["onibi", "_hook", "codex"]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installed_version, None);
+        assert!(status.outdated);
+    }
+
+    #[test]
+    fn status_marks_old_hook_marker_as_outdated() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("hooks.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "hooks": [{
+                    "event": "tool",
+                    "tool": "Bash",
+                    "command": ["onibi", "_hook", "codex"],
+                    "onibiIntegrationVersion": "0.9.0"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = status_at(&path).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installed_version.as_deref(), Some("0.9.0"));
+        assert!(status.outdated);
+    }
+
+    #[test]
+    fn status_reports_missing_hook_file_as_not_installed() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("hooks.json");
+        let status = status_at(&path).unwrap();
+        assert!(!status.installed);
+        assert!(!status.outdated);
+        assert_eq!(status.installed_version, None);
     }
 }
