@@ -217,12 +217,25 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added `onibi worktree open <path> [--agent <agent>] [--prompt <text>]` through the desktop command bridge.
 - Added focused frontend/config tests for label overrides, empty workspace state, Explorer worktree open, and Command Palette worktree open.
 
+### Implemented in the Remote Basics V1 pass
+
+- Added SSH-backed local PTY remote sessions through `buildRemoteSshLaunchSpec`, `spawnRemoteSshSession`, the Command Palette, and a dedicated Remote SSH dialog.
+- Added first-class remote session metadata (`kind`, `target`, `user`, `host`, `port`, `remoteCwd`, `keybindingPolicy`) across frontend sessions, Tauri spawn requests, daemon restart metadata, persisted daemon sessions, desktop snapshots, and attach/relaunch flows.
+- Added `onibi remote ssh <target> --workspace <path> [--cwd <remote-dir>] [--name <title>] [--keybindings local|remote] [--ssh-command <command>]`.
+- Added authenticated `/v1/desktop/remote/ssh` support and desktop bridge execution for paired clients.
+- Added a global and per-session remote keybinding policy. `local` keeps Onibi terminal shortcuts active; `remote` lets normal terminal shortcuts pass through to the SSH session while preserving local copy-mode.
+- Added opt-in pane history persistence with `pane_history_enabled`, including settings UI, config/TOML round trip, persisted transcript retention, and restored-history display when no live PTY replay is available.
+- Kept the V1 remote scope intentionally local-PTY based: no remote daemon bootstrap, no fake remote file workspace, and no image-paste bridge yet.
+- Verified with `pnpm --dir app typecheck`, `pnpm --dir app test -- --run`, `cargo check --manifest-path app/src-tauri/Cargo.toml`, `cargo test --manifest-path app/src-tauri/Cargo.toml`, and `git diff --check`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
 - Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
 - xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, and Kitty keyboard parity remain future terminal-native work.
+- Remote V1 does not install or run an Onibi daemon on the remote host; it launches local `ssh` in a local PTY and records remote metadata.
+- Remote image-paste bridging is still not implemented.
 
 ---
 
@@ -257,7 +270,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
 | **API: pane send-text / send-keys / run** | Yes | Partial — PTY write + common `send-keys`; no explicit `run` helper |
 | **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/worktree/events with global JSON output |
-| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | N/A (uses transports for phone, not SSH attach) |
+| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, and remote keybinding policy; no remote daemon bootstrap yet |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
 | **Transport: Tailscale Funnel** | No | Yes |
 | **Transport: Cloudflare Quick Tunnel** | No | Yes |
@@ -345,11 +358,11 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 30. **[DONE] `herdr session list / stop` equivalent** — `onibi session list`, `onibi session stop <id-or-name>`, and JSON output exist.
 31. **[PARTIAL] Native agent session resume** — Onibi PTY restoration is now deterministic for live daemon sessions and stale relaunch fallbacks. Provider-native resume metadata can prefer native resume commands for Claude Code, OpenCode, Gemini, Qoder, Hermes, and Goose when a provider session/conversation ID has been captured. Codex remains unverified and Aider is history-restore only.
 32. **Live server handoff** — transfer running PTYs from old binary to new without interruption (experimental but spec'd).
-33. **Pane history opt-in** (screen scrollback survives restart).
+33. **[DONE] Pane history opt-in** (screen scrollback survives restart) — persisted transcript retention is opt-in through `pane_history_enabled` and restores when no live replay is available.
 
 ### 2.6 Remote
-34. **SSH remote attach** (`herdr --remote ssh://…`) with auto-bootstrap install on the remote host.
-35. **Remote keybindings policy** (`--remote-keybindings local|remote`).
+34. **[PARTIAL] SSH remote attach** (`herdr --remote ssh://…`) — SSH-backed local PTY sessions are implemented through GUI, CLI, and desktop API; remote daemon auto-bootstrap/install remains open.
+35. **[DONE] Remote keybindings policy** (`--remote-keybindings local|remote`) — available globally, per GUI launch, and through `onibi remote ssh --keybindings`.
 36. **Image-paste bridging** (local clipboard image → remote staged file path).
 
 ### 2.7 Terminal / rendering
@@ -462,7 +475,9 @@ Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm relia
 Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 40, and 41 native cursor-anchor placement.
 
 **Phase D — remote & distribution:**
-34, 35, 62, 73, 74.
+Completed from Phase D: 35.
+Partial from Phase D: 34.
+Remaining from Phase D: 36, 62, 73, 74.
 
 **Phase E — long tail:**
 63, 75, 81, 82.
