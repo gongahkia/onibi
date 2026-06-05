@@ -524,7 +524,10 @@ mod tests {
         assert_eq!(zsh_args, vec!["-l"]);
 
         let mut fish_args = Vec::new();
-        assert!(apply_login_shell_mode("/usr/local/bin/fish", &mut fish_args));
+        assert!(apply_login_shell_mode(
+            "/usr/local/bin/fish",
+            &mut fish_args
+        ));
         assert_eq!(fish_args, vec!["--login"]);
     }
 
