@@ -213,6 +213,7 @@ export type BaseAppKeybindingAction =
   | "terminal.focusNextPane"
   | "terminal.focusPreviousPane"
   | "terminal.toggleMaximize"
+  | "terminal.copyMode.enter"
   | "keybindings.help.open"
   | "workspace.next"
   | "workspace.previous"
@@ -1483,6 +1484,7 @@ const BASE_APP_KEYBINDING_ACTION_LABELS: Record<BaseAppKeybindingAction, string>
   "terminal.focusNextPane": "Focus next terminal pane",
   "terminal.focusPreviousPane": "Focus previous terminal pane",
   "terminal.toggleMaximize": "Maximize or restore terminal pane",
+  "terminal.copyMode.enter": "Enter terminal copy mode",
   "keybindings.help.open": "Open keybinding help",
   "workspace.next": "Focus next workspace",
   "workspace.previous": "Focus previous workspace",
@@ -1533,6 +1535,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
   { keys: "prefix+z", action: "terminal.toggleMaximize" },
   { keys: "prefix+n", action: "terminal.focusNextPane" },
   { keys: "prefix+p", action: "terminal.focusPreviousPane" },
+  { keys: "prefix+[", action: "terminal.copyMode.enter" },
   { keys: "prefix+x", action: "session.closeActive" },
   { keys: "prefix+w", action: "workspace.navigator.open" },
   { keys: "prefix+g", action: "session.navigator.open" },

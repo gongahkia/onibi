@@ -88,6 +88,16 @@ const TERMINAL_STANDARD_FONT_KEYS = new Set(
 
 const PTY_REPLAY_FLUSH_DELAY_MS = 300;
 
+interface CopyModePosition {
+  row: number;
+  col: number;
+}
+
+interface CopyModeState {
+  cursor: CopyModePosition;
+  anchor: CopyModePosition | null;
+}
+
 function quoteFontFamily(family: string): string {
   if (/^["'].*["']$/.test(family)) {
     return family;
@@ -255,6 +265,223 @@ function decodeBase64(data: string): Uint8Array {
   return bytes;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function copyModeMaxRow(term: Terminal): number {
+  return Math.max(term.buffer.active.length - 1, 0);
+}
+
+function copyModeLineText(
+  term: Terminal,
+  row: number,
+  trimRight = true,
+): string {
+  return term.buffer.active.getLine(row)?.translateToString(trimRight) ?? "";
+}
+
+function copyModeMaxCol(term: Terminal, row: number): number {
+  const maxTerminalCol = Math.max(term.cols - 1, 0);
+  const text = copyModeLineText(term, row, true);
+  return clamp(text.length > 0 ? text.length - 1 : 0, 0, maxTerminalCol);
+}
+
+function copyModeClampPosition(term: Terminal, position: CopyModePosition): CopyModePosition {
+  const row = clamp(position.row, 0, copyModeMaxRow(term));
+  return {
+    row,
+    col: clamp(position.col, 0, copyModeMaxCol(term, row)),
+  };
+}
+
+function copyModeInitialPosition(term: Terminal): CopyModePosition {
+  const buffer = term.buffer.active;
+  return copyModeClampPosition(term, {
+    row: buffer.baseY + buffer.cursorY,
+    col: buffer.cursorX,
+  });
+}
+
+function compareCopyModePositions(a: CopyModePosition, b: CopyModePosition): number {
+  return a.row === b.row ? a.col - b.col : a.row - b.row;
+}
+
+function normalizedCopyModeRange(
+  a: CopyModePosition,
+  b: CopyModePosition,
+): [CopyModePosition, CopyModePosition] {
+  return compareCopyModePositions(a, b) <= 0 ? [a, b] : [b, a];
+}
+
+function copyModeSelectPosition(term: Terminal, cursor: CopyModePosition): void {
+  term.select(cursor.col, cursor.row, 1);
+}
+
+function copyModeSelectRange(
+  term: Terminal,
+  anchor: CopyModePosition,
+  cursor: CopyModePosition,
+): void {
+  const [start, end] = normalizedCopyModeRange(anchor, cursor);
+  const length = Math.max((end.row - start.row) * term.cols - start.col + end.col + 1, 1);
+  term.select(start.col, start.row, length);
+}
+
+function copyModeEnsureVisible(term: Terminal, position: CopyModePosition): void {
+  const viewportTop = term.buffer.active.viewportY;
+  const viewportBottom = viewportTop + Math.max(term.rows - 1, 0);
+  if (position.row < viewportTop) {
+    term.scrollToLine(position.row);
+  } else if (position.row > viewportBottom) {
+    term.scrollToLine(position.row - Math.max(term.rows - 1, 0));
+  }
+}
+
+function copyModeApplySelection(term: Terminal, state: CopyModeState): void {
+  if (state.anchor) {
+    copyModeSelectRange(term, state.anchor, state.cursor);
+  } else {
+    copyModeSelectPosition(term, state.cursor);
+  }
+  copyModeEnsureVisible(term, state.cursor);
+}
+
+function copyModeMove(term: Terminal, position: CopyModePosition, direction: string): CopyModePosition {
+  if (direction === "h") {
+    if (position.col > 0) {
+      return { ...position, col: position.col - 1 };
+    }
+    if (position.row > 0) {
+      const row = position.row - 1;
+      return { row, col: copyModeMaxCol(term, row) };
+    }
+    return position;
+  }
+  if (direction === "l") {
+    const maxCol = copyModeMaxCol(term, position.row);
+    if (position.col < maxCol) {
+      return { ...position, col: position.col + 1 };
+    }
+    if (position.row < copyModeMaxRow(term)) {
+      return { row: position.row + 1, col: 0 };
+    }
+    return position;
+  }
+  if (direction === "j") {
+    return copyModeClampPosition(term, {
+      row: position.row + 1,
+      col: position.col,
+    });
+  }
+  if (direction === "k") {
+    return copyModeClampPosition(term, {
+      row: position.row - 1,
+      col: position.col,
+    });
+  }
+  return position;
+}
+
+function copyModeIsWordChar(value: string): boolean {
+  return /[A-Za-z0-9_]/.test(value);
+}
+
+function copyModeWordStartForward(term: Terminal, position: CopyModePosition): CopyModePosition {
+  for (let row = position.row; row <= copyModeMaxRow(term); row += 1) {
+    const text = copyModeLineText(term, row, true);
+    let col = row === position.row ? position.col : 0;
+    while (col < text.length && copyModeIsWordChar(text[col] ?? "")) {
+      col += 1;
+    }
+    while (col < text.length && !copyModeIsWordChar(text[col] ?? "")) {
+      col += 1;
+    }
+    if (col < text.length) {
+      return copyModeClampPosition(term, { row, col });
+    }
+  }
+  const row = copyModeMaxRow(term);
+  return { row, col: copyModeMaxCol(term, row) };
+}
+
+function copyModeWordEndForward(term: Terminal, position: CopyModePosition): CopyModePosition {
+  for (let row = position.row; row <= copyModeMaxRow(term); row += 1) {
+    const text = copyModeLineText(term, row, true);
+    let col = row === position.row ? position.col : 0;
+    while (col < text.length && !copyModeIsWordChar(text[col] ?? "")) {
+      col += 1;
+    }
+    if (col < text.length) {
+      while (col + 1 < text.length && copyModeIsWordChar(text[col + 1] ?? "")) {
+        col += 1;
+      }
+      return copyModeClampPosition(term, { row, col });
+    }
+  }
+  const row = copyModeMaxRow(term);
+  return { row, col: copyModeMaxCol(term, row) };
+}
+
+function copyModeWordStartBackward(term: Terminal, position: CopyModePosition): CopyModePosition {
+  for (let row = position.row; row >= 0; row -= 1) {
+    const text = copyModeLineText(term, row, true);
+    let col = row === position.row ? position.col - 1 : text.length - 1;
+    while (col >= 0 && !copyModeIsWordChar(text[col] ?? "")) {
+      col -= 1;
+    }
+    if (col >= 0) {
+      while (col > 0 && copyModeIsWordChar(text[col - 1] ?? "")) {
+        col -= 1;
+      }
+      return copyModeClampPosition(term, { row, col });
+    }
+  }
+  return { row: 0, col: 0 };
+}
+
+function copyModeIsBlankLine(term: Terminal, row: number): boolean {
+  return copyModeLineText(term, row, true).trim() === "";
+}
+
+function copyModeParagraphForward(term: Terminal, position: CopyModePosition): CopyModePosition {
+  const maxRow = copyModeMaxRow(term);
+  let row = Math.min(position.row + 1, maxRow);
+  while (row < maxRow && !copyModeIsBlankLine(term, row)) {
+    row += 1;
+  }
+  while (row < maxRow && copyModeIsBlankLine(term, row)) {
+    row += 1;
+  }
+  return copyModeClampPosition(term, { row, col: 0 });
+}
+
+function copyModeParagraphBackward(term: Terminal, position: CopyModePosition): CopyModePosition {
+  let row = Math.max(position.row - 1, 0);
+  while (row > 0 && !copyModeIsBlankLine(term, row)) {
+    row -= 1;
+  }
+  while (row > 0 && copyModeIsBlankLine(term, row - 1)) {
+    row -= 1;
+  }
+  return copyModeClampPosition(term, { row, col: 0 });
+}
+
+function copyModeTextFromRange(
+  term: Terminal,
+  anchor: CopyModePosition,
+  cursor: CopyModePosition,
+): string {
+  const [start, end] = normalizedCopyModeRange(anchor, cursor);
+  const lines: string[] = [];
+  for (let row = start.row; row <= end.row; row += 1) {
+    const from = row === start.row ? start.col : 0;
+    const to = row === end.row ? end.col + 1 : term.cols;
+    lines.push(copyModeLineText(term, row, false).slice(from, to).replace(/\s+$/g, ""));
+  }
+  return lines.join("\n");
+}
+
 export function TerminalView({
   ptyId,
   fontFamily = DEFAULT_SETTINGS.terminalFontFamily,
@@ -279,10 +506,12 @@ export function TerminalView({
   const visibleRef = useRef(visible);
   const layoutFramesRef = useRef<number[]>([]);
   const keybindingsRef = useRef<Map<string, TerminalKeybindingAction>>(new Map());
+  const copyModeRef = useRef<CopyModeState | null>(null);
   const onShellUpdateRef = useRef(onShellUpdate);
   const onTriggerRef = useRef(onTrigger);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [copyModeActive, setCopyModeActive] = useState(false);
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
   const resolvedScrollback = terminalScrollbackLinesForSettings(settings);
   const resolvedFontFamily = useMemo(
@@ -471,9 +700,95 @@ export function TerminalView({
     container.addEventListener("dblclick", handleDoubleClick);
 
     const encoder = new TextEncoder();
+    const enterCopyMode = () => {
+      const state: CopyModeState = {
+        cursor: copyModeInitialPosition(term),
+        anchor: null,
+      };
+      copyModeRef.current = state;
+      setCopyModeActive(true);
+      copyModeApplySelection(term, state);
+      term.focus();
+    };
+    const exitCopyMode = () => {
+      copyModeRef.current = null;
+      setCopyModeActive(false);
+      term.clearSelection();
+      term.focus();
+    };
+    const copyModeCopyAndExit = () => {
+      const state = copyModeRef.current;
+      if (!state) {
+        return;
+      }
+      const text = state.anchor
+        ? term.getSelection() || copyModeTextFromRange(term, state.anchor, state.cursor)
+        : copyModeLineText(term, state.cursor.row, true);
+      if (text) {
+        void navigator.clipboard?.writeText(text);
+      }
+      exitCopyMode();
+    };
+    const updateCopyModeCursor = (cursor: CopyModePosition) => {
+      const state = copyModeRef.current;
+      if (!state) {
+        return;
+      }
+      const nextState = {
+        ...state,
+        cursor: copyModeClampPosition(term, cursor),
+      };
+      copyModeRef.current = nextState;
+      copyModeApplySelection(term, nextState);
+    };
+    const toggleCopyModeVisualSelection = () => {
+      const state = copyModeRef.current;
+      if (!state) {
+        return;
+      }
+      const nextState = {
+        ...state,
+        anchor: state.anchor ? null : state.cursor,
+      };
+      copyModeRef.current = nextState;
+      copyModeApplySelection(term, nextState);
+    };
+    const handleCopyModeKey = (event: KeyboardEvent) => {
+      const state = copyModeRef.current;
+      if (!state) {
+        return false;
+      }
+      event.preventDefault();
+      const key = keyFromKeyboardEvent(event);
+      const rawKey = event.key === " " ? "space" : event.key.toLowerCase();
+      if (key === "esc" || key === "q" || key === "ctrl+c") {
+        exitCopyMode();
+      } else if (["h", "j", "k", "l"].includes(rawKey)) {
+        updateCopyModeCursor(copyModeMove(term, state.cursor, rawKey));
+      } else if (rawKey === "w") {
+        updateCopyModeCursor(copyModeWordStartForward(term, state.cursor));
+      } else if (rawKey === "b") {
+        updateCopyModeCursor(copyModeWordStartBackward(term, state.cursor));
+      } else if (rawKey === "e") {
+        updateCopyModeCursor(copyModeWordEndForward(term, state.cursor));
+      } else if (rawKey === "{") {
+        updateCopyModeCursor(copyModeParagraphBackward(term, state.cursor));
+      } else if (rawKey === "}") {
+        updateCopyModeCursor(copyModeParagraphForward(term, state.cursor));
+      } else if (rawKey === "v" || rawKey === "space") {
+        toggleCopyModeVisualSelection();
+      } else if (rawKey === "y" || key === "enter") {
+        copyModeCopyAndExit();
+      }
+      return true;
+    };
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
         return true;
+      }
+      if (copyModeRef.current) {
+        handleCopyModeKey(event);
+        return false;
       }
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -712,10 +1027,18 @@ export function TerminalView({
         term.focus();
       }
     }
+    function handleCopyModeRequest(event: Event) {
+      if ((event as CustomEvent<{ ptyId?: string }>).detail?.ptyId === ptyId) {
+        enterCopyMode();
+      }
+    }
     window.addEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
+    window.addEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
 
     return () => {
       disposed = true;
+      copyModeRef.current = null;
+      setCopyModeActive(false);
       clearReplayFallbackTimer();
       cancelScheduledLayout();
       cancelAnimationFrame(frame);
@@ -724,6 +1047,7 @@ export function TerminalView({
       resizeObserver.disconnect();
       container.removeEventListener("dblclick", handleDoubleClick);
       window.removeEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
+      window.removeEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
       inputDisposable.dispose();
       webLinksAddon.dispose();
       searchAddon.dispose();
@@ -770,7 +1094,10 @@ export function TerminalView({
   ]);
 
   return (
-    <div className="terminal-view-shell">
+    <div
+      className={`terminal-view-shell ${copyModeActive ? "copy-mode" : ""}`}
+      data-copy-mode={copyModeActive ? "true" : "false"}
+    >
       <div
         ref={containerRef}
         className="terminal-view"

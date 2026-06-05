@@ -283,6 +283,16 @@ export function CommandPalette() {
           focusRelativeTerminalPane(-1);
         } else if (action === "terminal.toggleMaximize") {
           toggleMaximizedTerminalPane();
+        } else if (action === "terminal.copyMode.enter") {
+          const id = useSessionStore.getState().activeSessionId;
+          if (id) {
+            window.dispatchEvent(
+              new CustomEvent("onibi:terminal-copy-mode", {
+                detail: { ptyId: id },
+              }),
+            );
+            focusActiveTerminal();
+          }
         } else if (action === "session.closeActive") {
           const id = useSessionStore.getState().activeSessionId;
           if (id) {
