@@ -187,6 +187,14 @@ describe("SettingsPane", () => {
     expect(screen.queryByLabelText("Enable shell integration")).toBeNull();
   });
 
+  test("stores terminal screen reader mode", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Enable terminal screen reader mode"));
+
+    expect(useSessionStore.getState().settings.terminalScreenReaderMode).toBe(true);
+  });
+
   test("adds custom command keybindings", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Keybindings"));

@@ -134,6 +134,48 @@ struct PtyOutputBuffer {
     end_offset: u64,
 }
 
+impl PtyOutputBuffer {
+    fn append(&mut self, bytes: &[u8]) -> u64 {
+        let start_offset = self.end_offset;
+        if bytes.is_empty() {
+            return start_offset;
+        }
+        self.end_offset = self.end_offset.saturating_add(bytes.len() as u64);
+        if bytes.len() >= OUTPUT_REPLAY_LIMIT {
+            self.bytes.clear();
+            self.bytes
+                .extend(bytes[bytes.len() - OUTPUT_REPLAY_LIMIT..].iter().copied());
+            return start_offset;
+        }
+        let overflow = self.bytes.len() + bytes.len();
+        if overflow > OUTPUT_REPLAY_LIMIT {
+            for _ in 0..overflow - OUTPUT_REPLAY_LIMIT {
+                self.bytes.pop_front();
+            }
+        }
+        self.bytes.extend(bytes.iter().copied());
+        start_offset
+    }
+
+    fn snapshot(&self) -> PtyOutputSnapshot {
+        let start_offset = self.end_offset.saturating_sub(self.bytes.len() as u64);
+        let (front, back) = self.bytes.as_slices();
+        let data = if back.is_empty() {
+            Bytes::copy_from_slice(front)
+        } else {
+            let mut snapshot = Vec::with_capacity(self.bytes.len());
+            snapshot.extend_from_slice(front);
+            snapshot.extend_from_slice(back);
+            Bytes::from(snapshot)
+        };
+        PtyOutputSnapshot {
+            data,
+            start_offset,
+            end_offset: self.end_offset,
+        }
+    }
+}
+
 impl PtySession {
     pub fn new(
         id: PtyId,
@@ -187,45 +229,12 @@ impl PtySession {
 
     pub fn append_output(&self, bytes: &[u8]) -> u64 {
         let mut output = self.inner.output.lock();
-        let start_offset = output.end_offset;
-        if bytes.is_empty() {
-            return start_offset;
-        }
-        output.end_offset = output.end_offset.saturating_add(bytes.len() as u64);
-        if bytes.len() >= OUTPUT_REPLAY_LIMIT {
-            output.bytes.clear();
-            output
-                .bytes
-                .extend(bytes[bytes.len() - OUTPUT_REPLAY_LIMIT..].iter().copied());
-            return start_offset;
-        }
-        let overflow = output.bytes.len() + bytes.len();
-        if overflow > OUTPUT_REPLAY_LIMIT {
-            for _ in 0..overflow - OUTPUT_REPLAY_LIMIT {
-                output.bytes.pop_front();
-            }
-        }
-        output.bytes.extend(bytes.iter().copied());
-        start_offset
+        output.append(bytes)
     }
 
     pub fn output_snapshot(&self) -> PtyOutputSnapshot {
         let output = self.inner.output.lock();
-        let start_offset = output.end_offset.saturating_sub(output.bytes.len() as u64);
-        let (front, back) = output.bytes.as_slices();
-        let data = if back.is_empty() {
-            Bytes::copy_from_slice(front)
-        } else {
-            let mut snapshot = Vec::with_capacity(output.bytes.len());
-            snapshot.extend_from_slice(front);
-            snapshot.extend_from_slice(back);
-            Bytes::from(snapshot)
-        };
-        PtyOutputSnapshot {
-            data,
-            start_offset,
-            end_offset: output.end_offset,
-        }
+        output.snapshot()
     }
 
     pub fn is_terminated(&self) -> bool {
@@ -253,3 +262,54 @@ impl Drop for PtySessionInner {
 }
 
 pub type PtyStore = Arc<RwLock<HashMap<PtyId, PtySession>>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_buffer_tracks_offsets_without_truncation() {
+        let mut output = PtyOutputBuffer::default();
+
+        assert_eq!(output.append(b"hello"), 0);
+        assert_eq!(output.append(b" world"), 5);
+
+        let snapshot = output.snapshot();
+        assert_eq!(snapshot.start_offset, 0);
+        assert_eq!(snapshot.end_offset, 11);
+        assert_eq!(&snapshot.data[..], b"hello world");
+    }
+
+    #[test]
+    fn output_buffer_replays_latest_bytes_after_large_truncation() {
+        let mut output = PtyOutputBuffer::default();
+        assert_eq!(output.append(b"prefix"), 0);
+        let large = vec![b'x'; OUTPUT_REPLAY_LIMIT + 8];
+
+        assert_eq!(output.append(&large), 6);
+
+        let snapshot = output.snapshot();
+        assert_eq!(snapshot.data.len(), OUTPUT_REPLAY_LIMIT);
+        assert_eq!(snapshot.end_offset, (OUTPUT_REPLAY_LIMIT + 14) as u64);
+        assert_eq!(
+            snapshot.start_offset,
+            snapshot.end_offset - OUTPUT_REPLAY_LIMIT as u64,
+        );
+        assert!(snapshot.data.iter().all(|byte| *byte == b'x'));
+    }
+
+    #[test]
+    fn output_buffer_replays_latest_bytes_after_incremental_overflow() {
+        let mut output = PtyOutputBuffer::default();
+        let first = vec![b'a'; OUTPUT_REPLAY_LIMIT - 2];
+
+        assert_eq!(output.append(&first), 0);
+        assert_eq!(output.append(b"bcdef"), (OUTPUT_REPLAY_LIMIT - 2) as u64);
+
+        let snapshot = output.snapshot();
+        assert_eq!(snapshot.data.len(), OUTPUT_REPLAY_LIMIT);
+        assert_eq!(snapshot.start_offset, 3);
+        assert_eq!(snapshot.end_offset, (OUTPUT_REPLAY_LIMIT + 3) as u64);
+        assert!(snapshot.data.ends_with(b"bcdef"));
+    }
+}

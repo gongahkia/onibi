@@ -276,6 +276,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalFontSize={settings.terminalFontSize}
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalConfirmClose={settings.terminalConfirmClose}
+              terminalScreenReaderMode={settings.terminalScreenReaderMode}
               terminalShellMode={settings.terminalShellMode}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
@@ -308,6 +309,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalConfirmClose={(terminalConfirmClose) =>
                 updateSettings({ terminalConfirmClose })
+              }
+              onTerminalScreenReaderMode={(terminalScreenReaderMode) =>
+                updateSettings({ terminalScreenReaderMode })
               }
               onTerminalShellMode={(terminalShellMode) =>
                 updateSettings({ terminalShellMode })
@@ -535,6 +539,7 @@ interface GeneralSettingsProps {
   terminalFontSize: number;
   terminalScrollbackLines: number;
   terminalConfirmClose: boolean;
+  terminalScreenReaderMode: boolean;
   terminalShellMode: TerminalShellMode;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
@@ -556,6 +561,7 @@ interface GeneralSettingsProps {
   onTerminalFontSize: (fontSize: number) => void;
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
+  onTerminalScreenReaderMode: (enabled: boolean) => void;
   onTerminalShellMode: (mode: TerminalShellMode) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
@@ -581,6 +587,7 @@ function GeneralSettings({
   terminalFontSize,
   terminalScrollbackLines,
   terminalConfirmClose,
+  terminalScreenReaderMode,
   terminalShellMode,
   newPaneCwd,
   editorFontSize,
@@ -602,6 +609,7 @@ function GeneralSettings({
   onTerminalFontSize,
   onTerminalScrollbackLines,
   onTerminalConfirmClose,
+  onTerminalScreenReaderMode,
   onTerminalShellMode,
   onNewPaneCwd,
   onEditorFontSize,
@@ -725,6 +733,18 @@ function GeneralSettings({
             onChange={(event) => onTerminalConfirmClose(event.target.checked)}
           />
           Confirm before closing running terminals
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Screen reader mode</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Enable terminal screen reader mode"
+            checked={terminalScreenReaderMode}
+            onChange={(event) => onTerminalScreenReaderMode(event.target.checked)}
+          />
+          Enable terminal screen reader mode
         </span>
       </label>
       <label className="settings-row">

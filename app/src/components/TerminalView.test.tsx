@@ -4,6 +4,7 @@ import { TerminalView } from "./TerminalView";
 import { DEFAULT_SETTINGS } from "../lib/sessions";
 
 const terminalConstructor = vi.hoisted(() => vi.fn());
+const webglConstructor = vi.hoisted(() => vi.fn());
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: terminalConstructor,
@@ -43,10 +44,7 @@ vi.mock("@xterm/addon-web-links", () => ({
 }));
 
 vi.mock("@xterm/addon-webgl", () => ({
-  WebglAddon: class {
-    dispose = vi.fn();
-    onContextLoss = vi.fn();
-  },
+  WebglAddon: webglConstructor,
 }));
 
 function createTerminalMock() {
@@ -116,6 +114,11 @@ describe("TerminalView", () => {
   beforeEach(() => {
     terminalConstructor.mockReset();
     terminalConstructor.mockImplementation(createTerminalMock);
+    webglConstructor.mockReset();
+    webglConstructor.mockImplementation(() => ({
+      dispose: vi.fn(),
+      onContextLoss: vi.fn(),
+    }));
     globalThis.__TAURI_MOCKS__.invoke.mockReset();
     globalThis.__TAURI_MOCKS__.listen.mockReset();
     globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
@@ -133,7 +136,46 @@ describe("TerminalView", () => {
     expect(terminalConstructor.mock.calls[0][0]).toMatchObject({
       allowProposedApi: true,
       rightClickSelectsWord: true,
+      screenReaderMode: false,
     });
+  });
+
+  test("wires screen reader mode and attempts the webgl renderer", async () => {
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalScreenReaderMode: true }}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    expect(terminalConstructor.mock.calls[0][0]).toMatchObject({
+      screenReaderMode: true,
+    });
+    expect(webglConstructor).toHaveBeenCalled();
+  });
+
+  test("lets IME composition key events reach xterm", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalKeybindings: [{ keys: "cmd+c", action: "copy" as const }],
+    };
+    render(<TerminalView ptyId="pty-1" settings={settings} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    const event = new KeyboardEvent("keydown", { key: "c", metaKey: true });
+    Object.defineProperty(event, "isComposing", { value: true });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+
+    expect(handler(event)).toBe(true);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 
   test("copies the current selection from terminal keybindings", async () => {
@@ -419,7 +461,7 @@ describe("TerminalView", () => {
 
     const term = terminalConstructor.mock.results[0]
       .value as ReturnType<typeof createTerminalMock>;
-    await waitFor(() => expect(term.write).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(term.write).toHaveBeenCalled());
     const output = term.write.mock.calls
       .map(([value]) => terminalWriteText(value))
       .join("");
@@ -466,6 +508,99 @@ describe("TerminalView", () => {
     resolveReplay?.(null);
     await waitFor(() => expect(term.write).toHaveBeenCalled());
     expect(terminalWriteText(term.write.mock.calls[0][0])).toBe("hi");
+  });
+
+  test("flushes queued exit events after replay output", async () => {
+    let emitPty: ((payload: unknown) => void) | undefined;
+    let resolveReplay:
+      | ((snapshot: { data: string; startOffset: number; endOffset: number }) => void)
+      | undefined;
+    const replay = new Promise<{
+      data: string;
+      startOffset: number;
+      endOffset: number;
+    }>((resolve) => {
+      resolveReplay = resolve;
+    });
+    const onExit = vi.fn();
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(
+      async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
+        emitPty = (payload) => callback({ payload });
+        return globalThis.__TAURI_MOCKS__.unlisten;
+      },
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return replay;
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={DEFAULT_SETTINGS}
+        visible={false}
+        onExit={onExit}
+      />,
+    );
+
+    await waitFor(() => expect(emitPty).toBeDefined());
+    emitPty?.({ type: "exit", code: 7, signal: null });
+    resolveReplay?.({ data: "ZG9uZQ==", startOffset: 0, endOffset: 4 });
+
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(onExit).toHaveBeenCalledWith({ code: 7, signal: null }));
+    const output = term.write.mock.calls
+      .map(([value]) => terminalWriteText(value))
+      .join("");
+    expect(output).toContain("done");
+    expect(output).toContain("[process exited: 7]");
+  });
+
+  test("keeps live output when replay fails after data arrives", async () => {
+    let emitPty: ((payload: unknown) => void) | undefined;
+    let rejectReplay: ((error: Error) => void) | undefined;
+    const replay = new Promise<never>((_resolve, reject) => {
+      rejectReplay = reject;
+    });
+    const onUnavailable = vi.fn();
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(
+      async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
+        emitPty = (payload) => callback({ payload });
+        return globalThis.__TAURI_MOCKS__.unlisten;
+      },
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return replay;
+        }
+        return null;
+      },
+    );
+
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={DEFAULT_SETTINGS}
+        visible={false}
+        onUnavailable={onUnavailable}
+      />,
+    );
+
+    await waitFor(() => expect(emitPty).toBeDefined());
+    emitPty?.({ type: "data", data: "bGl2ZQ==", offset: 0 });
+    rejectReplay?.(new Error("replay failed"));
+
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() => expect(term.write).toHaveBeenCalled());
+    expect(terminalWriteText(term.write.mock.calls[0][0])).toBe("live");
+    expect(onUnavailable).not.toHaveBeenCalled();
   });
 
   test("reports unavailable ptys when replay attach fails", async () => {

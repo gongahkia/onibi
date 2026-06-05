@@ -609,6 +609,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resize_is_visible_to_child_process() {
+        let manager = PtyManager::new();
+        let id = manager.spawn(sh_req("read line; stty size")).await.unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        manager.resize(id, 41, 123).await.unwrap();
+        manager.write(id, b"\n").await.unwrap();
+
+        let (output, status) = collect_until_exit(&mut rx, Duration::from_secs(2)).await;
+
+        assert_eq!(status.code, 0);
+        assert!(
+            String::from_utf8_lossy(&output).contains("41 123"),
+            "expected resized pty dimensions in output, got {:?}",
+            String::from_utf8_lossy(&output),
+        );
+    }
+
+    #[tokio::test]
     async fn integration_receives_output_and_exit_code() {
         let manager = PtyManager::new();
         let id = manager
@@ -638,5 +656,59 @@ mod tests {
             assert!(Instant::now() < deadline, "timed out waiting for replay");
             time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn subscribe_before_snapshot_preserves_live_and_replay_offsets() {
+        let manager = PtyManager::new();
+        let id = manager
+            .spawn(sh_req("printf early; sleep 0.05; printf late"))
+            .await
+            .unwrap();
+        let mut rx = manager.subscribe(id).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let snapshot = loop {
+            let snapshot = manager.output_snapshot(id).unwrap();
+            if String::from_utf8_lossy(&snapshot.data).contains("early") {
+                break snapshot;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for replay");
+            time::sleep(Duration::from_millis(10)).await;
+        };
+        let replay_end = snapshot.end_offset;
+        let mut live_offsets = Vec::new();
+        let mut live_output = Vec::new();
+
+        loop {
+            match timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap()
+            {
+                PtyEvent::Data { bytes, offset } => {
+                    live_offsets.push(offset);
+                    live_output.extend_from_slice(&bytes);
+                }
+                PtyEvent::Exit(status) => {
+                    assert_eq!(status.code, 0);
+                    break;
+                }
+                PtyEvent::Notification(_) => {}
+            }
+        }
+
+        assert!(
+            String::from_utf8_lossy(&live_output).contains("late"),
+            "expected live output after snapshot, got {:?}",
+            String::from_utf8_lossy(&live_output),
+        );
+        assert!(
+            live_offsets.windows(2).all(|pair| pair[0] <= pair[1]),
+            "live offsets should be monotonic: {live_offsets:?}",
+        );
+        assert!(
+            live_offsets.iter().any(|offset| *offset <= replay_end),
+            "subscription should be allowed to overlap replay end for frontend dedupe",
+        );
     }
 }

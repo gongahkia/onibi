@@ -619,6 +619,7 @@ export interface AppSettings {
   terminalShellMode: TerminalShellMode;
   terminalKeybindings: TerminalKeybinding[];
   terminalShaderPaths: string[];
+  terminalScreenReaderMode: boolean;
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
   keybindingPrefix: string;
@@ -1567,6 +1568,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalShellMode: "auto",
   terminalKeybindings: [],
   terminalShaderPaths: [],
+  terminalScreenReaderMode: false,
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
@@ -2244,6 +2246,10 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     terminalShellMode: normalizeTerminalShellMode(merged.terminalShellMode),
     terminalKeybindings: normalizeTerminalKeybindings(merged.terminalKeybindings),
     terminalShaderPaths: normalizeStringArray(merged.terminalShaderPaths),
+    terminalScreenReaderMode:
+      typeof merged.terminalScreenReaderMode === "boolean"
+        ? merged.terminalScreenReaderMode
+        : DEFAULT_SETTINGS.terminalScreenReaderMode,
     terminalConfirmClose:
       typeof merged.terminalConfirmClose === "boolean"
         ? merged.terminalConfirmClose
@@ -4755,8 +4761,12 @@ async function loadDaemonSessions(): Promise<PtySessionMetadata[]> {
 function mergeDaemonWorkspaces(
   stored: Workspace[],
   daemonSessions: PtySessionMetadata[],
+  discoverDaemonWorkspaces: boolean,
 ): Workspace[] {
   const byId = new Map(stored.map((workspace) => [workspace.id, workspace]));
+  if (!discoverDaemonWorkspaces) {
+    return Array.from(byId.values());
+  }
   for (const session of daemonSessions.filter(
     (session) => session.lifecycle === "running",
   )) {
@@ -4766,6 +4776,41 @@ function mergeDaemonWorkspaces(
     }
   }
   return Array.from(byId.values());
+}
+
+function sessionRestoreTimestamp(session: Session): number {
+  return session.createdAt || 0;
+}
+
+function sessionIsLive(session: Session): boolean {
+  return (
+    session.status !== "stale" &&
+    session.status !== "completed" &&
+    session.status !== "error"
+  );
+}
+
+function deterministicSessionOrder(a: Session, b: Session): number {
+  const liveDelta = Number(sessionIsLive(a)) - Number(sessionIsLive(b));
+  if (liveDelta !== 0) {
+    return liveDelta;
+  }
+  const timestampDelta = sessionRestoreTimestamp(a) - sessionRestoreTimestamp(b);
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+  return a.id.localeCompare(b.id);
+}
+
+function newestLiveTerminalSession(sessions: Session[]): Session | null {
+  return (
+    [...sessions]
+      .filter(
+        (session) => sessionHasRestorableTerminal(session) && sessionIsLive(session),
+      )
+      .sort(deterministicSessionOrder)
+      .at(-1) ?? null
+  );
 }
 
 function mergeDaemonSessionRecords(
@@ -4963,28 +5008,38 @@ export async function hydrateSessionStore(): Promise<void> {
         .filter((session) => session.lifecycle === "running")
         .map((session) => session.id),
     );
-	    const configuredWorkspaceIds = new Set(
-	      (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
-	    );
-	    const restoredSessions = mergeDaemonSessionRecords(
-	      sessions ?? [],
-	      daemonSessions,
-	      daemonById,
-	      livePtys,
-	    );
-	    const restoredSessionWorkspaceIds = workspaceIdsForSessions(restoredSessions);
-	    const workspaceSources = [
-	      ...(tomlConfig?.workspaces ?? []),
-	      ...(workspaces ?? []).filter(
-	        (workspace) =>
-	          !configuredWorkspaceIds.has(workspace.id) &&
-	          restoredSessionWorkspaceIds.has(workspace.id),
-	      ),
-	    ];
-	    const restoredWorkspaces = mergeDaemonWorkspaces(workspaceSources, daemonSessions);
-	    const restoredTerminalSessions = restoredSessions.filter((session) =>
-	      sessionHasRestorableTerminal(session),
-	    );
+    const configuredWorkspaceIds = new Set(
+      (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
+    );
+    const mergedSessions = mergeDaemonSessionRecords(
+      sessions ?? [],
+      daemonSessions,
+      daemonById,
+      livePtys,
+    );
+    const restoredSessionWorkspaceIds = workspaceIdsForSessions(mergedSessions);
+    const workspaceSources = [
+      ...(tomlConfig?.workspaces ?? []),
+      ...(workspaces ?? []).filter(
+        (workspace) =>
+          !configuredWorkspaceIds.has(workspace.id) &&
+          restoredSessionWorkspaceIds.has(workspace.id),
+      ),
+    ];
+    const discoverDaemonWorkspaces =
+      workspaces === undefined && (tomlConfig?.workspaces.length ?? 0) === 0;
+    const restoredWorkspaces = mergeDaemonWorkspaces(
+      workspaceSources,
+      daemonSessions,
+      discoverDaemonWorkspaces,
+    );
+    const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
+    const restoredSessions = mergedSessions
+      .filter((session) => workspaceIds.has(session.workspaceId))
+      .sort(deterministicSessionOrder);
+    const restoredTerminalSessions = restoredSessions.filter((session) =>
+      sessionHasRestorableTerminal(session),
+    );
     const restoredTerminalIds = new Set(
       restoredTerminalSessions.map((session) => session.id),
     );
@@ -4999,12 +5054,15 @@ export async function hydrateSessionStore(): Promise<void> {
       (activeTerminalPaneId && paneContainsPane(legacyPrunedLayout, activeTerminalPaneId)
         ? activeTerminalPaneId
         : null) ?? firstLeaf(legacyPrunedLayout)?.paneId ?? null;
+    const fallbackTerminalSessionId =
+      newestLiveTerminalSession(restoredTerminalSessions)?.id ??
+      restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ??
+      null;
     const legacyActiveSessionId =
       legacyActiveLeaf && legacyPrunedLayout
         ? sessionIdForPane(legacyPrunedLayout, legacyActiveLeaf) ??
-          restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ??
-          null
-        : restoredTerminalSessions[restoredTerminalSessions.length - 1]?.id ?? null;
+          fallbackTerminalSessionId
+        : fallbackTerminalSessionId;
     const ghosttyTheme = await readGhosttyTheme().catch(() => null);
     const mergedSettings = applyGhosttyDefaults(
       mergeSettings({
@@ -5013,7 +5071,6 @@ export async function hydrateSessionStore(): Promise<void> {
       }),
       ghosttyTheme,
     );
-    const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
     let restoredWorkspaceTabs = normalizeWorkspaceTabs(
       storedWorkspaceTabs,
       workspaceIds,
@@ -5427,7 +5484,9 @@ function assignTomlSetting(
             ? "terminalFontSize"
             : key === "scrollback_lines"
               ? "terminalScrollbackLines"
-              : camelFromTomlKey(key);
+              : key === "screen_reader_mode"
+                ? "terminalScreenReaderMode"
+                : camelFromTomlKey(key);
     settings[mappedKey] = value;
   } else if (path === "keybindings") {
     if (key === "prefix") {
@@ -5505,6 +5564,7 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_scrollback_lines", settings.terminalScrollbackLines),
     settingLine("terminal_shell_integration", settings.terminalShellIntegration),
     settingLine("terminal_shell_mode", settings.terminalShellMode),
+    settingLine("terminal_screen_reader_mode", settings.terminalScreenReaderMode),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
     settingLine("keybinding_prefix", settings.keybindingPrefix),

@@ -13,6 +13,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import {
   DEFAULT_SETTINGS,
@@ -94,6 +95,20 @@ interface CopyModePosition {
 interface CopyModeState {
   cursor: CopyModePosition;
   anchor: CopyModePosition | null;
+}
+
+function terminalDebug(message: string, metadata?: Record<string, unknown>) {
+  try {
+    if (globalThis.localStorage?.getItem("onibiTerminalDebug") === "1") {
+      console.debug(`[onibi:terminal] ${message}`, metadata ?? {});
+    }
+  } catch {
+    // localStorage can be unavailable in hardened webviews or tests.
+  }
+}
+
+function isImeCompositionEvent(event: KeyboardEvent): boolean {
+  return event.isComposing || event.key === "Process" || event.key === "Dead";
 }
 
 function quoteFontFamily(family: string): string {
@@ -642,6 +657,7 @@ export function TerminalView({
       lineHeight: 1,
       rightClickSelectsWord: true,
       scrollback: resolvedScrollback,
+      screenReaderMode: settings.terminalScreenReaderMode,
       theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
@@ -672,6 +688,27 @@ export function TerminalView({
     });
 
     term.open(container);
+    let webglAddon: WebglAddon | null = null;
+    let webglContextLossDisposable: { dispose: () => void } | null = null;
+    try {
+      webglAddon = new WebglAddon();
+      webglContextLossDisposable =
+        webglAddon.onContextLoss?.(() => {
+          terminalDebug("webgl context lost", { ptyId });
+          webglAddon?.dispose();
+          webglAddon = null;
+        }) ?? null;
+      term.loadAddon(webglAddon);
+      terminalDebug("renderer selected", { ptyId, renderer: "webgl" });
+    } catch (error) {
+      terminalDebug("renderer fallback", {
+        ptyId,
+        renderer: "dom",
+        error: String(error),
+      });
+      webglAddon?.dispose();
+      webglAddon = null;
+    }
     refreshTerminalLayout(visibleRef.current);
 
     let frame = 0;
@@ -782,6 +819,9 @@ export function TerminalView({
     };
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
+        return true;
+      }
+      if (isImeCompositionEvent(event)) {
         return true;
       }
       if (copyModeRef.current) {
@@ -900,13 +940,53 @@ export function TerminalView({
     let replayReady = false;
     let replayEndOffset = 0;
     const queuedEvents: PtyWireEvent[] = [];
-    const writePtyBytes = (bytes: Uint8Array) => {
-      const text = textDecoderRef.current.decode(bytes, { stream: true });
+    const pendingWriteChunks: Uint8Array[] = [];
+    let pendingWriteBytes = 0;
+    let pendingWriteFrame = 0;
+    const flushPtyWrites = () => {
+      pendingWriteFrame = 0;
+      if (disposed || pendingWriteChunks.length === 0) {
+        pendingWriteChunks.length = 0;
+        pendingWriteBytes = 0;
+        return;
+      }
+      const chunks = pendingWriteChunks.splice(0);
+      const byteCount = pendingWriteBytes;
+      pendingWriteBytes = 0;
+      const text = chunks
+        .map((chunk) => textDecoderRef.current.decode(chunk, { stream: true }))
+        .join("");
+      if (!text) {
+        return;
+      }
       applyOutputMetadata(text);
       applyTriggers(text);
       term.write(text);
+      terminalDebug("write batch", {
+        ptyId,
+        chunks: chunks.length,
+        bytes: byteCount,
+        characters: text.length,
+      });
     };
-    const writePtyData = (data: string) => writePtyBytes(decodeBase64(data));
+    const queuePtyBytes = (bytes: Uint8Array) => {
+      if (bytes.length === 0) {
+        return;
+      }
+      pendingWriteChunks.push(bytes);
+      pendingWriteBytes += bytes.length;
+      if (pendingWriteBytes >= 64 * 1024) {
+        if (pendingWriteFrame) {
+          cancelAnimationFrame(pendingWriteFrame);
+        }
+        flushPtyWrites();
+        return;
+      }
+      if (!pendingWriteFrame) {
+        pendingWriteFrame = requestAnimationFrame(flushPtyWrites);
+      }
+    };
+    const writePtyData = (data: string) => queuePtyBytes(decodeBase64(data));
     const writePtyEventData = (event: { data: string; offset: number }) => {
       const bytes = decodeBase64(event.data);
       if (event.offset < replayEndOffset) {
@@ -914,10 +994,10 @@ export function TerminalView({
         if (overlap >= bytes.length) {
           return;
         }
-        writePtyBytes(bytes.subarray(overlap));
+        queuePtyBytes(bytes.subarray(overlap));
         return;
       }
-      writePtyBytes(bytes);
+      queuePtyBytes(bytes);
     };
     const handlePtyEvent = (event: PtyWireEvent) => {
       if (event.type === "data") {
@@ -936,6 +1016,10 @@ export function TerminalView({
         );
       } else {
         const suffix = event.signal ? ` (${event.signal})` : "";
+        if (pendingWriteFrame) {
+          cancelAnimationFrame(pendingWriteFrame);
+        }
+        flushPtyWrites();
         term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);
         onExit?.({ code: event.code, signal: event.signal });
       }
@@ -972,6 +1056,12 @@ export function TerminalView({
         if (replay) {
           replayEndOffset = replay.endOffset;
           writePtyData(replay.data);
+          terminalDebug("replay snapshot", {
+            ptyId,
+            startOffset: replay.startOffset,
+            endOffset: replay.endOffset,
+            encodedBytes: replay.data.length,
+          });
         }
         replayReady = true;
         flushQueuedEvents();
@@ -982,6 +1072,12 @@ export function TerminalView({
           replayReady = true;
           flushQueuedEvents();
           console.warn("failed to attach pty output", error);
+          terminalDebug("attach failed", {
+            ptyId,
+            queuedEvents: queuedEvents.length,
+            hasQueuedData,
+            error: String(error),
+          });
           if (!hasQueuedData) {
             onUnavailable?.(error);
           }
@@ -1009,6 +1105,9 @@ export function TerminalView({
       cancelScheduledLayout();
       cancelAnimationFrame(frame);
       cancelAnimationFrame(selectionCopyFrame);
+      if (pendingWriteFrame) {
+        cancelAnimationFrame(pendingWriteFrame);
+      }
       unlisten?.();
       resizeObserver.disconnect();
       container.removeEventListener("dblclick", handleDoubleClick);
@@ -1016,6 +1115,8 @@ export function TerminalView({
       window.removeEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
       inputDisposable.dispose();
       webLinksAddon.dispose();
+      webglContextLossDisposable?.dispose();
+      webglAddon?.dispose();
       searchAddon.dispose();
       fitAddon.dispose();
       unicode11Addon.dispose();
@@ -1025,7 +1126,15 @@ export function TerminalView({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [handleTerminalLink, onExit, onUnavailable, openSearch, ptyId, triggerMatchers]);
+  }, [
+    handleTerminalLink,
+    onExit,
+    onUnavailable,
+    openSearch,
+    ptyId,
+    settings.terminalScreenReaderMode,
+    triggerMatchers,
+  ]);
 
   useEffect(() => {
     if (visible) {
@@ -1044,6 +1153,7 @@ export function TerminalView({
       letterSpacing: 0,
       lineHeight: 1,
       scrollback: resolvedScrollback,
+      screenReaderMode: settings.terminalScreenReaderMode,
       theme: terminalTheme,
     };
     term.clearTextureAtlas();
@@ -1053,6 +1163,7 @@ export function TerminalView({
     ptyId,
     resolvedFontFamily,
     resolvedScrollback,
+    settings.terminalScreenReaderMode,
     terminalTheme.background,
     terminalTheme.cursor,
     terminalTheme.foreground,

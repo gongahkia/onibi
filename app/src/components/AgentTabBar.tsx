@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   AGENT_LABELS,
+  closeSession,
   sessionAttentionState,
   sessionNeedsAttention,
   useSessionStore,
@@ -65,7 +66,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   const diffViewMode = useSessionStore((state) => state.settings.diffViewMode);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
-  const removeSession = useSessionStore((state) => state.removeSession);
   const selectFile = useSessionStore((state) => state.selectFile);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const pendingApprovals = useMemo(
@@ -281,7 +281,11 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
               : undefined
           }
           onDiffViewMode={(mode) => updateSettings({ diffViewMode: mode })}
-          onCloseSession={() => removeSession(contextSession.id)}
+          onCloseSession={() => {
+            void closeSession(contextSession.id).catch((error) => {
+              console.warn("failed to close session", error);
+            });
+          }}
         />
       ) : null}
     </nav>

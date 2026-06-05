@@ -476,6 +476,52 @@ claude-code = "claude --dangerously-skip-permissions"
     expect(useSessionStore.getState().workspaces).toEqual([]);
   });
 
+  test("does not recreate workspaces from running daemon sessions after clearing all workspaces", async () => {
+    const store = await load("settings.json");
+    await store.set("sessions", []);
+    await store.set("workspaces", []);
+    await store.set("workspaceTabs", []);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [
+          {
+            id: "pty-running",
+            paneId: "pty-running",
+            agent: "claude-code",
+            workspaceId: "workspace:/repo",
+            cwd: "/repo",
+            title: "Claude Code · repo",
+            status: "working",
+            lifecycle: "running",
+            rows: 30,
+            cols: 100,
+            createdAt: 1,
+            updatedAt: 1,
+            stoppedAt: null,
+            exitCode: null,
+            exitSignal: null,
+            restart: null,
+          },
+        ];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.workspaces).toEqual([]);
+    expect(state.workspaceTabs).toEqual([]);
+    expect(state.activeWorkspaceId).toBeNull();
+  });
+
   test("defaults bind prefix number keys to workspace tabs", async () => {
     expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
       keys: "prefix+1",
@@ -779,6 +825,7 @@ version = 1
 [settings]
 show_terminal_pane_agent_labels = false
 terminal_shell_mode = "login"
+terminal_screen_reader_mode = true
 
 [keybindings]
 prefix = "ctrl+a"
@@ -800,6 +847,7 @@ command = "pnpm test"
     expect(parsed.settings.keybindingPrefix).toBe("ctrl+a");
     expect(parsed.settings.showTerminalPaneAgentLabels).toBe(false);
     expect(parsed.settings.terminalShellMode).toBe("login");
+    expect(parsed.settings.terminalScreenReaderMode).toBe(true);
     expect(parsed.settings.appKeybindings).toContainEqual({
       keys: "prefix+1",
       action: "workspace.focusIndex1",
@@ -818,6 +866,7 @@ command = "pnpm test"
       workspaces: [],
     });
     expect(serialized).toContain("[[keybindings.command]]");
+    expect(serialized).toContain("terminal_screen_reader_mode = true");
     expect(serialized).toContain('terminal_shell_mode = "login"');
     expect(serialized).toContain("show_terminal_pane_agent_labels = false");
     expect(serialized).toContain('description = "Run tests"');
