@@ -1315,10 +1315,7 @@ struct ProcessInfo {
     command: String,
 }
 
-fn infer_agent_from_processes(
-    root_pid: u32,
-    processes: &[ProcessInfo],
-) -> Option<&'static str> {
+fn infer_agent_from_processes(root_pid: u32, processes: &[ProcessInfo]) -> Option<&'static str> {
     let mut descendants = HashSet::from([root_pid]);
     let mut changed = true;
     while changed {
@@ -1365,10 +1362,10 @@ fn process_snapshot() -> std::io::Result<Vec<ProcessInfo>> {
 
 #[cfg(unix)]
 fn parse_process_line(line: &str) -> Option<ProcessInfo> {
-    let mut parts = line.trim().splitn(3, char::is_whitespace);
+    let mut parts = line.split_whitespace();
     let pid = parts.next()?.trim().parse().ok()?;
     let ppid = parts.next()?.trim().parse().ok()?;
-    let command = parts.next()?.trim();
+    let command = parts.collect::<Vec<_>>().join(" ");
     (!command.is_empty()).then(|| ProcessInfo {
         pid,
         ppid,
