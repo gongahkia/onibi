@@ -49,6 +49,14 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.showFileIcons).toBe(false);
   });
 
+  test("updates pane agent label visibility", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Layout"));
+    fireEvent.click(screen.getByLabelText("Show pane agent labels"));
+
+    expect(useSessionStore.getState().settings.showTerminalPaneAgentLabels).toBe(false);
+  });
+
   test("updates a custom color scheme", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 

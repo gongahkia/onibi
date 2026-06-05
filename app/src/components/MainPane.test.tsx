@@ -50,6 +50,7 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue(null);
+  vi.mocked(navigator.clipboard.writeText).mockClear();
   vi.mocked(window.confirm).mockReset();
   vi.mocked(window.confirm).mockReturnValue(true);
 }
@@ -105,6 +106,41 @@ describe("MainPane", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
       "true",
     );
+  });
+
+  test("shows pane agent labels and a right-click context menu", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "codex",
+          workspaceId: "workspace:/repo",
+          title: "Codex work",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      maximizedTerminalPaneId: null,
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<MainPane />);
+
+    expect(screen.getByTitle("Codex · Codex work")).toBeTruthy();
+    const pane = screen.getByTestId("terminal-view").closest(".terminal-pane");
+    expect(pane).toBeTruthy();
+    fireEvent.contextMenu(pane!);
+
+    expect(screen.getByRole("menu")).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Pane ID" }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("pane-1");
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   test("renders an empty active workspace tab", () => {

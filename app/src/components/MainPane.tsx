@@ -468,12 +468,14 @@ function TerminalPaneTree({
       }}
     >
       <div className="terminal-pane-toolbar">
-        <span
-          className="terminal-pane-agent-label"
-          title={`${AGENT_LABELS[session.agent]} · ${session.title}`}
-        >
-          {AGENT_LABELS[session.agent]}
-        </span>
+        {settings.showTerminalPaneAgentLabels ? (
+          <span
+            className="terminal-pane-agent-label"
+            title={`${AGENT_LABELS[session.agent]} · ${session.title}`}
+          >
+            {AGENT_LABELS[session.agent]}
+          </span>
+        ) : null}
         <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
           <i className="codicon codicon-folder" aria-hidden="true" />
           <span className="terminal-pane-cwd-text">{session.cwd ?? session.title}</span>

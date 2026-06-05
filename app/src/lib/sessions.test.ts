@@ -5,6 +5,7 @@ import {
   DEFAULT_SETTINGS,
   appKeybindingConflicts,
   hydrateSessionStore,
+  keyChordFromKeyboardEvent,
   normalizeNewPaneCwdMode,
   parseOnibiConfigToml,
   resolveNewPaneCwd,
@@ -315,6 +316,35 @@ describe("session hydration", () => {
     });
   });
 
+  test("defaults include navigators and remap close away from prefix w", async () => {
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+w",
+      action: "workspace.navigator.open",
+    });
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+g",
+      action: "session.navigator.open",
+    });
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+?",
+      action: "keybindings.help.open",
+    });
+    expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
+      keys: "prefix+x",
+      action: "session.closeActive",
+    });
+    expect(DEFAULT_SETTINGS.appKeybindings).not.toContainEqual({
+      keys: "prefix+w",
+      action: "session.closeActive",
+    });
+  });
+
+  test("normalizes shifted question mark events for prefix help", async () => {
+    const event = new KeyboardEvent("keydown", { key: "?", shiftKey: true });
+
+    expect(keyChordFromKeyboardEvent(event)).toBe("?");
+  });
+
   test("focuses workspaces tabs and terminal panes by one-based index", async () => {
     const layout: TerminalPaneNode = {
       type: "split",
@@ -420,12 +450,19 @@ describe("session hydration", () => {
     const parsed = parseOnibiConfigToml(`
 version = 1
 
+[settings]
+show_terminal_pane_agent_labels = false
+
 [keybindings]
 prefix = "ctrl+a"
 
 [[keybindings.app]]
 keys = "prefix+1"
 action = "workspace.focusIndex1"
+
+[[keybindings.app]]
+keys = "prefix+g"
+action = "session.navigator.open"
 
 [[keybindings.command]]
 keys = "prefix+t"
@@ -434,9 +471,14 @@ command = "pnpm test"
 `);
 
     expect(parsed.settings.keybindingPrefix).toBe("ctrl+a");
+    expect(parsed.settings.showTerminalPaneAgentLabels).toBe(false);
     expect(parsed.settings.appKeybindings).toContainEqual({
       keys: "prefix+1",
       action: "workspace.focusIndex1",
+    });
+    expect(parsed.settings.appKeybindings).toContainEqual({
+      keys: "prefix+g",
+      action: "session.navigator.open",
     });
     expect(parsed.settings.customCommandKeybindings).toEqual([
       { keys: "prefix+t", description: "Run tests", command: "pnpm test" },
@@ -448,6 +490,7 @@ command = "pnpm test"
       workspaces: [],
     });
     expect(serialized).toContain("[[keybindings.command]]");
+    expect(serialized).toContain("show_terminal_pane_agent_labels = false");
     expect(serialized).toContain('description = "Run tests"');
     expect(serialized).toContain('command = "pnpm test"');
   });

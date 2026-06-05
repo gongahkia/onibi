@@ -336,6 +336,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               orientation={settings.tabBarOrientation}
               position={settings.tabBarPosition}
               showFileIcons={settings.showFileIcons}
+              showTerminalPaneAgentLabels={settings.showTerminalPaneAgentLabels}
               onOrientation={(orientation) =>
                 updateSettings({
                   tabBarOrientation: orientation,
@@ -344,6 +345,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onPosition={(tabBarPosition) => updateSettings({ tabBarPosition })}
               onShowFileIcons={(showFileIcons) => updateSettings({ showFileIcons })}
+              onShowTerminalPaneAgentLabels={(showTerminalPaneAgentLabels) =>
+                updateSettings({ showTerminalPaneAgentLabels })
+              }
             />
           ) : null}
           {section === "agents" ? (
@@ -1125,18 +1129,22 @@ interface LayoutSettingsProps {
   orientation: TabBarOrientation;
   position: TabBarPosition;
   showFileIcons: boolean;
+  showTerminalPaneAgentLabels: boolean;
   onOrientation: (orientation: TabBarOrientation) => void;
   onPosition: (position: TabBarPosition) => void;
   onShowFileIcons: (showFileIcons: boolean) => void;
+  onShowTerminalPaneAgentLabels: (showTerminalPaneAgentLabels: boolean) => void;
 }
 
 function LayoutSettings({
   orientation,
   position,
   showFileIcons,
+  showTerminalPaneAgentLabels,
   onOrientation,
   onPosition,
   onShowFileIcons,
+  onShowTerminalPaneAgentLabels,
 }: LayoutSettingsProps) {
   const positions =
     orientation === "horizontal"
@@ -1179,6 +1187,18 @@ function LayoutSettings({
             onChange={(event) => onShowFileIcons(event.target.checked)}
           />
           Show file icons
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Pane agent labels</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Show pane agent labels"
+            checked={showTerminalPaneAgentLabels}
+            onChange={(event) => onShowTerminalPaneAgentLabels(event.target.checked)}
+          />
+          Show pane agent labels
         </span>
       </label>
     </section>

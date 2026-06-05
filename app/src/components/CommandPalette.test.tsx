@@ -356,6 +356,77 @@ describe("CommandPalette", () => {
     expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
   });
 
+  test("opens the workspace navigator with prefix w", () => {
+    useSessionStore.setState({
+      workspaces: [
+        { id: "workspace:/repo", path: "/repo", name: "repo" },
+        { id: "workspace:/other", path: "/other", name: "other" },
+      ],
+      activeWorkspaceId: "workspace:/repo",
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "w" });
+
+    expect(screen.getByRole("dialog", { name: "Workspace navigator" })).toBeTruthy();
+    const otherWorkspace = screen.getByText("other").closest("button");
+    expect(otherWorkspace).toBeTruthy();
+    fireEvent.click(otherWorkspace!);
+
+    expect(useSessionStore.getState().activeWorkspaceId).toBe("workspace:/other");
+    expect(screen.queryByRole("dialog", { name: "Workspace navigator" })).toBeNull();
+  });
+
+  test("opens the session navigator with prefix g", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+        {
+          id: "pty-2",
+          agent: "gemini",
+          workspaceId: "workspace:/repo",
+          title: "Gemini",
+          status: "running",
+          createdAt: 2,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "g" });
+
+    expect(screen.getByRole("dialog", { name: "Session navigator" })).toBeTruthy();
+    const geminiSession = screen.getByText("Gemini").closest("button");
+    expect(geminiSession).toBeTruthy();
+    fireEvent.click(geminiSession!);
+
+    expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
+    expect(screen.queryByRole("dialog", { name: "Session navigator" })).toBeNull();
+  });
+
+  test("opens keybinding help with prefix question mark", () => {
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "?", shiftKey: true });
+
+    expect(screen.getByRole("dialog", { name: "Keybinding help" })).toBeTruthy();
+    expect(screen.getByText("Open workspace navigator")).toBeTruthy();
+    expect(screen.getByText("Open session navigator")).toBeTruthy();
+  });
+
   test("sends custom command keybindings to the active pane", async () => {
     useSessionStore.setState({
       sessions: [

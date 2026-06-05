@@ -126,6 +126,15 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added a built-in `terminal` theme mode that uses imported/host terminal colors when available and falls back to the current dark terminal palette.
 - Added focused frontend tests for terminal selection copy behavior, terminal theme option normalization, TOML round trips, and imported terminal color resolution.
 
+### Implemented in the UI navigator polish pass
+
+- Added a right-click terminal pane context menu with focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions.
+- Added workspace and session navigator modals, exposed through the command palette and default prefix chords.
+- Added an in-app keybinding help modal covering app, terminal, and custom command bindings.
+- Changed defaults so `prefix+w` opens the workspace navigator, `prefix+g` opens the session navigator, `prefix+?` opens keybinding help, and close-active-session moves to `prefix+x`.
+- Added pane agent labels plus a `show_terminal_pane_agent_labels` setting, Layout settings toggle, and TOML round trip.
+- Verified with `pnpm --dir app typecheck` and `pnpm --dir app test -- --run src/lib/sessions.test.ts src/components/CommandPalette.test.tsx src/components/MainPane.test.tsx src/components/SettingsPane.test.tsx`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -178,7 +187,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **In-app editor (CodeMirror)** | No | Yes (syntax HL, Vim mode) |
 | **Review/diff baseline tracking** | No | Yes (SHA256 snapshots, per-file accept/reject) |
 | **Themes** | 18 built-in (catppuccin, dracula, nord, …) | None advertised |
-| **Keybindings: prefix + chord (tmux-style)** | Yes (`ctrl+b` prefix, configurable v2 syntax) | Yes — configurable prefix plus per-action app keybindings and conflict reporting |
+| **Keybindings: prefix + chord (tmux-style)** | Yes (`ctrl+b` prefix, configurable v2 syntax) | Yes — configurable prefix plus per-action app keybindings, navigator/help defaults, custom command bindings, and conflict reporting |
 | **Vim mode** | Yes in copy mode (h/j/k/l, w/b/e, v/y) | Yes (CodeMirror Vim) |
 | **Command palette (Cmd+K)** | No | Yes |
 | **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Partial |
@@ -321,12 +330,12 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 77. **Render-performance profiling** (`render_prof.rs`).
 
 ### 2.17 UI / UX details
-78. **Right-click pane context menu**.
-79. **Workspace navigator** (`prefix+w`) and session navigator (`prefix+g`) modal pickers.
-80. **Keybind-help modal** (in-app reference).
+78. **[DONE] Right-click pane context menu** — focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions are available from terminal panes.
+79. **[DONE] Workspace navigator** (`prefix+w`) and session navigator (`prefix+g`) modal pickers.
+80. **[DONE] Keybind-help modal** (in-app reference) — `prefix+?` opens the app/terminal/custom command keybinding reference.
 81. **First-run onboarding flow**.
 82. **Mobile-narrow TUI layout** with single-column workspace/agent switcher (separate from the PWA).
-83. **Show-agent-labels-on-pane-borders** toggle.
+83. **[DONE] Show-agent-labels-on-pane-borders** toggle — pane agent labels default on and can be hidden from Layout settings or `show_terminal_pane_agent_labels` in TOML.
 
 ### 2.18 GitHub issue coverage
 
@@ -371,7 +380,7 @@ Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-v
 34, 35, 62, 73, 74.
 
 **Phase E — long tail:**
-46, 58, 59, 60, 63, 67, 75, 78–83.
+46, 58, 59, 60, 63, 67, 75, 81, 82.
 
 ---
 

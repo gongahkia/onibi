@@ -634,6 +634,7 @@ export interface AppSettings {
   tabBarPosition: TabBarPosition;
   showHiddenFiles: boolean;
   showFileIcons: boolean;
+  showTerminalPaneAgentLabels: boolean;
   webOpenMode: WebOpenMode;
   preferredBrowser: string;
   defaultAgent: AgentKind;
@@ -1574,6 +1575,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tabBarPosition: "left",
   showHiddenFiles: false,
   showFileIcons: true,
+  showTerminalPaneAgentLabels: true,
   webOpenMode: "ask",
   preferredBrowser: "onibi",
   defaultAgent: "claude-code",
@@ -2255,6 +2257,10 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       : DEFAULT_SETTINGS.tabBarPosition,
     showHiddenFiles: Boolean(merged.showHiddenFiles),
     showFileIcons: Boolean(merged.showFileIcons),
+    showTerminalPaneAgentLabels:
+      typeof merged.showTerminalPaneAgentLabels === "boolean"
+        ? merged.showTerminalPaneAgentLabels
+        : DEFAULT_SETTINGS.showTerminalPaneAgentLabels,
     webOpenMode: normalizeWebOpenMode(merged.webOpenMode),
     preferredBrowser: normalizeFontFamily(
       merged.preferredBrowser,
@@ -5355,6 +5361,7 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("tab_bar_position", settings.tabBarPosition),
     settingLine("show_hidden_files", settings.showHiddenFiles),
     settingLine("show_file_icons", settings.showFileIcons),
+    settingLine("show_terminal_pane_agent_labels", settings.showTerminalPaneAgentLabels),
     settingLine("web_open_mode", settings.webOpenMode),
     settingLine("preferred_browser", settings.preferredBrowser),
     settingLine("default_agent", settings.defaultAgent),
