@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TerminalView } from "./TerminalView";
 import { DEFAULT_SETTINGS } from "../lib/sessions";
 import { clearTerminalRenderProfiles } from "../lib/terminal-render-profile";
+import { notificationEvents } from "../lib/notifications";
 
 const terminalConstructor = vi.hoisted(() => vi.fn());
 const webglConstructor = vi.hoisted(() => vi.fn());
@@ -566,6 +567,30 @@ describe("TerminalView", () => {
 
     expect(profiles).toEqual([]);
     window.removeEventListener("onibi:terminal-render-profile", handleProfile);
+  });
+
+  test("writes terminal notice events for the matching pty", async () => {
+    render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    window.dispatchEvent(
+      new CustomEvent(notificationEvents.terminalNotice, {
+        detail: {
+          title: "Build ready",
+          body: "localhost:5173",
+          kind: "info",
+          source: "trigger",
+          sessionId: "pty-1",
+          agent: null,
+        },
+      }),
+    );
+
+    expect(term.write).toHaveBeenCalledWith(
+      "\r\n[onibi: Build ready - localhost:5173]\r\n",
+    );
   });
 
   test("copy mode enter copies the current line without visual selection", async () => {

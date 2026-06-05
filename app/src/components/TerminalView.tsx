@@ -35,6 +35,10 @@ import {
   type TerminalRenderProfileReason,
 } from "../lib/terminal-render-profile";
 import {
+  notificationEvents,
+  type OnibiTerminalNotice,
+} from "../lib/notifications";
+import {
   ptyReplay,
   ptyResize,
   ptyWrite,
@@ -1368,12 +1372,21 @@ export function TerminalView({
         captureRenderProfile("request");
       }
     }
+    function handleTerminalNotice(event: Event) {
+      const notice = (event as CustomEvent<OnibiTerminalNotice>).detail;
+      if (notice.sessionId && notice.sessionId !== ptyId) {
+        return;
+      }
+      const body = notice.body ? ` - ${notice.body}` : "";
+      term.write(`\r\n[onibi: ${notice.title}${body}]\r\n`);
+    }
     window.addEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
     window.addEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
     window.addEventListener(
       "onibi:terminal-render-profile-request",
       handleRenderProfileRequest,
     );
+    window.addEventListener(notificationEvents.terminalNotice, handleTerminalNotice);
 
     return () => {
       disposed = true;
@@ -1393,6 +1406,10 @@ export function TerminalView({
       window.removeEventListener(
         "onibi:terminal-render-profile-request",
         handleRenderProfileRequest,
+      );
+      window.removeEventListener(
+        notificationEvents.terminalNotice,
+        handleTerminalNotice,
       );
       inputDisposable.dispose();
       webLinksAddon.dispose();

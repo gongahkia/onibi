@@ -125,6 +125,7 @@ Object.defineProperty(URL, "revokeObjectURL", {
 });
 
 vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
   invoke: tauriMocks.invoke,
 }));
 

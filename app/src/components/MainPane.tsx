@@ -54,6 +54,7 @@ import {
 } from "../lib/sessions";
 import { getGitStatus } from "../lib/git";
 import { persistCommandBlock } from "../lib/command-blocks";
+import { dispatchOnibiNotification } from "../lib/notifications";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 const WORKSPACE_TAB_DRAG_MIME = "application/x-onibi-workspace-terminal-tab";
@@ -113,6 +114,13 @@ function commandBlockStatus(exitCode: number | null | undefined): CommandBlock["
 
 function outputPreview(output: string): string {
   return output.trim().replace(/\n{3,}/g, "\n\n").slice(-4000);
+}
+
+function notificationKindForTrigger(match: TerminalTriggerMatch): "request" | "completion" {
+  const text = `${match.id} ${match.label}`.toLowerCase();
+  return /\b(ready|done|complete|completed|success|succeeded)\b/.test(text)
+    ? "completion"
+    : "request";
 }
 
 async function changedFilesForSession(
@@ -1156,6 +1164,15 @@ export function MainPane() {
 
   const handleTerminalExit = useCallback(
     (exitedSession: Session) => {
+      void dispatchOnibiNotification({
+        title: `${exitedSession.title} exited`,
+        body: exitedSession.cwd ?? null,
+        kind: "completion",
+        source: "session",
+        sessionId: exitedSession.id,
+        agent: exitedSession.agent,
+        deliver: false,
+      });
       if (exitedSession.agent === "shell") {
         updateSession(exitedSession.id, { status: "completed" });
         appendSessionEvent({
@@ -1318,12 +1335,15 @@ export function MainPane() {
         summary: `${match.label}: ${match.line}`,
         metadata: { triggerId: match.id },
       });
-      if ("Notification" in window && match.actions.includes("notify")) {
-        if (Notification.permission === "granted") {
-          new Notification(`Onibi: ${match.label}`, { body: match.line });
-        } else if (Notification.permission === "default") {
-          void Notification.requestPermission();
-        }
+      if (match.actions.includes("notify")) {
+        void dispatchOnibiNotification({
+          title: `Onibi: ${match.label}`,
+          body: match.line,
+          kind: notificationKindForTrigger(match),
+          source: "trigger",
+          sessionId: triggeredSession.id,
+          agent: triggeredSession.agent,
+        });
       }
       if (match.actions.includes("open-preview") && triggeredSession.preview) {
         useSessionStore

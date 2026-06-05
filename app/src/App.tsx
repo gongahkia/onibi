@@ -9,6 +9,7 @@ import { AgentTabBar } from "./components/AgentTabBar";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { MainPane } from "./components/MainPane";
+import { NotificationToastHost } from "./components/NotificationToastHost";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
@@ -114,6 +115,7 @@ function App() {
         <StatusBar />
       </div>
       <ApprovalModal />
+      <NotificationToastHost />
       <CommandPalette />
     </>
   );

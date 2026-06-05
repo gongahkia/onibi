@@ -19,6 +19,7 @@ import {
   type DiffViewMode,
   type EditorKeybindingMode,
   type NewPaneCwdMode,
+  type NotificationDelivery,
   type TabBarOrientation,
   type TabBarPosition,
   type TerminalConfigCandidate,
@@ -300,6 +301,14 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalOsc52Clipboard={settings.terminalOsc52Clipboard}
               terminalTransparentBackground={settings.terminalTransparentBackground}
               terminalInlineImages={settings.terminalInlineImages}
+              notificationDelivery={settings.notificationDelivery}
+              soundAlertsEnabled={settings.soundAlertsEnabled}
+              soundCompletionPath={settings.soundCompletionPath}
+              soundRequestPath={settings.soundRequestPath}
+              soundAgents={settings.soundAgents}
+              suppressForegroundTabNotifications={
+                settings.suppressForegroundTabNotifications
+              }
               terminalShellMode={settings.terminalShellMode}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
@@ -348,6 +357,22 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onTerminalInlineImages={(terminalInlineImages) =>
                 updateSettings({ terminalInlineImages })
               }
+              onNotificationDelivery={(notificationDelivery) =>
+                updateSettings({ notificationDelivery })
+              }
+              onSoundAlertsEnabled={(soundAlertsEnabled) =>
+                updateSettings({ soundAlertsEnabled })
+              }
+              onSoundCompletionPath={(soundCompletionPath) =>
+                updateSettings({ soundCompletionPath })
+              }
+              onSoundRequestPath={(soundRequestPath) =>
+                updateSettings({ soundRequestPath })
+              }
+              onSoundAgents={(soundAgents) => updateSettings({ soundAgents })}
+              onSuppressForegroundTabNotifications={(
+                suppressForegroundTabNotifications,
+              ) => updateSettings({ suppressForegroundTabNotifications })}
               onTerminalShellMode={(terminalShellMode) =>
                 updateSettings({ terminalShellMode })
               }
@@ -582,6 +607,12 @@ interface GeneralSettingsProps {
   terminalOsc52Clipboard: boolean;
   terminalTransparentBackground: boolean;
   terminalInlineImages: TerminalInlineImageMode;
+  notificationDelivery: NotificationDelivery;
+  soundAlertsEnabled: boolean;
+  soundCompletionPath: string;
+  soundRequestPath: string;
+  soundAgents: Partial<Record<AgentKind, boolean>>;
+  suppressForegroundTabNotifications: boolean;
   terminalShellMode: TerminalShellMode;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
@@ -608,6 +639,12 @@ interface GeneralSettingsProps {
   onTerminalOsc52Clipboard: (enabled: boolean) => void;
   onTerminalTransparentBackground: (enabled: boolean) => void;
   onTerminalInlineImages: (mode: TerminalInlineImageMode) => void;
+  onNotificationDelivery: (delivery: NotificationDelivery) => void;
+  onSoundAlertsEnabled: (enabled: boolean) => void;
+  onSoundCompletionPath: (path: string) => void;
+  onSoundRequestPath: (path: string) => void;
+  onSoundAgents: (agents: Partial<Record<AgentKind, boolean>>) => void;
+  onSuppressForegroundTabNotifications: (enabled: boolean) => void;
   onTerminalShellMode: (mode: TerminalShellMode) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
@@ -639,6 +676,12 @@ function GeneralSettings({
   terminalOsc52Clipboard,
   terminalTransparentBackground,
   terminalInlineImages,
+  notificationDelivery,
+  soundAlertsEnabled,
+  soundCompletionPath,
+  soundRequestPath,
+  soundAgents,
+  suppressForegroundTabNotifications,
   terminalShellMode,
   newPaneCwd,
   editorFontSize,
@@ -665,6 +708,12 @@ function GeneralSettings({
   onTerminalOsc52Clipboard,
   onTerminalTransparentBackground,
   onTerminalInlineImages,
+  onNotificationDelivery,
+  onSoundAlertsEnabled,
+  onSoundCompletionPath,
+  onSoundRequestPath,
+  onSoundAgents,
+  onSuppressForegroundTabNotifications,
   onTerminalShellMode,
   onNewPaneCwd,
   onEditorFontSize,
@@ -689,6 +738,10 @@ function GeneralSettings({
         [key]: value,
       },
     });
+  }
+
+  function updateSoundAgent(agent: AgentKind, enabled: boolean) {
+    onSoundAgents({ ...soundAgents, [agent]: enabled });
   }
 
   return (
@@ -859,6 +912,83 @@ function GeneralSettings({
           <option value="auto">Auto</option>
         </select>
       </label>
+      <label className="settings-row">
+        <span>Notification delivery</span>
+        <select
+          className="settings-select"
+          aria-label="Notification delivery"
+          value={notificationDelivery}
+          onChange={(event) =>
+            onNotificationDelivery(event.target.value as NotificationDelivery)
+          }
+        >
+          <option value="in_app">In-app toast</option>
+          <option value="terminal">Terminal notice</option>
+          <option value="system">System notification</option>
+        </select>
+      </label>
+      <label className="settings-row">
+        <span>Foreground tabs</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Suppress foreground tab notifications"
+            checked={suppressForegroundTabNotifications}
+            onChange={(event) =>
+              onSuppressForegroundTabNotifications(event.target.checked)
+            }
+          />
+          Suppress foreground tab notifications
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Sound alerts</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Enable sound alerts"
+            checked={soundAlertsEnabled}
+            onChange={(event) => onSoundAlertsEnabled(event.target.checked)}
+          />
+          Enable sound alerts
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Completion sound</span>
+        <input
+          className="settings-input"
+          aria-label="Completion sound path"
+          placeholder="Generated chime"
+          value={soundCompletionPath}
+          onChange={(event) => onSoundCompletionPath(event.target.value)}
+        />
+      </label>
+      <label className="settings-row">
+        <span>Request sound</span>
+        <input
+          className="settings-input"
+          aria-label="Request sound path"
+          placeholder="Generated chime"
+          value={soundRequestPath}
+          onChange={(event) => onSoundRequestPath(event.target.value)}
+        />
+      </label>
+      <div className="settings-row settings-row-top">
+        <span>Agent sounds</span>
+        <div className="agent-sound-grid">
+          {AGENT_KINDS.map((agent) => (
+            <label key={agent} className="settings-check-row">
+              <input
+                type="checkbox"
+                aria-label={`${agentDisplayLabel(agent, agentLabelOverrides)} sound alerts`}
+                checked={soundAgents[agent] !== false}
+                onChange={(event) => updateSoundAgent(agent, event.target.checked)}
+              />
+              {agentDisplayLabel(agent, agentLabelOverrides)}
+            </label>
+          ))}
+        </div>
+      </div>
       <label className="settings-row">
         <span>Shell mode</span>
         <select

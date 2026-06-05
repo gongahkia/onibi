@@ -228,6 +228,31 @@ describe("SettingsPane", () => {
     expect(settings.terminalInlineImages).toBe("auto");
   });
 
+  test("stores notification delivery and sound settings", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Notification delivery"), {
+      target: { value: "terminal" },
+    });
+    fireEvent.click(screen.getByLabelText("Suppress foreground tab notifications"));
+    fireEvent.click(screen.getByLabelText("Enable sound alerts"));
+    fireEvent.change(screen.getByLabelText("Completion sound path"), {
+      target: { value: "/tmp/done.mp3" },
+    });
+    fireEvent.change(screen.getByLabelText("Request sound path"), {
+      target: { value: "/tmp/request.mp3" },
+    });
+    fireEvent.click(screen.getByLabelText("Codex sound alerts"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.notificationDelivery).toBe("terminal");
+    expect(settings.suppressForegroundTabNotifications).toBe(false);
+    expect(settings.soundAlertsEnabled).toBe(true);
+    expect(settings.soundCompletionPath).toBe("/tmp/done.mp3");
+    expect(settings.soundRequestPath).toBe("/tmp/request.mp3");
+    expect(settings.soundAgents.codex).toBe(false);
+  });
+
   test("adds custom command keybindings", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.click(screen.getByText("Keybindings"));

@@ -323,6 +323,61 @@ button.status-bar-item:hover {
   margin-left: 2px;
 }
 
+.notification-toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 44px;
+  z-index: 1100;
+  display: flex;
+  width: min(360px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.notification-toast {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 12px 38px 12px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--fg-0);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.notification-toast.kind-request {
+  border-left-color: var(--warning);
+}
+
+.notification-toast.kind-completion {
+  border-left-color: var(--success);
+}
+
+.notification-toast strong {
+  font-size: 13px;
+}
+
+.notification-toast span {
+  overflow: hidden;
+  color: var(--fg-1);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-toast-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+}
+
 .agent-tab-bar {
   display: flex;
   height: 100%;
@@ -3842,6 +3897,13 @@ button.status-bar-item:hover {
 
 .workspace-settings-row {
   grid-template-columns: 130px 1fr auto;
+}
+
+.agent-sound-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px;
+  width: 100%;
 }
 
 .binary-status {

@@ -359,6 +359,13 @@ describe("session hydration", () => {
     expect(normalizeTerminalShellMode("interactive")).toBe("auto");
   });
 
+  test("uses quiet notification defaults", async () => {
+    expect(DEFAULT_SETTINGS.notificationDelivery).toBe("in_app");
+    expect(DEFAULT_SETTINGS.soundAlertsEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.suppressForegroundTabNotifications).toBe(true);
+    expect(DEFAULT_SETTINGS.soundAgents).toEqual({});
+  });
+
   test("defaults Claude Code launch to the current CLI command", async () => {
     expect(DEFAULT_SETTINGS.agentCommands["claude-code"]).toBe("claude");
     expect(launchCommandForAgent("claude-code", DEFAULT_SETTINGS, "")).toMatchObject({
@@ -831,10 +838,19 @@ terminal_copy_format = "html"
 terminal_osc52_clipboard = true
 terminal_transparent_background = true
 terminal_inline_images = "auto"
+notification_delivery = "terminal"
+sound_alerts_enabled = true
+sound_completion_path = "/tmp/done.mp3"
+sound_request_path = "/tmp/request.mp3"
+suppress_foreground_tab_notifications = false
 
 [settings.agent_label_overrides]
 codex = "Local Codex"
 shell = "Terminal"
+
+[settings.sound_agents]
+codex = false
+shell = true
 
 [keybindings]
 prefix = "ctrl+a"
@@ -861,6 +877,13 @@ command = "pnpm test"
     expect(parsed.settings.terminalOsc52Clipboard).toBe(true);
     expect(parsed.settings.terminalTransparentBackground).toBe(true);
     expect(parsed.settings.terminalInlineImages).toBe("auto");
+    expect(parsed.settings.notificationDelivery).toBe("terminal");
+    expect(parsed.settings.soundAlertsEnabled).toBe(true);
+    expect(parsed.settings.soundCompletionPath).toBe("/tmp/done.mp3");
+    expect(parsed.settings.soundRequestPath).toBe("/tmp/request.mp3");
+    expect(parsed.settings.suppressForegroundTabNotifications).toBe(false);
+    expect(parsed.settings.soundAgents.codex).toBe(false);
+    expect(parsed.settings.soundAgents.shell).toBe(true);
     expect(agentDisplayLabel("codex", parsed.settings)).toBe("Local Codex");
     expect(agentDisplayLabel("shell", parsed.settings)).toBe("Terminal");
     expect(parsed.settings.appKeybindings).toContainEqual({
@@ -886,6 +909,14 @@ command = "pnpm test"
     expect(serialized).toContain("terminal_osc52_clipboard = true");
     expect(serialized).toContain("terminal_transparent_background = true");
     expect(serialized).toContain('terminal_inline_images = "auto"');
+    expect(serialized).toContain('notification_delivery = "terminal"');
+    expect(serialized).toContain("sound_alerts_enabled = true");
+    expect(serialized).toContain('sound_completion_path = "/tmp/done.mp3"');
+    expect(serialized).toContain('sound_request_path = "/tmp/request.mp3"');
+    expect(serialized).toContain("suppress_foreground_tab_notifications = false");
+    expect(serialized).toContain("[settings.sound_agents]");
+    expect(serialized).toContain("codex = false");
+    expect(serialized).toContain("shell = true");
     expect(serialized).toContain('terminal_shell_mode = "login"');
     expect(serialized).toContain("show_terminal_pane_agent_labels = false");
     expect(serialized).toContain("[settings.agent_label_overrides]");
