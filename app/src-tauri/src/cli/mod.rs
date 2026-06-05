@@ -558,11 +558,7 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
                 println!("Config:    {}", reset.path.display());
                 println!(
                     "File:      {}",
-                    if reset.existed {
-                        "updated"
-                    } else {
-                        "created"
-                    }
+                    if reset.existed { "updated" } else { "created" }
                 );
                 println!("Prefix:    {}", reset.prefix);
                 println!(
