@@ -1,10 +1,13 @@
 import {
+  isValidElement,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -54,6 +57,7 @@ import {
 import { tags as highlightTags } from "@lezer/highlight";
 import { Vim, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
+import mermaid from "mermaid";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -79,6 +83,8 @@ export interface EditorBufferProps {
 
 type BufferState = "loading" | "ready" | "preview" | "binary" | "large" | "error";
 type PreviewKind = "image" | "pdf" | "audio" | "video";
+let mermaidInitialized = false;
+let mermaidRenderSequence = 0;
 
 const PREVIEW_MIME_BY_EXTENSION: Record<string, { kind: PreviewKind; mime: string }> = {
   ico: { kind: "image", mime: "image/x-icon" },
@@ -190,6 +196,46 @@ function bytesToText(bytes: number[]): string | null {
   } catch {
     return null;
   }
+}
+
+function ensureMermaidInitialized() {
+  if (mermaidInitialized) {
+    return;
+  }
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: "dark",
+  });
+  mermaidInitialized = true;
+}
+
+function reactNodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return "";
+  }
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(reactNodeText).join("");
+  }
+  if (isValidElement(node)) {
+    return reactNodeText((node.props as { children?: ReactNode }).children);
+  }
+  return "";
+}
+
+function mermaidCodeFromPreChildren(children: ReactNode): string | null {
+  const child = Array.isArray(children) ? children[0] : children;
+  if (!isValidElement(child)) {
+    return null;
+  }
+  const props = child.props as { className?: string; children?: ReactNode };
+  if (!/\blanguage-mermaid\b/i.test(props.className ?? "")) {
+    return null;
+  }
+  return reactNodeText(props.children).replace(/\n$/, "");
 }
 
 function isLargeFileError(message: string): boolean {
@@ -716,15 +762,22 @@ function MarkdownPreview({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
-        components={{
-          a: ({ href, children, ...props }) => (
-            <a href={href} target="_blank" rel="noreferrer" {...props}>
-              {children}
-            </a>
-          ),
-          img: ({ src, alt, ...props }) => (
-            <MarkdownImage
-              src={typeof src === "string" ? src : undefined}
+	        components={{
+	          a: ({ href, children, ...props }) => (
+	            <a href={href} target="_blank" rel="noreferrer" {...props}>
+	              {children}
+	            </a>
+	          ),
+	          pre: ({ children, ...props }) => {
+	            const mermaidCode = mermaidCodeFromPreChildren(children);
+	            if (mermaidCode !== null) {
+	              return <MermaidDiagram chart={mermaidCode} />;
+	            }
+	            return <pre {...props}>{children}</pre>;
+	          },
+	          img: ({ src, alt, ...props }) => (
+	            <MarkdownImage
+	              src={typeof src === "string" ? src : undefined}
               alt={alt ?? ""}
               markdownPath={path}
               workspaceRoot={workspaceRoot}
@@ -736,6 +789,64 @@ function MarkdownPreview({
         {content}
       </ReactMarkdown>
     </article>
+	  );
+	}
+
+function MermaidDiagram({ chart }: { chart: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const baseId = useId().replace(/[^A-Za-z0-9_-]/g, "");
+  const [rendering, setRendering] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+    let cancelled = false;
+    const renderId = `onibi-mermaid-${baseId}-${++mermaidRenderSequence}`;
+    container.innerHTML = "";
+    setRendering(true);
+    setError(null);
+    ensureMermaidInitialized();
+    void mermaid
+      .render(renderId, chart)
+      .then(({ svg, bindFunctions }) => {
+        if (cancelled) {
+          return;
+        }
+        container.innerHTML = svg;
+        bindFunctions?.(container);
+        setRendering(false);
+      })
+      .catch((caught) => {
+        if (cancelled) {
+          return;
+        }
+        container.innerHTML = "";
+        setError(caught instanceof Error ? caught.message : String(caught));
+        setRendering(false);
+      });
+    return () => {
+      cancelled = true;
+      container.innerHTML = "";
+    };
+  }, [baseId, chart]);
+
+  return (
+    <div className="mermaid-diagram" aria-label="Mermaid diagram">
+      {rendering ? <div className="mermaid-status">Rendering diagram</div> : null}
+      <div ref={containerRef} className="mermaid-diagram-render" />
+      {error ? (
+        <div className="mermaid-error">
+          <strong>Mermaid render failed</strong>
+          <span>{error}</span>
+          <pre>
+            <code>{chart}</code>
+          </pre>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { cloneGitRepository } from "../lib/git";
 import { useSessionStore, workspaceIdForPath } from "../lib/sessions";
@@ -167,7 +168,7 @@ function CloneRepositoryDialog({
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation">
       <section
         className="modal-panel clone-dialog"
@@ -265,6 +266,7 @@ function CloneRepositoryDialog({
           </footer>
         </form>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

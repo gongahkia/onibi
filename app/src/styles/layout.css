@@ -2753,7 +2753,7 @@ button.status-bar-item:hover {
 }
 
 .clone-dialog {
-  width: min(760px, calc(100vw - 32px));
+  width: min(680px, 100%);
 }
 
 .clone-source-button {
@@ -2932,6 +2932,47 @@ button.status-bar-item:hover {
   border-left: 3px solid var(--accent-2);
 }
 
+.mermaid-diagram {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 1em;
+  min-width: 0;
+  padding: 12px;
+  overflow: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid #4ec9b0;
+}
+
+.mermaid-diagram-render {
+  min-width: 0;
+  overflow: auto;
+}
+
+.mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.mermaid-status {
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.mermaid-error {
+  display: grid;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.mermaid-error pre {
+  margin: 0;
+  color: var(--fg-0);
+}
+
 .markdown-preview a {
   color: var(--accent-2);
   text-decoration-thickness: 1px;
@@ -3107,8 +3148,10 @@ button.status-bar-item:hover {
   inset: 0;
   display: grid;
   place-items: center;
+  padding: 16px;
+  overflow: auto;
   background: rgba(4, 8, 10, 0.64);
-  z-index: 10;
+  z-index: 60;
 }
 
 .command-palette-backdrop {
@@ -3119,7 +3162,7 @@ button.status-bar-item:hover {
   justify-items: center;
   padding: min(8vh, 72px) 20px 20px;
   background: transparent;
-  z-index: 20;
+  z-index: 70;
 }
 
 .command-palette {
@@ -3256,8 +3299,9 @@ button.status-bar-item:hover {
 }
 
 .modal-panel {
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(720px, 100%);
+  max-height: calc(100dvh - 32px);
+  min-width: 0;
   overflow: auto;
   background: var(--bg-1);
   color: var(--fg-0);
@@ -3287,7 +3331,7 @@ button.status-bar-item:hover {
 }
 
 .navigator-modal {
-  z-index: 22;
+  z-index: 72;
 }
 
 .navigator-modal .modal-panel {
@@ -3443,6 +3487,11 @@ button.status-bar-item:hover {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+}
+
+.workspace-picker-row > .settings-input {
+  min-width: 0;
 }
 
 .field-label {
