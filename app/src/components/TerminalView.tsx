@@ -413,6 +413,7 @@ export function TerminalView({
       fontSize,
       letterSpacing: 0,
       lineHeight: 1,
+      rightClickSelectsWord: true,
       scrollback: resolvedScrollback,
       theme: terminalTheme,
     });
@@ -456,6 +457,19 @@ export function TerminalView({
     const resizeObserver = new ResizeObserver(fit);
     resizeObserver.observe(container);
 
+    let selectionCopyFrame = 0;
+    const copyTerminalSelection = () => {
+      const selection = term.getSelection();
+      if (selection) {
+        void navigator.clipboard?.writeText(selection);
+      }
+    };
+    const handleDoubleClick = () => {
+      cancelAnimationFrame(selectionCopyFrame);
+      selectionCopyFrame = requestAnimationFrame(copyTerminalSelection);
+    };
+    container.addEventListener("dblclick", handleDoubleClick);
+
     const encoder = new TextEncoder();
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
@@ -472,10 +486,7 @@ export function TerminalView({
       }
       event.preventDefault();
       if (action === "copy") {
-        const selection = term.getSelection();
-        if (selection) {
-          void navigator.clipboard?.writeText(selection);
-        }
+        copyTerminalSelection();
       } else if (action === "paste") {
         void navigator.clipboard?.readText?.().then((text) => {
           if (text) {
@@ -708,8 +719,10 @@ export function TerminalView({
       clearReplayFallbackTimer();
       cancelScheduledLayout();
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(selectionCopyFrame);
       unlisten?.();
       resizeObserver.disconnect();
+      container.removeEventListener("dblclick", handleDoubleClick);
       window.removeEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
       inputDisposable.dispose();
       webLinksAddon.dispose();

@@ -5,10 +5,12 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   AGENT_KINDS,
   AGENT_LABELS,
+  APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   type AppSettings,
@@ -153,12 +155,16 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceNavigatorOpen, setWorkspaceNavigatorOpen] = useState(false);
+  const [sessionNavigatorOpen, setSessionNavigatorOpen] = useState(false);
+  const [keybindHelpOpen, setKeybindHelpOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const activeTerminalPaneId = useSessionStore((state) => state.activeTerminalPaneId);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
   const arrangements = useSessionStore((state) => state.arrangements);
   const selectedFile = useSessionStore((state) => state.selectedFile);
   const closedBufferStack = useSessionStore((state) => state.closedBufferStack);
@@ -171,6 +177,7 @@ export function CommandPalette() {
   const clearSessionAttention = useSessionStore((state) => state.clearSessionAttention);
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
+  const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const focusRelativeAttentionSession = useSessionStore(
     (state) => state.focusRelativeAttentionSession,
@@ -250,6 +257,12 @@ export function CommandPalette() {
           setOpen(true);
         } else if (action === "session.new") {
           setNewSessionOpen(true);
+        } else if (action === "session.navigator.open") {
+          setSessionNavigatorOpen(true);
+        } else if (action === "workspace.navigator.open") {
+          setWorkspaceNavigatorOpen(true);
+        } else if (action === "keybindings.help.open") {
+          setKeybindHelpOpen(true);
         } else if (action === "editor.reopenClosed") {
           reopenClosedBuffer();
         } else if (action === "terminal.splitRight") {
@@ -398,6 +411,33 @@ export function CommandPalette() {
         description: "Choose an agent, workspace, prompt, or split",
         keywords: ["quick", "launcher", "agent", "worktree", "arrangement"],
         run: () => setNewSessionOpen(true),
+      },
+      {
+        id: "workspace.navigator",
+        label: "Open Workspace Navigator",
+        group: "Workspace",
+        description: `${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`,
+        shortcut: appShortcut(settings, "workspace.navigator.open", "Prefix+W"),
+        keywords: ["switcher", "project", "workspace"],
+        run: () => setWorkspaceNavigatorOpen(true),
+      },
+      {
+        id: "session.navigator",
+        label: "Open Session Navigator",
+        group: "Session",
+        description: `${sessions.length} session${sessions.length === 1 ? "" : "s"}`,
+        shortcut: appShortcut(settings, "session.navigator.open", "Prefix+G"),
+        keywords: ["switcher", "terminal", "agent"],
+        run: () => setSessionNavigatorOpen(true),
+      },
+      {
+        id: "keybindings.help",
+        label: "Open Keybinding Help",
+        group: "Settings",
+        description: "Show configured app, terminal, and custom command bindings",
+        shortcut: appShortcut(settings, "keybindings.help.open", "Prefix+?"),
+        keywords: ["shortcuts", "keyboard", "keys"],
+        run: () => setKeybindHelpOpen(true),
       },
       {
         id: "settings.open",
@@ -987,6 +1027,279 @@ export function CommandPalette() {
         onClose={() => setNewSessionOpen(false)}
       />
       <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {workspaceNavigatorOpen ? (
+        <WorkspaceNavigatorModal
+          workspaces={workspaces}
+          sessions={sessions}
+          activeWorkspaceId={activeWorkspaceId}
+          onClose={() => setWorkspaceNavigatorOpen(false)}
+          onFocus={(workspaceId) => {
+            setActiveWorkspace(workspaceId);
+            setWorkspaceNavigatorOpen(false);
+            focusActiveTerminal();
+          }}
+        />
+      ) : null}
+      {sessionNavigatorOpen ? (
+        <SessionNavigatorModal
+          sessions={sessions}
+          workspaces={workspaces}
+          activeSessionId={activeSessionId}
+          onClose={() => setSessionNavigatorOpen(false)}
+          onFocus={(sessionId) => {
+            setActiveSession(sessionId);
+            setSessionNavigatorOpen(false);
+            focusActiveTerminal();
+          }}
+        />
+      ) : null}
+      {keybindHelpOpen ? (
+        <KeybindingHelpModal
+          settings={settings}
+          onClose={() => setKeybindHelpOpen(false)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function ModalShell({
+  label,
+  title,
+  children,
+  onClose,
+}: {
+  label: string;
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop navigator-modal"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">{title}</h2>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Close ${label}`}
+            onClick={onClose}
+          >
+            <i className="codicon codicon-close" aria-hidden="true" />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function WorkspaceNavigatorModal({
+  workspaces,
+  sessions,
+  activeWorkspaceId,
+  onClose,
+  onFocus,
+}: {
+  workspaces: Workspace[];
+  sessions: Session[];
+  activeWorkspaceId: string | null;
+  onClose: () => void;
+  onFocus: (workspaceId: string) => void;
+}) {
+  return (
+    <ModalShell label="Workspace navigator" title="Workspace Navigator" onClose={onClose}>
+      <div className="modal-body navigator-list">
+        {workspaces.length === 0 ? (
+          <div className="navigator-empty">No workspaces</div>
+        ) : (
+          workspaces.map((workspace) => {
+            const workspaceSessions = sessions.filter(
+              (session) => session.workspaceId === workspace.id,
+            );
+            const attentionCount = workspaceSessions.filter(sessionNeedsAttention).length;
+            const active = workspace.id === activeWorkspaceId;
+            return (
+              <button
+                key={workspace.id}
+                type="button"
+                className={`navigator-row ${active ? "active" : ""}`}
+                onClick={() => onFocus(workspace.id)}
+              >
+                <span className="navigator-row-main">
+                  <strong>{workspace.name}</strong>
+                  <span>{workspace.path}</span>
+                </span>
+                <span className="navigator-row-meta">
+                  {active ? <span className="navigator-pill">active</span> : null}
+                  <span>{workspaceSessions.length} sessions</span>
+                  {attentionCount > 0 ? (
+                    <span className="navigator-pill attention">{attentionCount}</span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+function sessionStatusLabel(session: Session): string {
+  if (session.status === "awaiting-approval") {
+    return "needs approval";
+  }
+  return session.status.replace(/-/g, " ");
+}
+
+function SessionNavigatorModal({
+  sessions,
+  workspaces,
+  activeSessionId,
+  onClose,
+  onFocus,
+}: {
+  sessions: Session[];
+  workspaces: Workspace[];
+  activeSessionId: string | null;
+  onClose: () => void;
+  onFocus: (sessionId: string) => void;
+}) {
+  return (
+    <ModalShell label="Session navigator" title="Session Navigator" onClose={onClose}>
+      <div className="modal-body navigator-list">
+        {sessions.length === 0 ? (
+          <div className="navigator-empty">No sessions</div>
+        ) : (
+          sessions.map((session) => {
+            const workspace =
+              workspaces.find((item) => item.id === session.workspaceId)?.name ??
+              "Workspace";
+            const active = session.id === activeSessionId;
+            return (
+              <button
+                key={session.id}
+                type="button"
+                className={`navigator-row ${active ? "active" : ""}`}
+                onClick={() => onFocus(session.id)}
+              >
+                <span className="navigator-row-main">
+                  <strong>{session.title || AGENT_LABELS[session.agent]}</strong>
+                  <span>
+                    {AGENT_LABELS[session.agent]} · {workspace}
+                  </span>
+                </span>
+                <span className="navigator-row-meta">
+                  {active ? <span className="navigator-pill">active</span> : null}
+                  <span>{sessionStatusLabel(session)}</span>
+                  {sessionNeedsAttention(session) ? (
+                    <span className="navigator-pill attention">attention</span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+function KeybindingHelpModal({
+  settings,
+  onClose,
+}: {
+  settings: AppSettings;
+  onClose: () => void;
+}) {
+  const appBindings = settings.appKeybindings.filter((binding) =>
+    normalizeAppKeyChord(binding.keys),
+  );
+  const terminalBindings = settings.terminalKeybindings.filter((binding) =>
+    normalizeAppKeyChord(binding.keys),
+  );
+  const commandBindings = settings.customCommandKeybindings.filter(
+    (binding) => normalizeAppKeyChord(binding.keys) && binding.command.trim(),
+  );
+
+  return (
+    <ModalShell label="Keybinding help" title="Keybinding Help" onClose={onClose}>
+      <div className="modal-body keybinding-help">
+        <KeybindingHelpSection
+          title="App"
+          rows={appBindings.map((binding) => ({
+            id: `${binding.action}:${binding.keys}`,
+            keys: binding.keys,
+            label: APP_KEYBINDING_ACTION_LABELS[binding.action],
+          }))}
+        />
+        <KeybindingHelpSection
+          title="Terminal"
+          rows={terminalBindings.map((binding) => ({
+            id: `${binding.action}:${binding.keys}`,
+            keys: binding.keys,
+            label: binding.action,
+          }))}
+          empty="No terminal keybindings configured."
+        />
+        <KeybindingHelpSection
+          title="Custom Commands"
+          rows={commandBindings.map((binding) => ({
+            id: `${binding.command}:${binding.keys}`,
+            keys: binding.keys,
+            label: binding.description || binding.command,
+          }))}
+          empty="No custom command keybindings configured."
+        />
+      </div>
+    </ModalShell>
+  );
+}
+
+function KeybindingHelpSection({
+  title,
+  rows,
+  empty = "No keybindings configured.",
+}: {
+  title: string;
+  rows: Array<{ id: string; keys: string; label: string }>;
+  empty?: string;
+}) {
+  return (
+    <section className="keybinding-help-section" aria-label={`${title} keybindings`}>
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <div className="settings-note">{empty}</div>
+      ) : (
+        <div className="keybinding-help-list">
+          {rows.map((row) => (
+            <div className="keybinding-help-row" key={row.id}>
+              <span>{row.label}</span>
+              <kbd>{displayKeyChord(row.keys)}</kbd>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

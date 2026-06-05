@@ -202,14 +202,17 @@ export type BaseAppKeybindingAction =
   | "commandPalette.open"
   | "session.new"
   | "session.closeActive"
+  | "session.navigator.open"
   | "editor.reopenClosed"
   | "terminal.splitRight"
   | "terminal.splitDown"
   | "terminal.focusNextPane"
   | "terminal.focusPreviousPane"
   | "terminal.toggleMaximize"
+  | "keybindings.help.open"
   | "workspace.next"
   | "workspace.previous"
+  | "workspace.navigator.open"
   | "workspace.tab.next"
   | "workspace.tab.previous";
 
@@ -454,6 +457,7 @@ export type ThemeMode =
   | "shades-of-purple"
   | "synthwave-84"
   | "solarized-dark"
+  | "terminal"
   | "onibi-flame"
   | "custom";
 export type TabBarOrientation = "vertical" | "horizontal";
@@ -866,6 +870,28 @@ const COLOR_SCHEME_CSS_VARIABLES: Record<ColorSchemeColorKey, string> = {
 };
 
 export const BUILT_IN_COLOR_SCHEMES: ColorScheme[] = [
+  {
+    id: "terminal",
+    label: "Terminal",
+    colors: {
+      bg0: "#1e1e1e",
+      bg1: "#252526",
+      bg2: "#2d2d30",
+      bg3: "#3c3c3c",
+      fg0: "#d4d4d4",
+      fg1: "#969696",
+      fg2: "#6e6e6e",
+      accent: "#007acc",
+      accent2: "#0098ff",
+      danger: "#f48771",
+      flash: "#cca700",
+      border: "#3e3e42",
+      terminalBackground: "#1e1e1e",
+      terminalForeground: "#d4d4d4",
+      terminalCursor: "#aeafad",
+      terminalSelection: "#264f78",
+    },
+  },
   {
     id: "vscode-dark-plus",
     label: "VSCode Dark+",
@@ -1444,14 +1470,17 @@ const BASE_APP_KEYBINDING_ACTION_LABELS: Record<BaseAppKeybindingAction, string>
   "commandPalette.open": "Open command palette",
   "session.new": "New session",
   "session.closeActive": "Close active session",
+  "session.navigator.open": "Open session navigator",
   "editor.reopenClosed": "Reopen closed editor",
   "terminal.splitRight": "Split terminal right",
   "terminal.splitDown": "Split terminal down",
   "terminal.focusNextPane": "Focus next terminal pane",
   "terminal.focusPreviousPane": "Focus previous terminal pane",
   "terminal.toggleMaximize": "Maximize or restore terminal pane",
+  "keybindings.help.open": "Open keybinding help",
   "workspace.next": "Focus next workspace",
   "workspace.previous": "Focus previous workspace",
+  "workspace.navigator.open": "Open workspace navigator",
   "workspace.tab.next": "Focus next workspace terminal tab",
   "workspace.tab.previous": "Focus previous workspace terminal tab",
 };
@@ -1498,7 +1527,10 @@ export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
   { keys: "prefix+z", action: "terminal.toggleMaximize" },
   { keys: "prefix+n", action: "terminal.focusNextPane" },
   { keys: "prefix+p", action: "terminal.focusPreviousPane" },
-  { keys: "prefix+w", action: "session.closeActive" },
+  { keys: "prefix+x", action: "session.closeActive" },
+  { keys: "prefix+w", action: "workspace.navigator.open" },
+  { keys: "prefix+g", action: "session.navigator.open" },
+  { keys: "prefix+?", action: "keybindings.help.open" },
   { keys: "prefix+right", action: "workspace.next" },
   { keys: "prefix+left", action: "workspace.previous" },
   { keys: "prefix+shift+right", action: "workspace.tab.next" },
@@ -7014,7 +7046,32 @@ export function resolveColorScheme(settings: AppSettings): ResolvedColorScheme {
 function colorsForSettings(settings: AppSettings): ColorSchemeColors {
   const scheme = resolveColorScheme(settings);
   const colors = { ...scheme.colors };
-  if (scheme.id === "github-dark") {
+  if (scheme.id === "terminal") {
+    const importedColors = settings.customColorScheme?.colors;
+    if (importedColors) {
+      colors.bg0 = importedColors.terminalBackground;
+      colors.bg3 = importedColors.terminalSelection;
+      colors.fg0 = importedColors.terminalForeground;
+      colors.accent = importedColors.terminalCursor;
+      colors.terminalBackground = importedColors.terminalBackground;
+      colors.terminalForeground = importedColors.terminalForeground;
+      colors.terminalCursor = importedColors.terminalCursor;
+      colors.terminalSelection = importedColors.terminalSelection;
+    }
+    if (settings.ghosttyTheme?.background) {
+      colors.bg0 = settings.ghosttyTheme.background;
+      colors.terminalBackground = settings.ghosttyTheme.background;
+    }
+    if (settings.ghosttyTheme?.foreground) {
+      colors.fg0 = settings.ghosttyTheme.foreground;
+      colors.terminalForeground = settings.ghosttyTheme.foreground;
+      colors.terminalCursor = settings.ghosttyTheme.foreground;
+    }
+    if (settings.ghosttyTheme?.palette[4]) {
+      colors.accent = settings.ghosttyTheme.palette[4];
+      colors.terminalSelection = settings.ghosttyTheme.palette[4];
+    }
+  } else if (scheme.id === "github-dark") {
     if (settings.ghosttyTheme?.background) {
       colors.bg0 = settings.ghosttyTheme.background;
       colors.terminalBackground = settings.ghosttyTheme.background;

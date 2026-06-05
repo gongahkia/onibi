@@ -1,6 +1,7 @@
 import { load } from "@tauri-apps/plugin-store";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+  COLOR_SCHEME_OPTIONS,
   DEFAULT_SETTINGS,
   appKeybindingConflicts,
   hydrateSessionStore,
@@ -8,6 +9,7 @@ import {
   parseOnibiConfigToml,
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
+  terminalThemeForSettings,
   type TerminalPaneNode,
   useSessionStore,
 } from "./sessions";
@@ -448,6 +450,47 @@ command = "pnpm test"
     expect(serialized).toContain("[[keybindings.command]]");
     expect(serialized).toContain('description = "Run tests"');
     expect(serialized).toContain('command = "pnpm test"');
+  });
+
+  test("supports terminal theme mode in options and TOML", async () => {
+    expect(COLOR_SCHEME_OPTIONS).toContainEqual({
+      id: "terminal",
+      label: "Terminal",
+    });
+
+    const parsed = parseOnibiConfigToml(`
+version = 1
+
+[settings]
+theme = "terminal"
+`);
+    expect(parsed.settings.theme).toBe("terminal");
+
+    const serialized = serializeOnibiConfigToml({
+      version: 1,
+      settings: parsed.settings,
+      workspaces: [],
+    });
+    expect(serialized).toContain('theme = "terminal"');
+  });
+
+  test("terminal theme uses imported terminal colors when available", async () => {
+    const theme = terminalThemeForSettings({
+      ...DEFAULT_SETTINGS,
+      theme: "terminal",
+      ghosttyTheme: {
+        background: "#101010",
+        foreground: "#eeeeee",
+        palette: { 4: "#335577" },
+      },
+    });
+
+    expect(theme).toMatchObject({
+      background: "#101010",
+      foreground: "#eeeeee",
+      cursor: "#eeeeee",
+      selectionBackground: "#335577",
+    });
   });
 
   test("reports conflicts between app and custom command keybindings", async () => {

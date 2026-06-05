@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TerminalView } from "./TerminalView";
 import { DEFAULT_SETTINGS } from "../lib/sessions";
@@ -65,6 +65,7 @@ function createTerminalMock() {
     clear: vi.fn(),
     selectAll: vi.fn(),
     getSelection: vi.fn(() => ""),
+    clearSelection: vi.fn(),
     clearTextureAtlas: vi.fn(),
     dispose: vi.fn(),
     options: {},
@@ -84,6 +85,7 @@ describe("TerminalView", () => {
     globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
       globalThis.__TAURI_MOCKS__.unlisten,
     );
+    vi.mocked(navigator.clipboard.writeText).mockClear();
   });
 
   test("enables xterm proposed APIs for the unicode addon", async () => {
@@ -94,7 +96,65 @@ describe("TerminalView", () => {
     await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
     expect(terminalConstructor.mock.calls[0][0]).toMatchObject({
       allowProposedApi: true,
+      rightClickSelectsWord: true,
     });
+  });
+
+  test("copies the current selection from terminal keybindings", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalKeybindings: [{ keys: "cmd+c", action: "copy" as const }],
+    };
+    render(<TerminalView ptyId="pty-1" settings={settings} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    term.getSelection.mockReturnValue("selected text");
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    const event = new KeyboardEvent("keydown", { key: "c", metaKey: true });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+
+    expect(handler(event)).toBe(false);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("selected text");
+  });
+
+  test("does not write clipboard text for empty terminal selections", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalKeybindings: [{ keys: "cmd+c", action: "copy" as const }],
+    };
+    render(<TerminalView ptyId="pty-1" settings={settings} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    term.getSelection.mockReturnValue("");
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+
+    handler(new KeyboardEvent("keydown", { key: "c", metaKey: true }));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  test("copies the xterm word selection after double click", async () => {
+    const { getByTestId } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    term.getSelection.mockReturnValue("word");
+    fireEvent.doubleClick(getByTestId("terminal-view"));
+
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("word"),
+    );
   });
 
   test("replays buffered pty output after the event listener attaches", async () => {

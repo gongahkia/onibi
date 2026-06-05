@@ -340,9 +340,24 @@ function TerminalPaneTree({
   );
   const moveTerminalPane = useSessionStore((state) => state.moveTerminalPane);
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const [paneDropPosition, setPaneDropPosition] = useState<"before" | "after" | null>(
     null,
   );
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [contextMenu]);
   if (node.type === "split") {
     const sizes =
       node.sizes && node.sizes.length === node.children.length ? node.sizes : undefined;
@@ -425,6 +440,11 @@ function TerminalPaneTree({
       className={`terminal-pane ${active ? "active" : ""} ${needsAttention ? "attention" : ""} ${paneDropPosition ? `drop-${paneDropPosition}` : ""}`}
       data-attention={attentionState}
       onPointerDown={() => setActiveTerminalPane(node.paneId)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setActiveTerminalPane(node.paneId);
+        setContextMenu({ x: event.clientX, y: event.clientY });
+      }}
       onDragOver={(event) => {
         if (dragPaneId(event) && dragPaneId(event) !== node.paneId) {
           event.preventDefault();
@@ -448,6 +468,12 @@ function TerminalPaneTree({
       }}
     >
       <div className="terminal-pane-toolbar">
+        <span
+          className="terminal-pane-agent-label"
+          title={`${AGENT_LABELS[session.agent]} · ${session.title}`}
+        >
+          {AGENT_LABELS[session.agent]}
+        </span>
         <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
           <i className="codicon codicon-folder" aria-hidden="true" />
           <span className="terminal-pane-cwd-text">{session.cwd ?? session.title}</span>
@@ -615,6 +641,27 @@ function TerminalPaneTree({
           </button>
         </div>
       </div>
+      {contextMenu ? (
+        <TerminalPaneContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          paneId={node.paneId}
+          session={session}
+          workspace={workspace}
+          canRestart={canRestart}
+          canMaximize={canMaximize}
+          isMaximized={maximizedPaneId === node.paneId}
+          canHandoff={canHandoff}
+          onClose={() => setContextMenu(null)}
+          onFocus={() => setActiveTerminalPane(node.paneId)}
+          onToggleMaximize={() => onToggleMaximize(node.paneId)}
+          onRestart={() => onRestart(session)}
+          onDuplicate={() => onDuplicate(session, node.paneId)}
+          onAddTab={() => onAddTab(node.paneId)}
+          onHandoff={() => setHandoffOpen(true)}
+          onCloseSession={() => onClose(session)}
+        />
+      ) : null}
       <TerminalTabStrip
         leaf={node}
         sessions={leafSessions}
