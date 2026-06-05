@@ -24,6 +24,7 @@ import {
   type AppSettings,
   type SessionCommandMarker,
   type SessionPreview,
+  type RemoteKeybindingPolicy,
   type TerminalCopyFormat,
   type TerminalInlineImageMode,
   type TerminalKeybindingAction,
@@ -68,6 +69,8 @@ export interface TerminalViewProps {
   onShellUpdate?: (update: TerminalShellUpdate) => void;
   onTrigger?: (match: TerminalTriggerMatch) => void;
   onUnavailable?: (error: unknown) => void;
+  remoteKeybindingPolicy?: RemoteKeybindingPolicy;
+  initialTranscript?: string | null;
 }
 
 const TERMINAL_SYMBOL_FONT_FALLBACKS = [
@@ -618,6 +621,8 @@ export function TerminalView({
   onShellUpdate,
   onTrigger,
   onUnavailable,
+  remoteKeybindingPolicy = "local",
+  initialTranscript = null,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -631,6 +636,10 @@ export function TerminalView({
   const visibleRef = useRef(visible);
   const layoutFramesRef = useRef<number[]>([]);
   const keybindingsRef = useRef<Map<string, TerminalKeybindingAction>>(new Map());
+  const remoteKeybindingPolicyRef = useRef<RemoteKeybindingPolicy>(
+    remoteKeybindingPolicy,
+  );
+  const initialTranscriptRef = useRef(initialTranscript);
   const copyModeRef = useRef<CopyModeState | null>(null);
   const onShellUpdateRef = useRef(onShellUpdate);
   const onTriggerRef = useRef(onTrigger);
@@ -706,6 +715,10 @@ export function TerminalView({
   useEffect(() => {
     keybindingsRef.current = terminalKeybindingMap(settings);
   }, [settings]);
+
+  useEffect(() => {
+    remoteKeybindingPolicyRef.current = remoteKeybindingPolicy;
+  }, [remoteKeybindingPolicy]);
 
   useEffect(() => {
     onShellUpdateRef.current = onShellUpdate;
@@ -1038,6 +1051,9 @@ export function TerminalView({
         handleCopyModeKey(event);
         return false;
       }
+      if (remoteKeybindingPolicyRef.current === "remote") {
+        return true;
+      }
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         openSearch();
@@ -1333,6 +1349,9 @@ export function TerminalView({
             endOffset: replay.endOffset,
             encodedBytes: replay.data.length,
           });
+        } else if (initialTranscriptRef.current) {
+          const restored = initialTranscriptRef.current.replace(/\r?\n/g, "\r\n");
+          term.write(`[onibi: restored pane history]\r\n${restored}`);
         }
         replayReady = true;
         flushQueuedEvents();
@@ -1489,6 +1508,7 @@ export function TerminalView({
         ref={containerRef}
         className="terminal-view"
         data-testid="terminal-view"
+        data-remote-keybindings={remoteKeybindingPolicy}
         data-visible={visible ? "true" : "false"}
         style={
           {

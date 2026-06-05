@@ -211,6 +211,8 @@ pub struct DesktopSessionSnapshot {
     pub command_block_count: Option<usize>,
     #[serde(default, rename = "lastCommandBlockId")]
     pub last_command_block_id: Option<String>,
+    #[serde(default)]
+    pub remote: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -236,6 +238,20 @@ pub struct DesktopSessionLaunchBody {
     pub prompt: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopRemoteSshBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub target: String,
+    pub workspace: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub keybindings: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

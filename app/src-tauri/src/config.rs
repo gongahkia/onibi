@@ -45,6 +45,9 @@ pub struct TerminalConfig {
     pub font_family: String,
     pub font_size: u16,
     pub scrollback_lines: u32,
+    pub pane_history_enabled: bool,
+    pub remote_keybinding_policy: String,
+    pub remote_ssh_command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +148,9 @@ impl Default for TerminalConfig {
             font_family: "Menlo, Monaco, monospace".to_string(),
             font_size: 13,
             scrollback_lines: 0,
+            pane_history_enabled: false,
+            remote_keybinding_policy: "local".to_string(),
+            remote_ssh_command: "ssh".to_string(),
         }
     }
 }

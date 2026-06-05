@@ -20,6 +20,7 @@ import {
   type EditorKeybindingMode,
   type NewPaneCwdMode,
   type NotificationDelivery,
+  type RemoteKeybindingPolicy,
   type TabBarOrientation,
   type TabBarPosition,
   type TerminalConfigCandidate,
@@ -310,6 +311,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 settings.suppressForegroundTabNotifications
               }
               terminalShellMode={settings.terminalShellMode}
+              paneHistoryEnabled={settings.paneHistoryEnabled}
+              remoteKeybindingPolicy={settings.remoteKeybindingPolicy}
+              remoteSshCommand={settings.remoteSshCommand}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
               editorKeybindingMode={settings.editorKeybindingMode}
@@ -375,6 +379,15 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               ) => updateSettings({ suppressForegroundTabNotifications })}
               onTerminalShellMode={(terminalShellMode) =>
                 updateSettings({ terminalShellMode })
+              }
+              onPaneHistoryEnabled={(paneHistoryEnabled) =>
+                updateSettings({ paneHistoryEnabled })
+              }
+              onRemoteKeybindingPolicy={(remoteKeybindingPolicy) =>
+                updateSettings({ remoteKeybindingPolicy })
+              }
+              onRemoteSshCommand={(remoteSshCommand) =>
+                updateSettings({ remoteSshCommand })
               }
               onNewPaneCwd={(newPaneCwd) => updateSettings({ newPaneCwd })}
               onEditorFontSize={(editorFontSize) => updateSettings({ editorFontSize })}
@@ -614,6 +627,9 @@ interface GeneralSettingsProps {
   soundAgents: Partial<Record<AgentKind, boolean>>;
   suppressForegroundTabNotifications: boolean;
   terminalShellMode: TerminalShellMode;
+  paneHistoryEnabled: boolean;
+  remoteKeybindingPolicy: RemoteKeybindingPolicy;
+  remoteSshCommand: string;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
   editorKeybindingMode: EditorKeybindingMode;
@@ -646,6 +662,9 @@ interface GeneralSettingsProps {
   onSoundAgents: (agents: Partial<Record<AgentKind, boolean>>) => void;
   onSuppressForegroundTabNotifications: (enabled: boolean) => void;
   onTerminalShellMode: (mode: TerminalShellMode) => void;
+  onPaneHistoryEnabled: (enabled: boolean) => void;
+  onRemoteKeybindingPolicy: (policy: RemoteKeybindingPolicy) => void;
+  onRemoteSshCommand: (command: string) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
   onEditorKeybindingMode: (mode: EditorKeybindingMode) => void;
@@ -683,6 +702,9 @@ function GeneralSettings({
   soundAgents,
   suppressForegroundTabNotifications,
   terminalShellMode,
+  paneHistoryEnabled,
+  remoteKeybindingPolicy,
+  remoteSshCommand,
   newPaneCwd,
   editorFontSize,
   editorKeybindingMode,
@@ -715,6 +737,9 @@ function GeneralSettings({
   onSoundAgents,
   onSuppressForegroundTabNotifications,
   onTerminalShellMode,
+  onPaneHistoryEnabled,
+  onRemoteKeybindingPolicy,
+  onRemoteSshCommand,
   onNewPaneCwd,
   onEditorFontSize,
   onEditorKeybindingMode,
@@ -1001,6 +1026,41 @@ function GeneralSettings({
           <option value="login">Login shell</option>
           <option value="non_login">Non-login shell</option>
         </select>
+      </label>
+      <label className="settings-row">
+        <span>Pane history</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Preserve pane history across restarts"
+            checked={paneHistoryEnabled}
+            onChange={(event) => onPaneHistoryEnabled(event.target.checked)}
+          />
+          Preserve pane history across restarts
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Remote keybindings</span>
+        <select
+          className="settings-select"
+          aria-label="Remote keybindings policy"
+          value={remoteKeybindingPolicy}
+          onChange={(event) =>
+            onRemoteKeybindingPolicy(event.target.value as RemoteKeybindingPolicy)
+          }
+        >
+          <option value="local">Onibi handles terminal shortcuts</option>
+          <option value="remote">Remote terminal receives shortcuts</option>
+        </select>
+      </label>
+      <label className="settings-row">
+        <span>SSH command</span>
+        <input
+          className="settings-input"
+          aria-label="Remote SSH command"
+          value={remoteSshCommand}
+          onChange={(event) => onRemoteSshCommand(event.target.value)}
+        />
       </label>
       <NewPaneCwdControl value={newPaneCwd} onChange={onNewPaneCwd} />
       <FontFamilyControl

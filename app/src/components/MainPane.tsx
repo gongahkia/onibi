@@ -488,9 +488,16 @@ function TerminalPaneTree({
             {agentDisplayLabel(session.agent, settings)}
           </span>
         ) : null}
-        <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
+        <span
+          className="terminal-pane-cwd"
+          title={session.remote?.target ?? session.cwd ?? session.title}
+        >
           <i className="codicon codicon-folder" aria-hidden="true" />
-          <span className="terminal-pane-cwd-text">{session.cwd ?? session.title}</span>
+          <span className="terminal-pane-cwd-text">
+            {session.remote
+              ? `ssh://${session.remote.target}${session.remote.remoteCwd ? ` ${session.remote.remoteCwd}` : ""}`
+              : session.cwd ?? session.title}
+          </span>
           {session.lastExitCode !== null && session.lastExitCode !== undefined ? (
             <span
               className={`terminal-pane-exit ${session.lastExitCode === 0 ? "ok" : "bad"}`}
@@ -705,6 +712,12 @@ function TerminalPaneTree({
                 fontSize={settings.terminalFontSize}
                 settings={settings}
                 visible={terminalVisible && active && tabSession.id === node.sessionId}
+                remoteKeybindingPolicy={
+                  tabSession.remote?.keybindingPolicy ?? settings.remoteKeybindingPolicy
+                }
+                initialTranscript={
+                  settings.paneHistoryEnabled ? tabSession.transcript?.text ?? null : null
+                }
                 onExit={() => onTerminalExit(tabSession)}
                 onOpenLink={(url) =>
                   useSessionStore.getState().openWebUrl(url, tabSession.id)

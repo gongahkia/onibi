@@ -6,11 +6,13 @@ import {
   DEFAULT_SETTINGS,
   agentDisplayLabel,
   appKeybindingConflicts,
+  buildRemoteSshLaunchSpec,
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
   launchCommandForAgent,
   normalizeNewPaneCwdMode,
   normalizeTerminalShellMode,
+  parseSshRemoteTarget,
   parseOnibiConfigToml,
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
@@ -357,6 +359,55 @@ describe("session hydration", () => {
     expect(normalizeTerminalShellMode("login")).toBe("login");
     expect(normalizeTerminalShellMode("non_login")).toBe("non_login");
     expect(normalizeTerminalShellMode("interactive")).toBe("auto");
+  });
+
+  test("parses ssh remote targets and builds launch specs", async () => {
+    const parsed = parseSshRemoteTarget("ssh://alice@example.com:2222/srv/app");
+    expect(parsed).toMatchObject({
+      target: "ssh://alice@example.com:2222/srv/app",
+      sshTarget: "alice@example.com",
+      user: "alice",
+      host: "example.com",
+      port: 2222,
+      remoteCwd: "/srv/app",
+    });
+
+    const workspace = {
+      id: "workspace:/repo",
+      path: "/repo",
+      name: "repo",
+    };
+    const spec = buildRemoteSshLaunchSpec(workspace, {
+      target: "alice@example.com:2222",
+      remoteCwd: "/srv/app",
+      title: "Prod",
+      keybindingPolicy: "remote",
+      sshCommand: "/usr/bin/ssh",
+    });
+
+    expect(spec).toMatchObject({
+      agent: "shell",
+      workspaceId: workspace.id,
+      title: "Prod",
+      command: "/usr/bin/ssh",
+      cwd: "/repo",
+      args: [
+        "-p",
+        "2222",
+        "-t",
+        "alice@example.com",
+        "cd '/srv/app' && exec \"${SHELL:-sh}\" -l",
+      ],
+      remote: {
+        kind: "ssh",
+        target: "alice@example.com:2222",
+        user: "alice",
+        host: "example.com",
+        port: 2222,
+        remoteCwd: "/srv/app",
+        keybindingPolicy: "remote",
+      },
+    });
   });
 
   test("uses quiet notification defaults", async () => {
@@ -838,6 +889,9 @@ terminal_copy_format = "html"
 terminal_osc52_clipboard = true
 terminal_transparent_background = true
 terminal_inline_images = "auto"
+pane_history_enabled = true
+remote_keybinding_policy = "remote"
+remote_ssh_command = "/usr/bin/ssh"
 notification_delivery = "terminal"
 sound_alerts_enabled = true
 sound_completion_path = "/tmp/done.mp3"
@@ -877,6 +931,9 @@ command = "pnpm test"
     expect(parsed.settings.terminalOsc52Clipboard).toBe(true);
     expect(parsed.settings.terminalTransparentBackground).toBe(true);
     expect(parsed.settings.terminalInlineImages).toBe("auto");
+    expect(parsed.settings.paneHistoryEnabled).toBe(true);
+    expect(parsed.settings.remoteKeybindingPolicy).toBe("remote");
+    expect(parsed.settings.remoteSshCommand).toBe("/usr/bin/ssh");
     expect(parsed.settings.notificationDelivery).toBe("terminal");
     expect(parsed.settings.soundAlertsEnabled).toBe(true);
     expect(parsed.settings.soundCompletionPath).toBe("/tmp/done.mp3");
@@ -909,6 +966,9 @@ command = "pnpm test"
     expect(serialized).toContain("terminal_osc52_clipboard = true");
     expect(serialized).toContain("terminal_transparent_background = true");
     expect(serialized).toContain('terminal_inline_images = "auto"');
+    expect(serialized).toContain("pane_history_enabled = true");
+    expect(serialized).toContain('remote_keybinding_policy = "remote"');
+    expect(serialized).toContain('remote_ssh_command = "/usr/bin/ssh"');
     expect(serialized).toContain('notification_delivery = "terminal"');
     expect(serialized).toContain("sound_alerts_enabled = true");
     expect(serialized).toContain('sound_completion_path = "/tmp/done.mp3"');

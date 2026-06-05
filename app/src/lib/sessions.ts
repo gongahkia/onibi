@@ -1622,6 +1622,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalTransparentBackground: false,
   terminalInlineImages: "off",
   terminalConfirmClose: true,
+  paneHistoryEnabled: false,
+  remoteKeybindingPolicy: "local",
+  remoteSshCommand: "ssh",
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   notificationDelivery: "in_app",
   soundAlertsEnabled: false,
@@ -2301,6 +2304,47 @@ export function normalizeTerminalShellMode(value: unknown): TerminalShellMode {
     : DEFAULT_SETTINGS.terminalShellMode;
 }
 
+export function normalizeRemoteKeybindingPolicy(
+  value: unknown,
+): RemoteKeybindingPolicy {
+  return value === "remote" ? "remote" : "local";
+}
+
+function normalizeRemoteSessionMetadata(
+  value: unknown,
+): RemoteSessionMetadata | null {
+  if (!isRecord(value) || value.kind !== "ssh") {
+    return null;
+  }
+  const host = typeof value.host === "string" ? value.host.trim() : "";
+  const target =
+    typeof value.target === "string" && value.target.trim()
+      ? value.target.trim()
+      : host;
+  if (!host || !target) {
+    return null;
+  }
+  const port = Number(value.port);
+  const normalized: RemoteSessionMetadata = {
+    kind: "ssh",
+    target,
+    host,
+    keybindingPolicy: normalizeRemoteKeybindingPolicy(value.keybindingPolicy),
+  };
+  if (typeof value.user === "string" && value.user.trim()) {
+    normalized.user = value.user.trim();
+  }
+  if (Number.isInteger(port) && port > 0 && port <= 65535) {
+    normalized.port = port;
+  }
+  if (typeof value.remoteCwd === "string" && value.remoteCwd.trim()) {
+    normalized.remoteCwd = value.remoteCwd.trim();
+  } else if (value.remoteCwd === null) {
+    normalized.remoteCwd = null;
+  }
+  return normalized;
+}
+
 function normalizeAgentCommands(
   settings: Partial<AppSettings> | undefined,
 ): Record<AgentKind, string> {
@@ -2394,6 +2438,17 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       typeof merged.terminalConfirmClose === "boolean"
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
+    paneHistoryEnabled:
+      typeof merged.paneHistoryEnabled === "boolean"
+        ? merged.paneHistoryEnabled
+        : DEFAULT_SETTINGS.paneHistoryEnabled,
+    remoteKeybindingPolicy: normalizeRemoteKeybindingPolicy(
+      merged.remoteKeybindingPolicy,
+    ),
+    remoteSshCommand:
+      typeof merged.remoteSshCommand === "string" && merged.remoteSshCommand.trim()
+        ? merged.remoteSshCommand.trim()
+        : DEFAULT_SETTINGS.remoteSshCommand,
     terminalTriggers: normalizeTerminalTriggers(merged.terminalTriggers),
     notificationDelivery: normalizeNotificationDelivery(merged.notificationDelivery),
     soundAlertsEnabled:
@@ -3517,9 +3572,15 @@ function appendTranscript(
   };
 }
 
+function stripSessionTranscript(session: Session): Session {
+  return session.transcript ? { ...session, transcript: null } : session;
+}
+
 function snapshot(state: SessionStore): PersistedState {
   return {
-    sessions: state.sessions,
+    sessions: state.settings.paneHistoryEnabled
+      ? state.sessions
+      : state.sessions.map(stripSessionTranscript),
     workspaces: state.workspaces,
     workspaceTabs: state.workspaceTabs,
     activeWorkspaceId: state.activeWorkspaceId,
@@ -5024,6 +5085,11 @@ function normalizeSessionLaunchMetadata(session: Session): Session {
 }
 
 function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Session {
+  const remote =
+    normalizeRemoteSessionMetadata(daemon.remote) ??
+    normalizeRemoteSessionMetadata(daemon.restart?.remote) ??
+    normalizeRemoteSessionMetadata(session.remote) ??
+    normalizeRemoteSessionMetadata(session.restart?.remote);
   return {
     ...session,
     name: daemon.name ?? session.name,
@@ -5035,8 +5101,15 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
     pendingApprovals: session.pendingApprovals ?? [],
     cwd: daemon.cwd ?? session.cwd,
     lastExitCode: daemon.exitCode ?? session.lastExitCode ?? null,
-    restart: daemon.restart ?? session.restart ?? null,
+    restart: daemon.restart
+      ? {
+          ...daemon.restart,
+          remote:
+            normalizeRemoteSessionMetadata(daemon.restart.remote) ?? remote ?? null,
+        }
+      : session.restart ?? null,
     provider: daemon.provider ?? session.provider ?? null,
+    remote,
   };
 }
 
@@ -5057,8 +5130,16 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
     lastTrigger: null,
     lastCommandBlockId: null,
     transcript: null,
-    restart: daemon.restart ?? null,
+    restart: daemon.restart
+      ? {
+          ...daemon.restart,
+          remote: normalizeRemoteSessionMetadata(daemon.restart.remote),
+        }
+      : null,
     provider: daemon.provider ?? null,
+    remote:
+      normalizeRemoteSessionMetadata(daemon.remote) ??
+      normalizeRemoteSessionMetadata(daemon.restart?.remote),
   };
 }
 
@@ -5170,11 +5251,21 @@ export async function hydrateSessionStore(): Promise<void> {
     const configuredWorkspaceIds = new Set(
       (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
     );
+    const ghosttyTheme = await readGhosttyTheme().catch(() => null);
+    const mergedSettings = applyGhosttyDefaults(
+      mergeSettings({
+        ...(settings ?? {}),
+        ...(tomlConfig?.settings ?? {}),
+      }),
+      ghosttyTheme,
+    );
     const mergedSessions = mergeDaemonSessionRecords(
       sessions ?? [],
       daemonSessions,
       daemonById,
       livePtys,
+    ).map((session) =>
+      mergedSettings.paneHistoryEnabled ? session : stripSessionTranscript(session),
     );
     const restoredSessionWorkspaceIds = workspaceIdsForSessions(mergedSessions);
     const workspaceSources = [
@@ -5222,14 +5313,6 @@ export async function hydrateSessionStore(): Promise<void> {
         ? sessionIdForPane(legacyPrunedLayout, legacyActiveLeaf) ??
           fallbackTerminalSessionId
         : fallbackTerminalSessionId;
-    const ghosttyTheme = await readGhosttyTheme().catch(() => null);
-    const mergedSettings = applyGhosttyDefaults(
-      mergeSettings({
-        ...(settings ?? {}),
-        ...(tomlConfig?.settings ?? {}),
-      }),
-      ghosttyTheme,
-    );
     let restoredWorkspaceTabs = normalizeWorkspaceTabs(
       storedWorkspaceTabs,
       workspaceIds,
@@ -5777,6 +5860,9 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_transparent_background", settings.terminalTransparentBackground),
     settingLine("terminal_inline_images", settings.terminalInlineImages),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
+    settingLine("pane_history_enabled", settings.paneHistoryEnabled),
+    settingLine("remote_keybinding_policy", settings.remoteKeybindingPolicy),
+    settingLine("remote_ssh_command", settings.remoteSshCommand),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
     settingLine("notification_delivery", settings.notificationDelivery),
     settingLine("sound_alerts_enabled", settings.soundAlertsEnabled),
@@ -6125,6 +6211,129 @@ function shellModePatch(
   return shellMode ? { shellMode } : {};
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function remoteShellCommandForCwd(remoteCwd: string): string {
+  return `cd ${shellSingleQuote(remoteCwd)} && exec "\${SHELL:-sh}" -l`;
+}
+
+function decodeSshUrlPath(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function splitHostPort(value: string): { host: string; port?: number } {
+  const trimmed = value.trim();
+  const lastColon = trimmed.lastIndexOf(":");
+  if (lastColon > 0 && /^\d+$/.test(trimmed.slice(lastColon + 1))) {
+    const port = Number(trimmed.slice(lastColon + 1));
+    if (Number.isInteger(port) && port > 0 && port <= 65535) {
+      return { host: trimmed.slice(0, lastColon), port };
+    }
+  }
+  return { host: trimmed };
+}
+
+export function parseSshRemoteTarget(input: string): ParsedSshRemoteTarget {
+  const raw = input.trim();
+  if (!raw) {
+    throw new Error("Enter an SSH target.");
+  }
+  if (raw.includes("://") && !raw.startsWith("ssh://")) {
+    throw new Error("Only ssh:// remote targets are supported.");
+  }
+  if (raw.startsWith("ssh://")) {
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error("Enter a valid ssh:// target.");
+    }
+    const host = parsed.hostname.trim();
+    if (!host) {
+      throw new Error("SSH target is missing a host.");
+    }
+    const user = parsed.username ? decodeURIComponent(parsed.username) : undefined;
+    const port = parsed.port ? Number(parsed.port) : undefined;
+    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      throw new Error("SSH port must be between 1 and 65535.");
+    }
+    const remoteCwd =
+      parsed.pathname && parsed.pathname !== "/"
+        ? decodeSshUrlPath(parsed.pathname)
+        : null;
+    const sshTarget = user ? `${user}@${host}` : host;
+    return {
+      target: raw,
+      sshTarget,
+      ...(user ? { user } : {}),
+      host,
+      ...(port ? { port } : {}),
+      ...(remoteCwd ? { remoteCwd } : {}),
+    };
+  }
+
+  const [userPart, hostPart] = raw.includes("@")
+    ? (raw.split("@", 2) as [string, string])
+    : ["", raw];
+  const { host, port } = splitHostPort(hostPart);
+  if (!host) {
+    throw new Error("SSH target is missing a host.");
+  }
+  const user = userPart.trim() || undefined;
+  const sshTarget = user ? `${user}@${host}` : host;
+  return {
+    target: raw,
+    sshTarget,
+    ...(user ? { user } : {}),
+    host,
+    ...(port ? { port } : {}),
+  };
+}
+
+export function buildRemoteSshLaunchSpec(
+  workspace: Workspace,
+  options: RemoteSshLaunchOptions,
+): TerminalLaunchSpec {
+  const parsed = parseSshRemoteTarget(options.target);
+  const remoteCwd =
+    typeof options.remoteCwd === "string" && options.remoteCwd.trim()
+      ? options.remoteCwd.trim()
+      : parsed.remoteCwd ?? null;
+  const keybindingPolicy = normalizeRemoteKeybindingPolicy(options.keybindingPolicy);
+  const remote: RemoteSessionMetadata = {
+    kind: "ssh",
+    target: parsed.target,
+    ...(parsed.user ? { user: parsed.user } : {}),
+    host: parsed.host,
+    ...(parsed.port ? { port: parsed.port } : {}),
+    ...(remoteCwd ? { remoteCwd } : {}),
+    keybindingPolicy,
+  };
+  const args = [
+    ...(parsed.port ? ["-p", String(parsed.port)] : []),
+    ...(remoteCwd ? ["-t"] : []),
+    parsed.sshTarget,
+    ...(remoteCwd ? [remoteShellCommandForCwd(remoteCwd)] : []),
+  ];
+  const title = options.title?.trim() || `SSH: ${parsed.sshTarget}`;
+  return {
+    agent: "shell",
+    workspaceId: workspace.id,
+    title,
+    command: options.sshCommand?.trim() || DEFAULT_SETTINGS.remoteSshCommand,
+    args,
+    cwd: workspace.path,
+    env: [],
+    remote,
+  };
+}
+
 export async function spawnSessionFromLaunchSpec(
   spec: TerminalLaunchSpec,
   placement?: TerminalPanePlacement | null,
@@ -6139,6 +6348,7 @@ export async function spawnSessionFromLaunchSpec(
     agent: spec.agent,
     workspaceId: spec.workspaceId,
     title: spec.title,
+    remote: spec.remote ?? null,
     ...shellModePatch(spec.shellMode),
   });
   const restart: SessionRestartMetadata = {
@@ -6147,6 +6357,7 @@ export async function spawnSessionFromLaunchSpec(
     cwd: spec.cwd,
     env: spec.env,
     ...(spec.shellMode ? { shellMode: spec.shellMode } : {}),
+    ...(spec.remote ? { remote: spec.remote } : {}),
   };
   useSessionStore.getState().addSession(
     {
@@ -6163,6 +6374,7 @@ export async function spawnSessionFromLaunchSpec(
       lastCommandBlockId: null,
       transcript: null,
       restart,
+      remote: spec.remote ?? null,
     },
     placement,
   );
@@ -6175,6 +6387,20 @@ export async function spawnSessionFromLaunchSpec(
     });
   }
   return id;
+}
+
+export async function spawnRemoteSshSession(
+  workspace: Workspace,
+  options: RemoteSshLaunchOptions,
+  placement?: TerminalPanePlacement | null,
+): Promise<PtyId> {
+  const settings = useSessionStore.getState().settings;
+  const spec = buildRemoteSshLaunchSpec(workspace, {
+    ...options,
+    keybindingPolicy: options.keybindingPolicy ?? settings.remoteKeybindingPolicy,
+    sshCommand: options.sshCommand ?? settings.remoteSshCommand,
+  });
+  return spawnSessionFromLaunchSpec(spec, placement);
 }
 
 export async function spawnAgentSession(
@@ -6247,7 +6473,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     try {
       const attached = await sessionAttach(session.id);
       if (attached?.session?.id) {
-        const replacement: Session = {
+      const replacement: Session = {
           ...mergeDaemonSession(session, attached.session),
           id: attached.session.id,
           status: "running",
@@ -6255,7 +6481,9 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
           lastExitCode: null,
           lastTrigger: null,
           lastCommandBlockId: null,
-          transcript: null,
+          transcript: state.settings.paneHistoryEnabled
+            ? session.transcript ?? null
+            : null,
         };
         if (session.agent !== "shell") {
           await stopAgentReview(session.id).catch(() => undefined);
@@ -6283,6 +6511,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     agent: session.agent,
     workspaceId: session.workspaceId,
     title: session.title,
+    remote: session.remote ?? session.restart.remote ?? null,
     ...shellModePatch(session.restart.shellMode),
   });
   const replacement: Session = {
@@ -6295,7 +6524,8 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     lastExitCode: null,
     lastTrigger: null,
     lastCommandBlockId: null,
-    transcript: null,
+    transcript: state.settings.paneHistoryEnabled ? session.transcript ?? null : null,
+    remote: session.remote ?? session.restart.remote ?? null,
   };
   await ptyKill(sessionId).catch(() => undefined);
   if (session.agent !== "shell") {
@@ -6330,6 +6560,7 @@ export async function duplicateSession(
       cwd: session.cwd ?? session.restart.cwd,
       env: session.restart.env,
       ...(session.restart.shellMode ? { shellMode: session.restart.shellMode } : {}),
+      remote: session.remote ?? session.restart.remote ?? null,
     },
     placement,
   );

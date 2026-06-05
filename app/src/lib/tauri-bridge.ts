@@ -16,6 +16,7 @@ export interface PtySpawnRequest {
   agent?: string | null;
   workspaceId?: string | null;
   title?: string | null;
+  remote?: import("./sessions").RemoteSessionMetadata | null;
 }
 
 export interface PtyNotificationPayload {
@@ -42,6 +43,7 @@ export interface PtySessionRestart {
   cwd: string | null;
   env: Array<[string, string]>;
   shellMode?: PtyShellMode;
+  remote?: import("./sessions").RemoteSessionMetadata | null;
 }
 
 export interface PtyProviderResume {
@@ -78,6 +80,7 @@ export interface PtySessionMetadata {
   exitSignal?: string | null;
   restart?: PtySessionRestart | null;
   provider?: PtyProviderSession | null;
+  remote?: import("./sessions").RemoteSessionMetadata | null;
 }
 
 export interface PtyAttachResult {

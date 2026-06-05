@@ -82,6 +82,10 @@ enum Command {
         #[command(subcommand)]
         command: WorktreeCommand,
     },
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommand,
+    },
     Events {
         #[command(subcommand)]
         command: EventsCommand,
@@ -271,6 +275,23 @@ enum WorktreeCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum RemoteCommand {
+    Ssh {
+        target: String,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long = "keybindings", default_value = "local")]
+        keybindings: String,
+        #[arg(long = "ssh-command", default_value = "ssh")]
+        ssh_command: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum EventsCommand {
     Subscribe,
 }
@@ -295,6 +316,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "wait",
         "agent",
         "worktree",
+        "remote",
         "events",
         "attention",
         "arrangement",
@@ -372,6 +394,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Wait { command }) => wait(command, cli.json).await,
         Some(Command::Agent { command }) => agent(command, port, cli.json).await,
         Some(Command::Worktree { command }) => worktree(command, port, cli.json),
+        Some(Command::Remote { command }) => remote(command, cli.json).await,
         Some(Command::Events { command }) => events(command, cli.json).await,
         Some(Command::Attention) => desktop_get(port, "/v1/desktop/attention", cli.json),
         Some(Command::Arrangement { command }) => arrangement(command, port, cli.json),
@@ -454,6 +477,212 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
             print_raw_json_or_text(&response, json_output)
         }
     }
+}
+
+async fn remote(command: RemoteCommand, json_output: bool) -> Result<()> {
+    match command {
+        RemoteCommand::Ssh {
+            target,
+            workspace,
+            cwd,
+            name,
+            keybindings,
+            ssh_command,
+        } => {
+            let parsed = parse_ssh_remote_target(&target)?;
+            let remote_cwd = cwd
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .or_else(|| parsed.remote_cwd.clone());
+            let keybinding_policy = remote_keybinding_policy(&keybindings)?;
+            let mut args = Vec::new();
+            if let Some(port) = parsed.port {
+                args.push("-p".to_string());
+                args.push(port.to_string());
+            }
+            if remote_cwd.is_some() {
+                args.push("-t".to_string());
+            }
+            args.push(parsed.ssh_target.clone());
+            if let Some(remote_cwd) = remote_cwd.as_deref() {
+                args.push(remote_shell_command_for_cwd(remote_cwd));
+            }
+            let title = name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| format!("SSH: {}", parsed.ssh_target));
+            let command = if ssh_command.trim().is_empty() {
+                "ssh".to_string()
+            } else {
+                ssh_command.trim().to_string()
+            };
+            let response = orchestration::client::request(
+                "pty.spawn",
+                json!({
+                    "command": command,
+                    "args": args,
+                    "cwd": workspace.display().to_string(),
+                    "name": name,
+                    "agent": "shell",
+                    "workspaceId": format!("workspace:{}", workspace.display()),
+                    "title": title,
+                    "remote": {
+                        "kind": "ssh",
+                        "target": parsed.target,
+                        "user": parsed.user,
+                        "host": parsed.host,
+                        "port": parsed.port,
+                        "remoteCwd": remote_cwd,
+                        "keybindingPolicy": keybinding_policy,
+                    },
+                }),
+            )
+            .await?;
+            print_value(response, json_output)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ParsedSshRemoteTarget {
+    target: String,
+    ssh_target: String,
+    user: Option<String>,
+    host: String,
+    port: Option<u16>,
+    remote_cwd: Option<String>,
+}
+
+fn parse_ssh_remote_target(input: &str) -> Result<ParsedSshRemoteTarget> {
+    let raw = input.trim();
+    if raw.is_empty() {
+        bail!("enter an SSH target");
+    }
+    if raw.contains("://") && !raw.starts_with("ssh://") {
+        bail!("only ssh:// remote targets are supported");
+    }
+    if let Some(rest) = raw.strip_prefix("ssh://") {
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        if authority.trim().is_empty() {
+            bail!("SSH target is missing a host");
+        }
+        let (user, host_port) = split_user_host(authority);
+        let (host, port) = split_host_port(&host_port)?;
+        if host.is_empty() {
+            bail!("SSH target is missing a host");
+        }
+        let remote_cwd = if path.is_empty() {
+            None
+        } else {
+            Some(percent_decode_path(&format!("/{path}")))
+        };
+        let ssh_target = user
+            .as_ref()
+            .map(|user| format!("{user}@{host}"))
+            .unwrap_or_else(|| host.clone());
+        return Ok(ParsedSshRemoteTarget {
+            target: raw.to_string(),
+            ssh_target,
+            user,
+            host,
+            port,
+            remote_cwd,
+        });
+    }
+
+    let (user, host_port) = split_user_host(raw);
+    let (host, port) = split_host_port(&host_port)?;
+    if host.is_empty() {
+        bail!("SSH target is missing a host");
+    }
+    let ssh_target = user
+        .as_ref()
+        .map(|user| format!("{user}@{host}"))
+        .unwrap_or_else(|| host.clone());
+    Ok(ParsedSshRemoteTarget {
+        target: raw.to_string(),
+        ssh_target,
+        user,
+        host,
+        port,
+        remote_cwd: None,
+    })
+}
+
+fn split_user_host(value: &str) -> (Option<String>, String) {
+    match value.split_once('@') {
+        Some((user, host)) if !user.trim().is_empty() => {
+            (Some(user.trim().to_string()), host.trim().to_string())
+        }
+        _ => (None, value.trim().to_string()),
+    }
+}
+
+fn split_host_port(value: &str) -> Result<(String, Option<u16>)> {
+    let trimmed = value.trim();
+    let Some((host, port)) = trimmed.rsplit_once(':') else {
+        return Ok((trimmed.to_string(), None));
+    };
+    if port.is_empty() || !port.chars().all(|ch| ch.is_ascii_digit()) {
+        return Ok((trimmed.to_string(), None));
+    }
+    let port: u16 = port
+        .parse()
+        .with_context(|| format!("invalid SSH port: {port}"))?;
+    if port == 0 {
+        bail!("SSH port must be between 1 and 65535");
+    }
+    Ok((host.to_string(), Some(port)))
+}
+
+fn percent_decode_path(value: &str) -> String {
+    let mut output = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                output.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        output.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&output).to_string()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn remote_keybinding_policy(value: &str) -> Result<&'static str> {
+    match value.trim() {
+        "local" | "" => Ok("local"),
+        "remote" => Ok("remote"),
+        other => bail!("remote keybindings must be 'local' or 'remote', got {other}"),
+    }
+}
+
+fn remote_shell_command_for_cwd(remote_cwd: &str) -> String {
+    format!(
+        "cd {} && exec \"${{SHELL:-sh}}\" -l",
+        shell_single_quote(remote_cwd)
+    )
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> {

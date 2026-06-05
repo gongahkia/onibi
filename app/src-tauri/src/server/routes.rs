@@ -6,7 +6,8 @@ use crate::{
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
         Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
-        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
+        DesktopRemoteSshBody, DesktopSessionInputBody, DesktopSessionLaunchBody,
+        DesktopSnapshotBody,
         DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody,
         ServerMessage, PROTOCOL_VERSION,
     },
@@ -262,6 +263,28 @@ pub async fn desktop_session_launch(
             "workspace": body.workspace,
             "prompt": body.prompt,
             "cwd": body.cwd,
+        }),
+    )))
+}
+
+pub async fn desktop_remote_ssh(
+    State(state): State<AppState>,
+    ApiJson(body): ApiJson<DesktopRemoteSshBody>,
+) -> ApiResult<DesktopCommandResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    let keybindings = match body.keybindings.as_deref() {
+        Some("remote") => "remote",
+        _ => "local",
+    };
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "remote-ssh-launch",
+        json!({
+            "target": body.target,
+            "workspace": body.workspace,
+            "cwd": body.cwd,
+            "name": body.name,
+            "keybindings": keybindings,
         }),
     )))
 }

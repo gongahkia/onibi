@@ -42,6 +42,7 @@ import {
 } from "../lib/terminal-render-profile";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
+import { RemoteSessionDialog } from "./RemoteSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
 type CommandGroup =
@@ -170,6 +171,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [remoteSessionOpen, setRemoteSessionOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceNavigatorOpen, setWorkspaceNavigatorOpen] = useState(false);
   const [sessionNavigatorOpen, setSessionNavigatorOpen] = useState(false);
@@ -258,6 +260,10 @@ export function CommandPalette() {
           target.closest('[contenteditable="true"]'));
       const terminalTarget =
         target instanceof Element && Boolean(target.closest(".terminal-view"));
+      const remoteTerminalTarget =
+        target instanceof Element &&
+        target.closest<HTMLElement>(".terminal-view")?.dataset.remoteKeybindings ===
+          "remote";
       const bindings = new Map(
         settings.appKeybindings.map((binding) => [binding.keys, binding.action]),
       );
@@ -339,6 +345,11 @@ export function CommandPalette() {
         } else {
           console.warn("unknown app keybinding action", action);
         }
+      }
+
+      if (remoteTerminalTarget) {
+        clearPrefix();
+        return;
       }
 
       if (prefixArmedRef.current) {
@@ -457,6 +468,14 @@ export function CommandPalette() {
         shortcut: appShortcut(settings, "session.new", primaryShortcut("N")),
         keywords: ["agent", "terminal", "spawn", "start"],
         run: () => setNewSessionOpen(true),
+      },
+      {
+        id: "session.remote-ssh",
+        label: "New Remote SSH Session",
+        group: "Session",
+        description: "Open an SSH-backed local PTY session",
+        keywords: ["remote", "ssh", "server", "terminal"],
+        run: () => setRemoteSessionOpen(true),
       },
       {
         id: "workspace.quick-launch",
@@ -1122,6 +1141,10 @@ export function CommandPalette() {
       <NewSessionDialog
         open={newSessionOpen}
         onClose={() => setNewSessionOpen(false)}
+      />
+      <RemoteSessionDialog
+        open={remoteSessionOpen}
+        onClose={() => setRemoteSessionOpen(false)}
       />
       <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {workspaceNavigatorOpen ? (

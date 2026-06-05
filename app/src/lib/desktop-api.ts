@@ -12,10 +12,12 @@ import {
   restoreArrangement,
   sessionAttentionState,
   spawnAgentSession,
+  spawnRemoteSshSession,
   useSessionStore,
   workspaceFromPath,
   type AgentKind,
   type Arrangement,
+  type RemoteKeybindingPolicy,
   type Session,
   type Workspace,
 } from "./sessions";
@@ -36,6 +38,7 @@ interface DesktopSnapshot {
     previewUrl?: string | null;
     commandBlockCount?: number;
     lastCommandBlockId?: string | null;
+    remote?: Session["remote"];
   }>;
   arrangements: Array<{ id: string; name: string }>;
   updatedAt: number;
@@ -72,6 +75,7 @@ function snapshotSession(session: Session) {
       (block) => block.sessionId === session.id,
     ).length,
     lastCommandBlockId: session.lastCommandBlockId ?? null,
+    remote: session.remote ?? null,
   };
 }
 
@@ -182,6 +186,30 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const prompt = stringPayloadField(message.payload, "prompt") ?? "";
     const cwd = stringPayloadField(message.payload, "cwd");
     await spawnAgentSession(agent, workspace, prompt, null, { cwd });
+    return;
+  }
+  if (message.kind === "remote-ssh-launch") {
+    const target = stringPayloadField(message.payload, "target");
+    const workspaceValue = stringPayloadField(message.payload, "workspace");
+    if (!target || !workspaceValue) {
+      return;
+    }
+    const keybindingValue =
+      stringPayloadField(message.payload, "keybindings") ??
+      stringPayloadField(message.payload, "keybindingPolicy");
+    const keybindingPolicy: RemoteKeybindingPolicy =
+      keybindingValue === "remote" ? "remote" : "local";
+    const workspace = await workspaceForCommand(workspaceValue);
+    await spawnRemoteSshSession(workspace, {
+      target,
+      remoteCwd:
+        stringPayloadField(message.payload, "remoteCwd") ??
+        stringPayloadField(message.payload, "cwd"),
+      title:
+        stringPayloadField(message.payload, "title") ??
+        stringPayloadField(message.payload, "name"),
+      keybindingPolicy,
+    });
     return;
   }
   if (message.kind === "worktree-open") {

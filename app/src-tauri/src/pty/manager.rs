@@ -509,6 +509,7 @@ mod tests {
             agent: None,
             workspace_id: None,
             title: None,
+            remote: None,
         }
     }
 
@@ -565,6 +566,7 @@ mod tests {
                 agent: None,
                 workspace_id: None,
                 title: None,
+                remote: None,
             })
             .await
             .unwrap();
@@ -591,6 +593,7 @@ mod tests {
                 agent: None,
                 workspace_id: None,
                 title: None,
+                remote: None,
             })
             .await
             .unwrap();

@@ -4,7 +4,10 @@
 #![allow(dead_code)]
 
 use crate::{
-    pty::{PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest, ShellMode},
+    pty::{
+        PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest,
+        RemoteSessionMetadata, ShellMode,
+    },
     secret,
 };
 use anyhow::{anyhow, Context, Result};
@@ -61,6 +64,8 @@ pub struct SessionRestartMetadata {
     pub env: Vec<(String, String)>,
     #[serde(default)]
     pub shell_mode: ShellMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteSessionMetadata>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -129,6 +134,8 @@ pub struct SessionInfo {
     pub restart: Option<SessionRestartMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<ProviderSessionMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteSessionMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -711,6 +718,7 @@ impl OrchestrationState {
         let process_id = self.manager.process_id(id).ok().flatten();
         let id_string = id.to_string();
         let now = now_millis();
+        let remote = metadata.remote.clone().or_else(|| restart.remote.clone());
         let session = SessionInfo {
             id: id_string.clone(),
             pane_id: id_string.clone(),
@@ -731,6 +739,7 @@ impl OrchestrationState {
             exit_signal: None,
             restart: Some(restart),
             provider: None,
+            remote,
         };
         self.upsert_session(session.clone()).await;
         self.screens
@@ -918,6 +927,7 @@ impl OrchestrationState {
             .or_else(|| session.restart.clone())
             .ok_or_else(|| anyhow!("session has no restart metadata: {}", session.id))?;
         let restart = normalize_restart_metadata(session.agent.as_deref(), restart);
+        let remote = restart.remote.clone().or_else(|| session.remote.clone());
         let previous_id = session.id.clone();
         self.mark_session_stopped(&previous_id, None).await;
         let req = PtySpawnRequest {
@@ -932,6 +942,7 @@ impl OrchestrationState {
             agent: session.agent.clone(),
             workspace_id: session.workspace_id.clone(),
             title: session.title.clone(),
+            remote,
         };
         let metadata = SpawnMetadata {
             name: session.name.clone(),
@@ -939,6 +950,7 @@ impl OrchestrationState {
             workspace_id: session.workspace_id.clone(),
             cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
             title: session.title.clone(),
+            remote: req.remote.clone(),
         };
         let relaunched = self.spawn_from_request(req, metadata).await?;
         Ok(json!({
@@ -1279,6 +1291,7 @@ struct SpawnMetadata {
     workspace_id: Option<String>,
     cwd: Option<String>,
     title: Option<String>,
+    remote: Option<RemoteSessionMetadata>,
 }
 
 impl SpawnMetadata {
@@ -1308,6 +1321,11 @@ impl SpawnMetadata {
                 .or_else(|| req.workspace_id.clone()),
             cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
             title,
+            remote: payload
+                .get("remote")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .or_else(|| req.remote.clone()),
         }
     }
 }
@@ -1604,6 +1622,7 @@ fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadat
         cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
         env: req.env.clone(),
         shell_mode: req.shell_mode,
+        remote: req.remote.clone(),
     }
 }
 
@@ -1626,6 +1645,10 @@ fn provider_restart_metadata(session: &SessionInfo) -> Option<SessionRestartMeta
             .as_ref()
             .map(|restart| restart.shell_mode)
             .unwrap_or_default(),
+        remote: session
+            .remote
+            .clone()
+            .or_else(|| session.restart.as_ref()?.remote.clone()),
     })
 }
 
@@ -2555,6 +2578,7 @@ mod tests {
             cwd: Some("/repo".to_string()),
             env: vec![("A".to_string(), "B".to_string())],
             shell_mode: ShellMode::Auto,
+            remote: None,
         });
         session.provider = Some(ProviderSessionMetadata {
             agent: "opencode".to_string(),
@@ -2619,8 +2643,10 @@ mod tests {
                 cwd: Some("/repo".to_string()),
                 env: vec![],
                 shell_mode: ShellMode::Auto,
+                remote: None,
             }),
             provider: None,
+            remote: None,
         };
         store.upsert(&session).unwrap();
 
@@ -2660,6 +2686,7 @@ mod tests {
             agent: agent.map(ToOwned::to_owned),
             workspace_id: None,
             title: title.map(ToOwned::to_owned),
+            remote: None,
         }
     }
 
@@ -2684,6 +2711,7 @@ mod tests {
             exit_signal: None,
             restart: None,
             provider: None,
+            remote: None,
         }
     }
 }

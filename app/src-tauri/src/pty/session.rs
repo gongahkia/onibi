@@ -25,6 +25,30 @@ pub enum ShellMode {
     NonLogin,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteKeybindingPolicy {
+    #[default]
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSessionMetadata {
+    pub kind: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_cwd: Option<String>,
+    #[serde(default)]
+    pub keybinding_policy: RemoteKeybindingPolicy,
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("pty session {0} was not found")]
@@ -64,6 +88,8 @@ pub struct PtySpawnRequest {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub remote: Option<RemoteSessionMetadata>,
 }
 
 fn default_rows() -> u16 {

@@ -91,6 +91,8 @@ struct PtySessionRestart {
     args: Vec<String>,
     cwd: Option<String>,
     env: Vec<(String, String)>,
+    #[serde(default)]
+    remote: Option<pty::RemoteSessionMetadata>,
 }
 
 #[cfg(feature = "gui")]
@@ -137,6 +139,8 @@ struct PtySessionMetadata {
     exit_signal: Option<String>,
     restart: Option<PtySessionRestart>,
     provider: Option<PtyProviderSession>,
+    #[serde(default)]
+    remote: Option<pty::RemoteSessionMetadata>,
 }
 
 #[cfg(feature = "gui")]

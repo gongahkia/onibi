@@ -257,6 +257,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/desktop/session/launch",
             post(routes::desktop_session_launch),
         )
+        .route("/v1/desktop/remote/ssh", post(routes::desktop_remote_ssh))
         .route(
             "/v1/desktop/session/:id/input",
             post(routes::desktop_session_input),
