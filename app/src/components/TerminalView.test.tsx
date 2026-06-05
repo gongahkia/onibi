@@ -205,9 +205,10 @@ describe("TerminalView", () => {
       new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
     );
 
-    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
-      "data-copy-mode",
-      "true",
+    await waitFor(() =>
+      expect(
+        getByTestId("terminal-view").parentElement?.getAttribute("data-copy-mode"),
+      ).toBe("true"),
     );
     expect(term.select).toHaveBeenLastCalledWith(0, 1, 1);
   });
@@ -279,8 +280,7 @@ describe("TerminalView", () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ga");
     expect(term.clearSelection).toHaveBeenCalled();
-    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
-      "data-copy-mode",
+    expect(getByTestId("terminal-view").parentElement?.getAttribute("data-copy-mode")).toBe(
       "false",
     );
   });
@@ -322,8 +322,7 @@ describe("TerminalView", () => {
     handler(new KeyboardEvent("keydown", { key: "Escape" }));
 
     expect(term.clearSelection).toHaveBeenCalled();
-    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
-      "data-copy-mode",
+    expect(getByTestId("terminal-view").parentElement?.getAttribute("data-copy-mode")).toBe(
       "false",
     );
   });

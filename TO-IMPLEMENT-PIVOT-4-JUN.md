@@ -126,6 +126,13 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added a built-in `terminal` theme mode that uses imported/host terminal colors when available and falls back to the current dark terminal palette.
 - Added focused frontend tests for terminal selection copy behavior, terminal theme option normalization, TOML round trips, and imported terminal color resolution.
 
+### Implemented in the keyboard copy-mode pass
+
+- Added `terminal.copyMode.enter` as an app keybinding action, defaulted to `prefix+[` in frontend settings and Rust config defaults.
+- Added xterm-backed keyboard copy mode with `h/j/k/l`, `w/b/e`, `{`/`}`, `v` or `Space`, `y` or `Enter`, and `Escape`/`q`/`Ctrl+C` handling.
+- Kept copy-mode state local to the active `TerminalView`, intercepting copy-mode keys before PTY input and reusing xterm's public selection/scrollback APIs.
+- Added focused frontend and Rust tests for copy-mode entry, cursor movement, visual selection, copy/exit behavior, and default keybinding coverage.
+
 ### Implemented in the UI navigator polish pass
 
 - Added a right-click terminal pane context menu with focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions.
@@ -220,7 +227,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Vim mode** | Yes in copy mode (h/j/k/l, w/b/e, v/y) | Yes (CodeMirror Vim) |
 | **Command palette (Cmd+K)** | No | Yes |
 | **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Partial |
-| **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Browser-native |
+| **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Partial — drag, double-click, and keyboard copy mode are wired; ANSI-preserving copy and OSC 52 remain pending |
 | **OSC 8 hyperlink click-through** | Yes | xterm.js link addon |
 | **Kitty graphics / sixel** | Yes (experimental) | No |
 | **Kitty keyboard protocol** | Yes | No |
@@ -308,7 +315,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.8 Selection / copy
 43. **[DONE] In-pane drag-select with autoscroll** into scrollback — xterm native selection remains active and supports scrollback drag selection.
 44. **[DONE] Double-click word-token copy** — xterm word selection is copied to the system clipboard on double-click.
-45. **Keyboard copy mode** (prefix+[, h/j/k/l, w/b/e, {/}, v/Space, y/Enter).
+45. **[DONE] Keyboard copy mode** — `prefix+[` enters copy mode; `h/j/k/l`, `w/b/e`, `{`/`}`, `v` or `Space`, `y` or `Enter`, and `Escape`/`q`/`Ctrl+C` are wired through xterm selection/scrollback APIs.
 46. **ANSI-color-preserving copy** (codes optional via flag).
 47. **OSC 52 clipboard fallback** for headless / SSH contexts.
 
@@ -403,8 +410,8 @@ Partial from Phase B: 16, 31.
 Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
-Completed from Phase C: 43, 44, 55, 56.
-Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-vt), 38, 40, 45.
+Completed from Phase C: 43, 44, 45, 55, 56.
+Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-vt), 38, 40.
 
 **Phase D — remote & distribution:**
 34, 35, 62, 73, 74.
