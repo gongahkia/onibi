@@ -624,7 +624,7 @@ fn body_from_provider_payload(agent: &str, payload: Value) -> ProviderEventBody 
 }
 
 fn is_pre_tool_provider_payload(payload: &Value) -> bool {
-    let Some(event) = string_field(
+    if let Some(event) = string_field(
         payload,
         &[
             "event",
@@ -633,13 +633,27 @@ fn is_pre_tool_provider_payload(payload: &Value) -> bool {
             "hookEventName",
             "hook_event_name",
         ],
-    ) else {
-        return false;
-    };
-    matches!(
-        normalize_event_token(&event).as_str(),
-        "pretooluse" | "tool.executebefore" | "tool.before" | "toolbefore"
+    ) {
+        return matches!(
+            normalize_event_token(&event).as_str(),
+            "pretooluse" | "tool.executebefore" | "tool.before" | "toolbefore"
+        );
+    }
+
+    let has_tool = string_field(payload, &["toolName", "tool_name", "tool", "tool.name"]).is_some()
+        && value_field(payload, &["toolArgs", "tool_args", "tool_input", "args"]).is_some();
+    let has_result_or_error = value_field(
+        payload,
+        &[
+            "toolResult",
+            "tool_result",
+            "toolResponse",
+            "tool_response",
+            "error",
+        ],
     )
+    .is_some();
+    has_tool && !has_result_or_error
 }
 
 fn normalize_agent_name(raw: &str) -> Option<&'static str> {
@@ -917,5 +931,22 @@ mod tests {
             result.stdout.unwrap()["hookSpecificOutput"]["updatedInput"]["file_path"],
             "README.md"
         );
+    }
+
+    #[test]
+    fn pre_tool_detection_supports_legacy_copilot_camelcase_payload() {
+        assert!(is_pre_tool_provider_payload(&json!({
+            "sessionId": "copilot-session-1",
+            "cwd": "/repo",
+            "toolName": "bash",
+            "toolArgs": { "command": "make test" }
+        })));
+        assert!(!is_pre_tool_provider_payload(&json!({
+            "sessionId": "copilot-session-1",
+            "cwd": "/repo",
+            "toolName": "bash",
+            "toolArgs": { "command": "make test" },
+            "toolResult": { "resultType": "success" }
+        })));
     }
 }
