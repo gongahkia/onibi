@@ -143,10 +143,23 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added focused frontend and Rust tests for settings updates, TOML round trips, shell launch propagation, restart metadata, serde defaults, and shell login flag handling.
 - Verified with `pnpm --dir app typecheck`, `pnpm --dir app test -- --run src/lib/sessions.test.ts src/components/SettingsPane.test.tsx src/components/NewSessionDialog.test.tsx src/components/MainPane.test.tsx src/components/CommandPalette.test.tsx`, and `cargo test --manifest-path app/src-tauri/Cargo.toml`.
 
+### Implemented in the native provider-event bridge pass
+
+- Added authenticated provider-event ingestion at `/v1/adapters/:agent/event`, normalized across snake_case, camelCase, and nested provider payloads.
+- Added provider session metadata to daemon sessions, including provider session ID, conversation ID, native resume command metadata, and last update time.
+- Added native event arbitration so provider lifecycle/tool events can set `idle`, `working`, `blocked`, and `done` through the same orchestration status stream used by the GUI and CLI.
+- Added conservative provider-to-PTY correlation by exact Onibi session ID, known provider IDs, then one active session with matching agent and cwd.
+- Replaced the OpenCode stub with a versioned local plugin installer and native resume metadata using `opencode --session <id>`.
+- Added Qoder, GitHub Copilot, and Goose event-bridge integrations, plus resume metadata for Qoder and Goose.
+- Registered Gemini and Hermes as resume-only integrations, Aider as history-restore only, Cursor/Pi/OMP as explicit pending native-hook integrations.
+- Extended setup/doctor/status integration handling for `event-bridge`, `resume-only`, and `pending` support classes.
+- Verified with `cargo test --manifest-path app/src-tauri/Cargo.toml` and `pnpm --dir app typecheck`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
-- Native third-party integration hooks and provider-native conversation resume remain future Phase B work.
+- Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
+- Provider-native blocking approval remains limited to Claude Code and Bash-only Codex; Qoder/Copilot/Goose/OpenCode currently feed lifecycle/status events but do not yet block tool execution through Onibi.
 
 ---
 
@@ -168,11 +181,11 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Yes — vertical/horizontal split with focus, pane zoom, drag-reorder, layout presets, persisted sizes, and per-workspace-tab persistence |
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | Yes — workspace reorder, workspace terminal-tab reorder, and terminal pane reorder |
-| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata plus command/title/banner-output heuristics and foreground process polling for 11 no-hook agents; native hooks still pending |
-| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
-| **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | 2 working: claude-code (HTTP), codex (shell); 5 stubs |
+| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, and foreground process polling for 11 no-hook agents; Pi/OMP/Cursor native hooks still pending |
+| **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, native provider events, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
+| **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Gemini/Hermes resume-only, Pi/OMP/Cursor pending |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | Yes — launch/title/banner-output detection plus foreground process polling for all 11 |
-| **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Blocked for full parity — saved command metadata can relaunch sessions, but provider-native conversation IDs require native integrations |
+| **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command relaunch plus provider-ID native resume metadata for Claude/OpenCode/Gemini/Qoder/Hermes/Goose when captured |
 | **Approval / gating layer** | No | Yes (primary feature) |
 | **Edit tool input before approve** | N/A | Yes (Claude Code `updatedInput`) |
 | **Socket API for agents** | Yes — Unix socket, wire protocol v12, bincode | Yes — HTTP/WebSocket plus JSON-lines orchestration over Unix socket + localhost TCP |
@@ -240,17 +253,17 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.2 Agent detection
 8. **[DONE] Heuristic agent detection** (process name + terminal-output regex) for 11 agents that have no hook: Cursor, Cline, Copilot, Gemini, Grok, Kimi, Kiro, Droid, Amp, Antigravity, Kilo. Launch command/args/title, conservative banner-output detection, and foreground process polling are done.
 9. **[DONE] 4-state agent model**: `idle` / `working` / `blocked` / `done(unviewed)` — canonical values, approval/exit transitions, lightweight output heuristics, and focus clear are wired.
-10. **[BLOCKED] Smart state arbitration** combining: foreground process + integration hook + screen heuristic, with conflict resolution rules. Current guardrails preserve explicit metadata, approval `blocked`, and PTY `done`; full parity is blocked on native integration hooks.
+10. **[DONE] Smart state arbitration** combining: foreground process + native provider event + screen/output heuristic, with conflict resolution rules. Explicit/provider metadata now persists on sessions, native events feed the same status stream, and weaker heuristics still cannot override terminal completion guardrails.
 11. **[DONE] Done-vs-idle distinction** (unviewed completion → idle once user focuses pane).
 12. **Per-agent label override** (`herdr agent rename`).
 
 ### 2.3 Integrations (versioned hooks/plugins)
-13. **Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`).
-14. **OMP extension** (`~/.omp/agent/extensions/…`).
-15. **OpenCode plugin** (`~/.opencode/plugins/…js`) — onibi has stub only.
-16. **Hermes Python plugin** (`~/.hermes-agent/plugins/…`).
-17. **Qoder CLI hook**.
-18. **GitHub Copilot hook**.
+13. **[BLOCKED] Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`) — registered as pending until a stable public native extension API is verified.
+14. **[BLOCKED] OMP extension** (`~/.omp/agent/extensions/…`) — registered as pending until a stable public native extension API is verified.
+15. **[DONE] OpenCode plugin** — versioned local plugin installer at `~/.config/opencode/plugins/onibi-provider-events.js`, provider-event ingestion, and `opencode --session <id>` resume metadata are wired.
+16. **[PARTIAL] Hermes Python plugin** (`~/.hermes-agent/plugins/…`) — Hermes is registered as resume-only with `hermes --resume <id>` metadata; plugin hook installation remains pending.
+17. **[DONE] Qoder CLI hook** — versioned command-hook installer records session/tool lifecycle events and native `qoder -r <id>` resume metadata.
+18. **[DONE] GitHub Copilot hook** — versioned hook config records session/tool/stop/error events through `onibi _hook copilot`.
 19. **[DONE] Integration version tracking** — Onibi-native integration markers are tracked for Claude Code and Codex, and `integration status --outdated-only` reports stale/missing marker installs.
 20. **[DONE] `integration install/uninstall/status` CLI** as a unified subsystem, with existing `adapter` commands preserved as compatibility aliases.
 
@@ -267,7 +280,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 28. **[DONE] Detach / reattach a running session** — daemon-owned PTYs survive GUI/CLI detach while the daemon is alive; GUI hydration reattaches and relays live sessions.
 29. **[DONE] Named sessions** with case-insensitive active-name uniqueness and `onibi session attach <name>`.
 30. **[DONE] `herdr session list / stop` equivalent** — `onibi session list`, `onibi session stop <id-or-name>`, and JSON output exist.
-31. **[BLOCKED] Native agent session resume** — saved command metadata can relaunch stale sessions after daemon restart, but provider-native Claude/Codex/Pi/Hermes/OpenCode conversation IDs require native provider integrations.
+31. **[PARTIAL] Native agent session resume** — saved command metadata remains the fallback, while provider metadata can now prefer native resume commands for Claude Code, OpenCode, Gemini, Qoder, Hermes, and Goose when a provider session/conversation ID has been captured. Codex remains unverified and Aider is history-restore only.
 32. **Live server handoff** — transfer running PTYs from old binary to new without interruption (experimental but spec'd).
 33. **Pane history opt-in** (screen scrollback survives restart).
 
@@ -368,17 +381,18 @@ Current open issue count: 0.
 Order is by leverage (high-value, low-blast-radius first). Numbers reference items above.
 
 **Phase A — agent-multiplexer parity (foundation), remaining after 2026-06-04 orchestration completion:**
-Phase A deepening is complete except for native-hook-dependent blocked work tracked under Phase B.
+Phase A deepening is complete; remaining native-hook limitations are tracked explicitly under Phase B.
 
 Completed or mostly completed from original Phase A:
 1, 2, 3, 4, 5, 6, 7, 9, 21, 22, 23, 24, 48, 49, 50, 51, 52, 53, 54, 64, 65, 66, 68, 76.
 
 Additional orchestration items completed or partially completed outside original Phase A:
-2, 25, 26, 27, 28, 29, 30, 31 (partial relaunch resume only).
+2, 25, 26, 27, 28, 29, 30, 31 (partial native resume plus relaunch fallback).
 
 **Phase B — agent ecosystem reach:**
-Completed from Phase B: 8, 11, 19, 20.
-Remaining native hook/plugin work: 13, 14, 15 (replace stub), 16, 17, 18. Blocked until native hooks/provider support: 10, 31.
+Completed from Phase B: 8, 10, 11, 15, 17, 18, 19, 20.
+Partial from Phase B: 16, 31.
+Remaining native hook/plugin work: 13, 14, plus full blocking-approval support for Qoder/Copilot/Goose/OpenCode if needed. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
 Completed from Phase C: 43, 44, 55, 56.

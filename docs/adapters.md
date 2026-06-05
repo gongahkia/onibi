@@ -1,20 +1,25 @@
 # Adapters
 
-Adapters let Onibi sit between a local agent and a tool action. The launch target is intentionally uneven: Claude Code is the full demonstration path, Codex covers Bash approval interception, and the other agents are documented honestly as mirror or shell-session integrations until their hook surfaces are stable.
+Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, and newer provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model.
 
 ## Capability Matrix
 
-| Agent | Minimum version | Approval intercept | Edit before approve | Terminal mirror | Hook surface |
-| --- | --- | ---: | ---: | ---: | --- |
-| Claude Code | 2.0.10 | Yes | Yes | Yes | HTTP `PreToolUse` |
-| Codex CLI | Launch-tested current | Bash only | No | Yes | `~/.codex/hooks.json` shell hook |
-| OpenCode | No minimum | No | No | Yes | Phase-03 spike found no launch-stable blocking hook |
-| Gemini CLI | No minimum | No | No | Yes | Shell session only |
-| Aider | No minimum | No | No | Yes | Shell session only |
-| Cursor agent | No minimum | No | No | Yes | Shell session only |
-| Goose | No minimum | No | No | Yes | Shell session only |
+| Agent | Minimum version | Approval intercept | Native events | Native resume | Terminal mirror | Hook surface |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` |
+| Codex CLI | Launch-tested current | Bash only | Bash only | Unverified | Yes | `~/.codex/hooks.json` shell hook |
+| OpenCode | No minimum | No | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
+| Qoder CLI | No minimum | No | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
+| GitHub Copilot CLI | No minimum | No | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
+| Goose | No minimum | No | Yes | Yes | Yes | `~/.agents/plugins/onibi/hooks/hooks.json` |
+| Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
+| Hermes | No minimum | No | No | Yes | Yes | Resume-only metadata |
+| Aider | No minimum | No | No | History restore | Yes | Shell session only |
+| Cursor agent | No minimum | No | Pending | Pending | Yes | Native hook pending |
+| Pi | No minimum | No | Pending | Pending | Yes | Native extension pending |
+| OMP | No minimum | No | Pending | Pending | Yes | Native extension pending |
 
-Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
+Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event`. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
 
 ## Claude Code
 
@@ -87,12 +92,14 @@ Install:
 onibi adapter install opencode
 ```
 
-Hook surface: no launch-stable blocking hook from the Phase-03 spike.
+Hook surface: local OpenCode plugin at `~/.config/opencode/plugins/onibi-provider-events.js`.
 
 Supported features:
 
 - Agent appears as a first-class session kind.
 - PTY output can be mirrored to the phone.
+- Session/tool lifecycle events update Onibi's native provider metadata.
+- Provider session IDs can relaunch stale sessions with `opencode --session <id>`.
 
 Known limitations:
 
@@ -120,6 +127,7 @@ Supported features:
 
 - Launch from Onibi as a PTY session.
 - Terminal mirror and run visibility.
+- Provider-native resume metadata can use Gemini checkpoint IDs when events or user metadata provide one.
 
 Known limitations:
 
@@ -152,6 +160,7 @@ Known limitations:
 
 - Native Aider tool hooks are not wired in v1.5.
 - File edits happen through Aider's normal workflow; Onibi does not intercept them.
+- Restore is chat-history based, not provider session ID based.
 
 Sample interaction:
 
@@ -195,12 +204,14 @@ Install:
 onibi adapter install goose
 ```
 
-Hook surface: shell session only for v1.5.
+Hook surface: Open Plugins lifecycle hook config at `~/.agents/plugins/onibi/hooks/hooks.json`.
 
 Supported features:
 
 - Launch from Onibi as a PTY session.
 - Terminal mirror and run visibility.
+- Session/tool lifecycle events update Onibi's native provider metadata.
+- Provider session IDs can relaunch stale sessions through the Goose session resume command.
 
 Known limitations:
 
@@ -213,6 +224,55 @@ Sample interaction:
 $ goose session
 Onibi mirrors output and tracks the run as a Goose session.
 ```
+
+## Qoder CLI
+
+Install:
+
+```sh
+onibi adapter install qoder
+```
+
+Hook surface: command hooks in `~/.qoder/settings.json`, invoking `onibi _hook qoder`.
+
+Supported features:
+
+- Session, prompt, tool, failure, and stop events feed Onibi's provider-event bridge.
+- Qoder session IDs can relaunch stale sessions with `qoder -r <id>`.
+- Terminal mirror and run visibility.
+
+Known limitations:
+
+- The current Onibi Qoder hook records lifecycle/status events; it does not yet block tool execution for approval.
+- Edit-before-approve is not wired.
+
+## GitHub Copilot CLI
+
+Install:
+
+```sh
+onibi adapter install copilot
+```
+
+Hook surface: hook configuration file at `~/.copilot/hooks/onibi-provider-events.json`, invoking `onibi _hook copilot`.
+
+Supported features:
+
+- Session, prompt, tool, stop, and error events feed Onibi's provider-event bridge.
+- Native `sessionId` values are preserved for arbitration and audit run events.
+
+Known limitations:
+
+- No provider-native resume command is wired.
+- Approval interception is not enabled by the Onibi Copilot hook.
+
+## Hermes
+
+Hermes is registered as resume-only. When Onibi has a Hermes provider session ID, stale session attach can prefer `hermes --resume <id>` over plain relaunch. Native plugin hook installation remains pending.
+
+## Pi / OMP
+
+Pi and OMP are registered as pending native integrations. Onibi keeps heuristic detection and terminal mirroring, but does not install extension files until stable public hook/plugin APIs are verified.
 
 ## Support
 
