@@ -135,6 +135,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added pane agent labels plus a `show_terminal_pane_agent_labels` setting, Layout settings toggle, and TOML round trip.
 - Verified with `pnpm --dir app typecheck` and `pnpm --dir app test -- --run src/lib/sessions.test.ts src/components/CommandPalette.test.tsx src/components/MainPane.test.tsx src/components/SettingsPane.test.tsx`.
 
+### Implemented in the shell-mode selector pass
+
+- Added a `terminal_shell_mode` setting with `auto`, `login`, and `non_login` values, plus a General Settings selector.
+- Threaded shell mode through shell PTY spawn requests, restart metadata, duplicate sessions, stale shell replacement, and saved/restored arrangements.
+- Added backend-aware PTY shell-mode handling with serde-compatible defaults for old requests and persisted sessions.
+- Added focused frontend and Rust tests for settings updates, TOML round trips, shell launch propagation, restart metadata, serde defaults, and shell login flag handling.
+- Verified with `pnpm --dir app typecheck`, `pnpm --dir app test -- --run src/lib/sessions.test.ts src/components/SettingsPane.test.tsx src/components/NewSessionDialog.test.tsx src/components/MainPane.test.tsx src/components/CommandPalette.test.tsx`, and `cargo test --manifest-path app/src-tauri/Cargo.toml`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -311,7 +319,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 64. **[DONE] TOML config file** at `~/.config/onibi/config.toml` for keys, terminal shell defaults, scrollback, UI defaults, server port/limits, and workspaces.
 65. **[DONE] `--default-config` flag** to print the full default config.
 66. **[DONE] Live config reload** — `onibi config reload` applies server-runtime fields (`approval_timeout_secs`, `pty_ring_limit`) without daemon restart; port/UI/keybinding/workspace changes remain restart/client-managed.
-67. **Shell-mode selector** (`auto | login | non_login`).
+67. **[DONE] Shell-mode selector** (`auto | login | non_login`) — settings/TOML, shell PTY request metadata, restart/duplicate/arrangement persistence, and backend login-mode handling are wired.
 68. **[DONE] `new_cwd` policy** — implemented `active`, `follow`, `workspace`, `home`, and `fixed:/absolute/path`.
 69. **Mobile-width threshold config** for the narrow layout.
 70. **Mouse-capture toggle** (tmux-style passthrough on `false`).
@@ -380,7 +388,7 @@ Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-v
 34, 35, 62, 73, 74.
 
 **Phase E — long tail:**
-46, 58, 59, 60, 63, 67, 75, 81, 82.
+46, 58, 59, 60, 63, 75, 81, 82.
 
 ---
 
