@@ -375,6 +375,11 @@ mod tests {
             .iter()
             .any(|binding| binding.keys == "prefix+9"
                 && binding.action == "workspace.tab.focusIndex9"));
+        assert!(defaults
+            .app
+            .iter()
+            .any(|binding| binding.keys == "prefix+["
+                && binding.action == "terminal.copyMode.enter"));
         assert!(defaults.command.is_empty());
     }
 

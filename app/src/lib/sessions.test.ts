@@ -1,6 +1,7 @@
 import { load } from "@tauri-apps/plugin-store";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+  APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_SETTINGS,
   appKeybindingConflicts,
@@ -560,5 +561,16 @@ theme = "terminal"
         commands: ["Run tests"],
       },
     ]);
+  });
+
+  test("default app keybindings include terminal copy mode", () => {
+    expect(DEFAULT_SETTINGS.appKeybindings).toEqual(
+      expect.arrayContaining([
+        { keys: "prefix+[", action: "terminal.copyMode.enter" },
+      ]),
+    );
+    expect(APP_KEYBINDING_ACTION_LABELS["terminal.copyMode.enter"]).toBe(
+      "Enter terminal copy mode",
+    );
   });
 });

@@ -434,6 +434,41 @@ describe("CommandPalette", () => {
     expect(screen.getByText("Open session navigator")).toBeTruthy();
   });
 
+  test("enters terminal copy mode with prefix left bracket", () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      terminalLayout: { type: "leaf", paneId: "pane-1", sessionId: "pty-1" },
+      activeTerminalPaneId: "pane-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    const listener = vi.fn();
+    window.addEventListener("onibi:terminal-copy-mode", listener);
+
+    try {
+      render(<CommandPalette />);
+      fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+      fireEvent.keyDown(window, { key: "[" });
+
+      expect(listener).toHaveBeenCalled();
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        ptyId: "pty-1",
+      });
+    } finally {
+      window.removeEventListener("onibi:terminal-copy-mode", listener);
+    }
+  });
+
   test("sends custom command keybindings to the active pane", async () => {
     useSessionStore.setState({
       sessions: [

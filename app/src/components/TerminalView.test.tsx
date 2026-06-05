@@ -50,9 +50,42 @@ vi.mock("@xterm/addon-webgl", () => ({
 }));
 
 function createTerminalMock() {
+  const lines = ["alpha beta", "gamma delta", "", "omega"];
+  const activeBuffer = {
+    type: "normal",
+    cursorY: 1,
+    cursorX: 0,
+    viewportY: 0,
+    baseY: 0,
+    length: lines.length,
+    getLine: vi.fn((row: number) => {
+      const text = lines[row];
+      if (text === undefined) {
+        return undefined;
+      }
+      return {
+        isWrapped: false,
+        length: text.length,
+        getCell: vi.fn(),
+        translateToString: vi.fn(
+          (trimRight = false, startColumn = 0, endColumn = text.length) => {
+            const value = text.slice(startColumn, endColumn);
+            return trimRight ? value.replace(/\s+$/g, "") : value;
+          },
+        ),
+      };
+    }),
+    getNullCell: vi.fn(),
+  };
   return {
     rows: 24,
     cols: 80,
+    buffer: {
+      active: activeBuffer,
+      normal: activeBuffer,
+      alternate: activeBuffer,
+      onBufferChange: vi.fn(),
+    },
     unicode: { activeVersion: "6" },
     parser: { registerOscHandler: vi.fn() },
     loadAddon: vi.fn(),
@@ -63,10 +96,13 @@ function createTerminalMock() {
     refresh: vi.fn(),
     focus: vi.fn(),
     clear: vi.fn(),
+    select: vi.fn(),
     selectAll: vi.fn(),
     getSelection: vi.fn(() => ""),
     clearSelection: vi.fn(),
     clearTextureAtlas: vi.fn(),
+    scrollToLine: vi.fn(),
+    scrollToBottom: vi.fn(),
     dispose: vi.fn(),
     options: {},
   };
@@ -154,6 +190,141 @@ describe("TerminalView", () => {
 
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith("word"),
+    );
+  });
+
+  test("enters keyboard copy mode from the terminal copy-mode event", async () => {
+    const { getByTestId } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+
+    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
+      "data-copy-mode",
+      "true",
+    );
+    expect(term.select).toHaveBeenLastCalledWith(0, 1, 1);
+  });
+
+  test("copy mode movement intercepts vim keys without writing to the pty", async () => {
+    render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockClear();
+    const event = new KeyboardEvent("keydown", { key: "j" });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+
+    expect(handler(event)).toBe(false);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(term.select).toHaveBeenLastCalledWith(0, 2, 1);
+    expect(
+      globalThis.__TAURI_MOCKS__.invoke.mock.calls.some(
+        ([command]) => command === "pty_write",
+      ),
+    ).toBe(false);
+  });
+
+  test("copy mode visual selection updates xterm selection", async () => {
+    render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+
+    handler(new KeyboardEvent("keydown", { key: "v" }));
+    handler(new KeyboardEvent("keydown", { key: "l" }));
+
+    expect(term.select).toHaveBeenLastCalledWith(0, 1, 2);
+  });
+
+  test("copy mode y copies selected text and exits", async () => {
+    const { getByTestId } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+    handler(new KeyboardEvent("keydown", { key: "v" }));
+    handler(new KeyboardEvent("keydown", { key: "l" }));
+    term.getSelection.mockReturnValue("ga");
+
+    handler(new KeyboardEvent("keydown", { key: "y" }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ga");
+    expect(term.clearSelection).toHaveBeenCalled();
+    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
+      "data-copy-mode",
+      "false",
+    );
+  });
+
+  test("copy mode enter copies the current line without visual selection", async () => {
+    render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+
+    handler(new KeyboardEvent("keydown", { key: "Enter" }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("gamma delta");
+    expect(term.clearSelection).toHaveBeenCalled();
+  });
+
+  test("copy mode escape exits and clears synthetic selection", async () => {
+    const { getByTestId } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+
+    handler(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(term.clearSelection).toHaveBeenCalled();
+    expect(getByTestId("terminal-view").parentElement).toHaveAttribute(
+      "data-copy-mode",
+      "false",
     );
   });
 
