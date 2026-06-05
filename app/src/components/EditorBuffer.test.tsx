@@ -4,6 +4,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { EditorBuffer } from "./EditorBuffer";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async (_id: string, chart: string) => ({
+      svg: `<svg data-testid="mermaid-svg"><text>${chart}</text></svg>`,
+    })),
+  },
+}));
+
 function resetStore() {
   useSessionStore.setState({
     hydrated: true,
@@ -98,6 +107,24 @@ describe("EditorBuffer", () => {
       within(preview).getByRole("link", { name: "OpenAI" }).getAttribute("href"),
     ).toBe("https://openai.com");
     expect(within(preview).getByText("raw html").tagName).toBe("STRONG");
+  });
+
+  test("renders mermaid fenced code blocks as diagrams", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValueOnce(
+      Array.from(
+        new TextEncoder().encode(
+          "```mermaid\nflowchart TD\n  A --> B\n```\n\n```ts\nconst value = 1\n```",
+        ),
+      ),
+    );
+    render(<EditorBuffer path="/repo/README.md" workspaceRoot="/repo" />);
+
+    const preview = await screen.findByLabelText("Markdown preview");
+    const diagram = await within(preview).findByLabelText("Mermaid diagram");
+
+    await waitFor(() => expect(diagram.innerHTML).toContain("data-testid=\"mermaid-svg\""));
+    expect(preview.querySelector("pre code.language-mermaid")).toBeNull();
+    expect(preview.querySelector("pre code.language-ts")).toBeTruthy();
   });
 
   test("resolves local markdown images through workspace previews", async () => {
