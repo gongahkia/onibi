@@ -247,6 +247,62 @@ describe("TerminalView", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("selected text");
   });
 
+  test("lets remote-owned keybindings pass through to xterm", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalKeybindings: [{ keys: "cmd+c", action: "copy" as const }],
+    };
+    const { getByTestId } = render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={settings}
+        remoteKeybindingPolicy="remote"
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    term.getSelection.mockReturnValue("selected text");
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    const event = new KeyboardEvent("keydown", { key: "c", metaKey: true });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+
+    expect(handler(event)).toBe(true);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith("selected text");
+    expect(getByTestId("terminal-view").dataset.remoteKeybindings).toBe("remote");
+  });
+
+  test("restores pane history when no live replay is available", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "pty_replay") {
+        return null;
+      }
+      return null;
+    });
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={DEFAULT_SETTINGS}
+        initialTranscript={"hello\nworld"}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    await waitFor(() =>
+      expect(term.write).toHaveBeenCalledWith(
+        "[onibi: restored pane history]\r\nhello\r\nworld",
+      ),
+    );
+  });
+
   test("copies the current selection as rich html when configured", async () => {
     const settings = {
       ...DEFAULT_SETTINGS,

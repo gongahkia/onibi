@@ -201,6 +201,19 @@ describe("CommandPalette", () => {
     expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
   });
 
+  test("opens the remote SSH launcher", () => {
+    render(<CommandPalette />);
+
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "remote ssh" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(
+      screen.getByRole("dialog", { name: "New Remote SSH Session" }),
+    ).toBeTruthy();
+  });
+
   test("opens a git worktree from the palette", async () => {
     useSessionStore.setState({
       activeWorkspaceId: "workspace:/repo",

@@ -6348,7 +6348,7 @@ export async function spawnSessionFromLaunchSpec(
     agent: spec.agent,
     workspaceId: spec.workspaceId,
     title: spec.title,
-    remote: spec.remote ?? null,
+    ...(spec.remote ? { remote: spec.remote } : {}),
     ...shellModePatch(spec.shellMode),
   });
   const restart: SessionRestartMetadata = {
@@ -6473,7 +6473,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     try {
       const attached = await sessionAttach(session.id);
       if (attached?.session?.id) {
-      const replacement: Session = {
+        const replacement: Session = {
           ...mergeDaemonSession(session, attached.session),
           id: attached.session.id,
           status: "running",
@@ -6511,7 +6511,9 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     agent: session.agent,
     workspaceId: session.workspaceId,
     title: session.title,
-    remote: session.remote ?? session.restart.remote ?? null,
+    ...(session.remote ?? session.restart.remote
+      ? { remote: session.remote ?? session.restart.remote ?? null }
+      : {}),
     ...shellModePatch(session.restart.shellMode),
   });
   const replacement: Session = {
@@ -6560,7 +6562,9 @@ export async function duplicateSession(
       cwd: session.cwd ?? session.restart.cwd,
       env: session.restart.env,
       ...(session.restart.shellMode ? { shellMode: session.restart.shellMode } : {}),
-      remote: session.remote ?? session.restart.remote ?? null,
+      ...(session.remote ?? session.restart.remote
+        ? { remote: session.remote ?? session.restart.remote ?? null }
+        : {}),
     },
     placement,
   );

@@ -80,6 +80,23 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.terminalShellMode).toBe("non_login");
   });
 
+  test("updates remote session and pane history settings", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Preserve pane history across restarts"));
+    fireEvent.change(screen.getByLabelText("Remote keybindings policy"), {
+      target: { value: "remote" },
+    });
+    fireEvent.change(screen.getByLabelText("Remote SSH command"), {
+      target: { value: "/opt/homebrew/bin/ssh" },
+    });
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.paneHistoryEnabled).toBe(true);
+    expect(settings.remoteKeybindingPolicy).toBe("remote");
+    expect(settings.remoteSshCommand).toBe("/opt/homebrew/bin/ssh");
+  });
+
   test("updates a custom color scheme", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
 
