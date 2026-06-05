@@ -191,6 +191,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added terminal render-profile debug counters for bytes, chunks, batches, flush latency, replay duration, and total duration under `localStorage.onibiTerminalDebug = "1"`.
 - Added focused frontend and config tests for copy formats, OSC 52 gating, transparent backgrounds, profiling diagnostics, Settings UI, and TOML round trips.
 
+### Implemented in the terminal inline-image and profiling pass
+
+- Added opt-in `terminal_inline_images = "off" | "sixel" | "iterm" | "auto"` support through `@xterm/addon-image`; the default remains `"off"`.
+- Added Settings UI for inline image protocol mode and TOML round-trip coverage.
+- Added structured terminal render-profile reports under `localStorage.onibiTerminalDebug = "1"` with bounded recent in-memory storage and `onibi:terminal-render-profile` events.
+- Added Command Palette support for `Copy Terminal Render Profile`, which requests the active terminal's current profile and copies JSON to the clipboard.
+- Added focused frontend tests for image-addon gating, opt-in profile events, profile copy, and config persistence.
+
 ### Implemented in the workspace-first UX polish pass
 
 - Added per-agent display label overrides in Settings, persisted through `settings.agent_label_overrides` in `config.toml`.
@@ -206,7 +214,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
 - Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
-- xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, Sixel, and Kitty keyboard parity remain future terminal-native work.
+- xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, and Kitty keyboard parity remain future terminal-native work.
 
 ---
 
@@ -261,7 +269,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Partial |
 | **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Yes — drag, double-click, keyboard copy mode, plain/ANSI/HTML copy formats, and opt-in OSC 52 clipboard writes are wired |
 | **OSC 8 hyperlink click-through** | Yes | xterm.js link addon |
-| **Kitty graphics / sixel** | Yes (experimental) | No |
+| **Kitty graphics / sixel** | Yes (experimental) | Sixel and iTerm inline images are opt-in through `@xterm/addon-image`; Kitty graphics remain open |
 | **Kitty keyboard protocol** | Yes | No |
 | **Notifications: in-app toast** | Yes | Yes |
 | **Notifications: terminal (OSC)** | Yes | Partial |
@@ -337,9 +345,9 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 36. **Image-paste bridging** (local clipboard image → remote staged file path).
 
 ### 2.7 Terminal / rendering
-37. **[PARTIAL] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path for now, with WebGL fallback, throughput batching, replay hardening, and screen-reader mode wired. A libghostty-vt embed remains a future option only if xterm.js cannot cover required sixel, Kitty graphics, or Kitty keyboard parity.
+37. **[PARTIAL] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path for now, with WebGL fallback, throughput batching, replay hardening, screen-reader mode, and opt-in inline images wired. A libghostty-vt embed remains a future option only if xterm.js cannot cover required Kitty graphics or Kitty keyboard parity.
 38. **Kitty graphics protocol** support (experimental).
-39. **Sixel** rendering.
+39. **[DONE] Sixel** rendering — opt-in through `terminal_inline_images = "sixel"` or `"auto"` using `@xterm/addon-image`.
 40. **Kitty keyboard protocol** (enhanced key reporting, distinguishes `Ctrl+I` vs `Tab`, etc.).
 41. **[PARTIAL] CJK IME cursor-anchor exposure** for input-method candidate placement — IME composition is no longer intercepted by terminal keybindings, but native cursor-anchor placement is still not exposed.
 42. **[DONE] Transparent pane backgrounds** inheriting host terminal — available behind `terminal_transparent_background`.
@@ -395,7 +403,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 
 ### 2.16 Diagnostics / status
 76. **[DONE] `herdr status server | client` equivalent** — `onibi status server` and `onibi status client` report protocol/version, config path, runtime config, socket path, uptime, pane/session counts, DB/device/adapters, and daemon reachability.
-77. **[PARTIAL] Render-performance profiling** (`render_prof.rs`) — debug render-profile counters exist under `onibiTerminalDebug`; a standalone profiler/report and enforced thresholds remain open.
+77. **[DONE] Render-performance profiling** (`render_prof.rs`) — debug render-profile reports are requestable/copyable under `onibiTerminalDebug`, including renderer, dimensions, bytes/chunks/batches, latency, replay, and total-duration metrics.
 
 ### 2.17 UI / UX details
 78. **[DONE] Right-click pane context menu** — focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions are available from terminal panes.
@@ -442,8 +450,8 @@ Partial from Phase B: 16, 31.
 Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
-Completed from Phase C: 42, 43, 44, 45, 46, 47, 55, 56, plus xterm reliability hardening for 37 and IME interception hardening for 41.
-Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 39, 40, 41 native cursor-anchor placement, and 77 standalone profiling/reporting.
+Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm reliability hardening for 37 and IME interception hardening for 41.
+Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 40, and 41 native cursor-anchor placement.
 
 **Phase D — remote & distribution:**
 34, 35, 62, 73, 74.
