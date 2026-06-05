@@ -4658,7 +4658,9 @@ function mergeDaemonWorkspaces(
   daemonSessions: PtySessionMetadata[],
 ): Workspace[] {
   const byId = new Map(stored.map((workspace) => [workspace.id, workspace]));
-  for (const session of daemonSessions) {
+  for (const session of daemonSessions.filter(
+    (session) => session.lifecycle === "running",
+  )) {
     const workspace = workspaceFromDaemonSession(session);
     if (workspace && !byId.has(workspace.id)) {
       byId.set(workspace.id, workspace);
@@ -4674,19 +4676,20 @@ function mergeDaemonSessionRecords(
   livePtys: Set<string>,
 ): Session[] {
   const merged = stored.map((session) => {
-    const daemon = daemonById.get(session.id);
+    const normalized = normalizeSessionLaunchMetadata(session);
+    const daemon = daemonById.get(normalized.id);
     if (daemon) {
-      return mergeDaemonSession(session, daemon);
+      return mergeDaemonSession(normalized, daemon);
     }
-    const live = livePtys.has(session.id);
+    const live = livePtys.has(normalized.id);
     return {
-      ...session,
+      ...normalized,
       status: live
-        ? session.status === "stale"
+        ? normalized.status === "stale"
           ? "running"
-          : session.status
+          : normalized.status
         : "stale",
-      pendingApprovals: session.pendingApprovals ?? [],
+      pendingApprovals: normalized.pendingApprovals ?? [],
     } satisfies Session;
   });
   const knownIds = new Set(merged.map((session) => session.id));
@@ -4698,6 +4701,23 @@ function mergeDaemonSessionRecords(
     knownIds.add(daemon.id);
   }
   return merged;
+}
+
+function normalizeSessionLaunchMetadata(session: Session): Session {
+  if (
+    session.agent !== "claude-code" ||
+    session.restart?.command !== DEFAULT_AGENT_COMMANDS["claude-code"] ||
+    session.restart.args[0] !== "code"
+  ) {
+    return session;
+  }
+  return {
+    ...session,
+    restart: {
+      ...session.restart,
+      args: session.restart.args.slice(1),
+    },
+  };
 }
 
 function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Session {

@@ -284,6 +284,12 @@ fn load_persisted_sessions(store: &SessionMetadataStore) -> HashMap<String, Sess
         }
     };
     for mut session in sessions {
+        if let Some(restart) = session.restart.take() {
+            session.restart = Some(normalize_restart_metadata(
+                session.agent.as_deref(),
+                restart,
+            ));
+        }
         if session.lifecycle == SessionLifecycle::Running {
             session.lifecycle = SessionLifecycle::Stale;
             session.status = AgentStatus::Done;
@@ -300,6 +306,23 @@ fn load_persisted_sessions(store: &SessionMetadataStore) -> HashMap<String, Sess
         loaded.insert(session.id.clone(), session);
     }
     loaded
+}
+
+fn normalize_restart_metadata(
+    agent: Option<&str>,
+    mut restart: SessionRestartMetadata,
+) -> SessionRestartMetadata {
+    let command_name = Path::new(&restart.command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(restart.command.as_str());
+    if agent == Some("claude-code")
+        && command_name == "claude"
+        && restart.args.first().is_some_and(|arg| arg == "code")
+    {
+        restart.args.remove(0);
+    }
+    restart
 }
 
 #[derive(Debug, Deserialize)]
@@ -894,6 +917,7 @@ impl OrchestrationState {
         let restart = provider_restart_metadata(&session)
             .or_else(|| session.restart.clone())
             .ok_or_else(|| anyhow!("session has no restart metadata: {}", session.id))?;
+        let restart = normalize_restart_metadata(session.agent.as_deref(), restart);
         let previous_id = session.id.clone();
         self.mark_session_stopped(&previous_id, None).await;
         let req = PtySpawnRequest {
@@ -2571,10 +2595,10 @@ mod tests {
             id: "session-1".to_string(),
             pane_id: "session-1".to_string(),
             name: Some("dev".to_string()),
-            agent: Some("codex".to_string()),
+            agent: Some("claude-code".to_string()),
             workspace_id: Some("workspace:/repo".to_string()),
             cwd: Some("/repo".to_string()),
-            title: Some("Codex".to_string()),
+            title: Some("Claude Code".to_string()),
             status: AgentStatus::Working,
             lifecycle: SessionLifecycle::Running,
             rows: 30,
@@ -2586,8 +2610,8 @@ mod tests {
             exit_code: None,
             exit_signal: None,
             restart: Some(SessionRestartMetadata {
-                command: "codex".to_string(),
-                args: vec![],
+                command: "claude".to_string(),
+                args: vec!["code".to_string(), "--model".to_string(), "sonnet".to_string()],
                 cwd: Some("/repo".to_string()),
                 env: vec![],
                 shell_mode: ShellMode::Auto,
@@ -2601,9 +2625,17 @@ mod tests {
         assert_eq!(stale.lifecycle, SessionLifecycle::Stale);
         assert_eq!(stale.status, AgentStatus::Done);
         assert_eq!(stale.exit_signal.as_deref(), Some("daemon restart"));
+        assert_eq!(
+            stale.restart.as_ref().unwrap().args,
+            vec!["--model".to_string(), "sonnet".to_string()]
+        );
 
         let persisted = store.list().unwrap();
         assert_eq!(persisted[0].lifecycle, SessionLifecycle::Stale);
+        assert_eq!(
+            persisted[0].restart.as_ref().unwrap().args,
+            vec!["--model".to_string(), "sonnet".to_string()]
+        );
     }
 
     fn test_spawn_request(

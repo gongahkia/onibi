@@ -339,6 +339,100 @@ claude-code = "claude --dangerously-skip-permissions"
     );
   });
 
+  test("marks missing restored PTYs stale and migrates legacy Claude restart args", async () => {
+    const store = await load("settings.json");
+    await store.set("sessions", [
+      {
+        id: "pty-old",
+        agent: "claude-code",
+        workspaceId: "workspace:/repo",
+        title: "Claude Code · repo",
+        status: "running",
+        createdAt: 1,
+        pendingApprovals: [],
+        restart: {
+          command: "claude",
+          args: ["code"],
+          cwd: "/repo",
+          env: [],
+        },
+      },
+    ]);
+    await store.set("workspaces", [{ id: "workspace:/repo", path: "/repo", name: "repo" }]);
+    await store.set("terminalLayout", {
+      type: "leaf",
+      paneId: "pane-old",
+      sessionId: "pty-old",
+      sessionIds: ["pty-old"],
+    });
+    await store.set("activeTerminalPaneId", "pane-old");
+
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions" || command === "pty_list") {
+        return [];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sessions[0]).toMatchObject({
+      id: "pty-old",
+      status: "stale",
+      restart: {
+        command: "claude",
+        args: [],
+      },
+    });
+    expect(state.terminalLayout).toBeNull();
+    expect(state.activeSessionId).toBeNull();
+  });
+
+  test("does not restore workspaces from stale daemon session history", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [
+          {
+            id: "pty-stale",
+            paneId: "pty-stale",
+            agent: "claude-code",
+            workspaceId: "workspace:/missing",
+            cwd: "/missing",
+            title: "Claude Code · missing",
+            status: "done",
+            lifecycle: "stale",
+            rows: 30,
+            cols: 100,
+            createdAt: 1,
+            updatedAt: 1,
+            stoppedAt: 1,
+            exitCode: 1,
+            exitSignal: "daemon restart",
+            restart: null,
+          },
+        ];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    expect(useSessionStore.getState().workspaces).toEqual([]);
+  });
+
   test("defaults bind prefix number keys to workspace tabs", async () => {
     expect(DEFAULT_SETTINGS.appKeybindings).toContainEqual({
       keys: "prefix+1",
