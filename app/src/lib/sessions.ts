@@ -4963,25 +4963,28 @@ export async function hydrateSessionStore(): Promise<void> {
         .filter((session) => session.lifecycle === "running")
         .map((session) => session.id),
     );
-    const configuredWorkspaceIds = new Set(
-      (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
-    );
-    const workspaceSources = [
-      ...(tomlConfig?.workspaces ?? []),
-      ...(workspaces ?? []).filter(
-        (workspace) => !configuredWorkspaceIds.has(workspace.id),
-      ),
-    ];
-    const restoredWorkspaces = mergeDaemonWorkspaces(workspaceSources, daemonSessions);
-    const restoredSessions = mergeDaemonSessionRecords(
-      sessions ?? [],
-      daemonSessions,
-      daemonById,
-      livePtys,
-    );
-    const restoredTerminalSessions = restoredSessions.filter((session) =>
-      sessionHasRestorableTerminal(session),
-    );
+	    const configuredWorkspaceIds = new Set(
+	      (tomlConfig?.workspaces ?? []).map((workspace) => workspace.id),
+	    );
+	    const restoredSessions = mergeDaemonSessionRecords(
+	      sessions ?? [],
+	      daemonSessions,
+	      daemonById,
+	      livePtys,
+	    );
+	    const restoredSessionWorkspaceIds = workspaceIdsForSessions(restoredSessions);
+	    const workspaceSources = [
+	      ...(tomlConfig?.workspaces ?? []),
+	      ...(workspaces ?? []).filter(
+	        (workspace) =>
+	          !configuredWorkspaceIds.has(workspace.id) &&
+	          restoredSessionWorkspaceIds.has(workspace.id),
+	      ),
+	    ];
+	    const restoredWorkspaces = mergeDaemonWorkspaces(workspaceSources, daemonSessions);
+	    const restoredTerminalSessions = restoredSessions.filter((session) =>
+	      sessionHasRestorableTerminal(session),
+	    );
     const restoredTerminalIds = new Set(
       restoredTerminalSessions.map((session) => session.id),
     );

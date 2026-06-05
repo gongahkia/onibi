@@ -111,6 +111,49 @@ describe("session hydration", () => {
     });
   });
 
+  test("drops stored-only workspace roots during hydration", async () => {
+    const store = await load("settings.json");
+    await store.set("sessions", []);
+    await store.set("workspaces", [
+      { id: "workspace:/repo", path: "/repo", name: "repo" },
+    ]);
+    await store.set("workspaceTabs", [
+      {
+        id: "tab-1",
+        workspaceId: "workspace:/repo",
+        title: "Terminal",
+        terminalLayout: null,
+        activeTerminalPaneId: null,
+        maximizedTerminalPaneId: null,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    await store.set("activeWorkspaceId", "workspace:/repo");
+    await store.set("activeWorkspaceTabId", "tab-1");
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.workspaces).toEqual([]);
+    expect(state.workspaceTabs).toEqual([]);
+    expect(state.activeWorkspaceId).toBeNull();
+    expect(state.activeWorkspaceTabId).toBeNull();
+  });
+
   test("moves terminal panes while preserving split geometry", async () => {
     const layout: TerminalPaneNode = {
       type: "split",
