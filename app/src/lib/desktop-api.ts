@@ -7,6 +7,8 @@ import {
 import { listCommandBlocks } from "./command-blocks";
 import {
   AGENT_KINDS,
+  launchAgentInWorkspacePath,
+  openWorkspacePath,
   restoreArrangement,
   sessionAttentionState,
   spawnAgentSession,
@@ -180,6 +182,21 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const prompt = stringPayloadField(message.payload, "prompt") ?? "";
     const cwd = stringPayloadField(message.payload, "cwd");
     await spawnAgentSession(agent, workspace, prompt, null, { cwd });
+    return;
+  }
+  if (message.kind === "worktree-open") {
+    const path = stringPayloadField(message.payload, "path");
+    if (!path) {
+      return;
+    }
+    const agentValue = stringPayloadField(message.payload, "agent");
+    const agent = findAgent(agentValue, state.settings.defaultAgent);
+    const prompt = stringPayloadField(message.payload, "prompt") ?? "";
+    if (agentValue && agent) {
+      await launchAgentInWorkspacePath(agent, path, prompt);
+    } else {
+      await openWorkspacePath(path);
+    }
     return;
   }
   if (message.kind === "pane-focus") {

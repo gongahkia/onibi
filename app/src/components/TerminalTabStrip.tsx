@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { agentIconUrl } from "../lib/agent-icons";
 import {
-  AGENT_LABELS,
+  agentDisplayLabel,
   sessionAttentionState,
   useSessionStore,
   type Session,
@@ -22,6 +22,9 @@ export function TerminalTabStrip({
   onCloseSession,
 }: TerminalTabStripProps) {
   const setActivePaneSession = useSessionStore((state) => state.setActivePaneSession);
+  const agentLabelOverrides = useSessionStore(
+    (state) => state.settings.agentLabelOverrides,
+  );
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
     [sessions],
@@ -74,7 +77,7 @@ export function TerminalTabStrip({
                 onCloseSession(session);
               }
             }}
-            title={`${AGENT_LABELS[session.agent]} · ${session.title}`}
+            title={`${agentDisplayLabel(session.agent, agentLabelOverrides)} · ${session.title}`}
           >
             <img className="terminal-tab-icon" src={agentIconUrl(session.agent)} alt="" />
             <span className="terminal-tab-label">{session.title}</span>

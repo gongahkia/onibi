@@ -239,6 +239,17 @@ pub struct DesktopSessionLaunchBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DesktopWorktreeOpenBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub path: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DesktopSessionInputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,

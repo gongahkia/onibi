@@ -119,7 +119,15 @@ export async function getGitFileDiff(
 
 export async function listGitWorktrees(root: string): Promise<GitWorktree[]> {
   const worktrees = await invoke<GitWorktree[] | null>("git_worktrees", { root });
-  return Array.isArray(worktrees) ? worktrees : [];
+  return Array.isArray(worktrees)
+    ? worktrees.filter(
+        (worktree): worktree is GitWorktree =>
+          typeof worktree?.path === "string" &&
+          typeof worktree.detached === "boolean" &&
+          typeof worktree.bare === "boolean" &&
+          typeof worktree.prunable === "boolean",
+      )
+    : [];
 }
 
 export async function createGitWorktree(

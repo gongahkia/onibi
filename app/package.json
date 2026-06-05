@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-store": "^2.4.3",
     "@vscode/codicons": "^0.0.36",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-image": "^0.9.0",
     "@xterm/addon-ligatures": "^0.9.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",

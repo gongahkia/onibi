@@ -262,6 +262,10 @@ pub fn router(state: AppState) -> Router {
             post(routes::desktop_session_input),
         )
         .route(
+            "/v1/desktop/worktree/open",
+            post(routes::desktop_worktree_open),
+        )
+        .route(
             "/v1/desktop/session/:id/focus",
             post(routes::desktop_session_focus),
         )

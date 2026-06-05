@@ -57,6 +57,20 @@ describe("SettingsPane", () => {
     expect(useSessionStore.getState().settings.showTerminalPaneAgentLabels).toBe(false);
   });
 
+  test("updates custom agent display labels", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Agents"));
+
+    const input = screen.getByLabelText("Codex display label");
+    fireEvent.change(input, { target: { value: "Local Codex" } });
+    expect(useSessionStore.getState().settings.agentLabelOverrides.codex).toBe(
+      "Local Codex",
+    );
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(useSessionStore.getState().settings.agentLabelOverrides.codex).toBeUndefined();
+  });
+
   test("updates terminal shell mode", () => {
     render(<SettingsPane open onClose={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Shell mode"), {
@@ -193,6 +207,21 @@ describe("SettingsPane", () => {
     fireEvent.click(screen.getByLabelText("Enable terminal screen reader mode"));
 
     expect(useSessionStore.getState().settings.terminalScreenReaderMode).toBe(true);
+  });
+
+  test("stores terminal copy and clipboard polish settings", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Terminal copy format"), {
+      target: { value: "html" },
+    });
+    fireEvent.click(screen.getByLabelText("Enable OSC 52 clipboard writes"));
+    fireEvent.click(screen.getByLabelText("Use transparent terminal background"));
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.terminalCopyFormat).toBe("html");
+    expect(settings.terminalOsc52Clipboard).toBe(true);
+    expect(settings.terminalTransparentBackground).toBe(true);
   });
 
   test("adds custom command keybindings", () => {

@@ -14,10 +14,13 @@ import {
   createWorkspaceFile,
   createWorkspaceFileWithContents,
   deleteWorkspacePath,
+  launchAgentInWorkspacePath,
   listWorkspaceDir,
   moveWorkspacePath,
+  openWorkspacePath,
   readWorkspaceFile,
   renameWorkspacePath,
+  removeWorkspaceAndCloseSessions,
   selectedFileFromEntry,
   type FsEntry,
   type Session,
@@ -26,11 +29,12 @@ import {
   useSessionStore,
 } from "../lib/sessions";
 import type { AgentReviewRecord } from "../lib/agent-review";
-import type { GitTreeState } from "../lib/git";
+import { listGitWorktrees, type GitTreeState, type GitWorktree } from "../lib/git";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 type ChildrenByPath = Record<string, FsEntry[]>;
 type ErrorByPath = Record<string, string>;
+type WorktreesByWorkspace = Record<string, GitWorktree[]>;
 const FILE_TREE_DRAG_MIME = "application/x-onibi-file-tree-entry";
 const WORKSPACE_DRAG_MIME = "application/x-onibi-workspace";
 
@@ -294,7 +298,6 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
   const selectFile = useSessionStore((state) => state.selectFile);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
-  const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const reorderWorkspaces = useSessionStore((state) => state.reorderWorkspaces);
   const toggleWorkspaceCollapsed = useSessionStore(
     (state) => state.toggleWorkspaceCollapsed,
@@ -306,6 +309,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
   const [children, setChildren] = useState<ChildrenByPath>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<ErrorByPath>({});
+  const [worktrees, setWorktrees] = useState<WorktreesByWorkspace>({});
+  const [worktreesLoading, setWorktreesLoading] = useState<Record<string, boolean>>({});
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dragged, setDragged] = useState<DragPayload | null>(null);
@@ -777,6 +782,42 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     );
   }
 
+  async function refreshWorktrees(workspace: Workspace) {
+    setWorktreesLoading((state) => ({ ...state, [workspace.id]: true }));
+    try {
+      const next = await listGitWorktrees(workspace.path);
+      setWorktrees((state) => ({ ...state, [workspace.id]: next }));
+    } catch {
+      setWorktrees((state) => ({ ...state, [workspace.id]: [] }));
+    } finally {
+      setWorktreesLoading((state) => ({ ...state, [workspace.id]: false }));
+    }
+  }
+
+  async function openWorktree(path: string) {
+    setErrors((state) => ({ ...state, global: "" }));
+    try {
+      await openWorkspacePath(path);
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
+  async function launchWorktree(path: string) {
+    setErrors((state) => ({ ...state, global: "" }));
+    try {
+      await launchAgentInWorkspacePath(settings.defaultAgent, path);
+    } catch (caught) {
+      setErrors((state) => ({
+        ...state,
+        global: caught instanceof Error ? caught.message : String(caught),
+      }));
+    }
+  }
+
   async function addWorkspaceFromPicker() {
     setChoosingWorkspace(true);
     setErrors((state) => ({ ...state, global: "" }));
@@ -810,6 +851,24 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     setExpanded((state) => (state[key] ? state : { ...state, [key]: true }));
     void loadChildren(activeWorkspace, activeWorkspace.path);
   }, [activeWorkspace?.id, activeWorkspace?.path]);
+
+  useEffect(() => {
+    for (const workspace of visibleWorkspaces) {
+      void refreshWorktrees(workspace);
+    }
+  }, [visibleWorkspaces]);
+
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      return;
+    }
+    setExpanded({});
+    setChildren({});
+    setLoading({});
+    setWorktrees({});
+    setWorktreesLoading({});
+    setContextMenu(null);
+  }, [workspaces.length]);
 
   useEffect(() => {
     setContextMenu(null);
@@ -848,6 +907,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
           loading={Boolean(loading[nodeKey(workspace, workspace.path)])}
           error={errors[nodeKey(workspace, workspace.path)]}
           entries={visibleEntries(children[nodeKey(workspace, workspace.path)] ?? [])}
+          worktrees={worktrees[workspace.id] ?? []}
+          worktreesLoading={Boolean(worktreesLoading[workspace.id])}
           showFileIcons={settings.showFileIcons}
           gitStatusByPath={gitStatusByPath}
           active={workspace.id === activeWorkspace?.id}
@@ -898,6 +959,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
             }
             void handleDrop(event, contextTargetFor(workspace));
           }}
+          onOpenWorktree={(path) => void openWorktree(path)}
+          onLaunchWorktree={(path) => void launchWorktree(path)}
           renderNode={(entry, depth) => (
             <TreeNode
               key={entry.path}
@@ -956,6 +1019,8 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
       workspaceDropIndicator,
       dropTargetKey,
       loading,
+      worktrees,
+      worktreesLoading,
       selectFile,
       selectedFile,
       settings.showFileIcons,
@@ -966,6 +1031,7 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
       activeWorkspace?.id,
       setActiveWorkspace,
       sessions,
+      settings.defaultAgent,
       reorderWorkspaces,
       toggleWorkspaceCollapsed,
     ],
@@ -1052,7 +1118,17 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
         </label>
       </div>
       {errors.global ? <div className="tree-error">{errors.global}</div> : null}
-      <div className="workspace-list">{workspaceRows}</div>
+      <div className="workspace-list">
+        {workspaceRows.length > 0 ? (
+          workspaceRows
+        ) : (
+          <div className="sidebar-empty">
+            <i className="codicon codicon-folder-opened" aria-hidden="true" />
+            <p>No workspace open</p>
+            <span>Open a folder to start a workspace.</span>
+          </div>
+        )}
+      </div>
       {contextMenu ? (
         <FileTreeContextMenu
           menu={contextMenu}
@@ -1069,7 +1145,9 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
           onRefresh={(target) => void refreshTarget(target)}
           onRename={(target) => void renameTarget(target)}
           onDelete={(target) => void deleteTarget(target)}
-          onRemoveWorkspace={(target) => removeWorkspace(target.workspace.id)}
+          onRemoveWorkspace={(target) =>
+            void removeWorkspaceAndCloseSessions(target.workspace.id)
+          }
         />
       ) : null}
     </aside>
@@ -1199,6 +1277,8 @@ interface WorkspaceRootProps {
   loading: boolean;
   error?: string;
   entries: FsEntry[];
+  worktrees: GitWorktree[];
+  worktreesLoading: boolean;
   showFileIcons: boolean;
   gitStatusByPath?: Record<string, GitTreeState>;
   active: boolean;
@@ -1214,6 +1294,8 @@ interface WorkspaceRootProps {
   onDragOver: (event: DragEvent) => void;
   onDragLeave: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
+  onOpenWorktree: (path: string) => void;
+  onLaunchWorktree: (path: string) => void;
   renderNode: (entry: FsEntry, depth: number) => ReactNode;
 }
 
@@ -1224,6 +1306,8 @@ function WorkspaceRoot({
   loading,
   error,
   entries,
+  worktrees,
+  worktreesLoading,
   showFileIcons,
   gitStatusByPath,
   active,
@@ -1239,6 +1323,8 @@ function WorkspaceRoot({
   onDragOver,
   onDragLeave,
   onDrop,
+  onOpenWorktree,
+  onLaunchWorktree,
   renderNode,
 }: WorkspaceRootProps) {
   const gitState = gitStateForPath(gitStatusByPath, workspace.path, true);
@@ -1289,10 +1375,85 @@ function WorkspaceRoot({
       {error ? <div className="tree-error">{error}</div> : null}
       {expanded && !collapsed ? (
         <div className="tree-children">
+          <WorkspaceWorktrees
+            currentPath={workspace.path}
+            loading={worktreesLoading}
+            worktrees={worktrees}
+            onOpen={onOpenWorktree}
+            onLaunch={onLaunchWorktree}
+          />
           {entries.map((entry) => renderNode(entry, 1))}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function worktreeLabel(worktree: GitWorktree): string {
+  return (
+    worktree.branch ??
+    (worktree.detached ? "detached" : worktree.path.split("/").pop() ?? "worktree")
+  );
+}
+
+function WorkspaceWorktrees({
+  currentPath,
+  loading,
+  worktrees,
+  onOpen,
+  onLaunch,
+}: {
+  currentPath: string;
+  loading: boolean;
+  worktrees: GitWorktree[];
+  onOpen: (path: string) => void;
+  onLaunch: (path: string) => void;
+}) {
+  if (loading || worktrees.length === 0) {
+    return null;
+  }
+  return (
+    <div className="workspace-worktrees" aria-label="Git worktrees">
+      {worktrees.map((worktree) => {
+        const current = worktree.path === currentPath;
+        const label = worktreeLabel(worktree);
+        return (
+          <div className="workspace-worktree-row" key={worktree.path}>
+            <span
+              className={`workspace-worktree-label ${current ? "current" : ""}`}
+              title={worktree.path}
+            >
+              {current ? "current" : label}
+            </span>
+            <button
+              type="button"
+              className="tree-action-button"
+              disabled={current}
+              title="Open as workspace"
+              aria-label={`Open worktree ${worktree.path}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen(worktree.path);
+              }}
+            >
+              O
+            </button>
+            <button
+              type="button"
+              className="tree-action-button"
+              title="Launch default agent"
+              aria-label={`Launch default agent in ${worktree.path}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onLaunch(worktree.path);
+              }}
+            >
+              <i className="codicon codicon-play" aria-hidden="true" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

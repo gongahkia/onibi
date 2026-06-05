@@ -6,8 +6,9 @@ use crate::{
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
         Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
-        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody, PairRequest,
-        PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
+        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
+        DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody,
+        ServerMessage, PROTOCOL_VERSION,
     },
     push,
     transport::{lan, TransportSnapshot},
@@ -277,6 +278,22 @@ pub async fn desktop_session_input(
         json!({
             "sessionId": session_id,
             "text": body.text,
+        }),
+    )))
+}
+
+pub async fn desktop_worktree_open(
+    State(state): State<AppState>,
+    ApiJson(body): ApiJson<DesktopWorktreeOpenBody>,
+) -> ApiResult<DesktopCommandResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    Ok(Json(broadcast_desktop_command(
+        &state,
+        "worktree-open",
+        json!({
+            "path": body.path,
+            "agent": body.agent,
+            "prompt": body.prompt,
         }),
     )))
 }

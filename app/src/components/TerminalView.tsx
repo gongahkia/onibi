@@ -23,6 +23,7 @@ import {
   type AppSettings,
   type SessionCommandMarker,
   type SessionPreview,
+  type TerminalCopyFormat,
   type TerminalKeybindingAction,
   type TerminalTriggerMatch,
 } from "../lib/sessions";
@@ -97,18 +98,105 @@ interface CopyModeState {
   anchor: CopyModePosition | null;
 }
 
+interface CopyPayload {
+  plain: string;
+  ansi?: string;
+  html?: string;
+}
+
+interface RenderProfile {
+  startedAt: number;
+  chunks: number;
+  bytes: number;
+  batches: number;
+  maxBatchBytes: number;
+  totalFlushLatencyMs: number;
+  maxFlushLatencyMs: number;
+  replayBytes: number;
+  replayDurationMs: number | null;
+}
+
+const OSC52_CLIPBOARD_MAX_BYTES = 1024 * 1024;
+
 function terminalDebug(message: string, metadata?: Record<string, unknown>) {
-  try {
-    if (globalThis.localStorage?.getItem("onibiTerminalDebug") === "1") {
-      console.debug(`[onibi:terminal] ${message}`, metadata ?? {});
-    }
-  } catch {
-    // localStorage can be unavailable in hardened webviews or tests.
+  if (terminalDebugEnabled()) {
+    console.debug(`[onibi:terminal] ${message}`, metadata ?? {});
   }
 }
 
 function isImeCompositionEvent(event: KeyboardEvent): boolean {
   return event.isComposing || event.key === "Process" || event.key === "Dead";
+}
+
+function terminalDebugEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem("onibiTerminalDebug") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function terminalThemeForTransparency(
+  theme: ReturnType<typeof terminalThemeForSettings>,
+  transparent: boolean,
+): ReturnType<typeof terminalThemeForSettings> {
+  return transparent ? { ...theme, background: "transparent" } : theme;
+}
+
+function textFromBytes(bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Safe(data: string): Uint8Array | null {
+  try {
+    return decodeBase64(data);
+  } catch {
+    return null;
+  }
+}
+
+function copyModeSerializeRange(state: CopyModeState): { start: number; end: number } {
+  const rows = state.anchor
+    ? [state.anchor.row, state.cursor.row]
+    : [state.cursor.row, state.cursor.row];
+  return { start: Math.min(...rows), end: Math.max(...rows) };
+}
+
+async function writeClipboardPayload(
+  payload: CopyPayload,
+  format: TerminalCopyFormat,
+): Promise<void> {
+  const plain = payload.plain;
+  if (!plain) {
+    return;
+  }
+  if (
+    format === "html" &&
+    payload.html &&
+    typeof ClipboardItem !== "undefined" &&
+    typeof navigator.clipboard?.write === "function"
+  ) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+          "text/html": new Blob([payload.html], { type: "text/html" }),
+        }),
+      ]);
+      return;
+    } catch (error) {
+      terminalDebug("html clipboard fallback", { error: String(error) });
+    }
+  }
+  if (format === "ansi" && payload.ansi) {
+    await navigator.clipboard?.writeText(payload.ansi);
+    return;
+  }
+  await navigator.clipboard?.writeText(plain);
 }
 
 function quoteFontFamily(family: string): string {
@@ -526,6 +614,14 @@ export function TerminalView({
   const [searchQuery, setSearchQuery] = useState("");
   const [copyModeActive, setCopyModeActive] = useState(false);
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
+  const resolvedTerminalTheme = useMemo(
+    () =>
+      terminalThemeForTransparency(
+        terminalTheme,
+        settings.terminalTransparentBackground,
+      ),
+    [settings.terminalTransparentBackground, terminalTheme],
+  );
   const resolvedScrollback = terminalScrollbackLinesForSettings(settings);
   const resolvedFontFamily = useMemo(
     () => terminalFontStack(fontFamily),
@@ -658,7 +754,7 @@ export function TerminalView({
       rightClickSelectsWord: true,
       scrollback: resolvedScrollback,
       screenReaderMode: settings.terminalScreenReaderMode,
-      theme: terminalTheme,
+      theme: resolvedTerminalTheme,
     });
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -685,6 +781,35 @@ export function TerminalView({
         ;(term as unknown as { _onibiActiveLink?: string })._onibiActiveLink = undefined;
       }
       return false; // allow xterm to keep parsing
+    });
+    term.parser.registerOscHandler(52, (data) => {
+      if (!settings.terminalOsc52Clipboard) {
+        return true;
+      }
+      const separator = data.indexOf(";");
+      if (separator < 0) {
+        return true;
+      }
+      const payload = data.slice(separator + 1).trim();
+      if (!payload || payload === "?") {
+        return true;
+      }
+      const bytes = decodeBase64Safe(payload);
+      if (!bytes || bytes.length > OSC52_CLIPBOARD_MAX_BYTES) {
+        terminalDebug("osc52 ignored", {
+          ptyId,
+          reason: bytes ? "oversized" : "malformed",
+          bytes: bytes?.length ?? null,
+        });
+        return true;
+      }
+      const text = textFromBytes(bytes);
+      if (text) {
+        void navigator.clipboard?.writeText(text).catch((error) => {
+          terminalDebug("osc52 clipboard failed", { ptyId, error: String(error) });
+        });
+      }
+      return true;
     });
 
     term.open(container);
@@ -722,10 +847,64 @@ export function TerminalView({
     resizeObserver.observe(container);
 
     let selectionCopyFrame = 0;
+    const writeTerminalClipboard = (payload: CopyPayload) => {
+      void writeClipboardPayload(payload, settings.terminalCopyFormat).catch((error) => {
+        terminalDebug("clipboard write failed", { ptyId, error: String(error) });
+      });
+    };
+    const copyHtmlSelection = () => {
+      try {
+        return serializeAddon.serializeAsHTML({
+          onlySelection: true,
+          includeGlobalBackground: false,
+        });
+      } catch (error) {
+        terminalDebug("selection html serialize failed", {
+          ptyId,
+          error: String(error),
+        });
+        return undefined;
+      }
+    };
+    const copyPayloadForModeState = (state: CopyModeState): CopyPayload => {
+      const plain = state.anchor
+        ? term.getSelection() || copyModeTextFromRange(term, state.anchor, state.cursor)
+        : copyModeLineText(term, state.cursor.row, true);
+      const rowRange = copyModeSerializeRange(state);
+      let ansi: string | undefined;
+      let html: string | undefined;
+      try {
+        ansi = serializeAddon.serialize({
+          range: rowRange,
+          excludeModes: true,
+          excludeAltBuffer: true,
+        });
+      } catch (error) {
+        terminalDebug("ansi serialize failed", { ptyId, error: String(error) });
+      }
+      try {
+        html = state.anchor
+          ? copyHtmlSelection()
+          : serializeAddon.serializeAsHTML({
+              includeGlobalBackground: false,
+              range: {
+                startLine: state.cursor.row,
+                endLine: state.cursor.row,
+                startCol: 0,
+              },
+            });
+      } catch (error) {
+        terminalDebug("html serialize failed", { ptyId, error: String(error) });
+      }
+      return { plain, ansi, html };
+    };
     const copyTerminalSelection = () => {
       const selection = term.getSelection();
       if (selection) {
-        void navigator.clipboard?.writeText(selection);
+        writeTerminalClipboard({
+          plain: selection,
+          html: copyHtmlSelection(),
+        });
       }
     };
     const handleDoubleClick = () => {
@@ -756,12 +935,7 @@ export function TerminalView({
       if (!state) {
         return;
       }
-      const text = state.anchor
-        ? term.getSelection() || copyModeTextFromRange(term, state.anchor, state.cursor)
-        : copyModeLineText(term, state.cursor.row, true);
-      if (text) {
-        void navigator.clipboard?.writeText(text);
-      }
+      writeTerminalClipboard(copyPayloadForModeState(state));
       exitCopyMode();
     };
     const updateCopyModeCursor = (cursor: CopyModePosition) => {
@@ -939,20 +1113,36 @@ export function TerminalView({
     let unlisten: (() => void) | undefined;
     let replayReady = false;
     let replayEndOffset = 0;
+    const attachStartedAt = performance.now();
+    const renderProfile: RenderProfile = {
+      startedAt: attachStartedAt,
+      chunks: 0,
+      bytes: 0,
+      batches: 0,
+      maxBatchBytes: 0,
+      totalFlushLatencyMs: 0,
+      maxFlushLatencyMs: 0,
+      replayBytes: 0,
+      replayDurationMs: null,
+    };
     const queuedEvents: PtyWireEvent[] = [];
     const pendingWriteChunks: Uint8Array[] = [];
     let pendingWriteBytes = 0;
     let pendingWriteFrame = 0;
+    let pendingFirstQueuedAt: number | null = null;
     const flushPtyWrites = () => {
       pendingWriteFrame = 0;
       if (disposed || pendingWriteChunks.length === 0) {
         pendingWriteChunks.length = 0;
         pendingWriteBytes = 0;
+        pendingFirstQueuedAt = null;
         return;
       }
       const chunks = pendingWriteChunks.splice(0);
       const byteCount = pendingWriteBytes;
+      const queuedAt = pendingFirstQueuedAt;
       pendingWriteBytes = 0;
+      pendingFirstQueuedAt = null;
       const text = chunks
         .map((chunk) => textDecoderRef.current.decode(chunk, { stream: true }))
         .join("");
@@ -962,17 +1152,29 @@ export function TerminalView({
       applyOutputMetadata(text);
       applyTriggers(text);
       term.write(text);
+      const flushLatency = queuedAt === null ? 0 : performance.now() - queuedAt;
+      renderProfile.batches += 1;
+      renderProfile.maxBatchBytes = Math.max(renderProfile.maxBatchBytes, byteCount);
+      renderProfile.totalFlushLatencyMs += flushLatency;
+      renderProfile.maxFlushLatencyMs = Math.max(
+        renderProfile.maxFlushLatencyMs,
+        flushLatency,
+      );
       terminalDebug("write batch", {
         ptyId,
         chunks: chunks.length,
         bytes: byteCount,
         characters: text.length,
+        flushLatencyMs: Math.round(flushLatency),
       });
     };
     const queuePtyBytes = (bytes: Uint8Array) => {
       if (bytes.length === 0) {
         return;
       }
+      renderProfile.chunks += 1;
+      renderProfile.bytes += bytes.length;
+      pendingFirstQueuedAt ??= performance.now();
       pendingWriteChunks.push(bytes);
       pendingWriteBytes += bytes.length;
       if (pendingWriteBytes >= 64 * 1024) {
@@ -1055,6 +1257,8 @@ export function TerminalView({
         }
         if (replay) {
           replayEndOffset = replay.endOffset;
+          renderProfile.replayBytes = Math.max(0, replay.endOffset - replay.startOffset);
+          renderProfile.replayDurationMs = performance.now() - attachStartedAt;
           writePtyData(replay.data);
           terminalDebug("replay snapshot", {
             ptyId,
@@ -1117,6 +1321,24 @@ export function TerminalView({
       webLinksAddon.dispose();
       webglContextLossDisposable?.dispose();
       webglAddon?.dispose();
+      terminalDebug("render profile", {
+        ptyId,
+        bytes: renderProfile.bytes,
+        chunks: renderProfile.chunks,
+        batches: renderProfile.batches,
+        maxBatchBytes: renderProfile.maxBatchBytes,
+        avgFlushLatencyMs:
+          renderProfile.batches > 0
+            ? Math.round(renderProfile.totalFlushLatencyMs / renderProfile.batches)
+            : 0,
+        maxFlushLatencyMs: Math.round(renderProfile.maxFlushLatencyMs),
+        replayBytes: renderProfile.replayBytes,
+        replayDurationMs:
+          renderProfile.replayDurationMs === null
+            ? null
+            : Math.round(renderProfile.replayDurationMs),
+        totalDurationMs: Math.round(performance.now() - renderProfile.startedAt),
+      });
       searchAddon.dispose();
       fitAddon.dispose();
       unicode11Addon.dispose();
@@ -1132,6 +1354,8 @@ export function TerminalView({
     onUnavailable,
     openSearch,
     ptyId,
+    settings.terminalCopyFormat,
+    settings.terminalOsc52Clipboard,
     settings.terminalScreenReaderMode,
     triggerMatchers,
   ]);
@@ -1154,7 +1378,7 @@ export function TerminalView({
       lineHeight: 1,
       scrollback: resolvedScrollback,
       screenReaderMode: settings.terminalScreenReaderMode,
-      theme: terminalTheme,
+      theme: resolvedTerminalTheme,
     };
     term.clearTextureAtlas();
     refreshTerminalLayout(visibleRef.current);
@@ -1164,16 +1388,23 @@ export function TerminalView({
     resolvedFontFamily,
     resolvedScrollback,
     settings.terminalScreenReaderMode,
-    terminalTheme.background,
-    terminalTheme.cursor,
-    terminalTheme.foreground,
-    terminalTheme.selectionBackground,
+    resolvedTerminalTheme.background,
+    resolvedTerminalTheme.cursor,
+    resolvedTerminalTheme.foreground,
+    resolvedTerminalTheme.selectionBackground,
   ]);
 
   return (
     <div
-      className={`terminal-view-shell ${copyModeActive ? "copy-mode" : ""}`}
+      className={[
+        "terminal-view-shell",
+        copyModeActive ? "copy-mode" : "",
+        settings.terminalTransparentBackground ? "transparent" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-copy-mode={copyModeActive ? "true" : "false"}
+      data-transparent={settings.terminalTransparentBackground ? "true" : "false"}
     >
       <div
         ref={containerRef}

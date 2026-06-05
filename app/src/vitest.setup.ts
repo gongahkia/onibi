@@ -94,8 +94,23 @@ Object.defineProperty(window, "prompt", {
 
 Object.defineProperty(navigator, "clipboard", {
   value: {
+    readText: vi.fn(async () => ""),
+    write: vi.fn(async () => undefined),
     writeText: vi.fn(async () => undefined),
   },
+  writable: true,
+});
+
+class ClipboardItemMock {
+  readonly items: Record<string, Blob>;
+
+  constructor(items: Record<string, Blob>) {
+    this.items = items;
+  }
+}
+
+Object.defineProperty(globalThis, "ClipboardItem", {
+  value: ClipboardItemMock,
   writable: true,
 });
 

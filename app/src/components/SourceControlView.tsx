@@ -16,9 +16,9 @@ import {
   unstageGitPaths,
 } from "../lib/git";
 import {
-  spawnAgentSession,
+  launchAgentInWorkspacePath,
+  openWorkspacePath,
   useSessionStore,
-  workspaceFromPath,
   type Workspace,
 } from "../lib/sessions";
 
@@ -142,7 +142,6 @@ export function SourceControlView({
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const [worktreesLoading, setWorktreesLoading] = useState(false);
   const selectFile = useSessionStore((state) => state.selectFile);
-  const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const settings = useSessionStore((state) => state.settings);
 
   const entries = status?.entries ?? [];
@@ -241,8 +240,7 @@ export function SourceControlView({
   }
 
   async function openWorktree(path: string) {
-    const nextWorkspace = await workspaceFromPath(path);
-    addWorkspace(nextWorkspace);
+    await openWorkspacePath(path);
   }
 
   function createWorktree() {
@@ -280,11 +278,7 @@ export function SourceControlView({
       return;
     }
     void runAction(async () => {
-      const nextWorkspace = await workspaceFromPath(worktree.path);
-      addWorkspace(nextWorkspace);
-      await spawnAgentSession(settings.defaultAgent, nextWorkspace, "", null, {
-        cwd: worktree.path,
-      });
+      await launchAgentInWorkspacePath(settings.defaultAgent, worktree.path);
     });
   }
 

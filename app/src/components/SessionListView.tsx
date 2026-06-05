@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { agentIconUrl } from "../lib/agent-icons";
 import {
-  AGENT_LABELS,
+  agentDisplayLabel,
   sessionAttentionState,
   sessionNeedsAttention,
   useSessionStore,
@@ -56,6 +56,9 @@ export function SessionListView() {
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const clearSessionAttention = useSessionStore((state) => state.clearSessionAttention);
+  const agentLabelOverrides = useSessionStore(
+    (state) => state.settings.agentLabelOverrides,
+  );
   const [filter, setFilter] = useState<"all" | "attention">("all");
   const [now, setNow] = useState(Date.now());
 
@@ -121,6 +124,7 @@ export function SessionListView() {
             workspace={workspace}
             active={session.id === activeSessionId}
             elapsed={formatElapsed(session.createdAt, now)}
+            agentLabel={agentDisplayLabel(session.agent, agentLabelOverrides)}
             onSelect={() => setActiveSession(session.id)}
             onClearAttention={() => clearSessionAttention(session.id)}
           />
@@ -165,6 +169,7 @@ function SessionCard({
   workspace,
   active,
   elapsed,
+  agentLabel,
   onSelect,
   onClearAttention,
 }: {
@@ -172,6 +177,7 @@ function SessionCard({
   workspace?: Workspace;
   active: boolean;
   elapsed: string;
+  agentLabel: string;
   onSelect: () => void;
   onClearAttention: () => void;
 }) {
@@ -194,7 +200,7 @@ function SessionCard({
     >
       <img src={agentIconUrl(session.agent)} alt="" />
       <span className="session-card-main">
-        <span className="session-card-title">{AGENT_LABELS[session.agent]}</span>
+        <span className="session-card-title">{agentLabel}</span>
         <span className="session-card-meta">{session.cwd ?? workspace?.name ?? "Workspace"}</span>
         {session.preview ? (
           <span className="session-card-meta">{session.preview.url}</span>

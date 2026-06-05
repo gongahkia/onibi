@@ -9,10 +9,10 @@ import {
 } from "react";
 import {
   AGENT_KINDS,
-  AGENT_LABELS,
   APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
+  agentDisplayLabel,
   type AppSettings,
   type AppKeybindingAction,
   type CustomCommandKeybinding,
@@ -23,7 +23,9 @@ import {
   displayKeyChord,
   duplicateSession,
   keyChordFromKeyboardEvent,
+  launchAgentInWorkspacePath,
   normalizeAppKeyChord,
+  openWorkspacePath,
   restartSession,
   restoreArrangement,
   sessionCanHandoff,
@@ -32,6 +34,7 @@ import {
   spawnAgentSession,
   useSessionStore,
 } from "../lib/sessions";
+import { listGitWorktrees, type GitWorktree } from "../lib/git";
 import { ptyWrite } from "../lib/tauri-bridge";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
@@ -158,6 +161,7 @@ export function CommandPalette() {
   const [workspaceNavigatorOpen, setWorkspaceNavigatorOpen] = useState(false);
   const [sessionNavigatorOpen, setSessionNavigatorOpen] = useState(false);
   const [keybindHelpOpen, setKeybindHelpOpen] = useState(false);
+  const [activeWorktrees, setActiveWorktrees] = useState<GitWorktree[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sessions = useSessionStore((state) => state.sessions);
@@ -205,6 +209,11 @@ export function CommandPalette() {
   const focusWorkspaceTabIndex = useSessionStore(
     (state) => state.focusWorkspaceTabIndex,
   );
+
+  const paletteWorkspace =
+    activeWorkspace(sessions, workspaces, activeSessionId) ??
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
+    null;
 
   const prefixArmedRef = useRef(false);
   const prefixTimerRef = useRef<number | null>(null);
@@ -400,9 +409,31 @@ export function CommandPalette() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !paletteWorkspace) {
+      setActiveWorktrees([]);
+      return;
+    }
+    let cancelled = false;
+    void listGitWorktrees(paletteWorkspace.path)
+      .then((worktrees) => {
+        if (!cancelled) {
+          setActiveWorktrees(worktrees);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActiveWorktrees([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, paletteWorkspace?.path]);
+
   const commands = useMemo<PaletteCommand[]>(() => {
     const activeSession = sessions.find((session) => session.id === activeSessionId);
-    const currentWorkspace = activeWorkspace(sessions, workspaces, activeSessionId);
+    const currentWorkspace = paletteWorkspace;
 
     const nextCommands: PaletteCommand[] = [
       {
@@ -716,12 +747,41 @@ export function CommandPalette() {
       });
     });
 
+    for (const worktree of activeWorktrees) {
+      const label =
+        worktree.branch ??
+        (worktree.detached
+          ? "detached"
+          : worktree.path.split("/").pop() ?? "worktree");
+      nextCommands.push({
+        id: `worktree.open.${worktree.path}`,
+        label: `Open Worktree: ${label}`,
+        group: "Workspace",
+        description:
+          worktree.path === currentWorkspace?.path ? "Current workspace" : worktree.path,
+        keywords: ["git", "worktree", "open", label, worktree.path],
+        run: async () => {
+          await openWorkspacePath(worktree.path);
+        },
+      });
+      nextCommands.push({
+        id: `worktree.launch.${worktree.path}`,
+        label: `Launch ${agentDisplayLabel(settings.defaultAgent, settings)} in ${label}`,
+        group: "Agent",
+        description: worktree.path,
+        keywords: ["git", "worktree", "agent", "launch", settings.defaultAgent],
+        run: async () => {
+          await launchAgentInWorkspacePath(settings.defaultAgent, worktree.path);
+        },
+      });
+    }
+
     for (const session of sessions) {
       nextCommands.push({
         id: `session.switch.${session.id}`,
         label: `Switch to ${session.title}`,
         group: "Session",
-        description: `${AGENT_LABELS[session.agent]} · ${workspaceNameForSession(
+        description: `${agentDisplayLabel(session.agent, settings)} · ${workspaceNameForSession(
           session,
           workspaces,
         )}`,
@@ -851,7 +911,7 @@ export function CommandPalette() {
         )) {
           nextCommands.push({
             id: `agent.handoff.${agent}`,
-            label: `Handoff to ${AGENT_LABELS[agent]}`,
+            label: `Handoff to ${agentDisplayLabel(agent, settings)}`,
             group: "Agent",
             description: currentWorkspace.name,
             keywords: ["handoff", "transfer", "context", agent],
@@ -882,11 +942,13 @@ export function CommandPalette() {
   }, [
     activeSessionId,
     activeTerminalPaneId,
+    activeWorktrees,
     addWorkspace,
     arrangements,
     clearSessionAttention,
     deleteArrangement,
     focusRelativeAttentionSession,
+    paletteWorkspace,
     saveCurrentArrangement,
     selectFile,
     selectedFile,
@@ -1195,6 +1257,9 @@ function SessionNavigatorModal({
   onClose: () => void;
   onFocus: (sessionId: string) => void;
 }) {
+  const agentLabelOverrides = useSessionStore(
+    (state) => state.settings.agentLabelOverrides,
+  );
   return (
     <ModalShell label="Session navigator" title="Session Navigator" onClose={onClose}>
       <div className="modal-body navigator-list">
@@ -1206,6 +1271,7 @@ function SessionNavigatorModal({
               workspaces.find((item) => item.id === session.workspaceId)?.name ??
               "Workspace";
             const active = session.id === activeSessionId;
+            const agentLabel = agentDisplayLabel(session.agent, agentLabelOverrides);
             return (
               <button
                 key={session.id}
@@ -1214,9 +1280,9 @@ function SessionNavigatorModal({
                 onClick={() => onFocus(session.id)}
               >
                 <span className="navigator-row-main">
-                  <strong>{session.title || AGENT_LABELS[session.agent]}</strong>
+                  <strong>{session.title || agentLabel}</strong>
                   <span>
-                    {AGENT_LABELS[session.agent]} · {workspace}
+                    {agentLabel} · {workspace}
                   </span>
                 </span>
                 <span className="navigator-row-meta">

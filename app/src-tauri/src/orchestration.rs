@@ -2611,7 +2611,11 @@ mod tests {
             exit_signal: None,
             restart: Some(SessionRestartMetadata {
                 command: "claude".to_string(),
-                args: vec!["code".to_string(), "--model".to_string(), "sonnet".to_string()],
+                args: vec![
+                    "code".to_string(),
+                    "--model".to_string(),
+                    "sonnet".to_string(),
+                ],
                 cwd: Some("/repo".to_string()),
                 env: vec![],
                 shell_mode: ShellMode::Auto,

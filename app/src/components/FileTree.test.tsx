@@ -202,6 +202,69 @@ describe("FileTree", () => {
     });
   });
 
+  test("shows an empty explorer after clearing all workspaces", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue([]);
+    render(<FileTree />);
+
+    expect(screen.getByText("repo")).toBeTruthy();
+    useSessionStore.getState().setWorkspaces([]);
+
+    await waitFor(() => {
+      expect(screen.getByText("No workspace open")).toBeTruthy();
+    });
+    expect(screen.queryByText("repo")).toBeNull();
+  });
+
+  test("opens a listed worktree as the active workspace", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: { path?: string }) => {
+      if (command === "fs_list_dir") {
+        return [];
+      }
+      if (command === "git_worktrees") {
+        return [
+          {
+            path: "/repo",
+            branch: "main",
+            head: null,
+            detached: false,
+            bare: false,
+            prunable: false,
+          },
+          {
+            path: "/repo-feature",
+            branch: "feature/mobile",
+            head: null,
+            detached: false,
+            bare: false,
+            prunable: false,
+          },
+        ];
+      }
+      if (command === "fs_workspace_info") {
+        return { path: args.path, name: "repo-feature" };
+      }
+        return null;
+      },
+    );
+
+    render(<FileTree />);
+
+    expect(await screen.findByText("feature/mobile")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Open worktree /repo-feature"));
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeWorkspaceId).toBe(
+        "workspace:/repo-feature",
+      );
+    });
+    expect(useSessionStore.getState().workspaces).toContainEqual({
+      id: "workspace:/repo-feature",
+      path: "/repo-feature",
+      name: "repo-feature",
+    });
+  });
+
   test("switches the tree when the active session changes workspaces", async () => {
     useSessionStore.setState({
       sessions: [

@@ -27,6 +27,8 @@ vi.mock("@xterm/addon-search", () => ({
 
 vi.mock("@xterm/addon-serialize", () => ({
   SerializeAddon: class {
+    serialize = vi.fn(() => "\u001b[31mserialized\u001b[0m");
+    serializeAsHTML = vi.fn(() => "<span style=\"color:red\">serialized</span>");
     dispose = vi.fn();
   },
 }));
@@ -125,6 +127,7 @@ describe("TerminalView", () => {
       globalThis.__TAURI_MOCKS__.unlisten,
     );
     vi.mocked(navigator.clipboard.writeText).mockClear();
+    vi.mocked(navigator.clipboard.write).mockClear();
   });
 
   test("enables xterm proposed APIs for the unicode addon", async () => {
@@ -198,6 +201,28 @@ describe("TerminalView", () => {
     expect(handler(event)).toBe(false);
     expect(preventDefault).toHaveBeenCalled();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("selected text");
+  });
+
+  test("copies the current selection as rich html when configured", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalCopyFormat: "html" as const,
+      terminalKeybindings: [{ keys: "cmd+c", action: "copy" as const }],
+    };
+    render(<TerminalView ptyId="pty-1" settings={settings} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    term.getSelection.mockReturnValue("selected text");
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+
+    handler(new KeyboardEvent("keydown", { key: "c", metaKey: true }));
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalled());
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith("selected text");
   });
 
   test("does not write clipboard text for empty terminal selections", async () => {
@@ -325,6 +350,128 @@ describe("TerminalView", () => {
     expect(getByTestId("terminal-view").parentElement?.getAttribute("data-copy-mode")).toBe(
       "false",
     );
+  });
+
+  test("copy mode can copy ANSI-preserving row data", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      terminalCopyFormat: "ansi" as const,
+    };
+    render(<TerminalView ptyId="pty-1" settings={settings} visible={false} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0][0] as (
+      event: KeyboardEvent,
+    ) => boolean;
+    window.dispatchEvent(
+      new CustomEvent("onibi:terminal-copy-mode", { detail: { ptyId: "pty-1" } }),
+    );
+
+    handler(new KeyboardEvent("keydown", { key: "y" }));
+
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "\u001b[31mserialized\u001b[0m",
+      ),
+    );
+  });
+
+  test("handles OSC 52 clipboard writes only when enabled", async () => {
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalOsc52Clipboard: true }}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const osc52 = term.parser.registerOscHandler.mock.calls.find(
+      ([code]) => code === 52,
+    )?.[1] as ((data: string) => boolean) | undefined;
+
+    expect(osc52?.("c;aGVsbG8=")).toBe(true);
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("hello"),
+    );
+    vi.mocked(navigator.clipboard.writeText).mockClear();
+    expect(osc52?.("c;?")).toBe(true);
+    expect(osc52?.("c;%%%")).toBe(true);
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  test("ignores OSC 52 clipboard writes by default", async () => {
+    render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0]
+      .value as ReturnType<typeof createTerminalMock>;
+    const osc52 = term.parser.registerOscHandler.mock.calls.find(
+      ([code]) => code === 52,
+    )?.[1] as ((data: string) => boolean) | undefined;
+
+    expect(osc52?.("c;aGVsbG8=")).toBe(true);
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith("hello");
+  });
+
+  test("marks transparent terminal backgrounds in the DOM and xterm theme", async () => {
+    const { getByTestId } = render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalTransparentBackground: true }}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    expect(terminalConstructor.mock.calls[0][0].theme).toMatchObject({
+      background: "transparent",
+    });
+    expect(getByTestId("terminal-view").parentElement?.getAttribute("data-transparent")).toBe(
+      "true",
+    );
+  });
+
+  test("emits render profile diagnostics only when terminal debug is enabled", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    localStorage.setItem("onibiTerminalDebug", "1");
+    let emitPty: ((payload: unknown) => void) | undefined;
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(
+      async (_eventName: string, callback: (event: { payload: unknown }) => void) => {
+        emitPty = (payload) => callback({ payload });
+        return globalThis.__TAURI_MOCKS__.unlisten;
+      },
+    );
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string) => {
+        if (command === "pty_replay") {
+          return null;
+        }
+        return null;
+      },
+    );
+    const { unmount } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(emitPty).toBeDefined());
+    emitPty?.({ type: "data", data: "aGk=", offset: 0 });
+    await waitFor(() => expect(debug).toHaveBeenCalled());
+    unmount();
+
+    expect(
+      debug.mock.calls.some(([message]) =>
+        String(message).includes("[onibi:terminal] render profile"),
+      ),
+    ).toBe(true);
+    localStorage.removeItem("onibiTerminalDebug");
+    debug.mockRestore();
   });
 
   test("copy mode enter copies the current line without visual selection", async () => {

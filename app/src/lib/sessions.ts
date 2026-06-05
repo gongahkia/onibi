@@ -550,6 +550,8 @@ export type TerminalKeybindingAction =
   | "select-all"
   | "find";
 
+export type TerminalCopyFormat = "plain" | "ansi" | "html";
+
 export interface TerminalKeybinding {
   keys: string;
   action: TerminalKeybindingAction;
@@ -620,6 +622,9 @@ export interface AppSettings {
   terminalKeybindings: TerminalKeybinding[];
   terminalShaderPaths: string[];
   terminalScreenReaderMode: boolean;
+  terminalCopyFormat: TerminalCopyFormat;
+  terminalOsc52Clipboard: boolean;
+  terminalTransparentBackground: boolean;
   terminalConfirmClose: boolean;
   terminalTriggers: TerminalTrigger[];
   keybindingPrefix: string;
@@ -645,6 +650,7 @@ export interface AppSettings {
   webOpenMode: WebOpenMode;
   preferredBrowser: string;
   defaultAgent: AgentKind;
+  agentLabelOverrides: Partial<Record<AgentKind, string>>;
   agentCommands: Record<AgentKind, string>;
   agentInstallCommands: Partial<Record<AgentKind, string>>;
   customColorScheme: CustomColorScheme;
@@ -1569,6 +1575,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalKeybindings: [],
   terminalShaderPaths: [],
   terminalScreenReaderMode: false,
+  terminalCopyFormat: "plain",
+  terminalOsc52Clipboard: false,
+  terminalTransparentBackground: false,
   terminalConfirmClose: true,
   terminalTriggers: DEFAULT_TERMINAL_TRIGGERS,
   keybindingPrefix: DEFAULT_KEYBINDING_PREFIX,
@@ -1591,6 +1600,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   webOpenMode: "ask",
   preferredBrowser: "onibi",
   defaultAgent: "claude-code",
+  agentLabelOverrides: {},
   agentCommands: DEFAULT_AGENT_COMMANDS,
   agentInstallCommands: DEFAULT_AGENT_INSTALL_COMMANDS,
   customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -1700,6 +1710,43 @@ function normalizeCustomColorScheme(value: unknown): CustomColorScheme {
   };
 }
 
+function normalizeAgentLabelOverrides(
+  value: unknown,
+): Partial<Record<AgentKind, string>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const overrides: Partial<Record<AgentKind, string>> = {};
+  for (const agent of AGENT_KINDS) {
+    const raw = value[agent];
+    if (typeof raw !== "string") {
+      continue;
+    }
+    const label = raw.trim().replace(/\s+/g, " ").slice(0, 40);
+    if (label && label !== AGENT_LABELS[agent]) {
+      overrides[agent] = label;
+    }
+  }
+  return overrides;
+}
+
+export function agentDisplayLabel(
+  agent: AgentKind,
+  settingsOrOverrides?:
+    | Pick<AppSettings, "agentLabelOverrides">
+    | Partial<Record<AgentKind, string>>
+    | null,
+): string {
+  const overrides =
+    settingsOrOverrides && "agentLabelOverrides" in settingsOrOverrides
+      ? settingsOrOverrides.agentLabelOverrides
+      : settingsOrOverrides;
+  const label = overrides?.[agent];
+  return typeof label === "string" && label.trim()
+    ? label.trim()
+    : AGENT_LABELS[agent];
+}
+
 function normalizeFontFamily(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
@@ -1741,6 +1788,12 @@ function normalizeTerminalKeybindingAction(
     value === "find"
     ? value
     : null;
+}
+
+function normalizeTerminalCopyFormat(value: unknown): TerminalCopyFormat {
+  return value === "ansi" || value === "html" || value === "plain"
+    ? value
+    : DEFAULT_SETTINGS.terminalCopyFormat;
 }
 
 function normalizeTerminalKeybindings(value: unknown): TerminalKeybinding[] {
@@ -2250,6 +2303,15 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       typeof merged.terminalScreenReaderMode === "boolean"
         ? merged.terminalScreenReaderMode
         : DEFAULT_SETTINGS.terminalScreenReaderMode,
+    terminalCopyFormat: normalizeTerminalCopyFormat(merged.terminalCopyFormat),
+    terminalOsc52Clipboard:
+      typeof merged.terminalOsc52Clipboard === "boolean"
+        ? merged.terminalOsc52Clipboard
+        : DEFAULT_SETTINGS.terminalOsc52Clipboard,
+    terminalTransparentBackground:
+      typeof merged.terminalTransparentBackground === "boolean"
+        ? merged.terminalTransparentBackground
+        : DEFAULT_SETTINGS.terminalTransparentBackground,
     terminalConfirmClose:
       typeof merged.terminalConfirmClose === "boolean"
         ? merged.terminalConfirmClose
@@ -2305,6 +2367,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
       DEFAULT_SETTINGS.preferredBrowser,
     ),
     defaultAgent: normalizeAgentKind(merged.defaultAgent, DEFAULT_SETTINGS.defaultAgent),
+    agentLabelOverrides: normalizeAgentLabelOverrides(merged.agentLabelOverrides),
     agentCommands,
     agentInstallCommands,
     customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
@@ -5205,6 +5268,40 @@ export async function workspaceFromPath(path: string): Promise<Workspace> {
   };
 }
 
+export async function openWorkspacePath(path: string): Promise<Workspace> {
+  const workspace = await workspaceFromPath(path);
+  const store = useSessionStore.getState();
+  store.addWorkspace(workspace);
+  store.setActiveWorkspace(workspace.id);
+  store.selectFile(null);
+  return workspace;
+}
+
+export async function launchAgentInWorkspacePath(
+  agent: AgentKind,
+  path: string,
+  prompt = "",
+): Promise<PtyId> {
+  const workspace = await openWorkspacePath(path);
+  return spawnAgentSession(agent, workspace, prompt, null, { cwd: workspace.path });
+}
+
+export async function removeWorkspaceAndCloseSessions(
+  workspaceId: string,
+): Promise<void> {
+  const state = useSessionStore.getState();
+  const sessions = state.sessions.filter((session) => session.workspaceId === workspaceId);
+  await Promise.all(
+    sessions.map(async (session) => {
+      await ptyKill(session.id).catch(() => undefined);
+      if (session.agent !== "shell") {
+        await stopAgentReview(session.id).catch(() => undefined);
+      }
+    }),
+  );
+  useSessionStore.getState().removeWorkspace(workspaceId);
+}
+
 export async function listWorkspaceDir(
   workspaceRoot: string,
   path: string,
@@ -5486,6 +5583,12 @@ function assignTomlSetting(
               ? "terminalScrollbackLines"
               : key === "screen_reader_mode"
                 ? "terminalScreenReaderMode"
+                : key === "copy_format"
+                  ? "terminalCopyFormat"
+                  : key === "osc52_clipboard"
+                    ? "terminalOsc52Clipboard"
+                    : key === "transparent_background"
+                      ? "terminalTransparentBackground"
                 : camelFromTomlKey(key);
     settings[mappedKey] = value;
   } else if (path === "keybindings") {
@@ -5497,6 +5600,9 @@ function assignTomlSetting(
     target[key] = value;
   } else if (path === "settings.agent_install_commands") {
     const target = (settings.agentInstallCommands ??= {}) as Record<string, unknown>;
+    target[key] = value;
+  } else if (path === "settings.agent_label_overrides") {
+    const target = (settings.agentLabelOverrides ??= {}) as Record<string, unknown>;
     target[key] = value;
   } else if (path === "settings.custom_color_scheme") {
     const target = (settings.customColorScheme ??= {}) as Record<string, unknown>;
@@ -5565,6 +5671,9 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_shell_integration", settings.terminalShellIntegration),
     settingLine("terminal_shell_mode", settings.terminalShellMode),
     settingLine("terminal_screen_reader_mode", settings.terminalScreenReaderMode),
+    settingLine("terminal_copy_format", settings.terminalCopyFormat),
+    settingLine("terminal_osc52_clipboard", settings.terminalOsc52Clipboard),
+    settingLine("terminal_transparent_background", settings.terminalTransparentBackground),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
     `terminal_shader_paths = ${tomlArray(settings.terminalShaderPaths)}`,
     settingLine("keybinding_prefix", settings.keybindingPrefix),
@@ -5592,6 +5701,11 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     "[settings.agent_install_commands]",
     ...Object.entries(settings.agentInstallCommands).map(([agent, command]) =>
       settingLine(agent, command ?? ""),
+    ),
+    "",
+    "[settings.agent_label_overrides]",
+    ...AGENT_KINDS.map((agent) =>
+      settingLine(agent, settings.agentLabelOverrides[agent] ?? ""),
     ),
     "",
     "[settings.custom_color_scheme]",
@@ -5786,8 +5900,12 @@ export function applyOnibiConfig(config: OnibiConfigExport): void {
   persistLater();
 }
 
-export function sessionTitle(agent: AgentKind, workspace: Workspace): string {
-  return `${AGENT_LABELS[agent]} · ${workspace.name}`;
+export function sessionTitle(
+  agent: AgentKind,
+  workspace: Workspace,
+  settings?: Pick<AppSettings, "agentLabelOverrides"> | null,
+): string {
+  return `${agentDisplayLabel(agent, settings)} · ${workspace.name}`;
 }
 
 export function buildAgentHandoffPrompt(
@@ -5796,13 +5914,14 @@ export function buildAgentHandoffPrompt(
   selectedPath: string | null,
   events: SessionEvent[],
 ): string {
+  const settings = useSessionStore.getState().settings;
   const recentEvents = events
     .filter((event) => event.workspaceId === workspace.id)
     .slice(-8)
     .map((event) => `- ${event.type}: ${event.summary}`)
     .join("\n");
   return [
-    `You are taking over an Onibi workspace from ${AGENT_LABELS[sourceSession.agent]}.`,
+    `You are taking over an Onibi workspace from ${agentDisplayLabel(sourceSession.agent, settings)}.`,
     "",
     `Workspace: ${workspace.name}`,
     `Path: ${workspace.path}`,
@@ -5961,7 +6080,7 @@ export async function spawnAgentSession(
     {
       agent,
       workspaceId: workspace.id,
-      title: sessionTitle(agent, workspace),
+      title: sessionTitle(agent, workspace, settings),
       command: launch.command,
       args: launch.args,
       cwd,

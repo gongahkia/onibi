@@ -195,6 +195,47 @@ describe("CommandPalette", () => {
     expect(screen.getByRole("dialog", { name: "New Session" })).toBeTruthy();
   });
 
+  test("opens a git worktree from the palette", async () => {
+    useSessionStore.setState({
+      activeWorkspaceId: "workspace:/repo",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: { path?: string }) => {
+        if (command === "git_worktrees") {
+          return [
+            {
+              path: "/repo-feature",
+              branch: "feature/mobile",
+              head: null,
+              detached: false,
+              bare: false,
+              prunable: false,
+            },
+          ];
+        }
+        if (command === "fs_workspace_info") {
+          return { path: args.path, name: "repo-feature" };
+        }
+        return [];
+      },
+    );
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "open worktree feature" } });
+    expect(await screen.findByText("Open Worktree: feature/mobile")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeWorkspaceId).toBe(
+        "workspace:/repo-feature",
+      );
+    });
+  });
+
   test("hands off to another agent as a tab in the active pane", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
       if (command === "pty_spawn") {

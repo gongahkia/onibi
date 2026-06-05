@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AGENT_KINDS,
-  AGENT_LABELS,
   DEFAULT_AGENT_COMMANDS,
+  agentDisplayLabel,
   resolveAgentBinary,
   spawnAgentSession,
   type AgentKind,
@@ -132,7 +132,7 @@ export function NewSessionDialog({
       }
       if (missingBinary) {
         throw new Error(
-          `${AGENT_LABELS[agent]} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
+          `${agentDisplayLabel(agent, settings)} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
         );
       }
       await spawnAgentSession(
@@ -188,7 +188,7 @@ export function NewSessionDialog({
               >
                 {AGENT_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
-                    {AGENT_LABELS[kind]}
+                    {agentDisplayLabel(kind, settings)}
                   </option>
                 ))}
               </select>

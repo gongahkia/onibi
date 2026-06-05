@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentIconUrl } from "../lib/agent-icons";
 import {
-  AGENT_LABELS,
+  agentDisplayLabel,
   sessionAttentionState,
   sessionNeedsAttention,
   useSessionStore,
@@ -46,9 +46,12 @@ function formatElapsed(startedAt: number, now: number): string {
   return `${rest}s`;
 }
 
-function eventLabel(event: SessionEvent): string {
+function eventLabel(
+  event: SessionEvent,
+  labelOverrides: Partial<Record<Session["agent"], string>>,
+): string {
   if (event.agent) {
-    return `${AGENT_LABELS[event.agent]} · ${event.type.replace(/-/g, " ")}`;
+    return `${agentDisplayLabel(event.agent, labelOverrides)} · ${event.type.replace(/-/g, " ")}`;
   }
   return event.type.replace(/-/g, " ");
 }
@@ -154,6 +157,14 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const clearSessionAttention = useSessionStore((state) => state.clearSessionAttention);
+  const agentLabelOverrides = useSessionStore(
+    (state) => state.settings.agentLabelOverrides,
+  );
+
+  const labelForAgent = useCallback(
+    (agent: Session["agent"]) => agentDisplayLabel(agent, agentLabelOverrides),
+    [agentLabelOverrides],
+  );
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -220,7 +231,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
           return searchable(
             [
               session.title,
-              AGENT_LABELS[session.agent],
+              labelForAgent(session.agent),
               session.cwd,
               session.status,
               session.lastExitCode,
@@ -246,7 +257,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
           }
           return right.createdAt - left.createdAt;
         }),
-    [filter, now, query, scopedSessions, workspaceById],
+    [filter, labelForAgent, now, query, scopedSessions, workspaceById],
   );
 
   const latestBlocks = useMemo(
@@ -267,7 +278,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
               block.outputPreview,
               block.changedFiles.join(" "),
               block.status,
-              AGENT_LABELS[block.agent],
+              labelForAgent(block.agent),
               workspace?.name,
               workspace?.path,
             ],
@@ -275,7 +286,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
           );
         })
         .sort((a, b) => b.startedAt - a.startedAt),
-    [filter, query, scopedCommandBlocks, workspaceById],
+    [filter, labelForAgent, query, scopedCommandBlocks, workspaceById],
   );
 
   const latestTranscripts = useMemo(
@@ -294,7 +305,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
               session.title,
               session.cwd,
               session.transcript.text,
-              AGENT_LABELS[session.agent],
+              labelForAgent(session.agent),
               workspace?.name,
               workspace?.path,
             ],
@@ -306,7 +317,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             (b.transcript?.updatedAt ?? b.createdAt) -
             (a.transcript?.updatedAt ?? a.createdAt),
         ),
-    [filter, query, scopedSessions, workspaceById],
+    [filter, labelForAgent, query, scopedSessions, workspaceById],
   );
 
   const latestEvents = useMemo(
@@ -320,12 +331,12 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             ? workspaceById.get(event.workspaceId)
             : undefined;
           return searchable(
-            [eventLabel(event), event.summary, workspace?.name, workspace?.path],
+            [eventLabel(event, agentLabelOverrides), event.summary, workspace?.name, workspace?.path],
             query,
           );
         })
         .sort((a, b) => b.timestamp - a.timestamp),
-    [filter, query, scopedEvents, workspaceById],
+    [agentLabelOverrides, filter, query, scopedEvents, workspaceById],
   );
 
   const visibleText = useMemo(
@@ -334,7 +345,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
         ...latestSessions.map((session) => {
           const workspace = workspaceById.get(session.workspaceId);
           return [
-            `${AGENT_LABELS[session.agent]} session`,
+            `${labelForAgent(session.agent)} session`,
             `status: ${statusLabel(session)}`,
             `workspace: ${workspaceName(workspace)}`,
             session.cwd ? `cwd: ${session.cwd}` : "",
@@ -345,7 +356,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
         }),
         ...latestBlocks.map((block) =>
           [
-            `${AGENT_LABELS[block.agent]} command`,
+            `${labelForAgent(block.agent)} command`,
             block.command,
             block.outputPreview,
             `workspace: ${workspaceName(workspaceById.get(block.workspaceId))}`,
@@ -355,7 +366,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
         ),
         ...latestTranscripts.map((session) =>
           [
-            `${AGENT_LABELS[session.agent]} chat log`,
+            `${labelForAgent(session.agent)} chat log`,
             `workspace: ${workspaceName(workspaceById.get(session.workspaceId))}`,
             session.transcript?.text ?? "",
           ]
@@ -364,7 +375,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
         ),
         ...latestEvents.map((event) =>
           [
-            eventLabel(event),
+            eventLabel(event, agentLabelOverrides),
             event.summary,
             `workspace: ${
               workspaceName(
@@ -376,7 +387,15 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             .join("\n"),
         ),
       ].join("\n\n"),
-    [latestBlocks, latestEvents, latestSessions, latestTranscripts, workspaceById],
+    [
+      agentLabelOverrides,
+      labelForAgent,
+      latestBlocks,
+      latestEvents,
+      latestSessions,
+      latestTranscripts,
+      workspaceById,
+    ],
   );
 
   function copyVisibleActivity() {
@@ -474,6 +493,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             workspace={workspace}
             active={session.id === activeSessionId}
             now={now}
+            agentLabel={labelForAgent(session.agent)}
             onSelect={() => setActiveSession(session.id)}
             onClearAttention={() => clearSessionAttention(session.id)}
           />
@@ -487,6 +507,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             key={block.id}
             block={block}
             workspaceName={workspaceName(workspace)}
+            agentLabel={labelForAgent(block.agent)}
             live={Boolean(session && session.status !== "stale")}
             onRerun={() => {
               void ptyWrite(
@@ -521,6 +542,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
       {latestTranscripts.map((session) => {
         const workspace = workspaceById.get(session.workspaceId);
         const logText = displayLog(session.transcript?.text ?? "");
+        const agentLabel = labelForAgent(session.agent);
         return (
           <article className="history-event transcript-event" key={`log:${session.id}`}>
             <div className="history-event-time">
@@ -528,7 +550,7 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
             </div>
             <div className="history-event-body">
               <div className="history-event-label">
-                {AGENT_LABELS[session.agent]} · Chat Log
+                {agentLabel} · Chat Log
               </div>
               <div className="history-event-summary">{session.title}</div>
               <pre className="history-output transcript-output">{logText}</pre>
@@ -558,7 +580,9 @@ export function SessionHistoryView({ workspaceId = null }: SessionHistoryViewPro
           <article className="history-event" key={event.id}>
             <div className="history-event-time">{formatTime(event.timestamp)}</div>
             <div className="history-event-body">
-              <div className="history-event-label">{eventLabel(event)}</div>
+              <div className="history-event-label">
+                {eventLabel(event, agentLabelOverrides)}
+              </div>
               <div className="history-event-summary">{event.summary}</div>
               {workspace ? (
                 <div className="history-event-meta">{workspace.name}</div>
@@ -576,6 +600,7 @@ function SessionActivityRow({
   workspace,
   active,
   now,
+  agentLabel,
   onSelect,
   onClearAttention,
 }: {
@@ -583,6 +608,7 @@ function SessionActivityRow({
   workspace?: Workspace;
   active: boolean;
   now: number;
+  agentLabel: string;
   onSelect: () => void;
   onClearAttention: () => void;
 }) {
@@ -597,14 +623,14 @@ function SessionActivityRow({
       <button
         type="button"
         className="history-event-icon"
-        aria-label={`Focus ${AGENT_LABELS[session.agent]} session`}
+        aria-label={`Focus ${agentLabel} session`}
         onClick={onSelect}
       >
         <img src={agentIconUrl(session.agent)} alt="" />
       </button>
       <div className="history-event-body">
         <div className="history-event-label">
-          {AGENT_LABELS[session.agent]} · {attentionLabel(attention)}
+          {agentLabel} · {attentionLabel(attention)}
         </div>
         <div className="history-event-summary">{session.title}</div>
         <div className="history-event-meta">
@@ -667,6 +693,7 @@ function durationLabel(block: CommandBlock): string {
 function CommandBlockRow({
   block,
   workspaceName,
+  agentLabel,
   live,
   onRerun,
   onOpenPreview,
@@ -674,6 +701,7 @@ function CommandBlockRow({
 }: {
   block: CommandBlock;
   workspaceName: string;
+  agentLabel: string;
   live: boolean;
   onRerun: () => void;
   onOpenPreview: () => void;
@@ -684,7 +712,7 @@ function CommandBlockRow({
       <div className="history-event-time">{formatTime(block.startedAt)}</div>
       <div className="history-event-body">
         <div className="history-event-label">
-          {AGENT_LABELS[block.agent]} · {block.status} · {durationLabel(block)}
+          {agentLabel} · {block.status} · {durationLabel(block)}
         </div>
         <code className="history-command">{block.command || "shell command"}</code>
         {block.outputPreview ? (

@@ -170,11 +170,43 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Bumped the Onibi integration marker so old observe-only hook installs are reported as outdated and can be reinstalled.
 - Updated adapter docs and tests for provider-specific blocking output, edited-input forwarding, installer config, and OpenCode plugin source.
 
+### Implemented in the terminal reliability hardening pass
+
+- Kept xterm.js as the active terminal path and added WebGL renderer auto-load with safe fallback.
+- Added frontend PTY output write batching to reduce render pressure under high-throughput output without dropping bytes.
+- Hardened terminal replay/attach ordering so live events are queued until replay resolves, duplicate replay/live overlap is deduped, replay failure can still render live output, and queued exit events flush after replay output.
+- Added `terminal_screen_reader_mode` support through settings, TOML round trips, and xterm's `screenReaderMode`.
+- Guarded terminal keybinding interception during IME composition so composed input reaches xterm.
+- Tightened deterministic session/workspace restoration so cleared workspace state is not repopulated from daemon history, and routed AgentTabBar context closes through the shared `closeSession` lifecycle path.
+- Added PTY replay buffer offset/truncation tests plus PTY harness coverage for replay, subscribe-before-snapshot ordering, input echo, resize visibility, and exit status.
+- Verified with `pnpm --dir app typecheck`, `pnpm --dir app test`, `cargo test pty --lib`, `cargo test --lib`, and `git diff --check`.
+
+### Implemented in the terminal polish pass
+
+- Added `terminal_copy_format` with `plain`, `ansi`, and `html` modes; plain text remains the default.
+- Added ANSI-preserving copy for copy-mode row/range selections through xterm's serialize addon.
+- Added rich HTML clipboard writes with plain-text fallback for WebView/browser clipboard compatibility.
+- Added opt-in OSC 52 clipboard writes through xterm's OSC parser, with query/malformed/oversized payloads ignored.
+- Added `terminal_transparent_background` support so xterm can inherit pane/app backgrounds when explicitly enabled.
+- Added terminal render-profile debug counters for bytes, chunks, batches, flush latency, replay duration, and total duration under `localStorage.onibiTerminalDebug = "1"`.
+- Added focused frontend and config tests for copy formats, OSC 52 gating, transparent backgrounds, profiling diagnostics, Settings UI, and TOML round trips.
+
+### Implemented in the workspace-first UX polish pass
+
+- Added per-agent display label overrides in Settings, persisted through `settings.agent_label_overrides` in `config.toml`.
+- Routed agent/session labels through the override-aware display helper across terminal panes, tabs, session lists, history, handoff, new-session, and command-palette surfaces.
+- Added shared workspace open/activate and workspace removal helpers so worktree entrypoints behave consistently and removed workspaces close owned sessions before pruning UI state.
+- Added Explorer empty-state cleanup so clearing all workspaces leaves the file tree empty instead of showing stale workspace contents.
+- Surfaced Git worktrees in Explorer with open-as-workspace and launch-default-agent actions, and added matching Command Palette worktree commands.
+- Added `onibi worktree open <path> [--agent <agent>] [--prompt <text>]` through the desktop command bridge.
+- Added focused frontend/config tests for label overrides, empty workspace state, Explorer worktree open, and Command Palette worktree open.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
 - Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
+- xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, Sixel, and Kitty keyboard parity remain future terminal-native work.
 
 ---
 
@@ -208,7 +240,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **API: wait-for-agent-status** | Yes (`herdr wait agent-status`) | Yes |
 | **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
 | **API: pane send-text / send-keys / run** | Yes | Partial — PTY write + common `send-keys`; no explicit `run` helper |
-| **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/events with global JSON output |
+| **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/worktree/events with global JSON output |
 | **Remote attach** | Yes — SSH bootstrap, auto-install on remote | N/A (uses transports for phone, not SSH attach) |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
 | **Transport: Tailscale Funnel** | No | Yes |
@@ -217,7 +249,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Bearer-token auth / pairing** | No (Unix-socket trust) | Yes (ULID token, keyring, rotate) |
 | **TLS / HSTS / CSP** | No | Yes |
 | **Rate limiting** | No | Yes (tower_governor) |
-| **Git worktree management** | Yes (`herdr worktree …`) | Yes (create/remove/list) |
+| **Git worktree management** | Yes (`herdr worktree …`) | Yes — create/remove/list, Explorer/sidebar open and launch actions, and `onibi worktree open` |
 | **Git status / staging / commit UI** | Status caching, sidebar indicators | Full UI (staging, commit, diffs, clone, push/pull) |
 | **Filesystem browse / read / write** | No (it is a multiplexer) | Yes (file tree, search, CRUD) |
 | **In-app editor (CodeMirror)** | No | Yes (syntax HL, Vim mode) |
@@ -227,7 +259,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Vim mode** | Yes in copy mode (h/j/k/l, w/b/e, v/y) | Yes (CodeMirror Vim) |
 | **Command palette (Cmd+K)** | No | Yes |
 | **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Partial |
-| **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Partial — drag, double-click, and keyboard copy mode are wired; ANSI-preserving copy and OSC 52 remain pending |
+| **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Yes — drag, double-click, keyboard copy mode, plain/ANSI/HTML copy formats, and opt-in OSC 52 clipboard writes are wired |
 | **OSC 8 hyperlink click-through** | Yes | xterm.js link addon |
 | **Kitty graphics / sixel** | Yes (experimental) | No |
 | **Kitty keyboard protocol** | Yes | No |
@@ -270,7 +302,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 9. **[DONE] 4-state agent model**: `idle` / `working` / `blocked` / `done(unviewed)` — canonical values, approval/exit transitions, lightweight output heuristics, and focus clear are wired.
 10. **[DONE] Smart state arbitration** combining: foreground process + native provider event + screen/output heuristic, with conflict resolution rules. Explicit/provider metadata now persists on sessions, native events feed the same status stream, and weaker heuristics still cannot override terminal completion guardrails.
 11. **[DONE] Done-vs-idle distinction** (unviewed completion → idle once user focuses pane).
-12. **Per-agent label override** (`herdr agent rename`).
+12. **[DONE] Per-agent label override** (`herdr agent rename`) — global per-agent display labels are configurable in Settings and persisted through `settings.agent_label_overrides`.
 
 ### 2.3 Integrations (versioned hooks/plugins)
 13. **[BLOCKED] Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`) — registered as pending until a stable public native extension API is verified.
@@ -295,7 +327,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 28. **[DONE] Detach / reattach a running session** — daemon-owned PTYs survive GUI/CLI detach while the daemon is alive; GUI hydration reattaches and relays live sessions.
 29. **[DONE] Named sessions** with case-insensitive active-name uniqueness and `onibi session attach <name>`.
 30. **[DONE] `herdr session list / stop` equivalent** — `onibi session list`, `onibi session stop <id-or-name>`, and JSON output exist.
-31. **[PARTIAL] Native agent session resume** — saved command metadata remains the fallback, while provider metadata can now prefer native resume commands for Claude Code, OpenCode, Gemini, Qoder, Hermes, and Goose when a provider session/conversation ID has been captured. Codex remains unverified and Aider is history-restore only.
+31. **[PARTIAL] Native agent session resume** — Onibi PTY restoration is now deterministic for live daemon sessions and stale relaunch fallbacks. Provider-native resume metadata can prefer native resume commands for Claude Code, OpenCode, Gemini, Qoder, Hermes, and Goose when a provider session/conversation ID has been captured. Codex remains unverified and Aider is history-restore only.
 32. **Live server handoff** — transfer running PTYs from old binary to new without interruption (experimental but spec'd).
 33. **Pane history opt-in** (screen scrollback survives restart).
 
@@ -305,19 +337,19 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 36. **Image-paste bridging** (local clipboard image → remote staged file path).
 
 ### 2.7 Terminal / rendering
-37. **Vendored libghostty-vt** terminal engine (sixels, Kitty graphics, OSC 8, Kitty keyboard protocol). xterm.js does not cover sixels / Kitty graphics.
+37. **[PARTIAL] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path for now, with WebGL fallback, throughput batching, replay hardening, and screen-reader mode wired. A libghostty-vt embed remains a future option only if xterm.js cannot cover required sixel, Kitty graphics, or Kitty keyboard parity.
 38. **Kitty graphics protocol** support (experimental).
 39. **Sixel** rendering.
 40. **Kitty keyboard protocol** (enhanced key reporting, distinguishes `Ctrl+I` vs `Tab`, etc.).
-41. **CJK IME cursor-anchor exposure** for input-method candidate placement.
-42. **Transparent pane backgrounds** inheriting host terminal.
+41. **[PARTIAL] CJK IME cursor-anchor exposure** for input-method candidate placement — IME composition is no longer intercepted by terminal keybindings, but native cursor-anchor placement is still not exposed.
+42. **[DONE] Transparent pane backgrounds** inheriting host terminal — available behind `terminal_transparent_background`.
 
 ### 2.8 Selection / copy
 43. **[DONE] In-pane drag-select with autoscroll** into scrollback — xterm native selection remains active and supports scrollback drag selection.
 44. **[DONE] Double-click word-token copy** — xterm word selection is copied to the system clipboard on double-click.
 45. **[DONE] Keyboard copy mode** — `prefix+[` enters copy mode; `h/j/k/l`, `w/b/e`, `{`/`}`, `v` or `Space`, `y` or `Enter`, and `Escape`/`q`/`Ctrl+C` are wired through xterm selection/scrollback APIs.
-46. **ANSI-color-preserving copy** (codes optional via flag).
-47. **OSC 52 clipboard fallback** for headless / SSH contexts.
+46. **[DONE] ANSI-color-preserving copy** — `terminal_copy_format = "ansi"` copies serialized ANSI row/range data from copy mode.
+47. **[DONE] OSC 52 clipboard fallback** for headless / SSH contexts — opt-in `terminal_osc52_clipboard` handles clipboard-set payloads and ignores query/malformed/oversized data.
 
 ### 2.9 Keybindings
 48. **[DONE] Explicit prefix-chord syntax v2** (`prefix+c`, `ctrl+alt+x`, `cmd+k`, `f1..f12`).
@@ -353,8 +385,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 70. **Mouse-capture toggle** (tmux-style passthrough on `false`).
 
 ### 2.14 Worktree
-71. **Sidebar grouping by worktree** (already partial in onibi via Git UI, but no sidebar surface).
-72. **`herdr worktree open <path>`** to launch a workspace tied to a worktree.
+71. **[DONE] Sidebar grouping by worktree** — Explorer surfaces Git worktrees under each workspace with open and launch-default-agent actions.
+72. **[DONE] `herdr worktree open <path>`** to launch a workspace tied to a worktree — implemented as `onibi worktree open <path> [--agent <agent>] [--prompt <text>]` through the desktop bridge.
 
 ### 2.15 Build / distribution
 73. **Nix flake** (`flake.nix`, `nix/package.nix`) with dev shell.
@@ -363,7 +395,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 
 ### 2.16 Diagnostics / status
 76. **[DONE] `herdr status server | client` equivalent** — `onibi status server` and `onibi status client` report protocol/version, config path, runtime config, socket path, uptime, pane/session counts, DB/device/adapters, and daemon reachability.
-77. **Render-performance profiling** (`render_prof.rs`).
+77. **[PARTIAL] Render-performance profiling** (`render_prof.rs`) — debug render-profile counters exist under `onibiTerminalDebug`; a standalone profiler/report and enforced thresholds remain open.
 
 ### 2.17 UI / UX details
 78. **[DONE] Right-click pane context menu** — focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions are available from terminal panes.
@@ -410,14 +442,14 @@ Partial from Phase B: 16, 31.
 Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
-Completed from Phase C: 43, 44, 45, 55, 56.
-Remaining terminal-native polish: 37 (decision: keep xterm.js or embed ghostty-vt), 38, 40.
+Completed from Phase C: 42, 43, 44, 45, 46, 47, 55, 56, plus xterm reliability hardening for 37 and IME interception hardening for 41.
+Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 39, 40, 41 native cursor-anchor placement, and 77 standalone profiling/reporting.
 
 **Phase D — remote & distribution:**
 34, 35, 62, 73, 74.
 
 **Phase E — long tail:**
-46, 58, 59, 60, 63, 75, 81, 82.
+58, 59, 60, 63, 75, 81, 82.
 
 ---
 

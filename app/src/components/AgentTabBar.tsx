@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
-  AGENT_LABELS,
+  agentDisplayLabel,
   closeSession,
   sessionAttentionState,
   sessionNeedsAttention,
@@ -63,6 +63,9 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   const sessions = useSessionStore((state) => state.sessions);
   const workspaces = useSessionStore((state) => state.workspaces);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const agentLabelOverrides = useSessionStore(
+    (state) => state.settings.agentLabelOverrides,
+  );
   const diffViewMode = useSessionStore((state) => state.settings.diffViewMode);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
@@ -179,6 +182,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           const workspace = workspaceById.get(session.workspaceId);
           const attention = sessionAttentionState(session);
           const flash = sessionNeedsAttention(session);
+          const label = agentDisplayLabel(session.agent, agentLabelOverrides);
           return (
             <button
               key={session.id}
@@ -186,8 +190,8 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
               className={`tab ${activeSessionId === session.id ? "active" : ""} ${
                 flash ? "flash" : ""
               }`}
-              title={`${AGENT_LABELS[session.agent]} · ${workspace?.name ?? "Workspace"}`}
-              aria-label={`${AGENT_LABELS[session.agent]} session`}
+              title={`${label} · ${workspace?.name ?? "Workspace"}`}
+              aria-label={`${label} session`}
               onClick={() => setActiveSession(session.id)}
               onContextMenu={(event) => openContextMenu(event, session.id)}
             >
@@ -286,6 +290,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
               console.warn("failed to close session", error);
             });
           }}
+          agentLabel={agentDisplayLabel(contextSession.agent, agentLabelOverrides)}
         />
       ) : null}
     </nav>
@@ -304,6 +309,7 @@ interface WorkflowContextMenuProps {
   onCopyWorkspacePath: () => void;
   onDiffViewMode: (mode: DiffViewMode) => void;
   onCloseSession: () => void;
+  agentLabel: string;
 }
 
 function WorkflowContextMenu({
@@ -318,6 +324,7 @@ function WorkflowContextMenu({
   onCopyWorkspacePath,
   onDiffViewMode,
   onCloseSession,
+  agentLabel,
 }: WorkflowContextMenuProps) {
   function run(action: () => void) {
     action();
@@ -333,7 +340,7 @@ function WorkflowContextMenu({
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className="context-menu-title">
-        {session.title || AGENT_LABELS[session.agent]}
+        {session.title || agentLabel}
         {workspace ? <span>{workspace.name}</span> : null}
       </div>
       <button type="button" role="menuitem" onClick={() => run(onSwitch)}>

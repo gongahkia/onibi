@@ -22,7 +22,7 @@ import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
 import {
   AGENT_KINDS,
-  AGENT_LABELS,
+  agentDisplayLabel,
   buildAgentHandoffPrompt,
   closeSession,
   duplicateSession,
@@ -475,9 +475,9 @@ function TerminalPaneTree({
         {settings.showTerminalPaneAgentLabels ? (
           <span
             className="terminal-pane-agent-label"
-            title={`${AGENT_LABELS[session.agent]} · ${session.title}`}
+            title={`${agentDisplayLabel(session.agent, settings)} · ${session.title}`}
           >
-            {AGENT_LABELS[session.agent]}
+            {agentDisplayLabel(session.agent, settings)}
           </span>
         ) : null}
         <span className="terminal-pane-cwd" title={session.cwd ?? session.title}>
@@ -785,7 +785,7 @@ function TerminalPaneContextMenu({
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className="context-menu-title">
-        {AGENT_LABELS[session.agent]} · {session.title}
+        {agentDisplayLabel(session.agent, useSessionStore.getState().settings)} · {session.title}
         <span>{workspace?.name ?? "Workspace"}</span>
       </div>
       <button type="button" role="menuitem" onClick={() => run(onFocus)}>
@@ -879,6 +879,7 @@ function AgentHandoffDialog({
   const [agent, setAgent] = useState<AgentKind>(() => defaultHandoffAgent(session.agent));
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [spawning, setSpawning] = useState(false);
+  const settings = useSessionStore((state) => state.settings);
 
   async function startHandoff() {
     if (!workspace) {
@@ -943,7 +944,7 @@ function AgentHandoffDialog({
                   (candidate) => candidate !== "shell" && candidate !== session.agent,
                 ).map((candidate) => (
                   <option key={candidate} value={candidate}>
-                    {AGENT_LABELS[candidate]}
+                    {agentDisplayLabel(candidate, settings)}
                   </option>
                 ))}
               </select>
@@ -952,7 +953,7 @@ function AgentHandoffDialog({
               Workspace: {workspace?.path ?? "No workspace"}
             </div>
             <div className="settings-note">
-              Source: {AGENT_LABELS[session.agent]} · {session.title}
+              Source: {agentDisplayLabel(session.agent, settings)} · {session.title}
             </div>
           </div>
           {handoffError ? <div className="editor-error">{handoffError}</div> : null}
@@ -1174,7 +1175,7 @@ export function MainPane() {
       }
       updateSession(exitedSession.id, {
         status: "completed",
-        title: `${AGENT_LABELS[exitedSession.agent]} exited`,
+        title: `${agentDisplayLabel(exitedSession.agent, settings)} exited`,
       });
       appendSessionEvent({
         type: "session-stopped",

@@ -835,6 +835,10 @@ button.status-bar-item:hover {
   padding: 8px 0 16px;
 }
 
+.workspace-list > .sidebar-empty {
+  min-height: 220px;
+}
+
 .workspace-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -852,6 +856,33 @@ button.status-bar-item:hover {
 
 .workspace-row.with-icons {
   grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+}
+
+.workspace-worktrees {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 8px 4px 34px;
+}
+
+.workspace-worktree-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  color: var(--fg-2);
+}
+
+.workspace-worktree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px/1.2 var(--font-mono);
+}
+
+.workspace-worktree-label.current {
+  color: var(--accent);
 }
 
 .tree-row {
@@ -2146,6 +2177,13 @@ button.status-bar-item:hover {
   width: 100%;
   height: 100%;
   padding: 0 10px 10px;
+}
+
+.terminal-view-shell.transparent .terminal-view,
+.terminal-view-shell.transparent .xterm,
+.terminal-view-shell.transparent .xterm-viewport,
+.terminal-view-shell.transparent .xterm-screen {
+  background: transparent !important;
 }
 
 .terminal-view-shell.copy-mode::after {
@@ -3795,7 +3833,9 @@ button.status-bar-item:hover {
 .agent-command-row,
 .workspace-settings-row {
   display: grid;
-  grid-template-columns: 130px minmax(180px, 1fr) auto 70px minmax(180px, 1fr) auto;
+  grid-template-columns:
+    110px minmax(120px, 0.6fr) minmax(180px, 1fr) auto 70px
+    minmax(180px, 1fr) auto;
   gap: 10px;
   align-items: center;
 }

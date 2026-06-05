@@ -78,6 +78,10 @@ enum Command {
         #[command(subcommand)]
         command: AgentCommand,
     },
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommand,
+    },
     Events {
         #[command(subcommand)]
         command: EventsCommand,
@@ -256,6 +260,17 @@ enum AgentCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum WorktreeCommand {
+    Open {
+        path: PathBuf,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        prompt: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum EventsCommand {
     Subscribe,
 }
@@ -279,6 +294,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "pane",
         "wait",
         "agent",
+        "worktree",
         "events",
         "attention",
         "arrangement",
@@ -355,6 +371,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Pane { command }) => pane(command, port, cli.json).await,
         Some(Command::Wait { command }) => wait(command, cli.json).await,
         Some(Command::Agent { command }) => agent(command, port, cli.json).await,
+        Some(Command::Worktree { command }) => worktree(command, port, cli.json),
         Some(Command::Events { command }) => events(command, cli.json).await,
         Some(Command::Attention) => desktop_get(port, "/v1/desktop/attention", cli.json),
         Some(Command::Arrangement { command }) => arrangement(command, port, cli.json),
@@ -892,6 +909,33 @@ async fn agent(command: AgentCommand, port: u16, json_output: bool) -> Result<()
                 json_output,
             )
             .await
+        }
+    }
+}
+
+fn worktree(command: WorktreeCommand, port: u16, json_output: bool) -> Result<()> {
+    match command {
+        WorktreeCommand::Open {
+            path,
+            agent,
+            prompt,
+        } => {
+            ensure_daemon_running(port)?;
+            let body = json!({
+                "protocol_version": "1.0",
+                "path": path.display().to_string(),
+                "agent": agent,
+                "prompt": prompt,
+            });
+            print_raw_json_or_text(
+                &authed_http(
+                    port,
+                    "POST",
+                    "/v1/desktop/worktree/open",
+                    Some(&body.to_string()),
+                )?,
+                json_output,
+            )
         }
     }
 }

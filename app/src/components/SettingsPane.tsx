@@ -24,12 +24,14 @@ import {
   type TerminalConfigCandidate,
   type TerminalConfigImport,
   type TerminalConfigSource,
+  type TerminalCopyFormat,
   type TerminalKeybinding,
   type TerminalShellMode,
   type TerminalTrigger,
   type TerminalTriggerAction,
   type ThemeMode,
   type WebOpenMode,
+  agentDisplayLabel,
   appKeybindingConflicts,
   applyOnibiConfig,
   detectTerminalConfigImports,
@@ -39,6 +41,7 @@ import {
   parseOnibiConfigText,
   parseTerminalConfigImport,
   readOnibiConfigTomlText,
+  removeWorkspaceAndCloseSessions,
   resolveAgentBinary,
   serializeOnibiConfigToml,
   useSessionStore,
@@ -73,7 +76,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const updateAgentCommand = useSessionStore((state) => state.updateAgentCommand);
   const addSession = useSessionStore((state) => state.addSession);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
-  const removeWorkspace = useSessionStore((state) => state.removeWorkspace);
   const [section, setSection] = useState<SettingsSection>("general");
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus>(() =>
     Object.fromEntries(AGENT_KINDS.map((agent) => [agent, null])) as BinaryStatus,
@@ -139,6 +141,21 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     return null;
   }
 
+  function displayAgent(agent: AgentKind): string {
+    return agentDisplayLabel(agent, settings);
+  }
+
+  function updateAgentLabelOverride(agent: AgentKind, label: string) {
+    const next = { ...settings.agentLabelOverrides };
+    const normalized = label.trim().replace(/\s+/g, " ").slice(0, 40);
+    if (normalized && normalized !== AGENT_LABELS[agent]) {
+      next[agent] = normalized;
+    } else {
+      delete next[agent];
+    }
+    updateSettings({ agentLabelOverrides: next });
+  }
+
   async function addWorkspaceFromInput() {
     if (!workspacePath.trim()) {
       return;
@@ -157,7 +174,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     if (!command.trim()) {
       return;
     }
-    if (!window.confirm(`Run install command for ${AGENT_LABELS[agent]}?`)) {
+    if (!window.confirm(`Run install command for ${displayAgent(agent)}?`)) {
       return;
     }
     const activeSession = sessions.find((session) => session.id === activeSessionId);
@@ -179,13 +196,13 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       cols: 100,
       agent: "shell",
       workspaceId: workspace.id,
-      title: `Install ${AGENT_LABELS[agent]} · ${workspace.name}`,
+      title: `Install ${displayAgent(agent)} · ${workspace.name}`,
     });
     addSession({
       id,
       agent: "shell",
       workspaceId: workspace.id,
-      title: `Install ${AGENT_LABELS[agent]} · ${workspace.name}`,
+      title: `Install ${displayAgent(agent)} · ${workspace.name}`,
       status: "running",
       createdAt: Date.now(),
       pendingApprovals: [],
@@ -268,6 +285,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               theme={settings.theme}
               customColorScheme={settings.customColorScheme}
               defaultAgent={settings.defaultAgent}
+              agentLabelOverrides={settings.agentLabelOverrides}
               uiFontFamily={settings.uiFontFamily}
               terminalFontFamily={settings.terminalFontFamily}
               editorFontFamily={settings.editorFontFamily}
@@ -277,6 +295,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalScrollbackLines={settings.terminalScrollbackLines}
               terminalConfirmClose={settings.terminalConfirmClose}
               terminalScreenReaderMode={settings.terminalScreenReaderMode}
+              terminalCopyFormat={settings.terminalCopyFormat}
+              terminalOsc52Clipboard={settings.terminalOsc52Clipboard}
+              terminalTransparentBackground={settings.terminalTransparentBackground}
               terminalShellMode={settings.terminalShellMode}
               newPaneCwd={settings.newPaneCwd}
               editorFontSize={settings.editorFontSize}
@@ -312,6 +333,15 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalScreenReaderMode={(terminalScreenReaderMode) =>
                 updateSettings({ terminalScreenReaderMode })
+              }
+              onTerminalCopyFormat={(terminalCopyFormat) =>
+                updateSettings({ terminalCopyFormat })
+              }
+              onTerminalOsc52Clipboard={(terminalOsc52Clipboard) =>
+                updateSettings({ terminalOsc52Clipboard })
+              }
+              onTerminalTransparentBackground={(terminalTransparentBackground) =>
+                updateSettings({ terminalTransparentBackground })
               }
               onTerminalShellMode={(terminalShellMode) =>
                 updateSettings({ terminalShellMode })
@@ -364,6 +394,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               binaryStatus={binaryStatus}
               commands={settings.agentCommands}
               installCommands={settings.agentInstallCommands}
+              labelOverrides={settings.agentLabelOverrides}
+              onLabelOverride={updateAgentLabelOverride}
               onCommand={updateAgentCommand}
               onInstallCommand={(agent, command) =>
                 updateSettings({
@@ -383,7 +415,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               workspaces={workspaces}
               onPath={setWorkspacePath}
               onAdd={() => void addWorkspaceFromInput()}
-              onRemove={removeWorkspace}
+              onRemove={(id) => void removeWorkspaceAndCloseSessions(id)}
             />
           ) : null}
           {section === "shell-integration" ? (
@@ -531,6 +563,7 @@ interface GeneralSettingsProps {
   theme: ThemeMode;
   customColorScheme: CustomColorScheme;
   defaultAgent: AgentKind;
+  agentLabelOverrides: Partial<Record<AgentKind, string>>;
   uiFontFamily: string;
   terminalFontFamily: string;
   editorFontFamily: string;
@@ -540,6 +573,9 @@ interface GeneralSettingsProps {
   terminalScrollbackLines: number;
   terminalConfirmClose: boolean;
   terminalScreenReaderMode: boolean;
+  terminalCopyFormat: TerminalCopyFormat;
+  terminalOsc52Clipboard: boolean;
+  terminalTransparentBackground: boolean;
   terminalShellMode: TerminalShellMode;
   newPaneCwd: NewPaneCwdMode;
   editorFontSize: number;
@@ -562,6 +598,9 @@ interface GeneralSettingsProps {
   onTerminalScrollbackLines: (lines: number) => void;
   onTerminalConfirmClose: (enabled: boolean) => void;
   onTerminalScreenReaderMode: (enabled: boolean) => void;
+  onTerminalCopyFormat: (format: TerminalCopyFormat) => void;
+  onTerminalOsc52Clipboard: (enabled: boolean) => void;
+  onTerminalTransparentBackground: (enabled: boolean) => void;
   onTerminalShellMode: (mode: TerminalShellMode) => void;
   onNewPaneCwd: (mode: NewPaneCwdMode) => void;
   onEditorFontSize: (fontSize: number) => void;
@@ -579,6 +618,7 @@ function GeneralSettings({
   theme,
   customColorScheme,
   defaultAgent,
+  agentLabelOverrides,
   uiFontFamily,
   terminalFontFamily,
   editorFontFamily,
@@ -588,6 +628,9 @@ function GeneralSettings({
   terminalScrollbackLines,
   terminalConfirmClose,
   terminalScreenReaderMode,
+  terminalCopyFormat,
+  terminalOsc52Clipboard,
+  terminalTransparentBackground,
   terminalShellMode,
   newPaneCwd,
   editorFontSize,
@@ -610,6 +653,9 @@ function GeneralSettings({
   onTerminalScrollbackLines,
   onTerminalConfirmClose,
   onTerminalScreenReaderMode,
+  onTerminalCopyFormat,
+  onTerminalOsc52Clipboard,
+  onTerminalTransparentBackground,
   onTerminalShellMode,
   onNewPaneCwd,
   onEditorFontSize,
@@ -692,7 +738,7 @@ function GeneralSettings({
         >
           {AGENT_KINDS.map((agent) => (
             <option key={agent} value={agent}>
-              {AGENT_LABELS[agent]}
+              {agentDisplayLabel(agent, agentLabelOverrides)}
             </option>
           ))}
         </select>
@@ -745,6 +791,47 @@ function GeneralSettings({
             onChange={(event) => onTerminalScreenReaderMode(event.target.checked)}
           />
           Enable terminal screen reader mode
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Copy format</span>
+        <select
+          className="settings-select"
+          aria-label="Terminal copy format"
+          value={terminalCopyFormat}
+          onChange={(event) =>
+            onTerminalCopyFormat(event.target.value as TerminalCopyFormat)
+          }
+        >
+          <option value="plain">Plain text</option>
+          <option value="ansi">ANSI escape codes</option>
+          <option value="html">Rich HTML</option>
+        </select>
+      </label>
+      <label className="settings-row">
+        <span>OSC 52 clipboard</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Enable OSC 52 clipboard writes"
+            checked={terminalOsc52Clipboard}
+            onChange={(event) => onTerminalOsc52Clipboard(event.target.checked)}
+          />
+          Enable OSC 52 clipboard writes
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Transparent background</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Use transparent terminal background"
+            checked={terminalTransparentBackground}
+            onChange={(event) =>
+              onTerminalTransparentBackground(event.target.checked)
+            }
+          />
+          Use transparent terminal background
         </span>
       </label>
       <label className="settings-row">
@@ -1250,7 +1337,9 @@ function LayoutSettings({
 interface AgentSettingsProps {
   commands: Record<AgentKind, string>;
   installCommands: Partial<Record<AgentKind, string>>;
+  labelOverrides: Partial<Record<AgentKind, string>>;
   binaryStatus: BinaryStatus;
+  onLabelOverride: (agent: AgentKind, label: string) => void;
   onCommand: (agent: AgentKind, command: string) => void;
   onInstallCommand: (agent: AgentKind, command: string) => void;
   onInstall: (agent: AgentKind, command: string) => void;
@@ -1259,7 +1348,9 @@ interface AgentSettingsProps {
 function AgentSettings({
   commands,
   installCommands,
+  labelOverrides,
   binaryStatus,
+  onLabelOverride,
   onCommand,
   onInstallCommand,
   onInstall,
@@ -1270,12 +1361,20 @@ function AgentSettings({
         const status = agent === "shell" ? "system shell" : binaryStatus[agent] ?? "missing";
         const installCommand =
           installCommands[agent] ?? DEFAULT_AGENT_INSTALL_COMMANDS[agent] ?? "";
+        const label = agentDisplayLabel(agent, labelOverrides);
         return (
           <div className="agent-command-row" key={agent}>
-            <span>{AGENT_LABELS[agent]}</span>
+            <span>{label}</span>
             <input
               className="settings-input"
-              aria-label={`${AGENT_LABELS[agent]} launch command`}
+              aria-label={`${AGENT_LABELS[agent]} display label`}
+              placeholder={AGENT_LABELS[agent]}
+              value={labelOverrides[agent] ?? ""}
+              onChange={(event) => onLabelOverride(agent, event.target.value)}
+            />
+            <input
+              className="settings-input"
+              aria-label={`${label} launch command`}
               value={commands[agent] ?? DEFAULT_AGENT_COMMANDS[agent]}
               onChange={(event) => onCommand(agent, event.target.value)}
             />
@@ -1292,7 +1391,7 @@ function AgentSettings({
                 <span className="settings-note">Install</span>
                 <input
                   className="settings-input"
-                  aria-label={`${AGENT_LABELS[agent]} install command`}
+                  aria-label={`${label} install command`}
                   value={installCommand}
                   onChange={(event) => onInstallCommand(agent, event.target.value)}
                 />
