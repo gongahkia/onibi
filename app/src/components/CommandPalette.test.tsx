@@ -27,6 +27,8 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue([]);
+  globalThis.__TAURI_MOCKS__.updateCheck.mockReset();
+  globalThis.__TAURI_MOCKS__.updateCheck.mockResolvedValue(null);
   vi.mocked(window.confirm).mockReset();
   vi.mocked(window.confirm).mockReturnValue(true);
   vi.mocked(window.prompt).mockReset();
@@ -212,6 +214,22 @@ describe("CommandPalette", () => {
     expect(
       screen.getByRole("dialog", { name: "New Remote SSH Session" }),
     ).toBeTruthy();
+  });
+
+  test("dispatches update checks from the palette", () => {
+    const listener = vi.fn();
+    window.addEventListener("onibi:check-updates", listener);
+    try {
+      render(<CommandPalette />);
+      fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      const input = screen.getByLabelText("Search commands");
+      fireEvent.change(input, { target: { value: "check updates" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("onibi:check-updates", listener);
+    }
   });
 
   test("bootstraps the active remote ssh session from the palette", async () => {

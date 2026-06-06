@@ -297,6 +297,7 @@ fn non_empty(value: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use p256::ecdsa::{signature::Signer, SigningKey};
+    use p256::pkcs8::EncodePublicKey;
 
     fn manifest(version: &str) -> HeadlessUpdateManifest {
         HeadlessUpdateManifest {
@@ -330,7 +331,10 @@ mod tests {
         let check = check_manifest(&manifest("v1.5.1"), "1.5.0-dev", "linux-x86_64").unwrap();
         assert!(check.update_available);
         assert_eq!(check.latest_version, "1.5.1");
-        assert_eq!(check.url.as_deref(), Some("https://example.com/onibi-linux-x86_64"));
+        assert_eq!(
+            check.url.as_deref(),
+            Some("https://example.com/onibi-linux-x86_64")
+        );
     }
 
     #[test]
@@ -343,7 +347,10 @@ mod tests {
     #[test]
     fn selects_arm64_alias_asset() {
         let check = check_manifest(&manifest("1.5.1"), "1.5.0", "linux-aarch64").unwrap();
-        assert_eq!(check.url.as_deref(), Some("https://example.com/onibi-linux-arm64"));
+        assert_eq!(
+            check.url.as_deref(),
+            Some("https://example.com/onibi-linux-arm64")
+        );
         assert_eq!(check.sha256.as_deref(), Some("def"));
     }
 

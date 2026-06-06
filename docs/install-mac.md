@@ -22,3 +22,10 @@ Pair a phone by running:
 ```sh
 onibi setup
 ```
+
+Check for desktop updates from Onibi's Command Palette or Settings -> Updates.
+Headless CLI installs can also check GitHub Releases:
+
+```sh
+onibi update check
+```

@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { cloneGitRepository } from "../lib/git";
 import { useSessionStore, workspaceIdForPath } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
+import { fetchTransportStatus, type TransportSnapshot } from "../lib/transports";
 
 function openCommandPalette() {
   window.dispatchEvent(new CustomEvent("onibi:open-command-palette"));
@@ -12,10 +13,37 @@ function openCommandPalette() {
 export function EmptyState() {
   const [cloneOpen, setCloneOpen] = useState(false);
   const workspaces = useSessionStore((state) => state.workspaces);
+  const sessions = useSessionStore((state) => state.sessions);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const recentWorkspaces = useMemo(() => workspaces.slice(0, 5), [workspaces]);
+
+  const pendingApprovals = useMemo(
+    () => sessions.reduce((sum, s) => sum + s.pendingApprovals.length, 0),
+    [sessions],
+  );
+  const activeSessions = sessions.length;
+
+  const [transports, setTransports] = useState<TransportSnapshot[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function pull() {
+      try {
+        const snap = await fetchTransportStatus();
+        if (!cancelled) setTransports(snap);
+      } catch {
+        if (!cancelled) setTransports([]);
+      }
+    }
+    void pull();
+    const id = window.setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+  const runningTransport = transports.find((t) => t.enabled && t.status.state === "running");
 
   async function handleOpenFolder() {
     const workspace = await chooseWorkspaceFolder();
@@ -29,6 +57,40 @@ export function EmptyState() {
   return (
     <div className="empty-state welcome" data-testid="empty-state">
       <div className="welcome-content">
+        <div className="welcome-hero">
+          <div className="welcome-hero-title">Onibi</div>
+          <div className="welcome-hero-sub">
+            Local-first approval gate for multi-vendor coding agents.
+          </div>
+        </div>
+        <div className="welcome-cockpit" role="status" aria-label="Cockpit summary">
+          <button
+            type="button"
+            className={`welcome-pill ${pendingApprovals > 0 ? "attention" : ""}`}
+            onClick={() => setActiveSidebarView("approvals")}
+            title={pendingApprovals > 0 ? "Open approvals view" : "No pending approvals"}
+          >
+            <i
+              className={`codicon ${pendingApprovals > 0 ? "codicon-bell-dot" : "codicon-bell"}`}
+              aria-hidden="true"
+            />
+            <span>{pendingApprovals} pending</span>
+          </button>
+          <span className="welcome-pill" title="Active agent sessions">
+            <i className="codicon codicon-rocket" aria-hidden="true" />
+            <span>{activeSessions} session{activeSessions === 1 ? "" : "s"}</span>
+          </span>
+          <span
+            className={`welcome-pill ${runningTransport ? "ok" : ""}`}
+            title={runningTransport ? `Phone transport: ${runningTransport.label}` : "No transport — phone cannot pair"}
+          >
+            <i
+              className={`codicon ${runningTransport ? "codicon-broadcast" : "codicon-circle-slash"}`}
+              aria-hidden="true"
+            />
+            <span>{runningTransport ? runningTransport.label : "no transport"}</span>
+          </span>
+        </div>
         <div className="welcome-grid">
           <section className="welcome-section">
             <h2>Start</h2>

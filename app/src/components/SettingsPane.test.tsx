@@ -23,6 +23,8 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue(null);
+  globalThis.__TAURI_MOCKS__.updateCheck.mockReset();
+  globalThis.__TAURI_MOCKS__.updateCheck.mockResolvedValue(null);
 }
 
 describe("SettingsPane", () => {
@@ -95,6 +97,21 @@ describe("SettingsPane", () => {
     expect(settings.paneHistoryEnabled).toBe(true);
     expect(settings.remoteKeybindingPolicy).toBe("remote");
     expect(settings.remoteSshCommand).toBe("/opt/homebrew/bin/ssh");
+  });
+
+  test("dispatches update checks from settings", () => {
+    const listener = vi.fn();
+    window.addEventListener("onibi:check-updates", listener);
+    try {
+      render(<SettingsPane open onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("Updates"));
+      expect(screen.getByText("1.5.0-dev")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("onibi:check-updates", listener);
+    }
   });
 
   test("updates a custom color scheme", () => {

@@ -55,8 +55,6 @@ function chooseDiffEntry(
 
 export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<WorkflowContextMenuState | null>(
     null,
   );
@@ -71,6 +69,12 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const selectFile = useSessionStore((state) => state.selectFile);
   const updateSettings = useSessionStore((state) => state.updateSettings);
+  const activityOpen = useSessionStore((state) => state.activityCenterOpen);
+  const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
+  const settingsOpen = useSessionStore((state) => state.settingsPaneOpen);
+  const setSettingsOpen = useSessionStore((state) => state.setSettingsPaneOpen);
+  const railExpanded = useSessionStore((state) => state.agentRailExpanded);
+  const toggleRail = useSessionStore((state) => state.toggleAgentRailExpanded);
   const pendingApprovals = useMemo(
     () => sessions.reduce((sum, session) => sum + session.pendingApprovals.length, 0),
     [sessions],
@@ -196,7 +200,12 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
               onContextMenu={(event) => openContextMenu(event, session.id)}
             >
               <img src={agentIconUrl(session.agent)} alt="" />
-              <span className={`tab-status ${session.status}`} />
+              <span
+                className={`tab-status ${session.status}`}
+                role="status"
+                aria-label={`${label} ${session.status}`}
+                title={`${label}: ${session.status}`}
+              />
               {flash ? (
                 <span
                   className={`tab-attention attention-${attention}`}

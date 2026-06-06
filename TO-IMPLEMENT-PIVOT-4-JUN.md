@@ -238,6 +238,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added `onibi remote bootstrap ssh <target> --workspace <path> [--cwd <remote-dir>] [--ssh-command <command>] [--helper-path <remote-path>] [--staging-dir <remote-dir>]`.
 - Added focused frontend tests for remote metadata persistence, bootstrap command dispatch, image staging, no-image errors, and path paste; added Rust tests for SSH command/script construction and staged filename validation.
 
+### Implemented in the built-in updater pass
+
+- Added Tauri v2 updater integration for signed GUI updater artifacts, backed by GitHub Releases `latest.json`.
+- Added a root-level update dialog, automatic once-per-24-hours update checks, and manual `Check for Updates` entrypoints from the Command Palette and Settings.
+- Added headless update commands: `onibi update check` and `onibi update install [--yes]`, including manifest parsing, SemVer comparison, platform asset selection, SHA256 verification, optional P-256 signature verification, atomic binary replacement, and user `onibi.service` restart when present.
+- Extended the GitHub release workflow to stage updater artifacts, publish `latest.json` and `latest-headless.json`, and require signing material from GitHub Actions secrets/variables.
+- Documented desktop/headless update use and release signing setup in `docs/updating.md`.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -305,7 +313,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Notifications: terminal (OSC)** | Yes | Yes — OSC PTY notifications route through the delivery selector |
 | **Notifications: system / push** | Yes (system) | Yes (Web Push VAPIR) |
 | **Sound alerts (per-agent muting)** | Yes (mp3, completion/request chimes) | Yes — custom/generated completion/request chimes plus per-agent mute map |
-| **Auto-update / release-channel** | Yes (`herdr update`, latest.json, release notes modal) | No (manual brew/install.sh) |
+| **Auto-update / release-channel** | Yes (`herdr update`, latest.json, release notes modal) | Yes — signed Tauri GUI updates via GitHub `latest.json`, prompt-based install/relaunch, and headless `onibi update check/install` via `latest-headless.json` |
 | **Live binary handoff (running panes)** | Yes (experimental) | No |
 | **Onboarding flow** | Yes | `onibi setup` interactive |
 | **Doctor / diagnostics** | `herdr status` | `onibi doctor` (deeper: ports, DB, keyring) |
@@ -410,7 +418,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 61. **[DONE] Toast delivery selector** — `in_app | terminal | system`.
 
 ### 2.12 Update / release
-62. **Built-in updater** (`herdr update`, periodic check against `latest.json`, in-app release-notes modal).
+62. **[DONE] Built-in updater** (`herdr update`, periodic check against `latest.json`, in-app release-notes modal) — GUI update checks/install prompts use Tauri's signed updater through GitHub Releases, and headless installs use `onibi update check/install` with checksum/signature verification.
 63. **`--handoff` flag** for live in-place upgrade.
 
 ### 2.13 Configuration
@@ -484,9 +492,9 @@ Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm relia
 Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 40, and 41 native cursor-anchor placement.
 
 **Phase D — remote & distribution:**
-Completed from Phase D: 34, 35, 36.
+Completed from Phase D: 34, 35, 36, 62.
 Partial from Phase D: none currently tracked.
-Remaining from Phase D: 62, 73, 74.
+Remaining from Phase D: 73, 74.
 
 **Phase E — long tail:**
 63, 75, 81, 82.

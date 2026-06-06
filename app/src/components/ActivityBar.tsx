@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   useSessionStore,
   type WorkspaceSidebarView,
@@ -18,7 +18,8 @@ interface ActivityBarProps {
 }
 
 export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarProps) {
-  const [activityOpen, setActivityOpen] = useState(false);
+  const activityOpen = useSessionStore((state) => state.activityCenterOpen);
+  const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
   const sessions = useSessionStore((state) => state.sessions);
@@ -28,10 +29,21 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const selectFile = useSessionStore((state) => state.selectFile);
 
+  const pendingApprovals = useMemo(
+    () => sessions.reduce((sum, s) => sum + s.pendingApprovals.length, 0),
+    [sessions],
+  );
+
   const topItems: ActivityItem[] = [
     { id: "files", label: "Explorer", icon: "codicon-files" },
     { id: "search", label: "Search", icon: "codicon-search" },
     { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
+    {
+      id: "approvals",
+      label: "Approvals",
+      icon: pendingApprovals > 0 ? "codicon-bell-dot" : "codicon-bell",
+      badge: pendingApprovals > 0 ? pendingApprovals : undefined,
+    },
   ];
 
   function handleSelect(id: WorkspaceSidebarView) {

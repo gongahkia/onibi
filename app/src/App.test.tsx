@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SETTINGS, useSessionStore } from "./lib/sessions";
+import { UPDATE_LAST_CHECK_KEY } from "./lib/app-updater";
 
 vi.mock("./components/AgentTabBar", () => ({
   AgentTabBar: ({ orientation }: { orientation: string }) => (
@@ -35,6 +36,10 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue([]);
+  globalThis.__TAURI_MOCKS__.updateCheck.mockReset();
+  globalThis.__TAURI_MOCKS__.updateCheck.mockResolvedValue(null);
+  globalThis.__TAURI_MOCKS__.processRelaunch.mockReset();
+  localStorage.setItem(UPDATE_LAST_CHECK_KEY, String(Date.now()));
 }
 
 describe("App", () => {

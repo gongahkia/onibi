@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useSessionStore } from "../lib/sessions";
+import { agentDisplayLabel, useSessionStore } from "../lib/sessions";
 
 function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
@@ -19,32 +19,66 @@ export function TitleBar() {
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const agentLabelOverrides = useSessionStore((state) => state.settings.agentLabelOverrides);
+
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId) ?? null,
+    [sessions, activeSessionId],
+  );
 
   const activeWorkspace = useMemo(() => {
     if (selection && "workspaceId" in selection) {
       return workspaces.find((w) => w.id === selection.workspaceId) ?? null;
     }
-    const session = sessions.find((s) => s.id === activeSessionId);
-    return workspaces.find((w) => w.id === session?.workspaceId) ?? null;
-  }, [selection, workspaces, sessions, activeSessionId]);
+    return workspaces.find((w) => w.id === activeSession?.workspaceId) ?? null;
+  }, [selection, workspaces, activeSession]);
 
   const fileTitle = selectedTitle(selection);
   const workspaceTitle = activeWorkspace?.name ?? null;
-  const composed = fileTitle && workspaceTitle
-    ? `${fileTitle} — ${workspaceTitle}`
-    : fileTitle ?? workspaceTitle ?? "Onibi";
+  const agentLabel = activeSession
+    ? agentDisplayLabel(activeSession.agent, agentLabelOverrides)
+    : null;
+  const showAgent = agentLabel && !selection; // terminal active, no file open
+  const composed = showAgent && workspaceTitle
+    ? `${agentLabel} · ${workspaceTitle}`
+    : fileTitle && workspaceTitle
+      ? `${fileTitle} — ${workspaceTitle}`
+      : fileTitle ?? workspaceTitle ?? "Onibi";
 
   useEffect(() => {
     document.title = composed;
   }, [composed]);
 
+  const platformKey = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform)
+    ? "⌘K"
+    : "Ctrl+K";
+
+  function openPalette() {
+    window.dispatchEvent(new CustomEvent("onibi:open-command-palette"));
+  }
+
   return (
     <div className="title-bar" role="banner">
       <div className="title-bar-spacer" />
       <div className="title-bar-center" title={composed}>
+        {showAgent && activeSession ? (
+          <span className={`title-agent-status ${activeSession.status}`} aria-label={activeSession.status} />
+        ) : null}
         {composed}
       </div>
-      <div className="title-bar-actions" />
+      <div className="title-bar-actions">
+        <button
+          type="button"
+          className="title-cmdk-pill"
+          onClick={openPalette}
+          title="Open command palette"
+          aria-label="Open command palette"
+        >
+          <i className="codicon codicon-search" aria-hidden="true" />
+          <span className="title-cmdk-text">Search commands…</span>
+          <kbd className="title-cmdk-kbd">{platformKey}</kbd>
+        </button>
+      </div>
     </div>
   );
 }

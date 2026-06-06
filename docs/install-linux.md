@@ -34,3 +34,10 @@ The daemon listens on `127.0.0.1:17893`. Pair from a phone with:
 ```sh
 onibi setup
 ```
+
+Check and install headless updates from GitHub Releases:
+
+```sh
+onibi update check
+onibi update install
+```

@@ -354,10 +354,20 @@ export function SourceControlView({
                 {worktreesLoading ? "Loading worktrees..." : "No worktrees found."}
               </div>
             ) : (
-              worktrees.map((worktree) => (
-                <div className="source-control-worktree-row" key={worktree.path}>
-                  <span title={worktree.path}>
-                    {worktree.branch ?? (worktree.detached ? "detached" : "worktree")}
+              worktrees.map((worktree) => {
+                const isPrimary = worktree.path === status.repoRoot;
+                return (
+                <div
+                  className={`source-control-worktree-row${isPrimary ? " primary" : ""}`}
+                  key={worktree.path}
+                >
+                  <span className="source-control-worktree-label" title={worktree.path}>
+                    <i
+                      className={`codicon ${isPrimary ? "codicon-repo" : "codicon-repo-forked"}`}
+                      aria-hidden="true"
+                    />
+                    <span>{worktree.branch ?? (worktree.detached ? "detached" : "worktree")}</span>
+                    {isPrimary ? <span className="source-control-worktree-tag">primary</span> : null}
                   </span>
                   <button
                     type="button"
@@ -390,7 +400,8 @@ export function SourceControlView({
                     x
                   </button>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
           <input

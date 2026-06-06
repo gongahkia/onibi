@@ -764,6 +764,9 @@ type SessionStore = {
   commandBlocks: CommandBlock[];
   activeCommandBlocks: Record<string, CommandBlock>;
   settings: AppSettings;
+  settingsPaneOpen: boolean;
+  activityCenterOpen: boolean;
+  agentRailExpanded: boolean;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
   setActiveTerminalPane: (paneId: string | null) => void;
@@ -822,6 +825,9 @@ type SessionStore = {
   reorderBuffer: (fromKey: string, toKey: string, before: boolean) => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   updateAgentCommand: (agent: AgentKind, command: string) => void;
+  setSettingsPaneOpen: (open: boolean) => void;
+  setActivityCenterOpen: (open: boolean) => void;
+  toggleAgentRailExpanded: () => void;
 };
 
 const STORE_PATH = "settings.json";
@@ -3697,6 +3703,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
   commandBlocks: [],
   activeCommandBlocks: {},
   settings: DEFAULT_SETTINGS,
+  settingsPaneOpen: false,
+  activityCenterOpen: false,
+  agentRailExpanded: false,
+  setSettingsPaneOpen: (open) => set({ settingsPaneOpen: open }),
+  setActivityCenterOpen: (open) => set({ activityCenterOpen: open }),
+  toggleAgentRailExpanded: () =>
+    set((state) => ({ agentRailExpanded: !state.agentRailExpanded })),
   setHydrated: (hydrated) => set({ hydrated }),
   setActiveSession: (id) => {
     set((state) => {

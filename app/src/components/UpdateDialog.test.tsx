@@ -8,7 +8,7 @@ function resetUpdaterMocks() {
   globalThis.__TAURI_MOCKS__.updateCheck.mockResolvedValue(null);
   globalThis.__TAURI_MOCKS__.processRelaunch.mockReset();
   globalThis.__TAURI_MOCKS__.processRelaunch.mockResolvedValue(undefined);
-  localStorage.removeItem(UPDATE_LAST_CHECK_KEY);
+  localStorage.setItem(UPDATE_LAST_CHECK_KEY, String(Date.now()));
 }
 
 describe("UpdateDialog", () => {

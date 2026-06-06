@@ -318,6 +318,136 @@ button.status-bar-item:hover {
   background: rgba(244, 135, 113, 0.32);
 }
 
+.status-bar-item.ok {
+  color: var(--color-status-ok, #5fb56a);
+}
+
+.title-agent-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted, #8a8f98);
+  vertical-align: middle;
+}
+.title-agent-status.running { background: #3aa756; }
+.title-agent-status.awaiting-approval { background: #e0a93d; }
+.title-agent-status.completed { background: #4f9dde; }
+.title-agent-status.error { background: #c9534a; }
+
+.title-cmdk-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 8px;
+  margin-right: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1, rgba(255, 255, 255, 0.04));
+  color: var(--fg-1, #8a8f98);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  height: 22px;
+  line-height: 1;
+}
+.title-cmdk-pill:hover {
+  background: var(--bg-2, rgba(255, 255, 255, 0.08));
+  color: var(--fg-0, #e8eaed);
+}
+.title-cmdk-pill .codicon {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.title-cmdk-text {
+  white-space: nowrap;
+}
+.title-cmdk-kbd {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
+  color: var(--fg-1, #8a8f98);
+  margin-left: 4px;
+}
+@media (max-width: 720px) {
+  .title-cmdk-text { display: none; }
+}
+
+.welcome-hero {
+  margin-bottom: 14px;
+}
+.welcome-hero-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg-0);
+  letter-spacing: -0.01em;
+}
+.welcome-hero-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--fg-1, #8a8f98);
+}
+.welcome-cockpit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.welcome-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-1, rgba(255, 255, 255, 0.04));
+  color: var(--fg-1, #8a8f98);
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+}
+button.welcome-pill { cursor: pointer; }
+button.welcome-pill:hover {
+  background: var(--bg-2, rgba(255, 255, 255, 0.08));
+  color: var(--fg-0);
+}
+.welcome-pill.attention {
+  color: #e0a93d;
+  border-color: rgba(224, 169, 61, 0.4);
+  background: rgba(224, 169, 61, 0.08);
+}
+.welcome-pill.ok {
+  color: #5fb56a;
+  border-color: rgba(95, 181, 106, 0.35);
+  background: rgba(95, 181, 106, 0.08);
+}
+
+.source-control-worktree-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.source-control-worktree-label .codicon {
+  opacity: 0.75;
+  font-size: 12px;
+}
+.source-control-worktree-row.primary .source-control-worktree-label {
+  color: var(--fg-0);
+}
+.source-control-worktree-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--fg-1, #8a8f98);
+}
+
 .status-bar-count {
   font-weight: 600;
   margin-left: 2px;
@@ -1798,7 +1928,10 @@ button.status-bar-item:hover {
 .source-control-primary:disabled,
 .source-control-secondary:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.35;
+  background: var(--bg-2);
+  color: var(--fg-2, #8a8f98);
+  border-color: var(--border);
 }
 
 .source-control-section {

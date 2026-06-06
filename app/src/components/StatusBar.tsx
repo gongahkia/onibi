@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGitStatus, type GitStatus } from "../lib/git";
+import { dispatchOnibiNotification } from "../lib/notifications";
 import { useSessionStore } from "../lib/sessions";
+import { fetchTransportStatus, type TransportSnapshot } from "../lib/transports";
+
+function activeTransportLabel(transports: TransportSnapshot[]): { label: string; running: boolean } {
+  const running = transports.find((t) => t.enabled && t.status.state === "running");
+  if (running) return { label: running.label || running.name, running: true };
+  const starting = transports.find((t) => t.status.state === "starting");
+  if (starting) return { label: `${starting.label || starting.name}…`, running: false };
+  return { label: "no transport", running: false };
+}
 
 function basename(path: string | undefined | null): string {
   if (!path) return "";
@@ -28,6 +38,7 @@ export function StatusBar() {
   }, [selection, workspaces, activeSession]);
 
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [transports, setTransports] = useState<TransportSnapshot[]>([]);
 
   const refresh = useCallback(async () => {
     if (!activeWorkspace) {
@@ -44,6 +55,58 @@ export function StatusBar() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const prevRunningRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function pull() {
+      try {
+        const snap = await fetchTransportStatus();
+        if (cancelled) return;
+        setTransports(snap);
+        // detect state changes and toast
+        const now = new Set(
+          snap.filter((t) => t.status.state === "running").map((t) => t.name),
+        );
+        const prev = prevRunningRef.current;
+        if (prev) {
+          for (const t of snap) {
+            const wasRunning = prev.has(t.name);
+            const isRunning = now.has(t.name);
+            if (!wasRunning && isRunning) {
+              void dispatchOnibiNotification({
+                source: "session",
+                kind: "info",
+                title: `${t.label || t.name} is reachable`,
+                body: "Your phone can now pair with this machine.",
+              });
+            } else if (wasRunning && !isRunning) {
+              const message = t.status.state === "failed" ? t.status.message : "Transport stopped.";
+              void dispatchOnibiNotification({
+                source: "session",
+                kind: "info",
+                title: `${t.label || t.name} went offline`,
+                body: message,
+              });
+            }
+          }
+        }
+        prevRunningRef.current = now;
+      } catch {
+        if (!cancelled) setTransports([]);
+      }
+    }
+    void pull();
+    const id = window.setInterval(pull, 20_000); // poll every 20s
+    const onFocus = () => void pull();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   const pendingApprovals = useMemo(
     () => sessions.reduce((sum, s) => sum + s.pendingApprovals.length, 0),
@@ -109,6 +172,21 @@ export function StatusBar() {
         ) : null}
       </div>
       <div className="status-bar-section right">
+        {(() => {
+          const t = activeTransportLabel(transports);
+          return (
+            <span
+              className={`status-bar-item ${t.running ? "ok" : ""}`}
+              title={t.running ? `Phone transport active: ${t.label}` : "No transport — phone cannot pair"}
+            >
+              <i
+                className={`codicon ${t.running ? "codicon-broadcast" : "codicon-circle-slash"}`}
+                aria-hidden="true"
+              />
+              <span>{t.label}</span>
+            </span>
+          );
+        })()}
         {cwdLabel ? (
           <span className="status-bar-item" title={activeSession?.cwd ?? ""}>
             <i className="codicon codicon-folder" aria-hidden="true" />
@@ -118,10 +196,10 @@ export function StatusBar() {
         {typeof exitCode === "number" ? (
           <span
             className={`status-bar-item ${exitCode === 0 ? "ok" : "error"}`}
-            title="Last exit code"
+            title={exitCode === 0 ? "Last command exited cleanly" : `Last command exited with code ${exitCode}`}
           >
             <i className={`codicon ${exitCode === 0 ? "codicon-pass" : "codicon-error"}`} aria-hidden="true" />
-            <span>{exitCode}</span>
+            <span>{exitCode === 0 ? "ok" : `exit ${exitCode}`}</span>
           </span>
         ) : null}
         <span className="status-bar-item" title="Encoding">UTF-8</span>
