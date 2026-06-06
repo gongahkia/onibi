@@ -25,6 +25,7 @@ import "./styles/layout.css";
 function App() {
   const settings = useSessionStore((state) => state.settings);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
+  const railExpanded = useSessionStore((state) => state.agentRailExpanded);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -100,7 +101,11 @@ function App() {
         <TitleBar />
         <div className="app-body">
           {horizontalTabs ? null : (
-            <aside className="agent-rail-shell" aria-label="Session rail">
+            <aside
+              className={`agent-rail-shell${railExpanded ? " expanded" : ""}`}
+              aria-label="Session rail"
+              data-expanded={railExpanded || undefined}
+            >
               <AgentTabBar
                 orientation="vertical"
                 onOpenApprovals={openApprovalsView}

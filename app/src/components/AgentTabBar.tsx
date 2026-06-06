@@ -179,8 +179,13 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
     }
   }
 
+  const expanded = orientation === "vertical" && railExpanded;
   return (
-    <nav className={`agent-tab-bar ${orientation}`} aria-label="Agent sessions">
+    <nav
+      className={`agent-tab-bar ${orientation}${expanded ? " expanded" : ""}`}
+      aria-label="Agent sessions"
+      data-expanded={expanded || undefined}
+    >
       <div className="agent-tabs">
         {sessions.map((session) => {
           const workspace = workspaceById.get(session.workspaceId);
@@ -217,6 +222,14 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
                   {session.preview.label}
                 </span>
               ) : null}
+              {expanded ? (
+                <span className="tab-label-text">
+                  <span className="tab-label-primary">{label}</span>
+                  {workspace ? (
+                    <span className="tab-label-secondary">{workspace.name}</span>
+                  ) : null}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -230,6 +243,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           onClick={() => setNewSessionOpen(true)}
         >
           <i className="codicon codicon-add" aria-hidden="true" />
+          {expanded ? <span className="icon-button-label">New</span> : null}
         </button>
         <button
           type="button"
@@ -245,6 +259,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           }}
         >
           <i className="codicon codicon-bell" aria-hidden="true" />
+          {expanded ? <span className="icon-button-label">Approvals</span> : null}
           {pendingApprovals > 0 ? (
             <span className="agent-action-badge" aria-label={`${pendingApprovals} approvals`}>
               {pendingApprovals > 99 ? "99+" : pendingApprovals}
@@ -259,6 +274,7 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           onClick={() => setActivityOpen(true)}
         >
           <i className="codicon codicon-pulse" aria-hidden="true" />
+          {expanded ? <span className="icon-button-label">Activity</span> : null}
         </button>
         <button
           type="button"
@@ -268,7 +284,24 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
           onClick={() => setSettingsOpen(true)}
         >
           <i className="codicon codicon-settings-gear" aria-hidden="true" />
+          {expanded ? <span className="icon-button-label">Settings</span> : null}
         </button>
+        {orientation === "vertical" ? (
+          <button
+            type="button"
+            className="icon-button rail-toggle"
+            aria-label={expanded ? "Collapse rail" : "Expand rail"}
+            title={expanded ? "Collapse rail" : "Expand rail"}
+            aria-expanded={expanded}
+            onClick={toggleRail}
+          >
+            <i
+              className={`codicon ${expanded ? "codicon-chevron-left" : "codicon-chevron-right"}`}
+              aria-hidden="true"
+            />
+            {expanded ? <span className="icon-button-label">Collapse</span> : null}
+          </button>
+        ) : null}
       </div>
       <NewSessionDialog
         open={newSessionOpen}
