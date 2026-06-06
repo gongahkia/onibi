@@ -12,6 +12,7 @@ import { MainPane } from "./components/MainPane";
 import { NotificationToastHost } from "./components/NotificationToastHost";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
+import { UpdateDialog } from "./components/UpdateDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import {
   applyDocumentSettings,
@@ -117,6 +118,7 @@ function App() {
       <ApprovalModal />
       <NotificationToastHost />
       <CommandPalette />
+      <UpdateDialog />
     </>
   );
 }

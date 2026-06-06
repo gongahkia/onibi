@@ -4,7 +4,9 @@ pub mod status;
 
 #[cfg(not(feature = "gui"))]
 use crate::remote;
-use crate::{adapters, config, headless, orchestration, secret, server, transport, util};
+use crate::{
+    adapters, config, headless, orchestration, secret, self_update, server, transport, util,
+};
 use anyhow::{bail, Context, Result};
 #[cfg(feature = "gui")]
 use app_lib::remote;
@@ -85,6 +87,10 @@ enum Command {
     Worktree {
         #[command(subcommand)]
         command: WorktreeCommand,
+    },
+    Update {
+        #[command(subcommand)]
+        command: UpdateCommand,
     },
     Remote {
         #[command(subcommand)]
@@ -279,6 +285,15 @@ enum WorktreeCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum UpdateCommand {
+    Check,
+    Install {
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum RemoteCommand {
     Ssh {
         target: String,
@@ -341,6 +356,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "wait",
         "agent",
         "worktree",
+        "update",
         "remote",
         "events",
         "attention",
@@ -419,6 +435,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Wait { command }) => wait(command, cli.json).await,
         Some(Command::Agent { command }) => agent(command, port, cli.json).await,
         Some(Command::Worktree { command }) => worktree(command, port, cli.json),
+        Some(Command::Update { command }) => update(command, cli.json),
         Some(Command::Remote { command }) => remote(command, cli.json).await,
         Some(Command::Events { command }) => events(command, cli.json).await,
         Some(Command::Attention) => desktop_get(port, "/v1/desktop/attention", cli.json),
@@ -1227,6 +1244,82 @@ fn worktree(command: WorktreeCommand, port: u16, json_output: bool) -> Result<()
                 )?,
                 json_output,
             )
+        }
+    }
+}
+
+fn update(command: UpdateCommand, json_output: bool) -> Result<()> {
+    match command {
+        UpdateCommand::Check => {
+            let check = self_update::check_for_headless_update(None)?;
+            if json_output {
+                print_value(serde_json::to_value(check)?, true)
+            } else if check.update_available {
+                println!(
+                    "Update available: {} -> {}",
+                    check.current_version, check.latest_version
+                );
+                if let Some(date) = check.pub_date.as_deref() {
+                    println!("Published: {date}");
+                }
+                if let Some(url) = check.release_url.as_deref() {
+                    println!("Release: {url}");
+                }
+                println!("Run `onibi update install` to install it.");
+                Ok(())
+            } else {
+                println!("Onibi is up to date ({})", check.current_version);
+                Ok(())
+            }
+        }
+        UpdateCommand::Install { yes } => {
+            let check = self_update::check_for_headless_update(None)?;
+            if !check.update_available {
+                if json_output {
+                    print_value(
+                        serde_json::to_value(self_update::HeadlessUpdateInstall {
+                            installed: false,
+                            current_version: check.current_version,
+                            latest_version: check.latest_version,
+                            path: std::env::current_exe()
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_default(),
+                            service_restarted: false,
+                        })?,
+                        true,
+                    )
+                } else {
+                    println!("Onibi is up to date ({})", check.current_version);
+                    Ok(())
+                }
+            } else {
+                if !yes
+                    && !dialoguer::Confirm::new()
+                        .with_prompt(format!(
+                            "Install Onibi {} over {}?",
+                            check.latest_version, check.current_version
+                        ))
+                        .default(false)
+                        .interact()?
+                {
+                    bail!("update install cancelled");
+                }
+                let install = self_update::install_headless_update(None)?;
+                if json_output {
+                    print_value(serde_json::to_value(install)?, true)
+                } else {
+                    println!(
+                        "Installed Onibi {} to {}",
+                        install.latest_version, install.path
+                    );
+                    if install.service_restarted {
+                        println!("Restarted onibi.service.");
+                    } else {
+                        println!("No active onibi.service restart was performed.");
+                    }
+                    Ok(())
+                }
+            }
         }
     }
 }

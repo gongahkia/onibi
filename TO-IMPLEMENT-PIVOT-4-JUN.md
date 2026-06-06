@@ -504,3 +504,124 @@ Keep as moat — herdr has no equivalent:
 - Review/diff baseline tracking with per-file accept/reject + audit trail.
 - Headless Pi distribution (systemd unit, install script).
 - `onibi doctor` depth (ports, DB, keyring, adapter binaries).
+
+---
+
+## 5. Post-launch evaluation pass — 2026-06-06
+
+Source: competitive-landscape evaluation on 2026-06-06. Lens: ship v1.5.0 as portfolio piece; no more multi-month pivots. External findings that frame this section:
+
+- Anthropic Remote Control (2026-02-25, GA on Pro/Max/Team/Enterprise, native iOS+Android) eats the original "approve from phone" wedge for the Claude-only audience.
+- herdr (~3.5k★, Rust+ratatui) leads the terminal-multiplexer dimension Onibi pivoted toward in §1–§4.
+- opcode (~21k★, Tauri 2) leads the Claude Code GUI dimension.
+- CloudCLI / claudecodeui (~11.7k★) leads the web/mobile multi-CLI UI dimension.
+- Multiple ntfy.sh-based scripts (~60 lines bash, on HN) cover the basic phone-approval wedge for free.
+
+Residual moat that survives: `updatedInput` edit-before-approve, multi-vendor blocking (Codex/OpenCode/Qoder/Copilot/Goose, not only Claude), local-first headless Pi, three-transport pairing with bearer auth.
+
+### 5.1 Cuts — stop tracking, document as not-pursuing
+
+Drop from roadmap. Mark `[CUT]` in any tracking issue and close.
+
+| Existing item | Reason |
+|---|---|
+| **13** Pi extension | BLOCKED on stable API; heuristic detection covers demo. |
+| **14** OMP extension | Same as 13. |
+| **32** Live server handoff | High engineering cost, near-zero user benefit over relaunch. Herdr-flex. |
+| **37** Vendored libghostty-vt option | xterm.js + WebGL + write batching is sufficient for the audience; libghostty integration is months of C/Zig work. |
+| **38** Kitty graphics protocol | xterm.js does not support; needs item 37 first. |
+| **40** Kitty keyboard protocol | Same as 38. |
+| **41** CJK IME cursor-anchor placement | Webview limitation; cannot be fixed without native overlay. |
+| **63** `--handoff` live in-place upgrade | Pairs with cut item 32. |
+| **73** Nix flake | Audience-niche polish. Skip unless personally used. |
+| **74** Just task runner | Make covers it. |
+| **82** Mobile-narrow TUI layout | Duplicates the PWA second-screen story; herdr-think. |
+
+Scope-reductions, not full cuts:
+
+- **55** Built-in themes: reduce 19 to 6 well-tested (Catppuccin, Dracula, Nord, Tokyo Night, Solarized, Onibi Flame). The other 13 are checkbox-feature volume with support cost.
+- Git UI: cut clone / push / pull (overlap with VS Code/Cursor). Keep stage/commit/diff and review-baseline (differentiated).
+
+### 5.2 Adds — high leverage
+
+Numbered as 84+ to continue the existing numbering.
+
+#### Top tier — required before v1.5.0 looks "compelling" vs. status-quo
+
+84. **Audit log UI** — browsable timeline of every approval with filters (agent, tool, decision, day), JSONL export, per-tool aggregates, and an in-place diff view of (proposed input → edited input → final). All data is already persisted in `onibi.db`; this is purely a UI surface. No competitor has this. Single highest-leverage feature.
+
+85. **Approval policy / trust profile rules** — TOML rules in `~/.config/onibi/policies.toml`:
+    ```toml
+    [[policy]]
+    match.tool = "Bash"
+    match.command = "^git (status|diff|log|show)"
+    decision = "auto-allow"
+
+    [[policy]]
+    match.tool = "Bash"
+    match.command = "^rm "
+    decision = "always-ask"
+    require_edit = true
+    ```
+    Every auto-allowed decision is still logged into item 84's audit log. Differentiates against Anthropic's flat permission modes (`ask`/`auto-edit`/`full-auto`).
+
+86. **First-run onboarding flow inside the GUI** (subsumes original item **81**). Four steps: pick agent → install adapter → scan QR with phone → test approval against a safe canary command. Conversion lever for star→user.
+
+#### Secondary — v1.5.x post-launch polish
+
+87. **Diff-aware approval modal for file-edit tools** — when an approval is for `Write` / `Edit` / `MultiEdit`, render a CodeMirror diff inside the approval modal. Gate then feels designed for code, not generic JSON.
+
+88. **PWA kill-switch** — one-tap "Stop all agents on this machine" on the phone. Issues termination to every daemon-owned PTY plus broadcasts deny to every pending approval.
+
+89. **Read-only spectator pairing** — secondary pairing-token scope that can subscribe to `/v1/realtime` and GET `/v1/approval/*` but cannot POST decisions. For screen-sharing the cockpit with a coworker.
+
+90. **`onibi safe <agent>` wrapper** — launches an agent under a default-deny-all policy with explicit allow-listed primitives. Useful when trialing a new agent.
+
+91. **WSL2 install path** — document the existing Linux build for WSL2. Probably zero code work; drops the "Windows: not planned" line in README.
+
+92. **Tauri auto-updater** — Tauri 2 updater plugin against `latest.json`. Subsumes existing item **62**.
+
+93. **`onibi.sh` static landing page** — mandatory pre-launch. One page with the screencast embedded, three-line pitch, install snippet, link to repo.
+
+### 5.3 Strengthen — README, launch posts, polish
+
+94. **README lead** — first element below the title is the demo GIF, not install steps. Install moves below the GIF.
+
+95. **Reposition "How Onibi Is Different"** — replace the cmux / hosted-relay framing with positive positioning: "Onibi is the local-first approval gate for multi-vendor agents with edit-before-approve." Do not name competitors in README.
+
+96. **Drop the Acknowledgements section** (cmux / Ghostty / Tailscale / Cloudflare). Reads as small-project humility. Cut or move to `docs/credits.md`.
+
+97. **Restructure the Support Matrix** — current table renders Aider/Cursor/Goose/etc. as "No / No / No / No" which flunks Onibi unfairly. Either drop the table from README (keep only in `docs/adapters.md`), or split into two short lists: "Approval-blocking adapters" (Claude, Codex Bash, OpenCode, Qoder, Copilot, Goose) and "Mirror adapters" (Gemini, Aider, Cursor).
+
+98. **Verify launch assets exist** — `asset/screencast/onibi-launch.gif` and `docs/architecture.png` are README-linked. Fix if placeholders before tagging.
+
+99. **Drop the v1.6 / v2.0 milestone bullets** from README Roadmap if the linked issues are empty. Empty milestones make the project look like vapor.
+
+100. **Launch posts repositioning** (`docs/launch/hn.md`, `reddit.md`, `devto.md`, `x-thread.md`, `mastodon.md`, `lobsters.md`, `release-notes.md`): lead with **edit-before-approve + multi-vendor + no-cloud**; demote the Claude phone-approval framing that Anthropic Remote Control now owns. Mention RC explicitly: "If you're on Claude Pro/Max and only need Claude, use Anthropic's Remote Control. Onibi exists for the cases RC doesn't cover: editing the tool input before approving, gating Codex/Goose/OpenCode/Qoder/Copilot, and running headless on a Pi or LAN-only."
+
+101. **Archive this comparison matrix post-launch** — move `TO-IMPLEMENT-PIVOT-4-JUN.md` to `docs/archive/` after v1.5.0 ships. Keeping a "we are chasing herdr" comparison live in the repo undermines positioning.
+
+### 5.4 Explicit non-goals
+
+Do not add, even if requested:
+
+- Hosted relay / Onibi cloud (originally pencilled into v2.0 README roadmap). Kills the local-first pitch.
+- Native iOS app. APN setup is a tar pit; PWA is sufficient.
+- VS Code extension. Crowded category; weak fit for the gate model.
+- More agent adapters beyond the current 11. Quality over breadth.
+- Multi-machine fan-in / orchestrator-of-orchestrators (v2.0 README roadmap). Different product.
+
+### 5.5 Effort estimate
+
+| Bucket | Effort |
+|---|---|
+| §5.1 cuts (mostly doc/issue closure) | 1–2 days |
+| §5.3 strengthen (README + launch posts + landing) | 2–3 days |
+| §5.2 top tier 84–86 | [Inference] ~2–3 weeks |
+| §5.2 secondary 87–93 | [Inference] ~1–2 weeks |
+
+If tagging v1.5.0 immediately: §5.3 is mandatory (don't skip), §5.1 documented as cuts in CHANGELOG, §5.2 deferred to v1.5.1 / v1.6.
+
+### 5.6 Single most-important add if doing only one thing
+
+**Item 84 (audit log UI).** Cheapest relative to existing data, strongest moat-creator (no competitor has it), best portfolio signal (audit trail design is recognizable engineering discipline), cleanest launch narrative ("Onibi remembers everything your agents tried to do").

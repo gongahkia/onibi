@@ -15,8 +15,10 @@ gui = [
     "dep:tauri-build",
     "dep:tauri-plugin-dialog",
     "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-process",
     "dep:tauri-plugin-single-instance",
     "dep:tauri-plugin-store",
+    "dep:tauri-plugin-updater",
     "dep:arboard",
 ]
 
@@ -33,8 +35,10 @@ tauri-build = { version = "2", features = [], optional = true }
 [dependencies]
 tauri = { version = "2", features = [], optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
 tauri-plugin-single-instance = { version = "2", optional = true }
 tauri-plugin-store = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
@@ -79,6 +83,8 @@ mdns-sd = "0.19"
 if-addrs = "0.13"
 sha2 = "0.10"
 hex = "0.4"
+semver = "1"
+ureq = "2"
 web-push = "0.11"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 tauri-plugin-dialog = { version = "2", optional = true }

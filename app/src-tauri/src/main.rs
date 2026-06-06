@@ -12,6 +12,7 @@ mod push;
 #[cfg(not(feature = "gui"))]
 mod remote;
 mod secret;
+mod self_update;
 mod server;
 mod transport;
 mod util;
