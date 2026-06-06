@@ -128,6 +128,7 @@ button {
 .app-frame {
   display: flex;
   flex-direction: column;
+  position: relative;
   width: 100%;
   height: 100%;
   background: var(--bg-0);
@@ -269,7 +270,7 @@ button {
   flex: 0 0 22px;
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
+  justify-content: center;
   height: 22px;
   background: var(--status-bar-bg);
   color: var(--status-bar-fg);
@@ -277,6 +278,13 @@ button {
   font-size: 12px;
   user-select: none;
   border-top: 1px solid var(--border);
+}
+
+.status-bar.idle {
+  flex-basis: 4px;
+  height: 4px;
+  background: var(--bg-0);
+  color: transparent;
 }
 
 .status-bar[data-variant="attention"] {
@@ -329,6 +337,38 @@ button.status-bar-item:hover {
 
 .status-bar-item.ok {
   color: var(--color-status-ok, #5fb56a);
+}
+
+.focus-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(80vw, 640px);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-1) 94%, transparent);
+  color: var(--fg-0);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.focus-hud span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-agent-status {
