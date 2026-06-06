@@ -16,6 +16,7 @@ export interface NewSessionDialogProps {
   onClose: () => void;
   defaultWorkspaceId?: string | null;
   defaultCwd?: string | null;
+  defaultAgent?: AgentKind | null;
   placement?: TerminalPanePlacement | null;
 }
 
@@ -24,12 +25,15 @@ export function NewSessionDialog({
   onClose,
   defaultWorkspaceId,
   defaultCwd,
+  defaultAgent,
   placement,
 }: NewSessionDialogProps) {
   const workspaces = useSessionStore((state) => state.workspaces);
   const settings = useSessionStore((state) => state.settings);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
-  const [agent, setAgent] = useState<AgentKind>(() => settings.defaultAgent);
+  const [agent, setAgent] = useState<AgentKind>(
+    () => defaultAgent ?? settings.defaultAgent,
+  );
   const [workspaceId, setWorkspaceId] = useState<string>(
     () => defaultWorkspaceId ?? workspaces[0]?.id ?? "",
   );
@@ -63,8 +67,8 @@ export function NewSessionDialog({
     if (!open) {
       return;
     }
-    setAgent(settings.defaultAgent);
-  }, [open, settings.defaultAgent]);
+    setAgent(defaultAgent ?? settings.defaultAgent);
+  }, [defaultAgent, open, settings.defaultAgent]);
 
   const launchCommandText =
     agent === "shell"

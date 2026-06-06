@@ -166,7 +166,7 @@ describe("MainPane", () => {
 
     expect(screen.getByRole("tab", { name: /Terminal/ })).toBeTruthy();
     expect(screen.getByText("empty")).toBeTruthy();
-    expect(screen.getByTestId("empty-state")).toBeTruthy();
+    expect(screen.getByTestId("inline-session-launcher")).toBeTruthy();
   });
 
   test("switches workspace terminal tabs and mirrors the active layout", () => {

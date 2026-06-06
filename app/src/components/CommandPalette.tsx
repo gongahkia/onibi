@@ -199,7 +199,8 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [remoteSessionOpen, setRemoteSessionOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpen = useSessionStore((state) => state.settingsPaneOpen);
+  const setSettingsOpen = useSessionStore((state) => state.setSettingsPaneOpen);
   const [workspaceNavigatorOpen, setWorkspaceNavigatorOpen] = useState(false);
   const [sessionNavigatorOpen, setSessionNavigatorOpen] = useState(false);
   const [keybindHelpOpen, setKeybindHelpOpen] = useState(false);

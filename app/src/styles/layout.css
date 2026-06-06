@@ -524,6 +524,13 @@ button.welcome-pill:hover {
   max-width: 128px;
   min-height: 0;
   background: var(--bg-0);
+  transition: flex-basis 140ms ease, max-width 140ms ease, min-width 140ms ease;
+}
+
+.agent-rail-shell.expanded {
+  flex: 0 0 200px;
+  min-width: 200px;
+  max-width: 220px;
 }
 
 .agent-tab-bar.horizontal {
@@ -573,6 +580,174 @@ button.welcome-pill:hover {
 .agent-tab-bar.vertical .agent-actions {
   flex-direction: column;
   width: 100%;
+}
+
+.agent-tab-bar.vertical.expanded .tab {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  text-align: left;
+}
+.tab-label-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
+.tab-label-primary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-label-secondary {
+  font-size: 10px;
+  color: var(--fg-1, #8a8f98);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-tab-bar.expanded .agent-actions .icon-button {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  width: 100%;
+  font-size: 16px;
+}
+.agent-tab-bar.expanded .agent-actions .icon-button .codicon {
+  font-size: 18px;
+}
+.icon-button-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-1, #8a8f98);
+  white-space: nowrap;
+}
+.agent-tab-bar.expanded .agent-actions .icon-button:hover .icon-button-label {
+  color: var(--fg-0);
+}
+.icon-button.rail-toggle {
+  margin-top: auto;
+  opacity: 0.7;
+}
+.icon-button.rail-toggle:hover {
+  opacity: 1;
+}
+
+.inline-launcher {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px;
+  gap: 22px;
+  text-align: center;
+}
+.inline-launcher-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+}
+.inline-launcher-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-1, #8a8f98);
+}
+.inline-launcher-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.inline-launcher-ws {
+  color: var(--accent-2, #8aa4ff);
+}
+.inline-launcher-path {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-1, #8a8f98);
+  word-break: break-all;
+}
+.inline-launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 640px;
+}
+.inline-launcher-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1, rgba(255, 255, 255, 0.03));
+  cursor: pointer;
+  color: var(--fg-0);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.inline-launcher-card:hover {
+  background: var(--bg-2, rgba(255, 255, 255, 0.06));
+  border-color: var(--accent-2, #8aa4ff);
+}
+.inline-launcher-card:active {
+  transform: scale(0.98);
+}
+.inline-launcher-card.default {
+  border-color: var(--accent-2, #8aa4ff);
+}
+.inline-launcher-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.inline-launcher-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.inline-launcher-card-tag {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-2, #8aa4ff);
+}
+.inline-launcher-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--fg-1, #8a8f98);
+}
+.inline-launcher-hint kbd {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
+  color: var(--fg-1, #8a8f98);
 }
 
 .agent-tab-bar.horizontal .agent-actions {

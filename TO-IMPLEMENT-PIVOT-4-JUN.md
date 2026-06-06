@@ -633,3 +633,176 @@ If tagging v1.5.0 immediately: §5.3 is mandatory (don't skip), §5.1 documented
 ### 5.6 Single most-important add if doing only one thing
 
 **Item 84 (audit log UI).** Cheapest relative to existing data, strongest moat-creator (no competitor has it), best portfolio signal (audit trail design is recognizable engineering discipline), cleanest launch narrative ("Onibi remembers everything your agents tried to do").
+
+---
+
+## 6. Ghostty design adoption pass — 2026-06-06
+
+Reference: `DESIGN.md` (Ghostty design language distillation) at repo root. This section captures only the *concrete, implementable* deltas — the philosophical sections of `DESIGN.md` (Ghostty's core ethos, visual restraint principles, interaction principles) are reading material, not roadmap items.
+
+Onibi is an **approval cockpit**, not a terminal emulator. Several Ghostty rules are too aggressive for an app whose product surface is "monitor and gate multiple agents at once." Items below are filtered through that lens.
+
+### 6.1 Adopt — concrete items added to roadmap
+
+Numbered 102+ to continue the existing numbering from §5.2.
+
+102. **Auto-hide the workspace sidebar by default after first launch.** First launch shows it; subsequent launches respect last-collapsed state. Single binding: `⌘B` / `Ctrl+B`. Map: `App.tsx`, `WorkspaceSidebar.tsx`, persisted sidebar state in store.
+
+103. **Collapse the StatusBar to a single persistent element: pending approvals.** Everything else (transport pill, git branch, cwd, exit code, font-size buttons) moves to:
+     - **Transport state** → toasts only (already wired in §5 — leave that in)
+     - **Git branch + exit code + cwd** → ephemeral HUD that appears for ~3s on focus change, then fades
+     - **Font-size +/-** → command palette only (`Cmd+K → "Terminal: Decrease font size"`)
+     The status bar becomes near-invisible at rest and visible only when something needs attention.
+
+104. **Reduce window padding** for terminal panes from current values to `4px` x/y. Let xterm.js content reach the pane edges, matching Ghostty's `window-padding-x = 4` community-standard value.
+
+105. **Focus-by-opacity for terminal splits.** Remove focus ring/border on the active pane. Apply `opacity: 0.6` to unfocused split panes. The brightest pane is the focused one. Map: `TerminalView.tsx` + `MainPane.tsx` CSS for `.terminal-pane-body[data-active="false"]`.
+
+106. **Reserve saturated yellow/gold for pending-approvals only.** Audit every use of `--accent-2`, the approvals-pending color, and the search-match yellow added in §3 of DESIGN.md tokens. Anywhere else using the same saturated tone is downgraded to a neutral variant. The "loudest" color in the app is reserved for the rarest, most-urgent state.
+
+107. **Replace React-rendered confirmation dialogs with native dialogs** via `@tauri-apps/plugin-dialog` (`ask`, `confirm`, `message`). Audit current modal call sites: clone-repo confirmation, destructive worktree-remove, session-close, approval timeout, settings-reset. The ApprovalModal itself stays React (the edit-input field requires a custom surface), but everything binary-confirm gets the platform sheet.
+
+108. **ApprovalModal restraint pass.** Native padding (≥16px), single monospace font (JetBrains Mono fallback chain), no app logo / branding inside the modal, no emoji in button labels, no decorative gradient. The modal should look like a Finder/Files confirmation sheet, not a React component. Plain "Allow" / "Deny" / "Edit & Allow" buttons.
+
+109. **System light/dark auto-switching at the app level.** Tauri exposes the OS appearance via `window.matchMedia('(prefers-color-scheme: dark)')`. Persist the user's chosen theme as `light:X,dark:Y` pair when both are set; auto-switch on OS change. Subsumes the current single-theme setting.
+
+110. **CSS token pass — adopt `DESIGN.md` §15 values.** Concrete tokens to substitute:
+     ```
+     font-family            JetBrains Mono, ui-monospace, monospace
+     font-feature-settings  "calt" off
+     window-padding         4 4
+     unfocused-opacity      0.6 (split), 0.85 (sidebar peripheral)
+     divider-color          rgba(255,255,255,0.06) dark / rgba(0,0,0,0.08) light
+     search-match-bg        #f6c25d (gold), #f6a878 (peach focused)
+     cursor-style           block + blink
+     resize-overlay-ms      750
+     ```
+     Replace ad-hoc rgba whites added in §5 (welcome-pill, title-cmdk-pill, kbd) with `var(--bg-*)` variables so light theme renders correctly.
+
+111. **Reduce app-rendered chrome elsewhere** — every always-on surface gets one of three verdicts: (a) essential, keep, (b) ephemeral on demand, (c) move to command palette. Concrete passes:
+     - Activity bar: keep, but shrink icon set and ensure approvals tile is the only one with a colored badge.
+     - Agent rail: keep, but show only when ≥1 session exists or workspace is open (already partially true post-#3).
+     - Tab strip on terminal panes: hide when only 1 tab exists in the active workspace tab (mirrors Ghostty `window-show-tab-bar = auto`).
+
+### 6.2 Adopt with modification — Ghostty's rule too aggressive as-stated
+
+Three items where Ghostty's design rule is right in spirit but too strict for Onibi's category:
+
+- **§14 #2 "Auto-hide the agent rail when no sessions exist"** — modified to: rail stays visible but collapses to a minimal `+ New session` tile when zero sessions exist. Rationale: the rail IS the multi-agent identity signal; full hiding would make Onibi indistinguishable from a single-session terminal at rest. Tracked as item 111 above.
+
+- **§14 #5 "Drop the Cmd+K pill"** — modified to: pill **fades** to a 20% opacity glyph after the user has invoked the command palette once (tracked in localStorage). Rationale: Ghostty's audience is terminal power-users; Onibi's audience includes phone-paired non-experts. Discoverability for first-time users is worth one frame of persistent chrome.
+
+- **§14 #1 "Auto-hide workspace sidebar by default"** — modified to: visible on first launch (so new users see the file tree exists), persistently collapsed thereafter if the user collapses it once. Rationale: Ghostty has no file tree; Onibi does. The sidebar is functional, not decorative.
+
+### 6.3 Reject — Ghostty rule does not apply to Onibi's category
+
+Two items I am explicitly NOT taking, with reasoning:
+
+- **§14 #4 "Drop the welcome hero"** — the welcome hero ("Onibi — Local-first approval gate for multi-vendor coding agents") is the *only* place Onibi tells a new user what category it belongs to. Ghostty doesn't need this because "terminal emulator" needs no explanation; "approval cockpit" does. Keep the hero, but trim it to one line.
+
+- **§14 #11 "Move Source Control into command palette"** — the persistent Source Control sidebar is a *real productivity surface* for users reviewing agent-generated changes (stage / diff / commit / review baseline). Collapsing to palette adds friction to the most common review workflow. Reject. (The clone/push/pull *sub-features* are still cut per §5.1, but the panel stays.)
+
+### 6.4 Out of scope, but worth noting
+
+- **Quick Terminal (drop-down overlay)** — Ghostty's iconic ephemeral surface. Not applicable to Onibi (the desktop app isn't a terminal-replacement; the relevant equivalent would be a global-hotkey "approve next pending" overlay, which is interesting but bigger than this pass).
+- **AppleScript / system scripting bridge** — out of scope for v1.5; revisit if `onibi`-CLI coverage proves insufficient.
+- **Proxy icon in title bar** (drag the cwd to other apps) — Tauri does not expose this without custom native code. Defer.
+
+### 6.5 Effort estimate
+
+| Bucket | Effort |
+|---|---|
+| §6.1 token pass (110) + padding (104) | ~half-day |
+| §6.1 status bar collapse (103) + opacity focus (105) | ~1 day |
+| §6.1 accent audit (106) + auto light/dark (109) | ~1 day |
+| §6.1 native dialogs (107) + sidebar default-hide (102) | ~1 day |
+| §6.1 ApprovalModal restraint (108) | ~half-day |
+| §6.2 modified items | ~half-day total |
+| Total | **~4 days of focused work** |
+
+If shipping v1.5.0 immediately and only doing one Ghostty-derived change: **item 105 (focus-by-opacity for splits).** It's the most visually striking Ghostty-ism, takes <1 hour, and converts a Cursor/VS-Code-style cockpit into something that visually communicates restraint.
+
+### 6.6 Verification step before applying §6.1
+
+The current frontend has new chrome added across §5 and the audit polish pass. Before stripping per Ghostty principles, confirm with the user that:
+
+- The `⌘K` pill, cockpit welcome pills, transport pill in StatusBar, agent-state dot in TitleBar — all added recently — are eligible for removal/relocation under §6.1. If any of these was added because the user *wanted* persistent chrome there, the Ghostty pass should respect that decision.
+
+---
+
+## 7. Frontend audit punch list — 2026-06-06
+
+Five items surfaced from the desktop frontend audit on 2026-06-06. Each is meaningfully evaluated below — accept, reject, or fold into existing roadmap items. No blind transcription.
+
+### 7.1 Accept — added to roadmap
+
+Numbered 112+ to continue from §6.
+
+112. **Mobile PWA audit + polish pass.** `mobile/src/App.tsx` (~24k LOC) is entirely unaudited as of this session. Onibi's product pitch centers on the phone; the PWA is half the value prop. Audit dimensions:
+     - Identity at rest (does the PWA show what app it is, what machine it's paired to?)
+     - Approval modal UX on mobile (edit-before-approve on a touch keyboard is hard — needs different affordance than desktop)
+     - Pairing affordance (QR re-scan when token rotates, multi-machine pairing)
+     - Offline state (graceful degradation when transport drops mid-session)
+     - Install-as-PWA prompts (iOS Safari "Add to Home Screen" hint; Android Chrome auto-prompt)
+     - Transport fallback when primary URL fails (does the PWA try the next entry from `transports[]`?)
+     - Lock-screen + notification deep-link behavior (tapping a push notification should land on that specific approval, not the queue root)
+     - Swipe gestures (swipe-to-approve, swipe-to-deny — table-stakes on mobile, may not exist)
+     - Light/dark theme (PWA respects `prefers-color-scheme`?)
+     **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
+
+113. **ApprovalModal deep audit + behavior polish.** The central interaction, never directly reviewed in code. Specific behavioral gaps to verify and address:
+     - **Per-tool-type formatting** — Bash command rendered with shell syntax-highlight; `Write` payload rendered as a CodeMirror diff (not raw JSON); `Edit` rendered side-by-side diff; `MultiEdit` paginated with summary.
+     - **Risk surfacing** — patterns like `rm -rf`, `sudo`, network writes, paths outside workspace get a yellow risk badge ("Destructive: removes files irreversibly").
+     - **Edit-then-approve distinct from approve-as-is** — if the user edits the input, the primary CTA changes to "Approve edited command" with a distinct color/label, preventing accidental fire of the original.
+     - **Deny reason field** (optional) — captured and persisted into the audit log (item 84) so future review can see why something was rejected.
+     - **Timeout countdown** — when long-poll deadline < 60 s, show "denies in 0:47" countdown so the user knows the gate is about to fail-closed.
+     - **Queue state** — when ≥ 2 approvals pend, modal header shows "1 of 3" with keyboard navigation between them.
+     **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both should land in the same touch of the file. **Effort:** ~1-2 hr audit + ~half-day polish.
+
+114. **Light-theme CSS parity sweep for chrome added in §5 / audit polish.** Specifically: `.welcome-pill`, `.title-cmdk-pill`, `.title-cmdk-kbd`, `.inline-launcher-card`, `.inline-launcher-hint kbd`, `.source-control-worktree-tag` — all use raw `rgba(255,255,255,X)` for backgrounds and will render invisible on light themes. Replace with `var(--bg-1)` / `var(--bg-2)` plus explicit light-theme fallbacks.
+     **Cross-reference:** folds into item 110 (CSS token pass per DESIGN.md §15). Same CSS file, same touch — do together. **Effort:** 30 minutes.
+
+115. **Transport pill loading-vs-error-vs-empty disambiguation in StatusBar.** Currently `⊘ no transport` is shown for three distinct states: (a) truly unconfigured, (b) fetch failed, (c) initial mount before first poll completes. Differentiate as:
+     - `··· checking` — initial poll in-flight (first ≤ 2 s after mount)
+     - `⊘ offline` — fetch raised (network or auth error)
+     - `⊘ no transport` — fetched cleanly, nothing enabled
+     Implementation: add `loadState: "initial" | "ok" | "error"` to StatusBar local state. **Effort:** 15 minutes.
+
+116. **Attention escalation when an approval arrives and window IS focused.** Existing cues (toast, title-bar dot, bell badge) are subtle if the user is scrolling. Layered escalation:
+     - (a) Title-bar agent dot **pulses** yellow for ~3 s via CSS keyframe, then settles.
+     - (b) macOS dock icon requests user attention **exactly once** per approval via Tauri's `Window::request_user_attention(Some(UserAttentionType::Informational))`. **Critical** is rejected — never request critical (which bounces continuously); informational is one bounce. Linux equivalent uses `urgency` hint on the GTK window.
+     - (c) The approvals row in the sidebar pulses on first display.
+     Respect `suppressForegroundTabNotifications` setting (already exists in store): if the foreground session is the one with the new approval, skip (a)+(b) — the user is already looking at it. **Effort:** ~1 hour.
+
+### 7.2 Reject — duplicate of existing entries
+
+- **Audit log UI / approval policies / onboarding flow** — already roadmapped as items 84 / 85 / 86 in §5.2. Re-listing here would create double-tracking. Rejected as roadmap additions; honored as already-tracked.
+- **More themes / animations / micro-interactions** — diminishing returns. Theme count is being *reduced* per §5.1 + item 110, not expanded.
+- **Settings UI restructure** — out of scope per §5.4 non-goals. Settings.toml is the source of truth (consistent with §6 Ghostty principle).
+
+### 7.3 Effort estimate
+
+| Item | Effort | Foldable into | Standalone if not folded |
+|---|---|---|---|
+| 112 PWA audit + polish | 4-6 hr | — | yes |
+| 113 ApprovalModal behavior | 1-2 hr audit + half-day polish | item 108 (visual pass) | yes |
+| 114 light-theme CSS sweep | 30 min | item 110 (token pass) | small standalone |
+| 115 transport loading state | 15 min | item 103 (StatusBar collapse) | trivial standalone |
+| 116 attention escalation | 1 hr | — | yes |
+| **Total** | **~1–1.5 days** if folded; ~2 days standalone | | |
+
+### 7.4 Single most-important if doing only one thing
+
+**Item 112 (mobile PWA audit).** Reason: it is the only chunk of the product I have not opened in any session. Onibi's pitch centers on the phone; if the PWA approval modal is rough, no amount of desktop polish saves the user experience. The audit itself is non-invasive (read-only) and can be done even when shipping v1.5.0 as-is. Any resulting fixes are scoped post-audit.
+
+### 7.5 Sequencing recommendation
+
+If implementing both §6 (Ghostty pass) and §7 (audit punch list):
+
+1. Do **112 (PWA audit)** first — read-only, surfaces unknowns that might change §6 priorities.
+2. Then **114 + 110 + 103 + 115** together as one CSS/StatusBar pass (~1 day).
+3. Then **108 + 113** together as the ApprovalModal pass — visual restraint + behavior polish in one touch (~1 day).
+4. Then **102 + 105 + 104 + 106** as the chrome-restraint pass (~1 day).
+5. Last: **107 + 109 + 116** (native dialogs + auto-light/dark + attention escalation) — somewhat independent, can defer (~1 day).
+
+Total **~4 days** to land §6 + §7 if sequenced together. Bigger windows if PWA audit surfaces real problems.

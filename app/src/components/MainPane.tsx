@@ -16,6 +16,7 @@ import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
 import { EditorTabBar } from "./EditorTabBar";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
+import { InlineSessionLauncher } from "./InlineSessionLauncher";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { TerminalTabStrip } from "./TerminalTabStrip";
 import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
@@ -1495,6 +1496,10 @@ export function MainPane() {
                   onAddTab={handleAddTab}
                   onClose={handleCloseSession}
                 />
+              ) : activeWorkspace ? (
+                <div className="workspace-tab-empty">
+                  <InlineSessionLauncher workspace={activeWorkspace} />
+                </div>
               ) : (
                 <div className="workspace-tab-empty">
                   <EmptyState />
