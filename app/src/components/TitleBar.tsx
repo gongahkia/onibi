@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { agentDisplayLabel, useSessionStore } from "../lib/sessions";
 
 function basename(path: string): string {
@@ -15,6 +15,7 @@ function selectedTitle(selection: ReturnType<typeof useSessionStore.getState>["s
 }
 
 export function TitleBar() {
+  const [approvalPulse, setApprovalPulse] = useState(false);
   const selection = useSessionStore((state) => state.selectedFile);
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
@@ -49,6 +50,37 @@ export function TitleBar() {
     document.title = composed;
   }, [composed]);
 
+  useEffect(() => {
+    if (!activeSession?.id) {
+      return;
+    }
+    let timer: number | null = null;
+    function handleApprovalAttention(event: Event) {
+      const detail = (event as CustomEvent<{
+        escalate?: boolean;
+        sessionId?: string | null;
+      }>).detail;
+      if (!detail?.escalate || detail.sessionId !== activeSession.id) {
+        return;
+      }
+      setApprovalPulse(true);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        setApprovalPulse(false);
+        timer = null;
+      }, 3200);
+    }
+    window.addEventListener("onibi:approval-attention", handleApprovalAttention);
+    return () => {
+      window.removeEventListener("onibi:approval-attention", handleApprovalAttention);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [activeSession?.id]);
+
   const platformKey = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform)
     ? "⌘K"
     : "Ctrl+K";
@@ -62,7 +94,12 @@ export function TitleBar() {
       <div className="title-bar-spacer" />
       <div className="title-bar-center" title={composed}>
         {showAgent && activeSession ? (
-          <span className={`title-agent-status ${activeSession.status}`} aria-label={activeSession.status} />
+          <span
+            className={`title-agent-status ${activeSession.status} ${
+              approvalPulse ? "approval-attention" : ""
+            }`}
+            aria-label={activeSession.status}
+          />
         ) : null}
         {composed}
       </div>

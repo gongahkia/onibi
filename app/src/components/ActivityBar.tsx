@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useSessionStore,
   type WorkspaceSidebarView,
@@ -18,6 +18,7 @@ interface ActivityBarProps {
 }
 
 export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarProps) {
+  const [approvalAttention, setApprovalAttention] = useState(false);
   const activityOpen = useSessionStore((state) => state.activityCenterOpen);
   const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
   const view = useSessionStore((state) => state.activeSidebarView);
@@ -45,6 +46,27 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
       badge: pendingApprovals > 0 ? pendingApprovals : undefined,
     },
   ];
+
+  useEffect(() => {
+    let timer: number | null = null;
+    function handleApprovalAttention() {
+      setApprovalAttention(true);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        setApprovalAttention(false);
+        timer = null;
+      }, 3200);
+    }
+    window.addEventListener("onibi:approval-attention", handleApprovalAttention);
+    return () => {
+      window.removeEventListener("onibi:approval-attention", handleApprovalAttention);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, []);
 
   function handleSelect(id: WorkspaceSidebarView) {
     if (view === id && !sidebarCollapsed) {
@@ -100,6 +122,10 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
             type="button"
             className={`activity-bar-item ${
               view === item.id && !sidebarCollapsed && !terminalActive ? "active" : ""
+            } ${
+              item.id === "approvals" && approvalAttention
+                ? "approval-attention"
+                : ""
             }`}
             aria-label={item.label}
             title={item.label}

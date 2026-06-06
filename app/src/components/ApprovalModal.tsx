@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   decideApproval,
   subscribeApprovalEvents,
@@ -6,6 +6,8 @@ import {
   type ApprovalPendingMessage,
   type ApprovalRealtimeMessage,
 } from "../lib/approval-client";
+import { useSessionStore } from "../lib/sessions";
+import { requestInformationalAttention } from "../lib/window-attention";
 
 export interface ApprovalModalProps {
   token?: string;
@@ -30,6 +32,7 @@ export function ApprovalModal({
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const attentionSeen = useRef<Set<string>>(new Set());
 
   const pending = pendingQueue[0] ?? null;
 
@@ -43,6 +46,7 @@ export function ApprovalModal({
           return;
         }
         if (message.type === "approval-pending") {
+          requestApprovalAttention(message, attentionSeen.current);
           setPendingQueue((items) => {
             const exists = items.some((item) => item.approval_id === message.approval_id);
             if (items.length === 0) {
@@ -261,6 +265,41 @@ export function ApprovalModal({
         {error ? <div style={errorStyle}>{error}</div> : null}
       </section>
     </div>
+  );
+}
+
+function requestApprovalAttention(
+  message: ApprovalPendingMessage,
+  seen: Set<string>,
+): void {
+  if (seen.has(message.approval_id)) {
+    return;
+  }
+  seen.add(message.approval_id);
+  const suppressed = shouldSuppressApprovalAttention(message);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("onibi:approval-attention", {
+        detail: {
+          approvalId: message.approval_id,
+          escalate: !suppressed,
+          sessionId: message.session_id,
+        },
+      }),
+    );
+  }
+  if (suppressed) {
+    return;
+  }
+  void requestInformationalAttention();
+}
+
+function shouldSuppressApprovalAttention(message: ApprovalPendingMessage): boolean {
+  const state = useSessionStore.getState();
+  return (
+    state.settings.suppressForegroundTabNotifications &&
+    state.selectedFile === null &&
+    state.activeSessionId === message.session_id
   );
 }
 

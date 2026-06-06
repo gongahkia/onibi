@@ -22,6 +22,7 @@ import {
   type PtySpawnRequest,
 } from "./tauri-bridge";
 import { startAgentReview, stopAgentReview } from "./agent-review";
+import { confirmAction } from "./native-dialogs";
 
 export const AGENT_KINDS = [
   "claude-code",
@@ -6623,7 +6624,10 @@ export async function closeSession(sessionId: string, force = false): Promise<bo
   if (
     !force &&
     sessionNeedsCloseConfirmation(session, state.settings) &&
-    !window.confirm(`Close ${session.title}?`)
+    !(await confirmAction(`Close ${session.title}?`, {
+      okLabel: "Close",
+      title: "Close Session",
+    }))
   ) {
     return false;
   }
@@ -6750,7 +6754,10 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
   }
   if (
     state.sessions.some((session) => sessionNeedsCloseConfirmation(session, state.settings)) &&
-    !window.confirm(`Restore ${arrangement.name} and close current sessions?`)
+    !(await confirmAction(`Restore ${arrangement.name} and close current sessions?`, {
+      okLabel: "Restore",
+      title: "Restore Arrangement",
+    }))
   ) {
     return false;
   }

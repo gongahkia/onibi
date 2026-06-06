@@ -37,6 +37,7 @@ import {
   useSessionStore,
 } from "../lib/sessions";
 import { listGitWorktrees, type GitWorktree } from "../lib/git";
+import { confirmAction } from "../lib/native-dialogs";
 import { notificationEvents } from "../lib/notifications";
 import { UPDATE_CHECK_EVENT } from "../lib/app-updater";
 import { ptyWrite } from "../lib/tauri-bridge";
@@ -891,8 +892,11 @@ export function CommandPalette() {
           group: "Layout",
           description: "Remove saved arrangement",
           keywords: ["layout", "arrangement", "delete"],
-          run: () => {
-            if (window.confirm(`Delete ${arrangement.name}?`)) {
+          run: async () => {
+            if (await confirmAction(`Delete ${arrangement.name}?`, {
+              okLabel: "Delete",
+              title: "Delete Arrangement",
+            })) {
               deleteArrangement(arrangement.id);
             }
           },

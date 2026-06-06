@@ -21,6 +21,7 @@ import {
   useSessionStore,
   type Workspace,
 } from "../lib/sessions";
+import { confirmAction } from "../lib/native-dialogs";
 
 interface SourceControlViewProps {
   workspace: Workspace | null;
@@ -204,8 +205,11 @@ export function SourceControlView({
     void runAction(() => unstageGitPaths(workspace!.path, [entry.path]));
   }
 
-  function discardEntry(entry: GitStatusEntry) {
-    if (!window.confirm(`Discard changes in ${entry.path}?`)) {
+  async function discardEntry(entry: GitStatusEntry) {
+    if (!(await confirmAction(`Discard changes in ${entry.path}?`, {
+      okLabel: "Discard",
+      title: "Discard Changes",
+    }))) {
       return;
     }
     void runAction(() => discardGitPaths(workspace!.path, [entry.path]));
@@ -266,8 +270,14 @@ export function SourceControlView({
     });
   }
 
-  function deleteWorktree(worktree: GitWorktree) {
-    if (!workspace || !window.confirm(`Remove worktree ${worktree.path}?`)) {
+  async function deleteWorktree(worktree: GitWorktree) {
+    if (!workspace) {
+      return;
+    }
+    if (!(await confirmAction(`Remove worktree ${worktree.path}?`, {
+      okLabel: "Remove",
+      title: "Remove Worktree",
+    }))) {
       return;
     }
     void runAction(() => removeGitWorktree(workspace.path, worktree.path, false));

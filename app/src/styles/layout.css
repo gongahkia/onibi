@@ -187,6 +187,15 @@ button {
   border-left-color: var(--activity-bar-fg);
 }
 
+.activity-bar-item.approval-attention {
+  color: var(--activity-bar-fg);
+  animation: pane-attention-pulse 1600ms ease-in-out 2;
+}
+
+.activity-bar-item.approval-attention .activity-bar-badge {
+  animation: pane-attention-pulse 1600ms ease-in-out 2;
+}
+
 .activity-bar-item:focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: -3px;
@@ -332,7 +341,12 @@ button.status-bar-item:hover {
   vertical-align: middle;
 }
 .title-agent-status.running { background: #3aa756; }
-.title-agent-status.awaiting-approval { background: #e0a93d; }
+.title-agent-status.awaiting-approval {
+  background: #e0a93d;
+}
+.title-agent-status.approval-attention {
+  animation: pane-attention-pulse 1600ms ease-in-out 2;
+}
 .title-agent-status.completed { background: #4f9dde; }
 .title-agent-status.error { background: #c9534a; }
 

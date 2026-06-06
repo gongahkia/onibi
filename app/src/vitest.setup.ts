@@ -2,11 +2,13 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, vi, type Mock } from "vitest";
 
 type TauriMocks = {
+  dialogConfirm: Mock;
   dialogOpen: Mock;
   invoke: Mock;
   listen: Mock;
   openerRevealItemInDir: Mock;
   processRelaunch: Mock;
+  requestUserAttention: Mock;
   updateCheck: Mock;
   unlisten: Mock;
 };
@@ -14,11 +16,13 @@ type TauriMocks = {
 const storeData = new Map<string, unknown>();
 
 const tauriMocks: TauriMocks = {
+  dialogConfirm: vi.fn(async () => true),
   dialogOpen: vi.fn(),
   invoke: vi.fn(),
   listen: vi.fn(async () => tauriMocks.unlisten),
   openerRevealItemInDir: vi.fn(async () => undefined),
   processRelaunch: vi.fn(async () => undefined),
+  requestUserAttention: vi.fn(async () => undefined),
   updateCheck: vi.fn(async () => null),
   unlisten: vi.fn(),
 };
@@ -137,7 +141,18 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriMocks.listen,
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({
+    requestUserAttention: tauriMocks.requestUserAttention,
+  })),
+  UserAttentionType: {
+    Critical: 1,
+    Informational: 2,
+  },
+}));
+
 vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: tauriMocks.dialogConfirm,
   open: tauriMocks.dialogOpen,
 }));
 
@@ -162,4 +177,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 
 afterEach(() => {
   cleanup();
+  tauriMocks.dialogConfirm.mockReset();
+  tauriMocks.dialogConfirm.mockResolvedValue(true);
+  tauriMocks.requestUserAttention.mockClear();
 });

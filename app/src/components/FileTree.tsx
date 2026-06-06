@@ -30,6 +30,7 @@ import {
 } from "../lib/sessions";
 import type { AgentReviewRecord } from "../lib/agent-review";
 import { listGitWorktrees, type GitTreeState, type GitWorktree } from "../lib/git";
+import { confirmAction } from "../lib/native-dialogs";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 
 type ChildrenByPath = Record<string, FsEntry[]>;
@@ -690,7 +691,10 @@ export function FileTree({ gitStatusByPath, agentReviewsByPath }: FileTreeProps 
     if (target.isWorkspaceRoot) {
       return;
     }
-    if (!window.confirm(`Delete ${target.entry.name}?`)) {
+    if (!(await confirmAction(`Delete ${target.entry.name}?`, {
+      okLabel: "Delete",
+      title: "Delete Item",
+    }))) {
       return;
     }
     setErrors((state) => ({ ...state, global: "" }));

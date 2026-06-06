@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ApprovalModal } from "./ApprovalModal";
 import type { ApprovalPendingMessage } from "../lib/approval-client";
+import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
 const pending: ApprovalPendingMessage = {
   type: "approval-pending",
@@ -21,6 +22,18 @@ describe("ApprovalModal", () => {
   beforeEach(() => {
     fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+    globalThis.__TAURI_MOCKS__.listen.mockReset();
+    globalThis.__TAURI_MOCKS__.listen.mockResolvedValue(
+      globalThis.__TAURI_MOCKS__.unlisten,
+    );
+    globalThis.__TAURI_MOCKS__.requestUserAttention.mockClear();
+    useSessionStore.setState({
+      hydrated: true,
+      sessions: [],
+      activeSessionId: null,
+      selectedFile: null,
+      settings: DEFAULT_SETTINGS,
+    });
   });
 
   afterEach(() => {
@@ -120,6 +133,53 @@ describe("ApprovalModal", () => {
     expect(
       screen.getByText('Policy "destructive shell commands" · always-ask'),
     ).toBeTruthy();
+  });
+
+  test("requests informational attention once for a new realtime approval", async () => {
+    const pulseListener = vi.fn();
+    window.addEventListener("onibi:approval-attention", pulseListener);
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(async (_event, handler) => {
+      handler({ payload: pending });
+      handler({ payload: pending });
+      return globalThis.__TAURI_MOCKS__.unlisten;
+    });
+
+    try {
+      render(<ApprovalModal token="test-token" />);
+
+      await waitFor(() => {
+        expect(globalThis.__TAURI_MOCKS__.requestUserAttention).toHaveBeenCalledTimes(1);
+      });
+      expect(pulseListener).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog", { name: "Approval request" })).toBeTruthy();
+    } finally {
+      window.removeEventListener("onibi:approval-attention", pulseListener);
+    }
+  });
+
+  test("suppresses dock attention for the foreground approval session", async () => {
+    useSessionStore.setState({
+      activeSessionId: pending.session_id,
+      selectedFile: null,
+      settings: { ...DEFAULT_SETTINGS, suppressForegroundTabNotifications: true },
+    });
+    const pulseListener = vi.fn();
+    window.addEventListener("onibi:approval-attention", pulseListener);
+    globalThis.__TAURI_MOCKS__.listen.mockImplementation(async (_event, handler) => {
+      handler({ payload: pending });
+      return globalThis.__TAURI_MOCKS__.unlisten;
+    });
+
+    try {
+      render(<ApprovalModal token="test-token" />);
+
+      await waitFor(() => {
+        expect(pulseListener).toHaveBeenCalledTimes(1);
+      });
+      expect(globalThis.__TAURI_MOCKS__.requestUserAttention).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("onibi:approval-attention", pulseListener);
+    }
   });
 
   test("renders Write tool payload as file additions", () => {

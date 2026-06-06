@@ -62,6 +62,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { confirmAction } from "../lib/native-dialogs";
 import {
   readWorkspaceFile,
   readWorkspacePreviewFile,
@@ -1039,8 +1040,11 @@ export function EditorBuffer({
     setSavedContent(content);
   }
 
-  function close() {
-    if (dirty && !window.confirm("Discard unsaved changes?")) {
+  async function close() {
+    if (dirty && !(await confirmAction("Discard unsaved changes?", {
+      okLabel: "Discard",
+      title: "Discard Changes",
+    }))) {
       return;
     }
     if (activeBufferKey) {

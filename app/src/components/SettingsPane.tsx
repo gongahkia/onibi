@@ -57,6 +57,7 @@ import {
   fetchConfigStatus,
   type PolicyValidationStatus,
 } from "../lib/config-status";
+import { confirmAction } from "../lib/native-dialogs";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 export interface SettingsPaneProps {
@@ -216,7 +217,10 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
     if (!command.trim()) {
       return;
     }
-    if (!window.confirm(`Run install command for ${displayAgent(agent)}?`)) {
+    if (!(await confirmAction(`Run install command for ${displayAgent(agent)}?`, {
+      okLabel: "Run",
+      title: "Run Install Command",
+    }))) {
       return;
     }
     const activeSession = sessions.find((session) => session.id === activeSessionId);
