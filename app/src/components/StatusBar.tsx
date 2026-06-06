@@ -4,12 +4,48 @@ import { dispatchOnibiNotification } from "../lib/notifications";
 import { useSessionStore } from "../lib/sessions";
 import { fetchTransportStatus, type TransportSnapshot } from "../lib/transports";
 
-function activeTransportLabel(transports: TransportSnapshot[]): { label: string; running: boolean } {
+type TransportLoadState = "initial" | "ok" | "error";
+
+function activeTransportLabel(
+  transports: TransportSnapshot[],
+  loadState: TransportLoadState,
+): { label: string; running: boolean; icon: string; title: string } {
+  if (loadState === "initial") {
+    return {
+      label: "checking",
+      running: false,
+      icon: "codicon-loading",
+      title: "Checking phone transport status",
+    };
+  }
+  if (loadState === "error") {
+    return {
+      label: "offline",
+      running: false,
+      icon: "codicon-error",
+      title: "Transport status could not be fetched",
+    };
+  }
   const running = transports.find((t) => t.enabled && t.status.state === "running");
-  if (running) return { label: running.label || running.name, running: true };
+  if (running) return {
+    label: running.label || running.name,
+    running: true,
+    icon: "codicon-broadcast",
+    title: `Phone transport active: ${running.label || running.name}`,
+  };
   const starting = transports.find((t) => t.status.state === "starting");
-  if (starting) return { label: `${starting.label || starting.name}…`, running: false };
-  return { label: "no transport", running: false };
+  if (starting) return {
+    label: `${starting.label || starting.name}…`,
+    running: false,
+    icon: "codicon-sync",
+    title: `Phone transport starting: ${starting.label || starting.name}`,
+  };
+  return {
+    label: "no transport",
+    running: false,
+    icon: "codicon-circle-slash",
+    title: "No transport is enabled for phone pairing",
+  };
 }
 
 function basename(path: string | undefined | null): string {
@@ -39,6 +75,7 @@ export function StatusBar() {
 
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [transports, setTransports] = useState<TransportSnapshot[]>([]);
+  const [transportLoadState, setTransportLoadState] = useState<TransportLoadState>("initial");
 
   const refresh = useCallback(async () => {
     if (!activeWorkspace) {
@@ -65,6 +102,7 @@ export function StatusBar() {
         const snap = await fetchTransportStatus();
         if (cancelled) return;
         setTransports(snap);
+        setTransportLoadState("ok");
         // detect state changes and toast
         const now = new Set(
           snap.filter((t) => t.status.state === "running").map((t) => t.name),
@@ -94,7 +132,10 @@ export function StatusBar() {
         }
         prevRunningRef.current = now;
       } catch {
-        if (!cancelled) setTransports([]);
+        if (!cancelled) {
+          setTransports([]);
+          setTransportLoadState("error");
+        }
       }
     }
     void pull();
@@ -173,14 +214,14 @@ export function StatusBar() {
       </div>
       <div className="status-bar-section right">
         {(() => {
-          const t = activeTransportLabel(transports);
+          const t = activeTransportLabel(transports, transportLoadState);
           return (
             <span
               className={`status-bar-item ${t.running ? "ok" : ""}`}
-              title={t.running ? `Phone transport active: ${t.label}` : "No transport — phone cannot pair"}
+              title={t.title}
             >
               <i
-                className={`codicon ${t.running ? "codicon-broadcast" : "codicon-circle-slash"}`}
+                className={`codicon ${t.icon}`}
                 aria-hidden="true"
               />
               <span>{t.label}</span>

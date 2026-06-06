@@ -323,6 +323,9 @@ pub enum ServerMessage {
         input: Value,
         cwd: String,
         metadata: Option<Value>,
+        created_at: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at: Option<i64>,
     },
     ApprovalResolved {
         protocol_version: String,
@@ -360,6 +363,12 @@ pub enum ServerMessage {
 
 impl From<&Approval> for ServerMessage {
     fn from(approval: &Approval) -> Self {
+        Self::approval_pending(approval, None)
+    }
+}
+
+impl ServerMessage {
+    pub fn approval_pending(approval: &Approval, expires_at: Option<i64>) -> Self {
         Self::ApprovalPending {
             protocol_version: PROTOCOL_VERSION.to_string(),
             approval_id: approval.approval_id.clone(),
@@ -370,6 +379,8 @@ impl From<&Approval> for ServerMessage {
             input: approval.input.clone(),
             cwd: approval.cwd.clone(),
             metadata: approval.metadata.clone(),
+            created_at: approval.created_at,
+            expires_at,
         }
     }
 }

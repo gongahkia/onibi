@@ -3,7 +3,7 @@
 Post 1:
 
 ```text
-I built Onibi: a local-first cockpit for AI coding agents, with approvals on your phone.
+I built Onibi: a local-first approval gate for AI coding agents, with approvals on your phone.
 
 Agents run locally. When a tool call needs permission, Onibi sends it to the desktop and mobile PWA so you can approve, deny, or edit before it runs.
 
@@ -36,7 +36,7 @@ Stack:
 Post 4:
 
 ```text
-Claude Code is the full launch adapter. Codex has Bash-only interception. Other agents are visible as mirrored shell sessions while their blocking hook surfaces mature.
+Claude Code is the strongest adapter because its hook supports edited input. Codex has Bash-only interception. OpenCode, Qoder, Copilot CLI, and Goose have blocking hook/event integrations. Gemini, Aider, and Cursor remain mirror/resume-oriented.
 
 Adapter PRs welcome.
 ```

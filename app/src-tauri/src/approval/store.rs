@@ -20,6 +20,16 @@ pub struct ApprovalStore {
     path: PathBuf,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ApprovalHistoryFilter {
+    pub agent: Option<String>,
+    pub tool: Option<String>,
+    pub decision: Option<Decision>,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    pub limit: usize,
+}
+
 impl ApprovalStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
@@ -203,6 +213,39 @@ impl ApprovalStore {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn list_approvals(&self, filter: ApprovalHistoryFilter) -> Result<Vec<Approval>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let limit = filter.limit.clamp(1, 1000) as i64;
+        let decision = filter.decision.map(Decision::as_str);
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT approval_id, machine_id, session_id, agent, tool, input, cwd, metadata,
+                   decision, updated_input, reason, decided_by, created_at, decided_at
+            FROM approvals
+            WHERE (?1 IS NULL OR agent = ?1)
+              AND (?2 IS NULL OR tool = ?2)
+              AND (?3 IS NULL OR decision = ?3)
+              AND (?4 IS NULL OR created_at >= ?4)
+              AND (?5 IS NULL OR created_at <= ?5)
+            ORDER BY created_at DESC
+            LIMIT ?6
+            "#,
+        )?;
+        let mut rows = stmt.query(params![
+            filter.agent.as_deref(),
+            filter.tool.as_deref(),
+            decision,
+            filter.from,
+            filter.to,
+            limit,
+        ])?;
+        let mut approvals = Vec::new();
+        while let Some(row) = rows.next()? {
+            approvals.push(row_to_approval(row)?);
+        }
+        Ok(approvals)
     }
 
     pub fn decide(&self, approval_id: &str, decision: &ApprovalDecisionBody) -> Result<bool> {
@@ -585,6 +628,52 @@ mod tests {
         let subscriptions = store.list_push_subscriptions().unwrap();
         assert_eq!(subscriptions.len(), 1);
         assert_eq!(subscriptions[0]["endpoint"], "https://push.example/device");
+    }
+
+    #[test]
+    fn lists_approval_history_with_filters() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        store.insert_approval(&sample("approval-1")).unwrap();
+        store
+            .insert_approval(&Approval {
+                approval_id: "approval-2".to_string(),
+                agent: "codex".to_string(),
+                tool: "Shell".to_string(),
+                created_at: now_millis() + 10,
+                ..sample("approval-2")
+            })
+            .unwrap();
+        store
+            .decide(
+                "approval-2",
+                &ApprovalDecisionBody {
+                    decision: Decision::Deny,
+                    updated_input: None,
+                    reason: Some("too broad".to_string()),
+                    by: Some("mobile".to_string()),
+                },
+            )
+            .unwrap();
+
+        let all = store
+            .list_approvals(ApprovalHistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].approval_id, "approval-2");
+
+        let denied = store
+            .list_approvals(ApprovalHistoryFilter {
+                decision: Some(Decision::Deny),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(denied.len(), 1);
+        assert_eq!(denied[0].reason.as_deref(), Some("too broad"));
     }
 
     #[test]

@@ -92,7 +92,7 @@ describe("AgentTabBar", () => {
     expect(useSessionStore.getState().activeSessionId).toBe("pty-2");
   });
 
-  test("opens the activity center from the rail action", () => {
+  test("opens the shared activity center state from the rail action", () => {
     useSessionStore.setState({
       sessions: [
         {
@@ -112,8 +112,7 @@ describe("AgentTabBar", () => {
     render(<AgentTabBar orientation="vertical" />);
     fireEvent.click(screen.getByLabelText("Activity"));
 
-    expect(screen.getByRole("dialog", { name: "Activity" })).toBeTruthy();
-    expect(screen.getByText("Codex · Running")).toBeTruthy();
+    expect(useSessionStore.getState().activityCenterOpen).toBe(true);
   });
 
   test("opens a workflow context menu on right click", () => {

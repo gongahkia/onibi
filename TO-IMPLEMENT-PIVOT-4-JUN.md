@@ -246,6 +246,18 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Extended the GitHub release workflow to stage updater artifacts, publish `latest.json` and `latest-headless.json`, and require signing material from GitHub Actions secrets/variables.
 - Documented desktop/headless update use and release signing setup in `docs/updating.md`.
 
+### Implemented in the approval-cockpit launch pass
+
+- Added Apache-2.0 licensing and repositioned README/launch copy around "local-first approval gate for multi-vendor coding agents."
+- Split README adapter support into approval-blocking adapters and mirror/resume/pending-native adapters, removed acknowledgements from launch positioning, and verified README-linked launch assets exist.
+- Hardened desktop approvals with queue state, risk badges, optional deny reasons, edit-specific approve CTA, and timeout countdowns.
+- Hardened the mobile PWA with transport fallback, targeted approval deep links, risk badges, optional deny reasons, clearer offline/transport state, and push-notification deep links to `/m/?approval=<id>`.
+- Added approval history storage filters, authenticated history/export endpoints, and an Activity Center approval audit tab with search, decision/edited filters, JSONL export, and daemon-unavailable state.
+- Added backend TOML policy evaluation from `~/.config/onibi/policies.toml`, including `auto-allow`, `always-ask`, `always-deny`, `require_edit`, first-match behavior, audit logging for auto-decisions, and policy validation in config status.
+- Added GUI first-run onboarding for default agent selection, adapter install guidance, QR pairing, and safe canary approval.
+- Completed small visual/status fixes: transport checking/offline/no-transport states, 4px terminal padding, focus-by-opacity for terminal splits, and light-theme-safe chrome token backgrounds.
+- Verified with frontend/mobile typechecks and tests, full Rust tests, Rust fmt check, no-default-features check, `git diff --check`, and a Playwright smoke pass.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -447,7 +459,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 78. **[DONE] Right-click pane context menu** — focus, maximize/restore, new tab, duplicate split, restart, handoff, copy IDs/path, and close actions are available from terminal panes.
 79. **[DONE] Workspace navigator** (`prefix+w`) and session navigator (`prefix+g`) modal pickers.
 80. **[DONE] Keybind-help modal** (in-app reference) — `prefix+?` opens the app/terminal/custom command keybinding reference.
-81. **First-run onboarding flow**.
+81. **[DONE] First-run onboarding flow** — implemented as item 86's GUI onboarding pass.
 82. **Mobile-narrow TUI layout** with single-column workspace/agent switcher (separate from the PWA).
 83. **[DONE] Show-agent-labels-on-pane-borders** toggle — pane agent labels default on and can be hidden from Layout settings or `show_terminal_pane_agent_labels` in TOML.
 
@@ -556,9 +568,9 @@ Numbered as 84+ to continue the existing numbering.
 
 #### Top tier — required before v1.5.0 looks "compelling" vs. status-quo
 
-84. **Audit log UI** — browsable timeline of every approval with filters (agent, tool, decision, day), JSONL export, per-tool aggregates, and an in-place diff view of (proposed input → edited input → final). All data is already persisted in `onibi.db`; this is purely a UI surface. No competitor has this. Single highest-leverage feature.
+84. **[PARTIAL] Audit log UI** — authenticated history/export endpoints and an Activity Center audit tab now exist with search, decision/edited filters, JSONL export, and daemon-unavailable state. Remaining: agent/tool/day filters, per-tool aggregates, and a real in-place diff view of proposed input → edited input → final.
 
-85. **Approval policy / trust profile rules** — TOML rules in `~/.config/onibi/policies.toml`:
+85. **[PARTIAL] Approval policy / trust profile rules** — backend TOML rules in `~/.config/onibi/policies.toml` now evaluate and log `auto-allow`, `always-ask`, and `always-deny` decisions:
     ```toml
     [[policy]]
     match.tool = "Bash"
@@ -571,9 +583,9 @@ Numbered as 84+ to continue the existing numbering.
     decision = "always-ask"
     require_edit = true
     ```
-    Every auto-allowed decision is still logged into item 84's audit log. Differentiates against Anthropic's flat permission modes (`ask`/`auto-edit`/`full-auto`).
+    Every auto-allowed decision is still logged into item 84's audit log. Remaining: docs, CLI/status polish, and desktop visibility for policy validation and matched policy names.
 
-86. **First-run onboarding flow inside the GUI** (subsumes original item **81**). Four steps: pick agent → install adapter → scan QR with phone → test approval against a safe canary command. Conversion lever for star→user.
+86. **[DONE] First-run onboarding flow inside the GUI** (subsumes original item **81**). Four steps: pick agent → install adapter → scan QR with phone → test approval against a safe canary command. Conversion lever for star→user.
 
 #### Secondary — v1.5.x post-launch polish
 
@@ -593,19 +605,19 @@ Numbered as 84+ to continue the existing numbering.
 
 ### 5.3 Strengthen — README, launch posts, polish
 
-94. **README lead** — first element below the title is the demo GIF, not install steps. Install moves below the GIF.
+94. **[DONE] README lead** — first element below the title is the demo GIF, not install steps. Install moves below the GIF.
 
-95. **Reposition "How Onibi Is Different"** — replace the cmux / hosted-relay framing with positive positioning: "Onibi is the local-first approval gate for multi-vendor agents with edit-before-approve." Do not name competitors in README.
+95. **[DONE] Reposition "How Onibi Is Different"** — replace the cmux / hosted-relay framing with positive positioning: "Onibi is the local-first approval gate for multi-vendor agents with edit-before-approve." Do not name competitors in README.
 
-96. **Drop the Acknowledgements section** (cmux / Ghostty / Tailscale / Cloudflare). Reads as small-project humility. Cut or move to `docs/credits.md`.
+96. **[DONE] Drop the Acknowledgements section** (cmux / Ghostty / Tailscale / Cloudflare). Reads as small-project humility. Cut or move to `docs/credits.md`.
 
-97. **Restructure the Support Matrix** — current table renders Aider/Cursor/Goose/etc. as "No / No / No / No" which flunks Onibi unfairly. Either drop the table from README (keep only in `docs/adapters.md`), or split into two short lists: "Approval-blocking adapters" (Claude, Codex Bash, OpenCode, Qoder, Copilot, Goose) and "Mirror adapters" (Gemini, Aider, Cursor).
+97. **[DONE] Restructure the Support Matrix** — current table renders Aider/Cursor/Goose/etc. as "No / No / No / No" which flunks Onibi unfairly. Either drop the table from README (keep only in `docs/adapters.md`), or split into two short lists: "Approval-blocking adapters" (Claude, Codex Bash, OpenCode, Qoder, Copilot, Goose) and "Mirror adapters" (Gemini, Aider, Cursor).
 
-98. **Verify launch assets exist** — `asset/screencast/onibi-launch.gif` and `docs/architecture.png` are README-linked. Fix if placeholders before tagging.
+98. **[DONE] Verify launch assets exist** — `asset/screencast/onibi-launch.gif` and `docs/architecture.png` are README-linked. Fix if placeholders before tagging.
 
-99. **Drop the v1.6 / v2.0 milestone bullets** from README Roadmap if the linked issues are empty. Empty milestones make the project look like vapor.
+99. **[DONE] Drop the v1.6 / v2.0 milestone bullets** from README Roadmap if the linked issues are empty. Empty milestones make the project look like vapor.
 
-100. **Launch posts repositioning** (`docs/launch/hn.md`, `reddit.md`, `devto.md`, `x-thread.md`, `mastodon.md`, `lobsters.md`, `release-notes.md`): lead with **edit-before-approve + multi-vendor + no-cloud**; demote the Claude phone-approval framing that Anthropic Remote Control now owns. Mention RC explicitly: "If you're on Claude Pro/Max and only need Claude, use Anthropic's Remote Control. Onibi exists for the cases RC doesn't cover: editing the tool input before approving, gating Codex/Goose/OpenCode/Qoder/Copilot, and running headless on a Pi or LAN-only."
+100. **[PARTIAL] Launch posts repositioning** (`docs/launch/hn.md`, `reddit.md`, `devto.md`, `x-thread.md`, `mastodon.md`, `lobsters.md`, `release-notes.md`): HN, Reddit, X, Mastodon, Lobsters, and release notes now lead with edit-before-approve + multi-vendor + no-cloud. Remaining: update `docs/launch/devto.md` and decide whether to mention Anthropic Remote Control explicitly in public launch copy.
 
 101. **Archive this comparison matrix post-launch** — move `TO-IMPLEMENT-PIVOT-4-JUN.md` to `docs/archive/` after v1.5.0 ships. Keeping a "we are chasing herdr" comparison live in the repo undermines positioning.
 
@@ -624,11 +636,11 @@ Do not add, even if requested:
 | Bucket | Effort |
 |---|---|
 | §5.1 cuts (mostly doc/issue closure) | 1–2 days |
-| §5.3 strengthen (README + launch posts + landing) | 2–3 days |
-| §5.2 top tier 84–86 | [Inference] ~2–3 weeks |
+| §5.3 strengthen (README + launch posts + landing) | Mostly done; dev.to launch copy and landing page remain |
+| §5.2 top tier 84–86 | Audit UI/policy partially done; onboarding done |
 | §5.2 secondary 87–93 | [Inference] ~1–2 weeks |
 
-If tagging v1.5.0 immediately: §5.3 is mandatory (don't skip), §5.1 documented as cuts in CHANGELOG, §5.2 deferred to v1.5.1 / v1.6.
+If tagging v1.5.0 immediately: finish the remaining §5.3 dev.to/landing copy, document §5.1 cuts in CHANGELOG, and decide whether the remaining §5.2 audit/policy polish is v1.5.0-blocking or v1.5.1.
 
 ### 5.6 Single most-important add if doing only one thing
 
@@ -654,19 +666,19 @@ Numbered 102+ to continue the existing numbering from §5.2.
      - **Font-size +/-** → command palette only (`Cmd+K → "Terminal: Decrease font size"`)
      The status bar becomes near-invisible at rest and visible only when something needs attention.
 
-104. **Reduce window padding** for terminal panes from current values to `4px` x/y. Let xterm.js content reach the pane edges, matching Ghostty's `window-padding-x = 4` community-standard value.
+104. **[DONE] Reduce window padding** for terminal panes from current values to `4px` x/y. Let xterm.js content reach the pane edges, matching Ghostty's `window-padding-x = 4` community-standard value.
 
-105. **Focus-by-opacity for terminal splits.** Remove focus ring/border on the active pane. Apply `opacity: 0.6` to unfocused split panes. The brightest pane is the focused one. Map: `TerminalView.tsx` + `MainPane.tsx` CSS for `.terminal-pane-body[data-active="false"]`.
+105. **[DONE] Focus-by-opacity for terminal splits.** Remove focus ring/border on the active pane. Apply `opacity: 0.6` to unfocused split panes. The brightest pane is the focused one. Map: `TerminalView.tsx` + `MainPane.tsx` CSS for `.terminal-pane-body[data-active="false"]`.
 
 106. **Reserve saturated yellow/gold for pending-approvals only.** Audit every use of `--accent-2`, the approvals-pending color, and the search-match yellow added in §3 of DESIGN.md tokens. Anywhere else using the same saturated tone is downgraded to a neutral variant. The "loudest" color in the app is reserved for the rarest, most-urgent state.
 
 107. **Replace React-rendered confirmation dialogs with native dialogs** via `@tauri-apps/plugin-dialog` (`ask`, `confirm`, `message`). Audit current modal call sites: clone-repo confirmation, destructive worktree-remove, session-close, approval timeout, settings-reset. The ApprovalModal itself stays React (the edit-input field requires a custom surface), but everything binary-confirm gets the platform sheet.
 
-108. **ApprovalModal restraint pass.** Native padding (≥16px), single monospace font (JetBrains Mono fallback chain), no app logo / branding inside the modal, no emoji in button labels, no decorative gradient. The modal should look like a Finder/Files confirmation sheet, not a React component. Plain "Allow" / "Deny" / "Edit & Allow" buttons.
+108. **[PARTIAL] ApprovalModal restraint pass.** ApprovalModal behavior was hardened and button labels were clarified, but a full visual restraint pass remains. Native padding (≥16px), single monospace font (JetBrains Mono fallback chain), no app logo / branding inside the modal, no emoji in button labels, no decorative gradient. The modal should look like a Finder/Files confirmation sheet, not a React component. Plain "Allow" / "Deny" / "Edit & Allow" buttons.
 
 109. **System light/dark auto-switching at the app level.** Tauri exposes the OS appearance via `window.matchMedia('(prefers-color-scheme: dark)')`. Persist the user's chosen theme as `light:X,dark:Y` pair when both are set; auto-switch on OS change. Subsumes the current single-theme setting.
 
-110. **CSS token pass — adopt `DESIGN.md` §15 values.** Concrete tokens to substitute:
+110. **[PARTIAL] CSS token pass — adopt `DESIGN.md` §15 values.** The launch-pass fixed the raw white backgrounds in the new chrome and applied 4px terminal padding. Remaining concrete tokens to substitute:
      ```
      font-family            JetBrains Mono, ui-monospace, monospace
      font-feature-settings  "calt" off
@@ -738,7 +750,7 @@ Five items surfaced from the desktop frontend audit on 2026-06-06. Each is meani
 
 Numbered 112+ to continue from §6.
 
-112. **Mobile PWA audit + polish pass.** `mobile/src/App.tsx` (~24k LOC) is entirely unaudited as of this session. Onibi's product pitch centers on the phone; the PWA is half the value prop. Audit dimensions:
+112. **[PARTIAL] Mobile PWA audit + polish pass.** The PWA now has active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, and optional deny reasons. Remaining audit dimensions:
      - Identity at rest (does the PWA show what app it is, what machine it's paired to?)
      - Approval modal UX on mobile (edit-before-approve on a touch keyboard is hard — needs different affordance than desktop)
      - Pairing affordance (QR re-scan when token rotates, multi-machine pairing)
@@ -750,19 +762,14 @@ Numbered 112+ to continue from §6.
      - Light/dark theme (PWA respects `prefers-color-scheme`?)
      **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
 
-113. **ApprovalModal deep audit + behavior polish.** The central interaction, never directly reviewed in code. Specific behavioral gaps to verify and address:
+113. **[PARTIAL] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, and queue state now exist. Remaining behavioral gaps:
      - **Per-tool-type formatting** — Bash command rendered with shell syntax-highlight; `Write` payload rendered as a CodeMirror diff (not raw JSON); `Edit` rendered side-by-side diff; `MultiEdit` paginated with summary.
-     - **Risk surfacing** — patterns like `rm -rf`, `sudo`, network writes, paths outside workspace get a yellow risk badge ("Destructive: removes files irreversibly").
-     - **Edit-then-approve distinct from approve-as-is** — if the user edits the input, the primary CTA changes to "Approve edited command" with a distinct color/label, preventing accidental fire of the original.
-     - **Deny reason field** (optional) — captured and persisted into the audit log (item 84) so future review can see why something was rejected.
-     - **Timeout countdown** — when long-poll deadline < 60 s, show "denies in 0:47" countdown so the user knows the gate is about to fail-closed.
-     - **Queue state** — when ≥ 2 approvals pend, modal header shows "1 of 3" with keyboard navigation between them.
      **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both should land in the same touch of the file. **Effort:** ~1-2 hr audit + ~half-day polish.
 
-114. **Light-theme CSS parity sweep for chrome added in §5 / audit polish.** Specifically: `.welcome-pill`, `.title-cmdk-pill`, `.title-cmdk-kbd`, `.inline-launcher-card`, `.inline-launcher-hint kbd`, `.source-control-worktree-tag` — all use raw `rgba(255,255,255,X)` for backgrounds and will render invisible on light themes. Replace with `var(--bg-1)` / `var(--bg-2)` plus explicit light-theme fallbacks.
+114. **[DONE] Light-theme CSS parity sweep for chrome added in §5 / audit polish.** Specifically: `.welcome-pill`, `.title-cmdk-pill`, `.title-cmdk-kbd`, `.inline-launcher-card`, `.inline-launcher-hint kbd`, `.source-control-worktree-tag` — all use raw `rgba(255,255,255,X)` for backgrounds and will render invisible on light themes. Replace with `var(--bg-1)` / `var(--bg-2)` plus explicit light-theme fallbacks.
      **Cross-reference:** folds into item 110 (CSS token pass per DESIGN.md §15). Same CSS file, same touch — do together. **Effort:** 30 minutes.
 
-115. **Transport pill loading-vs-error-vs-empty disambiguation in StatusBar.** Currently `⊘ no transport` is shown for three distinct states: (a) truly unconfigured, (b) fetch failed, (c) initial mount before first poll completes. Differentiate as:
+115. **[DONE] Transport pill loading-vs-error-vs-empty disambiguation in StatusBar.** Currently `⊘ no transport` is shown for three distinct states: (a) truly unconfigured, (b) fetch failed, (c) initial mount before first poll completes. Differentiate as:
      - `··· checking` — initial poll in-flight (first ≤ 2 s after mount)
      - `⊘ offline` — fetch raised (network or auth error)
      - `⊘ no transport` — fetched cleanly, nothing enabled
@@ -784,10 +791,10 @@ Numbered 112+ to continue from §6.
 
 | Item | Effort | Foldable into | Standalone if not folded |
 |---|---|---|---|
-| 112 PWA audit + polish | 4-6 hr | — | yes |
-| 113 ApprovalModal behavior | 1-2 hr audit + half-day polish | item 108 (visual pass) | yes |
-| 114 light-theme CSS sweep | 30 min | item 110 (token pass) | small standalone |
-| 115 transport loading state | 15 min | item 103 (StatusBar collapse) | trivial standalone |
+| 112 PWA audit + polish | Partial complete; remaining swipe/install/multi-pairing polish | — | yes |
+| 113 ApprovalModal behavior | Partial complete; remaining file-edit diff formatting | item 108 (visual pass) | yes |
+| 114 light-theme CSS sweep | Done | item 110 (token pass) | done |
+| 115 transport loading state | Done | item 103 (StatusBar collapse) | done |
 | 116 attention escalation | 1 hr | — | yes |
 | **Total** | **~1–1.5 days** if folded; ~2 days standalone | | |
 
@@ -805,4 +812,4 @@ If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 4. Then **102 + 105 + 104 + 106** as the chrome-restraint pass (~1 day).
 5. Last: **107 + 109 + 116** (native dialogs + auto-light/dark + attention escalation) — somewhat independent, can defer (~1 day).
 
-Total **~4 days** to land §6 + §7 if sequenced together. Bigger windows if PWA audit surfaces real problems.
+Total remaining from §6 + §7 is closer to **~2–3 days** after the approval-cockpit launch pass, excluding larger native-dialog and auto-theme work if those are deferred.

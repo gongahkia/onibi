@@ -74,6 +74,7 @@ interface ServerMessage {
   kind?: string;
   payload?: unknown;
   data?: string;
+  created_at?: number;
 }
 
 type BarcodeDetectorCtor = new (options: { formats: string[] }) => {
@@ -221,21 +222,62 @@ function InboxView({
   const [tab, setTab] = useState<Tab>("pending");
   const [wsState, setWsState] = useState<WsState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [activeBaseUrl, setActiveBaseUrl] = useState(connection.baseUrl);
+  const [killConfirming, setKillConfirming] = useState(false);
+  const [killBusy, setKillBusy] = useState(false);
+  const [killStatus, setKillStatus] = useState<string | null>(null);
+  const [targetApprovalId, setTargetApprovalId] = useState(
+    () => new URLSearchParams(window.location.search).get("approval"),
+  );
+
+  const baseUrlCandidates = useMemo(() => candidateBaseUrls(connection), [connection]);
+  const activeTransport = useMemo(
+    () => transportLabelForUrl(connection, activeBaseUrl),
+    [activeBaseUrl, connection],
+  );
+
+  const fetchWithFallback = useCallback(
+    async (path: string, init: RequestInit = {}) => {
+      let lastError: unknown = null;
+      const candidates = uniqueStrings([activeBaseUrl, ...baseUrlCandidates]);
+      for (const baseUrl of candidates) {
+        try {
+          const response = await authedFetch(baseUrl, connection.token, path, init);
+          if (baseUrl !== activeBaseUrl) {
+            setActiveBaseUrl(baseUrl);
+          }
+          return response;
+        } catch (caught) {
+          lastError = caught;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error("No paired transport is reachable.");
+    },
+    [activeBaseUrl, baseUrlCandidates, connection.token],
+  );
 
   const loadInitial = useCallback(async () => {
     const [pendingResponse, recentResponse] = await Promise.all([
-      authedFetch(connection.baseUrl, connection.token, "/v1/approval/pending"),
-      authedFetch(connection.baseUrl, connection.token, "/v1/run/recent"),
+      fetchWithFallback("/v1/approval/pending"),
+      fetchWithFallback("/v1/run/recent"),
     ]);
     setPending((await pendingResponse.json()) as Approval[]);
     setRecent((await recentResponse.json()) as RunEvent[]);
-  }, [connection.baseUrl, connection.token]);
+  }, [fetchWithFallback]);
 
   useEffect(() => {
     void loadInitial().catch((err) =>
       setError(err instanceof Error ? err.message : String(err)),
     );
   }, [loadInitial]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setTargetApprovalId(new URLSearchParams(window.location.search).get("approval"));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     let closed = false;
@@ -245,7 +287,7 @@ function InboxView({
 
     const connect = () => {
       setWsState("connecting");
-      socket = new WebSocket(realtimeUrl(connection));
+      socket = new WebSocket(realtimeUrl({ ...connection, baseUrl: activeBaseUrl }));
       socket.onopen = () => {
         attempt = 0;
         setWsState("open");
@@ -264,6 +306,11 @@ function InboxView({
         if (closed) {
           return;
         }
+        const fallbackUrl = nextBaseUrl(activeBaseUrl, baseUrlCandidates);
+        if (fallbackUrl !== activeBaseUrl) {
+          setActiveBaseUrl(fallbackUrl);
+          return;
+        }
         reconnectTimer = window.setTimeout(connect, reconnectDelay(attempt));
         attempt += 1;
       };
@@ -275,18 +322,44 @@ function InboxView({
       window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [connection]);
+  }, [activeBaseUrl, baseUrlCandidates, connection]);
 
   const decide = async (
     approval: Approval,
     decision: Decision,
     editedCommand?: string,
+    reason?: string,
   ) => {
-    await authedFetch(connection.baseUrl, connection.token, `/v1/approval/${approval.approval_id}/decide`, {
+    await fetchWithFallback(`/v1/approval/${approval.approval_id}/decide`, {
       method: "POST",
-      body: JSON.stringify(buildDecisionBody(approval, decision, editedCommand)),
+      body: JSON.stringify(buildDecisionBody(approval, decision, editedCommand, reason)),
     });
     setPending((items) => items.filter((item) => item.approval_id !== approval.approval_id));
+    if (targetApprovalId === approval.approval_id) {
+      window.history.replaceState({}, "", "/m/");
+      setTargetApprovalId(null);
+    }
+  };
+
+  const emergencyStop = async () => {
+    setKillBusy(true);
+    setKillStatus(null);
+    try {
+      const response = await fetchWithFallback("/v1/emergency-stop", emergencyStopRequest());
+      const result = (await response.json()) as {
+        deniedApprovals?: number;
+        stoppedSessions?: number;
+      };
+      setPending([]);
+      setKillConfirming(false);
+      setKillStatus(
+        `Stopped ${result.stoppedSessions ?? 0} sessions and denied ${result.deniedApprovals ?? 0} approvals.`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setKillBusy(false);
+    }
   };
 
   const sessionOptions = useMemo(
@@ -301,14 +374,52 @@ function InboxView({
         <div>
           <p className="eyebrow">{connection.machineId}</p>
           <h1>Approvals</h1>
+          <p className="status-line">
+            {activeTransport} · {connection.deviceId}
+          </p>
         </div>
         <div className="top-actions">
           <span className={`ws-pill ${wsState}`}>{wsState}</span>
+          <button
+            type="button"
+            className="danger-button"
+            disabled={wsState !== "open" || killBusy}
+            onClick={() => setKillConfirming(true)}
+          >
+            Stop all
+          </button>
           <button type="button" className="ghost-button" onClick={onForget}>
             Unpair
           </button>
         </div>
       </header>
+      {killConfirming ? (
+        <section className="kill-switch-panel" aria-label="Confirm stop all agents">
+          <div>
+            <strong>Stop all agents on this machine?</strong>
+            <p>Running terminals will be killed and pending approvals will be denied.</p>
+          </div>
+          <div className="approval-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={killBusy}
+              onClick={() => setKillConfirming(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="danger-button"
+              disabled={killBusy}
+              onClick={() => void emergencyStop()}
+            >
+              {killBusy ? "Stopping..." : "Stop all agents"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+      {killStatus ? <p className="status-line">{killStatus}</p> : null}
 
       <nav className="tab-strip" aria-label="Mobile views">
         <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>
@@ -323,6 +434,13 @@ function InboxView({
       </nav>
 
       {error ? <p className="error-line">{error}</p> : null}
+      {wsState !== "open" ? (
+        <p className="status-line">
+          {wsState === "connecting"
+            ? `Connecting through ${activeTransport}...`
+            : `Offline on ${activeTransport}. Pending approvals remain visible when cached.`}
+        </p>
+      ) : null}
 
       {tab === "pending" ? (
         <section className="approval-list">
@@ -330,7 +448,12 @@ function InboxView({
             <EmptyState title="No pending approvals" body="New agent tool calls appear here." />
           ) : (
             pending.map((approval) => (
-              <ApprovalCard key={approval.approval_id} approval={approval} onDecide={decide} />
+              <ApprovalCard
+                key={approval.approval_id}
+                approval={approval}
+                targeted={approval.approval_id === targetApprovalId}
+                onDecide={decide}
+              />
             ))
           )}
         </section>
@@ -374,26 +497,35 @@ function InboxView({
 
 function ApprovalCard({
   approval,
+  targeted,
   onDecide,
 }: {
   approval: Approval;
-  onDecide: (approval: Approval, decision: Decision, editedCommand?: string) => Promise<void>;
+  targeted?: boolean;
+  onDecide: (
+    approval: Approval,
+    decision: Decision,
+    editedCommand?: string,
+    reason?: string,
+  ) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [command, setCommand] = useState(commandText(approval.input));
+  const [denyReason, setDenyReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const risks = approvalRiskBadges(approval, command);
 
-  const submit = async (decision: Decision, editedCommand?: string) => {
+  const submit = async (decision: Decision, editedCommand?: string, reason?: string) => {
     setBusy(true);
     try {
-      await onDecide(approval, decision, editedCommand);
+      await onDecide(approval, decision, editedCommand, reason);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <article className="approval-card">
+    <article className={`approval-card${targeted ? " targeted" : ""}`}>
       <div className="approval-header">
         <div>
           <p className="eyebrow">{approval.agent}</p>
@@ -402,6 +534,11 @@ function ApprovalCard({
         <time>{formatTime(approval.created_at)}</time>
       </div>
       <p className="cwd">{approval.cwd}</p>
+      {risks.length > 0 ? (
+        <div className="risk-list" aria-label="Approval risk indicators">
+          {risks.map((risk) => <span key={risk}>{risk}</span>)}
+        </div>
+      ) : null}
       {editing ? (
         <textarea
           value={command}
@@ -412,13 +549,22 @@ function ApprovalCard({
       ) : (
         <pre>{command}</pre>
       )}
+      {!editing ? (
+        <textarea
+          value={denyReason}
+          onChange={(event) => setDenyReason(event.target.value)}
+          rows={2}
+          aria-label="Deny reason"
+          placeholder="Deny reason (optional)"
+        />
+      ) : null}
       <div className="approval-actions">
         <button type="button" disabled={busy} onClick={() => void submit("allow")}>
           Allow
         </button>
         {editing ? (
           <button type="button" disabled={busy} onClick={() => void submit("allow", command)}>
-            Approve Edit
+            Approve edited command
           </button>
         ) : (
           <button type="button" disabled={busy} onClick={() => setEditing(true)}>
@@ -429,7 +575,7 @@ function ApprovalCard({
           type="button"
           className="danger-button"
           disabled={busy}
-          onClick={() => void submit("deny")}
+          onClick={() => void submit("deny", undefined, denyReason.trim())}
         >
           Deny
         </button>
@@ -568,7 +714,7 @@ function applyServerMessage(
       input: message.input ?? {},
       cwd: message.cwd ?? "",
       metadata: message.metadata,
-      created_at: Date.now(),
+      created_at: typeof message.created_at === "number" ? message.created_at : Date.now(),
     };
     setPending((items) => [
       approval,
@@ -636,7 +782,7 @@ export function parsePairingInput(raw: string): PairingPayload {
 }
 
 export function chooseBaseUrl(payload: PairingPayload): string {
-  const transport = payload.transports?.find((item) => !item.url.includes("127.0.0.1"))
+  const transport = payload.transports?.find((item) => phoneReachableUrl(item.url))
     ?? payload.transports?.[0];
   if (transport?.url) {
     return normalizeBaseUrl(transport.url);
@@ -655,6 +801,7 @@ export function buildDecisionBody(
   approval: Approval,
   decision: Decision,
   editedCommand?: string,
+  reason?: string,
 ) {
   const body: {
     decision: Decision;
@@ -663,13 +810,30 @@ export function buildDecisionBody(
     updatedInput?: unknown;
   } = { decision, by: "mobile" };
   if (decision === "deny") {
-    body.reason = "denied from mobile";
+    body.reason = reason?.trim() || "denied from mobile";
   }
   if (decision === "allow" && editedCommand !== undefined) {
     body.updatedInput = editedInput(approval.input, editedCommand);
     body.reason = "edited from mobile";
   }
   return body;
+}
+
+export function emergencyStopRequest(): RequestInit {
+  return {
+    method: "POST",
+    body: "{}",
+  };
+}
+
+export function candidateBaseUrls(connection: Connection): string[] {
+  return uniqueStrings([
+    connection.baseUrl,
+    ...connection.transports
+      .filter((transport) => phoneReachableUrl(transport.url))
+      .map((transport) => normalizeBaseUrl(transport.url)),
+    ...connection.transports.map((transport) => normalizeBaseUrl(transport.url)),
+  ]);
 }
 
 export function commandText(input: unknown): string {
@@ -688,6 +852,24 @@ function editedInput(input: unknown, editedCommand: string): unknown {
   } catch {
     return editedCommand;
   }
+}
+
+function approvalRiskBadges(approval: Approval, text: string): string[] {
+  const lower = text.toLowerCase();
+  const badges = new Set<string>();
+  if (/\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b/.test(lower) || /\brm\s+-rf\b/.test(lower)) {
+    badges.add("Destructive delete");
+  }
+  if (/\bsudo\b/.test(lower)) {
+    badges.add("Elevated command");
+  }
+  if (/\b(curl|wget)\b.*\|\s*(sh|bash|zsh)\b/.test(lower)) {
+    badges.add("Network script");
+  }
+  if (approval.cwd && /(\s|^)(\/|~\/|\.\.\/)/.test(text) && !text.includes(approval.cwd)) {
+    badges.add("Outside cwd");
+  }
+  return [...badges];
 }
 
 async function createPushSubscription(vapidPublicKey: string | undefined): Promise<unknown | null> {
@@ -760,6 +942,32 @@ function realtimeUrl(connection: Connection): string {
   base.pathname = "/v1/realtime";
   base.search = `token=${encodeURIComponent(connection.token)}`;
   return base.toString();
+}
+
+function phoneReachableUrl(url: string): boolean {
+  return !/\/\/(127\.0\.0\.1|localhost|\[::1\])(?::|\/|$)/.test(url);
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items.filter(Boolean).map(normalizeBaseUrl))];
+}
+
+function nextBaseUrl(current: string, candidates: string[]): string {
+  const normalized = normalizeBaseUrl(current);
+  const list = uniqueStrings(candidates);
+  if (list.length <= 1) {
+    return normalized;
+  }
+  const index = list.indexOf(normalized);
+  return list[(index + 1 + list.length) % list.length] ?? normalized;
+}
+
+function transportLabelForUrl(connection: Connection, baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  const transport = connection.transports.find(
+    (item) => normalizeBaseUrl(item.url) === normalized,
+  );
+  return transport ? `${transport.name} ${normalized}` : normalized;
 }
 
 function normalizeBaseUrl(url: string): string {

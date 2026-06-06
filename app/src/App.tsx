@@ -10,6 +10,7 @@ import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { MainPane } from "./components/MainPane";
 import { NotificationToastHost } from "./components/NotificationToastHost";
+import { OnboardingDialog } from "./components/OnboardingDialog";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { UpdateDialog } from "./components/UpdateDialog";
@@ -27,6 +28,9 @@ function App() {
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const railExpanded = useSessionStore((state) => state.agentRailExpanded);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(
+    () => window.localStorage.getItem("onibi.onboarding.dismissed") !== "1",
+  );
 
   useEffect(() => {
     void hydrateSessionStore();
@@ -124,6 +128,7 @@ function App() {
       <NotificationToastHost />
       <CommandPalette />
       <UpdateDialog />
+      <OnboardingDialog open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
     </>
   );
 }

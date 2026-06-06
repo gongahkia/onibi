@@ -27,9 +27,9 @@ self.addEventListener("notificationclick", (event) => {
   const url = String(event.notification.data ?? "/m/");
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((client) => "focus" in client);
+      const existing = clients.find((client) => "focus" in client) as WindowClient | undefined;
       if (existing) {
-        return existing.focus();
+        return existing.navigate(url).then(() => existing.focus());
       }
       return self.clients.openWindow(url);
     }),
@@ -59,7 +59,9 @@ function readPushData(event: PushEvent) {
       title: `${data.agent ?? "Agent"} needs approval`,
       body: `${data.tool ?? "Tool call"}${data.cwd ? ` in ${data.cwd}` : ""}`,
       tag: data.approval_id ?? fallback.tag,
-      url: "/m/",
+      url: data.approval_id
+        ? `/m/?approval=${encodeURIComponent(data.approval_id)}`
+        : "/m/",
     };
   } catch {
     return fallback;

@@ -1,11 +1,11 @@
 # Onibi
 
-Onibi - cockpit for local AI coding agents, with a phone in your pocket.
+Onibi - local-first approval gate for multi-vendor coding agents.
 
 [![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg?branch=v1.5)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Onibi runs Claude Code, Codex, and other local agents in a desktop cockpit, then mirrors approval requests to a mobile PWA. When an agent pauses before a dangerous action, your phone buzzes; you can approve, deny, or edit the command without being at the keyboard.
+Onibi runs Claude Code, Codex, OpenCode, Goose, Qoder, Copilot CLI, and other local agents in a desktop or headless daemon. When an agent pauses before a tool call, Onibi blocks the hook, sends the approval to your desktop and phone, and lets you allow, deny, or edit the payload before it runs.
 
 ![Onibi launch screencast](asset/screencast/onibi-launch.gif)
 
@@ -64,19 +64,22 @@ Core protocol endpoints:
 - `WS /v1/realtime` - approvals, run events, terminal output, and heartbeat.
 - `GET /v1/qr` - pairing payload with token, machine ID, and transports.
 
-## Support Matrix
+## Agent Support
 
-Agents:
+Approval-blocking adapters:
 
-| Agent | Approval | Edit | Mirror | Notes |
-| --- | ---: | ---: | ---: | --- |
-| Claude Code | Yes | Yes | Yes | Full path; requires `updatedInput` support. |
-| Codex CLI | Bash only | No | Yes | `apply_patch` and MCP tools are not interceptable. |
-| OpenCode | No | No | Yes | Shell/mirror integration for v1.5. |
-| Gemini CLI | No | No | Yes | Shell/mirror integration for v1.5. |
-| Aider | No | No | Yes | Shell/mirror integration for v1.5. |
-| Cursor agent | No | No | Yes | Shell/mirror integration for v1.5. |
-| Goose | No | No | Yes | Shell/mirror integration for v1.5. |
+- Claude Code - full approve, deny, and edit-before-approve through `updatedInput`.
+- Codex CLI - Bash approval interception; `apply_patch` and MCP tools are not blocked.
+- OpenCode - provider-event bridge, blocking pre-tool approval, and edited input forwarding.
+- Qoder CLI - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
+- GitHub Copilot CLI - lifecycle events, blocking pre-tool approval, edited argument forwarding.
+- Goose - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
+
+Mirror, resume-only, or pending-native adapters:
+
+- Gemini and Hermes - resume metadata when provider session IDs are available.
+- Aider - terminal mirror plus history-based restore.
+- Cursor, Pi, and OMP - terminal mirror and heuristic detection while stable native hook APIs are pending.
 
 Platforms:
 
@@ -97,28 +100,22 @@ Transports:
 
 ## How Onibi Is Different
 
-cmux is a strong macOS-native cockpit for multiple agents. Onibi focuses on the cross-platform and phone-first approval problem: Linux/Pi headless support, a PWA second screen, and three first-class transports.
+Onibi is the local-first approval gate for multi-vendor agents with edit-before-approve. The approval is a structured protocol object, not just a notification: the tool call blocks, your phone gets context, and the final decision can include an edited payload.
 
-Vanilla terminals and tmux are still the right substrate for many workflows. Onibi adds a structured approval protocol around local agents: the tool call blocks, the phone gets context, and the final decision can include an edited payload.
-
-Hosted relays optimize for convenience. Onibi is local-first: no accounts, no telemetry, no hosted relay in v1.5.
+The desktop app, mobile PWA, CLI, and headless daemon all talk to the same local server. There are no accounts, no telemetry, and no hosted relay in v1.5.
 
 ## Docs
 
 - [Security model](docs/security.md)
 - [Adapter capabilities](docs/adapters.md)
+- [Approval policies](docs/policies.md)
 - [Transports](docs/transports.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Roadmap
 
-- [v1.6 milestone](https://github.com/gongahkia/onibi/issues?q=is%3Aissue+milestone%3Av1.6) - per-device tokens, audit log UI, deeper adapter hooks, SSE fallback.
-- [v2.0 milestone](https://github.com/gongahkia/onibi/issues?q=is%3Aissue+milestone%3Av2.0) - hosted relay option, native mobile app, multi-machine fan-in.
+Near-term work is focused on approval audit history, local policy rules, first-run onboarding, and mobile PWA polish.
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
-
-## Acknowledgements
-
-Onibi is inspired by the local-agent cockpit category that cmux pushed forward, by Ghostty's terminal-engine discipline, and by the practical transport work from Tailscale and Cloudflare.

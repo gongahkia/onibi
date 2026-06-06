@@ -5,7 +5,7 @@ pub mod status;
 #[cfg(not(feature = "gui"))]
 use crate::remote;
 use crate::{
-    adapters, config, headless, orchestration, secret, self_update, server, transport, util,
+    adapters, config, headless, orchestration, policy, secret, self_update, server, transport, util,
 };
 use anyhow::{bail, Context, Result};
 #[cfg(feature = "gui")]
@@ -873,8 +873,15 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
     match command {
         ConfigCommand::Validate => {
             let validation = config::validate()?;
+            let policy_validation = policy::validate();
             if json_output {
-                print_value(serde_json::to_value(validation)?, true)
+                print_value(
+                    json!({
+                        "config": validation,
+                        "policyValidation": policy_validation,
+                    }),
+                    true,
+                )
             } else {
                 println!("Config:    {}", validation.path.display());
                 println!(
@@ -889,6 +896,23 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
                     "Runtime:   approval_timeout_secs={}, pty_ring_limit={}",
                     validation.runtime.approval_timeout_secs, validation.runtime.pty_ring_limit
                 );
+                println!("Policies:  {}", policy_validation.path);
+                println!(
+                    "Policy file: {}",
+                    if policy_validation.exists {
+                        "found"
+                    } else {
+                        "missing; defaults apply"
+                    }
+                );
+                println!(
+                    "Policy:    {} rules, {}",
+                    policy_validation.rule_count,
+                    if policy_validation.ok { "valid" } else { "invalid" }
+                );
+                if let Some(error) = policy_validation.error {
+                    println!("Policy error: {error}");
+                }
                 Ok(())
             }
         }

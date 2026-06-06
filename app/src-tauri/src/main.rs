@@ -7,6 +7,7 @@ mod cli;
 mod config;
 mod headless;
 mod orchestration;
+mod policy;
 mod protocol;
 mod push;
 #[cfg(not(feature = "gui"))]

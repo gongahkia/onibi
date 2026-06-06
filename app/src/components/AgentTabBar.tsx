@@ -16,7 +16,6 @@ import {
   type GitStatusEntry,
 } from "../lib/git";
 import { agentIconUrl } from "../lib/agent-icons";
-import { ActivityCenter } from "./ActivityCenter";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
@@ -69,7 +68,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const selectFile = useSessionStore((state) => state.selectFile);
   const updateSettings = useSessionStore((state) => state.updateSettings);
-  const activityOpen = useSessionStore((state) => state.activityCenterOpen);
   const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
   const settingsOpen = useSessionStore((state) => state.settingsPaneOpen);
   const setSettingsOpen = useSessionStore((state) => state.setSettingsPaneOpen);
@@ -307,7 +305,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
         open={newSessionOpen}
         onClose={() => setNewSessionOpen(false)}
       />
-      <ActivityCenter open={activityOpen} onClose={() => setActivityOpen(false)} />
       <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {contextMenu && contextSession ? (
         <WorkflowContextMenu

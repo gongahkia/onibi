@@ -3,9 +3,9 @@
 Post 1:
 
 ```text
-I built Onibi: a local-first cockpit for AI coding agents, with approvals on your phone.
+I built Onibi: a local-first approval gate for AI coding agents, with approvals on your phone.
 
-Claude pauses. Your phone buzzes. You approve, deny, or edit the command before it runs.
+An agent pauses. Your phone buzzes. You approve, deny, or edit the command before it runs.
 
 Demo:
 ```
@@ -42,10 +42,9 @@ Attach: `docs/architecture.png`
 Post 4:
 
 ```text
-The lead adapter is Claude Code because its PreToolUse hook can return updatedInput.
+Claude Code is the strongest adapter because its PreToolUse hook can return updatedInput.
 
-Codex is supported for Bash-only interception.
-OpenCode, Gemini, Aider, Cursor, and Goose are launch-visible as mirrored shell sessions while their blocking hooks mature.
+Codex is Bash-only. OpenCode, Qoder, Copilot CLI, and Goose have blocking hook/event integrations. Gemini, Aider, Cursor, Hermes, Pi, and OMP are mirror, resume-only, or pending-native.
 ```
 
 Post 5:

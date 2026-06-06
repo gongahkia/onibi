@@ -134,6 +134,21 @@ pre {
   flex-wrap: wrap;
 }
 
+.kill-switch-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.kill-switch-panel p {
+  margin-top: 4px;
+  color: #fecaca;
+}
+
 .secondary-button {
   display: inline-flex;
   align-items: center;
@@ -253,8 +268,29 @@ pre {
   gap: 12px;
 }
 
+.approval-card.targeted {
+  border-color: #22c5c2;
+  box-shadow: 0 0 0 2px rgba(34, 197, 194, 0.2);
+}
+
 .approval-card h2 {
   font-size: 1rem;
+}
+
+.risk-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.risk-list span {
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .approval-card pre,

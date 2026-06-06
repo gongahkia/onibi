@@ -53,6 +53,10 @@ import {
 } from "../lib/sessions";
 import { APP_VERSION } from "../lib/app-version";
 import { UPDATE_CHECK_EVENT } from "../lib/app-updater";
+import {
+  fetchConfigStatus,
+  type PolicyValidationStatus,
+} from "../lib/config-status";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 export interface SettingsPaneProps {
@@ -91,6 +95,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const [error, setError] = useState<string | null>(null);
   const [configJson, setConfigJson] = useState("");
   const [configStatus, setConfigStatus] = useState<string | null>(null);
+  const [policyStatus, setPolicyStatus] = useState<PolicyValidationStatus | null>(null);
+  const [policyStatusError, setPolicyStatusError] = useState<string | null>(null);
+  const [policyStatusLoading, setPolicyStatusLoading] = useState(false);
   const [terminalImports, setTerminalImports] = useState<TerminalConfigImport[]>([]);
   const [terminalImportError, setTerminalImportError] = useState<string | null>(null);
   const [detectingTerminalConfigs, setDetectingTerminalConfigs] = useState(false);
@@ -135,6 +142,35 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || section !== "config-json") {
+      return;
+    }
+    let cancelled = false;
+    setPolicyStatusLoading(true);
+    fetchConfigStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setPolicyStatus(status.policyValidation ?? null);
+          setPolicyStatusError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setPolicyStatus(null);
+          setPolicyStatusError(policyStatusMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPolicyStatusLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, section]);
 
   useEffect(() => {
     if (open) {
@@ -497,6 +533,9 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <ConfigJsonSettings
               value={configJson}
               status={configStatus}
+              policyStatus={policyStatus}
+              policyStatusError={policyStatusError}
+              policyStatusLoading={policyStatusLoading}
               onValue={setConfigJson}
               onRefresh={() => {
                 setConfigJson(serializeOnibiConfigToml());
@@ -636,6 +675,14 @@ function labelFor(value: string): string {
     return "Triggers";
   }
   return value[0].toUpperCase() + value.slice(1);
+}
+
+function policyStatusMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/failed to fetch/i.test(message)) {
+    return "Approval daemon unavailable. Start Onibi or the headless daemon to validate policies.";
+  }
+  return message;
 }
 
 interface GeneralSettingsProps {
@@ -2002,6 +2049,9 @@ function KeybindingsSettings({
 function ConfigJsonSettings({
   value,
   status,
+  policyStatus,
+  policyStatusError,
+  policyStatusLoading,
   onValue,
   onRefresh,
   onLoadFile,
@@ -2010,6 +2060,9 @@ function ConfigJsonSettings({
 }: {
   value: string;
   status: string | null;
+  policyStatus: PolicyValidationStatus | null;
+  policyStatusError: string | null;
+  policyStatusLoading: boolean;
   onValue: (value: string) => void;
   onRefresh: () => void;
   onLoadFile: () => Promise<void>;
@@ -2084,6 +2137,24 @@ function ConfigJsonSettings({
         onChange={(event) => onValue(event.target.value)}
       />
       {status ? <div className="settings-note">{status}</div> : null}
+      <div className="policy-status-card" aria-label="Policy validation status">
+        <div className="settings-section-heading">
+          <span>Approval policies</span>
+          <code>{policyStatus?.path ?? "~/.config/onibi/policies.toml"}</code>
+        </div>
+        {policyStatusLoading ? (
+          <div className="settings-note">Checking policies...</div>
+        ) : null}
+        {policyStatusError ? <div className="tree-error">{policyStatusError}</div> : null}
+        {policyStatus ? (
+          <div className="history-session-status-row">
+            <span>{policyStatus.exists ? "file found" : "missing; defaults apply"}</span>
+            <span>{policyStatus.ruleCount} rules</span>
+            <span>{policyStatus.ok ? "valid" : "invalid"}</span>
+            {policyStatus.error ? <span>{policyStatus.error}</span> : null}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   buildDecisionBody,
+  candidateBaseUrls,
   chooseBaseUrl,
   commandText,
+  emergencyStopRequest,
   parsePairingInput,
   reconnectDelay,
   type Approval,
@@ -42,6 +44,36 @@ describe("mobile pairing and approval helpers", () => {
       by: "mobile",
       reason: "edited from mobile",
       updatedInput: { command: "echo skipped" },
+    });
+    expect(buildDecisionBody(approval, "deny", undefined, "too broad")).toEqual({
+      decision: "deny",
+      by: "mobile",
+      reason: "too broad",
+    });
+  });
+
+  test("orders paired transports for phone reachability", () => {
+    expect(candidateBaseUrls({
+      baseUrl: "http://127.0.0.1:17893",
+      token: "secret",
+      deviceId: "device",
+      machineId: "machine",
+      transports: [
+        { name: "loopback", url: "http://127.0.0.1:17893/" },
+        { name: "lan", url: "https://192.168.1.10:17893/" },
+        { name: "cloudflared", url: "https://demo.trycloudflare.com/" },
+      ],
+    })).toEqual([
+      "http://127.0.0.1:17893",
+      "https://192.168.1.10:17893",
+      "https://demo.trycloudflare.com",
+    ]);
+  });
+
+  test("builds the emergency stop request", () => {
+    expect(emergencyStopRequest()).toEqual({
+      method: "POST",
+      body: "{}",
     });
   });
 

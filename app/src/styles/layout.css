@@ -344,7 +344,7 @@ button.status-bar-item:hover {
   margin-right: 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-1, rgba(255, 255, 255, 0.04));
+  background: var(--bg-1, #252526);
   color: var(--fg-1, #8a8f98);
   font-size: 11px;
   font-weight: 500;
@@ -353,7 +353,7 @@ button.status-bar-item:hover {
   line-height: 1;
 }
 .title-cmdk-pill:hover {
-  background: var(--bg-2, rgba(255, 255, 255, 0.08));
+  background: var(--bg-2, #2d2d30);
   color: var(--fg-0, #e8eaed);
 }
 .title-cmdk-pill .codicon {
@@ -368,7 +368,7 @@ button.status-bar-item:hover {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--bg-2, #2d2d30);
   border: 1px solid var(--border);
   color: var(--fg-1, #8a8f98);
   margin-left: 4px;
@@ -404,7 +404,7 @@ button.status-bar-item:hover {
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--bg-1, rgba(255, 255, 255, 0.04));
+  background: var(--bg-1, #252526);
   color: var(--fg-1, #8a8f98);
   font-size: 12px;
   line-height: 1;
@@ -412,7 +412,7 @@ button.status-bar-item:hover {
 }
 button.welcome-pill { cursor: pointer; }
 button.welcome-pill:hover {
-  background: var(--bg-2, rgba(255, 255, 255, 0.08));
+  background: var(--bg-2, #2d2d30);
   color: var(--fg-0);
 }
 .welcome-pill.attention {
@@ -444,7 +444,7 @@ button.welcome-pill:hover {
   letter-spacing: 0.04em;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--bg-2, #2d2d30);
   color: var(--fg-1, #8a8f98);
 }
 
@@ -696,13 +696,13 @@ button.welcome-pill:hover {
   padding: 14px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-1, rgba(255, 255, 255, 0.03));
+  background: var(--bg-1, #252526);
   cursor: pointer;
   color: var(--fg-0);
   transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 .inline-launcher-card:hover {
-  background: var(--bg-2, rgba(255, 255, 255, 0.06));
+  background: var(--bg-2, #2d2d30);
   border-color: var(--accent-2, #8aa4ff);
 }
 .inline-launcher-card:active {
@@ -745,7 +745,7 @@ button.welcome-pill:hover {
   font-size: 10px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--bg-2, #2d2d30);
   border: 1px solid var(--border);
   color: var(--fg-1, #8a8f98);
 }
@@ -2539,7 +2539,7 @@ button.welcome-pill:hover {
 .terminal-view {
   width: 100%;
   height: 100%;
-  padding: 0 10px 10px;
+  padding: 4px;
 }
 
 .terminal-view-shell.transparent .terminal-view,
@@ -2568,11 +2568,13 @@ button.welcome-pill:hover {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid transparent;
+  border: 0;
+  opacity: 1;
+  transition: opacity 120ms ease;
 }
 
-.terminal-pane.active {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+.terminal-pane:not(.active):not(.attention) {
+  opacity: 0.6;
 }
 
 .terminal-pane {
@@ -2807,10 +2809,13 @@ button.welcome-pill:hover {
   position: absolute;
   inset: 0;
   visibility: hidden;
+  opacity: 0.6;
+  transition: opacity 120ms ease;
 }
 
 .terminal-pane-body.active {
   visibility: visible;
+  opacity: 1;
 }
 
 .terminal-pane.attention {
@@ -3954,6 +3959,24 @@ button.welcome-pill:hover {
   width: min(720px, calc(100% - 32px));
 }
 
+.onboarding-dialog .modal-panel {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.onboarding-qr {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+}
+
+.onboarding-qr img {
+  width: min(280px, 80vw);
+  height: auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 10px;
+}
+
 .handoff-backdrop {
   position: absolute;
   background: rgba(4, 8, 10, 0.58);
@@ -4292,6 +4315,15 @@ button.welcome-pill:hover {
   min-height: 420px;
 }
 
+.policy-status-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1);
+}
+
 .terminal-import-section,
 .terminal-support-matrix,
 .terminal-low-value-imports {
@@ -4416,6 +4448,44 @@ button.welcome-pill:hover {
   border-color: var(--accent);
 }
 
+.approval-audit-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.approval-audit-filter-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.approval-aggregate-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.approval-aggregate-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: 11px;
+}
+
+.approval-aggregate-chip strong {
+  color: var(--fg-0);
+}
+
 .history-event {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
@@ -4512,6 +4582,47 @@ button.welcome-pill:hover {
   white-space: pre-wrap;
 }
 
+.approval-diff {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.approval-diff-heading {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+
+.approval-diff-body {
+  display: grid;
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  white-space: pre-wrap;
+}
+
+.approval-diff-line {
+  display: block;
+  padding: 2px 8px;
+}
+
+.approval-diff-line.removed {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.approval-diff-line.added {
+  background: color-mix(in srgb, var(--success, #4ec9b0) 14%, transparent);
+  color: var(--success, #4ec9b0);
+}
+
 .transcript-output {
   max-height: 340px;
   overflow-wrap: anywhere;
@@ -4566,6 +4677,7 @@ button.welcome-pill:hover {
   .color-setting-row,
   .agent-command-row,
   .activity-toolbar,
+  .approval-audit-filter-grid,
   .workspace-picker-row,
   .workspace-settings-row,
   .custom-command-row {

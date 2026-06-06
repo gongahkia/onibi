@@ -44,8 +44,16 @@ pub async fn realtime(State(state): State<AppState>, ws: WebSocketUpgrade) -> im
         .on_upgrade(move |socket| async move {
             let (mut sender, mut receiver) = socket.split();
             let pending = state.store.list_pending().unwrap_or_default();
+            let approval_timeout = state
+                .approval_timeout()
+                .await
+                .as_millis()
+                .min(i64::MAX as u128) as i64;
             for approval in pending {
-                let message = ServerMessage::from(&approval);
+                let message = ServerMessage::approval_pending(
+                    &approval,
+                    Some(approval.created_at.saturating_add(approval_timeout)),
+                );
                 if send_message(&mut sender, &message).await.is_err() {
                     return;
                 }

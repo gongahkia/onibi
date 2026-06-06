@@ -1,8 +1,9 @@
 use super::{pairing, AppState};
 use crate::{
     adapters,
-    approval::store::now_millis,
+    approval::store::{now_millis, ApprovalHistoryFilter},
     orchestration::AgentStatus,
+    policy,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
         Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
@@ -60,6 +61,22 @@ pub struct CommandBlockQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ApprovalHistoryQuery {
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    tool: Option<String>,
+    #[serde(default)]
+    decision: Option<Decision>,
+    #[serde(default)]
+    from: Option<i64>,
+    #[serde(default)]
+    to: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
 pub async fn healthz() -> Json<Value> {
     Json(json!({"ok": true, "protocol_version": PROTOCOL_VERSION}))
 }
@@ -77,6 +94,40 @@ pub async fn approval_request(
 
 pub async fn approval_pending(State(state): State<AppState>) -> ApiResult<Vec<Approval>> {
     state.store.list_pending().map(Json).map_err(internal_error)
+}
+
+pub async fn approval_history(
+    State(state): State<AppState>,
+    Query(query): Query<ApprovalHistoryQuery>,
+) -> ApiResult<Vec<Approval>> {
+    state
+        .store
+        .list_approvals(query.into_filter())
+        .map(Json)
+        .map_err(internal_error)
+}
+
+pub async fn approval_history_export(
+    State(state): State<AppState>,
+    Query(query): Query<ApprovalHistoryQuery>,
+) -> Result<Response, (StatusCode, Json<ApiError>)> {
+    let approvals = state
+        .store
+        .list_approvals(query.into_filter())
+        .map_err(internal_error)?;
+    let mut body = String::new();
+    for approval in approvals {
+        let line = serde_json::to_string(&approval)
+            .map_err(|error| internal_error(anyhow::Error::new(error)))?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    let mut response = Body::from(body).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
+    );
+    Ok(response)
 }
 
 pub async fn approval_decide(
@@ -130,6 +181,52 @@ pub async fn approval_decide(
     });
 
     Ok(Json(response))
+}
+
+pub async fn emergency_stop(State(state): State<AppState>) -> ApiResult<Value> {
+    let stopped_sessions = state.orchestration.stop_all_running_sessions().await;
+    let pending = state.store.list_pending().map_err(internal_error)?;
+    let mut denied_approvals = 0usize;
+    for approval in pending {
+        let body = ApprovalDecisionBody {
+            decision: Decision::Deny,
+            updated_input: None,
+            reason: Some("stopped by mobile kill switch".to_string()),
+            by: Some("kill-switch".to_string()),
+        };
+        let decided = state
+            .store
+            .decide(&approval.approval_id, &body)
+            .map_err(internal_error)?;
+        if !decided {
+            continue;
+        }
+        denied_approvals += 1;
+        let response = ApprovalDecisionResponse {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            approval_id: approval.approval_id.clone(),
+            decision: Decision::Deny,
+            updated_input: None,
+            reason: body.reason.clone(),
+        };
+        let _ = state
+            .pending
+            .resolve(&approval.approval_id, response)
+            .await;
+        state.broadcast(ServerMessage::ApprovalResolved {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            approval_id: approval.approval_id,
+            machine_id: approval.machine_id,
+            decision: Decision::Deny,
+            by: body.by,
+            reason: body.reason,
+        });
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "stoppedSessions": stopped_sessions,
+        "deniedApprovals": denied_approvals,
+    })))
 }
 
 pub async fn run_event(
@@ -472,6 +569,7 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
         "reloadableFields": ["server.approval_timeout_secs", "server.pty_ring_limit"],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
+        "policyValidation": policy::validate(),
     })))
 }
 
@@ -605,7 +703,7 @@ pub async fn wait_for_approval_decision(
     body: ApprovalRequestBody,
 ) -> Result<ApprovalDecisionResponse> {
     let approval_id = Ulid::new().to_string();
-    let approval = Approval {
+    let mut approval = Approval {
         protocol_version: PROTOCOL_VERSION.to_string(),
         approval_id: approval_id.clone(),
         machine_id: body.machine_id.unwrap_or_else(|| state.machine_id.clone()),
@@ -623,20 +721,63 @@ pub async fn wait_for_approval_decision(
         decided_at: None,
     };
 
+    if let Some(evaluation) = policy::evaluate(&approval)? {
+        approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, "manual");
+        if let Some(decision) = evaluation.response_decision() {
+            let reason = evaluation.reason();
+            approval.decision = Some(decision);
+            approval.reason = Some(reason.clone());
+            approval.decided_by = Some("policy".to_string());
+            approval.decided_at = Some(now_millis());
+            approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, "auto");
+            state.store.insert_approval(&approval)?;
+            state
+                .orchestration
+                .set_status(
+                    &approval.session_id,
+                    if decision == Decision::Allow {
+                        AgentStatus::Working
+                    } else {
+                        AgentStatus::Done
+                    },
+                )
+                .await;
+            state.broadcast(ServerMessage::ApprovalResolved {
+                protocol_version: PROTOCOL_VERSION.to_string(),
+                approval_id: approval_id.clone(),
+                machine_id: approval.machine_id.clone(),
+                decision,
+                by: Some("policy".to_string()),
+                reason: Some(reason.clone()),
+            });
+            return Ok(ApprovalDecisionResponse {
+                protocol_version: PROTOCOL_VERSION.to_string(),
+                approval_id,
+                decision,
+                updated_input: None,
+                reason: Some(reason),
+            });
+        }
+    }
+
     state.store.insert_approval(&approval)?;
     let rx = state.pending.insert(approval_id.clone()).await;
     state
         .orchestration
         .set_status(&approval.session_id, AgentStatus::Blocked)
         .await;
-    state.broadcast(ServerMessage::from(&approval));
+    let timeout = state.approval_timeout().await;
+    let expires_at = approval
+        .created_at
+        .saturating_add(timeout.as_millis().min(i64::MAX as u128) as i64);
+    state.broadcast(ServerMessage::approval_pending(&approval, Some(expires_at)));
     tokio::spawn(push::fanout_approval_pending(
         state.store.clone(),
         state.vapid.clone(),
         approval.clone(),
     ));
 
-    match time::timeout(state.approval_timeout().await, rx).await {
+    match time::timeout(timeout, rx).await {
         Ok(Ok(response)) => Ok(response),
         Ok(Err(_)) => Ok(ApprovalDecisionResponse {
             protocol_version: PROTOCOL_VERSION.to_string(),
@@ -672,6 +813,31 @@ pub async fn wait_for_approval_decision(
     }
 }
 
+fn with_policy_metadata(
+    metadata: Option<Value>,
+    evaluation: &policy::PolicyEvaluation,
+    source: &str,
+) -> Option<Value> {
+    let mut root = match metadata {
+        Some(Value::Object(map)) => map,
+        Some(value) => {
+            let mut map = serde_json::Map::new();
+            map.insert("original".to_string(), value);
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+    root.insert(
+        "onibi_policy".to_string(),
+        json!({
+            "name": evaluation.rule_name,
+            "decision": evaluation.decision,
+            "source": source,
+        }),
+    );
+    Some(Value::Object(root))
+}
+
 fn validate_version(version: Option<&str>) -> Result<(), (StatusCode, Json<ApiError>)> {
     if version.is_some_and(|version| version != PROTOCOL_VERSION) {
         Err((
@@ -696,6 +862,19 @@ fn internal_error(error: anyhow::Error) -> (StatusCode, Json<ApiError>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ApiError::new(message)),
     )
+}
+
+impl ApprovalHistoryQuery {
+    fn into_filter(self) -> ApprovalHistoryFilter {
+        ApprovalHistoryFilter {
+            agent: self.agent.filter(|value| !value.trim().is_empty()),
+            tool: self.tool.filter(|value| !value.trim().is_empty()),
+            decision: self.decision,
+            from: self.from,
+            to: self.to,
+            limit: self.limit.unwrap_or(200),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -816,6 +995,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn emergency_stop_denies_pending_approvals() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        store
+            .insert_approval(&Approval {
+                protocol_version: PROTOCOL_VERSION.to_string(),
+                approval_id: "approval-1".to_string(),
+                machine_id: "machine".to_string(),
+                session_id: "session".to_string(),
+                agent: "claude-code".to_string(),
+                tool: "Bash".to_string(),
+                input: json!({"command": "rm -rf tmp"}),
+                cwd: "/repo".to_string(),
+                metadata: None,
+                decision: None,
+                updated_input: None,
+                reason: None,
+                decided_by: None,
+                created_at: now_millis(),
+                decided_at: None,
+            })
+            .unwrap();
+        let app = router(AppState::for_tests(store.clone()));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/emergency-stop")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["deniedApprovals"], 1);
+
+        let approval = store.get_approval("approval-1").unwrap().unwrap();
+        assert_eq!(approval.decision, Some(Decision::Deny));
+        assert_eq!(approval.decided_by.as_deref(), Some("kill-switch"));
+        assert_eq!(
+            approval.reason.as_deref(),
+            Some("stopped by mobile kill switch"),
+        );
+    }
+
+    #[tokio::test]
     async fn explicit_protocol_mismatch_returns_upgrade_required() {
         let dir = tempdir().unwrap();
         let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
@@ -846,6 +1075,79 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["protocol_version"], PROTOCOL_VERSION);
         assert_eq!(value["error"], "protocol_version mismatch");
+    }
+
+    #[tokio::test]
+    async fn approval_history_and_export_include_decisions() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store.clone());
+        let app = router(state);
+
+        let approval = Approval {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            approval_id: "approval-1".to_string(),
+            machine_id: "machine".to_string(),
+            session_id: "session".to_string(),
+            agent: "claude-code".to_string(),
+            tool: "Bash".to_string(),
+            input: json!({"command": "rm -rf node_modules"}),
+            cwd: "/repo".to_string(),
+            metadata: None,
+            decision: None,
+            updated_input: None,
+            reason: None,
+            decided_by: None,
+            created_at: now_millis(),
+            decided_at: None,
+        };
+        store.insert_approval(&approval).unwrap();
+        store
+            .decide(
+                "approval-1",
+                &ApprovalDecisionBody {
+                    decision: Decision::Deny,
+                    updated_input: None,
+                    reason: Some("too broad".to_string()),
+                    by: Some("mobile".to_string()),
+                },
+            )
+            .unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/approval/history?decision=deny")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let approvals: Vec<Approval> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].reason.as_deref(), Some("too broad"));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/approval/history/export?decision=deny")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("\"approval_id\":\"approval-1\""));
+        assert!(body.ends_with('\n'));
     }
 
     #[tokio::test]

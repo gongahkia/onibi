@@ -236,7 +236,13 @@ pub fn router(state: AppState) -> Router {
                 }),
         )
         .route("/v1/approval/pending", get(routes::approval_pending))
+        .route("/v1/approval/history", get(routes::approval_history))
+        .route(
+            "/v1/approval/history/export",
+            get(routes::approval_history_export),
+        )
         .route("/v1/approval/:id/decide", post(routes::approval_decide))
+        .route("/v1/emergency-stop", post(routes::emergency_stop))
         .route("/v1/run/event", post(routes::run_event))
         .route(
             "/v1/pty/output",

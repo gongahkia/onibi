@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ApprovalAuditView } from "./ApprovalAuditView";
 import { SessionHistoryView } from "./SessionHistoryView";
 
 export interface ActivityCenterProps {
@@ -7,6 +9,7 @@ export interface ActivityCenterProps {
 }
 
 export function ActivityCenter({ open, onClose, workspaceId = null }: ActivityCenterProps) {
+  const [tab, setTab] = useState<"activity" | "approvals">("activity");
   if (!open) {
     return null;
   }
@@ -32,8 +35,32 @@ export function ActivityCenter({ open, onClose, workspaceId = null }: ActivityCe
             x
           </button>
         </header>
+        <div className="activity-filter-row" role="tablist" aria-label="Activity center view">
+          <button
+            type="button"
+            className={tab === "activity" ? "active" : ""}
+            aria-selected={tab === "activity"}
+            role="tab"
+            onClick={() => setTab("activity")}
+          >
+            Activity
+          </button>
+          <button
+            type="button"
+            className={tab === "approvals" ? "active" : ""}
+            aria-selected={tab === "approvals"}
+            role="tab"
+            onClick={() => setTab("approvals")}
+          >
+            Approvals
+          </button>
+        </div>
         <div className="activity-center-body">
-          <SessionHistoryView workspaceId={workspaceId} />
+          {tab === "activity" ? (
+            <SessionHistoryView workspaceId={workspaceId} />
+          ) : (
+            <ApprovalAuditView />
+          )}
         </div>
       </section>
     </div>

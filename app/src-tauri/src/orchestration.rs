@@ -506,6 +506,18 @@ impl OrchestrationState {
         }
     }
 
+    pub async fn stop_all_running_sessions(&self) -> usize {
+        let ids = self.manager.list().await;
+        let mut stopped = 0;
+        for id in ids {
+            if self.manager.kill(id).await.is_ok() {
+                stopped += 1;
+            }
+            self.mark_session_stopped(&id.to_string(), None).await;
+        }
+        stopped
+    }
+
     fn persist_session(&self, session: &SessionInfo) {
         if let Some(store) = &self.store {
             if let Err(error) = store.upsert(session) {

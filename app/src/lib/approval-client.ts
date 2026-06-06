@@ -14,6 +14,8 @@ export interface ApprovalPendingMessage {
   input: unknown;
   cwd: string;
   metadata?: unknown;
+  created_at?: number;
+  expires_at?: number | null;
 }
 
 export interface ApprovalResolvedMessage {

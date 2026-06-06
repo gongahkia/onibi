@@ -9,17 +9,19 @@ r/programming
 Title:
 
 ```text
-Onibi: approve local AI coding agent actions from your phone
+Onibi: local-first approvals for multi-vendor coding agents
 ```
 
 Body:
 
 ```text
-I built Onibi, a local-first approval cockpit for AI coding agents.
+I built Onibi, a local-first approval gate for AI coding agents.
 
-The main workflow: run Claude Code or another local agent, let it work, and when it pauses before a tool call, Onibi sends the approval to your phone. You can approve, deny, or edit the command before the agent continues. The lead adapter uses Claude Code's updatedInput hook path; Codex has Bash-only interception; the rest of the launch adapters are mirrored shell sessions until their hook APIs are stable enough.
+The main workflow: run Claude Code, Codex, OpenCode, Qoder, Copilot CLI, Goose, or another local agent, let it work, and when it pauses before a tool call, Onibi sends the approval to your phone. You can approve, deny, or edit the command before the agent continues. Claude Code is the strongest path through updatedInput; Codex is Bash-only; several other adapters now have blocking hook/event integrations.
 
 It is Rust/Tauri plus a mobile PWA, runs as a desktop app or headless daemon, and supports Tailscale Funnel, Cloudflare Quick Tunnel, and LAN HTTPS.
+
+If your whole workflow is Claude-only and a vendor-native remote-control feature already solves it, Onibi may be overkill. The project is aimed at local-first multi-vendor gating, edit-before-approve, and headless/LAN/Pi setups.
 
 Repo: https://github.com/gongahkia/onibi
 Demo GIF: https://github.com/gongahkia/onibi/blob/main/asset/screencast/onibi-launch.gif
