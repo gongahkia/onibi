@@ -6,6 +6,8 @@ type TauriMocks = {
   invoke: Mock;
   listen: Mock;
   openerRevealItemInDir: Mock;
+  processRelaunch: Mock;
+  updateCheck: Mock;
   unlisten: Mock;
 };
 
@@ -16,6 +18,8 @@ const tauriMocks: TauriMocks = {
   invoke: vi.fn(),
   listen: vi.fn(async () => tauriMocks.unlisten),
   openerRevealItemInDir: vi.fn(async () => undefined),
+  processRelaunch: vi.fn(async () => undefined),
+  updateCheck: vi.fn(async () => null),
   unlisten: vi.fn(),
 };
 
@@ -141,11 +145,19 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: tauriMocks.openerRevealItemInDir,
 }));
 
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: tauriMocks.processRelaunch,
+}));
+
 vi.mock("@tauri-apps/plugin-store", () => ({
   load: vi.fn(async () => storeMock),
   Store: {
     load: vi.fn(async () => storeMock),
   },
+}));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: tauriMocks.updateCheck,
 }));
 
 afterEach(() => {

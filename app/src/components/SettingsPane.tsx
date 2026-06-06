@@ -51,6 +51,8 @@ import {
   writeOnibiConfigTomlFile,
   workspaceFromPath,
 } from "../lib/sessions";
+import { APP_VERSION } from "../lib/app-version";
+import { UPDATE_CHECK_EVENT } from "../lib/app-updater";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 export interface SettingsPaneProps {
@@ -62,6 +64,7 @@ type SettingsSection =
   | "general"
   | "layout"
   | "agents"
+  | "updates"
   | "workspaces"
   | "shell-integration"
   | "triggers"
@@ -265,6 +268,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
                 "general",
                 "layout",
                 "agents",
+                "updates",
                 "workspaces",
                 "shell-integration",
                 "triggers",
@@ -451,6 +455,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onInstall={(agent, command) => void runInstall(agent, command)}
             />
           ) : null}
+          {section === "updates" ? <UpdateSettings /> : null}
           {section === "workspaces" ? (
             <WorkspaceSettings
               workspacePath={workspacePath}
@@ -583,6 +588,37 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+function UpdateSettings() {
+  const rawLastCheck = localStorage.getItem("onibiUpdateLastCheckAt");
+  const lastCheck = rawLastCheck ? Number(rawLastCheck) : 0;
+  return (
+    <section className="settings-section" aria-label="Update settings">
+      <label className="settings-row">
+        <span>Current version</span>
+        <code>{APP_VERSION}</code>
+      </label>
+      <label className="settings-row">
+        <span>Last checked</span>
+        <span>
+          {Number.isFinite(lastCheck) && lastCheck > 0
+            ? new Date(lastCheck).toLocaleString()
+            : "Never"}
+        </span>
+      </label>
+      <div className="settings-row">
+        <span>Release channel</span>
+        <button
+          type="button"
+          className="text-button primary"
+          onClick={() => window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))}
+        >
+          Check for Updates
+        </button>
+      </div>
+    </section>
   );
 }
 

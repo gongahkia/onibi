@@ -3423,6 +3423,42 @@ button.status-bar-item:hover {
   padding: 16px;
 }
 
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.update-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.update-dialog-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.update-dialog-body p {
+  margin: 0;
+}
+
+.update-notes {
+  max-height: min(280px, 38vh);
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font: 12px/1.5 var(--font-editor);
+}
+
 .navigator-modal {
   z-index: 72;
 }

@@ -38,6 +38,7 @@ import {
 } from "../lib/sessions";
 import { listGitWorktrees, type GitWorktree } from "../lib/git";
 import { notificationEvents } from "../lib/notifications";
+import { UPDATE_CHECK_EVENT } from "../lib/app-updater";
 import { ptyWrite } from "../lib/tauri-bridge";
 import {
   copyTerminalRenderProfile,
@@ -546,6 +547,16 @@ export function CommandPalette() {
         shortcut: primaryShortcut(","),
         keywords: ["preferences", "agents", "workspace"],
         run: () => setSettingsOpen(true),
+      },
+      {
+        id: "updates.check",
+        label: "Check for Updates",
+        group: "Settings",
+        description: "Current Onibi release status",
+        keywords: ["update", "release", "version"],
+        run: () => {
+          window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT));
+        },
       },
       {
         id: "editor.reopen-closed",

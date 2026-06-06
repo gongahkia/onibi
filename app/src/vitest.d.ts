@@ -7,6 +7,8 @@ declare global {
     invoke: Mock;
     listen: Mock;
     openerRevealItemInDir: Mock;
+    processRelaunch: Mock;
+    updateCheck: Mock;
     unlisten: Mock;
   };
 }
