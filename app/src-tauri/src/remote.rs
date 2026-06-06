@@ -44,6 +44,7 @@ pub struct RemoteSshBootstrapResult {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "gui")]
 pub struct RemoteSshStageFileRequest {
     pub target: String,
     #[serde(default)]
@@ -63,6 +64,7 @@ pub struct RemoteSshStageFileRequest {
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "gui")]
 pub struct RemoteSshStageFileResult {
     pub ok: bool,
     pub remote_path: String,
@@ -103,7 +105,7 @@ pub fn remote_ssh_bootstrap_with_bytes(
         &bootstrap_remote_script(&helper_path, &staging_dir),
         STANDARD.encode(helper_bytes).as_bytes(),
     )?;
-    ensure_success(output, "remote SSH bootstrap")?;
+    ensure_success(&output, "remote SSH bootstrap")?;
     Ok(RemoteSshBootstrapResult {
         ok: true,
         target: request.target.trim().to_string(),
@@ -116,6 +118,7 @@ pub fn remote_ssh_bootstrap_with_bytes(
     })
 }
 
+#[cfg(feature = "gui")]
 pub fn remote_ssh_stage_file(
     request: RemoteSshStageFileRequest,
 ) -> Result<RemoteSshStageFileResult> {
@@ -134,7 +137,7 @@ pub fn remote_ssh_stage_file(
         &stage_file_remote_script(&staging_dir, &filename),
         STANDARD.encode(&request.data).as_bytes(),
     )?;
-    ensure_success(output, "remote file staging")?;
+    ensure_success(&output, "remote file staging")?;
     let remote_path = stdout_lossy(&output).trim().to_string();
     if remote_path.is_empty() {
         bail!("remote file staging did not return a remote path");
@@ -148,6 +151,7 @@ pub fn remote_ssh_stage_file(
     })
 }
 
+#[cfg(feature = "gui")]
 pub fn read_clipboard_image_png() -> Result<Option<Vec<u8>>> {
     let mut clipboard = arboard::Clipboard::new().context("open system clipboard")?;
     let image = match clipboard.get_image() {
@@ -170,17 +174,13 @@ pub fn read_clipboard_image_png() -> Result<Option<Vec<u8>>> {
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().context("write PNG header")?;
         writer
-            .write_image_data(&image.bytes)
+            .write_image_data(image.bytes.as_ref())
             .context("write clipboard image PNG data")?;
     }
     Ok(Some(png_bytes))
 }
 
-pub fn ssh_command_args(
-    host: &str,
-    user: Option<&str>,
-    port: Option<u16>,
-) -> Result<Vec<String>> {
+pub fn ssh_command_args(host: &str, user: Option<&str>, port: Option<u16>) -> Result<Vec<String>> {
     validate_endpoint(host, port)?;
     let mut args = Vec::new();
     if let Some(port) = port {
@@ -223,7 +223,7 @@ fn run_ssh_command<T: RemoteSshEndpoint>(
         .with_context(|| format!("wait for {command}"))
 }
 
-fn ensure_success(output: Output, label: &str) -> Result<()> {
+fn ensure_success(output: &Output, label: &str) -> Result<()> {
     if output.status.success() {
         return Ok(());
     }
@@ -268,6 +268,7 @@ fn normalized_remote_path(value: Option<&str>, fallback: &str, label: &str) -> R
     Ok(path.to_string())
 }
 
+#[cfg(feature = "gui")]
 fn sanitized_remote_filename(filename: &str) -> Result<String> {
     let trimmed = filename.trim();
     if trimmed.is_empty() {
@@ -304,6 +305,7 @@ printf 'onibi staging dir %s\n' "$staging_dir"
     )
 }
 
+#[cfg(feature = "gui")]
 fn stage_file_remote_script(staging_dir: &str, filename: &str) -> String {
     format!(
         r#"set -e
@@ -324,10 +326,10 @@ fn remote_path_assignment(variable: &str, spec: &str) -> String {
     let spec_variable = format!("{variable}_spec");
     format!(
         r#"{spec_variable}={spec}
-case "${spec_variable}" in
+case "${{{spec_variable}}}" in
   "~") {variable}="$HOME" ;;
-  "~/"*) {variable}="$HOME/${spec_variable#~/}" ;;
-  *) {variable}="${spec_variable}" ;;
+  "~/"*) {variable}="$HOME/${{{spec_variable}#~/}}" ;;
+  *) {variable}="${{{spec_variable}}}" ;;
 esac"#,
         spec = shell_single_quote(spec)
     )
@@ -377,6 +379,7 @@ impl RemoteSshEndpoint for RemoteSshBootstrapRequest {
     }
 }
 
+#[cfg(feature = "gui")]
 impl RemoteSshEndpoint for RemoteSshStageFileRequest {
     fn host(&self) -> &str {
         &self.host

@@ -5,8 +5,8 @@
 
 use crate::{
     pty::{
-        PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest,
-        RemoteSessionMetadata, ShellMode,
+        PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest, RemoteSessionMetadata,
+        ShellMode,
     },
     secret,
 };

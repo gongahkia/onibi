@@ -214,6 +214,139 @@ describe("CommandPalette", () => {
     ).toBeTruthy();
   });
 
+  test("bootstraps the active remote ssh session from the palette", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            keybindingPolicy: "local",
+          },
+        },
+      ],
+      activeSessionId: "pty-remote",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    const listener = vi.fn();
+    window.addEventListener("onibi:terminal-notice", listener);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "remote_ssh_bootstrap") {
+        return {
+          ok: true,
+          target: "alice@example.com",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          helperVersion: "1.5.0-dev",
+          stagingDir: "/home/alice/.onibi/staged",
+          bootstrappedAt: 1234,
+          stdout: "",
+          stderr: "",
+        };
+      }
+      return [];
+    });
+
+    try {
+      render(<CommandPalette />);
+      fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      const input = screen.getByLabelText("Search commands");
+      fireEvent.change(input, { target: { value: "bootstrap active remote" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+          "remote_ssh_bootstrap",
+          {
+            req: expect.objectContaining({
+              target: "alice@example.com",
+              user: "alice",
+              host: "example.com",
+            }),
+          },
+        );
+      });
+      expect(useSessionStore.getState().sessions[0].remote).toMatchObject({
+        bootstrapStatus: "ready",
+        stagingDir: "/home/alice/.onibi/staged",
+      });
+      expect(listener).toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("onibi:terminal-notice", listener);
+    }
+  });
+
+  test("stages and pastes a clipboard image for the active remote ssh session", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            keybindingPolicy: "local",
+            stagingDir: "/home/alice/.onibi/staged",
+          },
+        },
+      ],
+      activeSessionId: "pty-remote",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, unknown>) => {
+        if (command === "clipboard_read_image_png") {
+          return [137, 80, 78, 71];
+        }
+        if (command === "remote_ssh_stage_file") {
+          expect(args.req).toMatchObject({
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            stagingDir: "/home/alice/.onibi/staged",
+            data: [137, 80, 78, 71],
+          });
+          return {
+            ok: true,
+            remotePath: "/home/alice/.onibi/staged/image.png",
+            bytes: 4,
+            stdout: "",
+            stderr: "",
+          };
+        }
+        return [];
+      },
+    );
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "paste clipboard image remote" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
+        id: "pty-remote",
+        data: Array.from(new TextEncoder().encode("/home/alice/.onibi/staged/image.png")),
+      });
+    });
+  });
+
   test("opens a git worktree from the palette", async () => {
     useSessionStore.setState({
       activeWorkspaceId: "workspace:/repo",

@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, test } from "vitest";
 import {
   APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
+  DEFAULT_REMOTE_STAGING_DIR,
   DEFAULT_SETTINGS,
   agentDisplayLabel,
   appKeybindingConflicts,
+  bootstrapRemoteSshSession,
+  buildRemoteSshBootstrapRequest,
   buildRemoteSshLaunchSpec,
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
@@ -16,6 +19,7 @@ import {
   parseOnibiConfigToml,
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
+  stageClipboardImageForRemoteSession,
   terminalThemeForSettings,
   type TerminalPaneNode,
   useSessionStore,
@@ -408,6 +412,199 @@ describe("session hydration", () => {
         keybindingPolicy: "remote",
       },
     });
+
+    expect(
+      buildRemoteSshBootstrapRequest(spec.remote!, {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/local/bin/ssh",
+      }),
+    ).toMatchObject({
+      target: "alice@example.com:2222",
+      user: "alice",
+      host: "example.com",
+      port: 2222,
+      remoteCwd: "/srv/app",
+      sshCommand: "/usr/local/bin/ssh",
+      helperPath: "~/.onibi/bin/onibi",
+      stagingDir: DEFAULT_REMOTE_STAGING_DIR,
+    });
+  });
+
+  test("bootstraps remote ssh sessions and persists helper metadata", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          restart: {
+            command: "ssh",
+            args: ["alice@example.com"],
+            cwd: "/repo",
+            env: [],
+          },
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            keybindingPolicy: "local",
+          },
+        },
+      ],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/bin/ssh",
+      },
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "remote_ssh_bootstrap") {
+        return {
+          ok: true,
+          target: "alice@example.com",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          helperVersion: "1.5.0-dev",
+          stagingDir: "/home/alice/.onibi/staged",
+          bootstrappedAt: 1234,
+          stdout: "",
+          stderr: "",
+        };
+      }
+      return null;
+    });
+
+    await bootstrapRemoteSshSession("pty-remote");
+
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "remote_ssh_bootstrap",
+      {
+        req: expect.objectContaining({
+          target: "alice@example.com",
+          user: "alice",
+          host: "example.com",
+          sshCommand: "/usr/bin/ssh",
+          helperPath: "~/.onibi/bin/onibi",
+          stagingDir: "~/.onibi/staged",
+        }),
+      },
+    );
+    const session = useSessionStore.getState().sessions[0];
+    expect(session.remote).toMatchObject({
+      bootstrapStatus: "ready",
+      helperPath: "/home/alice/.onibi/bin/onibi",
+      helperVersion: "1.5.0-dev",
+      stagingDir: "/home/alice/.onibi/staged",
+      lastBootstrapAt: 1234,
+    });
+    expect(session.restart?.remote).toMatchObject(session.remote!);
+  });
+
+  test("stages clipboard images for remote sessions and pastes the remote path", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com:2222",
+            user: "alice",
+            host: "example.com",
+            port: 2222,
+            keybindingPolicy: "local",
+            stagingDir: "/home/alice/.onibi/staged",
+          },
+        },
+      ],
+      settings: DEFAULT_SETTINGS,
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, unknown>) => {
+        if (command === "clipboard_read_image_png") {
+          return [137, 80, 78, 71];
+        }
+        if (command === "remote_ssh_stage_file") {
+          expect(args.req).toMatchObject({
+            target: "alice@example.com:2222",
+            user: "alice",
+            host: "example.com",
+            port: 2222,
+            stagingDir: "/home/alice/.onibi/staged",
+            data: [137, 80, 78, 71],
+          });
+          expect((args.req as { filename?: string }).filename).toMatch(
+            /^onibi-image-.*\.png$/,
+          );
+          return {
+            ok: true,
+            remotePath: "/home/alice/.onibi/staged/onibi-image.png",
+            bytes: 4,
+            stdout: "",
+            stderr: "",
+          };
+        }
+        return null;
+      },
+    );
+
+    await stageClipboardImageForRemoteSession("pty-remote");
+
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith("pty_write", {
+      id: "pty-remote",
+      data: Array.from(
+        new TextEncoder().encode("/home/alice/.onibi/staged/onibi-image.png"),
+      ),
+    });
+  });
+
+  test("does not stage when the clipboard has no image", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            host: "example.com",
+            keybindingPolicy: "local",
+          },
+        },
+      ],
+      settings: DEFAULT_SETTINGS,
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "clipboard_read_image_png") {
+        return null;
+      }
+      return null;
+    });
+
+    await expect(stageClipboardImageForRemoteSession("pty-remote")).rejects.toThrow(
+      "Clipboard does not contain an image.",
+    );
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "remote_ssh_stage_file",
+      expect.anything(),
+    );
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "pty_write",
+      expect.anything(),
+    );
   });
 
   test("uses quiet notification defaults", async () => {

@@ -19,6 +19,7 @@ import {
   type Session,
   type Workspace,
   buildAgentHandoffPrompt,
+  bootstrapRemoteSshSession,
   closeSession,
   displayKeyChord,
   duplicateSession,
@@ -32,9 +33,11 @@ import {
   sessionHasRestorableTerminal,
   sessionNeedsAttention,
   spawnAgentSession,
+  stageClipboardImageForRemoteSession,
   useSessionStore,
 } from "../lib/sessions";
 import { listGitWorktrees, type GitWorktree } from "../lib/git";
+import { notificationEvents } from "../lib/notifications";
 import { ptyWrite } from "../lib/tauri-bridge";
 import {
   copyTerminalRenderProfile,
@@ -93,6 +96,29 @@ function commandText(command: PaletteCommand): string {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function emitTerminalNotice(
+  session: Session,
+  title: string,
+  body: string | null,
+): void {
+  window.dispatchEvent(
+    new CustomEvent(notificationEvents.terminalNotice, {
+      detail: {
+        title,
+        body,
+        kind: "info",
+        source: "session",
+        sessionId: session.id,
+        agent: session.agent,
+      },
+    }),
+  );
 }
 
 function matchesQuery(command: PaletteCommand, query: string): boolean {
@@ -881,6 +907,63 @@ export function CommandPalette() {
           keywords: ["attention", "badge", "trigger", "dismiss"],
           run: () => clearSessionAttention(activeSession.id),
         },
+        ...(activeSession.remote?.kind === "ssh"
+          ? [
+              {
+                id: "remote.bootstrap-active",
+                label: "Bootstrap Active Remote",
+                group: "Session" as const,
+                description:
+                  activeSession.remote.bootstrapStatus === "ready"
+                    ? activeSession.remote.helperPath ?? "Remote helper ready"
+                    : activeSession.remote.target,
+                keywords: ["remote", "ssh", "bootstrap", "helper", "stage"],
+                run: async () => {
+                  try {
+                    const result = await bootstrapRemoteSshSession(activeSession.id);
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote SSH helper bootstrapped",
+                      `${result.helperPath} · ${result.stagingDir}`,
+                    );
+                  } catch (error) {
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote SSH bootstrap failed",
+                      errorMessage(error),
+                    );
+                    throw error;
+                  }
+                },
+              },
+              {
+                id: "remote.paste-clipboard-image",
+                label: "Paste Clipboard Image to Remote",
+                group: "Session" as const,
+                description: activeSession.remote.stagingDir ?? "Stage image and paste path",
+                keywords: ["remote", "ssh", "image", "clipboard", "paste", "stage"],
+                run: async () => {
+                  try {
+                    const result = await stageClipboardImageForRemoteSession(
+                      activeSession.id,
+                    );
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote image staged",
+                      result.remotePath,
+                    );
+                  } catch (error) {
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote image paste failed",
+                      errorMessage(error),
+                    );
+                    throw error;
+                  }
+                },
+              },
+            ]
+          : []),
         ...(activeSession.preview
           ? [
               {

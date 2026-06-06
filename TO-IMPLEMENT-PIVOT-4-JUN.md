@@ -228,14 +228,23 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Kept the V1 remote scope intentionally local-PTY based: no remote daemon bootstrap, no fake remote file workspace, and no image-paste bridge yet.
 - Verified with `pnpm --dir app typecheck`, `pnpm --dir app test -- --run`, `cargo check --manifest-path app/src-tauri/Cargo.toml`, `cargo test --manifest-path app/src-tauri/Cargo.toml`, and `git diff --check`.
 
+### Implemented in the Remote V2 SSH bootstrap and image bridge pass
+
+- Added current-binary SSH helper bootstrap with default remote helper path `~/.onibi/bin/onibi` and default staging directory `~/.onibi/staged`.
+- Added remote bootstrap metadata (`bootstrapStatus`, `helperPath`, `helperVersion`, `stagingDir`, `lastBootstrapAt`) across TypeScript sessions, Rust PTY metadata, restart metadata, hydration, and relaunch persistence.
+- Added Tauri commands for `clipboard_read_image_png`, `remote_ssh_bootstrap`, and `remote_ssh_stage_file`.
+- Added Command Palette actions for `Bootstrap Active Remote` and `Paste Clipboard Image to Remote`, visible only for active SSH sessions.
+- Implemented clipboard image staging by reading the local clipboard image as PNG, streaming it to the remote staging directory over SSH, and pasting only the returned remote staged path into the active remote terminal.
+- Added `onibi remote bootstrap ssh <target> --workspace <path> [--cwd <remote-dir>] [--ssh-command <command>] [--helper-path <remote-path>] [--staging-dir <remote-dir>]`.
+- Added focused frontend tests for remote metadata persistence, bootstrap command dispatch, image staging, no-image errors, and path paste; added Rust tests for SSH command/script construction and staged filename validation.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
 - Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
 - Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
 - xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, and Kitty keyboard parity remain future terminal-native work.
-- Remote V1 does not install or run an Onibi daemon on the remote host; it launches local `ssh` in a local PTY and records remote metadata.
-- Remote image-paste bridging is still not implemented.
+- Remote V2 stages the current Onibi binary and files over SSH, but it still does not run a persistent remote Onibi daemon or transfer live remote PTYs between binaries.
 
 ---
 
@@ -361,9 +370,9 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 33. **[DONE] Pane history opt-in** (screen scrollback survives restart) — persisted transcript retention is opt-in through `pane_history_enabled` and restores when no live replay is available.
 
 ### 2.6 Remote
-34. **[PARTIAL] SSH remote attach** (`herdr --remote ssh://…`) — SSH-backed local PTY sessions are implemented through GUI, CLI, and desktop API; remote daemon auto-bootstrap/install remains open.
+34. **[DONE] SSH remote attach** (`herdr --remote ssh://…`) — SSH-backed local PTY sessions are implemented through GUI, CLI, desktop API, remote metadata persistence, keybinding policy, and current-binary helper bootstrap. Persistent remote daemon handoff remains a separate future capability.
 35. **[DONE] Remote keybindings policy** (`--remote-keybindings local|remote`) — available globally, per GUI launch, and through `onibi remote ssh --keybindings`.
-36. **Image-paste bridging** (local clipboard image → remote staged file path).
+36. **[DONE] Image-paste bridging** (local clipboard image → remote staged file path) — available through the Command Palette for active SSH sessions.
 
 ### 2.7 Terminal / rendering
 37. **[PARTIAL] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path for now, with WebGL fallback, throughput batching, replay hardening, screen-reader mode, and opt-in inline images wired. A libghostty-vt embed remains a future option only if xterm.js cannot cover required Kitty graphics or Kitty keyboard parity.
@@ -475,9 +484,9 @@ Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm relia
 Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 40, and 41 native cursor-anchor placement.
 
 **Phase D — remote & distribution:**
-Completed from Phase D: 35.
-Partial from Phase D: 34.
-Remaining from Phase D: 36, 62, 73, 74.
+Completed from Phase D: 34, 35, 36.
+Partial from Phase D: none currently tracked.
+Remaining from Phase D: 62, 73, 74.
 
 **Phase E — long tail:**
 63, 75, 81, 82.

@@ -9,6 +9,7 @@ mod headless;
 mod orchestration;
 mod protocol;
 mod push;
+#[cfg(not(feature = "gui"))]
 mod remote;
 mod secret;
 mod server;

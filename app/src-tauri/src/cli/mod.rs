@@ -2,8 +2,12 @@ pub mod doctor;
 pub mod setup;
 pub mod status;
 
-use crate::{adapters, config, headless, orchestration, remote, secret, server, transport, util};
+#[cfg(not(feature = "gui"))]
+use crate::remote;
+use crate::{adapters, config, headless, orchestration, secret, server, transport, util};
 use anyhow::{bail, Context, Result};
+#[cfg(feature = "gui")]
+use app_lib::remote;
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
 use std::{io::Write, net::TcpStream, path::PathBuf};

@@ -6445,6 +6445,123 @@ export async function spawnRemoteSshSession(
   return spawnSessionFromLaunchSpec(spec, placement);
 }
 
+function remoteSshSession(sessionId: string): { session: Session; remote: RemoteSessionMetadata } {
+  const session = useSessionStore.getState().sessions.find((item) => item.id === sessionId);
+  if (!session?.remote || session.remote.kind !== "ssh") {
+    throw new Error("Active session is not a remote SSH session.");
+  }
+  return { session, remote: session.remote };
+}
+
+export function buildRemoteSshBootstrapRequest(
+  remote: RemoteSessionMetadata,
+  settings: AppSettings,
+): RemoteSshBootstrapRequest {
+  return {
+    target: remote.target,
+    ...(remote.user ? { user: remote.user } : {}),
+    host: remote.host,
+    ...(remote.port ? { port: remote.port } : {}),
+    ...(remote.remoteCwd ? { remoteCwd: remote.remoteCwd } : {}),
+    sshCommand: settings.remoteSshCommand || DEFAULT_SETTINGS.remoteSshCommand,
+    helperPath: remote.helperPath ?? DEFAULT_REMOTE_HELPER_PATH,
+    stagingDir: remote.stagingDir ?? DEFAULT_REMOTE_STAGING_DIR,
+  };
+}
+
+function buildRemoteSshStageFileRequest(
+  remote: RemoteSessionMetadata,
+  settings: AppSettings,
+  filename: string,
+  data: number[],
+): RemoteSshStageFileRequest {
+  return {
+    target: remote.target,
+    ...(remote.user ? { user: remote.user } : {}),
+    host: remote.host,
+    ...(remote.port ? { port: remote.port } : {}),
+    ...(remote.remoteCwd ? { remoteCwd: remote.remoteCwd } : {}),
+    sshCommand: settings.remoteSshCommand || DEFAULT_SETTINGS.remoteSshCommand,
+    stagingDir: remote.stagingDir ?? DEFAULT_REMOTE_STAGING_DIR,
+    filename,
+    data,
+  };
+}
+
+function patchRemoteSessionMetadata(
+  sessionId: string,
+  patch: Partial<RemoteSessionMetadata>,
+): RemoteSessionMetadata | null {
+  const current = useSessionStore
+    .getState()
+    .sessions.find((session) => session.id === sessionId);
+  if (!current?.remote) {
+    return null;
+  }
+  const remote: RemoteSessionMetadata = {
+    ...current.remote,
+    ...patch,
+  };
+  useSessionStore.getState().updateSession(sessionId, {
+    remote,
+    restart: current.restart ? { ...current.restart, remote } : current.restart,
+  });
+  return remote;
+}
+
+export async function bootstrapRemoteSshSession(
+  sessionId: string,
+): Promise<RemoteSshBootstrapResult> {
+  const { remote } = remoteSshSession(sessionId);
+  try {
+    const result = await remoteSshBootstrap(
+      buildRemoteSshBootstrapRequest(remote, useSessionStore.getState().settings),
+    );
+    patchRemoteSessionMetadata(sessionId, {
+      bootstrapStatus: "ready",
+      helperPath: result.helperPath,
+      helperVersion: result.helperVersion,
+      stagingDir: result.stagingDir,
+      lastBootstrapAt: result.bootstrappedAt,
+    });
+    return result;
+  } catch (error) {
+    patchRemoteSessionMetadata(sessionId, { bootstrapStatus: "failed" });
+    throw error;
+  }
+}
+
+export function remoteClipboardImageFilename(now = Date.now()): string {
+  return `onibi-image-${new Date(now)
+    .toISOString()
+    .replace(/[^0-9A-Za-z._-]+/g, "-")
+    .replace(/-+$/g, "")}.png`;
+}
+
+export async function stageClipboardImageForRemoteSession(
+  sessionId: string,
+): Promise<RemoteSshStageFileResult> {
+  const { remote } = remoteSshSession(sessionId);
+  const image = await clipboardReadImagePng();
+  if (!image || image.length === 0) {
+    throw new Error("Clipboard does not contain an image.");
+  }
+  const filename = remoteClipboardImageFilename();
+  const result = await remoteSshStageFile(
+    buildRemoteSshStageFileRequest(
+      remote,
+      useSessionStore.getState().settings,
+      filename,
+      image,
+    ),
+  );
+  patchRemoteSessionMetadata(sessionId, {
+    stagingDir: remote.stagingDir ?? DEFAULT_REMOTE_STAGING_DIR,
+  });
+  await ptyWrite(sessionId, new TextEncoder().encode(result.remotePath));
+  return result;
+}
+
 export async function spawnAgentSession(
   agent: AgentKind,
   workspace: Workspace,

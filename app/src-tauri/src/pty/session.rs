@@ -33,6 +33,14 @@ pub enum RemoteKeybindingPolicy {
     Remote,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteBootstrapStatus {
+    Unknown,
+    Ready,
+    Failed,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionMetadata {
@@ -47,6 +55,16 @@ pub struct RemoteSessionMetadata {
     pub remote_cwd: Option<String>,
     #[serde(default)]
     pub keybinding_policy: RemoteKeybindingPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_status: Option<RemoteBootstrapStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_bootstrap_at: Option<i64>,
 }
 
 #[derive(Debug, Error)]
