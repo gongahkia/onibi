@@ -178,6 +178,33 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   }
 
   const expanded = orientation === "vertical" && railExpanded;
+  const minimalRail = orientation === "vertical" && sessions.length === 0 && workspaces.length === 0;
+  if (minimalRail) {
+    return (
+      <nav
+        className="agent-tab-bar vertical minimal"
+        aria-label="Agent sessions"
+      >
+        <div className="agent-tabs" />
+        <div className="agent-actions">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="New session"
+            title="New session"
+            onClick={() => setNewSessionOpen(true)}
+          >
+            <i className="codicon codicon-add" aria-hidden="true" />
+          </button>
+        </div>
+        <NewSessionDialog
+          open={newSessionOpen}
+          onClose={() => setNewSessionOpen(false)}
+        />
+      </nav>
+    );
+  }
+
   return (
     <nav
       className={`agent-tab-bar ${orientation}${expanded ? " expanded" : ""}`}

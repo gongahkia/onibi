@@ -8,11 +8,13 @@ import { ActivityBar } from "./components/ActivityBar";
 import { AgentTabBar } from "./components/AgentTabBar";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
+import { FocusHud } from "./components/FocusHud";
 import { MainPane } from "./components/MainPane";
 import { NotificationToastHost } from "./components/NotificationToastHost";
 import { OnboardingDialog } from "./components/OnboardingDialog";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
+import { TransportWatcher } from "./components/TransportWatcher";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import {
@@ -27,7 +29,8 @@ function App() {
   const settings = useSessionStore((state) => state.settings);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const railExpanded = useSessionStore((state) => state.agentRailExpanded);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarCollapsed = useSessionStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useSessionStore((state) => state.setSidebarCollapsed);
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem("onibi.onboarding.dismissed") !== "1",
   );
@@ -118,14 +121,16 @@ function App() {
           )}
           <ActivityBar
             sidebarCollapsed={sidebarCollapsed}
-            onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
+            onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
           />
           {body}
         </div>
         <StatusBar />
+        <FocusHud />
       </div>
       <ApprovalModal />
       <NotificationToastHost />
+      <TransportWatcher />
       <CommandPalette />
       <UpdateDialog />
       <OnboardingDialog open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />

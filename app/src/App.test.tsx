@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SETTINGS, useSessionStore } from "./lib/sessions";
@@ -32,6 +32,7 @@ function resetStore() {
     activeWorkspaceTabId: null,
     workspaces: [],
     selectedFile: null,
+    sidebarCollapsed: false,
     settings: DEFAULT_SETTINGS,
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
@@ -78,5 +79,15 @@ describe("App", () => {
     expect(screen.getByRole("main").getAttribute("data-tab-orientation")).toBe(
       "horizontal",
     );
+  });
+
+  test("persists sidebar collapse through the shared store", () => {
+    render(<App />);
+    expect(screen.getByTestId("workspace-sidebar")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Explorer"));
+
+    expect(useSessionStore.getState().sidebarCollapsed).toBe(true);
+    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
   });
 });

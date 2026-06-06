@@ -115,6 +115,16 @@ describe("AgentTabBar", () => {
     expect(useSessionStore.getState().activityCenterOpen).toBe(true);
   });
 
+  test("shows only new session affordance in the empty vertical rail", () => {
+    render(<AgentTabBar orientation="vertical" />);
+
+    expect(screen.getByLabelText("New session")).toBeTruthy();
+    expect(screen.queryByLabelText("Approvals")).toBeNull();
+    expect(screen.queryByLabelText("Activity")).toBeNull();
+    expect(screen.queryByLabelText("Settings")).toBeNull();
+    expect(screen.queryByLabelText("Expand rail")).toBeNull();
+  });
+
   test("opens a workflow context menu on right click", () => {
     useSessionStore.setState({
       sessions: [
