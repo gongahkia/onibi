@@ -209,10 +209,7 @@ pub async fn emergency_stop(State(state): State<AppState>) -> ApiResult<Value> {
             updated_input: None,
             reason: body.reason.clone(),
         };
-        let _ = state
-            .pending
-            .resolve(&approval.approval_id, response)
-            .await;
+        let _ = state.pending.resolve(&approval.approval_id, response).await;
         state.broadcast(ServerMessage::ApprovalResolved {
             protocol_version: PROTOCOL_VERSION.to_string(),
             approval_id: approval.approval_id,

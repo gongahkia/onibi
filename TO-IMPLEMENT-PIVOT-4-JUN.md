@@ -256,7 +256,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added backend TOML policy evaluation from `~/.config/onibi/policies.toml`, including `auto-allow`, `always-ask`, `always-deny`, `require_edit`, first-match behavior, audit logging for auto-decisions, and policy validation in config status.
 - Added GUI first-run onboarding for default agent selection, adapter install guidance, QR pairing, and safe canary approval.
 - Completed small visual/status fixes: transport checking/offline/no-transport states, 4px terminal padding, focus-by-opacity for terminal splits, and light-theme-safe chrome token backgrounds.
+- Completed the audit UI polish pass with agent/tool/date filters, decision/edited/search filters, per-tool aggregates, JSONL export of visible rows, and an inline proposed-vs-final diff for edited approvals.
+- Completed policy visibility polish with `docs/policies.md`, `onibi config validate --json` policy status, Settings-pane policy validation status, and matched policy names shown in approval requests.
+- Added diff-aware file-edit approval previews for `Write`, `Edit`, and `MultiEdit` tool payloads. These are static inline line diffs; a full CodeMirror side-by-side diff remains optional polish.
+- Added the mobile PWA kill switch, backed by `/v1/emergency-stop`, which stops daemon-owned PTYs and denies all pending approvals.
+- Replaced destructive browser confirmations with native Tauri confirmation dialogs while leaving the synchronous, non-destructive "open URL inside Onibi?" chooser alone.
+- Added approval attention escalation: one informational OS attention request per new approval when foreground suppression allows it, an approval activity-tile pulse, and a title-bar approval pulse for non-suppressed active-session approval events.
 - Verified with frontend/mobile typechecks and tests, full Rust tests, Rust fmt check, no-default-features check, `git diff --check`, and a Playwright smoke pass.
+- Selected the next implementation direction as the full chrome-restraint pass: persistent transport/cwd/font-size/encoding chrome can move out of the StatusBar, the command-palette pill can fade after discovery, and non-approval badges should be visually quiet.
 
 ### Still out of scope after the orchestration pass
 
@@ -568,9 +575,9 @@ Numbered as 84+ to continue the existing numbering.
 
 #### Top tier — required before v1.5.0 looks "compelling" vs. status-quo
 
-84. **[PARTIAL] Audit log UI** — authenticated history/export endpoints and an Activity Center audit tab now exist with search, decision/edited filters, JSONL export, and daemon-unavailable state. Remaining: agent/tool/day filters, per-tool aggregates, and a real in-place diff view of proposed input → edited input → final.
+84. **[DONE] Audit log UI** — authenticated history/export endpoints and an Activity Center audit tab now exist with search, decision/edited/agent/tool/date filters, per-tool aggregates, JSONL export of visible rows, daemon-unavailable state, and an inline proposed-vs-final diff view for edited approvals.
 
-85. **[PARTIAL] Approval policy / trust profile rules** — backend TOML rules in `~/.config/onibi/policies.toml` now evaluate and log `auto-allow`, `always-ask`, and `always-deny` decisions:
+85. **[DONE] Approval policy / trust profile rules** — backend TOML rules in `~/.config/onibi/policies.toml` now evaluate and log `auto-allow`, `always-ask`, and `always-deny` decisions:
     ```toml
     [[policy]]
     match.tool = "Bash"
@@ -583,15 +590,15 @@ Numbered as 84+ to continue the existing numbering.
     decision = "always-ask"
     require_edit = true
     ```
-    Every auto-allowed decision is still logged into item 84's audit log. Remaining: docs, CLI/status polish, and desktop visibility for policy validation and matched policy names.
+    Every auto-allowed decision is still logged into item 84's audit log. Policy docs, CLI/status validation output, Settings-pane validation status, and matched policy names in approval requests are done.
 
 86. **[DONE] First-run onboarding flow inside the GUI** (subsumes original item **81**). Four steps: pick agent → install adapter → scan QR with phone → test approval against a safe canary command. Conversion lever for star→user.
 
 #### Secondary — v1.5.x post-launch polish
 
-87. **Diff-aware approval modal for file-edit tools** — when an approval is for `Write` / `Edit` / `MultiEdit`, render a CodeMirror diff inside the approval modal. Gate then feels designed for code, not generic JSON.
+87. **[PARTIAL] Diff-aware approval modal for file-edit tools** — approvals for `Write` / `Edit` / `MultiEdit` now render static inline line diffs instead of generic JSON. Remaining optional polish: swap the static preview for a CodeMirror side-by-side diff or syntax-highlighted shell/code view.
 
-88. **PWA kill-switch** — one-tap "Stop all agents on this machine" on the phone. Issues termination to every daemon-owned PTY plus broadcasts deny to every pending approval.
+88. **[DONE] PWA kill-switch** — one-tap "Stop all agents on this machine" on the phone. Issues termination to every daemon-owned PTY plus broadcasts deny to every pending approval.
 
 89. **Read-only spectator pairing** — secondary pairing-token scope that can subscribe to `/v1/realtime` and GET `/v1/approval/*` but cannot POST decisions. For screen-sharing the cockpit with a coworker.
 
@@ -599,7 +606,7 @@ Numbered as 84+ to continue the existing numbering.
 
 91. **WSL2 install path** — document the existing Linux build for WSL2. Probably zero code work; drops the "Windows: not planned" line in README.
 
-92. **Tauri auto-updater** — Tauri 2 updater plugin against `latest.json`. Subsumes existing item **62**.
+92. **[DONE] Tauri auto-updater** — Tauri 2 updater plugin against `latest.json`. Subsumes existing item **62**.
 
 93. **`onibi.sh` static landing page** — mandatory pre-launch. One page with the screencast embedded, three-line pitch, install snippet, link to repo.
 
@@ -617,7 +624,7 @@ Numbered as 84+ to continue the existing numbering.
 
 99. **[DONE] Drop the v1.6 / v2.0 milestone bullets** from README Roadmap if the linked issues are empty. Empty milestones make the project look like vapor.
 
-100. **[PARTIAL] Launch posts repositioning** (`docs/launch/hn.md`, `reddit.md`, `devto.md`, `x-thread.md`, `mastodon.md`, `lobsters.md`, `release-notes.md`): HN, Reddit, X, Mastodon, Lobsters, and release notes now lead with edit-before-approve + multi-vendor + no-cloud. Remaining: update `docs/launch/devto.md` and decide whether to mention Anthropic Remote Control explicitly in public launch copy.
+100. **[PARTIAL] Launch posts repositioning** (`docs/launch/hn.md`, `reddit.md`, `devto.md`, `x-thread.md`, `mastodon.md`, `lobsters.md`, `release-notes.md`): HN, Reddit, X, Mastodon, Lobsters, DEV.to, and release notes now lead with edit-before-approve + multi-vendor + no-cloud / local-first approval-cockpit framing. Remaining: decide whether to mention Anthropic Remote Control explicitly in public launch copy.
 
 101. **Archive this comparison matrix post-launch** — move `TO-IMPLEMENT-PIVOT-4-JUN.md` to `docs/archive/` after v1.5.0 ships. Keeping a "we are chasing herdr" comparison live in the repo undermines positioning.
 
@@ -637,10 +644,10 @@ Do not add, even if requested:
 |---|---|
 | §5.1 cuts (mostly doc/issue closure) | 1–2 days |
 | §5.3 strengthen (README + launch posts + landing) | Mostly done; dev.to launch copy and landing page remain |
-| §5.2 top tier 84–86 | Audit UI/policy partially done; onboarding done |
-| §5.2 secondary 87–93 | [Inference] ~1–2 weeks |
+| §5.2 top tier 84–86 | Done |
+| §5.2 secondary 87–93 | 88 and 92 done; 87 partially done; 89–91 and 93 remain. [Inference] ~1 week |
 
-If tagging v1.5.0 immediately: finish the remaining §5.3 dev.to/landing copy, document §5.1 cuts in CHANGELOG, and decide whether the remaining §5.2 audit/policy polish is v1.5.0-blocking or v1.5.1.
+If tagging v1.5.0 immediately: finish the remaining §5.3 dev.to/landing copy, document §5.1 cuts in CHANGELOG, and decide whether the remaining §5.2 secondary items are v1.5.0-blocking or v1.5.1.
 
 ### 5.6 Single most-important add if doing only one thing
 
@@ -672,7 +679,7 @@ Numbered 102+ to continue the existing numbering from §5.2.
 
 106. **Reserve saturated yellow/gold for pending-approvals only.** Audit every use of `--accent-2`, the approvals-pending color, and the search-match yellow added in §3 of DESIGN.md tokens. Anywhere else using the same saturated tone is downgraded to a neutral variant. The "loudest" color in the app is reserved for the rarest, most-urgent state.
 
-107. **Replace React-rendered confirmation dialogs with native dialogs** via `@tauri-apps/plugin-dialog` (`ask`, `confirm`, `message`). Audit current modal call sites: clone-repo confirmation, destructive worktree-remove, session-close, approval timeout, settings-reset. The ApprovalModal itself stays React (the edit-input field requires a custom surface), but everything binary-confirm gets the platform sheet.
+107. **[DONE] Replace React-rendered confirmation dialogs with native dialogs** via `@tauri-apps/plugin-dialog` (`confirm`). Destructive browser-confirm call sites now go through a native Tauri dialog wrapper with browser/test fallback: discard file changes, remove worktree, delete file/tree item, discard dirty editor buffer, run install command, delete arrangement, close session, and restore arrangement. The only remaining `window.confirm` call is the synchronous, non-destructive "open URL inside Onibi?" chooser.
 
 108. **[PARTIAL] ApprovalModal restraint pass.** ApprovalModal behavior was hardened and button labels were clarified, but a full visual restraint pass remains. Native padding (≥16px), single monospace font (JetBrains Mono fallback chain), no app logo / branding inside the modal, no emoji in button labels, no decorative gradient. The modal should look like a Finder/Files confirmation sheet, not a React component. Plain "Allow" / "Deny" / "Edit & Allow" buttons.
 
@@ -727,10 +734,10 @@ Two items I am explicitly NOT taking, with reasoning:
 | §6.1 token pass (110) + padding (104) | ~half-day |
 | §6.1 status bar collapse (103) + opacity focus (105) | ~1 day |
 | §6.1 accent audit (106) + auto light/dark (109) | ~1 day |
-| §6.1 native dialogs (107) + sidebar default-hide (102) | ~1 day |
+| §6.1 native dialogs (107) + sidebar default-hide (102) | 107 done; 102 ~half-day |
 | §6.1 ApprovalModal restraint (108) | ~half-day |
 | §6.2 modified items | ~half-day total |
-| Total | **~4 days of focused work** |
+| Total | **~3 days of focused work remaining** |
 
 If shipping v1.5.0 immediately and only doing one Ghostty-derived change: **item 105 (focus-by-opacity for splits).** It's the most visually striking Ghostty-ism, takes <1 hour, and converts a Cursor/VS-Code-style cockpit into something that visually communicates restraint.
 
@@ -762,8 +769,8 @@ Numbered 112+ to continue from §6.
      - Light/dark theme (PWA respects `prefers-color-scheme`?)
      **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
 
-113. **[PARTIAL] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, and queue state now exist. Remaining behavioral gaps:
-     - **Per-tool-type formatting** — Bash command rendered with shell syntax-highlight; `Write` payload rendered as a CodeMirror diff (not raw JSON); `Edit` rendered side-by-side diff; `MultiEdit` paginated with summary.
+113. **[PARTIAL] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, queue state, matched policy names, and static inline file-edit diffs now exist. Remaining behavioral gaps:
+     - **Per-tool-type formatting polish** — Bash command rendered with shell syntax-highlight; `Write` payload rendered as a CodeMirror diff rather than static lines; `Edit` rendered side-by-side diff; `MultiEdit` paginated with summary.
      **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both should land in the same touch of the file. **Effort:** ~1-2 hr audit + ~half-day polish.
 
 114. **[DONE] Light-theme CSS parity sweep for chrome added in §5 / audit polish.** Specifically: `.welcome-pill`, `.title-cmdk-pill`, `.title-cmdk-kbd`, `.inline-launcher-card`, `.inline-launcher-hint kbd`, `.source-control-worktree-tag` — all use raw `rgba(255,255,255,X)` for backgrounds and will render invisible on light themes. Replace with `var(--bg-1)` / `var(--bg-2)` plus explicit light-theme fallbacks.
@@ -775,7 +782,7 @@ Numbered 112+ to continue from §6.
      - `⊘ no transport` — fetched cleanly, nothing enabled
      Implementation: add `loadState: "initial" | "ok" | "error"` to StatusBar local state. **Effort:** 15 minutes.
 
-116. **Attention escalation when an approval arrives and window IS focused.** Existing cues (toast, title-bar dot, bell badge) are subtle if the user is scrolling. Layered escalation:
+116. **[DONE] Attention escalation when an approval arrives and window IS focused.** Existing cues (toast, title-bar dot, bell badge) are subtle if the user is scrolling. Layered escalation:
      - (a) Title-bar agent dot **pulses** yellow for ~3 s via CSS keyframe, then settles.
      - (b) macOS dock icon requests user attention **exactly once** per approval via Tauri's `Window::request_user_attention(Some(UserAttentionType::Informational))`. **Critical** is rejected — never request critical (which bounces continuously); informational is one bounce. Linux equivalent uses `urgency` hint on the GTK window.
      - (c) The approvals row in the sidebar pulses on first display.
@@ -792,11 +799,11 @@ Numbered 112+ to continue from §6.
 | Item | Effort | Foldable into | Standalone if not folded |
 |---|---|---|---|
 | 112 PWA audit + polish | Partial complete; remaining swipe/install/multi-pairing polish | — | yes |
-| 113 ApprovalModal behavior | Partial complete; remaining file-edit diff formatting | item 108 (visual pass) | yes |
+| 113 ApprovalModal behavior | Partial complete; remaining CodeMirror/syntax-highlight formatting | item 108 (visual pass) | yes |
 | 114 light-theme CSS sweep | Done | item 110 (token pass) | done |
 | 115 transport loading state | Done | item 103 (StatusBar collapse) | done |
-| 116 attention escalation | 1 hr | — | yes |
-| **Total** | **~1–1.5 days** if folded; ~2 days standalone | | |
+| 116 attention escalation | Done | — | done |
+| **Total** | **~0.5–1 day** if folded; ~1–1.5 days standalone | | |
 
 ### 7.4 Single most-important if doing only one thing
 
@@ -810,6 +817,6 @@ If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 2. Then **114 + 110 + 103 + 115** together as one CSS/StatusBar pass (~1 day).
 3. Then **108 + 113** together as the ApprovalModal pass — visual restraint + behavior polish in one touch (~1 day).
 4. Then **102 + 105 + 104 + 106** as the chrome-restraint pass (~1 day).
-5. Last: **107 + 109 + 116** (native dialogs + auto-light/dark + attention escalation) — somewhat independent, can defer (~1 day).
+5. Last: **109** (auto-light/dark) — native dialogs (107) and attention escalation (116) are done.
 
-Total remaining from §6 + §7 is closer to **~2–3 days** after the approval-cockpit launch pass, excluding larger native-dialog and auto-theme work if those are deferred.
+Total remaining from §6 + §7 is closer to **~1.5–2.5 days** after the approval-cockpit launch pass, excluding larger auto-theme work if deferred.

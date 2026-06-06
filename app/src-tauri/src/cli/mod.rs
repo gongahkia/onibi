@@ -908,7 +908,11 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
                 println!(
                     "Policy:    {} rules, {}",
                     policy_validation.rule_count,
-                    if policy_validation.ok { "valid" } else { "invalid" }
+                    if policy_validation.ok {
+                        "valid"
+                    } else {
+                        "invalid"
+                    }
                 );
                 if let Some(error) = policy_validation.error {
                     println!("Policy error: {error}");

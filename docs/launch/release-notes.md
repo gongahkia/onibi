@@ -18,7 +18,12 @@ Onibi v1.5.0 is the first launch release of the local-first approval gate for AI
 - Desktop cockpit built with Tauri, React, and xterm.js.
 - Headless daemon mode for Linux and Raspberry Pi 5.
 - Mobile PWA for pending approvals and terminal mirror.
+- Mobile emergency stop to terminate daemon-owned sessions and deny pending approvals.
 - Approval protocol with long-polling hooks, WebSocket fanout, and structured allow/deny/edit decisions.
+- Approval audit history with desktop filters, per-tool aggregates, edited-input diffs, and JSONL export.
+- TOML policy rules in `~/.config/onibi/policies.toml` for auto-allow, always-ask, always-deny, and require-edit trust profiles.
+- First-run onboarding for default agent selection, adapter guidance, QR pairing, and safe canary approval.
+- Native destructive confirmation dialogs and one-shot approval attention escalation.
 - Claude Code adapter with edit-before-approve support through `updatedInput`.
 - Codex CLI Bash-only approval interception.
 - OpenCode, Qoder, GitHub Copilot CLI, and Goose blocking hook/event integrations.

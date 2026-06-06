@@ -1,6 +1,6 @@
 # Final QA Checklist
 
-Date: 2026-05-27.
+Date: 2026-06-06.
 
 ## Exit Criteria
 
@@ -13,7 +13,7 @@ Date: 2026-05-27.
 | 5 | `v1.5.0` tag exists; release binaries available | Pending PR approval/merge/tag |
 | 6 | `cargo audit` and `pnpm audit` clean | Passed for high/critical CVEs; cargo audit still reports advisory warnings for transitive unmaintained crates |
 | 7 | `onibi doctor` ships and runs on all three platforms | Partial: command runs locally; Linux/Pi verification pending |
-| 8 | Security, adapter, transport, and architecture docs present | Done |
+| 8 | Security, adapter, transport, policy, and architecture docs present | Done |
 | 9 | No P0 open at launch hour | Pending launch hour triage |
 
 ## Automated Checks
@@ -30,6 +30,7 @@ See `docs/dry-run-log.md` for command outputs and local dry-run notes.
 - Tailscale Funnel phone-on-LTE test.
 - Cloudflare Quick Tunnel phone-on-LTE test.
 - LAN HTTPS with trusted cert on a real phone.
+- Approval audit export, policy validation status, matched-policy display, and mobile emergency stop smoke-tested against a local daemon.
 - External friend verifies README install path from scratch.
 
 Do not tag `v1.5.0` until these gates are green or explicitly waived.

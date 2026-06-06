@@ -54,13 +54,14 @@ export function TitleBar() {
     if (!activeSession?.id) {
       return;
     }
+    const activeId = activeSession.id;
     let timer: number | null = null;
     function handleApprovalAttention(event: Event) {
       const detail = (event as CustomEvent<{
         escalate?: boolean;
         sessionId?: string | null;
       }>).detail;
-      if (!detail?.escalate || detail.sessionId !== activeSession.id) {
+      if (!detail?.escalate || detail.sessionId !== activeId) {
         return;
       }
       setApprovalPulse(true);

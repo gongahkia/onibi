@@ -734,6 +734,7 @@ type PersistedState = {
   maximizedTerminalPaneId?: string | null;
   arrangements?: Arrangement[];
   activeSidebarView?: WorkspaceSidebarView;
+  sidebarCollapsed?: boolean;
   sessionEvents?: SessionEvent[];
   openBuffers?: MainSelection[];
   activeBufferKey?: string | null;
@@ -768,6 +769,7 @@ type SessionStore = {
   settingsPaneOpen: boolean;
   activityCenterOpen: boolean;
   agentRailExpanded: boolean;
+  sidebarCollapsed: boolean;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
   setActiveTerminalPane: (paneId: string | null) => void;
@@ -828,6 +830,7 @@ type SessionStore = {
   updateAgentCommand: (agent: AgentKind, command: string) => void;
   setSettingsPaneOpen: (open: boolean) => void;
   setActivityCenterOpen: (open: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   toggleAgentRailExpanded: () => void;
 };
 
@@ -3639,6 +3642,7 @@ function snapshot(state: SessionStore): PersistedState {
     maximizedTerminalPaneId: state.maximizedTerminalPaneId,
     arrangements: state.arrangements,
     activeSidebarView: state.activeSidebarView,
+    sidebarCollapsed: state.sidebarCollapsed,
     sessionEvents: state.sessionEvents,
     openBuffers: state.openBuffers,
     activeBufferKey: state.activeBufferKey,
@@ -3669,6 +3673,7 @@ export async function persistNow(): Promise<void> {
     await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
     await store.set("arrangements", state.arrangements);
     await store.set("activeSidebarView", state.activeSidebarView);
+    await store.set("sidebarCollapsed", state.sidebarCollapsed);
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("openBuffers", state.openBuffers);
     await store.set("activeBufferKey", state.activeBufferKey);
@@ -3707,8 +3712,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
   settingsPaneOpen: false,
   activityCenterOpen: false,
   agentRailExpanded: false,
+  sidebarCollapsed: false,
   setSettingsPaneOpen: (open) => set({ settingsPaneOpen: open }),
   setActivityCenterOpen: (open) => set({ activityCenterOpen: open }),
+  setSidebarCollapsed: (collapsed) => {
+    set({ sidebarCollapsed: collapsed });
+    persistLater();
+  },
   toggleAgentRailExpanded: () =>
     set((state) => ({ agentRailExpanded: !state.agentRailExpanded })),
   setHydrated: (hydrated) => set({ hydrated }),
@@ -5279,6 +5289,7 @@ export async function hydrateSessionStore(): Promise<void> {
       maximizedTerminalPaneId,
       arrangements,
       activeSidebarView,
+      sidebarCollapsed,
       sessionEvents,
       openBuffers,
       activeBufferKey,
@@ -5290,6 +5301,7 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<string | null>("maximizedTerminalPaneId"),
       store.get<Arrangement[]>("arrangements"),
       store.get<WorkspaceSidebarView>("activeSidebarView"),
+      store.get<boolean>("sidebarCollapsed"),
       store.get<SessionEvent[]>("sessionEvents"),
       store.get<MainSelection[]>("openBuffers"),
       store.get<string | null>("activeBufferKey"),
@@ -5459,6 +5471,7 @@ export async function hydrateSessionStore(): Promise<void> {
       activeWorkspaceTabId: restoredActiveWorkspaceTabId,
       arrangements: normalizeArrangements(arrangements),
       activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
+      sidebarCollapsed: sidebarCollapsed === true,
       workspaces: restoredWorkspaces,
       sessionEvents: sessionEvents ?? [],
       openBuffers: restoredBuffers,
