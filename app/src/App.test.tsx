@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SETTINGS, useSessionStore } from "./lib/sessions";
 import { UPDATE_LAST_CHECK_KEY } from "./lib/app-updater";
@@ -16,6 +16,14 @@ vi.mock("./components/WorkspaceSidebar", () => ({
 
 vi.mock("./components/MainPane", () => ({
   MainPane: () => <div data-testid="main-pane" />,
+}));
+
+vi.mock("./components/FocusHud", () => ({
+  FocusHud: () => <div data-testid="focus-hud" />,
+}));
+
+vi.mock("./components/TransportWatcher", () => ({
+  TransportWatcher: () => null,
 }));
 
 vi.mock("./lib/desktop-api", () => ({
@@ -46,6 +54,10 @@ function resetStore() {
 describe("App", () => {
   beforeEach(() => {
     resetStore();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   test("renders default vertical tab layout without panel context errors", () => {
@@ -89,5 +101,97 @@ describe("App", () => {
 
     expect(useSessionStore.getState().sidebarCollapsed).toBe(true);
     expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
+  });
+
+  test("refreshes system theme when the OS color scheme changes", () => {
+    const listeners = new Set<EventListenerOrEventListenerObject>();
+    let prefersLight = false;
+    const mediaQueryList = {
+      get matches() {
+        return prefersLight;
+      },
+      media: "(prefers-color-scheme: light)",
+      onchange: null,
+      addEventListener: vi.fn(
+        (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.add(listener);
+        },
+      ),
+      removeEventListener: vi.fn(
+        (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.delete(listener);
+        },
+      ),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as MediaQueryList;
+    vi.stubGlobal("matchMedia", vi.fn(() => mediaQueryList));
+    useSessionStore.setState({
+      settings: { ...DEFAULT_SETTINGS, theme: "system" },
+    });
+
+    render(<App />);
+
+    expect(document.documentElement.dataset.theme).toBe("vscode-dark-plus");
+
+    act(() => {
+      prefersLight = true;
+      listeners.forEach((listener) => {
+        if (typeof listener === "function") {
+          listener(new Event("change"));
+        } else {
+          listener.handleEvent(new Event("change"));
+        }
+      });
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("vscode-light-plus");
+  });
+
+  test("refreshes explicit theme pairs when the OS color scheme changes", () => {
+    const listeners = new Set<EventListenerOrEventListenerObject>();
+    let prefersLight = false;
+    const mediaQueryList = {
+      get matches() {
+        return prefersLight;
+      },
+      media: "(prefers-color-scheme: light)",
+      onchange: null,
+      addEventListener: vi.fn(
+        (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.add(listener);
+        },
+      ),
+      removeEventListener: vi.fn(
+        (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.delete(listener);
+        },
+      ),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as MediaQueryList;
+    vi.stubGlobal("matchMedia", vi.fn(() => mediaQueryList));
+    useSessionStore.setState({
+      settings: { ...DEFAULT_SETTINGS, theme: "light:github-light,dark:tokyo-night" },
+    });
+
+    render(<App />);
+
+    expect(document.documentElement.dataset.theme).toBe("tokyo-night");
+
+    act(() => {
+      prefersLight = true;
+      listeners.forEach((listener) => {
+        if (typeof listener === "function") {
+          listener(new Event("change"));
+        } else {
+          listener.handleEvent(new Event("change"));
+        }
+      });
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("github-light");
   });
 });

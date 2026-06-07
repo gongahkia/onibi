@@ -332,8 +332,9 @@ const editorTheme = EditorView.theme(
       backgroundColor: "var(--terminal-selection)",
     },
     ".cm-searchMatch": {
-      backgroundColor: "color-mix(in srgb, var(--flash) 34%, transparent)",
-      outline: "1px solid var(--accent)",
+      color: "#000000",
+      backgroundColor: "var(--search-match-bg)",
+      outline: "1px solid var(--search-match-focused-bg)",
     },
   },
 );

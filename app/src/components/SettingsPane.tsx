@@ -6,8 +6,11 @@ import {
   COLOR_SCHEME_COLOR_KEYS,
   COLOR_SCHEME_COLOR_LABELS,
   COLOR_SCHEME_OPTIONS,
+  DARK_THEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
   DEFAULT_AGENT_INSTALL_COMMANDS,
+  DEFAULT_SYSTEM_THEME_PAIR,
+  LIGHT_THEME_OPTIONS,
   DEFAULT_TERMINAL_TRIGGERS,
   type AgentKind,
   type AppKeybinding,
@@ -47,6 +50,8 @@ import {
   removeWorkspaceAndCloseSessions,
   resolveAgentBinary,
   serializeOnibiConfigToml,
+  formatThemePair,
+  parseThemePair,
   useSessionStore,
   writeOnibiConfigTomlFile,
   workspaceFromPath,
@@ -856,6 +861,10 @@ function GeneralSettings({
     onSoundAgents({ ...soundAgents, [agent]: enabled });
   }
 
+  const themePair = parseThemePair(theme) ?? parseThemePair(DEFAULT_SYSTEM_THEME_PAIR)!;
+  const usesSystemPair = theme === "system" || parseThemePair(theme) !== null;
+  const themeSelectValue = usesSystemPair ? "system" : theme;
+
   return (
     <section className="settings-section" aria-label="General settings">
       <div className="settings-row">
@@ -863,16 +872,70 @@ function GeneralSettings({
         <select
           id="settings-color-scheme"
           className="settings-select"
-          value={theme}
-          onChange={(event) => onTheme(event.target.value as ThemeMode)}
+          value={themeSelectValue}
+          onChange={(event) => {
+            const value = event.target.value;
+            onTheme(value === "system" ? DEFAULT_SYSTEM_THEME_PAIR : (value as ThemeMode));
+          }}
         >
-          {COLOR_SCHEME_OPTIONS.map((option) => (
+          <option value="system">System</option>
+          {COLOR_SCHEME_OPTIONS.map((option) =>
+            option.id === DEFAULT_SYSTEM_THEME_PAIR ? null : (
             <option key={option.id} value={option.id}>
               {option.label}
             </option>
-          ))}
+            ),
+          )}
         </select>
       </div>
+      {themeSelectValue === "system" ? (
+        <>
+          <div className="settings-row">
+            <label htmlFor="settings-light-theme">Light appearance</label>
+            <select
+              id="settings-light-theme"
+              className="settings-select"
+              value={themePair.light}
+              onChange={(event) =>
+                onTheme(
+                  formatThemePair(
+                    event.target.value as typeof themePair.light,
+                    themePair.dark,
+                  ),
+                )
+              }
+            >
+              {LIGHT_THEME_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-row">
+            <label htmlFor="settings-dark-theme">Dark appearance</label>
+            <select
+              id="settings-dark-theme"
+              className="settings-select"
+              value={themePair.dark}
+              onChange={(event) =>
+                onTheme(
+                  formatThemePair(
+                    themePair.light,
+                    event.target.value as typeof themePair.dark,
+                  ),
+                )
+              }
+            >
+              {DARK_THEME_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      ) : null}
       {theme === "custom" ? (
         <div className="custom-scheme-editor">
           <label className="settings-row">

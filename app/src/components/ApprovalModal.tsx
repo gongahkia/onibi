@@ -1,4 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { css } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { javascript } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
+import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
+import { rust } from "@codemirror/lang-rust";
+import { yaml } from "@codemirror/lang-yaml";
+import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { EditorState, type Extension } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { tags as highlightTags } from "@lezer/highlight";
 import {
   decideApproval,
   subscribeApprovalEvents,
@@ -130,7 +143,7 @@ export function ApprovalModal({
   const showCountdown = typeof timeRemaining === "number" && timeRemaining <= 60_000;
 
   if (!pending) {
-    return toast ? <div style={toastStyle}>{toast}</div> : null;
+    return toast ? <div className="approval-toast">{toast}</div> : null;
   }
 
   const submit = async (
@@ -162,83 +175,87 @@ export function ApprovalModal({
   };
 
   return (
-    <div style={backdropStyle} role="presentation">
-      <section aria-label="Approval request" role="dialog" style={modalStyle}>
-        <header style={headerStyle}>
+    <div className="approval-modal-backdrop" role="presentation">
+      <section aria-label="Approval request" role="dialog" className="approval-modal">
+        <header className="approval-modal-header">
           <div>
-            <div style={agentStyle}>{pending.agent}</div>
-            <div style={cwdStyle}>{pending.cwd || "No working directory"}</div>
+            <div className="approval-modal-agent">{pending.agent}</div>
+            <div className="approval-modal-cwd">{pending.cwd || "No working directory"}</div>
           </div>
-          <div style={headerMetaStyle}>
+          <div className="approval-modal-meta">
             {pendingQueue.length > 1 ? (
-              <span style={queueStyle}>1 of {pendingQueue.length}</span>
+              <span className="approval-queue">1 of {pendingQueue.length}</span>
             ) : null}
             {showCountdown ? (
-              <span style={countdownStyle}>
+              <span className="approval-countdown">
                 denies in {formatCountdown(timeRemaining ?? 0)}
               </span>
             ) : null}
-            <span style={toolStyle}>{pending.tool}</span>
+            <span className="approval-tool">{pending.tool}</span>
           </div>
         </header>
 
         {riskBadges.length > 0 ? (
-          <div style={riskWrapStyle} aria-label="Approval risk indicators">
+          <div className="approval-risk-list" aria-label="Approval risk indicators">
             {riskBadges.map((badge) => (
-              <span key={badge} style={riskBadgeStyle}>{badge}</span>
+              <span key={badge} className="approval-risk-badge">{badge}</span>
             ))}
           </div>
         ) : null}
         {policy ? (
-          <div style={policyStyle} aria-label="Matched approval policy">
+          <div className="approval-policy" aria-label="Matched approval policy">
             Policy {policy.name ? `"${policy.name}"` : "matched"} · {policy.decision}
           </div>
         ) : null}
 
         {editing ? (
-          <div style={editWrapStyle}>
+          <div className="approval-edit-wrap">
             <textarea
               aria-label="Edited tool input"
               value={editValue}
               onChange={(event) => setEditValue(event.target.value)}
-              style={textareaStyle}
+              className="approval-textarea"
             />
-            <div style={actionsStyle}>
-              <button style={buttonStyle} type="button" onClick={() => setEditing(false)}>
+            <div className="approval-actions">
+              <button
+                className="approval-button secondary"
+                type="button"
+                onClick={() => setEditing(false)}
+              >
                 Cancel
               </button>
               <button
-                style={{ ...buttonStyle, ...editButtonStyle }}
+                className="approval-button edit"
                 type="button"
                 onClick={() => void submit("allow", updatedInputFor(pending, editValue))}
               >
-                Approve edited command
+                Edit & Allow
               </button>
             </div>
           </div>
         ) : (
           <>
             <ApprovalPayloadPreview message={pending} fallback={formattedInput} />
-            <label style={denyReasonLabelStyle}>
+            <label className="approval-deny-label">
               Deny reason (optional)
               <input
                 aria-label="Deny reason"
                 value={denyReason}
                 onChange={(event) => setDenyReason(event.target.value)}
                 placeholder="Why this should not run"
-                style={denyReasonInputStyle}
+                className="approval-deny-input"
               />
             </label>
-            <div style={actionsStyle}>
+            <div className="approval-actions">
               <button
-                style={{ ...buttonStyle, ...allowButtonStyle }}
+                className="approval-button allow"
                 type="button"
                 onClick={() => void submit("allow")}
               >
                 Allow
               </button>
               <button
-                style={{ ...buttonStyle, ...editButtonStyle }}
+                className="approval-button edit"
                 type="button"
                 onClick={() => {
                   setEditing(true);
@@ -248,7 +265,7 @@ export function ApprovalModal({
                 Edit input
               </button>
               <button
-                style={{ ...buttonStyle, ...denyButtonStyle }}
+                className="approval-button deny"
                 type="button"
                 onClick={() => void submit(
                   "deny",
@@ -262,7 +279,7 @@ export function ApprovalModal({
           </>
         )}
 
-        {error ? <div style={errorStyle}>{error}</div> : null}
+        {error ? <div className="approval-error">{error}</div> : null}
       </section>
     </div>
   );
@@ -303,6 +320,39 @@ function shouldSuppressApprovalAttention(message: ApprovalPendingMessage): boole
   );
 }
 
+type ApprovalCodeLanguage =
+  | "shell"
+  | "json"
+  | "typescript"
+  | "javascript"
+  | "css"
+  | "html"
+  | "markdown"
+  | "python"
+  | "rust"
+  | "yaml"
+  | "text";
+
+type FileEditPreview =
+  | {
+      kind: "write";
+      operation: string;
+      path?: string;
+      content: string;
+      language: ApprovalCodeLanguage;
+    }
+  | {
+      kind: "edit";
+      operation: string;
+      path?: string;
+      edits: Array<{
+        label: string;
+        before: string;
+        after: string;
+        language: ApprovalCodeLanguage;
+      }>;
+    };
+
 function ApprovalPayloadPreview({
   fallback,
   message,
@@ -310,38 +360,238 @@ function ApprovalPayloadPreview({
   fallback: string;
   message: ApprovalPendingMessage;
 }) {
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [message.approval_id]);
+  if (message.tool === "Bash") {
+    return (
+      <div className="approval-preview-block">
+        <div className="approval-preview-header">Shell command</div>
+        <ApprovalCodePreview
+          ariaLabel="Bash command preview"
+          language="shell"
+          value={fallback}
+        />
+      </div>
+    );
+  }
   const filePreview = fileEditPreview(message);
   if (!filePreview) {
-    return <pre style={preStyle}>{fallback}</pre>;
+    return (
+      <div className="approval-preview-block">
+        <div className="approval-preview-header">Tool input</div>
+        <ApprovalCodePreview
+          ariaLabel="JSON approval payload preview"
+          language="json"
+          value={fallback}
+        />
+      </div>
+    );
   }
+  if (filePreview.kind === "write") {
+    return (
+      <div className="approval-file-preview" aria-label={`${message.tool} file change preview`}>
+        <div className="approval-file-preview-header">
+          <span>{filePreview.operation}</span>
+          {filePreview.path ? <code>{filePreview.path}</code> : null}
+        </div>
+        <div className="approval-file-preview-section">
+          <div className="approval-file-preview-label">New content</div>
+          <ApprovalCodePreview
+            ariaLabel="Write file content preview"
+            language={filePreview.language}
+            value={filePreview.content}
+          />
+        </div>
+      </div>
+    );
+  }
+  const pageSize = 5;
+  const totalPages = Math.max(1, Math.ceil(filePreview.edits.length / pageSize));
+  const safePage = Math.min(page, totalPages - 1);
+  const visibleEdits = filePreview.edits.slice(
+    safePage * pageSize,
+    safePage * pageSize + pageSize,
+  );
   return (
-    <div style={filePreviewStyle} aria-label={`${message.tool} file change preview`}>
-      <div style={filePreviewHeaderStyle}>
+    <div className="approval-file-preview" aria-label={`${message.tool} file change preview`}>
+      <div className="approval-file-preview-header">
         <span>{filePreview.operation}</span>
         {filePreview.path ? <code>{filePreview.path}</code> : null}
       </div>
-      {filePreview.sections.map((section, index) => (
-        <div style={filePreviewSectionStyle} key={`${section.label}-${index}`}>
-          <div style={filePreviewLabelStyle}>{section.label}</div>
-          <pre style={filePreviewDiffStyle}>
-            {section.rows.map((row, rowIndex) => (
-              <span
-                key={`${row.kind}-${rowIndex}`}
-                style={{
-                  ...filePreviewLineStyle,
-                  ...(row.kind === "added" ? filePreviewAddedStyle : null),
-                  ...(row.kind === "removed" ? filePreviewRemovedStyle : null),
-                }}
-              >
-                {row.kind === "added" ? "+ " : row.kind === "removed" ? "- " : "  "}
-                {row.text || " "}
-              </span>
-            ))}
-          </pre>
+      {visibleEdits.map((edit) => (
+        <div className="approval-file-preview-section" key={edit.label}>
+          <div className="approval-file-preview-label">{edit.label}</div>
+          <div className="approval-side-by-side">
+            <div className="approval-side-pane">
+              <div className="approval-side-label">Before</div>
+              <ApprovalCodePreview
+                ariaLabel={`${edit.label} before preview`}
+                language={edit.language}
+                value={edit.before}
+              />
+            </div>
+            <div className="approval-side-pane">
+              <div className="approval-side-label">After</div>
+              <ApprovalCodePreview
+                ariaLabel={`${edit.label} after preview`}
+                language={edit.language}
+                value={edit.after}
+              />
+            </div>
+          </div>
         </div>
       ))}
+      {totalPages > 1 ? (
+        <div className="approval-preview-pager" aria-label="MultiEdit preview pages">
+          <button
+            type="button"
+            className="approval-preview-page-button"
+            disabled={safePage === 0}
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+          >
+            Previous
+          </button>
+          <span>
+            Page {safePage + 1} of {totalPages}
+          </span>
+          <button
+            type="button"
+            className="approval-preview-page-button"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function ApprovalCodePreview({
+  ariaLabel,
+  language,
+  value,
+}: {
+  ariaLabel: string;
+  language: ApprovalCodeLanguage;
+  value: string;
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!hostRef.current) {
+      return;
+    }
+    hostRef.current.textContent = "";
+    const view = new EditorView({
+      parent: hostRef.current,
+      state: EditorState.create({
+        doc: value,
+        extensions: approvalCodeExtensions(language),
+      }),
+    });
+    return () => view.destroy();
+  }, [language, value]);
+  return (
+    <div
+      ref={hostRef}
+      className="approval-code-preview"
+      aria-label={ariaLabel}
+      role="region"
+    />
+  );
+}
+
+const approvalHighlightStyle = HighlightStyle.define([
+  { tag: highlightTags.keyword, color: "var(--accent)" },
+  { tag: [highlightTags.name, highlightTags.deleted], color: "var(--fg-0)" },
+  { tag: [highlightTags.variableName, highlightTags.propertyName], color: "var(--fg-0)" },
+  {
+    tag: [highlightTags.function(highlightTags.variableName), highlightTags.labelName],
+    color: "var(--accent-2)",
+  },
+  { tag: [highlightTags.string, highlightTags.special(highlightTags.string)], color: "var(--success)" },
+  { tag: [highlightTags.number, highlightTags.bool, highlightTags.null], color: "var(--attention)" },
+  { tag: [highlightTags.comment, highlightTags.lineComment, highlightTags.blockComment], color: "var(--fg-2)" },
+  { tag: [highlightTags.atom, highlightTags.meta], color: "var(--fg-1)" },
+  { tag: [highlightTags.typeName, highlightTags.className], color: "var(--accent-2)" },
+  { tag: highlightTags.invalid, color: "var(--danger)" },
+]);
+
+const approvalCodeTheme = EditorView.theme({
+  "&": {
+    height: "auto",
+    color: "var(--fg-0)",
+    backgroundColor: "var(--bg-0)",
+    fontSize: "var(--font-size-editor)",
+  },
+  ".cm-scroller": {
+    maxHeight: "220px",
+    overflow: "auto",
+    fontFamily: "var(--font-mono)",
+    lineHeight: "1.45",
+  },
+  ".cm-content": {
+    minHeight: "0",
+    padding: "8px 0",
+    caretColor: "transparent",
+    fontFeatureSettings: "\"calt\" off",
+  },
+  ".cm-line": {
+    padding: "0 10px",
+  },
+  ".cm-gutters": {
+    color: "var(--fg-2)",
+    backgroundColor: "var(--bg-1)",
+    borderRight: "1px solid var(--border)",
+  },
+  "&.cm-focused": {
+    outline: "none",
+  },
+  ".cm-selectionBackground, ::selection": {
+    backgroundColor: "var(--terminal-selection)",
+  },
+});
+
+function approvalCodeExtensions(language: ApprovalCodeLanguage): Extension[] {
+  const languageExtension = languageExtensionFor(language);
+  return [
+    EditorState.readOnly.of(true),
+    EditorView.editable.of(false),
+    EditorView.lineWrapping,
+    approvalCodeTheme,
+    syntaxHighlighting(approvalHighlightStyle),
+    ...(languageExtension ? [languageExtension] : []),
+  ];
+}
+
+function languageExtensionFor(language: ApprovalCodeLanguage): Extension | null {
+  switch (language) {
+    case "shell":
+      return StreamLanguage.define(shell);
+    case "json":
+      return json();
+    case "typescript":
+      return javascript({ typescript: true, jsx: true });
+    case "javascript":
+      return javascript({ jsx: true });
+    case "css":
+      return css();
+    case "html":
+      return html();
+    case "markdown":
+      return markdown();
+    case "python":
+      return python();
+    case "rust":
+      return rust();
+    case "yaml":
+      return yaml();
+    default:
+      return null;
+  }
 }
 
 function sortApprovals(items: ApprovalPendingMessage[]): ApprovalPendingMessage[] {
@@ -381,36 +631,25 @@ function updatedInputFor(message: ApprovalPendingMessage, value: string): unknow
   }
 }
 
-function fileEditPreview(message: ApprovalPendingMessage):
-  | {
-      operation: string;
-      path?: string;
-      sections: Array<{
-        label: string;
-        rows: Array<{ kind: "added" | "context" | "removed"; text: string }>;
-      }>;
-    }
-  | null {
+function fileEditPreview(message: ApprovalPendingMessage): FileEditPreview | null {
   if (!message.input || typeof message.input !== "object" || Array.isArray(message.input)) {
     return null;
   }
   const input = message.input as Record<string, unknown>;
   const tool = message.tool.toLowerCase();
   const path = stringProp(input, "file_path", "path", "filePath");
+  const language = languageForPath(path);
   if (tool === "write") {
     const content = stringProp(input, "content", "text", "new_string", "newString");
     if (content === undefined) {
       return null;
     }
     return {
+      kind: "write",
       operation: "Write file",
       path,
-      sections: [
-        {
-          label: "New content",
-          rows: content.split("\n").map((line) => ({ kind: "added", text: line })),
-        },
-      ],
+      content,
+      language,
     };
   }
   if (tool === "edit") {
@@ -420,14 +659,15 @@ function fileEditPreview(message: ApprovalPendingMessage):
       return null;
     }
     return {
+      kind: "edit",
       operation: "Edit file",
       path,
-      sections: [{ label: "Replacement", rows: lineDiff(before, after) }],
+      edits: [{ label: "Edit 1 of 1", before, after, language }],
     };
   }
   if (tool === "multiedit") {
     const edits = Array.isArray(input.edits) ? input.edits : [];
-    const sections = edits.flatMap((edit, index) => {
+    const previewEdits = edits.flatMap((edit, index) => {
       if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
         return [];
       }
@@ -437,12 +677,17 @@ function fileEditPreview(message: ApprovalPendingMessage):
       if (before === undefined || after === undefined) {
         return [];
       }
-      return [{ label: `Edit ${index + 1}`, rows: lineDiff(before, after) }];
+      return [{
+        label: `Edit ${index + 1} of ${edits.length}`,
+        before,
+        after,
+        language,
+      }];
     });
-    if (sections.length === 0) {
+    if (previewEdits.length === 0) {
       return null;
     }
-    return { operation: "Edit file", path, sections };
+    return { kind: "edit", operation: "Edit file", path, edits: previewEdits };
   }
   return null;
 }
@@ -457,29 +702,41 @@ function stringProp(record: Record<string, unknown>, ...keys: string[]): string 
   return undefined;
 }
 
-function lineDiff(
-  before: string,
-  after: string,
-): Array<{ kind: "added" | "context" | "removed"; text: string }> {
-  const beforeLines = before.split("\n");
-  const afterLines = after.split("\n");
-  const rows: Array<{ kind: "added" | "context" | "removed"; text: string }> = [];
-  const max = Math.max(beforeLines.length, afterLines.length);
-  for (let index = 0; index < max; index += 1) {
-    const left = beforeLines[index];
-    const right = afterLines[index];
-    if (left === right && left !== undefined) {
-      rows.push({ kind: "context", text: left });
-      continue;
-    }
-    if (left !== undefined) {
-      rows.push({ kind: "removed", text: left });
-    }
-    if (right !== undefined) {
-      rows.push({ kind: "added", text: right });
-    }
+function languageForPath(path: string | undefined): ApprovalCodeLanguage {
+  const extension = path?.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "sh":
+    case "bash":
+    case "zsh":
+      return "shell";
+    case "json":
+      return "json";
+    case "ts":
+    case "tsx":
+      return "typescript";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "javascript";
+    case "css":
+      return "css";
+    case "html":
+    case "htm":
+      return "html";
+    case "md":
+    case "mdx":
+      return "markdown";
+    case "py":
+      return "python";
+    case "rs":
+      return "rust";
+    case "yaml":
+    case "yml":
+      return "yaml";
+    default:
+      return "text";
   }
-  return rows;
 }
 
 function approvalRiskBadges(message: ApprovalPendingMessage, text: string): string[] {
@@ -529,260 +786,3 @@ function formatCountdown(ms: number): string {
   const rest = seconds % 60;
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
-
-const backdropStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  display: "grid",
-  placeItems: "center",
-  background: "rgba(8, 10, 14, 0.56)",
-  zIndex: 1000,
-};
-
-const modalStyle: CSSProperties = {
-  width: "min(720px, calc(100vw - 32px))",
-  maxHeight: "min(680px, calc(100vh - 32px))",
-  overflow: "auto",
-  borderRadius: 8,
-  border: "1px solid #2d3748",
-  background: "#111827",
-  color: "#f9fafb",
-  boxShadow: "0 24px 80px rgba(0, 0, 0, 0.4)",
-  padding: 20,
-};
-
-const headerStyle: CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  gap: 16,
-  justifyContent: "space-between",
-  marginBottom: 16,
-};
-
-const headerMetaStyle: CSSProperties = {
-  alignItems: "flex-end",
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-};
-
-const agentStyle: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 700,
-};
-
-const cwdStyle: CSSProperties = {
-  color: "#9ca3af",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 12,
-  marginTop: 4,
-  overflowWrap: "anywhere",
-};
-
-const toolStyle: CSSProperties = {
-  border: "1px solid #4b5563",
-  borderRadius: 999,
-  color: "#d1d5db",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 12,
-  padding: "4px 10px",
-};
-
-const queueStyle: CSSProperties = {
-  color: "#9ca3af",
-  fontSize: 12,
-};
-
-const countdownStyle: CSSProperties = {
-  border: "1px solid #f59e0b",
-  borderRadius: 999,
-  color: "#fbbf24",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 12,
-  padding: "3px 8px",
-};
-
-const riskWrapStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 8,
-  marginBottom: 12,
-};
-
-const riskBadgeStyle: CSSProperties = {
-  background: "rgba(251, 191, 36, 0.12)",
-  border: "1px solid rgba(251, 191, 36, 0.42)",
-  borderRadius: 999,
-  color: "#fbbf24",
-  fontSize: 12,
-  fontWeight: 700,
-  padding: "4px 9px",
-};
-
-const policyStyle: CSSProperties = {
-  background: "#111827",
-  border: "1px solid #4b5563",
-  borderRadius: 6,
-  color: "#d1d5db",
-  fontSize: 12,
-  marginBottom: 12,
-  padding: "8px 10px",
-};
-
-const preStyle: CSSProperties = {
-  background: "#030712",
-  border: "1px solid #1f2937",
-  borderRadius: 6,
-  color: "#f3f4f6",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 13,
-  lineHeight: 1.5,
-  margin: 0,
-  maxHeight: 300,
-  overflow: "auto",
-  padding: 12,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const filePreviewStyle: CSSProperties = {
-  background: "#030712",
-  border: "1px solid #1f2937",
-  borderRadius: 6,
-  display: "grid",
-  gap: 10,
-  maxHeight: 340,
-  overflow: "auto",
-  padding: 12,
-};
-
-const filePreviewHeaderStyle: CSSProperties = {
-  alignItems: "center",
-  color: "#f9fafb",
-  display: "flex",
-  flexWrap: "wrap",
-  fontSize: 13,
-  fontWeight: 700,
-  gap: 8,
-};
-
-const filePreviewSectionStyle: CSSProperties = {
-  display: "grid",
-  gap: 4,
-};
-
-const filePreviewLabelStyle: CSSProperties = {
-  color: "#9ca3af",
-  fontSize: 12,
-};
-
-const filePreviewDiffStyle: CSSProperties = {
-  background: "#020617",
-  border: "1px solid #1f2937",
-  borderRadius: 6,
-  color: "#f3f4f6",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 13,
-  lineHeight: 1.5,
-  margin: 0,
-  overflow: "auto",
-  whiteSpace: "pre-wrap",
-};
-
-const filePreviewLineStyle: CSSProperties = {
-  display: "block",
-  padding: "1px 8px",
-};
-
-const filePreviewAddedStyle: CSSProperties = {
-  background: "rgba(16, 185, 129, 0.12)",
-  color: "#6ee7b7",
-};
-
-const filePreviewRemovedStyle: CSSProperties = {
-  background: "rgba(248, 113, 113, 0.12)",
-  color: "#fca5a5",
-};
-
-const editWrapStyle: CSSProperties = {
-  display: "grid",
-  gap: 12,
-  marginTop: 14,
-};
-
-const denyReasonLabelStyle: CSSProperties = {
-  color: "#9ca3af",
-  display: "grid",
-  fontSize: 12,
-  gap: 6,
-  marginTop: 14,
-};
-
-const denyReasonInputStyle: CSSProperties = {
-  background: "#030712",
-  border: "1px solid #4b5563",
-  borderRadius: 6,
-  color: "#f9fafb",
-  fontSize: 13,
-  padding: "8px 10px",
-};
-
-const textareaStyle: CSSProperties = {
-  background: "#030712",
-  border: "1px solid #4b5563",
-  borderRadius: 6,
-  color: "#f9fafb",
-  fontFamily: "Menlo, Monaco, monospace",
-  fontSize: 13,
-  minHeight: 160,
-  padding: 12,
-  resize: "vertical",
-};
-
-const actionsStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 10,
-  justifyContent: "flex-end",
-  marginTop: 16,
-};
-
-const buttonStyle: CSSProperties = {
-  border: 0,
-  borderRadius: 6,
-  color: "#111827",
-  cursor: "pointer",
-  fontWeight: 700,
-  minWidth: 88,
-  padding: "9px 14px",
-};
-
-const allowButtonStyle: CSSProperties = {
-  background: "#34d399",
-};
-
-const editButtonStyle: CSSProperties = {
-  background: "#fbbf24",
-};
-
-const denyButtonStyle: CSSProperties = {
-  background: "#f87171",
-};
-
-const errorStyle: CSSProperties = {
-  color: "#fecaca",
-  fontSize: 13,
-  marginTop: 12,
-};
-
-const toastStyle: CSSProperties = {
-  bottom: 20,
-  position: "fixed",
-  right: 20,
-  background: "#111827",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#f9fafb",
-  padding: "10px 12px",
-  zIndex: 1001,
-};

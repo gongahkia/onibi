@@ -20,6 +20,7 @@ import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import {
   applyDocumentSettings,
   hydrateSessionStore,
+  themeFollowsSystem,
   useSessionStore,
 } from "./lib/sessions";
 import { startDesktopBridge } from "./lib/desktop-api";
@@ -58,6 +59,26 @@ function App() {
   useEffect(() => {
     applyDocumentSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    if (!themeFollowsSystem(settings.theme) || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const query = window.matchMedia("(prefers-color-scheme: light)");
+    const applySystemTheme = () => applyDocumentSettings(useSessionStore.getState().settings);
+    if (query.addEventListener) {
+      query.addEventListener("change", applySystemTheme);
+    } else {
+      query.addListener?.(applySystemTheme);
+    }
+    return () => {
+      if (query.removeEventListener) {
+        query.removeEventListener("change", applySystemTheme);
+      } else {
+        query.removeListener?.(applySystemTheme);
+      }
+    };
+  }, [settings.theme]);
 
   const horizontalTabs = settings.tabBarOrientation === "horizontal";
   const openApprovalsView = () => {

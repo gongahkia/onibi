@@ -129,6 +129,24 @@ describe("SettingsPane", () => {
     expect(settings.customColorScheme.colors.terminalBackground).toBe("#123456");
   });
 
+  test("updates system light and dark theme pair selections", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Light appearance"), {
+      target: { value: "github-light" },
+    });
+    expect(useSessionStore.getState().settings.theme).toBe(
+      "light:github-light,dark:vscode-dark-plus",
+    );
+
+    fireEvent.change(screen.getByLabelText("Dark appearance"), {
+      target: { value: "tokyo-night" },
+    });
+    expect(useSessionStore.getState().settings.theme).toBe(
+      "light:github-light,dark:tokyo-night",
+    );
+  });
+
   test("selects locally available font families", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
       if (command === "list_font_families") {

@@ -6,6 +6,7 @@ import {
   clearTerminalRenderProfiles,
   recordTerminalRenderProfile,
 } from "../lib/terminal-render-profile";
+import { COMMAND_PALETTE_USED_KEY } from "../lib/command-palette-discovery";
 
 function resetStore() {
   useSessionStore.setState({
@@ -35,6 +36,7 @@ function resetStore() {
   vi.mocked(window.prompt).mockReturnValue(null);
   clearTerminalRenderProfiles();
   localStorage.removeItem("onibiTerminalDebug");
+  localStorage.removeItem(COMMAND_PALETTE_USED_KEY);
 }
 
 describe("CommandPalette", () => {
@@ -53,6 +55,7 @@ describe("CommandPalette", () => {
 
     expect(useSessionStore.getState().settings.theme).toBe("vscode-light-plus");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+    expect(localStorage.getItem(COMMAND_PALETTE_USED_KEY)).toBe("1");
   });
 
   test("switches to a matching session command", () => {

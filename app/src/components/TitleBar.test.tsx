@@ -1,6 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 import { TitleBar } from "./TitleBar";
+import { COMMAND_PALETTE_USED_KEY } from "../lib/command-palette-discovery";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
 describe("TitleBar", () => {
@@ -23,6 +24,7 @@ describe("TitleBar", () => {
       workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
       settings: DEFAULT_SETTINGS,
     });
+    localStorage.removeItem(COMMAND_PALETTE_USED_KEY);
   });
 
   test("pulses the active agent dot for non-suppressed approval attention", () => {
@@ -53,5 +55,17 @@ describe("TitleBar", () => {
     });
 
     expect(status.classList.contains("approval-attention")).toBe(false);
+  });
+
+  test("marks the command palette affordance as discovered once used", () => {
+    render(<TitleBar />);
+
+    const button = screen.getByRole("button", { name: "Open command palette" });
+    expect(button.classList.contains("discovered")).toBe(false);
+
+    fireEvent.click(button);
+
+    expect(localStorage.getItem(COMMAND_PALETTE_USED_KEY)).toBe("1");
+    expect(button.classList.contains("discovered")).toBe(true);
   });
 });

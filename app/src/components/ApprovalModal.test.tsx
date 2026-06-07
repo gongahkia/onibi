@@ -47,7 +47,11 @@ describe("ApprovalModal", () => {
 
     expect(screen.getByRole("dialog", { name: "Approval request" })).toBeTruthy();
     expect(screen.getByText("claude-code")).toBeTruthy();
-    expect(screen.getByText("rm -rf node_modules")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Bash command preview").textContent).toContain(
+        "rm -rf node_modules",
+      );
+    });
     expect(screen.getByText("Destructive delete")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -72,7 +76,7 @@ describe("ApprovalModal", () => {
     fireEvent.change(screen.getByLabelText("Edited tool input"), {
       target: { value: "echo skipped" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve edited command" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit & Allow" }));
 
     await waitFor(() => {
       const [, request] = fetchMock.mock.calls[0];
@@ -182,7 +186,7 @@ describe("ApprovalModal", () => {
     }
   });
 
-  test("renders Write tool payload as file additions", () => {
+  test("renders Write tool payload as file additions", async () => {
     render(
       <ApprovalModal
         initialPending={{
@@ -197,10 +201,14 @@ describe("ApprovalModal", () => {
     expect(screen.getByLabelText("Write file change preview")).toBeTruthy();
     expect(screen.getByText("Write file")).toBeTruthy();
     expect(screen.getByText("/repo/app.ts")).toBeTruthy();
-    expect(screen.getByText("+ export const ok = true;")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Write file content preview").textContent).toContain(
+        "export const ok = true;",
+      );
+    });
   });
 
-  test("renders Edit tool payload as a replacement diff", () => {
+  test("renders Edit tool payload as side-by-side previews", async () => {
     render(
       <ApprovalModal
         initialPending={{
@@ -217,11 +225,20 @@ describe("ApprovalModal", () => {
     );
 
     expect(screen.getByText("Edit file")).toBeTruthy();
-    expect(screen.getByText("- const unsafe = true;")).toBeTruthy();
-    expect(screen.getByText("+ const unsafe = false;")).toBeTruthy();
+    expect(screen.getByText("Edit 1 of 1")).toBeTruthy();
+    expect(screen.getByText("Before")).toBeTruthy();
+    expect(screen.getByText("After")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit 1 of 1 before preview").textContent).toContain(
+        "const unsafe = true;",
+      );
+      expect(screen.getByLabelText("Edit 1 of 1 after preview").textContent).toContain(
+        "const unsafe = false;",
+      );
+    });
   });
 
-  test("renders MultiEdit payload as numbered edit diffs", () => {
+  test("renders MultiEdit payload as paginated edit previews", async () => {
     render(
       <ApprovalModal
         initialPending={{
@@ -232,6 +249,10 @@ describe("ApprovalModal", () => {
             edits: [
               { old_string: "alpha", new_string: "beta" },
               { old_string: "gamma", new_string: "delta" },
+              { old_string: "one", new_string: "two" },
+              { old_string: "three", new_string: "four" },
+              { old_string: "five", new_string: "six" },
+              { old_string: "seven", new_string: "eight" },
             ],
           },
         }}
@@ -239,9 +260,37 @@ describe("ApprovalModal", () => {
       />,
     );
 
-    expect(screen.getByText("Edit 1")).toBeTruthy();
-    expect(screen.getByText("Edit 2")).toBeTruthy();
-    expect(screen.getByText("- alpha")).toBeTruthy();
-    expect(screen.getByText("+ delta")).toBeTruthy();
+    expect(screen.getByText("Edit 1 of 6")).toBeTruthy();
+    expect(screen.getByText("Edit 5 of 6")).toBeTruthy();
+    expect(screen.queryByText("Edit 6 of 6")).toBeNull();
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("Edit 6 of 6")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit 6 of 6 after preview").textContent).toContain(
+        "eight",
+      );
+    });
+  });
+
+  test("renders generic JSON payloads with CodeMirror fallback", async () => {
+    render(
+      <ApprovalModal
+        initialPending={{
+          ...pending,
+          tool: "Read",
+          input: { file_path: "/repo/app.ts" },
+        }}
+        token="test-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("JSON approval payload preview").textContent).toContain(
+        "file_path",
+      );
+    });
   });
 });

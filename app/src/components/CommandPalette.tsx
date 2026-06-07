@@ -12,6 +12,7 @@ import {
   APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_AGENT_COMMANDS,
+  DEFAULT_SYSTEM_THEME_PAIR,
   agentDisplayLabel,
   type AppSettings,
   type AppKeybindingAction,
@@ -34,6 +35,7 @@ import {
   sessionNeedsAttention,
   spawnAgentSession,
   stageClipboardImageForRemoteSession,
+  themeFollowsSystem,
   useSessionStore,
 } from "../lib/sessions";
 import { listGitWorktrees, type GitWorktree } from "../lib/git";
@@ -45,6 +47,7 @@ import {
   copyTerminalRenderProfile,
   terminalRenderProfilingEnabled,
 } from "../lib/terminal-render-profile";
+import { markCommandPaletteUsed } from "../lib/command-palette-discovery";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { RemoteSessionDialog } from "./RemoteSessionDialog";
@@ -311,6 +314,7 @@ export function CommandPalette() {
 
       function executeAction(action: AppKeybindingAction) {
         if (action === "commandPalette.open") {
+          markCommandPaletteUsed();
           setOpen(true);
         } else if (action === "session.new") {
           setNewSessionOpen(true);
@@ -422,6 +426,7 @@ export function CommandPalette() {
     }
 
     function handleOpenEvent() {
+      markCommandPaletteUsed();
       setOpen(true);
     }
 
@@ -748,7 +753,14 @@ export function CommandPalette() {
         id: `settings.theme.${option.id}`,
         label: `Theme: ${option.label}`,
         group: "Settings",
-        description: settings.theme === option.id ? "Current theme" : undefined,
+        description:
+          option.id === DEFAULT_SYSTEM_THEME_PAIR
+            ? themeFollowsSystem(settings.theme)
+              ? "Current theme"
+              : undefined
+            : settings.theme === option.id
+              ? "Current theme"
+              : undefined,
         keywords: ["appearance", "color", "scheme"],
         run: () => updateSettings({ theme: option.id }),
       })),

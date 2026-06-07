@@ -265,6 +265,28 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Verified with frontend/mobile typechecks and tests, full Rust tests, Rust fmt check, no-default-features check, `git diff --check`, and a Playwright smoke pass.
 - Selected the next implementation direction as the full chrome-restraint pass: persistent transport/cwd/font-size/encoding chrome can move out of the StatusBar, the command-palette pill can fade after discovery, and non-approval badges should be visually quiet.
 
+### Implemented in the chrome-restraint pass
+
+- Persisted workspace-sidebar collapse state and kept the empty vertical agent rail to only the `New session` affordance.
+- Collapsed the desktop StatusBar to a near-invisible idle edge, with the visible status surface reserved for pending approvals.
+- Added a headless transport watcher that emits reachability/offline notifications instead of keeping transport state in persistent chrome.
+- Added a transient focus HUD for active cwd, git branch/change count, and last exit code.
+- Made the title-bar command-palette affordance fade to a search glyph after first use, tracked in `localStorage`.
+- Shrank the Activity bar and moved approval badges/risk markers onto a dedicated attention token instead of the regular blue accent.
+- Moved ApprovalModal styling out of inline hard-coded dark styles and into shared CSS classes/tokens with restrained buttons and file-preview rows.
+- Added app-level `theme = "system"` refresh on OS color-scheme changes.
+
+### Implemented in the ApprovalModal + chrome cleanup pass
+
+- Replaced static ApprovalModal file previews with read-only CodeMirror previews: Bash uses shell highlighting, `Write` shows highlighted new file content with path, `Edit` shows side-by-side before/after panes, and `MultiEdit` paginates edits 5 per page with edit counts.
+- Kept the existing edit-submission contract: Bash edits still submit `{ ...input, command }`; non-Bash edits still parse JSON or fall back to raw text.
+- Added persisted sidebar first-launch/default-hide state. The sidebar is visible on first launch, auto-collapses on later launches only without an explicit user preference, and user toggles are preserved as explicit.
+- Added persisted `light:X,dark:Y` theme-pair support, treated legacy `theme = "system"` as the default VS Code light/dark pair, and added Settings light/dark pair selectors.
+- Kept `Ctrl+B` reserved for the terminal prefix; the Activity bar remains the explicit sidebar toggle path.
+- Hid the workspace terminal tab strip when the active workspace has only one terminal tab.
+- Finished the scoped chrome token pass for this roadmap slice: JetBrains Mono-first mono defaults, terminal/editor/approval-code ligatures disabled, search highlight tokens, and approval/attention indicators moved off generic accent tokens.
+- Verified with `pnpm --dir app typecheck`, direct focused Vitest run for ApprovalModal/MainPane/SettingsPane/CommandPalette/sessions/App, full single-worker Vitest run, and `git diff --check`. The default-pool `pnpm --dir app test` run produced one `EditorBuffer.test.tsx` timeout, but that file passed isolated and the full single-worker suite passed.
+
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
@@ -596,7 +618,7 @@ Numbered as 84+ to continue the existing numbering.
 
 #### Secondary — v1.5.x post-launch polish
 
-87. **[PARTIAL] Diff-aware approval modal for file-edit tools** — approvals for `Write` / `Edit` / `MultiEdit` now render static inline line diffs instead of generic JSON. Remaining optional polish: swap the static preview for a CodeMirror side-by-side diff or syntax-highlighted shell/code view.
+87. **[DONE] Diff-aware approval modal for file-edit tools** — approvals for `Write`, `Edit`, and `MultiEdit` now render CodeMirror-backed previews instead of generic JSON. `Write` shows the new file content with path and syntax highlighting; `Edit` renders side-by-side before/after panes; `MultiEdit` paginates side-by-side edit panes 5 per page.
 
 88. **[DONE] PWA kill-switch** — one-tap "Stop all agents on this machine" on the phone. Issues termination to every daemon-owned PTY plus broadcasts deny to every pending approval.
 
@@ -645,7 +667,7 @@ Do not add, even if requested:
 | §5.1 cuts (mostly doc/issue closure) | 1–2 days |
 | §5.3 strengthen (README + launch posts + landing) | Mostly done; dev.to launch copy and landing page remain |
 | §5.2 top tier 84–86 | Done |
-| §5.2 secondary 87–93 | 88 and 92 done; 87 partially done; 89–91 and 93 remain. [Inference] ~1 week |
+| §5.2 secondary 87–93 | 87, 88, and 92 done; 89–91 and 93 remain. [Inference] ~1 week |
 
 If tagging v1.5.0 immediately: finish the remaining §5.3 dev.to/landing copy, document §5.1 cuts in CHANGELOG, and decide whether the remaining §5.2 secondary items are v1.5.0-blocking or v1.5.1.
 
@@ -665,9 +687,9 @@ Onibi is an **approval cockpit**, not a terminal emulator. Several Ghostty rules
 
 Numbered 102+ to continue the existing numbering from §5.2.
 
-102. **Auto-hide the workspace sidebar by default after first launch.** First launch shows it; subsequent launches respect last-collapsed state. Single binding: `⌘B` / `Ctrl+B`. Map: `App.tsx`, `WorkspaceSidebar.tsx`, persisted sidebar state in store.
+102. **[DONE] Auto-hide the workspace sidebar by default after first launch.** Persisted sidebar collapse state now distinguishes first launch from explicit user preference: first launch shows the sidebar, later launches auto-collapse only when no explicit preference exists, and user toggles never get overridden. No `Ctrl+B` sidebar binding was added because it conflicts with the terminal prefix; Activity bar toggle remains the explicit path.
 
-103. **Collapse the StatusBar to a single persistent element: pending approvals.** Everything else (transport pill, git branch, cwd, exit code, font-size buttons) moves to:
+103. **[DONE] Collapse the StatusBar to a single persistent element: pending approvals.** Everything else (transport pill, git branch, cwd, exit code, font-size buttons) moves to:
      - **Transport state** → toasts only (already wired in §5 — leave that in)
      - **Git branch + exit code + cwd** → ephemeral HUD that appears for ~3s on focus change, then fades
      - **Font-size +/-** → command palette only (`Cmd+K → "Terminal: Decrease font size"`)
@@ -677,15 +699,15 @@ Numbered 102+ to continue the existing numbering from §5.2.
 
 105. **[DONE] Focus-by-opacity for terminal splits.** Remove focus ring/border on the active pane. Apply `opacity: 0.6` to unfocused split panes. The brightest pane is the focused one. Map: `TerminalView.tsx` + `MainPane.tsx` CSS for `.terminal-pane-body[data-active="false"]`.
 
-106. **Reserve saturated yellow/gold for pending-approvals only.** Audit every use of `--accent-2`, the approvals-pending color, and the search-match yellow added in §3 of DESIGN.md tokens. Anywhere else using the same saturated tone is downgraded to a neutral variant. The "loudest" color in the app is reserved for the rarest, most-urgent state.
+106. **[DONE] Reserve saturated yellow/gold for pending-approvals only.** Dedicated `--attention*` tokens now cover approval badges, risk badges, countdowns, title/activity pulses, terminal-tab approval status, pane approval attention, session approval badges, and attention history rows. Generic `--accent` / `--accent-2` remains for active selection, focus, drag/drop, and primary actions; search highlights now use separate `--search-match*` tokens.
 
 107. **[DONE] Replace React-rendered confirmation dialogs with native dialogs** via `@tauri-apps/plugin-dialog` (`confirm`). Destructive browser-confirm call sites now go through a native Tauri dialog wrapper with browser/test fallback: discard file changes, remove worktree, delete file/tree item, discard dirty editor buffer, run install command, delete arrangement, close session, and restore arrangement. The only remaining `window.confirm` call is the synchronous, non-destructive "open URL inside Onibi?" chooser.
 
-108. **[PARTIAL] ApprovalModal restraint pass.** ApprovalModal behavior was hardened and button labels were clarified, but a full visual restraint pass remains. Native padding (≥16px), single monospace font (JetBrains Mono fallback chain), no app logo / branding inside the modal, no emoji in button labels, no decorative gradient. The modal should look like a Finder/Files confirmation sheet, not a React component. Plain "Allow" / "Deny" / "Edit & Allow" buttons.
+108. **[DONE] ApprovalModal restraint pass.** ApprovalModal behavior is hardened and the visual layer now uses shared CSS classes/tokens instead of inline hard-coded dark styles. Native padding, no logo/branding, no emoji labels, no decorative gradient, and plain "Allow" / "Deny" / "Edit & Allow" buttons are wired.
 
-109. **System light/dark auto-switching at the app level.** Tauri exposes the OS appearance via `window.matchMedia('(prefers-color-scheme: dark)')`. Persist the user's chosen theme as `light:X,dark:Y` pair when both are set; auto-switch on OS change. Subsumes the current single-theme setting.
+109. **[DONE] System light/dark auto-switching at the app level.** `settings.theme` now accepts persisted `light:X,dark:Y` theme pairs, `theme = "system"` remains a backward-compatible alias for `light:vscode-light-plus,dark:vscode-dark-plus`, Settings exposes constrained light/dark selectors, and app resolution follows `matchMedia`.
 
-110. **[PARTIAL] CSS token pass — adopt `DESIGN.md` §15 values.** The launch-pass fixed the raw white backgrounds in the new chrome and applied 4px terminal padding. Remaining concrete tokens to substitute:
+110. **[DONE] CSS token pass — adopt `DESIGN.md` §15 values for the active chrome scope.** The launch/chrome passes fixed the raw white backgrounds in the new chrome, applied 4px terminal padding, added dedicated attention/search tokens, tokenized ApprovalModal styling, set JetBrains Mono-first defaults for mono surfaces, and disabled ligatures for terminal/editor/approval code.
      ```
      font-family            JetBrains Mono, ui-monospace, monospace
      font-feature-settings  "calt" off
@@ -696,12 +718,12 @@ Numbered 102+ to continue the existing numbering from §5.2.
      cursor-style           block + blink
      resize-overlay-ms      750
      ```
-     Replace ad-hoc rgba whites added in §5 (welcome-pill, title-cmdk-pill, kbd) with `var(--bg-*)` variables so light theme renders correctly.
+     Remaining raw colors are either theme definitions, syntax/diff/status colors, QR white backing, or shadows; not all non-token color literals are being treated as chrome debt.
 
-111. **Reduce app-rendered chrome elsewhere** — every always-on surface gets one of three verdicts: (a) essential, keep, (b) ephemeral on demand, (c) move to command palette. Concrete passes:
-     - Activity bar: keep, but shrink icon set and ensure approvals tile is the only one with a colored badge.
-     - Agent rail: keep, but show only when ≥1 session exists or workspace is open (already partially true post-#3).
-     - Tab strip on terminal panes: hide when only 1 tab exists in the active workspace tab (mirrors Ghostty `window-show-tab-bar = auto`).
+111. **[DONE] Reduce app-rendered chrome elsewhere** — every always-on surface gets one of three verdicts: (a) essential, keep, (b) ephemeral on demand, (c) move to command palette. Concrete passes:
+     - Activity bar: keep, but shrink icon set and ensure approvals tile is the only one with a colored badge. **Done.**
+     - Agent rail: keep, but show only when ≥1 session exists or workspace is open (already partially true post-#3). **Done for the zero-session/zero-workspace rail: only `New session` remains.**
+     - Tab strip on terminal panes: hide when only 1 tab exists in the active workspace tab (mirrors Ghostty `window-show-tab-bar = auto`). **Done.**
 
 ### 6.2 Adopt with modification — Ghostty's rule too aggressive as-stated
 
@@ -731,21 +753,19 @@ Two items I am explicitly NOT taking, with reasoning:
 
 | Bucket | Effort |
 |---|---|
-| §6.1 token pass (110) + padding (104) | ~half-day |
-| §6.1 status bar collapse (103) + opacity focus (105) | ~1 day |
-| §6.1 accent audit (106) + auto light/dark (109) | ~1 day |
-| §6.1 native dialogs (107) + sidebar default-hide (102) | 107 done; 102 ~half-day |
-| §6.1 ApprovalModal restraint (108) | ~half-day |
-| §6.2 modified items | ~half-day total |
-| Total | **~3 days of focused work remaining** |
+| §6.1 token pass (110) + padding (104) | done for this scoped chrome pass |
+| §6.1 status bar collapse (103) + opacity focus (105) | done |
+| §6.1 accent audit (106) + auto light/dark (109) | done |
+| §6.1 native dialogs (107) + sidebar default-hide (102) | done |
+| §6.1 ApprovalModal restraint (108) | done |
+| §6.2 modified items | done for CmdK fade, empty-rail restraint, and single-tab terminal strip auto-hide |
+| Total | **Requested §6 chrome cleanup items are done; remaining §6 scope is limited to out-of-scope/deferred ideas.** |
 
 If shipping v1.5.0 immediately and only doing one Ghostty-derived change: **item 105 (focus-by-opacity for splits).** It's the most visually striking Ghostty-ism, takes <1 hour, and converts a Cursor/VS-Code-style cockpit into something that visually communicates restraint.
 
-### 6.6 Verification step before applying §6.1
+### 6.6 Verification note for §6.1
 
-The current frontend has new chrome added across §5 and the audit polish pass. Before stripping per Ghostty principles, confirm with the user that:
-
-- The `⌘K` pill, cockpit welcome pills, transport pill in StatusBar, agent-state dot in TitleBar — all added recently — are eligible for removal/relocation under §6.1. If any of these was added because the user *wanted* persistent chrome there, the Ghostty pass should respect that decision.
+The chrome-restraint direction was selected for this implementation pass. The `⌘K` pill is retained only as a fading discovery affordance, the StatusBar no longer owns transport/cwd/git/font-size chrome, and non-approval attention badges now use dedicated attention tokens. The welcome hero and Source Control panel remain by explicit category-fit reasoning in §6.3.
 
 ---
 
@@ -769,9 +789,8 @@ Numbered 112+ to continue from §6.
      - Light/dark theme (PWA respects `prefers-color-scheme`?)
      **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
 
-113. **[PARTIAL] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, queue state, matched policy names, and static inline file-edit diffs now exist. Remaining behavioral gaps:
-     - **Per-tool-type formatting polish** — Bash command rendered with shell syntax-highlight; `Write` payload rendered as a CodeMirror diff rather than static lines; `Edit` rendered side-by-side diff; `MultiEdit` paginated with summary.
-     **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both should land in the same touch of the file. **Effort:** ~1-2 hr audit + ~half-day polish.
+113. **[DONE] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, queue state, matched policy names, Bash shell-highlight previews, `Write` CodeMirror content previews, `Edit` side-by-side CodeMirror previews, and paginated `MultiEdit` previews now exist.
+     **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both are now implemented in the same ApprovalModal surface.
 
 114. **[DONE] Light-theme CSS parity sweep for chrome added in §5 / audit polish.** Specifically: `.welcome-pill`, `.title-cmdk-pill`, `.title-cmdk-kbd`, `.inline-launcher-card`, `.inline-launcher-hint kbd`, `.source-control-worktree-tag` — all use raw `rgba(255,255,255,X)` for backgrounds and will render invisible on light themes. Replace with `var(--bg-1)` / `var(--bg-2)` plus explicit light-theme fallbacks.
      **Cross-reference:** folds into item 110 (CSS token pass per DESIGN.md §15). Same CSS file, same touch — do together. **Effort:** 30 minutes.
@@ -799,7 +818,7 @@ Numbered 112+ to continue from §6.
 | Item | Effort | Foldable into | Standalone if not folded |
 |---|---|---|---|
 | 112 PWA audit + polish | Partial complete; remaining swipe/install/multi-pairing polish | — | yes |
-| 113 ApprovalModal behavior | Partial complete; remaining CodeMirror/syntax-highlight formatting | item 108 (visual pass) | yes |
+| 113 ApprovalModal behavior | Done | item 108 (visual pass) | done |
 | 114 light-theme CSS sweep | Done | item 110 (token pass) | done |
 | 115 transport loading state | Done | item 103 (StatusBar collapse) | done |
 | 116 attention escalation | Done | — | done |
@@ -814,9 +833,9 @@ Numbered 112+ to continue from §6.
 If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 
 1. Do **112 (PWA audit)** first — read-only, surfaces unknowns that might change §6 priorities.
-2. Then **114 + 110 + 103 + 115** together as one CSS/StatusBar pass (~1 day).
-3. Then **108 + 113** together as the ApprovalModal pass — visual restraint + behavior polish in one touch (~1 day).
-4. Then **102 + 105 + 104 + 106** as the chrome-restraint pass (~1 day).
-5. Last: **109** (auto-light/dark) — native dialogs (107) and attention escalation (116) are done.
+2. **114 + 110 + 103 + 115** are done for the scoped CSS/StatusBar pass.
+3. **108 + 113** are done for the ApprovalModal visual and behavior pass.
+4. **102 + 105 + 104 + 106** are done for the chrome-restraint pass.
+5. **109** is done for persisted light/dark theme pairs and OS auto-switching.
 
-Total remaining from §6 + §7 is closer to **~1.5–2.5 days** after the approval-cockpit launch pass, excluding larger auto-theme work if deferred.
+Total remaining from §6 + §7 is now centered on **112 (PWA audit/polish)** plus unrelated secondary/product items; the requested desktop ApprovalModal/chrome cleanup slice is complete.

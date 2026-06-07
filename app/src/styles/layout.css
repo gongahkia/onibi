@@ -8,6 +8,11 @@
   --fg-2: #6e6e6e;
   --accent: #007acc;
   --accent-2: #0098ff;
+  --attention: #e0a93d;
+  --attention-bg: rgba(224, 169, 61, 0.1);
+  --attention-border: rgba(224, 169, 61, 0.42);
+  --search-match-bg: #f6c25d;
+  --search-match-focused-bg: #f6a878;
   --danger: #f48771;
   --warning: #cca700;
   --success: #89d185;
@@ -22,7 +27,7 @@
   --activity-bar-inactive-fg: #858585;
   --status-bar-bg: #007acc;
   --status-bar-fg: #ffffff;
-  --status-bar-attention-bg: #cc6633;
+  --status-bar-attention-bg: #8a6318;
   --status-bar-error-bg: #f48771;
   --title-bar-bg: #3c3c3c;
   --title-bar-fg: #cccccc;
@@ -34,9 +39,12 @@
   --focus-ring: #007fd4;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Ubuntu", "Droid Sans",
     sans-serif;
-  --font-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --font-terminal: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --font-editor: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  --font-terminal: "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  --font-editor: "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
   --font-size-ui: 13px;
   --font-size-terminal: 13px;
   --font-size-editor: 13px;
@@ -56,6 +64,12 @@
   --activity-bar-inactive-fg: #cccccc;
   --status-bar-bg: #0078d4;
   --status-bar-fg: #ffffff;
+  --attention: #8a6500;
+  --attention-bg: rgba(138, 101, 0, 0.1);
+  --attention-border: rgba(138, 101, 0, 0.32);
+  --search-match-bg: #8a6500;
+  --search-match-focused-bg: #b96a2c;
+  --status-bar-attention-bg: #b47a00;
   --title-bar-bg: #dddddd;
   --title-bar-fg: #333333;
   --hover-bg: rgba(0, 0, 0, 0.07);
@@ -86,6 +100,14 @@ textarea {
 
 button {
   color: inherit;
+}
+
+code,
+pre,
+.xterm,
+.editor-code .cm-content,
+.approval-code-preview .cm-content {
+  font-feature-settings: "calt" off;
 }
 
 .app-shell {
@@ -142,8 +164,8 @@ button {
 }
 
 .activity-bar {
-  flex: 0 0 48px;
-  width: 48px;
+  flex: 0 0 44px;
+  width: 44px;
   background: var(--activity-bar-bg);
   color: var(--activity-bar-inactive-fg);
   display: flex;
@@ -167,14 +189,14 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   background: transparent;
   border: 0;
   border-left: 2px solid transparent;
   color: var(--activity-bar-inactive-fg);
   cursor: pointer;
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1;
   transition: color 100ms ease, border-color 100ms ease;
 }
@@ -203,12 +225,12 @@ button {
 }
 
 .activity-bar-item .codicon {
-  font-size: 24px;
+  font-size: 21px;
 }
 
 .activity-bar-item svg {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -218,14 +240,14 @@ button {
 
 .activity-bar-badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 5px;
+  right: 5px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent);
-  color: #ffffff;
+  background: var(--attention);
+  color: #061413;
   font-family: var(--font-ui);
   font-size: 10px;
   font-weight: 600;
@@ -320,7 +342,7 @@ button.status-bar-item {
 }
 
 button.status-bar-item:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--status-bar-fg) 16%, transparent);
 }
 
 .status-bar-item .codicon {
@@ -328,7 +350,7 @@ button.status-bar-item:hover {
 }
 
 .status-bar-item.attention {
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--status-bar-fg) 18%, transparent);
 }
 
 .status-bar-item.error {
@@ -382,7 +404,7 @@ button.status-bar-item:hover {
 }
 .title-agent-status.running { background: #3aa756; }
 .title-agent-status.awaiting-approval {
-  background: #e0a93d;
+  background: var(--attention);
 }
 .title-agent-status.approval-attention {
   animation: pane-attention-pulse 1600ms ease-in-out 2;
@@ -405,6 +427,7 @@ button.status-bar-item:hover {
   cursor: pointer;
   height: 22px;
   line-height: 1;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .title-cmdk-pill:hover {
   background: var(--bg-2, #2d2d30);
@@ -413,6 +436,23 @@ button.status-bar-item:hover {
 .title-cmdk-pill .codicon {
   font-size: 12px;
   opacity: 0.75;
+}
+.title-cmdk-pill.discovered {
+  width: 26px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-2, #6e6e6e);
+}
+.title-cmdk-pill.discovered:hover,
+.title-cmdk-pill.discovered:focus-visible {
+  border-color: var(--border);
+  background: var(--bg-1, #252526);
+  color: var(--fg-0, #e8eaed);
+}
+.title-cmdk-pill.discovered .title-cmdk-text,
+.title-cmdk-pill.discovered .title-cmdk-kbd {
+  display: none;
 }
 .title-cmdk-text {
   white-space: nowrap;
@@ -470,9 +510,9 @@ button.welcome-pill:hover {
   color: var(--fg-0);
 }
 .welcome-pill.attention {
-  color: #e0a93d;
-  border-color: rgba(224, 169, 61, 0.4);
-  background: rgba(224, 169, 61, 0.08);
+  color: var(--attention);
+  border-color: var(--attention-border);
+  background: var(--attention-bg);
 }
 .welcome-pill.ok {
   color: #5fb56a;
@@ -817,8 +857,8 @@ button.welcome-pill:hover {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #8aa4ff;
-  color: #ffffff;
+  background: var(--attention);
+  color: #061413;
   font-family: var(--font-ui);
   font-size: 10px;
   font-weight: 700;
@@ -886,9 +926,12 @@ button.welcome-pill:hover {
   background: var(--accent-2);
 }
 
-.tab-status.awaiting-approval,
+.tab-status.awaiting-approval {
+  background: var(--attention);
+}
+
 .tab-status.completed {
-  background: var(--accent);
+  background: var(--success);
 }
 
 .tab-status.error {
@@ -903,7 +946,7 @@ button.welcome-pill:hover {
   height: 9px;
   border: 1px solid var(--bg-0);
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--attention);
 }
 
 .tab-attention.attention-failed,
@@ -1930,11 +1973,16 @@ button.welcome-pill:hover {
 }
 
 .session-card:hover,
-.session-card.active,
-.session-card.needs-attention {
+.session-card.active {
   color: var(--fg-0);
   background: var(--bg-2);
   border-color: var(--accent);
+}
+
+.session-card.needs-attention {
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border-color: var(--attention-border);
 }
 
 .session-card img {
@@ -1973,7 +2021,7 @@ button.welcome-pill:hover {
 }
 
 .session-card-status.awaiting-approval {
-  color: var(--accent);
+  color: var(--attention);
 }
 
 .session-card-status.error {
@@ -1987,7 +2035,7 @@ button.welcome-pill:hover {
 
 .session-card-status.attention-needs-approval,
 .session-card-status.attention-triggered {
-  color: var(--accent);
+  color: var(--attention);
 }
 
 .session-card-time,
@@ -2002,7 +2050,7 @@ button.welcome-pill:hover {
   height: 18px;
   place-items: center;
   color: #061413;
-  background: var(--accent);
+  background: var(--attention);
   border-radius: 999px;
   font-weight: 800;
 }
@@ -2013,7 +2061,7 @@ button.welcome-pill:hover {
   overflow: hidden;
   padding: 2px 6px;
   color: #061413;
-  background: var(--accent);
+  background: var(--attention);
   border-radius: 999px;
   font-size: 10px;
   font-weight: 800;
@@ -2784,12 +2832,12 @@ button.welcome-pill:hover {
 }
 
 .terminal-tab-status.awaiting-approval {
-  background: var(--accent);
+  background: var(--attention);
   animation: pane-attention-pulse 1500ms ease-in-out infinite;
 }
 
 .terminal-tab-status.completed {
-  background: #4ec9b0;
+  background: var(--success);
 }
 
 .terminal-tab-status.error {
@@ -2873,11 +2921,11 @@ button.welcome-pill:hover {
 }
 
 .terminal-pane.attention {
-  box-shadow: inset 0 0 0 2px var(--accent-2);
+  box-shadow: inset 0 0 0 2px var(--attention);
 }
 
 .terminal-pane.attention[data-attention="needs-approval"] {
-  box-shadow: inset 0 0 0 2px var(--accent-2);
+  box-shadow: inset 0 0 0 2px var(--attention);
   animation: pane-attention-pulse 2200ms ease-in-out infinite;
 }
 
@@ -2899,10 +2947,10 @@ button.welcome-pill:hover {
 
 @keyframes pane-attention-pulse {
   0%, 100% {
-    box-shadow: inset 0 0 0 2px var(--accent-2);
+    box-shadow: inset 0 0 0 2px var(--attention);
   }
   50% {
-    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-2) 60%, transparent);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--attention) 60%, transparent);
   }
 }
 
@@ -3735,7 +3783,7 @@ button.welcome-pill:hover {
 
 .command-row:hover .command-description,
 .command-row.selected .command-description {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--fg-0);
 }
 
 .command-meta {
@@ -3788,6 +3836,310 @@ button.welcome-pill:hover {
   display: grid;
   gap: 14px;
   padding: 16px;
+}
+
+.approval-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background: rgba(4, 8, 10, 0.56);
+}
+
+.approval-modal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(640px, calc(100dvh - 32px));
+  overflow: auto;
+  padding: 16px;
+  color: var(--fg-0);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.36);
+}
+
+.approval-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.approval-modal-agent {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.approval-modal-cwd {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--fg-1);
+  font: 12px/1.35 var(--font-mono);
+}
+
+.approval-modal-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.approval-tool,
+.approval-countdown,
+.approval-risk-badge,
+.approval-queue {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.approval-tool {
+  color: var(--fg-1);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+}
+
+.approval-queue {
+  color: var(--fg-1);
+  padding-right: 0;
+}
+
+.approval-countdown,
+.approval-risk-badge {
+  color: var(--attention);
+  background: var(--attention-bg);
+  border: 1px solid var(--attention-border);
+  font-family: var(--font-mono);
+}
+
+.approval-risk-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.approval-risk-badge {
+  font-family: var(--font-ui);
+  font-weight: 700;
+}
+
+.approval-policy {
+  margin-bottom: 10px;
+  padding: 7px 9px;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.approval-payload-pre,
+.approval-file-preview,
+.approval-preview-block,
+.approval-code-preview,
+.approval-textarea,
+.approval-deny-input {
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.approval-payload-pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 13px/1.5 var(--font-mono);
+}
+
+.approval-file-preview {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.approval-preview-block {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.approval-preview-header {
+  color: var(--fg-1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.approval-file-preview-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-0);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.approval-file-preview-section {
+  display: grid;
+  gap: 4px;
+}
+
+.approval-file-preview-label {
+  color: var(--fg-1);
+  font-size: 12px;
+}
+
+.approval-code-preview {
+  min-height: 36px;
+  overflow: hidden;
+}
+
+.approval-code-preview .cm-editor {
+  border-radius: 4px;
+  font-feature-settings: "calt" off;
+}
+
+.approval-side-by-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.approval-side-pane {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.approval-side-label {
+  color: var(--fg-2);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.approval-preview-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--fg-1);
+  font-size: 12px;
+}
+
+.approval-preview-page-button {
+  padding: 4px 8px;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.approval-preview-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.approval-edit-wrap {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.approval-textarea {
+  min-height: 160px;
+  padding: 10px;
+  resize: vertical;
+  font: 13px/1.5 var(--font-mono);
+}
+
+.approval-deny-label {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--fg-1);
+  font-size: 12px;
+}
+
+.approval-deny-input {
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.approval-button {
+  min-width: 78px;
+  padding: 7px 11px;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.approval-button:hover {
+  background: var(--bg-3);
+}
+
+.approval-button.allow {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+}
+
+.approval-button.edit {
+  color: var(--attention);
+  background: var(--attention-bg);
+  border-color: var(--attention-border);
+}
+
+.approval-button.deny {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+}
+
+.approval-error {
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.approval-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1001;
+  padding: 9px 11px;
+  color: var(--fg-0);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 
 .modal-footer {
@@ -3911,7 +4263,7 @@ button.welcome-pill:hover {
 
 .navigator-pill.attention {
   color: #061413;
-  background: var(--accent);
+  background: var(--attention);
   border-color: transparent;
 }
 
@@ -4550,9 +4902,13 @@ button.welcome-pill:hover {
   background: var(--bg-1);
 }
 
-.activity-session-event.active,
-.activity-session-event.needs-attention {
+.activity-session-event.active {
   border-color: var(--accent);
+  background: var(--bg-2);
+}
+
+.activity-session-event.needs-attention {
+  border-color: var(--attention-border);
   background: var(--bg-2);
 }
 
@@ -4714,6 +5070,10 @@ button.welcome-pill:hover {
 @media (max-width: 800px) {
   .app-shell {
     min-width: 0;
+  }
+
+  .approval-side-by-side {
+    grid-template-columns: 1fr;
   }
 
   .settings-grid {

@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  COMMAND_PALETTE_DISCOVERED_EVENT,
+  commandPaletteUsed,
+  markCommandPaletteUsed,
+} from "../lib/command-palette-discovery";
 import { agentDisplayLabel, useSessionStore } from "../lib/sessions";
 
 function basename(path: string): string {
@@ -16,6 +21,7 @@ function selectedTitle(selection: ReturnType<typeof useSessionStore.getState>["s
 
 export function TitleBar() {
   const [approvalPulse, setApprovalPulse] = useState(false);
+  const [paletteDiscovered, setPaletteDiscovered] = useState(commandPaletteUsed);
   const selection = useSessionStore((state) => state.selectedFile);
   const workspaces = useSessionStore((state) => state.workspaces);
   const sessions = useSessionStore((state) => state.sessions);
@@ -82,11 +88,28 @@ export function TitleBar() {
     };
   }, [activeSession?.id]);
 
+  useEffect(() => {
+    function handleDiscovery() {
+      setPaletteDiscovered(true);
+    }
+    window.addEventListener(
+      COMMAND_PALETTE_DISCOVERED_EVENT,
+      handleDiscovery as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        COMMAND_PALETTE_DISCOVERED_EVENT,
+        handleDiscovery as EventListener,
+      );
+    };
+  }, []);
+
   const platformKey = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform)
     ? "⌘K"
     : "Ctrl+K";
 
   function openPalette() {
+    markCommandPaletteUsed();
     window.dispatchEvent(new CustomEvent("onibi:open-command-palette"));
   }
 
@@ -107,7 +130,7 @@ export function TitleBar() {
       <div className="title-bar-actions">
         <button
           type="button"
-          className="title-cmdk-pill"
+          className={`title-cmdk-pill${paletteDiscovered ? " discovered" : ""}`}
           onClick={openPalette}
           title="Open command palette"
           aria-label="Open command palette"

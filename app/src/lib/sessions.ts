@@ -486,8 +486,8 @@ export function bufferLabel(selection: MainSelection): string {
   return selection.name || selection.path.split("/").pop() || selection.path;
 }
 
-export type ThemeMode =
-  | "system"
+export type BuiltInThemeMode =
+  | "terminal"
   | "vscode-dark-plus"
   | "vscode-light-plus"
   | "github-dark"
@@ -510,12 +510,25 @@ export type ThemeMode =
   | "shades-of-purple"
   | "synthwave-84"
   | "solarized-dark"
-  | "terminal"
-  | "onibi-flame"
+  | "onibi-flame";
+export type LightBuiltInThemeMode =
+  | "vscode-light-plus"
+  | "github-light"
+  | "catppuccin-latte"
+  | "material-lighter"
+  | "ayu-light";
+export type DarkBuiltInThemeMode = Exclude<
+  BuiltInThemeMode,
+  LightBuiltInThemeMode | "terminal"
+>;
+export type ThemePairMode = `light:${LightBuiltInThemeMode},dark:${DarkBuiltInThemeMode}`;
+export type ThemeMode =
+  | "system"
+  | BuiltInThemeMode
+  | ThemePairMode
   | "custom";
 export type TabBarOrientation = "vertical" | "horizontal";
 export type TabBarPosition = "left" | "right" | "top" | "bottom";
-export type BuiltInThemeMode = Exclude<ThemeMode, "system" | "custom">;
 export type ColorSchemeColorKey =
   | "bg0"
   | "bg1"
@@ -735,6 +748,8 @@ type PersistedState = {
   arrangements?: Arrangement[];
   activeSidebarView?: WorkspaceSidebarView;
   sidebarCollapsed?: boolean;
+  sidebarFirstLaunchSeen?: boolean;
+  sidebarCollapsedExplicit?: boolean;
   sessionEvents?: SessionEvent[];
   openBuffers?: MainSelection[];
   activeBufferKey?: string | null;
@@ -770,6 +785,8 @@ type SessionStore = {
   activityCenterOpen: boolean;
   agentRailExpanded: boolean;
   sidebarCollapsed: boolean;
+  sidebarFirstLaunchSeen: boolean;
+  sidebarCollapsedExplicit: boolean;
   setHydrated: (hydrated: boolean) => void;
   setActiveSession: (id: string | null) => void;
   setActiveTerminalPane: (paneId: string | null) => void;
@@ -1484,8 +1501,17 @@ export const BUILT_IN_COLOR_SCHEMES: ColorScheme[] = [
   },
 ];
 
+export const LIGHT_THEME_OPTIONS = BUILT_IN_COLOR_SCHEMES.filter((scheme) =>
+  isLightBuiltInThemeMode(scheme.id),
+) as Array<ColorScheme & { id: LightBuiltInThemeMode }>;
+export const DARK_THEME_OPTIONS = BUILT_IN_COLOR_SCHEMES.filter((scheme) =>
+  isDarkBuiltInThemeMode(scheme.id),
+) as Array<ColorScheme & { id: DarkBuiltInThemeMode }>;
+export const DEFAULT_SYSTEM_THEME_PAIR: ThemePairMode =
+  "light:vscode-light-plus,dark:vscode-dark-plus";
+
 export const COLOR_SCHEME_OPTIONS: Array<{ id: ThemeMode; label: string }> = [
-  { id: "system", label: "System" },
+  { id: DEFAULT_SYSTEM_THEME_PAIR, label: "System" },
   ...BUILT_IN_COLOR_SCHEMES.map(({ id, label }) => ({ id, label })),
   { id: "custom", label: "Custom" },
 ];
@@ -1630,12 +1656,12 @@ export const DEFAULT_APP_KEYBINDINGS: AppKeybinding[] = [
 export const DEFAULT_CUSTOM_COMMAND_KEYBINDINGS: CustomCommandKeybinding[] = [];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: "vscode-dark-plus",
-  fontFamily: "Menlo, Monaco, monospace",
+  theme: DEFAULT_SYSTEM_THEME_PAIR,
+  fontFamily: '"JetBrains Mono", ui-monospace, Menlo, Monaco, monospace',
   uiFontFamily:
     'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  terminalFontFamily: "Menlo, Monaco, monospace",
-  editorFontFamily: "Menlo, Monaco, monospace",
+  terminalFontFamily: '"JetBrains Mono", ui-monospace, Menlo, Monaco, monospace',
+  editorFontFamily: '"JetBrains Mono", ui-monospace, Menlo, Monaco, monospace',
   uiFontSize: 15,
   terminalFontSize: 13,
   terminalScrollbackLines: 0,
@@ -1715,13 +1741,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isThemeMode(value: unknown): value is ThemeMode {
-  return (
-    typeof value === "string" &&
-    COLOR_SCHEME_OPTIONS.some((option) => option.id === value)
-  );
-}
-
 const LEGACY_THEME_MAP: Record<string, ThemeMode> = {
   dark: "github-dark",
   light: "github-light",
@@ -1734,6 +1753,60 @@ const LEGACY_THEME_MAP: Record<string, ThemeMode> = {
   paper: "github-light",
   "high-contrast": "github-dark",
 };
+
+function isBuiltInThemeMode(value: unknown): value is BuiltInThemeMode {
+  return (
+    typeof value === "string" &&
+    BUILT_IN_COLOR_SCHEMES.some((scheme) => scheme.id === value)
+  );
+}
+
+export function isLightBuiltInThemeMode(value: unknown): value is LightBuiltInThemeMode {
+  return (
+    value === "vscode-light-plus" ||
+    value === "github-light" ||
+    value === "catppuccin-latte" ||
+    value === "material-lighter" ||
+    value === "ayu-light"
+  );
+}
+
+export function isDarkBuiltInThemeMode(value: unknown): value is DarkBuiltInThemeMode {
+  return isBuiltInThemeMode(value) && value !== "terminal" && !isLightBuiltInThemeMode(value);
+}
+
+export function formatThemePair(
+  light: LightBuiltInThemeMode,
+  dark: DarkBuiltInThemeMode,
+): ThemePairMode {
+  return `light:${light},dark:${dark}`;
+}
+
+export function parseThemePair(
+  value: unknown,
+): { light: LightBuiltInThemeMode; dark: DarkBuiltInThemeMode } | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = /^light:([^,]+),dark:(.+)$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+  const [, light, dark] = match;
+  if (!isLightBuiltInThemeMode(light) || !isDarkBuiltInThemeMode(dark)) {
+    return null;
+  }
+  return { light, dark };
+}
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return (
+    value === "system" ||
+    value === "custom" ||
+    isBuiltInThemeMode(value) ||
+    parseThemePair(value) !== null
+  );
+}
 
 function normalizeThemeMode(value: unknown): ThemeMode {
   if (isThemeMode(value)) {
@@ -3643,6 +3716,8 @@ function snapshot(state: SessionStore): PersistedState {
     arrangements: state.arrangements,
     activeSidebarView: state.activeSidebarView,
     sidebarCollapsed: state.sidebarCollapsed,
+    sidebarFirstLaunchSeen: state.sidebarFirstLaunchSeen,
+    sidebarCollapsedExplicit: state.sidebarCollapsedExplicit,
     sessionEvents: state.sessionEvents,
     openBuffers: state.openBuffers,
     activeBufferKey: state.activeBufferKey,
@@ -3674,6 +3749,8 @@ export async function persistNow(): Promise<void> {
     await store.set("arrangements", state.arrangements);
     await store.set("activeSidebarView", state.activeSidebarView);
     await store.set("sidebarCollapsed", state.sidebarCollapsed);
+    await store.set("sidebarFirstLaunchSeen", state.sidebarFirstLaunchSeen);
+    await store.set("sidebarCollapsedExplicit", state.sidebarCollapsedExplicit);
     await store.set("sessionEvents", state.sessionEvents);
     await store.set("openBuffers", state.openBuffers);
     await store.set("activeBufferKey", state.activeBufferKey);
@@ -3713,10 +3790,16 @@ export const useSessionStore = create<SessionStore>((set) => ({
   activityCenterOpen: false,
   agentRailExpanded: false,
   sidebarCollapsed: false,
+  sidebarFirstLaunchSeen: false,
+  sidebarCollapsedExplicit: false,
   setSettingsPaneOpen: (open) => set({ settingsPaneOpen: open }),
   setActivityCenterOpen: (open) => set({ activityCenterOpen: open }),
   setSidebarCollapsed: (collapsed) => {
-    set({ sidebarCollapsed: collapsed });
+    set({
+      sidebarCollapsed: collapsed,
+      sidebarCollapsedExplicit: true,
+      sidebarFirstLaunchSeen: true,
+    });
     persistLater();
   },
   toggleAgentRailExpanded: () =>
@@ -5290,6 +5373,8 @@ export async function hydrateSessionStore(): Promise<void> {
       arrangements,
       activeSidebarView,
       sidebarCollapsed,
+      sidebarFirstLaunchSeen,
+      sidebarCollapsedExplicit,
       sessionEvents,
       openBuffers,
       activeBufferKey,
@@ -5302,6 +5387,8 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<Arrangement[]>("arrangements"),
       store.get<WorkspaceSidebarView>("activeSidebarView"),
       store.get<boolean>("sidebarCollapsed"),
+      store.get<boolean>("sidebarFirstLaunchSeen"),
+      store.get<boolean>("sidebarCollapsedExplicit"),
       store.get<SessionEvent[]>("sessionEvents"),
       store.get<MainSelection[]>("openBuffers"),
       store.get<string | null>("activeBufferKey"),
@@ -5454,6 +5541,20 @@ export async function hydrateSessionStore(): Promise<void> {
       restoredWorkspaceTabs.find((tab) => tab.id === restoredActiveWorkspaceTabId) ??
       null;
     const mirroredActiveTab = mirrorWorkspaceTab(restoredActiveTab);
+    const migratedExplicitSidebar =
+      typeof sidebarCollapsed === "boolean" &&
+      typeof sidebarFirstLaunchSeen !== "boolean" &&
+      typeof sidebarCollapsedExplicit !== "boolean";
+    const restoredSidebarExplicit =
+      sidebarCollapsedExplicit === true || migratedExplicitSidebar;
+    const restoredSidebarFirstLaunchSeen = sidebarFirstLaunchSeen === true;
+    const restoredSidebarCollapsed = restoredSidebarExplicit
+      ? sidebarCollapsed === true
+      : restoredSidebarFirstLaunchSeen;
+    const shouldPersistSidebarMigration =
+      !restoredSidebarFirstLaunchSeen ||
+      typeof sidebarCollapsedExplicit !== "boolean" ||
+      migratedExplicitSidebar;
     const restoredClosedStack = capClosedStack(
       (closedBufferStack ?? []).filter((buffer) =>
         workspaceIds.has(buffer.workspaceId),
@@ -5471,7 +5572,9 @@ export async function hydrateSessionStore(): Promise<void> {
       activeWorkspaceTabId: restoredActiveWorkspaceTabId,
       arrangements: normalizeArrangements(arrangements),
       activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
-      sidebarCollapsed: sidebarCollapsed === true,
+      sidebarCollapsed: restoredSidebarCollapsed,
+      sidebarFirstLaunchSeen: true,
+      sidebarCollapsedExplicit: restoredSidebarExplicit,
       workspaces: restoredWorkspaces,
       sessionEvents: sessionEvents ?? [],
       openBuffers: restoredBuffers,
@@ -5489,6 +5592,9 @@ export async function hydrateSessionStore(): Promise<void> {
       settings: mergedSettings,
       hydrated: true,
     });
+    if (shouldPersistSidebarMigration) {
+      persistLater();
+    }
   } catch (error) {
     console.warn("failed to hydrate session store", error);
     useSessionStore.setState({ hydrated: true });
@@ -7932,12 +8038,26 @@ function prefersLightTheme(): boolean {
   );
 }
 
-export function resolveThemeMode(theme: ThemeMode): Exclude<ThemeMode, "system"> {
-  return theme === "system"
-    ? prefersLightTheme()
-      ? "vscode-light-plus"
-      : "vscode-dark-plus"
-    : theme;
+export function themePairForMode(
+  theme: ThemeMode,
+): { light: LightBuiltInThemeMode; dark: DarkBuiltInThemeMode } {
+  return parseThemePair(theme) ?? parseThemePair(DEFAULT_SYSTEM_THEME_PAIR)!;
+}
+
+export function themeFollowsSystem(theme: ThemeMode): boolean {
+  return theme === "system" || parseThemePair(theme) !== null;
+}
+
+export function resolveThemeMode(theme: ThemeMode): BuiltInThemeMode | "custom" {
+  const pair =
+    theme === "system" ? themePairForMode(DEFAULT_SYSTEM_THEME_PAIR) : parseThemePair(theme);
+  if (pair) {
+    return prefersLightTheme() ? pair.light : pair.dark;
+  }
+  if (theme === "custom" || isBuiltInThemeMode(theme)) {
+    return theme;
+  }
+  return prefersLightTheme() ? "vscode-light-plus" : "vscode-dark-plus";
 }
 
 function builtInColorScheme(id: BuiltInThemeMode): ColorScheme {

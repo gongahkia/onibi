@@ -195,6 +195,10 @@ function WorkspaceTerminalTabStrip({
     before: boolean;
   } | null>(null);
 
+  if (tabs.length <= 1) {
+    return null;
+  }
+
   function draggedTabId(event: ReactDragEvent): string | null {
     return draggingTabId || event.dataTransfer.getData(WORKSPACE_TAB_DRAG_MIME) || null;
   }

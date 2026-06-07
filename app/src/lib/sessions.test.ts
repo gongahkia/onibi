@@ -1,9 +1,10 @@
 import { load } from "@tauri-apps/plugin-store";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
   DEFAULT_REMOTE_STAGING_DIR,
+  DEFAULT_SYSTEM_THEME_PAIR,
   DEFAULT_SETTINGS,
   agentDisplayLabel,
   appKeybindingConflicts,
@@ -16,7 +17,9 @@ import {
   normalizeNewPaneCwdMode,
   normalizeTerminalShellMode,
   parseSshRemoteTarget,
+  parseThemePair,
   parseOnibiConfigToml,
+  resolveThemeMode,
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
   stageClipboardImageForRemoteSession,
@@ -159,6 +162,75 @@ describe("session hydration", () => {
     expect(state.workspaceTabs).toEqual([]);
     expect(state.activeWorkspaceId).toBeNull();
     expect(state.activeWorkspaceTabId).toBeNull();
+  });
+
+  test("opens the sidebar on first launch and marks it seen", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sidebarCollapsed).toBe(false);
+    expect(state.sidebarFirstLaunchSeen).toBe(true);
+    expect(state.sidebarCollapsedExplicit).toBe(false);
+  });
+
+  test("auto-collapses the sidebar after first launch without explicit preference", async () => {
+    const store = await load("settings.json");
+    await store.set("sidebarFirstLaunchSeen", true);
+    await store.set("sidebarCollapsedExplicit", false);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sidebarCollapsed).toBe(true);
+    expect(state.sidebarCollapsedExplicit).toBe(false);
+  });
+
+  test("preserves legacy stored sidebar state as explicit preference", async () => {
+    const store = await load("settings.json");
+    await store.set("sidebarCollapsed", false);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "onibi_read_config_toml") {
+        return null;
+      }
+      if (command === "pty_sessions") {
+        return [];
+      }
+      if (command === "fs_read_ghostty_config") {
+        return null;
+      }
+      return null;
+    });
+
+    await hydrateSessionStore();
+
+    const state = useSessionStore.getState();
+    expect(state.sidebarCollapsed).toBe(false);
+    expect(state.sidebarCollapsedExplicit).toBe(true);
   });
 
   test("moves terminal panes while preserving split geometry", async () => {
@@ -1203,6 +1275,52 @@ theme = "terminal"
       workspaces: [],
     });
     expect(serialized).toContain('theme = "terminal"');
+  });
+
+  test("parses and serializes explicit light dark theme pairs", async () => {
+    const parsed = parseOnibiConfigToml(`
+version = 1
+
+[settings]
+theme = "light:github-light,dark:tokyo-night"
+`);
+
+    expect(parsed.settings.theme).toBe("light:github-light,dark:tokyo-night");
+    expect(parseThemePair(parsed.settings.theme)).toEqual({
+      light: "github-light",
+      dark: "tokyo-night",
+    });
+
+    const serialized = serializeOnibiConfigToml({
+      version: 1,
+      settings: parsed.settings,
+      workspaces: [],
+    });
+    expect(serialized).toContain('theme = "light:github-light,dark:tokyo-night"');
+  });
+
+  test("resolves legacy system and explicit theme pairs from media preference", () => {
+    let prefersLight = false;
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: prefersLight })),
+    );
+
+    try {
+      expect(DEFAULT_SETTINGS.theme).toBe(DEFAULT_SYSTEM_THEME_PAIR);
+      expect(resolveThemeMode("system")).toBe("vscode-dark-plus");
+      expect(resolveThemeMode("light:github-light,dark:tokyo-night")).toBe(
+        "tokyo-night",
+      );
+
+      prefersLight = true;
+      expect(resolveThemeMode("system")).toBe("vscode-light-plus");
+      expect(resolveThemeMode("light:github-light,dark:tokyo-night")).toBe(
+        "github-light",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test("terminal theme uses imported terminal colors when available", async () => {

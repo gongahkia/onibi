@@ -143,7 +143,7 @@ describe("MainPane", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  test("renders an empty active workspace tab", () => {
+  test("hides the terminal tab strip for one active workspace tab", () => {
     useSessionStore.setState({
       workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
       workspaceTabs: [
@@ -164,8 +164,8 @@ describe("MainPane", () => {
 
     render(<MainPane />);
 
-    expect(screen.getByRole("tab", { name: /Terminal/ })).toBeTruthy();
-    expect(screen.getByText("empty")).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: /terminal tabs/ })).toBeNull();
+    expect(screen.getByText("No session in this tab")).toBeTruthy();
     expect(screen.getByTestId("inline-session-launcher")).toBeTruthy();
   });
 
@@ -222,6 +222,7 @@ describe("MainPane", () => {
     });
 
     render(<MainPane />);
+    expect(screen.getByRole("tablist", { name: /terminal tabs/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /Two/ }));
 
     expect(screen.getByTestId("terminal-view").textContent).toContain("pty-2");
