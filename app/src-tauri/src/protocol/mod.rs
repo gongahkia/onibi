@@ -63,6 +63,30 @@ pub struct Approval {
     pub decided_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClientScope {
+    Full,
+    ReadOnly,
+}
+
+impl ClientScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::ReadOnly => "read-only",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "full" => Some(Self::Full),
+            "read-only" => Some(Self::ReadOnly),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApprovalDecisionBody {
     pub decision: Decision,
@@ -308,6 +332,7 @@ pub struct PairResponse {
     pub device_id: String,
     #[serde(rename = "machineId")]
     pub machine_id: String,
+    pub scope: ClientScope,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

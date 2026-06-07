@@ -1,28 +1,48 @@
 use super::AppState;
+use crate::protocol::ClientScope;
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Request, StatusCode},
+    http::{header, Method, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthScope {
+    pub scope: ClientScope,
+    pub token: String,
+}
+
 pub async fn require_bearer(
     State(state): State<AppState>,
-    req: Request<Body>,
+    mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    if authorized(&state, &req) {
+    if let Some(auth) = authorized_scope(&state, &req) {
+        if auth.scope == ClientScope::ReadOnly && !read_only_route(req.method(), req.uri().path()) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        req.extensions_mut().insert(auth);
         Ok(next.run(req).await)
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
 }
 
-fn authorized(state: &AppState, req: &Request<Body>) -> bool {
+pub fn scope_from_request<B>(req: &Request<B>) -> ClientScope {
+    req.extensions()
+        .get::<AuthScope>()
+        .map(|auth| auth.scope)
+        .unwrap_or(ClientScope::Full)
+}
+
+fn authorized_scope(state: &AppState, req: &Request<Body>) -> Option<AuthScope> {
     if let Some(value) = req.headers().get(header::AUTHORIZATION) {
         if let Ok(value) = value.to_str() {
-            return value == format!("Bearer {}", state.token);
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                return token_scope(state, token);
+            }
         }
     }
     req.uri()
@@ -33,5 +53,38 @@ fn authorized(state: &AppState, req: &Request<Body>) -> bool {
                 (key == "token").then_some(value)
             })
         })
-        .is_some_and(|token| token == state.token)
+        .and_then(|token| token_scope(state, token))
+}
+
+fn token_scope(state: &AppState, token: &str) -> Option<AuthScope> {
+    if token == state.token {
+        return Some(AuthScope {
+            scope: ClientScope::Full,
+            token: token.to_string(),
+        });
+    }
+    state
+        .store
+        .spectator_token_exists(token)
+        .ok()
+        .and_then(|exists| {
+            exists.then(|| AuthScope {
+                scope: ClientScope::ReadOnly,
+                token: token.to_string(),
+            })
+        })
+}
+
+fn read_only_route(method: &Method, path: &str) -> bool {
+    matches!(
+        (method, path),
+        (&Method::POST, "/v1/pair")
+            | (&Method::GET, "/v1/approval/pending")
+            | (&Method::GET, "/v1/approval/history")
+            | (&Method::GET, "/v1/approval/history/export")
+            | (&Method::GET, "/v1/run/recent")
+            | (&Method::GET, "/v1/status")
+            | (&Method::GET, "/v1/transport/status")
+            | (&Method::GET, "/v1/realtime")
+    )
 }

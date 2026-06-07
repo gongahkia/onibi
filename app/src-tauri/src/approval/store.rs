@@ -1,11 +1,13 @@
 use crate::protocol::{
-    Approval, ApprovalDecisionBody, Decision, DesktopCommandBlock, RunEvent, PROTOCOL_VERSION,
+    Approval, ApprovalDecisionBody, ClientScope, Decision, DesktopCommandBlock, RunEvent,
+    PROTOCOL_VERSION,
 };
 use anyhow::{Context, Result};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -109,8 +111,16 @@ impl ApprovalStore {
               device_id   TEXT PRIMARY KEY,
               label       TEXT,
               push_subscription TEXT,
+              scope       TEXT NOT NULL DEFAULT 'full',
               created_at  INTEGER NOT NULL,
               last_seen   INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS spectator_tokens (
+              token_hash  TEXT PRIMARY KEY,
+              created_at  INTEGER NOT NULL,
+              consumed_at INTEGER,
+              device_id   TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_approvals_undecided
@@ -125,6 +135,7 @@ impl ApprovalStore {
             "#,
         )
         .context("initialize sqlite schema")?;
+        add_column_if_missing(&conn, "devices", "scope", "TEXT NOT NULL DEFAULT 'full'")?;
         Ok(())
     }
 
@@ -411,15 +422,17 @@ impl ApprovalStore {
         device_id: &str,
         label: &str,
         push_subscription: Option<&Value>,
+        scope: ClientScope,
     ) -> Result<()> {
         let conn = self.pool.get().context("open sqlite connection")?;
         conn.execute(
             r#"
-            INSERT INTO devices(device_id, label, push_subscription, created_at, last_seen)
-            VALUES(?, ?, ?, ?, ?)
+            INSERT INTO devices(device_id, label, push_subscription, scope, created_at, last_seen)
+            VALUES(?, ?, ?, ?, ?, ?)
             ON CONFLICT(device_id) DO UPDATE SET
               label = excluded.label,
               push_subscription = excluded.push_subscription,
+              scope = excluded.scope,
               last_seen = excluded.last_seen
             "#,
             params![
@@ -429,12 +442,51 @@ impl ApprovalStore {
                     Some(value) => Some(serde_json::to_string(value)?),
                     None => None,
                 },
+                scope.as_str(),
                 now_millis(),
                 now_millis(),
             ],
         )
         .context("insert device")?;
         Ok(())
+    }
+
+    pub fn insert_spectator_token(&self, token: &str) -> Result<()> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        conn.execute(
+            "INSERT INTO spectator_tokens(token_hash, created_at) VALUES(?, ?)",
+            params![token_hash(token), now_millis()],
+        )
+        .context("insert spectator token")?;
+        Ok(())
+    }
+
+    pub fn consume_spectator_token(&self, token: &str, device_id: &str) -> Result<bool> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let changed = conn
+            .execute(
+                r#"
+                UPDATE spectator_tokens
+                SET consumed_at = ?, device_id = ?
+                WHERE token_hash = ? AND consumed_at IS NULL
+                "#,
+                params![now_millis(), device_id, token_hash(token)],
+            )
+            .context("consume spectator token")?;
+        Ok(changed == 1)
+    }
+
+    pub fn spectator_token_exists(&self, token: &str) -> Result<bool> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let found: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM spectator_tokens WHERE token_hash = ? LIMIT 1",
+                [token_hash(token)],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("read spectator token")?;
+        Ok(found.is_some())
     }
 
     pub fn list_push_subscriptions(&self) -> Result<Vec<Value>> {
@@ -455,6 +507,28 @@ impl ApprovalStore {
         }
         Ok(subscriptions)
     }
+}
+
+pub fn token_hash(token: &str) -> String {
+    hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+fn add_column_if_missing(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(());
+        }
+    }
+    conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
+    Ok(())
 }
 
 pub fn now_millis() -> i64 {
@@ -618,6 +692,7 @@ mod tests {
                     "endpoint": "https://push.example/device",
                     "keys": {"p256dh": "p256dh", "auth": "auth"}
                 })),
+                ClientScope::Full,
             )
             .unwrap();
 

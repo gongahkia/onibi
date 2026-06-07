@@ -2,6 +2,7 @@ use super::{
     cloudflared::CloudflareTunnel, lan::LanTransport, tailscale::TailscaleFunnel, Transport,
     TransportHandle, TransportStatus,
 };
+use crate::protocol::ClientScope;
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
@@ -133,6 +134,7 @@ impl TransportManager {
             host: "127.0.0.1".to_string(),
             port: self.local_port,
             token: self.token.clone(),
+            scope: ClientScope::Full,
             vapid_public_key: self.vapid_public_key.clone(),
             cert_fingerprint: None,
             transports,
@@ -202,6 +204,7 @@ pub struct PairingPayload {
     pub host: String,
     pub port: u16,
     pub token: String,
+    pub scope: ClientScope,
     pub vapid_public_key: String,
     pub cert_fingerprint: Option<String>,
     pub transports: Vec<TransportEndpoint>,

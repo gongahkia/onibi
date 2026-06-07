@@ -1,11 +1,13 @@
-use super::{pairing, AppState};
+use super::{auth, pairing, AppState};
 use crate::{
     adapters,
     approval::store::{now_millis, ApprovalHistoryFilter},
     orchestration::AgentStatus,
     policy,
+    secret,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
+        ClientScope,
         Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
         DesktopRemoteSshBody, DesktopSessionInputBody, DesktopSessionLaunchBody,
         DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody,
@@ -18,7 +20,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     body::Body,
-    extract::{rejection::JsonRejection, FromRequest, Path, Query, Request, State},
+    extract::{rejection::JsonRejection, Extension, FromRequest, Path, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -501,22 +503,50 @@ fn broadcast_desktop_command(
 
 pub async fn pair(
     State(state): State<AppState>,
+    Extension(auth): Extension<auth::AuthScope>,
     ApiJson(body): ApiJson<PairRequest>,
 ) -> ApiResult<PairResponse> {
     let device_id = Ulid::new().to_string();
+    if auth.scope == ClientScope::ReadOnly
+        && !state
+            .store
+            .consume_spectator_token(&auth.token, &device_id)
+            .map_err(internal_error)?
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ApiError::new("spectator pairing token has already been used")),
+        ));
+    }
     state
         .store
         .insert_device(
             &device_id,
             &body.device_label,
             body.push_subscription.as_ref(),
+            auth.scope,
         )
         .map_err(internal_error)?;
     Ok(Json(PairResponse {
         protocol_version: PROTOCOL_VERSION.to_string(),
         device_id,
         machine_id: state.machine_id,
+        scope: auth.scope,
     }))
+}
+
+pub async fn spectator_pairing_payload(State(state): State<AppState>) -> ApiResult<Value> {
+    let token = secret::generate_token();
+    state
+        .store
+        .insert_spectator_token(&token)
+        .map_err(internal_error)?;
+    let mut payload = state.transports.pairing_payload().await;
+    payload.token = token;
+    payload.scope = ClientScope::ReadOnly;
+    serde_json::to_value(payload)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, Json<ApiError>)> {

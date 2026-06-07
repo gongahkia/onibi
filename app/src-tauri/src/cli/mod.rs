@@ -128,6 +128,7 @@ enum ConfigCommand {
 enum TokenCommand {
     Rotate,
     Show,
+    Spectator,
 }
 
 #[derive(Debug, Subcommand)]
@@ -426,7 +427,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Some(Command::Doctor) => doctor::run(port, cli.json).await,
         Some(Command::Config { command }) => config_command(command, port, cli.json),
-        Some(Command::Token { command }) => token(command, cli.json),
+        Some(Command::Token { command }) => token(command, port, cli.json),
         Some(Command::Adapter { command }) => adapter(command, cli.json),
         Some(Command::Integration { command }) => integration(command, cli.json),
         Some(Command::Transport { command }) => transport(command, port, cli.json).await,
@@ -948,7 +949,7 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
     }
 }
 
-fn token(command: TokenCommand, json_output: bool) -> Result<()> {
+fn token(command: TokenCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         TokenCommand::Rotate => {
             let token = secret::rotate_token()?;
@@ -957,6 +958,20 @@ fn token(command: TokenCommand, json_output: bool) -> Result<()> {
         TokenCommand::Show => {
             let token = secret::load_or_create_token()?;
             print_value(json!({"token": token.token}), json_output)?;
+        }
+        TokenCommand::Spectator => {
+            ensure_daemon_running(port)?;
+            let raw = authed_http(port, "POST", "/v1/token/spectator", Some("{}"))?;
+            if json_output {
+                print_raw_json_or_text(&raw, true)?;
+            } else {
+                let payload: serde_json::Value = serde_json::from_str(&raw)?;
+                let uri = pairing_uri_from_payload(&payload)?;
+                println!("Read-only spectator pairing:");
+                println!("{uri}");
+                println!();
+                println!("{raw}");
+            }
         }
     }
     Ok(())
