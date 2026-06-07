@@ -198,6 +198,61 @@ fn matches_string(expected: Option<&str>, actual: &str) -> bool {
     expected.map(|expected| expected == actual).unwrap_or(true)
 }
 
+pub fn evaluate_safe_mode(approval: &Approval) -> PolicyEvaluation {
+    if safe_read_only_bash(approval) {
+        PolicyEvaluation {
+            rule_name: Some("safe mode read-only basics".to_string()),
+            decision: PolicyDecision::AutoAllow,
+        }
+    } else {
+        PolicyEvaluation {
+            rule_name: Some("safe mode default ask".to_string()),
+            decision: PolicyDecision::AlwaysAsk,
+        }
+    }
+}
+
+fn safe_read_only_bash(approval: &Approval) -> bool {
+    if approval.tool != "Bash" {
+        return false;
+    }
+    let Some(command) = approval.input.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let command = command.trim();
+    if command.is_empty() || contains_shell_control(command) {
+        return false;
+    }
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    match parts.as_slice() {
+        ["pwd"] => true,
+        ["ls", ..] => true,
+        ["cat", ..] => true,
+        ["head", ..] => true,
+        ["tail", ..] => true,
+        ["grep", ..] => true,
+        ["rg", ..] => true,
+        ["sed", "-n", ..] => true,
+        ["find", args @ ..] => !args.iter().any(|arg| {
+            matches!(
+                *arg,
+                "-delete" | "-exec" | "-execdir" | "-ok" | "-okdir" | "-fdelete"
+            )
+        }),
+        ["git", "status", ..]
+        | ["git", "diff", ..]
+        | ["git", "log", ..]
+        | ["git", "show", ..] => true,
+        _ => false,
+    }
+}
+
+fn contains_shell_control(command: &str) -> bool {
+    ["|", ">", "<", ";", "&&", "||", "`", "$(", "\n", "\r"]
+        .iter()
+        .any(|token| command.contains(token))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

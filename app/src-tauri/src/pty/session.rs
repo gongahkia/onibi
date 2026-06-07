@@ -104,6 +104,8 @@ pub struct PtySpawnRequest {
     pub agent: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
+    #[serde(default, rename = "safeMode")]
+    pub safe_mode: bool,
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]

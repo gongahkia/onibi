@@ -72,6 +72,15 @@ enum Command {
         #[command(subcommand)]
         command: SessionCommand,
     },
+    Safe {
+        agent: String,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        prompt: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+    },
     Pane {
         #[command(subcommand)]
         command: PaneCommand,
@@ -353,6 +362,7 @@ pub fn should_dispatch(args: &[String]) -> bool {
         "integration",
         "transport",
         "session",
+        "safe",
         "pane",
         "wait",
         "agent",
@@ -432,6 +442,12 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Integration { command }) => integration(command, cli.json),
         Some(Command::Transport { command }) => transport(command, port, cli.json).await,
         Some(Command::Session { command }) => session(command, port, cli.json).await,
+        Some(Command::Safe {
+            agent,
+            workspace,
+            prompt,
+            name,
+        }) => safe(agent, workspace, prompt, name, cli.json).await,
         Some(Command::Pane { command }) => pane(command, port, cli.json).await,
         Some(Command::Wait { command }) => wait(command, cli.json).await,
         Some(Command::Agent { command }) => agent(command, port, cli.json).await,
@@ -448,6 +464,34 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn safe(
+    agent: String,
+    workspace: PathBuf,
+    prompt: Option<String>,
+    name: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let workspace = workspace
+        .canonicalize()
+        .with_context(|| format!("resolve workspace {}", workspace.display()))?;
+    let args: Vec<String> = prompt.into_iter().collect();
+    let response = orchestration::client::request(
+        "pty.spawn",
+        json!({
+            "command": agent,
+            "args": args,
+            "cwd": workspace,
+            "workspaceId": format!("workspace:{}", workspace.display()),
+            "name": name,
+            "agent": agent,
+            "title": format!("Safe {agent}"),
+            "safeMode": true,
+        }),
+    )
+    .await?;
+    print_value(response, json_output)
 }
 
 async fn session(command: SessionCommand, port: u16, json_output: bool) -> Result<()> {
@@ -975,6 +1019,54 @@ fn token(command: TokenCommand, port: u16, json_output: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn pairing_uri_from_payload(payload: &serde_json::Value) -> Result<String> {
+    let token = payload
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .context("spectator payload missing token")?;
+    let machine_id = payload
+        .get("machine_id")
+        .or_else(|| payload.get("machineId"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let vapid_public_key = payload
+        .get("vapid_public_key")
+        .or_else(|| payload.get("vapidPublicKey"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let base_url = payload
+        .get("transports")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("url"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            let host = payload.get("host").and_then(serde_json::Value::as_str)?;
+            let port = payload.get("port").and_then(serde_json::Value::as_u64)?;
+            Some(format!("http://{host}:{port}/"))
+        })
+        .context("spectator payload missing transport URL")?;
+    Ok(format!(
+        "onibi://pair?token={}&baseUrl={}&machineId={}&vapidPublicKey={}",
+        percent_encode(token),
+        percent_encode(&base_url),
+        percent_encode(machine_id),
+        percent_encode(vapid_public_key)
+    ))
+}
+
+fn percent_encode(raw: &str) -> String {
+    raw.bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![byte as char]
+            }
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn adapter(command: AdapterCommand, json_output: bool) -> Result<()> {

@@ -64,6 +64,8 @@ pub struct SessionRestartMetadata {
     pub env: Vec<(String, String)>,
     #[serde(default)]
     pub shell_mode: ShellMode,
+    #[serde(default)]
+    pub safe_mode: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteSessionMetadata>,
 }
@@ -112,6 +114,8 @@ pub struct SessionInfo {
     pub agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub safe_mode: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -737,6 +741,7 @@ impl OrchestrationState {
             name: metadata.name,
             agent: metadata.agent,
             workspace_id: metadata.workspace_id,
+            safe_mode: req.safe_mode,
             cwd: metadata.cwd,
             title: metadata.title,
             status: AgentStatus::Working,
@@ -948,6 +953,7 @@ impl OrchestrationState {
             cwd: restart.cwd.map(PathBuf::from),
             env: restart.env,
             shell_mode: restart.shell_mode,
+            safe_mode: restart.safe_mode,
             rows: session.rows.max(1),
             cols: session.cols.max(1),
             name: session.name.clone(),
@@ -975,6 +981,14 @@ impl OrchestrationState {
             "paneId": relaunched.pane_id,
             "session": relaunched,
         }))
+    }
+
+    pub async fn session_safe_mode(&self, session_id: &str) -> bool {
+        self.sessions
+            .read()
+            .await
+            .get(session_id)
+            .is_some_and(|session| session.safe_mode)
     }
 
     async fn session_is_live(&self, session_id: &str) -> bool {
@@ -1634,6 +1648,7 @@ fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadat
         cwd: req.cwd.as_ref().map(|path| path.display().to_string()),
         env: req.env.clone(),
         shell_mode: req.shell_mode,
+        safe_mode: req.safe_mode,
         remote: req.remote.clone(),
     }
 }
@@ -1657,6 +1672,7 @@ fn provider_restart_metadata(session: &SessionInfo) -> Option<SessionRestartMeta
             .as_ref()
             .map(|restart| restart.shell_mode)
             .unwrap_or_default(),
+        safe_mode: session.safe_mode,
         remote: session
             .remote
             .clone()
@@ -2633,6 +2649,7 @@ mod tests {
             name: Some("dev".to_string()),
             agent: Some("claude-code".to_string()),
             workspace_id: Some("workspace:/repo".to_string()),
+            safe_mode: false,
             cwd: Some("/repo".to_string()),
             title: Some("Claude Code".to_string()),
             status: AgentStatus::Working,
@@ -2697,6 +2714,7 @@ mod tests {
             name: None,
             agent: agent.map(ToOwned::to_owned),
             workspace_id: None,
+            safe_mode: false,
             title: title.map(ToOwned::to_owned),
             remote: None,
         }
@@ -2709,6 +2727,7 @@ mod tests {
             name: None,
             agent: agent.map(ToOwned::to_owned),
             workspace_id: None,
+            safe_mode: false,
             cwd: None,
             title: None,
             status,
