@@ -330,4 +330,23 @@ mod tests {
         assert_eq!(result.decision, PolicyDecision::AlwaysAsk);
         assert_eq!(result.response_decision(), None);
     }
+
+    #[test]
+    fn safe_mode_auto_allows_read_only_basics() {
+        let result = evaluate_safe_mode(&approval("git status --short"));
+        assert_eq!(result.decision, PolicyDecision::AutoAllow);
+        assert_eq!(result.response_decision(), Some(Decision::Allow));
+    }
+
+    #[test]
+    fn safe_mode_asks_for_shell_control_or_unknown_commands() {
+        assert_eq!(
+            evaluate_safe_mode(&approval("git status && rm -rf tmp")).decision,
+            PolicyDecision::AlwaysAsk
+        );
+        assert_eq!(
+            evaluate_safe_mode(&approval("python script.py")).decision,
+            PolicyDecision::AlwaysAsk
+        );
+    }
 }

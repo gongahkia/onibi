@@ -2607,6 +2607,7 @@ mod tests {
             cwd: Some("/repo".to_string()),
             env: vec![("A".to_string(), "B".to_string())],
             shell_mode: ShellMode::Auto,
+            safe_mode: false,
             remote: None,
         });
         session.provider = Some(ProviderSessionMetadata {
@@ -2673,6 +2674,7 @@ mod tests {
                 cwd: Some("/repo".to_string()),
                 env: vec![],
                 shell_mode: ShellMode::Auto,
+                safe_mode: false,
                 remote: None,
             }),
             provider: None,
