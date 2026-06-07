@@ -728,6 +728,7 @@ impl OrchestrationState {
         self.ensure_name_available(metadata.name.as_deref(), None)
             .await?;
         let restart = restart_metadata_from_request(&req);
+        let safe_mode = req.safe_mode;
         let rows = req.rows.max(1);
         let cols = req.cols.max(1);
         let id = self.manager.spawn(req).await?;
@@ -741,7 +742,7 @@ impl OrchestrationState {
             name: metadata.name,
             agent: metadata.agent,
             workspace_id: metadata.workspace_id,
-            safe_mode: req.safe_mode,
+            safe_mode,
             cwd: metadata.cwd,
             title: metadata.title,
             status: AgentStatus::Working,

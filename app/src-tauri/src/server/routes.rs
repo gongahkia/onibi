@@ -546,7 +546,7 @@ pub async fn spectator_pairing_payload(State(state): State<AppState>) -> ApiResu
     payload.scope = ClientScope::ReadOnly;
     serde_json::to_value(payload)
         .map(Json)
-        .map_err(internal_error)
+        .map_err(|err| internal_error(err.into()))
 }
 
 pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, Json<ApiError>)> {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, FormEvent, SetStateAction } from "react";
+import type { Dispatch, FormEvent, PointerEvent, SetStateAction } from "react";
 
 const STORAGE_KEY = "onibi.mobile.connection";
 const DEVICE_LABEL = "Onibi Mobile PWA";
@@ -550,7 +550,7 @@ function ApprovalCard({
     }
   };
 
-  const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     if (swipeDisabled) {
       return;
     }
@@ -558,14 +558,14 @@ function ApprovalCard({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+  const onPointerMove = (event: PointerEvent<HTMLElement>) => {
     if (swipeStart.current === null || swipeDisabled) {
       return;
     }
     setSwipeX(Math.max(-140, Math.min(140, event.clientX - swipeStart.current)));
   };
 
-  const onPointerEnd = (event: React.PointerEvent<HTMLElement>) => {
+  const onPointerEnd = (event: PointerEvent<HTMLElement>) => {
     if (swipeStart.current === null) {
       return;
     }

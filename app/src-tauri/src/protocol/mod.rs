@@ -78,13 +78,6 @@ impl ClientScope {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "full" => Some(Self::Full),
-            "read-only" => Some(Self::ReadOnly),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

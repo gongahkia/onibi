@@ -30,13 +30,6 @@ pub async fn require_bearer(
     }
 }
 
-pub fn scope_from_request<B>(req: &Request<B>) -> ClientScope {
-    req.extensions()
-        .get::<AuthScope>()
-        .map(|auth| auth.scope)
-        .unwrap_or(ClientScope::Full)
-}
-
 fn authorized_scope(state: &AppState, req: &Request<Body>) -> Option<AuthScope> {
     if let Some(value) = req.headers().get(header::AUTHORIZATION) {
         if let Ok(value) = value.to_str() {
