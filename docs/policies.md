@@ -44,3 +44,9 @@ onibi config validate --json
 ```
 
 The desktop Settings `config.toml` page also shows the policy path, rule count, and validation errors when the approval daemon is reachable.
+
+## Safe Mode Wrapper
+
+`onibi safe <agent> --workspace <path> [--prompt "..."] [--name <name>]` launches an agent session with `safeMode = true`. Safe mode is session-scoped and does not mutate `policies.toml`.
+
+Safe sessions auto-allow only conservative read-only Bash basics: `pwd`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `sed -n`, non-mutating `find`, and `git status`, `git diff`, `git log`, `git show`. Commands with shell chaining, pipes, redirects, command substitution, backticks, or destructive `find` actions fall back to manual approval. Non-Bash tools also fall back to manual approval.

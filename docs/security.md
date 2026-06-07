@@ -21,7 +21,11 @@ The v1.5 launch deliberately avoids accounts, hosted relay infrastructure, and t
 
 A device on the same Wi-Fi can discover or guess the LAN host and attempt to call the HTTPS listener. LAN mode uses a self-signed certificate and publishes the SHA256 fingerprint in the pairing payload; the mobile device still has to trust the certificate at the OS level before browser HTTPS succeeds. Every state-changing endpoint also requires `Authorization: Bearer <token>`.
 
-Risk that remains: if the token is copied from the QR, shell history, screenshots, or `~/.config/onibi/token.txt`, the attacker can call the API until the token is rotated.
+Risk that remains: if the full token is copied from the QR, shell history, screenshots, or `~/.config/onibi/token.txt`, the attacker can call the API until the token is rotated.
+
+### Read-Only Spectator Tokens
+
+`onibi token spectator` creates a one-time pairing payload with `scope = "read-only"`. The token can pair one device once, then remains valid only for read endpoints and realtime observation. Read-only tokens can fetch pending/history/status data and subscribe to `/v1/realtime`, but the server rejects decisions, emergency stop, PTY/control, hook, and config mutation routes with `403 Forbidden`.
 
 ### Adversary On The Public Internet
 
@@ -57,6 +61,7 @@ Risk that remains: a legitimate user can approve a dangerous tool call. Onibi is
 | WebSocket message limit | Done | 256 KB frame/message limit on `/v1/realtime` |
 | HSTS | Done | Tunnel-bound responses only; LAN self-signed flow is excluded |
 | PWA CSP | Done | Header for `/m/*` and meta CSP in `mobile/index.html` |
+| Read-only spectator scope | Done | One-time spectator pairing plus route-level mutation block |
 | Release HTTP errors | Done | Internal error bodies are generic in non-debug builds |
 | Token fallback permissions | Done | File fallback written `0600` on Unix |
 
