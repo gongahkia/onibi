@@ -622,9 +622,9 @@ Numbered as 84+ to continue the existing numbering.
 
 88. **[DONE] PWA kill-switch** — one-tap "Stop all agents on this machine" on the phone. Issues termination to every daemon-owned PTY plus broadcasts deny to every pending approval.
 
-89. **Read-only spectator pairing** — secondary pairing-token scope that can subscribe to `/v1/realtime` and GET `/v1/approval/*` but cannot POST decisions. For screen-sharing the cockpit with a coworker.
+89. **[DONE] Read-only spectator pairing** — one-time spectator pairing tokens now return `scope = "read-only"`, can pair once, can read pending/history/status/realtime endpoints, and are server-blocked from decisions, emergency stop, control, hook, and config mutation routes.
 
-90. **`onibi safe <agent>` wrapper** — launches an agent under a default-deny-all policy with explicit allow-listed primitives. Useful when trialing a new agent.
+90. **[DONE] `onibi safe <agent>` wrapper** — launches a session with `safeMode = true`; safe sessions auto-allow only conservative read-only Bash basics (`pwd`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `sed -n`, non-mutating `find`, and `git status/diff/log/show`) and require manual approval for everything else.
 
 91. **WSL2 install path** — document the existing Linux build for WSL2. Probably zero code work; drops the "Windows: not planned" line in README.
 
@@ -777,7 +777,7 @@ Five items surfaced from the desktop frontend audit on 2026-06-06. Each is meani
 
 Numbered 112+ to continue from §6.
 
-112. **[PARTIAL] Mobile PWA audit + polish pass.** The PWA now has active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, and optional deny reasons. Remaining audit dimensions:
+112. **[DONE] Mobile PWA audit + polish pass (gesture/read-only slice).** The PWA now has active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, optional deny reasons, server-provided read-only scope storage, read-only spectator UI state, disabled mutation controls for read-only tokens, and swipe allow/deny gestures for full-access approval cards. Remaining broader audit dimensions:
      - Identity at rest (does the PWA show what app it is, what machine it's paired to?)
      - Approval modal UX on mobile (edit-before-approve on a touch keyboard is hard — needs different affordance than desktop)
      - Pairing affordance (QR re-scan when token rotates, multi-machine pairing)
@@ -838,4 +838,4 @@ If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 4. **102 + 105 + 104 + 106** are done for the chrome-restraint pass.
 5. **109** is done for persisted light/dark theme pairs and OS auto-switching.
 
-Total remaining from §6 + §7 is now centered on **112 (PWA audit/polish)** plus unrelated secondary/product items; the requested desktop ApprovalModal/chrome cleanup slice is complete.
+Total remaining from §6 + §7 now excludes the completed requested slices: **89 read-only spectator pairing**, **90 `onibi safe <agent>`**, and **112 PWA gesture/read-only polish** are complete. Remaining work is broader/mobile follow-up audit dimensions and unrelated secondary/product items; the requested desktop ApprovalModal/chrome cleanup slice is complete.
