@@ -748,15 +748,33 @@ pub async fn wait_for_approval_decision(
         decided_at: None,
     };
 
-    if let Some(evaluation) = policy::evaluate(&approval)? {
-        approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, "manual");
+    let policy_evaluation = if state
+        .orchestration
+        .session_safe_mode(&approval.session_id)
+        .await
+    {
+        Some(policy::evaluate_safe_mode(&approval))
+    } else {
+        policy::evaluate(&approval)?
+    };
+    if let Some(evaluation) = policy_evaluation {
+        let source = if state
+            .orchestration
+            .session_safe_mode(&approval.session_id)
+            .await
+        {
+            "safe-mode"
+        } else {
+            "manual"
+        };
+        approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, source);
         if let Some(decision) = evaluation.response_decision() {
             let reason = evaluation.reason();
             approval.decision = Some(decision);
             approval.reason = Some(reason.clone());
             approval.decided_by = Some("policy".to_string());
             approval.decided_at = Some(now_millis());
-            approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, "auto");
+            approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, source);
             state.store.insert_approval(&approval)?;
             state
                 .orchestration
