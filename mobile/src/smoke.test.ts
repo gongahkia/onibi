@@ -7,6 +7,7 @@ import {
   emergencyStopRequest,
   parsePairingInput,
   reconnectDelay,
+  swipeDecision,
   type Approval,
 } from "./App";
 
@@ -80,5 +81,23 @@ describe("mobile pairing and approval helpers", () => {
   test("caps websocket reconnect delay", () => {
     expect(reconnectDelay(0)).toBe(1000);
     expect(reconnectDelay(8)).toBe(30000);
+  });
+
+  test("parses read-only pairing scope", () => {
+    const payload = parsePairingInput(
+      JSON.stringify({
+        token: "spectator",
+        scope: "read-only",
+        host: "127.0.0.1",
+        port: 17893,
+      }),
+    );
+    expect(payload.scope).toBe("read-only");
+  });
+
+  test("maps horizontal swipes to decisions", () => {
+    expect(swipeDecision(120, 320)).toBe("allow");
+    expect(swipeDecision(-120, 320)).toBe("deny");
+    expect(swipeDecision(40, 320)).toBeNull();
   });
 });

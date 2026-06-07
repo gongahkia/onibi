@@ -5,6 +5,7 @@ const STORAGE_KEY = "onibi.mobile.connection";
 const DEVICE_LABEL = "Onibi Mobile PWA";
 
 type Decision = "allow" | "deny";
+type ClientScope = "full" | "read-only";
 type WsState = "idle" | "connecting" | "open" | "closed";
 type Tab = "pending" | "recent" | "terminal";
 
@@ -21,6 +22,7 @@ export interface PairingPayload {
   host?: string;
   port?: number;
   token: string;
+  scope?: ClientScope;
   vapid_public_key?: string;
   vapidPublicKey?: string;
   transports?: TransportEndpoint[];
@@ -29,6 +31,7 @@ export interface PairingPayload {
 interface PairResponse {
   deviceId: string;
   machineId: string;
+  scope?: ClientScope;
 }
 
 export interface Connection {
@@ -36,6 +39,7 @@ export interface Connection {
   token: string;
   deviceId: string;
   machineId: string;
+  scope: ClientScope;
   vapidPublicKey?: string;
   transports: TransportEndpoint[];
 }
@@ -97,7 +101,7 @@ function useStoredConnection(): [Connection | null, (next: Connection | null) =>
       return null;
     }
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Connection) : null;
+      return raw ? normalizeConnection(JSON.parse(raw) as Connection) : null;
   });
 
   const setConnection = (next: Connection | null) => {
@@ -113,6 +117,14 @@ function useStoredConnection(): [Connection | null, (next: Connection | null) =>
   };
 
   return [connection, setConnection];
+}
+
+function normalizeConnection(connection: Connection): Connection {
+  return {
+    ...connection,
+    scope: connection.scope ?? "full",
+    transports: connection.transports ?? [],
+  };
 }
 
 function PairingView({ onPaired }: { onPaired: (connection: Connection) => void }) {
@@ -142,6 +154,7 @@ function PairingView({ onPaired }: { onPaired: (connection: Connection) => void 
         token: payload.token,
         deviceId: paired.deviceId,
         machineId: paired.machineId,
+        scope: paired.scope ?? payload.scope ?? "full",
         vapidPublicKey,
         transports: payload.transports ?? [],
       });
@@ -380,20 +393,24 @@ function InboxView({
         </div>
         <div className="top-actions">
           <span className={`ws-pill ${wsState}`}>{wsState}</span>
-          <button
-            type="button"
-            className="danger-button"
-            disabled={wsState !== "open" || killBusy}
-            onClick={() => setKillConfirming(true)}
-          >
-            Stop all
-          </button>
+          {connection.scope === "full" ? (
+            <button
+              type="button"
+              className="danger-button"
+              disabled={wsState !== "open" || killBusy}
+              onClick={() => setKillConfirming(true)}
+            >
+              Stop all
+            </button>
+          ) : (
+            <span className="scope-pill">Read only</span>
+          )}
           <button type="button" className="ghost-button" onClick={onForget}>
             Unpair
           </button>
         </div>
       </header>
-      {killConfirming ? (
+      {connection.scope === "full" && killConfirming ? (
         <section className="kill-switch-panel" aria-label="Confirm stop all agents">
           <div>
             <strong>Stop all agents on this machine?</strong>
@@ -452,6 +469,7 @@ function InboxView({
                 key={approval.approval_id}
                 approval={approval}
                 targeted={approval.approval_id === targetApprovalId}
+                readOnly={connection.scope === "read-only"}
                 onDecide={decide}
               />
             ))
@@ -498,10 +516,12 @@ function InboxView({
 function ApprovalCard({
   approval,
   targeted,
+  readOnly,
   onDecide,
 }: {
   approval: Approval;
   targeted?: boolean;
+  readOnly?: boolean;
   onDecide: (
     approval: Approval,
     decision: Decision,
@@ -513,9 +533,15 @@ function ApprovalCard({
   const [command, setCommand] = useState(commandText(approval.input));
   const [denyReason, setDenyReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeStart = useRef<number | null>(null);
   const risks = approvalRiskBadges(approval, command);
+  const swipeDisabled = editing || busy || readOnly;
 
   const submit = async (decision: Decision, editedCommand?: string, reason?: string) => {
+    if (readOnly) {
+      return;
+    }
     setBusy(true);
     try {
       await onDecide(approval, decision, editedCommand, reason);
@@ -524,8 +550,48 @@ function ApprovalCard({
     }
   };
 
+  const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (swipeDisabled) {
+      return;
+    }
+    swipeStart.current = event.clientX;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    if (swipeStart.current === null || swipeDisabled) {
+      return;
+    }
+    setSwipeX(Math.max(-140, Math.min(140, event.clientX - swipeStart.current)));
+  };
+
+  const onPointerEnd = (event: React.PointerEvent<HTMLElement>) => {
+    if (swipeStart.current === null) {
+      return;
+    }
+    const delta = event.clientX - swipeStart.current;
+    swipeStart.current = null;
+    setSwipeX(0);
+    const decision = swipeDecision(delta, event.currentTarget.clientWidth);
+    if (decision === "allow") {
+      void submit("allow");
+    } else if (decision === "deny") {
+      void submit("deny", undefined, denyReason.trim());
+    }
+  };
+
   return (
-    <article className={`approval-card${targeted ? " targeted" : ""}`}>
+    <article
+      className={`approval-card${targeted ? " targeted" : ""}${readOnly ? " read-only" : ""}`}
+      style={{ transform: swipeX ? `translateX(${swipeX}px)` : undefined }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={() => {
+        swipeStart.current = null;
+        setSwipeX(0);
+      }}
+    >
       <div className="approval-header">
         <div>
           <p className="eyebrow">{approval.agent}</p>
@@ -539,7 +605,7 @@ function ApprovalCard({
           {risks.map((risk) => <span key={risk}>{risk}</span>)}
         </div>
       ) : null}
-      {editing ? (
+      {editing && !readOnly ? (
         <textarea
           value={command}
           onChange={(event) => setCommand(event.target.value)}
@@ -549,7 +615,7 @@ function ApprovalCard({
       ) : (
         <pre>{command}</pre>
       )}
-      {!editing ? (
+      {!editing && !readOnly ? (
         <textarea
           value={denyReason}
           onChange={(event) => setDenyReason(event.target.value)}
@@ -558,7 +624,8 @@ function ApprovalCard({
           placeholder="Deny reason (optional)"
         />
       ) : null}
-      <div className="approval-actions">
+      {readOnly ? <p className="readonly-note">Read-only spectator session. Decisions are disabled.</p> : null}
+      {!readOnly ? <div className="approval-actions">
         <button type="button" disabled={busy} onClick={() => void submit("allow")}>
           Allow
         </button>
@@ -579,7 +646,7 @@ function ApprovalCard({
         >
           Deny
         </button>
-      </div>
+      </div> : null}
     </article>
   );
 }
@@ -760,6 +827,7 @@ export function parsePairingInput(raw: string): PairingPayload {
     if (token && baseUrl) {
       return {
         token,
+        scope: (url.searchParams.get("scope") as ClientScope | null) ?? undefined,
         machineId: url.searchParams.get("machineId") ?? undefined,
         vapidPublicKey: url.searchParams.get("vapidPublicKey") ?? undefined,
         transports: [{ name: "deep-link", url: baseUrl }],
@@ -795,6 +863,17 @@ export function chooseBaseUrl(payload: PairingPayload): string {
 
 export function reconnectDelay(attempt: number): number {
   return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
+}
+
+export function swipeDecision(deltaX: number, width: number): Decision | null {
+  const threshold = Math.max(96, width * 0.28);
+  if (deltaX >= threshold) {
+    return "allow";
+  }
+  if (deltaX <= -threshold) {
+    return "deny";
+  }
+  return null;
 }
 
 export function buildDecisionBody(

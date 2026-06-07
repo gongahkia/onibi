@@ -371,3 +371,35 @@ pre {
     padding: 12px;
   }
 }
+
+.scope-pill,
+.readonly-note {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.scope-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.readonly-note {
+  border-radius: 10px;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.approval-card {
+  touch-action: pan-y;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.approval-card.read-only {
+  border-color: rgba(148, 163, 184, 0.42);
+}
