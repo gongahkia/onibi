@@ -1,6 +1,6 @@
 use super::session::{
     PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
-    PtyStore, ShellMode,
+    PtyStore, ShellMode, TrustMode,
 };
 use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};

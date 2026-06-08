@@ -2659,6 +2659,7 @@ mod tests {
             env: vec![("A".to_string(), "B".to_string())],
             shell_mode: ShellMode::Auto,
             safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
             remote: None,
         });
         session.provider = Some(ProviderSessionMetadata {
@@ -2703,6 +2704,7 @@ mod tests {
             agent: Some("claude-code".to_string()),
             workspace_id: Some("workspace:/repo".to_string()),
             safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
             cwd: Some("/repo".to_string()),
             title: Some("Claude Code".to_string()),
             status: AgentStatus::Working,
@@ -2726,6 +2728,7 @@ mod tests {
                 env: vec![],
                 shell_mode: ShellMode::Auto,
                 safe_mode: false,
+                trust_mode: TrustMode::ApprovalRequired,
                 remote: None,
             }),
             provider: None,
@@ -2769,6 +2772,7 @@ mod tests {
             agent: agent.map(ToOwned::to_owned),
             workspace_id: None,
             safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
             title: title.map(ToOwned::to_owned),
             remote: None,
         }
@@ -2782,6 +2786,7 @@ mod tests {
             agent: agent.map(ToOwned::to_owned),
             workspace_id: None,
             safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
             cwd: None,
             title: None,
             status,
