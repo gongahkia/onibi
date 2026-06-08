@@ -2,10 +2,11 @@ pub mod version;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 pub use version::PROTOCOL_VERSION;
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Decision {
     Allow,
@@ -21,7 +22,7 @@ impl Decision {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct ApprovalRequestBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -43,7 +44,7 @@ fn default_input() -> Value {
     Value::Object(Default::default())
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct Approval {
     pub protocol_version: String,
     pub approval_id: String,
@@ -63,7 +64,7 @@ pub struct Approval {
     pub decided_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum ClientScope {
     Full,
@@ -80,7 +81,7 @@ impl ClientScope {
 
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct ApprovalDecisionBody {
     pub decision: Decision,
     #[serde(default, rename = "updatedInput")]
@@ -91,7 +92,7 @@ pub struct ApprovalDecisionBody {
     pub by: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, TS)]
 pub struct ApprovalDecisionResponse {
     pub protocol_version: String,
     pub approval_id: String,
@@ -113,7 +114,7 @@ impl ApprovalDecisionResponse {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct RunEventBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -127,7 +128,7 @@ pub struct RunEventBody {
     pub payload: Value,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct ProviderEventBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -153,7 +154,7 @@ pub struct ProviderEventBody {
     pub raw: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct RunEvent {
     pub id: i64,
     pub protocol_version: String,
@@ -164,7 +165,7 @@ pub struct RunEvent {
     pub ts: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopCommandBlock {
     pub id: String,
     #[serde(default)]
@@ -195,7 +196,7 @@ pub struct DesktopCommandBlock {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct PtyOutputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -205,13 +206,13 @@ pub struct PtyOutputBody {
     pub data: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, TS)]
 pub struct DesktopNamedRef {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, TS)]
 pub struct DesktopSessionSnapshot {
     pub id: String,
     pub title: String,
@@ -232,7 +233,7 @@ pub struct DesktopSessionSnapshot {
     pub remote: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, TS)]
 pub struct DesktopSnapshotBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -244,7 +245,7 @@ pub struct DesktopSnapshotBody {
     pub updated_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopSessionLaunchBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -257,7 +258,7 @@ pub struct DesktopSessionLaunchBody {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopRemoteSshBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -271,7 +272,7 @@ pub struct DesktopRemoteSshBody {
     pub keybindings: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopWorktreeOpenBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -282,14 +283,14 @@ pub struct DesktopWorktreeOpenBody {
     pub prompt: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopSessionInputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
     pub text: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopPaneSplitBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
@@ -301,7 +302,7 @@ fn default_split_direction() -> String {
     "vertical".to_string()
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct DesktopCommandResponse {
     pub ok: bool,
     #[serde(rename = "protocolVersion")]
@@ -310,7 +311,7 @@ pub struct DesktopCommandResponse {
     pub command_id: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct PairRequest {
     #[serde(rename = "deviceLabel")]
     pub device_label: String,
@@ -318,7 +319,7 @@ pub struct PairRequest {
     pub push_subscription: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct PairResponse {
     pub protocol_version: String,
     #[serde(rename = "deviceId")]
@@ -328,7 +329,7 @@ pub struct PairResponse {
     pub scope: ClientScope,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ServerMessage {
     ApprovalPending {
