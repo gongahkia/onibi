@@ -574,6 +574,8 @@ export interface CustomColorScheme {
   colors: ColorSchemeColors;
 }
 
+export type ThemeOverrides = Record<string, Partial<ColorSchemeColors>>;
+
 export interface ResolvedColorScheme {
   id: Exclude<ThemeMode, "system">;
   label: string;
@@ -703,7 +705,9 @@ export interface AppSettings {
   terminalOsc52Clipboard: boolean;
   terminalTransparentBackground: boolean;
   terminalInlineImages: TerminalInlineImageMode;
+  terminalMouseCapture: boolean;
   terminalConfirmClose: boolean;
+  mobileLayoutThresholdPx: number;
   paneHistoryEnabled: boolean;
   remoteKeybindingPolicy: RemoteKeybindingPolicy;
   remoteSshCommand: string;
@@ -741,6 +745,7 @@ export interface AppSettings {
   agentCommands: Record<AgentKind, string>;
   agentInstallCommands: Partial<Record<AgentKind, string>>;
   customColorScheme: CustomColorScheme;
+  themeOverrides: ThemeOverrides;
   ghosttyTheme: GhosttyTheme | null;
 }
 
@@ -1688,7 +1693,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalOsc52Clipboard: false,
   terminalTransparentBackground: false,
   terminalInlineImages: "off",
+  terminalMouseCapture: true,
   terminalConfirmClose: true,
+  mobileLayoutThresholdPx: 800,
   paneHistoryEnabled: false,
   remoteKeybindingPolicy: "local",
   remoteSshCommand: "ssh",
@@ -1723,6 +1730,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentCommands: DEFAULT_AGENT_COMMANDS,
   agentInstallCommands: DEFAULT_AGENT_INSTALL_COMMANDS,
   customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
+  themeOverrides: {},
   ghosttyTheme: null,
 };
 
@@ -1876,6 +1884,32 @@ function normalizeCustomColorScheme(value: unknown): CustomColorScheme {
   };
 }
 
+function normalizeThemeOverrides(value: unknown): ThemeOverrides {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const overrides: ThemeOverrides = {};
+  for (const [theme, rawColors] of Object.entries(value)) {
+    if (theme !== "custom" && !isBuiltInThemeMode(theme)) {
+      continue;
+    }
+    if (!isRecord(rawColors)) {
+      continue;
+    }
+    const colors: Partial<ColorSchemeColors> = {};
+    for (const key of COLOR_SCHEME_COLOR_KEYS) {
+      const color = normalizeHexColor(rawColors[key], "");
+      if (color) {
+        colors[key] = color;
+      }
+    }
+    if (Object.keys(colors).length > 0) {
+      overrides[theme] = colors;
+    }
+  }
+  return overrides;
+}
+
 function normalizeAgentLabelOverrides(
   value: unknown,
 ): Partial<Record<AgentKind, string>> {
@@ -1930,6 +1964,14 @@ function normalizeScrollbackLines(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.min(Math.round(parsed), TERMINAL_EFFECTIVE_UNLIMITED_SCROLLBACK_LINES);
+}
+
+function normalizeMobileLayoutThreshold(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(Math.round(parsed), 480), 1400);
 }
 
 function normalizeBufferLimit(
@@ -2573,10 +2615,18 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     terminalInlineImages: normalizeTerminalInlineImageMode(
       merged.terminalInlineImages,
     ),
+    terminalMouseCapture:
+      typeof merged.terminalMouseCapture === "boolean"
+        ? merged.terminalMouseCapture
+        : DEFAULT_SETTINGS.terminalMouseCapture,
     terminalConfirmClose:
       typeof merged.terminalConfirmClose === "boolean"
         ? merged.terminalConfirmClose
         : DEFAULT_SETTINGS.terminalConfirmClose,
+    mobileLayoutThresholdPx: normalizeMobileLayoutThreshold(
+      merged.mobileLayoutThresholdPx,
+      DEFAULT_SETTINGS.mobileLayoutThresholdPx,
+    ),
     paneHistoryEnabled:
       typeof merged.paneHistoryEnabled === "boolean"
         ? merged.paneHistoryEnabled
@@ -2661,6 +2711,7 @@ function mergeSettings(settings: Partial<AppSettings> | undefined): AppSettings 
     agentCommands,
     agentInstallCommands,
     customColorScheme: normalizeCustomColorScheme(merged.customColorScheme),
+    themeOverrides: normalizeThemeOverrides(merged.themeOverrides),
     ghosttyTheme: settings?.ghosttyTheme ?? null,
   };
 }
