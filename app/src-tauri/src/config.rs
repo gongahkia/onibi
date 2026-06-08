@@ -16,6 +16,7 @@ pub struct OnibiConfig {
     pub version: u8,
     pub server: ServerConfig,
     pub checkpointing: CheckpointingConfig,
+    pub adapters: AdaptersConfig,
     pub ui: UiConfig,
     pub terminal: TerminalConfig,
     pub keybindings: KeybindingsConfig,
@@ -34,6 +35,21 @@ pub struct ServerConfig {
 #[serde(default)]
 pub struct CheckpointingConfig {
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdaptersConfig {
+    pub claude: AgentAdapterConfig,
+    pub hermes: AgentAdapterConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentAdapterConfig {
+    pub transport: String,
+    pub acp_command: String,
+    pub acp_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +137,7 @@ impl Default for OnibiConfig {
             version: 1,
             server: ServerConfig::default(),
             checkpointing: CheckpointingConfig::default(),
+            adapters: AdaptersConfig::default(),
             ui: UiConfig::default(),
             terminal: TerminalConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -142,6 +159,33 @@ impl Default for ServerConfig {
 impl Default for CheckpointingConfig {
     fn default() -> Self {
         Self { enabled: false }
+    }
+}
+
+impl Default for AdaptersConfig {
+    fn default() -> Self {
+        Self {
+            claude: AgentAdapterConfig {
+                transport: "hook".to_string(),
+                acp_command: "claude-agent-acp".to_string(),
+                acp_args: Vec::new(),
+            },
+            hermes: AgentAdapterConfig {
+                transport: "acp".to_string(),
+                acp_command: "hermes".to_string(),
+                acp_args: vec!["acp".to_string()],
+            },
+        }
+    }
+}
+
+impl Default for AgentAdapterConfig {
+    fn default() -> Self {
+        Self {
+            transport: "hook".to_string(),
+            acp_command: String::new(),
+            acp_args: Vec::new(),
+        }
     }
 }
 

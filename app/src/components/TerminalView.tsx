@@ -178,6 +178,18 @@ function textFromBytes(bytes: Uint8Array): string | null {
   }
 }
 
+function bytesFromBinaryString(data: string): Uint8Array {
+  return Uint8Array.from(data, (char) => char.charCodeAt(0) & 0xff);
+}
+
+function isTerminalMouseReport(data: string): boolean {
+  return (
+    /^\x1b\[M[\s\S]{3}$/.test(data) ||
+    /^\x1b\[(?:<)?\d+(?:;\d+){2}[mM]$/.test(data) ||
+    /^\x1b\[\d+;\d+;\d+[mM]$/.test(data)
+  );
+}
+
 function decodeBase64Safe(data: string): Uint8Array | null {
   try {
     return decodeBase64(data);
@@ -1082,7 +1094,16 @@ export function TerminalView({
       return false;
     });
     const inputDisposable = term.onData((data) => {
+      if (!settings.terminalMouseCapture && isTerminalMouseReport(data)) {
+        return;
+      }
       void ptyWrite(ptyId, encoder.encode(data));
+    });
+    const binaryDisposable = term.onBinary((data) => {
+      if (!settings.terminalMouseCapture && isTerminalMouseReport(data)) {
+        return;
+      }
+      void ptyWrite(ptyId, bytesFromBinaryString(data));
     });
 
     const applyTriggers = (text: string) => {
@@ -1431,6 +1452,7 @@ export function TerminalView({
         handleTerminalNotice,
       );
       inputDisposable.dispose();
+      binaryDisposable.dispose();
       webLinksAddon.dispose();
       webglContextLossDisposable?.dispose();
       webglAddon?.dispose();
@@ -1453,6 +1475,7 @@ export function TerminalView({
     ptyId,
     settings.terminalCopyFormat,
     settings.terminalInlineImages,
+    settings.terminalMouseCapture,
     settings.terminalOsc52Clipboard,
     settings.terminalScreenReaderMode,
     triggerMatchers,

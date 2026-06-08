@@ -5124,59 +5124,57 @@ button.welcome-pill:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
-@media (max-width: 800px) {
-  .app-shell {
-    min-width: 0;
-  }
+.app-frame[data-mobile-layout="true"] .app-shell {
+  min-width: 0;
+}
 
-  .approval-side-by-side {
-    grid-template-columns: 1fr;
-  }
+.app-frame[data-mobile-layout="true"] .approval-side-by-side {
+  grid-template-columns: 1fr;
+}
 
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
+.app-frame[data-mobile-layout="true"] .settings-grid {
+  grid-template-columns: 1fr;
+}
 
-  .settings-nav {
-    flex-direction: row;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
+.app-frame[data-mobile-layout="true"] .settings-nav {
+  flex-direction: row;
+  overflow-x: auto;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
 
-  .settings-row,
-  .color-setting-row,
-  .agent-command-row,
-  .activity-toolbar,
-  .approval-audit-filter-grid,
-  .workspace-picker-row,
-  .workspace-settings-row,
-  .custom-command-row {
-    grid-template-columns: 1fr;
-  }
+.app-frame[data-mobile-layout="true"] .settings-row,
+.app-frame[data-mobile-layout="true"] .color-setting-row,
+.app-frame[data-mobile-layout="true"] .agent-command-row,
+.app-frame[data-mobile-layout="true"] .activity-toolbar,
+.app-frame[data-mobile-layout="true"] .approval-audit-filter-grid,
+.app-frame[data-mobile-layout="true"] .workspace-picker-row,
+.app-frame[data-mobile-layout="true"] .workspace-settings-row,
+.app-frame[data-mobile-layout="true"] .custom-command-row {
+  grid-template-columns: 1fr;
+}
 
-  .custom-color-grid {
-    grid-template-columns: 1fr;
-  }
+.app-frame[data-mobile-layout="true"] .custom-color-grid {
+  grid-template-columns: 1fr;
+}
 
-  .command-palette-backdrop {
-    padding: 10px;
-  }
+.app-frame[data-mobile-layout="true"] .command-palette-backdrop {
+  padding: 10px;
+}
 
-  .command-palette {
-    width: 100%;
-  }
+.app-frame[data-mobile-layout="true"] .command-palette {
+  width: 100%;
+}
 
-  .command-palette-input {
-    font-size: 18px;
-  }
+.app-frame[data-mobile-layout="true"] .command-palette-input {
+  font-size: 18px;
+}
 
-  .command-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
+.app-frame[data-mobile-layout="true"] .command-row {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
 
-  .command-meta {
-    justify-content: space-between;
-  }
+.app-frame[data-mobile-layout="true"] .command-meta {
+  justify-content: space-between;
 }

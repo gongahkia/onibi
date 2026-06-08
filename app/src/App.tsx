@@ -36,6 +36,9 @@ function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem("onibi.onboarding.dismissed") !== "1",
   );
+  const [mobileLayout, setMobileLayout] = useState(
+    () => window.innerWidth <= settings.mobileLayoutThresholdPx,
+  );
 
   useEffect(() => {
     void hydrateSessionStore();
@@ -60,6 +63,15 @@ function App() {
   useEffect(() => {
     applyDocumentSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    const updateMobileLayout = () => {
+      setMobileLayout(window.innerWidth <= settings.mobileLayoutThresholdPx);
+    };
+    updateMobileLayout();
+    window.addEventListener("resize", updateMobileLayout);
+    return () => window.removeEventListener("resize", updateMobileLayout);
+  }, [settings.mobileLayoutThresholdPx]);
 
   useEffect(() => {
     if (!themeFollowsSystem(settings.theme) || typeof window.matchMedia !== "function") {
@@ -126,7 +138,7 @@ function App() {
 
   return (
     <AppQueryProvider>
-      <div className="app-frame">
+      <div className="app-frame" data-mobile-layout={mobileLayout || undefined}>
         <TitleBar />
         <div className="app-body">
           {horizontalTabs ? null : (

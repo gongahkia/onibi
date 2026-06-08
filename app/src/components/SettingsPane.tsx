@@ -681,6 +681,7 @@ function policyStatusMessage(error: unknown): string {
 interface GeneralSettingsProps {
   theme: ThemeMode;
   customColorScheme: CustomColorScheme;
+  themeOverrides: ThemeOverrides;
   defaultAgent: AgentKind;
   agentLabelOverrides: Partial<Record<AgentKind, string>>;
   uiFontFamily: string;
@@ -696,6 +697,8 @@ interface GeneralSettingsProps {
   terminalOsc52Clipboard: boolean;
   terminalTransparentBackground: boolean;
   terminalInlineImages: TerminalInlineImageMode;
+  terminalMouseCapture: boolean;
+  mobileLayoutThresholdPx: number;
   notificationDelivery: NotificationDelivery;
   soundAlertsEnabled: boolean;
   soundCompletionPath: string;
@@ -718,6 +721,7 @@ interface GeneralSettingsProps {
   webOpenMode: WebOpenMode;
   onTheme: (theme: ThemeMode) => void;
   onCustomColorScheme: (scheme: CustomColorScheme) => void;
+  onThemeOverrides: (overrides: ThemeOverrides) => void;
   onDefaultAgent: (agent: AgentKind) => void;
   onUiFontFamily: (fontFamily: string) => void;
   onTerminalFontFamily: (fontFamily: string) => void;
@@ -731,6 +735,8 @@ interface GeneralSettingsProps {
   onTerminalOsc52Clipboard: (enabled: boolean) => void;
   onTerminalTransparentBackground: (enabled: boolean) => void;
   onTerminalInlineImages: (mode: TerminalInlineImageMode) => void;
+  onTerminalMouseCapture: (enabled: boolean) => void;
+  onMobileLayoutThresholdPx: (threshold: number) => void;
   onNotificationDelivery: (delivery: NotificationDelivery) => void;
   onSoundAlertsEnabled: (enabled: boolean) => void;
   onSoundCompletionPath: (path: string) => void;
@@ -756,6 +762,7 @@ interface GeneralSettingsProps {
 function GeneralSettings({
   theme,
   customColorScheme,
+  themeOverrides,
   defaultAgent,
   agentLabelOverrides,
   uiFontFamily,
@@ -771,6 +778,8 @@ function GeneralSettings({
   terminalOsc52Clipboard,
   terminalTransparentBackground,
   terminalInlineImages,
+  terminalMouseCapture,
+  mobileLayoutThresholdPx,
   notificationDelivery,
   soundAlertsEnabled,
   soundCompletionPath,
@@ -793,6 +802,7 @@ function GeneralSettings({
   webOpenMode,
   onTheme,
   onCustomColorScheme,
+  onThemeOverrides,
   onDefaultAgent,
   onUiFontFamily,
   onTerminalFontFamily,
@@ -806,6 +816,8 @@ function GeneralSettings({
   onTerminalOsc52Clipboard,
   onTerminalTransparentBackground,
   onTerminalInlineImages,
+  onTerminalMouseCapture,
+  onMobileLayoutThresholdPx,
   onNotificationDelivery,
   onSoundAlertsEnabled,
   onSoundCompletionPath,
@@ -839,6 +851,36 @@ function GeneralSettings({
         [key]: value,
       },
     });
+  }
+
+  const resolvedScheme = resolveColorScheme({
+    ...useSessionStore.getState().settings,
+    theme,
+    customColorScheme,
+    themeOverrides,
+  });
+  const resolvedThemeOverride = themeOverrides[resolvedScheme.id] ?? {};
+
+  function updateThemeOverride(key: ColorSchemeColorKey, value: string) {
+    onThemeOverrides({
+      ...themeOverrides,
+      [resolvedScheme.id]: {
+        ...resolvedThemeOverride,
+        [key]: value,
+      },
+    });
+  }
+
+  function resetThemeOverride(key: ColorSchemeColorKey) {
+    const nextColors = { ...resolvedThemeOverride };
+    delete nextColors[key];
+    const nextOverrides = { ...themeOverrides };
+    if (Object.keys(nextColors).length === 0) {
+      delete nextOverrides[resolvedScheme.id];
+    } else {
+      nextOverrides[resolvedScheme.id] = nextColors;
+    }
+    onThemeOverrides(nextOverrides);
   }
 
   function updateSoundAgent(agent: AgentKind, enabled: boolean) {
@@ -949,6 +991,38 @@ function GeneralSettings({
           </div>
         </div>
       ) : null}
+      <div className="custom-scheme-editor" aria-label="Theme override settings">
+        <div className="settings-row">
+          <span>Theme overrides</span>
+          <code>{resolvedScheme.label}</code>
+        </div>
+        <div className="custom-color-grid">
+          {COLOR_SCHEME_COLOR_KEYS.map((key) => (
+            <label className="color-setting-row" key={key}>
+              <span>{COLOR_SCHEME_COLOR_LABELS[key]}</span>
+              <span className="color-setting-control">
+                <input
+                  className="color-picker"
+                  type="color"
+                  aria-label={`Override ${COLOR_SCHEME_COLOR_LABELS[key]} color`}
+                  value={resolvedThemeOverride[key] ?? resolvedScheme.colors[key]}
+                  onChange={(event) => updateThemeOverride(key, event.target.value)}
+                />
+                <code>{resolvedThemeOverride[key] ?? resolvedScheme.colors[key]}</code>
+                {resolvedThemeOverride[key] ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => resetThemeOverride(key)}
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
       <label className="settings-row">
         <span>Default agent</span>
         <select
@@ -1054,6 +1128,30 @@ function GeneralSettings({
           />
           Use transparent terminal background
         </span>
+      </label>
+      <label className="settings-row">
+        <span>Mouse events</span>
+        <span className="settings-check-row">
+          <input
+            type="checkbox"
+            aria-label="Send terminal mouse events"
+            checked={terminalMouseCapture}
+            onChange={(event) => onTerminalMouseCapture(event.target.checked)}
+          />
+          Send terminal mouse events
+        </span>
+      </label>
+      <label className="settings-row">
+        <span>Narrow layout threshold</span>
+        <input
+          className="settings-input compact"
+          type="number"
+          min={480}
+          max={1400}
+          aria-label="Narrow layout threshold"
+          value={mobileLayoutThresholdPx}
+          onChange={(event) => onMobileLayoutThresholdPx(Number(event.target.value))}
+        />
       </label>
       <label className="settings-row">
         <span>Inline images</span>
