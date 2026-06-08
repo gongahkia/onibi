@@ -114,13 +114,13 @@ pre,
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
-  min-width: 720px;
+  min-width: 0;
   min-height: 420px;
   background: var(--bg-0);
 }
 
 .app-shell[data-tab-orientation="horizontal"] {
-  min-width: 760px;
+  min-width: 0;
 }
 
 .panel-surface {
@@ -160,6 +160,7 @@ pre,
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   width: 100%;
 }
 
@@ -3656,7 +3657,7 @@ button.welcome-pill:hover {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 12px;
   overflow: auto;
   background: rgba(4, 8, 10, 0.64);
   z-index: 60;
@@ -3807,8 +3808,8 @@ button.welcome-pill:hover {
 }
 
 .modal-panel {
-  width: min(720px, 100%);
-  max-height: calc(100dvh - 32px);
+  width: min(720px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
   min-width: 0;
   overflow: auto;
   background: var(--bg-1);

@@ -5422,7 +5422,10 @@ export async function hydrateSessionStore(): Promise<void> {
     ).map((session) =>
       mergedSettings.paneHistoryEnabled ? session : stripSessionTranscript(session),
     );
-    const restoredSessionWorkspaceIds = workspaceIdsForSessions(mergedSessions);
+    const activeSessions = mergedSettings.paneHistoryEnabled
+      ? mergedSessions
+      : mergedSessions.filter(sessionIsLive);
+    const restoredSessionWorkspaceIds = workspaceIdsForSessions(activeSessions);
     const workspaceSources = [
       ...(tomlConfig?.workspaces ?? []),
       ...(workspaces ?? []).filter(
@@ -5439,7 +5442,7 @@ export async function hydrateSessionStore(): Promise<void> {
       discoverDaemonWorkspaces,
     );
     const workspaceIds = new Set(restoredWorkspaces.map((w) => w.id));
-    const restoredSessions = mergedSessions
+    const restoredSessions = activeSessions
       .filter((session) => workspaceIds.has(session.workspaceId))
       .sort(deterministicSessionOrder);
     const restoredTerminalSessions = restoredSessions.filter((session) =>

@@ -710,7 +710,7 @@ claude-code = "claude --dangerously-skip-permissions"
     );
   });
 
-  test("marks missing restored PTYs stale and migrates legacy Claude restart args", async () => {
+  test("does not restore missing PTYs as active sessions by default", async () => {
     const store = await load("settings.json");
     await store.set("sessions", [
       {
@@ -754,14 +754,7 @@ claude-code = "claude --dangerously-skip-permissions"
     await hydrateSessionStore();
 
     const state = useSessionStore.getState();
-    expect(state.sessions[0]).toMatchObject({
-      id: "pty-old",
-      status: "stale",
-      restart: {
-        command: "claude",
-        args: [],
-      },
-    });
+    expect(state.sessions).toEqual([]);
     expect(state.terminalLayout).toBeNull();
     expect(state.activeSessionId).toBeNull();
   });
