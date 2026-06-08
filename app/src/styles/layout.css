@@ -1273,6 +1273,38 @@ button.welcome-pill:hover {
   border-color: var(--accent-2);
 }
 
+.prose-composer:focus-within {
+  border-color: var(--accent-2);
+}
+
+.prose-composer {
+  position: relative;
+  padding: 0;
+}
+
+.prose-composer-input {
+  min-height: 80px;
+  padding: 7px 9px;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.prose-composer-paragraph {
+  margin: 0;
+}
+
+.prose-composer-placeholder {
+  position: absolute;
+  top: 7px;
+  left: 9px;
+  color: var(--fg-2);
+  pointer-events: none;
+}
+
+.prompt-composer .prose-composer-input {
+  min-height: 90px;
+}
+
 .tree-options {
   display: flex;
   align-items: center;
@@ -4077,6 +4109,11 @@ button.welcome-pill:hover {
   font: 13px/1.5 var(--font-mono);
 }
 
+.approval-prose-editor .prose-composer-input {
+  min-height: 140px;
+  padding: 10px;
+}
+
 .approval-deny-label {
   display: grid;
   gap: 6px;
@@ -4086,8 +4123,11 @@ button.welcome-pill:hover {
 }
 
 .approval-deny-input {
-  padding: 7px 9px;
   font-size: 13px;
+}
+
+.approval-deny-input .prose-composer-input {
+  min-height: 40px;
 }
 
 .approval-actions {

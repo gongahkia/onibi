@@ -23,6 +23,7 @@ import {
 } from "./tauri-bridge";
 import { startAgentReview, stopAgentReview } from "./agent-review";
 import { confirmAction } from "./native-dialogs";
+import { createGitWorktree, getGitStatus, removeGitWorktree } from "./git";
 
 export const AGENT_KINDS = [
   "claude-code",
@@ -56,6 +57,7 @@ export type SessionStatus =
   | "error"
   | "stale";
 export type TrustMode = "approval-required" | "full-access";
+export type WorktreeStrategy = "inherit" | "auto";
 
 export interface Session {
   id: string;
@@ -65,6 +67,9 @@ export interface Session {
   title: string;
   status: SessionStatus;
   trustMode?: TrustMode;
+  worktreeStrategy?: WorktreeStrategy;
+  worktreePath?: string | null;
+  worktreeOwnerPath?: string | null;
   createdAt: number;
   pendingApprovals: string[];
   cwd?: string;
@@ -168,6 +173,9 @@ export interface SessionRestartMetadata {
   env: Array<[string, string]>;
   shellMode?: TerminalShellMode;
   trustMode?: TrustMode;
+  worktreeStrategy?: WorktreeStrategy;
+  worktreePath?: string | null;
+  worktreeOwnerPath?: string | null;
   remote?: RemoteSessionMetadata | null;
 }
 
@@ -176,6 +184,9 @@ export interface TerminalLaunchSpec extends SessionRestartMetadata {
   workspaceId: string;
   title: string;
   initialPrompt?: string;
+  worktreeStrategy?: WorktreeStrategy;
+  worktreePath?: string | null;
+  worktreeOwnerPath?: string | null;
 }
 
 export type SessionAttentionState =
@@ -6396,6 +6407,41 @@ function shellModePatch(
   return shellMode ? { shellMode } : {};
 }
 
+function autoWorktreeId(now = Date.now()): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${now}-${Math.random().toString(16).slice(2)}`;
+  return random.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function joinWorkspacePath(root: string, ...segments: string[]): string {
+  const separator = root.includes("\\") ? "\\" : "/";
+  return [root.replace(/[\\/]+$/g, ""), ...segments].join(separator);
+}
+
+async function createAutoSessionWorktree(workspace: Workspace): Promise<{
+  workspace: Workspace;
+  ownerPath: string;
+  path: string;
+}> {
+  const status = await getGitStatus(workspace.path);
+  if (!status.isRepo || !status.repoRoot) {
+    throw new Error("Auto-worktree requires a Git repository.");
+  }
+  const id = autoWorktreeId();
+  const path = joinWorkspacePath(status.repoRoot, ".onibi-worktrees", id);
+  const branch = `onibi/${id}`;
+  const worktree = await createGitWorktree(status.repoRoot, branch, path, "HEAD");
+  const nextWorkspace = await workspaceFromPath(worktree.path);
+  useSessionStore.getState().addWorkspace(nextWorkspace);
+  return {
+    workspace: nextWorkspace,
+    ownerPath: status.repoRoot,
+    path: worktree.path,
+  };
+}
+
 function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -6713,23 +6759,41 @@ export async function spawnAgentSession(
   workspace: Workspace,
   initialPrompt: string,
   placement?: TerminalPanePlacement | null,
-  options?: { cwd?: string | null; trustMode?: TrustMode },
+  options?: {
+    cwd?: string | null;
+    trustMode?: TrustMode;
+    worktreeStrategy?: WorktreeStrategy;
+  },
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
+  const worktreeStrategy = options?.worktreeStrategy ?? "inherit";
+  if (agent === "shell" && worktreeStrategy === "auto") {
+    throw new Error("Auto-worktree is disabled for shell sessions.");
+  }
+  const worktree =
+    worktreeStrategy === "auto"
+      ? await createAutoSessionWorktree(workspace)
+      : null;
+  const launchWorkspace = worktree?.workspace ?? workspace;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
-  const cwd = isAbsoluteCwdPath(options?.cwd) ? options.cwd : workspace.path;
+  const cwd =
+    worktree?.path ??
+    (isAbsoluteCwdPath(options?.cwd) ? options.cwd : launchWorkspace.path);
   const env: Array<[string, string]> =
     shellIntegrationEnv(agent, settings);
   return spawnSessionFromLaunchSpec(
     {
       agent,
-      workspaceId: workspace.id,
-      title: sessionTitle(agent, workspace, settings),
+      workspaceId: launchWorkspace.id,
+      title: sessionTitle(agent, launchWorkspace, settings),
       command: launch.command,
       args: launch.args,
       cwd,
       env,
       trustMode: options?.trustMode ?? "approval-required",
+      worktreeStrategy,
+      worktreePath: worktree?.path ?? null,
+      worktreeOwnerPath: worktree?.ownerPath ?? null,
       ...(launch.shellMode ? { shellMode: launch.shellMode } : {}),
       initialPrompt,
     },

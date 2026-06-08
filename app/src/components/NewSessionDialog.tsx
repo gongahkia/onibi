@@ -10,6 +10,7 @@ import {
   useSessionStore,
 } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
+import { ProseComposer } from "./composer/ProseComposer";
 
 export interface NewSessionDialogProps {
   open: boolean;
@@ -277,11 +278,11 @@ export function NewSessionDialog({
             ) : null}
             <label className="field-label">
               Initial prompt
-              <textarea
-                className="prompt-input"
-                rows={4}
+              <ProseComposer
+                ariaLabel="Initial prompt"
+                className="prompt-input prompt-composer"
                 value={initialPrompt}
-                onChange={(event) => setInitialPrompt(event.target.value)}
+                onChange={setInitialPrompt}
               />
             </label>
             <div className="settings-note">

@@ -21,6 +21,7 @@ import {
 } from "../lib/approval-client";
 import { useSessionStore } from "../lib/sessions";
 import { requestInformationalAttention } from "../lib/window-attention";
+import { ProseComposer } from "./composer/ProseComposer";
 
 export interface ApprovalModalProps {
   token?: string;
@@ -64,7 +65,7 @@ export function ApprovalModal({
             const exists = items.some((item) => item.approval_id === message.approval_id);
             if (items.length === 0) {
               setEditing(false);
-              setEditValue(formatInput(message));
+              setEditValue(editTextFor(message));
               setDenyReason("");
             }
             const next = exists
@@ -83,7 +84,7 @@ export function ApprovalModal({
               setToast(`Resolved on ${message.by ?? "another client"}`);
               onResolved?.(message.approval_id);
               setEditing(false);
-              setEditValue(next[0] ? formatInput(next[0]) : "");
+              setEditValue(next[0] ? editTextFor(next[0]) : "");
               setDenyReason("");
             }
             return next;
@@ -106,14 +107,14 @@ export function ApprovalModal({
   useEffect(() => {
     if (initialPending) {
       setPendingQueue([initialPending]);
-      setEditValue(formatInput(initialPending));
+      setEditValue(editTextFor(initialPending));
       setDenyReason("");
     }
   }, [initialPending]);
 
   useEffect(() => {
     if (pending && !editing) {
-      setEditValue(formatInput(pending));
+      setEditValue(editTextFor(pending));
     }
   }, [editing, pending]);
 
@@ -145,6 +146,7 @@ export function ApprovalModal({
   if (!pending) {
     return toast ? <div className="approval-toast">{toast}</div> : null;
   }
+  const proseEdit = proseEditDescriptor(pending);
 
   const submit = async (
     decision: "allow" | "deny",
@@ -163,7 +165,7 @@ export function ApprovalModal({
       onResolved?.(pending.approval_id);
       setPendingQueue((items) => {
         const next = items.filter((item) => item.approval_id !== pending.approval_id);
-        setEditValue(next[0] ? formatInput(next[0]) : "");
+        setEditValue(next[0] ? editTextFor(next[0]) : "");
         setDenyReason("");
         return next;
       });
@@ -210,12 +212,21 @@ export function ApprovalModal({
 
         {editing ? (
           <div className="approval-edit-wrap">
-            <textarea
-              aria-label="Edited tool input"
-              value={editValue}
-              onChange={(event) => setEditValue(event.target.value)}
-              className="approval-textarea"
-            />
+            {proseEdit ? (
+              <ProseComposer
+                ariaLabel="Edited tool input"
+                className="approval-textarea approval-prose-editor"
+                value={editValue}
+                onChange={setEditValue}
+              />
+            ) : (
+              <textarea
+                aria-label="Edited tool input"
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+                className="approval-textarea"
+              />
+            )}
             <div className="approval-actions">
               <button
                 className="approval-button secondary"
@@ -238,12 +249,12 @@ export function ApprovalModal({
             <ApprovalPayloadPreview message={pending} fallback={formattedInput} />
             <label className="approval-deny-label">
               Deny reason (optional)
-              <input
-                aria-label="Deny reason"
+              <ProseComposer
+                ariaLabel="Deny reason"
                 value={denyReason}
-                onChange={(event) => setDenyReason(event.target.value)}
                 placeholder="Why this should not run"
                 className="approval-deny-input"
+                onChange={setDenyReason}
               />
             </label>
             <div className="approval-actions">
@@ -259,7 +270,7 @@ export function ApprovalModal({
                 type="button"
                 onClick={() => {
                   setEditing(true);
-                  setEditValue(formattedInput);
+                  setEditValue(proseEdit?.value ?? formattedInput);
                 }}
               >
                 Edit input
@@ -612,10 +623,20 @@ function formatInput(message: ApprovalPendingMessage): string {
   ) {
     return (message.input as { command: string }).command;
   }
+  if (typeof message.input === "string") {
+    return message.input;
+  }
   return JSON.stringify(message.input, null, 2);
 }
 
 function updatedInputFor(message: ApprovalPendingMessage, value: string): unknown {
+  const proseEdit = proseEditDescriptor(message);
+  if (proseEdit) {
+    if (proseEdit.kind === "raw") {
+      return value;
+    }
+    return { ...(message.input as Record<string, unknown>), [proseEdit.field]: value };
+  }
   if (
     message.tool === "Bash" &&
     typeof message.input === "object" &&
@@ -629,6 +650,33 @@ function updatedInputFor(message: ApprovalPendingMessage, value: string): unknow
   } catch {
     return value;
   }
+}
+
+type ProseEditDescriptor =
+  | { kind: "raw"; value: string }
+  | { kind: "field"; field: string; value: string };
+
+function editTextFor(message: ApprovalPendingMessage): string {
+  return proseEditDescriptor(message)?.value ?? formatInput(message);
+}
+
+function proseEditDescriptor(message: ApprovalPendingMessage): ProseEditDescriptor | null {
+  if (message.tool === "Bash" || fileEditPreview(message)) {
+    return null;
+  }
+  if (typeof message.input === "string") {
+    return { kind: "raw", value: message.input };
+  }
+  if (!message.input || typeof message.input !== "object" || Array.isArray(message.input)) {
+    return null;
+  }
+  const input = message.input as Record<string, unknown>;
+  for (const field of ["prompt", "message", "text", "instructions", "reason", "content"]) {
+    if (typeof input[field] === "string") {
+      return { kind: "field", field, value: input[field] };
+    }
+  }
+  return null;
 }
 
 function fileEditPreview(message: ApprovalPendingMessage): FileEditPreview | null {
