@@ -158,7 +158,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added conservative provider-to-PTY correlation by exact Onibi session ID, known provider IDs, then one active session with matching agent and cwd.
 - Replaced the OpenCode stub with a versioned local plugin installer and native resume metadata using `opencode --session <id>`.
 - Added Qoder, GitHub Copilot, and Goose event-bridge integrations, plus resume metadata for Qoder and Goose.
-- Registered Gemini and Hermes as resume-only integrations, Aider as history-restore only, Cursor/Pi/OMP as explicit pending native-hook integrations.
+- Registered Gemini as resume-only, Aider as history-restore only, and Cursor/Pi/OMP as explicit pending native-hook integrations; Hermes was later upgraded to ACP in item 16.
 - Extended setup/doctor/status integration handling for `event-bridge`, `resume-only`, and `pending` support classes.
 - Verified with `cargo test --manifest-path app/src-tauri/Cargo.toml` and `pnpm --dir app typecheck`.
 
@@ -317,7 +317,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | Yes — workspace reorder, workspace terminal-tab reorder, and terminal pane reorder |
 | **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, and foreground process polling for 11 no-hook agents; Pi/OMP/Cursor native hooks still pending |
 | **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, native provider events, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
-| **Direct integrations (hook/plugin)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Gemini/Hermes resume-only, Pi/OMP/Cursor pending |
+| **Direct integrations (hook/plugin/protocol)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP or ACP, Hermes ACP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Gemini resume-only, Pi/OMP/Cursor pending |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | Yes — launch/title/banner-output detection plus foreground process polling for all 11 |
 | **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command relaunch plus provider-ID native resume metadata for Claude/OpenCode/Gemini/Qoder/Hermes/Goose when captured |
 | **Approval / gating layer** | No | Yes (primary feature) |
@@ -395,7 +395,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 13. **[BLOCKED] Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`) — registered as pending until a stable public native extension API is verified.
 14. **[BLOCKED] OMP extension** (`~/.omp/agent/extensions/…`) — registered as pending until a stable public native extension API is verified.
 15. **[DONE] OpenCode plugin** — versioned local plugin installer at `~/.config/opencode/plugins/onibi-provider-events.js`, provider-event ingestion, synchronous `tool.execute.before` approval blocking, approve-with-edits arg updates, and `opencode --session <id>` resume metadata are wired.
-16. **[PARTIAL] Hermes Python plugin** (`~/.hermes-agent/plugins/…`) — Hermes is registered as resume-only with `hermes --resume <id>` metadata; plugin hook installation remains pending.
+16. **[DONE] Hermes ACP integration** — Hermes is no longer tracked as a Python-plugin target. The integration now reports ACP support through `hermes acp`, shares Onibi's stdio ACP runtime, maps ACP permission requests into the approval flow, and keeps Hermes resume metadata.
 17. **[DONE] Qoder CLI hook** — versioned command-hook installer records session/tool lifecycle events, blocks `PreToolUse` through Onibi with exit-code-2 denial, supports `updatedInput`, and preserves native `qoder -r <id>` resume metadata.
 18. **[DONE] GitHub Copilot hook** — versioned hook config records session/tool/stop/error events through `onibi _hook copilot`, blocks `PreToolUse` through Onibi, and maps approved edits to Copilot `modifiedArgs`.
 19. **[DONE] Integration version tracking** — Onibi-native integration markers are tracked for Claude Code and Codex, and `integration status --outdated-only` reports stale/missing marker installs.
@@ -450,7 +450,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 ### 2.10 Theming
 55. **[DONE] Built-in themes** — onibi ships broad built-in app/terminal color schemes including VSCode, GitHub, One Dark, Dracula, Catppuccin, Tokyo Night, Night Owl, Material, Monokai, Gruvbox, Nord, Ayu, Palenight, Cobalt, Shades of Purple, Synthwave, Solarized, Onibi Flame, and Terminal.
 56. **[DONE] `terminal` theme** that inherits imported/host terminal colors where available and falls back to the current dark terminal palette.
-57. **Per-theme custom-color overrides** in TOML.
+57. **[DONE] Per-theme custom-color overrides** in TOML — `settings.theme_overrides.<theme-id>` supports color-key overrides on top of built-in/system/imported terminal themes, with Settings UI editing and reset controls.
 
 ### 2.11 Notifications & sound
 58. **[DONE] Sound alerts** with custom mp3 paths (completion + request chimes) — quiet by default, with custom paths or generated WebAudio chimes when enabled.
@@ -468,8 +468,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 66. **[DONE] Live config reload** — `onibi config reload` applies server-runtime fields (`approval_timeout_secs`, `pty_ring_limit`) without daemon restart; port/UI/keybinding/workspace changes remain restart/client-managed.
 67. **[DONE] Shell-mode selector** (`auto | login | non_login`) — settings/TOML, shell PTY request metadata, restart/duplicate/arrangement persistence, and backend login-mode handling are wired.
 68. **[DONE] `new_cwd` policy** — implemented `active`, `follow`, `workspace`, `home`, and `fixed:/absolute/path`.
-69. **Mobile-width threshold config** for the narrow layout.
-70. **Mouse-capture toggle** (tmux-style passthrough on `false`).
+69. **[DONE] Mobile-width threshold config** for the narrow layout — `mobile_layout_threshold_px` controls the desktop app's narrow layout instead of a fixed 800px CSS media query.
+70. **[DONE] Mouse-capture toggle** (tmux-style passthrough on `false`) — `terminal_mouse_capture = false` filters terminal mouse reports before PTY writes while preserving keyboard input, selection, copy-mode, and link handling.
 
 ### 2.14 Worktree
 71. **[DONE] Sidebar grouping by worktree** — Explorer surfaces Git worktrees under each workspace with open and launch-default-agent actions.
@@ -861,11 +861,11 @@ Numbered 117+ to continue from §7.
     **Scope guard:** non-default; never auto-create for shell sessions. Cleanup is best-effort and never destructive — leftover worktrees remain listed in the Explorer surface.
     **Effort:** Done for inherit/auto. Fixed named worktrees remain out of this slice.
 
-120. **ACP-native Claude Code adapter (scoped to Claude only).** Replace the HTTP `PreToolUse` hook for Claude Code with a Claude Agent Protocol (ACP) runtime adapter so onibi receives richer lifecycle events (turn-start, tool-call-stream, message-delta, completion) instead of just pre-tool callbacks. **Explicit non-goal: do not generalise this to all 11+ supported agents.** Cursor / Cline / Copilot / Gemini / Grok / Kimi / Kiro / Droid / Amp / Antigravity / Kilo have no public protocol; Codex (Bash-only hook) and OpenCode (existing plugin) already cover their wedge — leave both as-is. ACP adoption is justified only for Claude, where the protocol is stable and the event surface is materially richer.
+120. **[DONE] ACP-native Claude Code adapter (scoped to Claude only).** Replace the HTTP `PreToolUse` hook for Claude Code with a Claude Agent Protocol (ACP) runtime adapter so onibi receives richer lifecycle events (turn-start, tool-call-stream, message-delta, completion) instead of just pre-tool callbacks. **Explicit non-goal: do not generalise this to all 11+ supported agents.** Cursor / Cline / Copilot / Gemini / Grok / Kimi / Kiro / Droid / Amp / Antigravity / Kilo have no public protocol; Codex (Bash-only hook) and OpenCode (existing plugin) already cover their wedge — leave both as-is. ACP adoption is justified only for Claude, where the protocol is stable and the event surface is materially richer.
     **t3code reference:** `t3code/packages/effect-acp/` (Effect-native ACP bindings: `src/`, `scripts/`, `test/`) and `t3code/apps/server/src/provider/acp/` (consumer integration).
-    **Mapping to onibi:** new `app/src-tauri/src/adapters/claude_acp.rs` running an ACP client (sidecar `node`/`bun` against a small TS shim, or a Rust port of the ACP wire protocol — decide after reading `t3code/packages/effect-acp/src/`). Coexist with the existing HTTP `PreToolUse` adapter behind a `[adapters.claude] transport = "hook" | "acp"` setting; default remains `hook` until ACP path passes the approval-blocking regression suite. Approval blocking must remain synchronous through ACP — fail-closed deny on transport drop.
+    **Mapping to onibi:** `app/src-tauri/src/adapters/acp.rs` implements a Rust stdio JSON-RPC ACP client without adding a Node sidecar. It coexists with the existing HTTP `PreToolUse` adapter behind `[adapters.claude] transport = "hook" | "acp"`; default remains `hook`. `/v1/adapters/:agent/acp/prompt` exposes authenticated ACP prompt execution for Claude and Hermes, maps `session/request_permission` into Onibi approvals, and streams ACP session updates into orchestration provider metadata/status where correlation is possible.
     **Scope guard:** Claude-only. If the ACP shim requires a non-Rust runtime, ship it as a vendored helper binary alongside `onibi` rather than expanding the install footprint with a full Node dependency tree.
-    **Effort:** [Speculation] 4–7 days depending on Rust-port vs. sidecar decision. Cross-references item 31 (native agent session resume) — ACP supplies the richer event stream that 31 currently approximates.
+    **Effort:** Done for the shared Rust ACP runtime, Claude opt-in transport, Hermes ACP transport, authenticated prompt endpoint, config, status, and protocol tests. The existing terminal-first GUI launch path remains unchanged unless ACP transport is explicitly called through the daemon API.
 
 121. **[DONE] Generated TS types from Rust schemas for `/v1/realtime` + HTTP contracts.** Today, Rust types for the orchestration protocol, approval requests, and `/v1/*` payloads are duplicated by hand in TypeScript. Adopt `ts-rs` to derive TS from Rust at build time and emit a single `app/src/lib/contracts/generated.ts` that the frontend imports.
     **t3code reference:** `t3code/packages/contracts/src/{orchestration.ts, ipc.ts, providerRuntime.ts, provider.ts, relay.ts, git.ts, keybindings.ts}` — single source of typed boundaries used by both web client and server. We replicate the *pattern* (typed contracts as a build artefact) without copying the Effect/Zod implementation.
@@ -916,15 +916,15 @@ For traceability against the §1 comparison from 2026-06-08:
 | Item | Effort | Risk | Dependencies |
 |---|---|---|---|
 | 117 CQRS split | Done for first split | Medium (refactor blast radius) | None; behaviour-preserving |
-| 118 turn checkpoints | 3–5 days backend + 1–2 days UI | Medium (Git ref pruning on large repos) | None; opt-in |
-| 119 auto-worktree | ~1 day | Low | Item 71/72 already shipped |
-| 120 Claude ACP | 4–7 days | Medium-High (sidecar vs Rust port) | Decide port strategy first |
+| 118 turn checkpoints | Done for opt-in checkpoint/diff/restore slice | Medium (Git ref pruning on large repos) | None; opt-in |
+| 119 auto-worktree | Done for inherit/auto launch + cleanup slice | Low | Item 71/72 already shipped |
+| 120 Claude ACP | Done for shared Rust ACP runtime and daemon API; GUI launch hardening remains active code work | Medium | Item 117 split landed first |
 | 121 generated TS types | Done for initial export | Low | None |
 | 122 Lexical composer | ~1 day | Low | None |
 | 123 trust-mode toggle | Done | Low | Item 85 (policy engine) shipped |
 | 124 Mintlify docs | 0.5 day | Low | Gated on item 93 |
 | 125 TanStack Query | Done for selected surfaces | Low | None |
-| **Total** | **~15–22 days** | | |
+| **Remaining code total** | ACP GUI launch hardening + native-resume guard tests | | |
 
 ### 8.4 Sequencing recommendation
 
@@ -933,11 +933,96 @@ If implementing §8 in isolation:
 1. **121 (generated types)** first — cheapest, unblocks safer iteration on every later item.
 2. **117 (CQRS split)** before 118/120 — both new features land cleaner against a decider/projector skeleton than against the current monolith.
 3. **123 (trust-mode toggle)** + **122 (Lexical composer)** in parallel; both small, low-risk, ship-visible.
-4. **118 (checkpoints)** + **119 (auto-worktree)** together — they share the Git plumbing and complement each other.
-5. **120 (Claude ACP)** last among code items — highest unknown, benefits from the cleaner orchestration shape after 117.
+4. **118 (checkpoints)** + **119 (auto-worktree)** are done; keep future work to pruning/performance hardening only.
+5. **120 (Claude ACP)** is done for backend/API; next code work is desktop ACP launch surfacing and route hardening.
 6. **125 (TanStack Query)** opportunistically alongside any frontend work touching audit/session surfaces.
 7. **124 (Mintlify docs)** post-v1.5.0 launch.
 
 ### 8.5 Single most-important item if doing only one
 
 **Item 118 (Git-backed turn checkpoints).** Strongest moat-extender: combined with item 84 (audit log) and the existing edit-before-approve pipeline, it lets onibi say "every agent turn is reversible, every change is diffable, every decision is logged" — a positioning claim no competitor in §5's landscape (herdr / opcode / CloudCLI / Remote Control / ntfy.sh scripts) can match.
+
+---
+
+## 9. Telegram-bridge complementarity pass — 2026-06-08
+
+Reference source: `TELEGRAM-IDEA-8-JUN.md` at repo root. The idea is a Ghostty + tmux ⇄ Telegram bridge derived from [antirez/tgterm](https://github.com/antirez/tgterm): outbound-only HTTPS to Telegram, `tmux send-keys` as control plane, free-text replies become live keystrokes in the targeted pane.
+
+Filtered through Onibi's product lens, evaluated 2026-06-08.
+
+### 9.1 What was rejected and why
+
+- **Telegram Bot API as a transport.** Rejected on policy grounds. Telegram is a third-party hosted relay; §5.4 cuts hosted relays from v1.5.x and the user reaffirmed "pure local-first" on 2026-06-08. Even though the bot is user-owned, message traffic passes through Telegram-operated infrastructure, which contradicts the bearer-token + Tailscale Funnel / Cloudflare Quick Tunnel / LAN HTTPS positioning.
+- **Notification-sink abstraction for chat providers (Telegram / ntfy.sh / Discord / Slack / Pushover).** Rejected for the same reason. ntfy.sh-as-a-service is the same third-party-relay shape; self-hosted ntfy is allowed but not the v1.5.0 scope.
+- **tmux as control plane.** Not applicable. Onibi's daemon-owned PTY runtime supersedes tmux for v1.5.x; bolting tmux on adds nothing.
+- **OSC 133 / zsh `precmd`/`preexec` notification triggers for plain shell-command completion.** Not adopted as part of this pass. Onibi's canonical agent state model (§2.2 item 9) already covers `idle | working | blocked | done` for tracked sessions; raw shell-command-finish notifications are out of scope.
+
+### 9.2 What was adopted
+
+The single product-shaped idea that survives policy filtering: **free-text from an authenticated client (PWA today, any future Onibi-owned transport tomorrow) injects literal keystrokes into a chosen Onibi pane.** This generalizes the existing orchestration `pane send-keys` API (§2.4 item 24) into a user-facing remote-typing UX, scoped explicitly to Onibi-owned transports and authenticated bearer-token clients.
+
+Numbered 126+ to continue from §8.
+
+126. **Remote pane keystroke composer.** Add a user-facing "send text to active pane" surface in the PWA (and, for parity, in the desktop app). Composer captures free text, target-pane selection, and Enter/no-Enter intent; submission calls the existing orchestration `pane send-text` / `pane send-keys` over the authenticated bearer-token HTTP+WebSocket channels already used for approvals.
+    **Mapping to onibi:**
+    - Frontend: new `app/src/components/composer/RemoteKeystrokeComposer.tsx` (Lexical-backed per item 122; prose only, never wraps CodeMirror) plus mobile equivalent at `mobile/src/components/RemoteKeystrokeComposer.tsx`. Available from the active pane surface and via a Command Palette entry.
+    - Backend: no new wire protocol. Routes hit existing `/v1/realtime` WebSocket plus a new authenticated `POST /v1/panes/:pane_id/send-text` and `POST /v1/panes/:pane_id/send-keys` endpoint pair if the orchestration HTTP surface does not already expose them; otherwise reuse the existing routes used by the CLI `onibi pane send-keys`.
+    - Reuses bearer-token auth (single-user, ULID, keyring), TLS/HSTS/CSP, rate limiting (`tower_governor`), and read-only spectator scope checks from item 89. Read-only paired clients must be server-blocked from this surface, same way they are blocked from approval decisions.
+    **Effort:** [Speculation] 2–3 days (PWA + desktop composers, route hardening, tests, audit logging).
+
+127. **Target resolution: reply-to + explicit target + most-recent.** Adopt the TELEGRAM-IDEA §4.5 resolution model, scoped to Onibi's pane abstraction. Priority order:
+    1. **Reply-to-notification context.** When the user invokes the composer from a specific in-app notification or approval card, the composer is bound to that pane.
+    2. **Explicit target.** A pane picker (workspace → session → pane) overrides the reply-to default.
+    3. **Most-recent-event pane.** Default target if neither of the above is set.
+    4. **Ambiguity prompt.** If no target can be resolved, the composer surfaces a list of current panes (mirrors TELEGRAM-IDEA's inline-keyboard fallback, via the existing Command Palette / pane picker).
+    **Mapping to onibi:** notification payloads already carry pane/session IDs; extend the notification dispatcher (notifications UX pass §2026-06-04) so PWA approval/notification cards expose a "Reply with text" affordance that opens the composer pre-bound. Store the binding in client state only; no new server schema.
+    **Effort:** [Speculation] 0.5–1 day.
+
+128. **Safety primitives carried over from TELEGRAM-IDEA §7.** Hard rules ported verbatim, scoped to Onibi:
+    - **No shell assembly from chat / composer.** Free text only becomes literal `send-keys` input. No Telegram-supplied string (or any client-supplied string) is ever concatenated into a shell command. Mirrors TELEGRAM-IDEA SEC3.
+    - **Closed preset allowlist.** Optional preset buttons (Approve / Continue / Interrupt → `Ctrl+C`) resolve to predefined keystrokes only; editable in `~/.config/onibi/config.toml`, never from a chat client. Mirrors TELEGRAM-IDEA §4.6.
+    - **Confirm-destructive presets.** Destructive presets (e.g. `interrupt`, `stop_session`) require a confirm tap before dispatching, mirrors TELEGRAM-IDEA SEC6 and reuses the native confirmation dialog wrapper from item 107 on desktop / a native confirm sheet on the PWA.
+    - **Audit log entry per dispatch.** Every remote keystroke dispatch lands in the existing approval audit log (item 84) with payload, pane target, client identity (bearer-token fingerprint), and timestamp. Keeps the "Onibi remembers everything" positioning intact.
+    - **Read-only spectator block.** Read-only paired clients (item 89) are server-blocked from the new send-text / send-keys routes.
+    - **Session trust-mode interaction.** Sessions marked `approval-required` (item 123) require an explicit pre-flight confirmation before the composer dispatches; `full-access` sessions dispatch immediately but still audit-log.
+    **Effort:** [Speculation] 0.5 day, mostly route hardening and audit-log glue.
+
+129. **PWA-first surface; desktop parity is non-blocking.** The user-facing wedge is the phone — desktop users already have direct pane access. Ship the PWA composer + native PWA confirm sheet for v1.5.0; desktop composer + Command Palette entry can land in v1.5.x without blocking the launch.
+    **Effort:** PWA composer is the launch-blocker; desktop composer is follow-up.
+
+130. **Explicit non-adoptions from TELEGRAM-IDEA, for traceability.**
+    - **`ghostty-notify` socket intake client + Unix domain socket protocol.** Onibi's daemon already exposes JSON-lines orchestration over Unix socket + localhost TCP (§2.4 items 21–27); no parallel intake socket needed.
+    - **zsh `precmd`/`preexec` install scripts.** Onibi tracks agent state through hooks/ACP/heuristics, not shell-completion markers.
+    - **`/menu`, `/panes`, `/target`, `/status` chat commands.** Replaced by the existing Command Palette, pane picker, and `/v1/status` HTTP surface.
+    - **Webhook vs long-poll trade-off.** N/A — no Telegram, no chat-provider polling.
+
+### 9.3 Launch-blocking decision and trade
+
+The user marked items 126–128 (PWA path only, per item 129) as **v1.5.0 launch-blocking** on 2026-06-08.
+
+This adds scope on top of the §5 launch-blockers (#91 WSL2 docs, #93 landing page). Trade documented:
+
+- **Pro:** the phone gains a "type into the agent" surface that the PWA does not have today. Pairs naturally with edit-before-approve and Onibi's existing pane orchestration. Closes a real gap the TELEGRAM-IDEA evaluation surfaced (free-text → keystrokes is the one thing antirez/tgterm does that Onibi cannot).
+- **Con:** delays v1.5.0 by [Speculation] ~3–4 days of focused work. Risks blurring positioning from "approval gate" toward "remote terminal" if marketing copy is not careful — mitigation is item 128's audit log + safety primitives keep it framed as "authenticated, audited remote pane control," not "ssh-from-phone."
+- **Mitigation if scope slips:** demote 126 from launch-blocking to v1.5.x; ship v1.5.0 on existing §5 plan; revisit.
+
+### 9.4 Effort estimate
+
+| Item | Effort | Risk | Dependencies |
+|---|---|---|---|
+| 126 Remote pane keystroke composer (PWA) | 2–3 days | Low | Item 122 (Lexical) for prose composer reuse |
+| 127 Target resolution (reply-to/explicit/recent) | 0.5–1 day | Low | Existing notification dispatcher |
+| 128 Safety primitives + audit log | 0.5 day | Low | Items 84 (audit), 89 (spectator scope), 107 (confirm), 123 (trust mode) |
+| 129 Desktop parity | non-blocking, ~1 day post-launch | Low | None |
+| **Launch-blocking total** | **3–4.5 days** | Low–Medium | — |
+
+### 9.5 Sequencing recommendation
+
+1. **128 (safety primitives + audit + route hardening)** first — pure backend, unblocks the composer landing safely.
+2. **127 (target resolution wiring on notification cards)** next — small, isolated, sets up the composer entry points.
+3. **126 (PWA composer UI)** last for the launch slice — visible, demoable, copies item 122's Lexical pattern.
+4. **129 (desktop composer)** post-launch.
+
+### 9.6 Single most-important item if doing only one
+
+**Item 128 (safety primitives + audit-log integration).** Even without 126/127, hardening the send-text / send-keys routes for bearer-auth, spectator block, audit logging, and confirm-destructive turns the existing orchestration API surface into a publishable, defensible product feature. The composer UI is what makes it usable; the safety pass is what makes it shippable.

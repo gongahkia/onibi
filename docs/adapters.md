@@ -1,25 +1,25 @@
 # Adapters
 
-Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, and provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model. OpenCode, Qoder, Copilot CLI, and Goose also block native pre-tool hooks through Onibi where the provider exposes a synchronous hook.
+Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, ACP adapters map protocol permission requests into Onibi approvals, and provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model. OpenCode, Qoder, Copilot CLI, and Goose also block native pre-tool hooks through Onibi where the provider exposes a synchronous hook.
 
 ## Capability Matrix
 
 | Agent | Minimum version | Approval intercept | Native events | Native resume | Terminal mirror | Hook surface |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` |
+| Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` or ACP |
 | Codex CLI | Launch-tested current | Bash only | Bash only | Unverified | Yes | `~/.codex/hooks.json` shell hook |
 | OpenCode | No minimum | Yes | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
 | Qoder CLI | No minimum | Yes | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
 | GitHub Copilot CLI | No minimum | Yes | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
 | Goose | No minimum | Yes | Yes | Yes | Yes | `~/.agents/plugins/onibi/hooks/hooks.json` |
 | Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
-| Hermes | No minimum | No | No | Yes | Yes | Resume-only metadata |
+| Hermes | No minimum | Yes | Yes | Yes | Yes | ACP `hermes acp` |
 | Aider | No minimum | No | No | History restore | Yes | Shell session only |
 | Cursor agent | No minimum | No | Pending | Pending | Yes | Native hook pending |
 | Pi | No minimum | No | Pending | Pending | Yes | Native extension pending |
 | OMP | No minimum | No | Pending | Pending | Yes | Native extension pending |
 
-Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event`. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
+Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event` or ACP session updates. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
 
 ## Claude Code
 
@@ -275,7 +275,7 @@ Known limitations:
 
 ## Hermes
 
-Hermes is registered as resume-only. When Onibi has a Hermes provider session ID, stale session attach can prefer `hermes --resume <id>` over plain relaunch. Native plugin hook installation remains pending.
+Hermes uses ACP through `hermes acp`. Onibi runs the shared stdio ACP runtime, maps ACP permission requests into the approval flow, records provider session metadata, and keeps `hermes --resume <id>` metadata when a Hermes provider session ID is available. No Python plugin hook is installed.
 
 ## Pi / OMP
 

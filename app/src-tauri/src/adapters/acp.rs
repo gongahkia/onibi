@@ -197,7 +197,10 @@ pub async fn spawn(config: &AcpSpawnConfig) -> Result<AcpChild> {
     if let Some(cwd) = config.cwd.as_ref() {
         command.current_dir(cwd);
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .with_context(|| format!("spawn ACP command {}", config.command))?;
@@ -326,10 +329,7 @@ pub fn status_info(name: &'static str, command: &str, args: &[String]) -> Integr
     }
 }
 
-pub fn permission_response_for_decision(
-    decision: Decision,
-    options: &[Value],
-) -> Value {
+pub fn permission_response_for_decision(decision: Decision, options: &[Value]) -> Value {
     let kind_prefix = if decision == Decision::Allow {
         "allow"
     } else {
@@ -418,7 +418,10 @@ impl AcpHandler for OnibiAcpHandler<'_> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        Ok(permission_response_for_decision(response.decision, &options))
+        Ok(permission_response_for_decision(
+            response.decision,
+            &options,
+        ))
     }
 }
 
@@ -513,7 +516,8 @@ mod tests {
 
         let peer_task = tokio::spawn(async move {
             let mut lines = BufReader::new(peer_read).lines();
-            let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            let request: Value =
+                serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
             assert_eq!(request["method"], "session/prompt");
             peer_write
                 .write_all(
@@ -524,7 +528,10 @@ mod tests {
             peer_write.write_all(b"\n").await.unwrap();
             let permission_response: Value =
                 serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
-            assert_eq!(permission_response["result"]["outcome"]["optionId"], "allow-1");
+            assert_eq!(
+                permission_response["result"]["outcome"]["optionId"],
+                "allow-1"
+            );
             peer_write
                 .write_all(
                     format!(
@@ -542,7 +549,11 @@ mod tests {
             updates: 0,
         };
         let result = conn
-            .request("session/prompt", json!({ "sessionId": "s1", "prompt": [] }), &mut handler)
+            .request(
+                "session/prompt",
+                json!({ "sessionId": "s1", "prompt": [] }),
+                &mut handler,
+            )
             .await
             .unwrap();
         assert_eq!(result["stopReason"], "end_turn");

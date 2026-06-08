@@ -154,6 +154,25 @@ pub struct ProviderEventBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct AcpPromptBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub cwd: String,
+    pub prompt: String,
+    #[serde(default, rename = "resumeSessionId")]
+    pub resume_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, TS)]
+pub struct AcpPromptResponse {
+    pub protocol_version: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(default, rename = "stopReason")]
+    pub stop_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct RunEvent {
     pub id: i64,
     pub protocol_version: String,

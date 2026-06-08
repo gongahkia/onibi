@@ -51,7 +51,9 @@ pub fn install(token: &str) -> Result<String> {
         if which::which(&adapter.acp_command).is_err() {
             bail!("Claude ACP command not found: {}", adapter.acp_command);
         }
-        return Ok("claude-code ACP transport is configured; no HTTP hook was installed".to_string());
+        return Ok(
+            "claude-code ACP transport is configured; no HTTP hook was installed".to_string(),
+        );
     }
     let version = Command::new("claude")
         .arg("--version")

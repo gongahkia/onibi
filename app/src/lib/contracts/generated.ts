@@ -14,6 +14,10 @@ export type ApprovalDecisionBody = { decision: Decision, updatedInput: JsonValue
 
 export type ApprovalDecisionResponse = { protocol_version: string, approval_id: string, decision: Decision, updatedInput: JsonValue | null, reason: string | null, };
 
+export type AcpPromptBody = { protocol_version: string | null, cwd: string, prompt: string, resumeSessionId: string | null, };
+
+export type AcpPromptResponse = { protocol_version: string, sessionId: string, stopReason: string | null, };
+
 export type RunEvent = { id: number, protocol_version: string, machine_id: string, session_id: string, kind: string, payload: JsonValue, ts: number, };
 
 export type RunEventBody = { protocol_version: string | null, machine_id: string | null, session_id: string, kind: string, timestamp: string | null, payload: JsonValue, };

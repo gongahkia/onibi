@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
+let fetchMock: ReturnType<typeof vi.fn>;
+
 function resetStore() {
   useSessionStore.setState({
     hydrated: true,
@@ -23,6 +25,32 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.dialogOpen.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
+  fetchMock = vi.fn(async (url: string) => {
+    if (url.includes("/v1/config/status")) {
+      return new Response(
+        JSON.stringify({
+          adapters: {
+            claude: { transport: "hook", acpCommand: "claude-agent-acp", acpArgs: [] },
+            hermes: { transport: "acp", acpCommand: "hermes", acpArgs: ["acp"] },
+          },
+          policyValidation: { ok: true },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("/v1/adapters/hermes/acp/prompt")) {
+      return new Response(
+        JSON.stringify({
+          protocol_version: "1.0",
+          sessionId: "hermes-session-1",
+          stopReason: "end_turn",
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
 }
 
 describe("NewSessionDialog", () => {
@@ -32,6 +60,7 @@ describe("NewSessionDialog", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test("spawns a shell session in the selected workspace", async () => {
@@ -223,5 +252,86 @@ describe("NewSessionDialog", () => {
         "Pi is not on PATH. Install it, or update its launch command in Settings > Agents.",
       ),
     ).toBeTruthy();
+  });
+
+  test("runs Hermes through ACP without creating a fake PTY session", async () => {
+    const onClose = vi.fn();
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "hermes") {
+          return "/usr/local/bin/hermes";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "hermes",
+      },
+    });
+
+    render(<NewSessionDialog open onClose={onClose} />);
+    await waitFor(() => {
+      expect(screen.getByText(/ACP command:\s*hermes acp/)).toBeTruthy();
+      expect(screen.getByText(/usr\/local\/bin\/hermes/)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByTestId("Initial prompt-plain-text"), {
+      target: { value: "continue the task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:17893/v1/adapters/hermes/acp/prompt",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const [, request] = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/v1/adapters/hermes/acp/prompt"),
+    )!;
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      protocol_version: "1.0",
+      cwd: "/repo",
+      prompt: "continue the task",
+      resumeSessionId: null,
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "pty_spawn",
+      expect.anything(),
+    );
+    expect(useSessionStore.getState().activeSessionId).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  test("requires a prompt before ACP launch", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "hermes") {
+          return "/usr/local/bin/hermes";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "hermes",
+      },
+    });
+
+    render(<NewSessionDialog open onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText(/ACP command:\s*hermes acp/)).toBeTruthy();
+      expect(screen.getByText(/usr\/local\/bin\/hermes/)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    expect(await screen.findByText("Enter an initial prompt for ACP launch.")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/v1/adapters/hermes/acp/prompt"),
+      ),
+    ).toBe(false);
   });
 });

@@ -324,6 +324,10 @@ pub fn router(state: AppState) -> Router {
             post(routes::claude_code_hook),
         )
         .route("/v1/adapters/codex/hook", post(routes::codex_hook))
+        .route(
+            "/v1/adapters/:agent/acp/prompt",
+            post(routes::provider_acp_prompt),
+        )
         .route("/v1/adapters/:agent/event", post(routes::provider_event))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

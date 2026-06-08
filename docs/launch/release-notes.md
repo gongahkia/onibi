@@ -27,7 +27,7 @@ Onibi v1.5.0 is the first launch release of the local-first approval gate for AI
 - Claude Code adapter with edit-before-approve support through `updatedInput`.
 - Codex CLI Bash-only approval interception.
 - OpenCode, Qoder, GitHub Copilot CLI, and Goose blocking hook/event integrations.
-- Gemini, Aider, Cursor, Hermes, Pi, and OMP mirror, resume-only, or pending-native support.
+- Hermes ACP support, plus Gemini, Aider, Cursor, Pi, and OMP mirror, resume-only, or pending-native support.
 - Tailscale Funnel, Cloudflare Quick Tunnel, and LAN HTTPS transports.
 - `onibi setup`, `onibi status`, and `onibi doctor` support commands.
 - Security hardening: bearer auth, approval rate limit, body limits, WebSocket message cap, HSTS for tunnel responses, CSP for the PWA.
@@ -61,7 +61,7 @@ Scan the pairing QR with your phone and install the PWA.
 ## Known Limitations
 
 - Codex interception is Bash-only; `apply_patch` and MCP tools are not blocked.
-- Gemini, Aider, Cursor, Hermes, Pi, and OMP do not yet provide full native blocking approval.
+- Gemini, Aider, Cursor, Pi, and OMP do not yet provide full native blocking approval.
 - LAN HTTPS requires trusting Onibi's self-signed certificate on the phone.
 - Cloudflare Quick Tunnel URLs are ephemeral.
 - Windows is not supported in v1.5.

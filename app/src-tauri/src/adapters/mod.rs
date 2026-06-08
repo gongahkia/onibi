@@ -860,6 +860,33 @@ mod tests {
     }
 
     #[test]
+    fn resume_metadata_is_only_generated_for_verified_agents() {
+        let supported = [
+            ("claude-code", "claude", vec!["--resume", "session-1"]),
+            ("opencode", "opencode", vec!["--session", "session-1"]),
+            ("gemini", "gemini", vec!["--resume", "session-1"]),
+            ("qoder", "qoder", vec!["-r", "session-1"]),
+            ("hermes", "hermes", vec!["--resume", "session-1"]),
+            ("goose", "goose", vec!["session", "resume", "session-1"]),
+        ];
+        for (agent, command, args) in supported {
+            let resume = resume_metadata_for_agent(agent, "session-1").unwrap();
+            assert_eq!(resume.command, command);
+            assert_eq!(
+                resume.args,
+                args.into_iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        for agent in ["codex", "aider", "cursor", ""] {
+            assert!(resume_metadata_for_agent(agent, "session-1").is_none());
+        }
+        assert!(resume_metadata_for_agent("claude-code", " ").is_none());
+    }
+
+    #[test]
     fn provider_approval_body_prefers_correlated_onibi_session() {
         let body = approval_body_from_provider_payload(
             "qoder",

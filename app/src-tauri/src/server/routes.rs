@@ -6,12 +6,12 @@ use crate::{
     orchestration::AgentStatus,
     policy,
     protocol::{
-        ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        CheckpointDiff, CheckpointRecord, CheckpointRestoreBody, ClientScope, Decision,
-        DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopRemoteSshBody,
-        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
-        DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody, RunEvent, RunEventBody,
-        ServerMessage, PROTOCOL_VERSION,
+        AcpPromptBody, AcpPromptResponse, ApiError, Approval, ApprovalDecisionBody,
+        ApprovalDecisionResponse, ApprovalRequestBody, CheckpointDiff, CheckpointRecord,
+        CheckpointRestoreBody, ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse,
+        DesktopPaneSplitBody, DesktopRemoteSshBody, DesktopSessionInputBody,
+        DesktopSessionLaunchBody, DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest,
+        PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
     pty::TrustMode,
     push, secret,
@@ -85,14 +85,6 @@ pub struct ApprovalHistoryQuery {
 pub struct CheckpointListQuery {
     #[serde(default)]
     limit: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AcpPromptBody {
-    cwd: String,
-    prompt: String,
-    #[serde(default, rename = "resumeSessionId")]
-    resume_session_id: Option<String>,
 }
 
 pub async fn healthz() -> Json<Value> {
@@ -649,6 +641,7 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Value> {
 pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
     let runtime_config = state.runtime_config().await;
     let validation = crate::config::validate().map_err(internal_error)?;
+    let app_config = crate::config::load().map_err(internal_error)?;
     Ok(Json(json!({
         "ok": true,
         "protocol_version": PROTOCOL_VERSION,
@@ -656,6 +649,10 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
         "exists": validation.exists,
         "runtimeConfig": runtime_config,
         "fileRuntimeConfig": validation.runtime,
+        "adapters": {
+            "claude": adapter_runtime_json(&app_config.adapters.claude),
+            "hermes": adapter_runtime_json(&app_config.adapters.hermes),
+        },
         "reloadableFields": [
             "server.approval_timeout_secs",
             "server.pty_ring_limit",
@@ -665,6 +662,14 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
         "policyValidation": policy::validate(),
     })))
+}
+
+fn adapter_runtime_json(adapter: &crate::config::AgentAdapterConfig) -> Value {
+    json!({
+        "transport": adapter.transport,
+        "acpCommand": adapter.acp_command,
+        "acpArgs": adapter.acp_args,
+    })
 }
 
 pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
@@ -752,6 +757,80 @@ pub async fn codex_hook(
         .await
         .map(Json)
         .map_err(internal_error)
+}
+
+pub async fn provider_acp_prompt(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+    ApiJson(body): ApiJson<AcpPromptBody>,
+) -> ApiResult<AcpPromptResponse> {
+    canonical_acp_agent(&agent)?;
+    let app_config = crate::config::load().map_err(internal_error)?;
+    let launch = build_acp_prompt_launch(&app_config, &agent, body)?;
+    let result = adapters::acp::run_prompt_session(&state, launch.spawn, launch.input)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(AcpPromptResponse {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        session_id: result.session_id,
+        stop_reason: result.stop_reason,
+    }))
+}
+
+#[derive(Debug, Clone)]
+struct AcpPromptLaunch {
+    spawn: adapters::acp::AcpSpawnConfig,
+    input: adapters::acp::AcpSessionInput,
+}
+
+fn build_acp_prompt_launch(
+    app_config: &crate::config::OnibiConfig,
+    agent: &str,
+    body: AcpPromptBody,
+) -> Result<AcpPromptLaunch, (StatusCode, Json<ApiError>)> {
+    let (agent, adapter) = acp_adapter_for_agent(app_config, agent)?;
+    validate_version(body.protocol_version.as_deref())?;
+    if adapter.transport != "acp" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(format!(
+                "{agent} ACP transport is not enabled"
+            ))),
+        ));
+    }
+    let cwd = PathBuf::from(body.cwd);
+    Ok(AcpPromptLaunch {
+        spawn: adapters::acp::AcpSpawnConfig {
+            command: adapter.acp_command.clone(),
+            args: adapter.acp_args.clone(),
+            cwd: Some(cwd.clone()),
+        },
+        input: adapters::acp::AcpSessionInput {
+            agent: agent.to_string(),
+            cwd,
+            prompt: body.prompt,
+            resume_session_id: body.resume_session_id,
+        },
+    })
+}
+
+fn acp_adapter_for_agent<'a>(
+    app_config: &'a crate::config::OnibiConfig,
+    agent: &str,
+) -> Result<(&'static str, &'a crate::config::AgentAdapterConfig), (StatusCode, Json<ApiError>)> {
+    match canonical_acp_agent(agent)? {
+        "claude-code" => Ok(("claude-code", &app_config.adapters.claude)),
+        "hermes" => Ok(("hermes", &app_config.adapters.hermes)),
+        _ => unreachable!("canonical ACP agent must be supported"),
+    }
+}
+
+fn canonical_acp_agent(agent: &str) -> Result<&'static str, (StatusCode, Json<ApiError>)> {
+    match agent {
+        "claude" | "claude-code" => Ok("claude-code"),
+        "hermes" => Ok("hermes"),
+        other => Err(not_found(&format!("unknown ACP agent: {other}"))),
+    }
 }
 
 pub async fn provider_event(
@@ -1289,6 +1368,103 @@ mod tests {
         );
     }
 
+    #[test]
+    fn acp_prompt_launch_maps_hermes_body_without_spawning() {
+        let config = crate::config::OnibiConfig::default();
+        let launch = build_acp_prompt_launch(
+            &config,
+            "hermes",
+            AcpPromptBody {
+                protocol_version: Some(PROTOCOL_VERSION.to_string()),
+                cwd: "/repo".to_string(),
+                prompt: "continue".to_string(),
+                resume_session_id: Some("session-1".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(launch.spawn.command, "hermes");
+        assert_eq!(launch.spawn.args, vec!["acp"]);
+        assert_eq!(
+            launch.spawn.cwd.as_deref(),
+            Some(std::path::Path::new("/repo"))
+        );
+        assert_eq!(launch.input.agent, "hermes");
+        assert_eq!(launch.input.cwd, std::path::PathBuf::from("/repo"));
+        assert_eq!(launch.input.prompt, "continue");
+        assert_eq!(launch.input.resume_session_id.as_deref(), Some("session-1"));
+    }
+
+    #[test]
+    fn acp_prompt_launch_accepts_claude_alias_when_acp_enabled() {
+        let mut config = crate::config::OnibiConfig::default();
+        config.adapters.claude.transport = "acp".to_string();
+        config.adapters.claude.acp_args = vec!["--debug".to_string()];
+        let launch = build_acp_prompt_launch(
+            &config,
+            "claude",
+            AcpPromptBody {
+                protocol_version: None,
+                cwd: "/repo".to_string(),
+                prompt: "review".to_string(),
+                resume_session_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(launch.spawn.command, "claude-agent-acp");
+        assert_eq!(launch.spawn.args, vec!["--debug"]);
+        assert_eq!(launch.input.agent, "claude-code");
+    }
+
+    #[test]
+    fn acp_prompt_launch_rejects_non_acp_transport() {
+        let config = crate::config::OnibiConfig::default();
+        let error = build_acp_prompt_launch(
+            &config,
+            "claude-code",
+            AcpPromptBody {
+                protocol_version: None,
+                cwd: "/repo".to_string(),
+                prompt: "review".to_string(),
+                resume_session_id: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        let Json(api_error) = error.1;
+        assert_eq!(api_error.error, "claude-code ACP transport is not enabled");
+    }
+
+    #[test]
+    fn acp_prompt_launch_rejects_unknown_agent() {
+        let config = crate::config::OnibiConfig::default();
+        let error = build_acp_prompt_launch(
+            &config,
+            "codex",
+            AcpPromptBody {
+                protocol_version: None,
+                cwd: "/repo".to_string(),
+                prompt: "review".to_string(),
+                resume_session_id: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.0, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn adapter_runtime_json_reports_acp_fields() {
+        let config = crate::config::OnibiConfig::default();
+        let value = adapter_runtime_json(&config.adapters.hermes);
+
+        assert_eq!(value["transport"], "acp");
+        assert_eq!(value["acpCommand"], "hermes");
+        assert_eq!(value["acpArgs"][0], "acp");
+    }
+
     #[tokio::test]
     async fn malformed_json_returns_protocol_error_envelope() {
         let dir = tempdir().unwrap();
@@ -1312,6 +1488,59 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["protocol_version"], PROTOCOL_VERSION);
         assert!(value["error"].as_str().unwrap_or_default().contains("JSON"));
+    }
+
+    #[tokio::test]
+    async fn acp_prompt_malformed_json_returns_protocol_error_envelope() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/adapters/hermes/acp/prompt")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{not-json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["protocol_version"], PROTOCOL_VERSION);
+        assert!(value["error"].as_str().unwrap_or_default().contains("JSON"));
+    }
+
+    #[tokio::test]
+    async fn acp_prompt_unknown_agent_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/adapters/codex/acp/prompt")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "protocol_version": "1.0",
+                            "cwd": "/repo",
+                            "prompt": "review"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

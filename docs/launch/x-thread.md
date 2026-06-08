@@ -44,7 +44,7 @@ Post 4:
 ```text
 Claude Code is the strongest adapter because its PreToolUse hook can return updatedInput.
 
-Codex is Bash-only. OpenCode, Qoder, Copilot CLI, and Goose have blocking hook/event integrations. Gemini, Aider, Cursor, Hermes, Pi, and OMP are mirror, resume-only, or pending-native.
+Codex is Bash-only. Hermes uses ACP. OpenCode, Qoder, Copilot CLI, and Goose have blocking hook/event integrations. Gemini, Aider, Cursor, Pi, and OMP are mirror, resume-only, or pending-native.
 ```
 
 Post 5:

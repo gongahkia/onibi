@@ -4,11 +4,19 @@ import {
   DEFAULT_AGENT_COMMANDS,
   agentDisplayLabel,
   resolveAgentBinary,
+  resolveCommandBinary,
   spawnAgentSession,
   type AgentKind,
   type TerminalPanePlacement,
   useSessionStore,
 } from "../lib/sessions";
+import {
+  acpAdapterForAgent,
+  acpCommandLine,
+  isAcpTransportEnabled,
+  promptAcpAgentSession,
+} from "../lib/acp";
+import { useConfigStatusQuery } from "../lib/queries";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { ProseComposer } from "./composer/ProseComposer";
 
@@ -51,6 +59,10 @@ export function NewSessionDialog({
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [spawning, setSpawning] = useState(false);
+  const { data: configStatus } = useConfigStatusQuery({
+    enabled: open,
+    staleTime: 5_000,
+  });
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
@@ -77,16 +89,24 @@ export function NewSessionDialog({
     setAgent(defaultAgent ?? settings.defaultAgent);
   }, [defaultAgent, open, settings.defaultAgent]);
 
+  const acpAdapter = useMemo(
+    () => acpAdapterForAgent(agent, configStatus),
+    [agent, configStatus],
+  );
+  const acpEnabled = isAcpTransportEnabled(agent, configStatus);
+
   useEffect(() => {
-    if (agent === "shell" && worktreeStrategy === "auto") {
+    if ((agent === "shell" || acpEnabled) && worktreeStrategy === "auto") {
       setWorktreeStrategy("inherit");
     }
-  }, [agent, worktreeStrategy]);
+  }, [acpEnabled, agent, worktreeStrategy]);
 
   const launchCommandText =
     agent === "shell"
       ? "system shell"
-      : settings.agentCommands[agent] || DEFAULT_AGENT_COMMANDS[agent] || "system shell";
+      : acpEnabled && acpAdapter
+        ? acpCommandLine(acpAdapter)
+        : settings.agentCommands[agent] || DEFAULT_AGENT_COMMANDS[agent] || "system shell";
 
   useEffect(() => {
     if (!open || agent === "shell") {
@@ -96,7 +116,11 @@ export function NewSessionDialog({
     }
     let cancelled = false;
     setCheckingBinary(true);
-    void resolveAgentBinary(agent, settings)
+    const resolver =
+      acpEnabled && acpAdapter
+        ? resolveCommandBinary(acpAdapter.acpCommand)
+        : resolveAgentBinary(agent, settings);
+    void resolver
       .then((path) => {
         if (!cancelled) {
           setBinaryPath(path);
@@ -115,7 +139,7 @@ export function NewSessionDialog({
     return () => {
       cancelled = true;
     };
-  }, [agent, open, settings]);
+  }, [acpAdapter, acpEnabled, agent, open, settings]);
 
   if (!open) {
     return null;
@@ -149,11 +173,14 @@ export function NewSessionDialog({
       }
       if (missingBinary) {
         throw new Error(
-          `${agentDisplayLabel(agent, settings)} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
+          acpEnabled
+            ? `${agentDisplayLabel(agent, settings)} ACP command is not on PATH. Update [adapters.${agent === "hermes" ? "hermes" : "claude"}].acp_command in config.toml.`
+            : `${agentDisplayLabel(agent, settings)} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
         );
       }
       const existing = sessions.find(
         (session) =>
+          !acpEnabled &&
           worktreeStrategy === "inherit" &&
           session.agent === agent &&
           session.workspaceId === selectedWorkspace.id &&
@@ -166,16 +193,36 @@ export function NewSessionDialog({
         onClose();
         return;
       }
+      const cwd =
+        cwdMode === "current" && defaultCwd?.startsWith(selectedWorkspace.path)
+          ? defaultCwd
+          : selectedWorkspace.path;
+      if (acpEnabled) {
+        const prompt = initialPrompt.trim();
+        if (!prompt) {
+          throw new Error("Enter an initial prompt for ACP launch.");
+        }
+        const acpAgent =
+          agent === "claude-code" || agent === "hermes" ? agent : null;
+        if (!acpAgent) {
+          throw new Error(`${agentDisplayLabel(agent, settings)} does not support ACP launch.`);
+        }
+        await promptAcpAgentSession({
+          agent: acpAgent,
+          cwd,
+          prompt,
+        });
+        setInitialPrompt("");
+        onClose();
+        return;
+      }
       await spawnAgentSession(
         agent,
         selectedWorkspace,
         initialPrompt,
         placement,
         {
-          cwd:
-            cwdMode === "current" && defaultCwd?.startsWith(selectedWorkspace.path)
-              ? defaultCwd
-              : selectedWorkspace.path,
+          cwd,
           trustMode,
           worktreeStrategy,
         },
@@ -259,6 +306,7 @@ export function NewSessionDialog({
               <select
                 className="settings-select"
                 value={trustMode}
+                disabled={acpEnabled}
                 onChange={(event) =>
                   setTrustMode(event.target.value as "approval-required" | "full-access")
                 }
@@ -271,7 +319,7 @@ export function NewSessionDialog({
               <input
                 type="checkbox"
                 checked={worktreeStrategy === "auto"}
-                disabled={agent === "shell"}
+                disabled={agent === "shell" || acpEnabled}
                 onChange={(event) =>
                   setWorktreeStrategy(event.target.checked ? "auto" : "inherit")
                 }
@@ -306,7 +354,7 @@ export function NewSessionDialog({
               />
             </label>
             <div className="settings-note">
-              Launch command:{" "}
+              {acpEnabled ? "ACP command: " : "Launch command: "}
               {launchCommandText}
               {agent !== "shell" ? (
                 <>

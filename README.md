@@ -75,9 +75,10 @@ Approval-blocking adapters:
 - GitHub Copilot CLI - lifecycle events, blocking pre-tool approval, edited argument forwarding.
 - Goose - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
 
-Mirror, resume-only, or pending-native adapters:
+Mirror, protocol, resume-only, or pending-native adapters:
 
-- Gemini and Hermes - resume metadata when provider session IDs are available.
+- Hermes - ACP permission approval plus resume metadata when provider session IDs are available.
+- Gemini - resume metadata when provider session IDs are available.
 - Aider - terminal mirror plus history-based restore.
 - Cursor, Pi, and OMP - terminal mirror and heuristic detection while stable native hook APIs are pending.
 

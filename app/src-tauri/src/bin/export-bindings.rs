@@ -27,6 +27,8 @@ fn bindings() -> String {
     push::<protocol::Approval>(&mut output);
     push::<protocol::ApprovalDecisionBody>(&mut output);
     push::<protocol::ApprovalDecisionResponse>(&mut output);
+    push::<protocol::AcpPromptBody>(&mut output);
+    push::<protocol::AcpPromptResponse>(&mut output);
     push::<protocol::RunEvent>(&mut output);
     push::<protocol::RunEventBody>(&mut output);
     push::<protocol::DesktopCommandBlock>(&mut output);

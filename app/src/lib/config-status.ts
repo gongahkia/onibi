@@ -12,7 +12,17 @@ export interface PolicyValidationStatus {
   error?: string | null;
 }
 
+export interface AdapterRuntimeConfig {
+  transport: string;
+  acpCommand: string;
+  acpArgs: string[];
+}
+
 export interface ConfigStatusResponse {
+  adapters?: {
+    claude?: AdapterRuntimeConfig;
+    hermes?: AdapterRuntimeConfig;
+  };
   policyValidation?: PolicyValidationStatus;
 }
 
