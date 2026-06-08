@@ -28,11 +28,19 @@ export type DesktopSessionSnapshot = { id: string, title: string, agent: string,
 
 export type DesktopSnapshotBody = { protocol_version: string | null, sessions: Array<DesktopSessionSnapshot>, arrangements: Array<DesktopNamedRef>, updatedAt: number | null, };
 
-export type DesktopSessionLaunchBody = { protocol_version: string | null, agent: string | null, workspace: string, prompt: string | null, cwd: string | null, };
+export type DesktopSessionLaunchBody = { protocol_version: string | null, agent: string | null, workspace: string, prompt: string | null, cwd: string | null, worktreeStrategy: string | null, };
 
 export type DesktopRemoteSshBody = { protocol_version: string | null, target: string, workspace: string, cwd: string | null, name: string | null, keybindings: string | null, };
 
 export type DesktopWorktreeOpenBody = { protocol_version: string | null, path: string, agent: string | null, prompt: string | null, };
+
+export type CheckpointRecord = { approvalId: string, sessionId: string, cwd: string, preRef: string, postRef: string | null, createdAt: number, updatedAt: number, error: string | null, };
+
+export type CheckpointDiffFile = { path: string, oldLabel: string, newLabel: string, oldText: string | null, newText: string | null, binary: boolean, };
+
+export type CheckpointDiff = { protocolVersion: string, approvalId: string, preRef: string, postRef: string | null, files: Array<CheckpointDiffFile>, };
+
+export type CheckpointRestoreBody = { protocol_version: string | null, };
 
 export type DesktopSessionInputBody = { protocol_version: string | null, text: string, };
 

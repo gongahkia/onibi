@@ -1579,6 +1579,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn checkpoint_list_returns_records() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        store
+            .upsert_checkpoint_pre(&CheckpointRecord {
+                approval_id: "approval-1".to_string(),
+                session_id: "pty-1".to_string(),
+                cwd: "/repo".to_string(),
+                pre_ref: "refs/onibi/turns/approval-1/pre".to_string(),
+                post_ref: None,
+                created_at: 10,
+                updated_at: 10,
+                error: None,
+            })
+            .unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/checkpoints/list")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let records: Vec<CheckpointRecord> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].approval_id, "approval-1");
+    }
+
+    #[tokio::test]
     async fn status_includes_runtime_config_and_orchestration_summary() {
         let dir = tempdir().unwrap();
         let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
