@@ -23,7 +23,7 @@ pub(super) enum CommandKind {
 pub(super) fn classify_command(command: &str) -> Option<CommandKind> {
     Some(match command {
         "pty.spawn" | "agent.start" => CommandKind::Spawn,
-        "pty.write" => CommandKind::Write,
+        "pty.write" | "agent.send" => CommandKind::Write,
         "pty.resize" => CommandKind::Resize,
         "pty.kill" => CommandKind::Kill,
         "pty.list" | "agent.list" => CommandKind::ListLive,
@@ -33,7 +33,7 @@ pub(super) fn classify_command(command: &str) -> Option<CommandKind> {
         "session.stop" => CommandKind::Stop,
         "session.set_trust" => CommandKind::SetTrust,
         "pane.read" | "agent.read" => CommandKind::Read,
-        "pane.send_keys" | "agent.send" => CommandKind::SendKeys,
+        "pane.send_keys" => CommandKind::SendKeys,
         "wait.output" => CommandKind::WaitOutput,
         "wait.agent_status" => CommandKind::WaitAgentStatus,
         "agent.focus" => CommandKind::Focus,

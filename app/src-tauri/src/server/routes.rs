@@ -2,7 +2,7 @@ use super::{auth, pairing, AppState};
 use crate::{
     adapters,
     approval::store::{now_millis, ApprovalHistoryFilter},
-    orchestration::{AgentStatus, SessionInfo, SessionLifecycle},
+    orchestration::AgentStatus,
     policy,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
@@ -980,7 +980,11 @@ impl ApprovalHistoryQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{approval::store::ApprovalStore, server::router};
+    use crate::{
+        approval::store::ApprovalStore,
+        orchestration::{SessionInfo, SessionLifecycle},
+        server::router,
+    };
     use axum::{
         body::{to_bytes, Body},
         http::{Request, StatusCode},
@@ -988,6 +992,33 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
     use tower::ServiceExt;
+
+    fn route_test_session(id: &str, trust_mode: TrustMode) -> SessionInfo {
+        SessionInfo {
+            id: id.to_string(),
+            pane_id: id.to_string(),
+            name: None,
+            agent: Some("claude-code".to_string()),
+            title: "Claude Code".to_string(),
+            workspace_id: "workspace:/repo".to_string(),
+            cwd: Some("/repo".to_string()),
+            status: AgentStatus::Working,
+            lifecycle: SessionLifecycle::Running,
+            rows: 24,
+            cols: 80,
+            created_at: now_millis(),
+            updated_at: now_millis(),
+            restart: None,
+            safe_mode: false,
+            trust_mode,
+            provider: None,
+            remote: None,
+            process_id: None,
+            stopped_at: None,
+            exit_code: None,
+            exit_signal: None,
+        }
+    }
 
     #[tokio::test]
     async fn approval_round_trip_blocks_until_decision() {

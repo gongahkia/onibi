@@ -697,52 +697,26 @@ impl OrchestrationState {
                 "tcpPort": DEFAULT_ORCHESTRATION_PORT,
                 "socketPath": orchestration_socket_path().ok().map(|path| path.display().to_string()),
             })),
-            "pty.spawn" | "agent.start" if classify_command(command.as_str()) == Some(CommandKind::Spawn) => {
-                self.spawn(payload).await
-            }
-            "pty.write" | "agent.send" if classify_command(command.as_str()) == Some(CommandKind::Write) => {
-                self.write(payload).await
-            }
-            "pty.resize" if classify_command(command.as_str()) == Some(CommandKind::Resize) => {
-                self.resize(payload).await
-            }
-            "pty.kill" if classify_command(command.as_str()) == Some(CommandKind::Kill) => {
-                self.kill(payload).await
-            }
-            "pty.list" | "agent.list" if classify_command(command.as_str()) == Some(CommandKind::ListLive) => {
-                self.list_live().await
-            }
-            "pty.replay" if classify_command(command.as_str()) == Some(CommandKind::Replay) => {
-                self.replay(payload).await
-            }
-            "session.list" if classify_command(command.as_str()) == Some(CommandKind::ListSessions) => {
-                self.list_sessions().await
-            }
-            "session.attach" if classify_command(command.as_str()) == Some(CommandKind::Attach) => {
-                self.attach(payload).await
-            }
-            "session.stop" if classify_command(command.as_str()) == Some(CommandKind::Stop) => {
-                self.stop(payload).await
-            }
-            "session.set_trust" if classify_command(command.as_str()) == Some(CommandKind::SetTrust) => {
-                self.set_trust(payload).await
-            }
-            "pane.read" | "agent.read" if classify_command(command.as_str()) == Some(CommandKind::Read) => {
-                self.read(payload).await
-            }
-            "pane.send_keys" if classify_command(command.as_str()) == Some(CommandKind::SendKeys) => {
-                self.send_keys(payload).await
-            }
-            "wait.output" if classify_command(command.as_str()) == Some(CommandKind::WaitOutput) => {
-                self.wait_output(payload).await
-            }
-            "wait.agent_status" if classify_command(command.as_str()) == Some(CommandKind::WaitAgentStatus) => {
-                self.wait_agent_status(payload).await
-            }
-            "agent.focus" if classify_command(command.as_str()) == Some(CommandKind::Focus) => {
-                self.focus(payload).await
-            }
-            other => Err(anyhow!("unknown orchestration command: {other}")),
+            other => match classify_command(other) {
+                Some(CommandKind::Spawn) => self.spawn(payload).await,
+                Some(CommandKind::Write) => self.write(payload).await,
+                Some(CommandKind::Resize) => self.resize(payload).await,
+                Some(CommandKind::Kill) => self.kill(payload).await,
+                Some(CommandKind::ListLive) => self.list_live().await,
+                Some(CommandKind::Replay) => self.replay(payload).await,
+                Some(CommandKind::ListSessions) => self.list_sessions().await,
+                Some(CommandKind::Attach) => self.attach(payload).await,
+                Some(CommandKind::Stop) => self.stop(payload).await,
+                Some(CommandKind::SetTrust) => self.set_trust(payload).await,
+                Some(CommandKind::Read) => self.read(payload).await,
+                Some(CommandKind::SendKeys) => self.send_keys(payload).await,
+                Some(CommandKind::WaitOutput) => self.wait_output(payload).await,
+                Some(CommandKind::WaitAgentStatus) => self.wait_agent_status(payload).await,
+                Some(CommandKind::Focus) => self.focus(payload).await,
+                Some(CommandKind::Subscribe) | None => {
+                    Err(anyhow!("unknown orchestration command: {other}"))
+                }
+            },
         }
     }
 
