@@ -1603,6 +1603,7 @@ mod tests {
             value["runtimeConfig"]["ptyRingLimit"],
             crate::config::DEFAULT_PTY_RING_LIMIT
         );
+        assert_eq!(value["runtimeConfig"]["checkpointingEnabled"], false);
         assert!(value["uptimeSecs"].is_u64());
         assert!(value["configPath"].is_string());
         assert_eq!(value["orchestration"]["paneCount"], 0);

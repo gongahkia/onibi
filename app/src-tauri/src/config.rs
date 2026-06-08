@@ -382,6 +382,7 @@ mod tests {
         assert!(!validation.exists);
         assert_eq!(validation.runtime.approval_timeout_secs, 600);
         assert_eq!(validation.runtime.pty_ring_limit, 5_000);
+        assert!(!validation.runtime.checkpointing_enabled);
     }
 
     #[test]
@@ -415,6 +416,9 @@ version = 1
 [server]
 approval_timeout_secs = 12
 pty_ring_limit = 2048
+
+[checkpointing]
+enabled = true
 "#,
         )
         .unwrap();
@@ -423,6 +427,7 @@ pty_ring_limit = 2048
         assert!(validation.exists);
         assert_eq!(validation.runtime.approval_timeout_secs, 12);
         assert_eq!(validation.runtime.pty_ring_limit, 2048);
+        assert!(validation.runtime.checkpointing_enabled);
     }
 
     #[test]
