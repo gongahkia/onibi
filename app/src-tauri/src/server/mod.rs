@@ -120,6 +120,7 @@ impl AppState {
             runtime_config: Arc::new(RwLock::new(config::RuntimeConfig {
                 approval_timeout_secs: 5,
                 pty_ring_limit: config::DEFAULT_PTY_RING_LIMIT,
+                checkpointing_enabled: false,
             })),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
@@ -146,6 +147,10 @@ impl AppState {
 
     pub async fn runtime_config(&self) -> config::RuntimeConfig {
         self.runtime_config.read().await.clone()
+    }
+
+    pub async fn checkpointing_enabled(&self) -> bool {
+        self.runtime_config.read().await.checkpointing_enabled
     }
 
     pub async fn reload_runtime_config(&self) -> Result<config::RuntimeConfig> {
@@ -240,6 +245,12 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/approval/history/export",
             get(routes::approval_history_export),
+        )
+        .route("/v1/checkpoints/list", get(routes::checkpoints_list))
+        .route("/v1/checkpoints/:id/diff", get(routes::checkpoint_diff))
+        .route(
+            "/v1/checkpoints/:id/restore",
+            post(routes::checkpoint_restore),
         )
         .route("/v1/approval/:id/decide", post(routes::approval_decide))
         .route("/v1/emergency-stop", post(routes::emergency_stop))

@@ -4,7 +4,12 @@ import {
   type ApprovalAuditRecord,
   type ApprovalHistoryOptions,
 } from "./approval-audit";
+import {
+  fetchCheckpoints,
+  type CheckpointListOptions,
+} from "./checkpoints";
 import { fetchConfigStatus, type ConfigStatusResponse } from "./config-status";
+import type { CheckpointRecord } from "./contracts/generated";
 import { appQueryClient } from "./query-client";
 import { fetchTransportStatus, type TransportSnapshot } from "./transports";
 
@@ -12,6 +17,7 @@ type QueryOptions<T> = Omit<UseQueryOptions<T, Error>, "queryKey" | "queryFn">;
 
 export const queryKeys = {
   approvalHistory: (options: ApprovalHistoryOptions) => ["approval-history", options] as const,
+  checkpoints: (options: CheckpointListOptions) => ["checkpoints", options] as const,
   configStatus: ["config-status"] as const,
   transportStatus: ["transport-status"] as const,
 };
@@ -24,6 +30,20 @@ export function useApprovalHistoryQuery(
     {
       queryKey: queryKeys.approvalHistory(options),
       queryFn: () => fetchApprovalHistory(options),
+      ...queryOptions,
+    },
+    appQueryClient,
+  );
+}
+
+export function useCheckpointsQuery(
+  options: CheckpointListOptions = {},
+  queryOptions: QueryOptions<CheckpointRecord[]> = {},
+) {
+  return useQuery<CheckpointRecord[], Error>(
+    {
+      queryKey: queryKeys.checkpoints(options),
+      queryFn: () => fetchCheckpoints(options),
       ...queryOptions,
     },
     appQueryClient,

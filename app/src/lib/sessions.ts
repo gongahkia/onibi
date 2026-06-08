@@ -5261,6 +5261,9 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
     title: daemon.title ?? daemon.name ?? session.title,
     status: sessionStatusFromDaemon(daemon),
     trustMode: daemon.trustMode ?? session.trustMode ?? "approval-required",
+    worktreeStrategy: session.worktreeStrategy ?? "inherit",
+    worktreePath: session.worktreePath ?? null,
+    worktreeOwnerPath: session.worktreeOwnerPath ?? null,
     createdAt: daemon.createdAt || session.createdAt,
     pendingApprovals: session.pendingApprovals ?? [],
     cwd: daemon.cwd ?? session.cwd,
@@ -5269,6 +5272,11 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
       ? {
           ...daemon.restart,
           trustMode: daemon.restart.trustMode ?? daemon.trustMode ?? "approval-required",
+          worktreeStrategy:
+            session.restart?.worktreeStrategy ?? session.worktreeStrategy ?? "inherit",
+          worktreePath: session.restart?.worktreePath ?? session.worktreePath ?? null,
+          worktreeOwnerPath:
+            session.restart?.worktreeOwnerPath ?? session.worktreeOwnerPath ?? null,
           remote:
             normalizeRemoteSessionMetadata(daemon.restart.remote) ?? remote ?? null,
         }
@@ -5289,6 +5297,9 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
     title: daemon.title ?? daemon.name ?? sessionTitle(agent, workspaceFromPathSync(cwd)),
     status: sessionStatusFromDaemon(daemon),
     trustMode: daemon.trustMode ?? "approval-required",
+    worktreeStrategy: "inherit",
+    worktreePath: null,
+    worktreeOwnerPath: null,
     createdAt: daemon.createdAt || Date.now(),
     pendingApprovals: [],
     cwd,
@@ -5300,6 +5311,9 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
       ? {
           ...daemon.restart,
           trustMode: daemon.restart.trustMode ?? daemon.trustMode ?? "approval-required",
+          worktreeStrategy: "inherit",
+          worktreePath: null,
+          worktreeOwnerPath: null,
           remote: normalizeRemoteSessionMetadata(daemon.restart.remote),
         }
       : null,
@@ -6915,6 +6929,7 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     agent: session.agent,
     workspaceId: session.workspaceId,
     title: session.title,
+    trustMode: session.restart.trustMode ?? session.trustMode ?? "approval-required",
     ...(session.remote ?? session.restart.remote
       ? { remote: session.remote ?? session.restart.remote ?? null }
       : {}),
@@ -6927,6 +6942,10 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     createdAt: Date.now(),
     pendingApprovals: [],
     cwd: session.restart.cwd ?? session.cwd,
+    trustMode: session.restart.trustMode ?? session.trustMode ?? "approval-required",
+    worktreeStrategy: session.restart.worktreeStrategy ?? session.worktreeStrategy ?? "inherit",
+    worktreePath: session.restart.worktreePath ?? session.worktreePath ?? null,
+    worktreeOwnerPath: session.restart.worktreeOwnerPath ?? session.worktreeOwnerPath ?? null,
     lastExitCode: null,
     lastTrigger: null,
     lastCommandBlockId: null,
@@ -6965,6 +6984,11 @@ export async function duplicateSession(
       args: session.restart.args,
       cwd: session.cwd ?? session.restart.cwd,
       env: session.restart.env,
+      trustMode: session.restart.trustMode ?? session.trustMode ?? "approval-required",
+      worktreeStrategy: session.restart.worktreeStrategy ?? session.worktreeStrategy ?? "inherit",
+      worktreePath: session.restart.worktreePath ?? session.worktreePath ?? null,
+      worktreeOwnerPath:
+        session.restart.worktreeOwnerPath ?? session.worktreeOwnerPath ?? null,
       ...(session.restart.shellMode ? { shellMode: session.restart.shellMode } : {}),
       ...(session.remote ?? session.restart.remote
         ? { remote: session.remote ?? session.restart.remote ?? null }

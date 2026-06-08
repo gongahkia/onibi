@@ -3,6 +3,7 @@
 
 mod adapters;
 mod approval;
+mod checkpointing;
 mod cli;
 mod config;
 mod headless;

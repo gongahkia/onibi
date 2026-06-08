@@ -2,14 +2,16 @@ use super::{auth, pairing, AppState};
 use crate::{
     adapters,
     approval::store::{now_millis, ApprovalHistoryFilter},
+    checkpointing,
     orchestration::AgentStatus,
     policy,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
-        DesktopRemoteSshBody, DesktopSessionInputBody, DesktopSessionLaunchBody,
-        DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody,
-        RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
+        CheckpointDiff, CheckpointRecord, CheckpointRestoreBody, ClientScope, Decision,
+        DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopRemoteSshBody,
+        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
+        DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody, RunEvent,
+        RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
     pty::TrustMode,
     push, secret,
@@ -78,6 +80,12 @@ pub struct ApprovalHistoryQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CheckpointListQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
 pub async fn healthz() -> Json<Value> {
     Json(json!({"ok": true, "protocol_version": PROTOCOL_VERSION}))
 }
@@ -129,6 +137,50 @@ pub async fn approval_history_export(
         HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
     );
     Ok(response)
+}
+
+pub async fn checkpoints_list(
+    State(state): State<AppState>,
+    Query(query): Query<CheckpointListQuery>,
+) -> ApiResult<Vec<CheckpointRecord>> {
+    state
+        .store
+        .list_checkpoints(query.limit.unwrap_or(500))
+        .map(Json)
+        .map_err(internal_error)
+}
+
+pub async fn checkpoint_diff(
+    State(state): State<AppState>,
+    Path(approval_id): Path<String>,
+) -> ApiResult<CheckpointDiff> {
+    let checkpoint = state
+        .store
+        .get_checkpoint(&approval_id)
+        .map_err(internal_error)?
+        .ok_or_else(|| not_found("checkpoint not found"))?;
+    checkpointing::diff(&checkpoint)
+        .map(Json)
+        .map_err(internal_error)
+}
+
+pub async fn checkpoint_restore(
+    State(state): State<AppState>,
+    Path(approval_id): Path<String>,
+    ApiJson(body): ApiJson<CheckpointRestoreBody>,
+) -> ApiResult<Value> {
+    validate_version(body.protocol_version.as_deref())?;
+    let checkpoint = state
+        .store
+        .get_checkpoint(&approval_id)
+        .map_err(internal_error)?
+        .ok_or_else(|| not_found("checkpoint not found"))?;
+    checkpointing::restore(&checkpoint).map_err(internal_error)?;
+    Ok(Json(json!({
+        "ok": true,
+        "protocol_version": PROTOCOL_VERSION,
+        "approvalId": approval_id,
+    })))
 }
 
 pub async fn approval_decide(
@@ -357,6 +409,7 @@ pub async fn desktop_session_launch(
             "workspace": body.workspace,
             "prompt": body.prompt,
             "cwd": body.cwd,
+            "worktreeStrategy": body.worktree_strategy,
         }),
     )))
 }
@@ -594,7 +647,11 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
         "exists": validation.exists,
         "runtimeConfig": runtime_config,
         "fileRuntimeConfig": validation.runtime,
-        "reloadableFields": ["server.approval_timeout_secs", "server.pty_ring_limit"],
+        "reloadableFields": [
+            "server.approval_timeout_secs",
+            "server.pty_ring_limit",
+            "checkpointing.enabled"
+        ],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
         "policyValidation": policy::validate(),
@@ -610,7 +667,11 @@ pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
         "ok": true,
         "protocol_version": PROTOCOL_VERSION,
         "runtimeConfig": runtime_config,
-        "appliedFields": ["server.approval_timeout_secs", "server.pty_ring_limit"],
+        "appliedFields": [
+            "server.approval_timeout_secs",
+            "server.pty_ring_limit",
+            "checkpointing.enabled"
+        ],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
     })))
@@ -716,6 +777,7 @@ pub async fn provider_event(
         .orchestration
         .apply_provider_event(ingest.update)
         .await;
+    checkpoint_post_if_enabled(&state, &ingest.run_session_id, &ingest.event_kind).await;
     Ok(Json(json!({
         "ok": true,
         "protocol_version": PROTOCOL_VERSION,
@@ -724,6 +786,59 @@ pub async fn provider_event(
         "correlated": session.is_some(),
         "session": session,
     })))
+}
+
+async fn checkpoint_pre_if_enabled(state: &AppState, approval: &Approval) {
+    if !state.checkpointing_enabled().await {
+        return;
+    }
+    match checkpointing::snapshot_pre(approval) {
+        Ok(record) => {
+            if let Err(error) = state.store.upsert_checkpoint_pre(&record) {
+                tracing::warn!(%error, approval_id = approval.approval_id, "store checkpoint pre failed");
+            }
+        }
+        Err(error) => {
+            tracing::debug!(%error, approval_id = approval.approval_id, "checkpoint pre skipped");
+        }
+    }
+}
+
+async fn checkpoint_post_if_enabled(state: &AppState, session_id: &str, event_kind: &str) {
+    if !state.checkpointing_enabled().await || !is_post_tool_event(event_kind) {
+        return;
+    }
+    let record = match state.store.latest_checkpoint_without_post(session_id) {
+        Ok(Some(record)) => record,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, session_id, "load pending checkpoint failed");
+            return;
+        }
+    };
+    match checkpointing::snapshot_post(&record) {
+        Ok(post_ref) => {
+            if let Err(error) = state
+                .store
+                .mark_checkpoint_post(&record.approval_id, &post_ref)
+            {
+                tracing::warn!(%error, approval_id = record.approval_id, "store checkpoint post failed");
+            }
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let _ = state
+                .store
+                .mark_checkpoint_error(&record.approval_id, &message);
+            tracing::debug!(%message, approval_id = record.approval_id, "checkpoint post skipped");
+        }
+    }
+}
+
+fn is_post_tool_event(event_kind: &str) -> bool {
+    event_kind.contains("posttooluse")
+        || event_kind.contains("tool.execute.after")
+        || event_kind.contains("tool.executeafter")
 }
 
 pub async fn wait_for_approval_decision(
@@ -765,6 +880,7 @@ pub async fn wait_for_approval_decision(
         approval.decided_at = Some(now_millis());
         approval.metadata = with_trust_metadata(approval.metadata.take(), "full-access");
         state.store.insert_approval(&approval)?;
+        checkpoint_pre_if_enabled(state, &approval).await;
         state
             .orchestration
             .set_status(&approval.session_id, AgentStatus::Working)
@@ -810,6 +926,7 @@ pub async fn wait_for_approval_decision(
             approval.decided_at = Some(now_millis());
             approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, source);
             state.store.insert_approval(&approval)?;
+            checkpoint_pre_if_enabled(state, &approval).await;
             state
                 .orchestration
                 .set_status(
@@ -840,6 +957,7 @@ pub async fn wait_for_approval_decision(
     }
 
     state.store.insert_approval(&approval)?;
+    checkpoint_pre_if_enabled(state, &approval).await;
     let rx = state.pending.insert(approval_id.clone()).await;
     state
         .orchestration
@@ -962,6 +1080,10 @@ fn internal_error(error: anyhow::Error) -> (StatusCode, Json<ApiError>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ApiError::new(message)),
     )
+}
+
+fn not_found(message: &str) -> (StatusCode, Json<ApiError>) {
+    (StatusCode::NOT_FOUND, Json(ApiError::new(message)))
 }
 
 impl ApprovalHistoryQuery {

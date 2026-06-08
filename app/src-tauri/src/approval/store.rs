@@ -1,6 +1,6 @@
 use crate::protocol::{
-    Approval, ApprovalDecisionBody, ClientScope, Decision, DesktopCommandBlock, RunEvent,
-    PROTOCOL_VERSION,
+    Approval, ApprovalDecisionBody, CheckpointRecord, ClientScope, Decision, DesktopCommandBlock,
+    RunEvent, PROTOCOL_VERSION,
 };
 use anyhow::{Context, Result};
 use r2d2::Pool;
@@ -107,6 +107,17 @@ impl ApprovalStore {
               updated_at    INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS checkpoints (
+              approval_id TEXT PRIMARY KEY,
+              session_id  TEXT NOT NULL,
+              cwd         TEXT NOT NULL,
+              pre_ref     TEXT NOT NULL,
+              post_ref    TEXT,
+              created_at  INTEGER NOT NULL,
+              updated_at  INTEGER NOT NULL,
+              error       TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS devices (
               device_id   TEXT PRIMARY KEY,
               label       TEXT,
@@ -132,6 +143,9 @@ impl ApprovalStore {
 
             CREATE INDEX IF NOT EXISTS idx_command_blocks_started
               ON command_blocks(started_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_checkpoints_session_created
+              ON checkpoints(session_id, created_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -417,6 +431,122 @@ impl ApprovalStore {
         Ok(blocks)
     }
 
+    pub fn upsert_checkpoint_pre(&self, checkpoint: &CheckpointRecord) -> Result<()> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        conn.execute(
+            r#"
+            INSERT INTO checkpoints (
+              approval_id, session_id, cwd, pre_ref, post_ref, created_at, updated_at, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(approval_id) DO UPDATE SET
+              session_id = excluded.session_id,
+              cwd = excluded.cwd,
+              pre_ref = excluded.pre_ref,
+              updated_at = excluded.updated_at,
+              error = excluded.error
+            "#,
+            params![
+                &checkpoint.approval_id,
+                &checkpoint.session_id,
+                &checkpoint.cwd,
+                &checkpoint.pre_ref,
+                &checkpoint.post_ref,
+                checkpoint.created_at,
+                checkpoint.updated_at,
+                &checkpoint.error,
+            ],
+        )
+        .with_context(|| format!("upsert checkpoint {}", checkpoint.approval_id))?;
+        Ok(())
+    }
+
+    pub fn mark_checkpoint_post(&self, approval_id: &str, post_ref: &str) -> Result<bool> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let changed = conn
+            .execute(
+                r#"
+                UPDATE checkpoints
+                SET post_ref = ?, updated_at = ?, error = NULL
+                WHERE approval_id = ?
+                "#,
+                params![post_ref, now_millis(), approval_id],
+            )
+            .with_context(|| format!("mark checkpoint post {approval_id}"))?;
+        Ok(changed == 1)
+    }
+
+    pub fn mark_checkpoint_error(&self, approval_id: &str, error: &str) -> Result<bool> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let changed = conn
+            .execute(
+                r#"
+                UPDATE checkpoints
+                SET updated_at = ?, error = ?
+                WHERE approval_id = ?
+                "#,
+                params![now_millis(), error, approval_id],
+            )
+            .with_context(|| format!("mark checkpoint error {approval_id}"))?;
+        Ok(changed == 1)
+    }
+
+    pub fn get_checkpoint(&self, approval_id: &str) -> Result<Option<CheckpointRecord>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        conn.query_row(
+            r#"
+            SELECT approval_id, session_id, cwd, pre_ref, post_ref, created_at, updated_at, error
+            FROM checkpoints
+            WHERE approval_id = ?
+            "#,
+            [approval_id],
+            row_to_checkpoint,
+        )
+        .optional()
+        .with_context(|| format!("get checkpoint {approval_id}"))
+    }
+
+    pub fn list_checkpoints(&self, limit: usize) -> Result<Vec<CheckpointRecord>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT approval_id, session_id, cwd, pre_ref, post_ref, created_at, updated_at, error
+            FROM checkpoints
+            ORDER BY created_at DESC
+            LIMIT ?
+            "#,
+        )?;
+        let mut rows = stmt.query([limit.clamp(1, 1000) as i64])?;
+        let mut checkpoints = Vec::new();
+        while let Some(row) = rows.next()? {
+            checkpoints.push(row_to_checkpoint(row)?);
+        }
+        Ok(checkpoints)
+    }
+
+    pub fn latest_checkpoint_without_post(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<CheckpointRecord>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        conn.query_row(
+            r#"
+            SELECT c.approval_id, c.session_id, c.cwd, c.pre_ref, c.post_ref,
+                   c.created_at, c.updated_at, c.error
+            FROM checkpoints c
+            JOIN approvals a ON a.approval_id = c.approval_id
+            WHERE c.session_id = ?
+              AND c.post_ref IS NULL
+              AND a.decision = 'allow'
+            ORDER BY c.created_at DESC
+            LIMIT 1
+            "#,
+            [session_id],
+            row_to_checkpoint,
+        )
+        .optional()
+        .with_context(|| format!("get latest checkpoint without post for {session_id}"))
+    }
+
     pub fn insert_device(
         &self,
         device_id: &str,
@@ -613,6 +743,19 @@ fn row_to_command_block(row: &rusqlite::Row<'_>) -> Result<DesktopCommandBlock> 
     })
 }
 
+fn row_to_checkpoint(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRecord> {
+    Ok(CheckpointRecord {
+        approval_id: row.get(0)?,
+        session_id: row.get(1)?,
+        cwd: row.get(2)?,
+        pre_ref: row.get(3)?,
+        post_ref: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        error: row.get(7)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -782,5 +925,47 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].command, "pnpm test");
         assert_eq!(blocks[0].changed_files, vec!["src/main.ts"]);
+    }
+
+    #[test]
+    fn stores_checkpoint_refs() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let mut approval = sample("approval-1");
+        approval.session_id = "pty-1".to_string();
+        approval.decision = Some(Decision::Allow);
+        approval.decided_at = Some(now_millis());
+        store.insert_approval(&approval).unwrap();
+        store
+            .upsert_checkpoint_pre(&CheckpointRecord {
+                approval_id: "approval-1".to_string(),
+                session_id: "pty-1".to_string(),
+                cwd: "/repo".to_string(),
+                pre_ref: "refs/onibi/turns/approval-1/pre".to_string(),
+                post_ref: None,
+                created_at: 10,
+                updated_at: 10,
+                error: None,
+            })
+            .unwrap();
+
+        let pending = store
+            .latest_checkpoint_without_post("pty-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending.approval_id, "approval-1");
+        assert!(store
+            .mark_checkpoint_post("approval-1", "refs/onibi/turns/approval-1/post")
+            .unwrap());
+
+        let checkpoint = store.get_checkpoint("approval-1").unwrap().unwrap();
+        assert_eq!(
+            checkpoint.post_ref.as_deref(),
+            Some("refs/onibi/turns/approval-1/post")
+        );
+        assert!(store
+            .latest_checkpoint_without_post("pty-1")
+            .unwrap()
+            .is_none());
     }
 }

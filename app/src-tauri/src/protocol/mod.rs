@@ -285,6 +285,51 @@ pub struct DesktopWorktreeOpenBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRecord {
+    pub approval_id: String,
+    pub session_id: String,
+    pub cwd: String,
+    pub pre_ref: String,
+    #[serde(default)]
+    pub post_ref: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointDiffFile {
+    pub path: String,
+    pub old_label: String,
+    pub new_label: String,
+    #[serde(default)]
+    pub old_text: Option<String>,
+    #[serde(default)]
+    pub new_text: Option<String>,
+    pub binary: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointDiff {
+    pub protocol_version: String,
+    pub approval_id: String,
+    pub pre_ref: String,
+    #[serde(default)]
+    pub post_ref: Option<String>,
+    pub files: Vec<CheckpointDiffFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct CheckpointRestoreBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct DesktopSessionInputBody {
     #[serde(default)]
     pub protocol_version: Option<String>,

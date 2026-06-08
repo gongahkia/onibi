@@ -5080,6 +5080,16 @@ button.welcome-pill:hover {
   color: var(--success, #4ec9b0);
 }
 
+.approval-checkpoint-row {
+  align-items: center;
+}
+
+.approval-checkpoint-diff {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .transcript-output {
   max-height: 340px;
   overflow-wrap: anywhere;

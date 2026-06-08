@@ -1,7 +1,20 @@
 import { useMemo, useState } from "react";
 import type { ApprovalAuditRecord } from "../lib/approval-audit";
 import type { ApprovalDecision } from "../lib/approval-client";
-import { useApprovalHistoryQuery } from "../lib/queries";
+import {
+  fetchCheckpointDiff,
+  restoreCheckpoint,
+} from "../lib/checkpoints";
+import { confirmAction } from "../lib/native-dialogs";
+import { appQueryClient } from "../lib/query-client";
+import {
+  queryKeys,
+  useApprovalHistoryQuery,
+  useCheckpointsQuery,
+} from "../lib/queries";
+import { useSessionStore } from "../lib/sessions";
+import type { CheckpointDiff, CheckpointRecord } from "../lib/contracts/generated";
+import { DiffViewer } from "./DiffViewer";
 
 type ApprovalFilter = "all" | ApprovalDecision | "edited";
 type ApprovalAggregate = {
@@ -132,11 +145,15 @@ export function ApprovalAuditView() {
   const [toolFilter, setToolFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [checkpointDiff, setCheckpointDiff] = useState<CheckpointDiff | null>(null);
+  const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const diffViewMode = useSessionStore((state) => state.settings.diffViewMode);
   const {
     data: records = [],
     error,
     isLoading: loading,
   } = useApprovalHistoryQuery({ limit: 500 });
+  const { data: checkpoints = [] } = useCheckpointsQuery({ limit: 500 });
 
   const agentOptions = useMemo(
     () => uniqueSorted(records.map((record) => record.agent)),
@@ -186,6 +203,9 @@ export function ApprovalAuditView() {
     };
   }, [visible]);
   const aggregates = useMemo(() => aggregateByTool(visible), [visible]);
+  const checkpointByApproval = useMemo(() => {
+    return new Map(checkpoints.map((checkpoint) => [checkpoint.approvalId, checkpoint]));
+  }, [checkpoints]);
   const filtersActive =
     query.trim() !== "" ||
     filter !== "all" ||
@@ -216,6 +236,35 @@ export function ApprovalAuditView() {
     setToolFilter("all");
     setFromDate("");
     setToDate("");
+  }
+
+  async function showCheckpointDiff(checkpoint: CheckpointRecord) {
+    setCheckpointError(null);
+    try {
+      setCheckpointDiff(await fetchCheckpointDiff(checkpoint.approvalId));
+    } catch (caught) {
+      setCheckpointError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function restoreBeforeTurn(checkpoint: CheckpointRecord) {
+    const confirmed = await confirmAction(
+      `Restore workspace to before approval ${checkpoint.approvalId}?`,
+      {
+        okLabel: "Restore",
+        title: "Restore Checkpoint",
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+    setCheckpointError(null);
+    try {
+      await restoreCheckpoint(checkpoint.approvalId);
+      await appQueryClient.invalidateQueries({ queryKey: queryKeys.checkpoints({ limit: 500 }) });
+    } catch (caught) {
+      setCheckpointError(caught instanceof Error ? caught.message : String(caught));
+    }
   }
 
   return (
@@ -334,17 +383,42 @@ export function ApprovalAuditView() {
       ) : null}
       {loading ? <div className="source-control-empty">Loading approvals...</div> : null}
       {error ? <div className="tree-error">{auditErrorMessage(error)}</div> : null}
+      {checkpointError ? <div className="tree-error">{checkpointError}</div> : null}
       {!loading && !error && visible.length === 0 ? (
         <div className="source-control-empty">No approvals match this filter.</div>
       ) : null}
       {visible.map((record) => (
-        <ApprovalAuditRow key={record.approval_id} record={record} />
+        <ApprovalAuditRow
+          key={record.approval_id}
+          record={record}
+          checkpoint={checkpointByApproval.get(record.approval_id) ?? null}
+          checkpointDiff={
+            checkpointDiff?.approvalId === record.approval_id ? checkpointDiff : null
+          }
+          diffViewMode={diffViewMode}
+          onRestoreCheckpoint={(checkpoint) => void restoreBeforeTurn(checkpoint)}
+          onShowCheckpointDiff={(checkpoint) => void showCheckpointDiff(checkpoint)}
+        />
       ))}
     </section>
   );
 }
 
-function ApprovalAuditRow({ record }: { record: ApprovalAuditRecord }) {
+function ApprovalAuditRow({
+  checkpoint,
+  checkpointDiff,
+  diffViewMode,
+  onRestoreCheckpoint,
+  onShowCheckpointDiff,
+  record,
+}: {
+  checkpoint: CheckpointRecord | null;
+  checkpointDiff: CheckpointDiff | null;
+  diffViewMode: "unified" | "side-by-side";
+  onRestoreCheckpoint: (checkpoint: CheckpointRecord) => void;
+  onShowCheckpointDiff: (checkpoint: CheckpointRecord) => void;
+  record: ApprovalAuditRecord;
+}) {
   const proposed = inputText(record.input);
   const updated = record.updatedInput ? inputText(record.updatedInput) : "";
   return (
@@ -370,8 +444,59 @@ function ApprovalAuditRow({ record }: { record: ApprovalAuditRecord }) {
             <span>Reason: {record.reason}</span>
           </div>
         ) : null}
+        {checkpoint ? (
+          <div className="trigger-action-row approval-checkpoint-row">
+            <span>
+              Checkpoint {checkpoint.postRef ? "pre/post" : "pre only"}
+              {checkpoint.error ? ` · ${checkpoint.error}` : ""}
+            </span>
+            <button
+              type="button"
+              className="text-button"
+              disabled={!checkpoint.postRef}
+              onClick={() => onShowCheckpointDiff(checkpoint)}
+            >
+              Show diff
+            </button>
+            <button
+              type="button"
+              className="text-button danger"
+              onClick={() => onRestoreCheckpoint(checkpoint)}
+            >
+              Restore before turn
+            </button>
+          </div>
+        ) : null}
+        {checkpointDiff ? (
+          <CheckpointDiffPreview diff={checkpointDiff} mode={diffViewMode} />
+        ) : null}
       </div>
     </article>
+  );
+}
+
+function CheckpointDiffPreview({
+  diff,
+  mode,
+}: {
+  diff: CheckpointDiff;
+  mode: "unified" | "side-by-side";
+}) {
+  if (!diff.postRef) {
+    return <div className="source-control-empty">Post-turn checkpoint not available.</div>;
+  }
+  if (diff.files.length === 0) {
+    return <div className="source-control-empty">No file changes in this checkpoint.</div>;
+  }
+  return (
+    <div className="approval-checkpoint-diff" aria-label="Checkpoint diff">
+      {diff.files.slice(0, 3).map((file) => (
+        <DiffViewer key={file.path} diff={file} mode={mode} />
+      ))}
+      {diff.files.length > 3 ? (
+        <div className="history-event-meta">{diff.files.length - 3} more files hidden</div>
+      ) : null}
+    </div>
   );
 }
 

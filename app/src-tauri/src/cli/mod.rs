@@ -12,7 +12,13 @@ use anyhow::{bail, Context, Result};
 use app_lib::remote;
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
-use std::{io::Write, net::TcpStream, path::PathBuf};
+use std::{
+    io::Write,
+    net::TcpStream,
+    path::{Path, PathBuf},
+    process::Command as ProcessCommand,
+};
+use ulid::Ulid;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -185,6 +191,8 @@ enum SessionCommand {
         workspace: PathBuf,
         #[arg(long)]
         prompt: Option<String>,
+        #[arg(long, default_value = "inherit")]
+        worktree: String,
     },
     Attach {
         id: String,
@@ -498,15 +506,59 @@ async fn safe(
     print_value(response, json_output)
 }
 
+fn create_cli_auto_worktree(workspace: &Path) -> Result<PathBuf> {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .with_context(|| format!("run git in {}", workspace.display()))?;
+    if !output.status.success() {
+        bail!("auto worktree requires a Git repository");
+    }
+    let repo_root = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    let id = Ulid::new().to_string().to_ascii_lowercase();
+    let path = repo_root.join(".onibi-worktrees").join(&id);
+    let branch = format!("onibi/{id}");
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["worktree", "add", "-b"])
+        .arg(branch)
+        .arg(&path)
+        .arg("HEAD")
+        .output()
+        .with_context(|| format!("create auto worktree {}", path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        bail!(if stderr.is_empty() {
+            "git worktree add failed".to_string()
+        } else {
+            stderr
+        });
+    }
+    Ok(path)
+}
+
 async fn session(command: SessionCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         SessionCommand::List => print_orchestration("session.list", json!({}), json_output).await,
         SessionCommand::Launch {
             name,
             agent,
-            workspace,
+            mut workspace,
             prompt,
+            worktree,
         } => {
+            if !matches!(worktree.as_str(), "inherit" | "auto") {
+                bail!("worktree must be 'inherit' or 'auto'");
+            }
+            if worktree == "auto" {
+                if agent.as_deref().map_or(true, |value| value == "shell") {
+                    bail!("auto worktree is disabled for shell sessions");
+                }
+                workspace = create_cli_auto_worktree(&workspace)?;
+            }
             let command = agent.clone().unwrap_or_else(util::shell::default_shell);
             let args = prompt.into_iter().collect::<Vec<_>>();
             let response = orchestration::client::request(

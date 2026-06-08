@@ -15,6 +15,7 @@ pub const DEFAULT_PTY_RING_LIMIT: usize = 5_000;
 pub struct OnibiConfig {
     pub version: u8,
     pub server: ServerConfig,
+    pub checkpointing: CheckpointingConfig,
     pub ui: UiConfig,
     pub terminal: TerminalConfig,
     pub keybindings: KeybindingsConfig,
@@ -27,6 +28,12 @@ pub struct ServerConfig {
     pub port: u16,
     pub approval_timeout_secs: u64,
     pub pty_ring_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CheckpointingConfig {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +92,7 @@ pub struct WorkspaceConfig {
 pub struct RuntimeConfig {
     pub approval_timeout_secs: u64,
     pub pty_ring_limit: usize,
+    pub checkpointing_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +120,7 @@ impl Default for OnibiConfig {
         Self {
             version: 1,
             server: ServerConfig::default(),
+            checkpointing: CheckpointingConfig::default(),
             ui: UiConfig::default(),
             terminal: TerminalConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -127,6 +136,12 @@ impl Default for ServerConfig {
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             pty_ring_limit: DEFAULT_PTY_RING_LIMIT,
         }
+    }
+}
+
+impl Default for CheckpointingConfig {
+    fn default() -> Self {
+        Self { enabled: false }
     }
 }
 
@@ -234,6 +249,7 @@ impl OnibiConfig {
         RuntimeConfig {
             approval_timeout_secs: self.approval_timeout_secs(),
             pty_ring_limit: self.pty_ring_limit(),
+            checkpointing_enabled: self.checkpointing.enabled,
         }
     }
 }

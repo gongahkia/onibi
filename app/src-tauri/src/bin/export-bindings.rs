@@ -37,6 +37,10 @@ fn bindings() -> String {
     push::<protocol::DesktopSessionLaunchBody>(&mut output);
     push::<protocol::DesktopRemoteSshBody>(&mut output);
     push::<protocol::DesktopWorktreeOpenBody>(&mut output);
+    push::<protocol::CheckpointRecord>(&mut output);
+    push::<protocol::CheckpointDiffFile>(&mut output);
+    push::<protocol::CheckpointDiff>(&mut output);
+    push::<protocol::CheckpointRestoreBody>(&mut output);
     push::<protocol::DesktopSessionInputBody>(&mut output);
     push::<protocol::DesktopPaneSplitBody>(&mut output);
     push::<protocol::DesktopCommandResponse>(&mut output);
