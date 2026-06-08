@@ -1,8 +1,6 @@
 use super::{ProviderEventUpdate, SessionInfo, SessionLifecycle};
-use crate::pty::PtyId;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use serde_json::Value;
 use std::collections::HashMap;
 
 pub(super) fn normalize_session_name(raw: &str) -> Option<String> {
@@ -67,17 +65,6 @@ pub(super) fn resolve_provider_event_session(
         .map(|session| session.id.clone())
         .collect::<Vec<_>>();
     (matching.len() == 1).then(|| matching[0].clone())
-}
-
-pub(super) fn target_id(payload: &Value) -> Result<PtyId> {
-    let raw = payload
-        .get("id")
-        .or_else(|| payload.get("paneId"))
-        .or_else(|| payload.get("sessionId"))
-        .or_else(|| payload.get("agentId"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("missing session or pane id"))?;
-    raw.parse().with_context(|| format!("parse pty id {raw}"))
 }
 
 pub(super) fn key_to_bytes(key: &str) -> Result<Bytes> {

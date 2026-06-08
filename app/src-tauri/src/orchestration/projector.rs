@@ -1,13 +1,11 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 
 use crate::pty::PtyOutputSnapshot;
 
 pub(super) fn snapshot_json(snapshot: PtyOutputSnapshot) -> Value {
     json!({
-        "data": base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            snapshot.data.as_ref()
-        ),
+        "data": STANDARD.encode(snapshot.data.as_ref()),
         "startOffset": snapshot.start_offset,
         "endOffset": snapshot.end_offset,
     })
