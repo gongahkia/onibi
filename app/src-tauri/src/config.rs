@@ -475,6 +475,43 @@ enabled = true
     }
 
     #[test]
+    fn defaults_adapter_acp_config() {
+        let defaults = OnibiConfig::default();
+        assert_eq!(defaults.adapters.claude.transport, "hook");
+        assert_eq!(defaults.adapters.claude.acp_command, "claude-agent-acp");
+        assert!(defaults.adapters.claude.acp_args.is_empty());
+        assert_eq!(defaults.adapters.hermes.transport, "acp");
+        assert_eq!(defaults.adapters.hermes.acp_command, "hermes");
+        assert_eq!(defaults.adapters.hermes.acp_args, vec!["acp"]);
+    }
+
+    #[test]
+    fn parses_adapter_acp_config() {
+        let parsed: OnibiConfig = toml::from_str(
+            r#"
+[adapters.claude]
+transport = "acp"
+acp_command = "claude-agent-acp"
+acp_args = ["--debug"]
+
+[adapters.hermes]
+transport = "acp"
+acp_command = "/usr/local/bin/hermes"
+acp_args = ["acp", "--log-level", "debug"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.adapters.claude.transport, "acp");
+        assert_eq!(parsed.adapters.claude.acp_args, vec!["--debug"]);
+        assert_eq!(parsed.adapters.hermes.acp_command, "/usr/local/bin/hermes");
+        assert_eq!(
+            parsed.adapters.hermes.acp_args,
+            vec!["acp", "--log-level", "debug"]
+        );
+    }
+
+    #[test]
     fn rejects_malformed_toml() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");

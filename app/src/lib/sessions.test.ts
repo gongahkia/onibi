@@ -1151,6 +1151,8 @@ terminal_copy_format = "html"
 terminal_osc52_clipboard = true
 terminal_transparent_background = true
 terminal_inline_images = "auto"
+terminal_mouse_capture = false
+mobile_layout_threshold_px = 960
 pane_history_enabled = true
 remote_keybinding_policy = "remote"
 remote_ssh_command = "/usr/bin/ssh"
@@ -1167,6 +1169,10 @@ shell = "Terminal"
 [settings.sound_agents]
 codex = false
 shell = true
+
+[settings.theme_overrides.github-dark]
+terminal_background = "#010203"
+accent = "#abcdef"
 
 [keybindings]
 prefix = "ctrl+a"
@@ -1193,6 +1199,12 @@ command = "pnpm test"
     expect(parsed.settings.terminalOsc52Clipboard).toBe(true);
     expect(parsed.settings.terminalTransparentBackground).toBe(true);
     expect(parsed.settings.terminalInlineImages).toBe("auto");
+    expect(parsed.settings.terminalMouseCapture).toBe(false);
+    expect(parsed.settings.mobileLayoutThresholdPx).toBe(960);
+    expect(parsed.settings.themeOverrides["github-dark"]).toMatchObject({
+      terminalBackground: "#010203",
+      accent: "#abcdef",
+    });
     expect(parsed.settings.paneHistoryEnabled).toBe(true);
     expect(parsed.settings.remoteKeybindingPolicy).toBe("remote");
     expect(parsed.settings.remoteSshCommand).toBe("/usr/bin/ssh");
@@ -1228,6 +1240,11 @@ command = "pnpm test"
     expect(serialized).toContain("terminal_osc52_clipboard = true");
     expect(serialized).toContain("terminal_transparent_background = true");
     expect(serialized).toContain('terminal_inline_images = "auto"');
+    expect(serialized).toContain("terminal_mouse_capture = false");
+    expect(serialized).toContain("mobile_layout_threshold_px = 960");
+    expect(serialized).toContain("[settings.theme_overrides.github-dark]");
+    expect(serialized).toContain('terminal_background = "#010203"');
+    expect(serialized).toContain('accent = "#abcdef"');
     expect(serialized).toContain("pane_history_enabled = true");
     expect(serialized).toContain('remote_keybinding_policy = "remote"');
     expect(serialized).toContain('remote_ssh_command = "/usr/bin/ssh"');
@@ -1333,6 +1350,22 @@ theme = "light:github-light,dark:tokyo-night"
       cursor: "#eeeeee",
       selectionBackground: "#335577",
     });
+  });
+
+  test("theme overrides win over resolved theme colors", () => {
+    const theme = terminalThemeForSettings({
+      ...DEFAULT_SETTINGS,
+      theme: "github-dark",
+      themeOverrides: {
+        "github-dark": {
+          terminalBackground: "#010203",
+          terminalForeground: "#abcdef",
+        },
+      },
+    });
+
+    expect(theme.background).toBe("#010203");
+    expect(theme.foreground).toBe("#abcdef");
   });
 
   test("reports conflicts between app and custom command keybindings", async () => {

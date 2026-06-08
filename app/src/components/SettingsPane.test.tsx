@@ -147,6 +147,39 @@ describe("SettingsPane", () => {
     );
   });
 
+  test("updates and resets resolved theme overrides", () => {
+    useSessionStore.setState({
+      settings: { ...DEFAULT_SETTINGS, theme: "github-dark" },
+    });
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Override Terminal background color"), {
+      target: { value: "#010203" },
+    });
+    expect(
+      useSessionStore.getState().settings.themeOverrides["github-dark"]
+        ?.terminalBackground,
+    ).toBe("#010203");
+
+    fireEvent.click(screen.getByText("Reset"));
+    expect(
+      useSessionStore.getState().settings.themeOverrides["github-dark"],
+    ).toBeUndefined();
+  });
+
+  test("updates terminal mouse capture and narrow layout threshold", () => {
+    render(<SettingsPane open onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Send terminal mouse events"));
+    fireEvent.change(screen.getByLabelText("Narrow layout threshold"), {
+      target: { value: "960" },
+    });
+
+    const settings = useSessionStore.getState().settings;
+    expect(settings.terminalMouseCapture).toBe(false);
+    expect(settings.mobileLayoutThresholdPx).toBe(960);
+  });
+
   test("selects locally available font families", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
       if (command === "list_font_families") {

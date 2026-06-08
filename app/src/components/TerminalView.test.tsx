@@ -99,6 +99,7 @@ function createTerminalMock() {
     open: vi.fn(),
     attachCustomKeyEventHandler: vi.fn(),
     onData: vi.fn(() => ({ dispose: vi.fn() })),
+    onBinary: vi.fn(() => ({ dispose: vi.fn() })),
     write: vi.fn(),
     refresh: vi.fn(),
     focus: vi.fn(),
@@ -174,6 +175,39 @@ describe("TerminalView", () => {
       screenReaderMode: true,
     });
     expect(webglConstructor).toHaveBeenCalled();
+  });
+
+  test("filters terminal mouse reports when mouse capture is disabled", async () => {
+    render(
+      <TerminalView
+        ptyId="pty-1"
+        settings={{ ...DEFAULT_SETTINGS, terminalMouseCapture: false }}
+        visible={false}
+      />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    const term = terminalConstructor.mock.results[0].value;
+    const onData = term.onData.mock.calls[0][0] as (data: string) => void;
+    onData("\u001b[<0;10;20M");
+    onData("a");
+
+    await waitFor(() =>
+      expect(
+        globalThis.__TAURI_MOCKS__.invoke.mock.calls.some(
+          ([command, payload]) =>
+            command === "pty_write" &&
+            (payload as { data?: number[] }).data?.[0] === "a".charCodeAt(0),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      globalThis.__TAURI_MOCKS__.invoke.mock.calls.some(
+        ([command, payload]) =>
+          command === "pty_write" &&
+          (payload as { data?: number[] }).data?.[0] === 0x1b,
+      ),
+    ).toBe(false);
   });
 
   test("loads inline image support only when enabled", async () => {

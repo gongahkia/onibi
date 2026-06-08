@@ -1,5 +1,6 @@
 use crate::{
-    adapters::{IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_HEADER},
+    adapters::{acp, IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_HEADER},
+    config,
     protocol::{ApprovalRequestBody, Decision},
     server::{routes, AppState},
 };
@@ -16,6 +17,10 @@ const HOOK_PATH: &str = "/v1/adapters/claude-code/hook";
 const MIN_VERSION: (u64, u64, u64) = (2, 0, 10);
 
 pub fn info() -> IntegrationInfo {
+    let adapter = config::load().unwrap_or_default().adapters.claude;
+    if adapter.transport == "acp" {
+        return acp::status_info("claude-code", &adapter.acp_command, &adapter.acp_args);
+    }
     match settings_path() {
         Ok(path) => status_at(&path).unwrap_or_else(|error| IntegrationInfo {
             name: "claude-code",
@@ -41,6 +46,13 @@ pub fn info() -> IntegrationInfo {
 }
 
 pub fn install(token: &str) -> Result<String> {
+    let adapter = config::load().unwrap_or_default().adapters.claude;
+    if adapter.transport == "acp" {
+        if which::which(&adapter.acp_command).is_err() {
+            bail!("Claude ACP command not found: {}", adapter.acp_command);
+        }
+        return Ok("claude-code ACP transport is configured; no HTTP hook was installed".to_string());
+    }
     let version = Command::new("claude")
         .arg("--version")
         .output()
@@ -52,6 +64,10 @@ pub fn install(token: &str) -> Result<String> {
 }
 
 pub fn uninstall() -> Result<String> {
+    let adapter = config::load().unwrap_or_default().adapters.claude;
+    if adapter.transport == "acp" {
+        return Ok("claude-code ACP transport is configured; no HTTP hook was removed".to_string());
+    }
     uninstall_at(&settings_path()?)?;
     Ok("claude-code adapter uninstalled".to_string())
 }

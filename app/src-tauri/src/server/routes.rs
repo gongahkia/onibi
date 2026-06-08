@@ -28,6 +28,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use tokio::time;
 use ulid::Ulid;
 
@@ -84,6 +85,14 @@ pub struct ApprovalHistoryQuery {
 pub struct CheckpointListQuery {
     #[serde(default)]
     limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AcpPromptBody {
+    cwd: String,
+    prompt: String,
+    #[serde(default, rename = "resumeSessionId")]
+    resume_session_id: Option<String>,
 }
 
 pub async fn healthz() -> Json<Value> {

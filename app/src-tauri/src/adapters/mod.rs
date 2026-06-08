@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod aider;
 pub mod claude_code;
 pub mod codex;
@@ -714,7 +715,7 @@ fn provider_status(event: Option<&str>, status: Option<&str>) -> Option<AgentSta
     None
 }
 
-fn resume_metadata_for_agent(agent: &str, id: &str) -> Option<ProviderResumeMetadata> {
+pub(crate) fn resume_metadata_for_agent(agent: &str, id: &str) -> Option<ProviderResumeMetadata> {
     let id = id.trim();
     if id.is_empty() {
         return None;

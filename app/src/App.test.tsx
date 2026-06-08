@@ -93,6 +93,25 @@ describe("App", () => {
     );
   });
 
+  test("uses configured narrow layout threshold", () => {
+    Object.defineProperty(window, "innerWidth", {
+      value: 900,
+      configurable: true,
+    });
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        mobileLayoutThresholdPx: 960,
+      },
+    });
+
+    render(<App />);
+
+    expect(
+      document.querySelector(".app-frame")?.getAttribute("data-mobile-layout"),
+    ).toBe("true");
+  });
+
   test("persists sidebar collapse through the shared store", () => {
     render(<App />);
     expect(screen.getByTestId("workspace-sidebar")).toBeTruthy();
