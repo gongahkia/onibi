@@ -567,6 +567,7 @@ describe("MainPane", () => {
           agent: "codex",
           workspaceId: "workspace:/repo",
           title: "Codex · repo",
+          trustMode: "approval-required",
         },
       });
     });

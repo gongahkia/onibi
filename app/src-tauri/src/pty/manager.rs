@@ -1,6 +1,6 @@
 use super::session::{
     PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
-    PtyStore, ShellMode, TrustMode,
+    PtyStore, ShellMode,
 };
 use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -18,6 +18,9 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+#[cfg(test)]
+use super::session::TrustMode;
 
 type Result<T> = std::result::Result<T, PtyError>;
 
@@ -589,11 +592,11 @@ mod tests {
                 command: "/bin/sleep".to_string(),
                 args: vec!["10".to_string()],
                 cwd: None,
-            env: vec![],
-            shell_mode: ShellMode::Auto,
-            safe_mode: false,
-            trust_mode: TrustMode::ApprovalRequired,
-            rows: 24,
+                env: vec![],
+                shell_mode: ShellMode::Auto,
+                safe_mode: false,
+                trust_mode: TrustMode::ApprovalRequired,
+                rows: 24,
                 cols: 80,
                 name: None,
                 agent: None,
