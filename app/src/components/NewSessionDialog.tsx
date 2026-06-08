@@ -29,8 +29,10 @@ export function NewSessionDialog({
   placement,
 }: NewSessionDialogProps) {
   const workspaces = useSessionStore((state) => state.workspaces);
+  const sessions = useSessionStore((state) => state.sessions);
   const settings = useSessionStore((state) => state.settings);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
+  const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const [agent, setAgent] = useState<AgentKind>(
     () => defaultAgent ?? settings.defaultAgent,
   );
@@ -138,6 +140,19 @@ export function NewSessionDialog({
         throw new Error(
           `${agentDisplayLabel(agent, settings)} is not on PATH. Install it, or update its launch command in Settings > Agents.`,
         );
+      }
+      const existing = sessions.find(
+        (session) =>
+          session.agent === agent &&
+          session.workspaceId === selectedWorkspace.id &&
+          session.status !== "stale" &&
+          session.status !== "completed" &&
+          session.status !== "error",
+      );
+      if (existing) {
+        setActiveSession(existing.id);
+        onClose();
+        return;
       }
       await spawnAgentSession(
         agent,

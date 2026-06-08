@@ -148,6 +148,54 @@ describe("NewSessionDialog", () => {
     expect(useSessionStore.getState().activeSessionId).toBe("pty-codex");
   });
 
+  test("reuses an existing live session for the same agent and workspace", async () => {
+    const onClose = vi.fn();
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-existing",
+          agent: "claude-code",
+          workspaceId: "workspace:/repo",
+          title: "Claude Code · repo",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          lastExitCode: null,
+          lastTrigger: null,
+          lastCommandBlockId: null,
+          transcript: null,
+          restart: null,
+          remote: null,
+        },
+      ],
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "fs_resolve_binary") {
+        return "/usr/local/bin/claude";
+      }
+      if (command === "pty_spawn") {
+        return "pty-new";
+      }
+      return null;
+    });
+
+    render(<NewSessionDialog open onClose={onClose} />);
+    await waitFor(() => {
+      expect(screen.getByText(/usr\/local\/bin\/claude/)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText("Start"));
+
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("pty-existing");
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "pty_spawn",
+      expect.anything(),
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
+
   test("shows actionable copy when an agent binary is missing", async () => {
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
       if (command === "fs_resolve_binary") {
