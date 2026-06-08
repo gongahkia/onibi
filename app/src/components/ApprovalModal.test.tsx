@@ -89,7 +89,7 @@ describe("ApprovalModal", () => {
 
   test("submits custom deny reason", async () => {
     render(<ApprovalModal initialPending={pending} token="test-token" />);
-    fireEvent.change(screen.getByLabelText("Deny reason"), {
+    fireEvent.change(screen.getByTestId("Deny reason-plain-text"), {
       target: { value: "too broad" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));

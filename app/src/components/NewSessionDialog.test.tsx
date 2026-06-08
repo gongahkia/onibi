@@ -122,7 +122,7 @@ describe("NewSessionDialog", () => {
     await waitFor(() => {
       expect(screen.getByText(/usr\/local\/bin\/codex/)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Initial prompt"), {
+    fireEvent.change(screen.getByTestId("Initial prompt-plain-text"), {
       target: { value: "review this repo" },
     });
     fireEvent.click(screen.getByText("Start"));

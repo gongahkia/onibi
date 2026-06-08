@@ -325,6 +325,7 @@ describe("MainPane", () => {
         agent: "opencode",
         workspaceId: "workspace:/repo",
         title: "OpenCode",
+        trustMode: "approval-required",
       },
     });
   });

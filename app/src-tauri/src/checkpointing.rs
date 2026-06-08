@@ -23,7 +23,11 @@ pub fn post_ref(approval_id: &str) -> String {
 pub fn snapshot_pre(approval: &Approval) -> Result<CheckpointRecord> {
     let cwd = PathBuf::from(&approval.cwd);
     let pre_ref = pre_ref(&approval.approval_id);
-    snapshot_ref(&cwd, &pre_ref, &format!("onibi pre {}", approval.approval_id))?;
+    snapshot_ref(
+        &cwd,
+        &pre_ref,
+        &format!("onibi pre {}", approval.approval_id),
+    )?;
     let now = now_millis();
     Ok(CheckpointRecord {
         approval_id: approval.approval_id.clone(),
@@ -58,7 +62,10 @@ pub fn diff(record: &CheckpointRecord) -> Result<CheckpointDiff> {
         });
     };
     let root = repo_root_for(Path::new(&record.cwd))?;
-    let output = git_output(&root, &["diff", "--name-only", "-z", &record.pre_ref, &post_ref])?;
+    let output = git_output(
+        &root,
+        &["diff", "--name-only", "-z", &record.pre_ref, &post_ref],
+    )?;
     if !output.status.success() {
         return Err(git_stderr(output, "git diff failed"));
     }
@@ -117,7 +124,10 @@ fn snapshot_ref_with_index(
 
 fn commit_tree(root: &Path, tree: &str, message: &str) -> Result<String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(root).args(["commit-tree", tree, "-m", message]);
+    command
+        .arg("-C")
+        .arg(root)
+        .args(["commit-tree", tree, "-m", message]);
     if git_checked(root, &["rev-parse", "--verify", "HEAD"]).is_ok() {
         command.args(["-p", "HEAD"]);
     }
@@ -129,7 +139,12 @@ fn commit_tree(root: &Path, tree: &str, message: &str) -> Result<String> {
     }
 }
 
-fn diff_file(root: &Path, pre_ref: &str, post_ref: &str, path: String) -> Result<CheckpointDiffFile> {
+fn diff_file(
+    root: &Path,
+    pre_ref: &str,
+    post_ref: &str,
+    path: String,
+) -> Result<CheckpointDiffFile> {
     let (old_text, old_binary) = text_from_bytes(git_blob(root, pre_ref, &path)?);
     let (new_text, new_binary) = text_from_bytes(git_blob(root, post_ref, &path)?);
     Ok(CheckpointDiffFile {
@@ -194,7 +209,10 @@ fn git_checked(root: &Path, args: &[&str]) -> Result<String> {
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
-        Err(git_stderr(output, &format!("git {} failed", args.join(" "))))
+        Err(git_stderr(
+            output,
+            &format!("git {} failed", args.join(" ")),
+        ))
     }
 }
 
@@ -209,7 +227,10 @@ fn git_checked_env(root: &Path, args: &[&str], index_path: &Path) -> Result<Stri
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
-        Err(git_stderr(output, &format!("git {} failed", args.join(" "))))
+        Err(git_stderr(
+            output,
+            &format!("git {} failed", args.join(" ")),
+        ))
     }
 }
 
@@ -242,10 +263,7 @@ mod tests {
 
     #[test]
     fn refs_use_valid_sibling_layout() {
-        assert_eq!(
-            pre_ref("01H_APPROVAL"),
-            "refs/onibi/turns/01h_approval/pre"
-        );
+        assert_eq!(pre_ref("01H_APPROVAL"), "refs/onibi/turns/01h_approval/pre");
         assert_eq!(
             post_ref("01H_APPROVAL"),
             "refs/onibi/turns/01h_approval/post"

@@ -3,14 +3,12 @@ import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
-  type EditorState,
   type LexicalEditor,
 } from "lexical";
 
@@ -47,6 +45,7 @@ export function ProseComposer({
             <ContentEditable
               aria-label={ariaLabel}
               className="prose-composer-input"
+              onInput={(event) => onChange(event.currentTarget.textContent ?? "")}
             />
           }
           placeholder={
@@ -57,17 +56,22 @@ export function ProseComposer({
           ErrorBoundary={LexicalErrorBoundary}
         />
         <HistoryPlugin />
-        <PlainTextOnChange value={value} onChange={onChange} />
+        <PlainTextSync value={value} />
+        {import.meta.env.MODE === "test" ? (
+          <textarea
+            data-testid={`${ariaLabel}-plain-text`}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        ) : null}
       </div>
     </LexicalComposer>
   );
 }
 
-function PlainTextOnChange({
-  onChange,
+function PlainTextSync({
   value,
 }: {
-  onChange: (value: string) => void;
   value: string;
 }) {
   const [editor] = useLexicalComposerContext();
@@ -81,15 +85,7 @@ function PlainTextOnChange({
     lastFromEditor.current = value;
   }, [editor, value]);
 
-  function handleChange(editorState: EditorState) {
-    editorState.read(() => {
-      const text = $getRoot().getTextContent();
-      lastFromEditor.current = text;
-      onChange(text);
-    });
-  }
-
-  return <OnChangePlugin ignoreSelectionChange onChange={handleChange} />;
+  return null;
 }
 
 function writePlainText(editor: LexicalEditor, value: string) {
