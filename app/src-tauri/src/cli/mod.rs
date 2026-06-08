@@ -810,7 +810,6 @@ fn shell_single_quote(value: &str) -> String {
 }
 
 async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> {
-    ensure_daemon_running(port)?;
     match command {
         PaneCommand::Read {
             id,
@@ -842,6 +841,7 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
             .await
         }
         PaneCommand::Split { id, direction } => {
+            ensure_daemon_running(port)?;
             let body = json!({
                 "protocol_version": "1.0",
                 "direction": direction,
@@ -856,24 +856,30 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
                 json_output,
             )
         }
-        PaneCommand::Focus { id } => print_raw_json_or_text(
-            &authed_http(
+        PaneCommand::Focus { id } => {
+            ensure_daemon_running(port)?;
+            print_raw_json_or_text(
+                &authed_http(
                 port,
                 "POST",
                 &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
                 Some("{}"),
-            )?,
-            json_output,
-        ),
-        PaneCommand::Maximize { id } => print_raw_json_or_text(
-            &authed_http(
+                )?,
+                json_output,
+            )
+        }
+        PaneCommand::Maximize { id } => {
+            ensure_daemon_running(port)?;
+            print_raw_json_or_text(
+                &authed_http(
                 port,
                 "POST",
                 &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
                 Some("{}"),
-            )?,
-            json_output,
-        ),
+                )?,
+                json_output,
+            )
+        }
     }
 }
 

@@ -415,7 +415,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 29. **[DONE] Named sessions** with case-insensitive active-name uniqueness and `onibi session attach <name>`.
 30. **[DONE] `herdr session list / stop` equivalent** — `onibi session list`, `onibi session stop <id-or-name>`, and JSON output exist.
 31. **[PARTIAL] Native agent session resume** — Onibi PTY restoration is now deterministic for live daemon sessions and stale relaunch fallbacks. Provider-native resume metadata can prefer native resume commands for Claude Code, OpenCode, Gemini, Qoder, Hermes, and Goose when a provider session/conversation ID has been captured. Codex remains unverified and Aider is history-restore only.
-32. **Live server handoff** — transfer running PTYs from old binary to new without interruption (experimental but spec'd).
+32. **[CUT] Live server handoff** — transfer running PTYs from old binary to new without interruption is no longer tracked; relaunch-based resume is sufficient for v1.5.x.
 33. **[DONE] Pane history opt-in** (screen scrollback survives restart) — persisted transcript retention is opt-in through `pane_history_enabled` and restores when no live replay is available.
 
 ### 2.6 Remote
@@ -424,11 +424,11 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 36. **[DONE] Image-paste bridging** (local clipboard image → remote staged file path) — available through the Command Palette for active SSH sessions.
 
 ### 2.7 Terminal / rendering
-37. **[PARTIAL] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path for now, with WebGL fallback, throughput batching, replay hardening, screen-reader mode, and opt-in inline images wired. A libghostty-vt embed remains a future option only if xterm.js cannot cover required Kitty graphics or Kitty keyboard parity.
-38. **Kitty graphics protocol** support (experimental).
+37. **[CUT] Terminal engine parity / vendored libghostty-vt option** — xterm.js remains the chosen implementation path; libghostty-vt is no longer tracked for v1.5.x.
+38. **[CUT] Kitty graphics protocol** support.
 39. **[DONE] Sixel** rendering — opt-in through `terminal_inline_images = "sixel"` or `"auto"` using `@xterm/addon-image`.
-40. **Kitty keyboard protocol** (enhanced key reporting, distinguishes `Ctrl+I` vs `Tab`, etc.).
-41. **[PARTIAL] CJK IME cursor-anchor exposure** for input-method candidate placement — IME composition is no longer intercepted by terminal keybindings, but native cursor-anchor placement is still not exposed.
+40. **[CUT] Kitty keyboard protocol** (enhanced key reporting, distinguishes `Ctrl+I` vs `Tab`, etc.).
+41. **[CUT] CJK IME cursor-anchor exposure** for input-method candidate placement; current scope stops at preserving IME composition input.
 42. **[DONE] Transparent pane backgrounds** inheriting host terminal — available behind `terminal_transparent_background`.
 
 ### 2.8 Selection / copy
@@ -460,7 +460,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 
 ### 2.12 Update / release
 62. **[DONE] Built-in updater** (`herdr update`, periodic check against `latest.json`, in-app release-notes modal) — GUI update checks/install prompts use Tauri's signed updater through GitHub Releases, and headless installs use `onibi update check/install` with checksum/signature verification.
-63. **`--handoff` flag** for live in-place upgrade.
+63. **[CUT] `--handoff` flag** for live in-place upgrade.
 
 ### 2.13 Configuration
 64. **[DONE] TOML config file** at `~/.config/onibi/config.toml` for keys, terminal shell defaults, scrollback, UI defaults, server port/limits, and workspaces.
@@ -476,8 +476,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 72. **[DONE] `herdr worktree open <path>`** to launch a workspace tied to a worktree — implemented as `onibi worktree open <path> [--agent <agent>] [--prompt <text>]` through the desktop bridge.
 
 ### 2.15 Build / distribution
-73. **Nix flake** (`flake.nix`, `nix/package.nix`) with dev shell.
-74. **Just task runner** (`just lint / ci / check / test / test-one / release-prepare / release-publish`).
+73. **[CUT] Nix flake** (`flake.nix`, `nix/package.nix`) with dev shell.
+74. **[CUT] Just task runner** (`just lint / ci / check / test / test-one / release-prepare / release-publish`).
 75. **Staged-docs / staged-CHANGELOG** discipline (`docs/next/` mirror of next release).
 
 ### 2.16 Diagnostics / status
@@ -489,7 +489,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 79. **[DONE] Workspace navigator** (`prefix+w`) and session navigator (`prefix+g`) modal pickers.
 80. **[DONE] Keybind-help modal** (in-app reference) — `prefix+?` opens the app/terminal/custom command keybinding reference.
 81. **[DONE] First-run onboarding flow** — implemented as item 86's GUI onboarding pass.
-82. **Mobile-narrow TUI layout** with single-column workspace/agent switcher (separate from the PWA).
+82. **[CUT] Mobile-narrow TUI layout** with single-column workspace/agent switcher; the PWA is the mobile surface.
 83. **[DONE] Show-agent-labels-on-pane-borders** toggle — pane agent labels default on and can be hidden from Layout settings or `show_terminal_pane_agent_labels` in TOML.
 
 ### 2.18 GitHub issue coverage
@@ -530,12 +530,12 @@ Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stabl
 
 **Phase C — terminal-native polish:**
 Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm reliability hardening for 37 and IME interception hardening for 41.
-Remaining terminal-native polish: 37 as future libghostty-vt parity only if needed, 38, 40, and 41 native cursor-anchor placement.
+Remaining terminal-native polish: none currently tracked; 37, 38, 40, and 41 are cut for v1.5.x.
 
 **Phase D — remote & distribution:**
 Completed from Phase D: 34, 35, 36, 62.
 Partial from Phase D: none currently tracked.
-Remaining from Phase D: none; 73 and 74 are cut unless personally needed.
+Remaining from Phase D: none; 73 and 74 are cut.
 
 **Phase E — long tail:**
 75 and 101 remain. 63 and 82 are cut; 81 is complete via item 86.
@@ -837,7 +837,7 @@ If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 4. **102 + 105 + 104 + 106** are done for the chrome-restraint pass.
 5. **109** is done for persisted light/dark theme pairs and OS auto-switching.
 
-Total remaining from §6 + §7 now excludes the completed requested slices: **89 read-only spectator pairing**, **90 `onibi safe <agent>`**, and **112 PWA gesture/read-only polish** are complete. Remaining work is broader/mobile follow-up audit dimensions and unrelated secondary/product items; the requested desktop ApprovalModal/chrome cleanup slice is complete.
+Total remaining from §6 + §7 now excludes the completed requested slices: **89 read-only spectator pairing**, **90 `onibi safe <agent>`**, and **112 PWA gesture/read-only polish** are complete. Remaining work is the broader/mobile follow-up audit dimensions plus the active §8 t3code adoption items.
 
 ---
 
