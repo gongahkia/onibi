@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  fetchApprovalHistory,
-  type ApprovalAuditRecord,
-} from "../lib/approval-audit";
+import { useMemo, useState } from "react";
+import type { ApprovalAuditRecord } from "../lib/approval-audit";
 import type { ApprovalDecision } from "../lib/approval-client";
+import { useApprovalHistoryQuery } from "../lib/queries";
 
 type ApprovalFilter = "all" | ApprovalDecision | "edited";
 type ApprovalAggregate = {
@@ -128,40 +126,17 @@ function aggregateByTool(records: ApprovalAuditRecord[]): ApprovalAggregate[] {
 }
 
 export function ApprovalAuditView() {
-  const [records, setRecords] = useState<ApprovalAuditRecord[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ApprovalFilter>("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [toolFilter, setToolFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchApprovalHistory({ limit: 500 })
-      .then((items) => {
-        if (!cancelled) {
-          setRecords(items);
-          setError("");
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled) {
-          setError(auditErrorMessage(caught));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    data: records = [],
+    error,
+    isLoading: loading,
+  } = useApprovalHistoryQuery({ limit: 500 });
 
   const agentOptions = useMemo(
     () => uniqueSorted(records.map((record) => record.agent)),
@@ -358,7 +333,7 @@ export function ApprovalAuditView() {
         </div>
       ) : null}
       {loading ? <div className="source-control-empty">Loading approvals...</div> : null}
-      {error ? <div className="tree-error">{error}</div> : null}
+      {error ? <div className="tree-error">{auditErrorMessage(error)}</div> : null}
       {!loading && !error && visible.length === 0 ? (
         <div className="source-control-empty">No approvals match this filter.</div>
       ) : null}

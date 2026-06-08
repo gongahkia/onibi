@@ -1,39 +1,28 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   disableTransport,
   enableTransport,
   fetchLanCertQr,
-  fetchTransportStatus,
   type TransportSnapshot,
 } from "../lib/transports";
+import { useTransportStatusQuery } from "../lib/queries";
 
 interface TransportSettingsProps {
   pollIntervalMs?: number;
 }
 
 export function TransportSettings({ pollIntervalMs = 5000 }: TransportSettingsProps) {
-  const [transports, setTransports] = useState<TransportSnapshot[]>([]);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lanQrUrl, setLanQrUrl] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const next = await fetchTransportStatus();
-      setTransports(next);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const id = window.setInterval(() => {
-      void refresh();
-    }, pollIntervalMs);
-    return () => window.clearInterval(id);
-  }, [pollIntervalMs, refresh]);
+  const {
+    data: transports = [],
+    error: statusError,
+    refetch,
+  } = useTransportStatusQuery({
+    refetchInterval: pollIntervalMs,
+  });
+  const visibleError = error ?? (statusError ? statusError.message : null);
 
   useEffect(() => {
     return () => {
@@ -56,7 +45,7 @@ export function TransportSettings({ pollIntervalMs = 5000 }: TransportSettingsPr
       } else {
         await enableTransport(snapshot.name);
       }
-      await refresh();
+      await refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -85,12 +74,12 @@ export function TransportSettings({ pollIntervalMs = 5000 }: TransportSettingsPr
           <h2 style={styles.title}>Transports</h2>
           <p style={styles.subtitle}>Expose this Onibi daemon through one or more reachable paths.</p>
         </div>
-        <button type="button" style={styles.secondaryButton} onClick={() => void refresh()}>
+        <button type="button" style={styles.secondaryButton} onClick={() => void refetch()}>
           Refresh
         </button>
       </div>
 
-      {error ? <div style={styles.error}>{error}</div> : null}
+      {visibleError ? <div style={styles.error}>{visibleError}</div> : null}
 
       <div style={styles.list}>
         {sorted.map((snapshot) => (

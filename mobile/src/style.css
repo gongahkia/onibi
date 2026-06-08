@@ -169,7 +169,8 @@ pre {
 .error-line,
 .cwd,
 .empty-state p,
-.onboarding span {
+.onboarding span,
+.identity-grid dd {
   color: #9fb0c3;
   line-height: 1.45;
 }
@@ -247,6 +248,47 @@ pre {
   color: #fde68a;
 }
 
+.ws-pill.fallback {
+  background: #3a2d12;
+  color: #fbbf24;
+}
+
+.identity-grid {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0 0;
+}
+
+.identity-grid div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.identity-grid dt,
+.identity-grid dd {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.identity-grid dt {
+  color: #8aa0b6;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.identity-grid dd {
+  overflow-wrap: anywhere;
+}
+
+.target-missing {
+  border: 1px solid rgba(251, 191, 36, 0.36);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(120, 53, 15, 0.18);
+}
+
 .tab-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -310,6 +352,15 @@ pre {
   background: #070b10;
   color: #dbe5ed;
   padding: 12px;
+}
+
+.edit-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.edit-panel .ghost-button {
+  justify-self: start;
 }
 
 .run-row {
@@ -411,4 +462,58 @@ pre {
 
 .approval-card.read-only {
   border-color: rgba(148, 163, 184, 0.42);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #172033;
+    background: #f7fafc;
+  }
+
+  body {
+    background: linear-gradient(180deg, #f8fafc 0%, #edf3f8 100%);
+  }
+
+  textarea,
+  select,
+  .tab-strip button,
+  .ghost-button,
+  .secondary-button,
+  .ws-pill,
+  .onboarding,
+  .approval-card,
+  .empty-state,
+  .run-row,
+  .terminal-pane {
+    border-color: #cbd5e1;
+    background-color: #ffffff;
+    color: #172033;
+  }
+
+  .tab-strip button.active,
+  button {
+    background: #0f766e;
+    color: #f8fafc;
+  }
+
+  .status-line,
+  .cwd,
+  .empty-state p,
+  .onboarding span,
+  .identity-grid dd,
+  .eyebrow {
+    color: #475569;
+  }
+
+  .approval-card pre,
+  .terminal-fallback,
+  textarea {
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+
+  .target-missing {
+    background: #fffbeb;
+    color: #713f12;
+  }
 }

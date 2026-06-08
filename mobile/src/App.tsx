@@ -7,8 +7,12 @@ const DEVICE_LABEL = "Onibi Mobile PWA";
 
 type Decision = "allow" | "deny";
 type ClientScope = "full" | "read-only";
-type WsState = "idle" | "connecting" | "open" | "closed";
+type WsState = "idle" | "connecting" | "fallback" | "open" | "closed";
 type Tab = "pending" | "recent" | "terminal";
+type BeforeInstallPromptEvent = Event & {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
 
 export interface TransportEndpoint {
   name: string;
@@ -102,7 +106,7 @@ function useStoredConnection(): [Connection | null, (next: Connection | null) =>
       return null;
     }
     const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? normalizeConnection(JSON.parse(raw) as Connection) : null;
+    return raw ? normalizeConnection(JSON.parse(raw) as Connection) : null;
   });
 
   const setConnection = (next: Connection | null) => {
@@ -241,6 +245,7 @@ function InboxView({
   const [killBusy, setKillBusy] = useState(false);
   const [killStatus, setKillStatus] = useState<string | null>(null);
   const [replacePairing, setReplacePairing] = useState(false);
+  const [loadedInitial, setLoadedInitial] = useState(false);
   const [targetApprovalId, setTargetApprovalId] = useState(
     () => new URLSearchParams(window.location.search).get("approval"),
   );
@@ -278,6 +283,7 @@ function InboxView({
     ]);
     setPending((await pendingResponse.json()) as Approval[]);
     setRecent((await recentResponse.json()) as RunEvent[]);
+    setLoadedInitial(true);
   }, [fetchWithFallback]);
 
   useEffect(() => {
@@ -327,6 +333,7 @@ function InboxView({
         }
         const fallbackUrl = nextBaseUrl(activeBaseUrl, baseUrlCandidates);
         if (fallbackUrl !== activeBaseUrl) {
+          setWsState("fallback");
           setActiveBaseUrl(fallbackUrl);
           return;
         }
@@ -386,6 +393,10 @@ function InboxView({
     [terminalOutput],
   );
   const activeSession = selectedSession || sessionOptions[0] || "";
+  const targetIsMissing =
+    Boolean(targetApprovalId) &&
+    loadedInitial &&
+    !pending.some((approval) => approval.approval_id === targetApprovalId);
 
   if (replacePairing) {
     return (
@@ -408,10 +419,21 @@ function InboxView({
       <header className="top-bar">
         <div>
           <p className="eyebrow">Onibi · {connection.scope === "read-only" ? "Read only" : "Full access"}</p>
-          <h1>{connection.machineId}</h1>
-          <p className="status-line">
-            {activeTransport} · device {connection.deviceId}
-          </p>
+          <h1>{shortMachineId(connection.machineId)}</h1>
+          <dl className="identity-grid" aria-label="Paired machine identity">
+            <div>
+              <dt>Machine</dt>
+              <dd>{connection.machineId}</dd>
+            </div>
+            <div>
+              <dt>Device</dt>
+              <dd>{connection.deviceId}</dd>
+            </div>
+            <div>
+              <dt>Transport</dt>
+              <dd>{activeTransport}</dd>
+            </div>
+          </dl>
         </div>
         <div className="top-actions">
           <span className={`ws-pill ${wsState}`}>{wsState}</span>
@@ -478,11 +500,24 @@ function InboxView({
       {error ? <p className="error-line">{error}</p> : null}
       {wsState !== "open" ? (
         <p className="status-line">
-          {wsState === "connecting"
-            ? `Connecting through ${activeTransport}...`
-            : `Offline on ${activeTransport}. Pending approvals remain visible when cached.`}
+          {connectionStateMessage(wsState, activeTransport)}
           <button type="button" className="inline-retry" onClick={() => void loadInitial()}>
             Retry
+          </button>
+        </p>
+      ) : null}
+      {targetIsMissing ? (
+        <p className="status-line target-missing">
+          Target approval is no longer pending.
+          <button
+            type="button"
+            className="inline-retry"
+            onClick={() => {
+              window.history.replaceState({}, "", "/m/");
+              setTargetApprovalId(null);
+            }}
+          >
+            Clear
           </button>
         </p>
       ) : null}
@@ -634,12 +669,21 @@ function ApprovalCard({
         </div>
       ) : null}
       {editing && !readOnly ? (
-        <textarea
-          value={command}
-          onChange={(event) => setCommand(event.target.value)}
-          rows={5}
-          aria-label="Edited command"
-        />
+        <div className="edit-panel">
+          <textarea
+            value={command}
+            onChange={(event) => setCommand(event.target.value)}
+            rows={5}
+            aria-label="Edited command"
+            autoFocus
+          />
+          <button type="button" className="ghost-button" onClick={() => {
+            setCommand(commandText(approval.input));
+            setEditing(false);
+          }}>
+            Cancel edit
+          </button>
+        </div>
       ) : (
         <pre>{command}</pre>
       )}
@@ -659,7 +703,7 @@ function ApprovalCard({
         </button>
         {editing ? (
           <button type="button" disabled={busy} onClick={() => void submit("allow", command)}>
-            Approve edited command
+            Allow edited
           </button>
         ) : (
           <button type="button" disabled={busy} onClick={() => setEditing(true)}>
@@ -775,22 +819,47 @@ function OnboardingView() {
     typeof window !== "undefined" &&
     (window.matchMedia?.("(display-mode: standalone)").matches ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(standalone);
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const promptInstall = async () => {
+    const prompt = installPrompt;
+    if (!prompt) {
+      return;
+    }
+    await prompt.prompt();
+    await prompt.userChoice;
+    setInstallPrompt(null);
+  };
+
   return (
     <div className="onboarding">
-      <strong>
-        {standalone
-          ? "Installed PWA."
-          : ios
-            ? "iOS home-screen install required for push."
-            : "Installable PWA."}
-      </strong>
+      <strong>{installStateTitle({ standalone: installed, ios, installable: Boolean(installPrompt) })}</strong>
       <span>
-        {standalone
-          ? "Lock-screen notification deep links open this paired machine."
-          : ios
-            ? "Open this page from Safari, share it, then add it to Home Screen."
-            : "Install from the browser menu for persistent notifications."}
+        {installStateBody({ standalone: installed, ios, installable: Boolean(installPrompt) })}
       </span>
+      {installPrompt && !installed ? (
+        <button type="button" className="ghost-button" onClick={() => void promptInstall()}>
+          Install
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -926,6 +995,59 @@ export function chooseBaseUrl(payload: PairingPayload): string {
 
 export function reconnectDelay(attempt: number): number {
   return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
+}
+
+export function connectionStateMessage(state: WsState, transport: string): string {
+  switch (state) {
+    case "connecting":
+      return `Connecting through ${transport}...`;
+    case "fallback":
+      return `Trying fallback transport after ${transport} failed...`;
+    case "closed":
+      return `Offline on ${transport}. Cached approvals stay visible.`;
+    case "idle":
+      return `Waiting for realtime connection on ${transport}.`;
+    default:
+      return "";
+  }
+}
+
+export function installStateTitle({
+  standalone,
+  ios,
+  installable,
+}: {
+  standalone: boolean;
+  ios: boolean;
+  installable: boolean;
+}): string {
+  if (standalone) {
+    return "Installed PWA.";
+  }
+  if (ios) {
+    return "Add to Home Screen for push.";
+  }
+  return installable ? "Ready to install." : "Installable PWA.";
+}
+
+export function installStateBody({
+  standalone,
+  ios,
+  installable,
+}: {
+  standalone: boolean;
+  ios: boolean;
+  installable: boolean;
+}): string {
+  if (standalone) {
+    return "Lock-screen notification deep links open this paired machine.";
+  }
+  if (ios) {
+    return "Open from Safari, share, then Add to Home Screen.";
+  }
+  return installable
+    ? "Install this app for persistent notifications."
+    : "Install from the browser menu for persistent notifications.";
 }
 
 export function swipeDecision(deltaX: number, width: number): Decision | null {
@@ -1110,6 +1232,10 @@ function transportLabelForUrl(connection: Connection, baseUrl: string): string {
     (item) => normalizeBaseUrl(item.url) === normalized,
   );
   return transport ? `${transport.name} ${normalized}` : normalized;
+}
+
+function shortMachineId(machineId: string): string {
+  return machineId.length > 18 ? `${machineId.slice(0, 8)}...${machineId.slice(-6)}` : machineId;
 }
 
 function normalizeBaseUrl(url: string): string {

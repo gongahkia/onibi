@@ -58,11 +58,9 @@ import {
 } from "../lib/sessions";
 import { APP_VERSION } from "../lib/app-version";
 import { UPDATE_CHECK_EVENT } from "../lib/app-updater";
-import {
-  fetchConfigStatus,
-  type PolicyValidationStatus,
-} from "../lib/config-status";
+import type { PolicyValidationStatus } from "../lib/config-status";
 import { confirmAction } from "../lib/native-dialogs";
+import { useConfigStatusQuery } from "../lib/queries";
 import { ptySpawn, shellPath } from "../lib/tauri-bridge";
 
 export interface SettingsPaneProps {
@@ -101,12 +99,15 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
   const [error, setError] = useState<string | null>(null);
   const [configJson, setConfigJson] = useState("");
   const [configStatus, setConfigStatus] = useState<string | null>(null);
-  const [policyStatus, setPolicyStatus] = useState<PolicyValidationStatus | null>(null);
-  const [policyStatusError, setPolicyStatusError] = useState<string | null>(null);
-  const [policyStatusLoading, setPolicyStatusLoading] = useState(false);
   const [terminalImports, setTerminalImports] = useState<TerminalConfigImport[]>([]);
   const [terminalImportError, setTerminalImportError] = useState<string | null>(null);
   const [detectingTerminalConfigs, setDetectingTerminalConfigs] = useState(false);
+  const policyQuery = useConfigStatusQuery({
+    enabled: open && section === "config-json",
+  });
+  const policyStatus = policyQuery.data?.policyValidation ?? null;
+  const policyStatusError = policyQuery.error ? policyStatusMessage(policyQuery.error) : null;
+  const policyStatusLoading = policyQuery.isLoading || policyQuery.isFetching;
 
   useEffect(() => {
     if (!open) {
@@ -148,35 +149,6 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       cancelled = true;
     };
   }, [open]);
-
-  useEffect(() => {
-    if (!open || section !== "config-json") {
-      return;
-    }
-    let cancelled = false;
-    setPolicyStatusLoading(true);
-    fetchConfigStatus()
-      .then((status) => {
-        if (!cancelled) {
-          setPolicyStatus(status.policyValidation ?? null);
-          setPolicyStatusError(null);
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled) {
-          setPolicyStatus(null);
-          setPolicyStatusError(policyStatusMessage(caught));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPolicyStatusLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, section]);
 
   useEffect(() => {
     if (open) {

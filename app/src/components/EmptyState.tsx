@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { cloneGitRepository } from "../lib/git";
+import { useTransportStatusQuery } from "../lib/queries";
 import { useSessionStore, workspaceIdForPath } from "../lib/sessions";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
-import { fetchTransportStatus, type TransportSnapshot } from "../lib/transports";
 
 function openCommandPalette() {
   window.dispatchEvent(new CustomEvent("onibi:open-command-palette"));
@@ -25,24 +25,9 @@ export function EmptyState() {
   );
   const activeSessions = sessions.length;
 
-  const [transports, setTransports] = useState<TransportSnapshot[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    async function pull() {
-      try {
-        const snap = await fetchTransportStatus();
-        if (!cancelled) setTransports(snap);
-      } catch {
-        if (!cancelled) setTransports([]);
-      }
-    }
-    void pull();
-    const id = window.setInterval(pull, 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
+  const { data: transports = [] } = useTransportStatusQuery({
+    refetchInterval: 30_000,
+  });
   const runningTransport = transports.find((t) => t.enabled && t.status.state === "running");
 
   async function handleOpenFolder() {

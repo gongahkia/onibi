@@ -24,6 +24,7 @@ import {
   useSessionStore,
 } from "./lib/sessions";
 import { startDesktopBridge } from "./lib/desktop-api";
+import { AppQueryProvider } from "./lib/query-client";
 import "./styles/layout.css";
 
 function App() {
@@ -124,7 +125,7 @@ function App() {
   );
 
   return (
-    <>
+    <AppQueryProvider>
       <div className="app-frame">
         <TitleBar />
         <div className="app-body">
@@ -155,7 +156,7 @@ function App() {
       <CommandPalette />
       <UpdateDialog />
       <OnboardingDialog open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
-    </>
+    </AppQueryProvider>
   );
 }
 

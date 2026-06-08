@@ -1,5 +1,6 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi, type Mock } from "vitest";
+import { appQueryClient } from "./lib/query-client";
 
 type TauriMocks = {
   dialogConfirm: Mock;
@@ -177,6 +178,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 
 afterEach(() => {
   cleanup();
+  appQueryClient.clear();
   tauriMocks.dialogConfirm.mockReset();
   tauriMocks.dialogConfirm.mockResolvedValue(true);
   tauriMocks.requestUserAttention.mockClear();
