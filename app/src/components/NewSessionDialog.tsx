@@ -41,6 +41,9 @@ export function NewSessionDialog({
   );
   const [initialPrompt, setInitialPrompt] = useState("");
   const [cwdMode, setCwdMode] = useState<"workspace" | "current">("current");
+  const [trustMode, setTrustMode] = useState<"approval-required" | "full-access">(
+    "approval-required",
+  );
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
   const [checkingBinary, setCheckingBinary] = useState(false);
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
@@ -164,6 +167,7 @@ export function NewSessionDialog({
             cwdMode === "current" && defaultCwd?.startsWith(selectedWorkspace.path)
               ? defaultCwd
               : selectedWorkspace.path,
+          trustMode,
         },
       );
       setInitialPrompt("");
@@ -239,6 +243,19 @@ export function NewSessionDialog({
                   {choosingWorkspace ? "Choosing" : "Choose Folder"}
                 </button>
               </span>
+            </label>
+            <label className="field-label">
+              Trust mode
+              <select
+                className="settings-select"
+                value={trustMode}
+                onChange={(event) =>
+                  setTrustMode(event.target.value as "approval-required" | "full-access")
+                }
+              >
+                <option value="approval-required">Approval required</option>
+                <option value="full-access">Full access</option>
+              </select>
             </label>
             {selectedWorkspace ? (
               <div className="settings-note">{selectedWorkspace.path}</div>

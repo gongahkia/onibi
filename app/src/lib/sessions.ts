@@ -5249,6 +5249,7 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
     workspaceId: daemon.workspaceId ?? session.workspaceId,
     title: daemon.title ?? daemon.name ?? session.title,
     status: sessionStatusFromDaemon(daemon),
+    trustMode: daemon.trustMode ?? session.trustMode ?? "approval-required",
     createdAt: daemon.createdAt || session.createdAt,
     pendingApprovals: session.pendingApprovals ?? [],
     cwd: daemon.cwd ?? session.cwd,
@@ -5256,6 +5257,7 @@ function mergeDaemonSession(session: Session, daemon: PtySessionMetadata): Sessi
     restart: daemon.restart
       ? {
           ...daemon.restart,
+          trustMode: daemon.restart.trustMode ?? daemon.trustMode ?? "approval-required",
           remote:
             normalizeRemoteSessionMetadata(daemon.restart.remote) ?? remote ?? null,
         }
@@ -5275,6 +5277,7 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
     workspaceId: daemon.workspaceId ?? workspaceIdForPath(cwd),
     title: daemon.title ?? daemon.name ?? sessionTitle(agent, workspaceFromPathSync(cwd)),
     status: sessionStatusFromDaemon(daemon),
+    trustMode: daemon.trustMode ?? "approval-required",
     createdAt: daemon.createdAt || Date.now(),
     pendingApprovals: [],
     cwd,
@@ -5285,6 +5288,7 @@ function sessionFromDaemonMetadata(daemon: PtySessionMetadata): Session {
     restart: daemon.restart
       ? {
           ...daemon.restart,
+          trustMode: daemon.restart.trustMode ?? daemon.trustMode ?? "approval-required",
           remote: normalizeRemoteSessionMetadata(daemon.restart.remote),
         }
       : null,
@@ -6529,6 +6533,7 @@ export async function spawnSessionFromLaunchSpec(
     agent: spec.agent,
     workspaceId: spec.workspaceId,
     title: spec.title,
+    trustMode: spec.trustMode ?? "approval-required",
     ...(spec.remote ? { remote: spec.remote } : {}),
     ...shellModePatch(spec.shellMode),
   });
@@ -6537,6 +6542,7 @@ export async function spawnSessionFromLaunchSpec(
     args: spec.args,
     cwd: spec.cwd,
     env: spec.env,
+    trustMode: spec.trustMode ?? "approval-required",
     ...(spec.shellMode ? { shellMode: spec.shellMode } : {}),
     ...(spec.remote ? { remote: spec.remote } : {}),
   };
@@ -6547,6 +6553,7 @@ export async function spawnSessionFromLaunchSpec(
       workspaceId: spec.workspaceId,
       title: spec.title,
       status: "running",
+      trustMode: spec.trustMode ?? "approval-required",
       createdAt: Date.now(),
       pendingApprovals: [],
       cwd: spec.cwd ?? undefined,
@@ -6706,7 +6713,7 @@ export async function spawnAgentSession(
   workspace: Workspace,
   initialPrompt: string,
   placement?: TerminalPanePlacement | null,
-  options?: { cwd?: string | null },
+  options?: { cwd?: string | null; trustMode?: TrustMode },
 ): Promise<PtyId> {
   const settings = useSessionStore.getState().settings;
   const launch = launchCommandForAgent(agent, settings, initialPrompt);
@@ -6722,6 +6729,7 @@ export async function spawnAgentSession(
       args: launch.args,
       cwd,
       env,
+      trustMode: options?.trustMode ?? "approval-required",
       ...(launch.shellMode ? { shellMode: launch.shellMode } : {}),
       initialPrompt,
     },

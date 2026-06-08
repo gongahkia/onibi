@@ -213,6 +213,9 @@ function SessionCard({
         <span className={`session-card-status ${session.status}`}>
           {statusLabel(session)}
         </span>
+        {session.trustMode === "full-access" ? (
+          <span className="session-card-trust">Full access</span>
+        ) : null}
         <span className="session-card-time">{elapsed}</span>
         {session.pendingApprovals.length > 0 ? (
           <span className="session-card-approval">

@@ -7,10 +7,16 @@ import type {
 
 export type ApprovalDecision = Decision;
 
-export type ApprovalPendingMessage = Extract<
+type GeneratedApprovalPendingMessage = Extract<
   ServerMessage,
   { type: "approval-pending" }
 >;
+export interface ApprovalPendingMessage
+  extends Omit<GeneratedApprovalPendingMessage, "metadata" | "created_at" | "expires_at"> {
+  metadata?: unknown;
+  created_at?: number;
+  expires_at?: number | null;
+}
 
 export type ApprovalResolvedMessage = Extract<
   ServerMessage,
