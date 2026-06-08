@@ -7,7 +7,7 @@ const DEVICE_LABEL = "Onibi Mobile PWA";
 
 type Decision = "allow" | "deny";
 type ClientScope = "full" | "read-only";
-type WsState = "idle" | "connecting" | "fallback" | "open" | "closed";
+export type WsState = "idle" | "connecting" | "fallback" | "open" | "closed";
 type Tab = "pending" | "recent" | "terminal";
 type BeforeInstallPromptEvent = Event & {
   prompt(): Promise<void>;

@@ -4,7 +4,10 @@ import {
   candidateBaseUrls,
   chooseBaseUrl,
   commandText,
+  connectionStateMessage,
   emergencyStopRequest,
+  installStateBody,
+  installStateTitle,
   parsePairingInput,
   reconnectDelay,
   swipeDecision,
@@ -100,5 +103,18 @@ describe("mobile pairing and approval helpers", () => {
     expect(swipeDecision(120, 320)).toBe("allow");
     expect(swipeDecision(-120, 320)).toBe("deny");
     expect(swipeDecision(40, 320)).toBeNull();
+  });
+
+  test("describes realtime fallback and install state", () => {
+    expect(connectionStateMessage("fallback", "lan https://phone")).toContain(
+      "Trying fallback transport",
+    );
+    expect(connectionStateMessage("closed", "cloudflared")).toContain("Cached approvals");
+    expect(installStateTitle({ standalone: false, ios: false, installable: true })).toBe(
+      "Ready to install.",
+    );
+    expect(installStateBody({ standalone: true, ios: false, installable: false })).toContain(
+      "deep links",
+    );
   });
 });

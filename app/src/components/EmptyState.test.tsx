@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { EmptyState } from "./EmptyState";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 
@@ -21,6 +21,17 @@ function resetStore() {
 describe("EmptyState", () => {
   beforeEach(() => {
     resetStore();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => [],
+      })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   test("renders the start prompt without landing-page help copy", () => {
