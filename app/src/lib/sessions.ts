@@ -6009,6 +6009,8 @@ function assignTomlSetting(
           ? "defaultAgent"
           : key === "new_pane_cwd"
             ? "newPaneCwd"
+            : key === "mobile_layout_threshold_px"
+              ? "mobileLayoutThresholdPx"
             : camelFromTomlKey(key);
     settings[mappedKey] = value;
   } else if (path === "terminal") {
@@ -6031,6 +6033,8 @@ function assignTomlSetting(
                       ? "terminalTransparentBackground"
                       : key === "inline_images"
                         ? "terminalInlineImages"
+                        : key === "mouse_capture"
+                          ? "terminalMouseCapture"
                         : camelFromTomlKey(key);
     settings[mappedKey] = value;
   } else if (path === "keybindings") {
@@ -6055,6 +6059,14 @@ function assignTomlSetting(
   } else if (path === "settings.custom_color_scheme.colors") {
     const scheme = (settings.customColorScheme ??= {}) as Record<string, unknown>;
     const target = (scheme.colors ??= {}) as Record<string, unknown>;
+    target[camelFromTomlKey(key)] = value;
+  } else if (path.startsWith("settings.theme_overrides.")) {
+    const theme = path.slice("settings.theme_overrides.".length);
+    const overrides = (settings.themeOverrides ??= {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const target = (overrides[theme] ??= {});
     target[camelFromTomlKey(key)] = value;
   } else if (currentObject) {
     currentObject[camelFromTomlKey(key)] = value;
@@ -6120,7 +6132,9 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
     settingLine("terminal_osc52_clipboard", settings.terminalOsc52Clipboard),
     settingLine("terminal_transparent_background", settings.terminalTransparentBackground),
     settingLine("terminal_inline_images", settings.terminalInlineImages),
+    settingLine("terminal_mouse_capture", settings.terminalMouseCapture),
     settingLine("terminal_confirm_close", settings.terminalConfirmClose),
+    settingLine("mobile_layout_threshold_px", settings.mobileLayoutThresholdPx),
     settingLine("pane_history_enabled", settings.paneHistoryEnabled),
     settingLine("remote_keybinding_policy", settings.remoteKeybindingPolicy),
     settingLine("remote_ssh_command", settings.remoteSshCommand),
@@ -6179,6 +6193,21 @@ export function serializeOnibiConfigToml(config = getOnibiConfigSnapshot()): str
       ),
     ),
   ];
+
+  for (const [theme, colors] of Object.entries(settings.themeOverrides).sort()) {
+    lines.push("", `[settings.theme_overrides.${theme}]`);
+    for (const key of COLOR_SCHEME_COLOR_KEYS) {
+      const value = colors[key];
+      if (value) {
+        lines.push(
+          settingLine(
+            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+            value,
+          ),
+        );
+      }
+    }
+  }
 
   for (const binding of settings.appKeybindings) {
     lines.push(
@@ -8299,6 +8328,14 @@ function colorsForSettings(settings: AppSettings): ColorSchemeColors {
     if (settings.ghosttyTheme?.foreground) {
       colors.fg0 = settings.ghosttyTheme.foreground;
       colors.terminalForeground = settings.ghosttyTheme.foreground;
+    }
+  }
+  const overrides = settings.themeOverrides[scheme.id];
+  if (overrides) {
+    for (const key of COLOR_SCHEME_COLOR_KEYS) {
+      if (overrides[key]) {
+        colors[key] = overrides[key];
+      }
     }
   }
   return colors;
