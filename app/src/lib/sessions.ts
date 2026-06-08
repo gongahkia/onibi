@@ -55,6 +55,7 @@ export type SessionStatus =
   | "completed"
   | "error"
   | "stale";
+export type TrustMode = "approval-required" | "full-access";
 
 export interface Session {
   id: string;
@@ -63,6 +64,7 @@ export interface Session {
   workspaceId: string;
   title: string;
   status: SessionStatus;
+  trustMode?: TrustMode;
   createdAt: number;
   pendingApprovals: string[];
   cwd?: string;
@@ -165,6 +167,7 @@ export interface SessionRestartMetadata {
   cwd: string | null;
   env: Array<[string, string]>;
   shellMode?: TerminalShellMode;
+  trustMode?: TrustMode;
   remote?: RemoteSessionMetadata | null;
 }
 

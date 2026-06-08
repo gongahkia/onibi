@@ -192,6 +192,10 @@ enum SessionCommand {
     Stop {
         id: String,
     },
+    SetTrust {
+        id: String,
+        trust_mode: String,
+    },
     Send {
         id: String,
         text: Vec<String>,
@@ -544,6 +548,17 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
         }
         SessionCommand::Stop { id } => {
             print_orchestration("session.stop", json!({"id": id}), json_output).await
+        }
+        SessionCommand::SetTrust { id, trust_mode } => {
+            if !matches!(trust_mode.as_str(), "approval-required" | "full-access") {
+                bail!("trust mode must be 'approval-required' or 'full-access'");
+            }
+            print_orchestration(
+                "session.set_trust",
+                json!({"id": id, "trustMode": trust_mode}),
+                json_output,
+            )
+            .await
         }
         SessionCommand::Send { id, text } => {
             print_orchestration(

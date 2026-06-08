@@ -33,6 +33,14 @@ pub enum RemoteKeybindingPolicy {
     Remote,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrustMode {
+    #[default]
+    ApprovalRequired,
+    FullAccess,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteBootstrapStatus {
@@ -106,6 +114,8 @@ pub struct PtySpawnRequest {
     pub workspace_id: Option<String>,
     #[serde(default, rename = "safeMode")]
     pub safe_mode: bool,
+    #[serde(default, rename = "trustMode")]
+    pub trust_mode: TrustMode,
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]

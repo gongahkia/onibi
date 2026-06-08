@@ -6,7 +6,7 @@
 use crate::{
     pty::{
         PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest, RemoteSessionMetadata,
-        ShellMode,
+        ShellMode, TrustMode,
     },
     secret,
 };
@@ -66,6 +66,8 @@ pub struct SessionRestartMetadata {
     pub shell_mode: ShellMode,
     #[serde(default)]
     pub safe_mode: bool,
+    #[serde(default)]
+    pub trust_mode: TrustMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteSessionMetadata>,
 }
@@ -116,6 +118,8 @@ pub struct SessionInfo {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub safe_mode: bool,
+    #[serde(default)]
+    pub trust_mode: TrustMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -667,6 +671,7 @@ impl OrchestrationState {
                     "session.list",
                     "session.attach",
                     "session.stop",
+                    "session.set_trust",
                     "pane.read",
                     "pane.send_keys",
                     "wait.output",
@@ -690,6 +695,7 @@ impl OrchestrationState {
             "session.list" => self.list_sessions().await,
             "session.attach" => self.attach(payload).await,
             "session.stop" => self.stop(payload).await,
+            "session.set_trust" => self.set_trust(payload).await,
             "pane.read" | "agent.read" => self.read(payload).await,
             "pane.send_keys" => self.send_keys(payload).await,
             "wait.output" => self.wait_output(payload).await,
@@ -729,6 +735,7 @@ impl OrchestrationState {
             .await?;
         let restart = restart_metadata_from_request(&req);
         let safe_mode = req.safe_mode;
+        let trust_mode = req.trust_mode;
         let rows = req.rows.max(1);
         let cols = req.cols.max(1);
         let id = self.manager.spawn(req).await?;
@@ -743,6 +750,7 @@ impl OrchestrationState {
             agent: metadata.agent,
             workspace_id: metadata.workspace_id,
             safe_mode,
+            trust_mode,
             cwd: metadata.cwd,
             title: metadata.title,
             status: AgentStatus::Working,
@@ -923,6 +931,35 @@ impl OrchestrationState {
         Ok(json!({"ok": true, "session": stopped}))
     }
 
+    async fn set_trust(&self, payload: Value) -> Result<Value> {
+        let session = self.resolve_session_record(&payload).await?;
+        let mode = payload
+            .get("trustMode")
+            .or_else(|| payload.get("trust_mode"))
+            .and_then(Value::as_str)
+            .unwrap_or("approval-required");
+        let trust_mode = match mode {
+            "approval-required" => TrustMode::ApprovalRequired,
+            "full-access" => TrustMode::FullAccess,
+            other => anyhow::bail!("trustMode must be 'approval-required' or 'full-access', got {other}"),
+        };
+        let mut sessions = self.sessions.write().await;
+        let current = sessions
+            .get_mut(&session.id)
+            .ok_or_else(|| anyhow!("session not found: {}", session.id))?;
+        current.trust_mode = trust_mode;
+        current.updated_at = now_millis();
+        let updated = current.clone();
+        drop(sessions);
+        self.persist_session(&updated);
+        let _ = self.events.send(OrchestrationEvent::SessionStatus {
+            id: updated.id.clone(),
+            status: updated.status,
+            session: Some(updated.clone()),
+        });
+        Ok(json!({"ok": true, "session": updated}))
+    }
+
     async fn attach(&self, payload: Value) -> Result<Value> {
         let session = self.resolve_session_record(&payload).await?;
         if session.lifecycle == SessionLifecycle::Running && self.session_is_live(&session.id).await
@@ -955,6 +992,7 @@ impl OrchestrationState {
             env: restart.env,
             shell_mode: restart.shell_mode,
             safe_mode: restart.safe_mode,
+            trust_mode: restart.trust_mode,
             rows: session.rows.max(1),
             cols: session.cols.max(1),
             name: session.name.clone(),
@@ -990,6 +1028,15 @@ impl OrchestrationState {
             .await
             .get(session_id)
             .is_some_and(|session| session.safe_mode)
+    }
+
+    pub async fn session_trust_mode(&self, session_id: &str) -> TrustMode {
+        self.sessions
+            .read()
+            .await
+            .get(session_id)
+            .map(|session| session.trust_mode)
+            .unwrap_or_default()
     }
 
     async fn session_is_live(&self, session_id: &str) -> bool {
@@ -1650,6 +1697,7 @@ fn restart_metadata_from_request(req: &PtySpawnRequest) -> SessionRestartMetadat
         env: req.env.clone(),
         shell_mode: req.shell_mode,
         safe_mode: req.safe_mode,
+        trust_mode: req.trust_mode,
         remote: req.remote.clone(),
     }
 }
@@ -1674,6 +1722,7 @@ fn provider_restart_metadata(session: &SessionInfo) -> Option<SessionRestartMeta
             .map(|restart| restart.shell_mode)
             .unwrap_or_default(),
         safe_mode: session.safe_mode,
+        trust_mode: session.trust_mode,
         remote: session
             .remote
             .clone()

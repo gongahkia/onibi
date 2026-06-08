@@ -4,6 +4,7 @@ use crate::{
     approval::store::{now_millis, ApprovalHistoryFilter},
     orchestration::AgentStatus,
     policy,
+    pty::TrustMode,
     secret,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
@@ -748,27 +749,64 @@ pub async fn wait_for_approval_decision(
         decided_at: None,
     };
 
-    let policy_evaluation = if state
+    let safe_mode = state
         .orchestration
         .session_safe_mode(&approval.session_id)
-        .await
-    {
+        .await;
+    let trust_mode = state
+        .orchestration
+        .session_trust_mode(&approval.session_id)
+        .await;
+    if trust_mode == TrustMode::FullAccess && !safe_mode {
+        let reason = "auto-allowed by session trust mode".to_string();
+        approval.decision = Some(Decision::Allow);
+        approval.reason = Some(reason.clone());
+        approval.decided_by = Some("session-trust-mode".to_string());
+        approval.decided_at = Some(now_millis());
+        approval.metadata = with_trust_metadata(approval.metadata.take(), "full-access");
+        state.store.insert_approval(&approval)?;
+        state
+            .orchestration
+            .set_status(&approval.session_id, AgentStatus::Working)
+            .await;
+        state.broadcast(ServerMessage::ApprovalResolved {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            approval_id: approval_id.clone(),
+            machine_id: approval.machine_id.clone(),
+            decision: Decision::Allow,
+            by: Some("session-trust-mode".to_string()),
+            reason: Some(reason.clone()),
+        });
+        return Ok(ApprovalDecisionResponse {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            approval_id,
+            decision: Decision::Allow,
+            updated_input: None,
+            reason: Some(reason),
+        });
+    }
+
+    let policy_evaluation = if safe_mode {
         Some(policy::evaluate_safe_mode(&approval))
     } else {
         policy::evaluate(&approval)?
     };
     if let Some(evaluation) = policy_evaluation {
-        let source = if state
-            .orchestration
-            .session_safe_mode(&approval.session_id)
-            .await
-        {
+        let source = if safe_mode {
             "safe-mode"
         } else {
             "manual"
         };
         approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, source);
-        if let Some(decision) = evaluation.response_decision() {
+        let response_decision = if trust_mode == TrustMode::ApprovalRequired
+            && !safe_mode
+            && evaluation.decision == policy::PolicyDecision::AutoAllow
+        {
+            None
+        } else {
+            evaluation.response_decision()
+        };
+        if let Some(decision) = response_decision {
             let reason = evaluation.reason();
             approval.decision = Some(decision);
             approval.reason = Some(reason.clone());
@@ -878,6 +916,27 @@ fn with_policy_metadata(
             "name": evaluation.rule_name,
             "decision": evaluation.decision,
             "source": source,
+        }),
+    );
+    Some(Value::Object(root))
+}
+
+fn with_trust_metadata(metadata: Option<Value>, mode: &str) -> Option<Value> {
+    let mut root = match metadata {
+        Some(Value::Object(map)) => map,
+        Some(value) => {
+            let mut map = serde_json::Map::new();
+            map.insert("original".to_string(), value);
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+    root.insert(
+        "onibi_trust_mode".to_string(),
+        json!({
+            "mode": mode,
+            "decision": "auto-allow",
+            "source": "session-trust-mode",
         }),
     );
     Some(Value::Object(root))

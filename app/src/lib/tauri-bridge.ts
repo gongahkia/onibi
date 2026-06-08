@@ -15,6 +15,7 @@ export interface PtySpawnRequest {
   name?: string | null;
   agent?: string | null;
   workspaceId?: string | null;
+  trustMode?: import("./sessions").TrustMode;
   title?: string | null;
   remote?: import("./sessions").RemoteSessionMetadata | null;
 }
@@ -43,6 +44,7 @@ export interface PtySessionRestart {
   cwd: string | null;
   env: Array<[string, string]>;
   shellMode?: PtyShellMode;
+  trustMode?: import("./sessions").TrustMode;
   remote?: import("./sessions").RemoteSessionMetadata | null;
 }
 
@@ -69,6 +71,7 @@ export interface PtySessionMetadata {
   cwd?: string | null;
   title?: string | null;
   status: "idle" | "working" | "blocked" | "done";
+  trustMode?: import("./sessions").TrustMode | null;
   lifecycle: "running" | "stale" | "stopped";
   rows: number;
   cols: number;
