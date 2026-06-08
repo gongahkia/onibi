@@ -1101,6 +1101,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_access_session_auto_allows_and_audits() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store.clone());
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session("session-full", TrustMode::FullAccess))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/approval/request")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "protocol_version": "1.0",
+                            "session_id": "session-full",
+                            "agent": "claude-code",
+                            "tool": "Bash",
+                            "input": {"command": "rm -rf node_modules"},
+                            "cwd": "/tmp/project"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let decision: ApprovalDecisionResponse = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decision.decision, Decision::Allow);
+        assert_eq!(
+            decision.reason.as_deref(),
+            Some("auto-allowed by session trust mode")
+        );
+
+        let history = store
+            .list_approvals(ApprovalHistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].session_id, "session-full");
+        assert_eq!(history[0].decision, Some(Decision::Allow));
+        assert_eq!(history[0].decided_by.as_deref(), Some("session-trust-mode"));
+        assert_eq!(
+            history[0].metadata.as_ref().unwrap()["onibi_trust_mode"]["mode"],
+            "full-access"
+        );
+    }
+
+    #[tokio::test]
     async fn malformed_json_returns_protocol_error_envelope() {
         let dir = tempdir().unwrap();
         let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();

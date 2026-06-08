@@ -1,4 +1,6 @@
-use super::{canonical_agent, contains_any_phrase, normalize_detection_text, strip_ansi, AgentStatus};
+use super::{
+    canonical_agent, contains_any_phrase, normalize_detection_text, strip_ansi, AgentStatus,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandKind {

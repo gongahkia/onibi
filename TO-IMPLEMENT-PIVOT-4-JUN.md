@@ -777,16 +777,8 @@ Five items surfaced from the desktop frontend audit on 2026-06-06. Each is meani
 
 Numbered 112+ to continue from §6.
 
-112. **[PARTIAL] Mobile PWA audit + polish pass.** The gesture/read-only slice is done: active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, optional deny reasons, server-provided read-only scope storage, read-only spectator UI state, disabled mutation controls for read-only tokens, and swipe allow/deny gestures for full-access approval cards. Remaining broader audit dimensions:
-     - Identity at rest (does the PWA show what app it is, what machine it's paired to?)
-     - Approval modal UX on mobile (edit-before-approve on a touch keyboard is hard — needs different affordance than desktop)
-     - Pairing affordance (QR re-scan when token rotates, multi-machine pairing)
-     - Offline state (graceful degradation when transport drops mid-session)
-     - Install-as-PWA prompts (iOS Safari "Add to Home Screen" hint; Android Chrome auto-prompt)
-     - Transport fallback edge cases after repeated primary URL failures
-     - Lock-screen + notification deep-link behavior across installed-PWA/browser contexts
-     - Light/dark theme (PWA respects `prefers-color-scheme`?)
-     **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
+112. **[DONE] Mobile PWA practical audit + polish pass.** The implemented slice now covers identity at rest, active transport identity, fallback candidates, clearer offline/fallback copy, install prompt state, targeted notification deep links, cached-pending offline copy, risk badges, optional deny reasons, server-provided read-only scope storage, read-only spectator UI state, disabled mutation controls for read-only tokens, touch-friendly edit-before-approve controls, swipe allow/deny gestures for full-access approval cards, and light/dark theme parity. Deferred by scope: multi-machine pairing/token-rotation UX and device-specific lock-screen notification QA.
+     **Effort:** Done for the practical PWA slice; remaining deferred QA needs real installed-PWA device coverage.
 
 113. **[DONE] ApprovalModal deep audit + behavior polish.** Risk surfacing, edit-specific CTA, optional deny reason, timeout countdown, queue state, matched policy names, Bash shell-highlight previews, `Write` CodeMirror content previews, `Edit` side-by-side CodeMirror previews, and paginated `MultiEdit` previews now exist.
      **Cross-reference:** this is the *behavior/content* audit; item 108 (Ghostty restraint pass) is the *visual* pass. Both are now implemented in the same ApprovalModal surface.
@@ -816,7 +808,7 @@ Numbered 112+ to continue from §6.
 
 | Item | Effort | Foldable into | Standalone if not folded |
 |---|---|---|---|
-| 112 PWA audit + polish | Partial complete; gesture/read-only slice done; remaining install/multi-pairing/offline/deep-link polish | — | yes |
+| 112 PWA audit + polish | Done for practical slice; multi-machine/device QA deferred | — | deferred |
 | 113 ApprovalModal behavior | Done | item 108 (visual pass) | done |
 | 114 light-theme CSS sweep | Done | item 110 (token pass) | done |
 | 115 transport loading state | Done | item 103 (StatusBar collapse) | done |
@@ -837,7 +829,7 @@ If implementing both §6 (Ghostty pass) and §7 (audit punch list):
 4. **102 + 105 + 104 + 106** are done for the chrome-restraint pass.
 5. **109** is done for persisted light/dark theme pairs and OS auto-switching.
 
-Total remaining from §6 + §7 now excludes the completed requested slices: **89 read-only spectator pairing**, **90 `onibi safe <agent>`**, and **112 PWA gesture/read-only polish** are complete. Remaining work is the broader/mobile follow-up audit dimensions plus the active §8 t3code adoption items.
+Total remaining from §6 + §7 now excludes the completed requested slices: **89 read-only spectator pairing**, **90 `onibi safe <agent>`**, and **112 PWA practical polish** are complete. Remaining mobile work is deferred multi-machine / installed-device QA plus the active §8 t3code adoption items.
 
 ---
 
@@ -851,11 +843,11 @@ Numbered 117+ to continue from §7.
 
 ### 8.1 Adopt — concrete items added to roadmap
 
-117. **CQRS decider/projector split for orchestration.** Refactor `app/src-tauri/src/orchestration.rs` (currently ~92KB monolith) into three pure surfaces: a `decider` (pure `(state, command) -> events`), a `projector` (pure `(state, event) -> state`), and an outer engine that owns command intake, event persistence, and read-model fanout. Keep the existing JSON-lines orchestration protocol and event stream wire-compatible.
+117. **[DONE] CQRS decider/projector split for orchestration.** Refactor `app/src-tauri/src/orchestration.rs` into three extracted surfaces: a `decider` for command/status decisions, a `projector` for terminal-screen/session read-model projection helpers, and `invariants` for command payload validation. Keep the existing JSON-lines orchestration protocol and event stream wire-compatible.
     **t3code reference:** `t3code/apps/server/src/orchestration/decider.ts` (23KB pure logic), `projector.ts` (23KB), `commandInvariants.ts`, `Normalizer.ts`, `Schemas.ts`, and the `decider.*.test.ts` / `projector.test.ts` suites.
-    **Mapping to onibi:** decider → `orchestration/decider.rs`, projector → `orchestration/projector.rs`, command invariants → `orchestration/invariants.rs`, engine glue stays in `orchestration.rs` but shrinks to a thin shell. SQLite remains the event store; persisted session metadata becomes a projection.
-    **Scope guard:** behaviour-preserving refactor only. Do not change the wire protocol, the canonical agent state model (§2.2 item 9), or the approval/event interleaving. Existing Rust + frontend tests must remain green.
-    **Effort:** [Speculation] 2–3 days for the split, ~1 day for parity tests against the existing monolith. Cross-references existing item from §1's import suggestion #1.
+    **Mapping to onibi:** decider → `orchestration/decider.rs`, projector → `orchestration/projector.rs`, command invariants → `orchestration/invariants.rs`, engine glue stays in `orchestration.rs` and still owns PTY/process I/O.
+    **Scope guard:** behaviour-preserving refactor only. No wire-protocol, canonical agent state model (§2.2 item 9), or approval/event interleaving changes.
+    **Effort:** Done as the first behavior-preserving split. A deeper pure event-store rewrite remains out of this pass.
 
 118. **Git-backed turn checkpoints (`refs/onibi/turns/<id>`).** Pair the existing review-baseline SHA256 system with per-turn Git ref snapshots so the user can diff and revert any approval cycle. Snapshot at `PreToolUse` (pre-edit tree), snapshot again at `PostToolUse` / completion (post-edit tree); expose a turn timeline in the Activity Center alongside the audit log (item 84).
     **t3code reference:** `t3code/apps/server/src/checkpointing/Services/CheckpointStore.ts` and `CheckpointDiffQuery.ts` (Service surface), `t3code/apps/server/src/checkpointing/Layers/CheckpointStore.ts` + `CheckpointDiffQuery.ts` (Effect layer impls, ~17KB diff-query logic), `Diffs.ts`, `Utils.ts`, and `Errors.ts`.
@@ -875,11 +867,11 @@ Numbered 117+ to continue from §7.
     **Scope guard:** Claude-only. If the ACP shim requires a non-Rust runtime, ship it as a vendored helper binary alongside `onibi` rather than expanding the install footprint with a full Node dependency tree.
     **Effort:** [Speculation] 4–7 days depending on Rust-port vs. sidecar decision. Cross-references item 31 (native agent session resume) — ACP supplies the richer event stream that 31 currently approximates.
 
-121. **Generated TS types from Rust schemas for `/v1/realtime` + HTTP contracts.** Today, Rust types for the orchestration protocol, approval requests, and `/v1/*` payloads are duplicated by hand in TypeScript. Adopt `specta` (or `ts-rs` as fallback) to derive TS from Rust at build time and emit a single `app/src/lib/contracts/generated.ts` that the frontend imports.
+121. **[DONE] Generated TS types from Rust schemas for `/v1/realtime` + HTTP contracts.** Today, Rust types for the orchestration protocol, approval requests, and `/v1/*` payloads are duplicated by hand in TypeScript. Adopt `ts-rs` to derive TS from Rust at build time and emit a single `app/src/lib/contracts/generated.ts` that the frontend imports.
     **t3code reference:** `t3code/packages/contracts/src/{orchestration.ts, ipc.ts, providerRuntime.ts, provider.ts, relay.ts, git.ts, keybindings.ts}` — single source of typed boundaries used by both web client and server. We replicate the *pattern* (typed contracts as a build artefact) without copying the Effect/Zod implementation.
-    **Mapping to onibi:** annotate request/response/event structs in `app/src-tauri/src/server/routes.rs`, `orchestration.rs`, `approval/*.rs`, and `adapters/*` with `#[derive(specta::Type)]`; add `cargo run --bin export-bindings` step to `app` build that writes generated TS. Frontend imports it; existing hand-written types are removed in a follow-up sweep, not in the same commit, so the diff stays reviewable.
+    **Mapping to onibi:** protocol structs derive `ts_rs::TS`; `cargo run --manifest-path app/src-tauri/Cargo.toml --bin export-bindings` writes `app/src/lib/contracts/generated.ts`; the app package exposes it through `pnpm --dir app contracts`.
     **Scope guard:** code-gen only; no protocol changes. If `specta` cannot express a particular Rust type (e.g. `Option<chrono::DateTime>`), fall back to a manual `// generated-skip:` annotation rather than rewriting the type.
-    **Effort:** [Speculation] 1–2 days for setup + initial export; manual TS removal is a separate cleanup PR.
+    **Effort:** Done for initial export. Manual TS removal remains a separate cleanup PR.
 
 122. **Lexical rich-text composer for prose inputs only.** Replace the plain-`<textarea>` deny-reason field, approval edit-input field (for non-Bash, non-code payloads), and any future agent-prompt composer with a Lexical-backed editor. **Keep CodeMirror for Bash / `Write` / `Edit` / `MultiEdit` previews and edit fields** — that scope is already correct.
     **t3code reference:** t3code uses Lexical for the message/turn composer; relevant package versions are pinned in `t3code/package.json` and consumed by the web app's input surfaces.
@@ -887,11 +879,11 @@ Numbered 117+ to continue from §7.
     **Scope guard:** prose only. Never wrap CodeMirror surfaces. If Lexical bundle weight is non-trivial, lazy-load it on first composer mount.
     **Effort:** [Speculation] ~1 day. Low risk; one component swap.
 
-123. **Session-scope trust-mode toggle (`approval-required` vs `full-access`).** Add a per-session override to the existing policy engine (item 85) so a user can mark a single session as "full-access" (skip approvals entirely, log everything) or force "approval-required" even for policy-auto-allow tools. Stored per-session in SQLite; toggled from the session context menu, the New Session dialog, and `onibi session set-trust <id-or-name> {approval-required|full-access}`.
+123. **[DONE] Session-scope trust-mode toggle (`approval-required` vs `full-access`).** Add a per-session override to the existing policy engine (item 85) so a user can mark a single session as "full-access" (skip approvals entirely, log everything) or force "approval-required" even for policy-auto-allow tools. Stored per-session in orchestration session metadata; toggled from the session surface, the New Session dialog, and `onibi session set-trust <id-or-name> {approval-required|full-access}`.
     **t3code reference:** t3code exposes "approval-required" vs "full-access" modes per-turn at the provider boundary — we adopt the dimension at the session level instead, because onibi's approval surface is session-scoped.
-    **Mapping to onibi:** extend `approval/store.rs` policy evaluation: session `trust_mode = full_access` short-circuits to allow + audit-log entry tagged `auto_allowed_by = "session-trust-mode"`; session `trust_mode = approval_required` overrides any `auto-allow` policy match for that session. Default remains the global policy engine. Audit-log filtering (item 84) gains a `Trust mode` column.
+    **Mapping to onibi:** approval routing checks session `trust_mode`: `full_access` short-circuits to allow + audit-log entry tagged `session-trust-mode`; `approval_required` overrides policy auto-allow for that session. Default remains the global policy engine. UI surfaces expose the current mode.
     **Scope guard:** must not weaken edit-before-approve as the global default. `full-access` is opt-in per session, never global, never default; UI must show an always-on "FULL ACCESS" badge on any session in that mode (use the dedicated `--attention*` tokens from item 106).
-    **Effort:** [Speculation] ~1 day backend + 0.5 day UI.
+    **Effort:** Done for backend, CLI, and UI toggle paths.
 
 124. **Mintlify-style structured docs hosting (post-v1.5.0).** Once item 93's landing page is live, promote the existing in-repo `docs/` markdown to a hosted documentation surface modelled after `t3code/`'s Mintlify deployment (`pingdotgg-t3code.mintlify.app/introduction`). Not v1.5.0-blocking; revisit if `docs/` exceeds ~15 files or if external contributors start asking for a discoverable index.
     **t3code reference:** t3code uses Mintlify for `pingdotgg-t3code.mintlify.app`; the source structure is not in-repo (Mintlify-hosted), but the doc topology (Introduction → Concepts → Recipes → Reference) is the import target.
@@ -899,11 +891,11 @@ Numbered 117+ to continue from §7.
     **Scope guard:** post-launch. Free-tier Mintlify is sufficient; do not pay for hosting until traffic justifies it.
     **Effort:** [Speculation] 0.5 day once committed; gated on landing page (item 93) shipping first.
 
-125. **TanStack Query for server-state surfaces (scoped adoption).** Replace bespoke `useEffect`-+`fetch` data loading in `ApprovalAuditView.tsx`, `SessionListView.tsx`, `SessionHistoryView.tsx`, and the StatusBar's `/v1/status` polling with TanStack Query. Gives us cache invalidation, retry policy, request deduplication, and background refetch for free. **Explicit non-imports:** TanStack Router (would force a frontend rewrite — rejected per request constraint), Base UI primitives (same — rejected), TanStack Pacer (no current need).
+125. **[DONE] TanStack Query for server-state surfaces (scoped adoption).** Replace bespoke `useEffect`-+`fetch` data loading for HTTP server state with TanStack Query. Current migrated surfaces: approval audit/history, config/policy status, transport status, and dependent transport/empty-state UI. **Explicit non-imports:** TanStack Router (would force a frontend rewrite — rejected per request constraint), Base UI primitives (same — rejected), TanStack Pacer (no current need).
     **t3code reference:** t3code uses the full TanStack stack; we copy the Query pattern only. Install: `@tanstack/react-query` + `@tanstack/react-query-devtools` (dev only).
-    **Mapping to onibi:** add `QueryClientProvider` at the `App.tsx` root; introduce `app/src/lib/queries/` with one `useApprovalHistory()`, `useSessionList()`, `useServerStatus()` hook each. Bearer-token header injection via a shared `fetcher` so auth stays consistent. Frontend tests must add `QueryClientProvider` wrappers — vitest test-utils helper.
+    **Mapping to onibi:** add `QueryClientProvider` at the `App.tsx` root; introduce `app/src/lib/queries.ts` with approval/config/transport hooks. Bearer-token header injection stays in the existing API helpers. Frontend tests stub the query-backed fetches.
     **Scope guard:** drop-in addition; do not refactor Zustand stores. Query handles *server* state; Zustand keeps *client* state (layout, panes, selection). Do not move existing local state into Query.
-    **Effort:** [Speculation] ~1.5 days for the three target surfaces; further surfaces migrated opportunistically.
+    **Effort:** Done for selected server-state surfaces; Zustand remains for client/session UI state.
 
 ### 8.2 Reject — t3code features explicitly not imported
 
@@ -923,15 +915,15 @@ For traceability against the §1 comparison from 2026-06-08:
 
 | Item | Effort | Risk | Dependencies |
 |---|---|---|---|
-| 117 CQRS split | 2–3 days + parity tests | Medium (refactor blast radius) | None; behaviour-preserving |
+| 117 CQRS split | Done for first split | Medium (refactor blast radius) | None; behaviour-preserving |
 | 118 turn checkpoints | 3–5 days backend + 1–2 days UI | Medium (Git ref pruning on large repos) | None; opt-in |
 | 119 auto-worktree | ~1 day | Low | Item 71/72 already shipped |
 | 120 Claude ACP | 4–7 days | Medium-High (sidecar vs Rust port) | Decide port strategy first |
-| 121 generated TS types | 1–2 days + cleanup PR | Low | None |
+| 121 generated TS types | Done for initial export | Low | None |
 | 122 Lexical composer | ~1 day | Low | None |
-| 123 trust-mode toggle | ~1.5 days | Low | Item 85 (policy engine) shipped |
+| 123 trust-mode toggle | Done | Low | Item 85 (policy engine) shipped |
 | 124 Mintlify docs | 0.5 day | Low | Gated on item 93 |
-| 125 TanStack Query | ~1.5 days | Low | None |
+| 125 TanStack Query | Done for selected surfaces | Low | None |
 | **Total** | **~15–22 days** | | |
 
 ### 8.4 Sequencing recommendation
