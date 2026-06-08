@@ -2039,6 +2039,12 @@ button.welcome-pill:hover {
   color: var(--attention);
 }
 
+.session-card-trust {
+  color: var(--attention);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .session-card-time,
 .session-card-meta,
 .session-empty {

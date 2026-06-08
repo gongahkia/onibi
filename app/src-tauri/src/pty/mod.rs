@@ -8,5 +8,5 @@ pub use notifications::{
 };
 pub use session::{
     PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
-    RemoteBootstrapStatus, RemoteKeybindingPolicy, RemoteSessionMetadata, ShellMode,
+    RemoteBootstrapStatus, RemoteKeybindingPolicy, RemoteSessionMetadata, ShellMode, TrustMode,
 };

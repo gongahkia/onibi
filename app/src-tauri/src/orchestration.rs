@@ -953,7 +953,7 @@ impl OrchestrationState {
         drop(sessions);
         self.persist_session(&updated);
         let _ = self.events.send(OrchestrationEvent::SessionStatus {
-            id: updated.id.clone(),
+            session_id: updated.id.clone(),
             status: updated.status,
             session: Some(updated.clone()),
         });
