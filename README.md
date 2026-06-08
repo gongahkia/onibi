@@ -114,7 +114,7 @@ The desktop app, mobile PWA, CLI, and headless daemon all talk to the same local
 
 ## Roadmap
 
-Near-term work is focused on approval audit history, local policy rules, first-run onboarding, and mobile PWA polish.
+Near-term work is focused on landing-page/docs cleanup, WSL2 install notes, and remaining mobile PWA polish.
 
 ## License
 

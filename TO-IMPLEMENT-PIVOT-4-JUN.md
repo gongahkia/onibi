@@ -341,11 +341,11 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Filesystem browse / read / write** | No (it is a multiplexer) | Yes (file tree, search, CRUD) |
 | **In-app editor (CodeMirror)** | No | Yes (syntax HL, Vim mode) |
 | **Review/diff baseline tracking** | No | Yes (SHA256 snapshots, per-file accept/reject) |
-| **Themes** | 18 built-in (catppuccin, dracula, nord, …) | None advertised |
+| **Themes** | 18 built-in (catppuccin, dracula, nord, …) | Yes — reduced curated built-ins plus persisted light/dark theme pairs |
 | **Keybindings: prefix + chord (tmux-style)** | Yes (`ctrl+b` prefix, configurable v2 syntax) | Yes — configurable prefix plus per-action app keybindings, navigator/help defaults, custom command bindings, and conflict reporting |
 | **Vim mode** | Yes in copy mode (h/j/k/l, w/b/e, v/y) | Yes (CodeMirror Vim) |
 | **Command palette (Cmd+K)** | No | Yes |
-| **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Partial |
+| **Mouse-native (click-focus, drag-resize, drag-reorder)** | Yes | Yes — click/focus, pane resize, workspace/tab/pane drag-reorder, context menus |
 | **Copy mode (text selection, ANSI-aware)** | Yes — drag, double-click, kb copy mode, OSC 52 | Yes — drag, double-click, keyboard copy mode, plain/ANSI/HTML copy formats, and opt-in OSC 52 clipboard writes are wired |
 | **OSC 8 hyperlink click-through** | Yes | xterm.js link addon |
 | **Kitty graphics / sixel** | Yes (experimental) | Sixel and iTerm inline images are opt-in through `@xterm/addon-image`; Kitty graphics remain open |
@@ -356,10 +356,10 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Sound alerts (per-agent muting)** | Yes (mp3, completion/request chimes) | Yes — custom/generated completion/request chimes plus per-agent mute map |
 | **Auto-update / release-channel** | Yes (`herdr update`, latest.json, release notes modal) | Yes — signed Tauri GUI updates via GitHub `latest.json`, prompt-based install/relaunch, and headless `onibi update check/install` via `latest-headless.json` |
 | **Live binary handoff (running panes)** | Yes (experimental) | No |
-| **Onboarding flow** | Yes | `onibi setup` interactive |
+| **Onboarding flow** | Yes | Yes — `onibi setup` plus GUI first-run onboarding |
 | **Doctor / diagnostics** | `herdr status` | `onibi doctor` (deeper: ports, DB, keyring) |
 | **Config format** | TOML (`~/.config/herdr/config.toml`) | TOML source at `~/.config/onibi/config.toml` plus SQLite/session store state |
-| **Live config reload** | Yes (`herdr server reload-config`) | No |
+| **Live config reload** | Yes (`herdr server reload-config`) | Partial — `onibi config reload` applies server runtime fields without daemon restart |
 | **Session persistence format** | JSON snapshots | SQLite |
 | **Test infra** | cargo-nextest, integration harness w/ socket fixtures | cargo test + vitest + RTL + shell e2e |
 | **Build deps** | Zig 0.15 (vendored ghostty), Just | pnpm + Tauri CLI |
@@ -535,10 +535,10 @@ Remaining terminal-native polish: 37 as future libghostty-vt parity only if need
 **Phase D — remote & distribution:**
 Completed from Phase D: 34, 35, 36, 62.
 Partial from Phase D: none currently tracked.
-Remaining from Phase D: 73, 74.
+Remaining from Phase D: none; 73 and 74 are cut unless personally needed.
 
 **Phase E — long tail:**
-63, 75, 81, 82.
+75 and 101 remain. 63 and 82 are cut; 81 is complete via item 86.
 
 ---
 
@@ -589,7 +589,7 @@ Drop from roadmap. Mark `[CUT]` in any tracking issue and close.
 Scope-reductions, not full cuts:
 
 - **55** Built-in themes: reduce 19 to 6 well-tested (Catppuccin, Dracula, Nord, Tokyo Night, Solarized, Onibi Flame). The other 13 are checkbox-feature volume with support cost.
-- Git UI: cut clone / push / pull (overlap with VS Code/Cursor). Keep stage/commit/diff and review-baseline (differentiated).
+- Git UI: intended cut is clone / push / pull, but current code still contains clone and push/pull UI paths. Treat this as pending scope cleanup, not completed reduction.
 
 ### 5.2 Adds — high leverage
 
@@ -626,7 +626,7 @@ Numbered as 84+ to continue the existing numbering.
 
 90. **[DONE] `onibi safe <agent>` wrapper** — launches a session with `safeMode = true`; safe sessions auto-allow only conservative read-only Bash basics (`pwd`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `sed -n`, non-mutating `find`, and `git status/diff/log/show`) and require manual approval for everything else.
 
-91. **WSL2 install path** — document the existing Linux build for WSL2. Probably zero code work; drops the "Windows: not planned" line in README.
+91. **WSL2 install path** — document the existing Linux build for WSL2. Probably zero code work; README still says Windows is not planned for v1.5.
 
 92. **[DONE] Tauri auto-updater** — Tauri 2 updater plugin against `latest.json`. Subsumes existing item **62**.
 
@@ -667,9 +667,9 @@ Do not add, even if requested:
 | §5.1 cuts (mostly doc/issue closure) | 1–2 days |
 | §5.3 strengthen (README + launch posts + landing) | Mostly done; dev.to launch copy and landing page remain |
 | §5.2 top tier 84–86 | Done |
-| §5.2 secondary 87–93 | 87, 88, and 92 done; 89–91 and 93 remain. [Inference] ~1 week |
+| §5.2 secondary 87–93 | 87, 88, 89, 90, and 92 done; 91 and 93 remain. [Inference] WSL2 docs are small; landing page scope depends on deployment target |
 
-If tagging v1.5.0 immediately: finish the remaining §5.3 dev.to/landing copy, document §5.1 cuts in CHANGELOG, and decide whether the remaining §5.2 secondary items are v1.5.0-blocking or v1.5.1.
+If tagging v1.5.0 immediately: finish the landing page decision, document §5.1 cuts, update README roadmap copy, and decide whether WSL2 docs are v1.5.0-blocking or v1.5.1.
 
 ### 5.6 Single most-important add if doing only one thing
 
@@ -777,15 +777,14 @@ Five items surfaced from the desktop frontend audit on 2026-06-06. Each is meani
 
 Numbered 112+ to continue from §6.
 
-112. **[DONE] Mobile PWA audit + polish pass (gesture/read-only slice).** The PWA now has active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, optional deny reasons, server-provided read-only scope storage, read-only spectator UI state, disabled mutation controls for read-only tokens, and swipe allow/deny gestures for full-access approval cards. Remaining broader audit dimensions:
+112. **[PARTIAL] Mobile PWA audit + polish pass.** The gesture/read-only slice is done: active transport identity, fallback candidates, targeted notification deep links, cached-pending offline copy, risk badges, optional deny reasons, server-provided read-only scope storage, read-only spectator UI state, disabled mutation controls for read-only tokens, and swipe allow/deny gestures for full-access approval cards. Remaining broader audit dimensions:
      - Identity at rest (does the PWA show what app it is, what machine it's paired to?)
      - Approval modal UX on mobile (edit-before-approve on a touch keyboard is hard — needs different affordance than desktop)
      - Pairing affordance (QR re-scan when token rotates, multi-machine pairing)
      - Offline state (graceful degradation when transport drops mid-session)
      - Install-as-PWA prompts (iOS Safari "Add to Home Screen" hint; Android Chrome auto-prompt)
-     - Transport fallback when primary URL fails (does the PWA try the next entry from `transports[]`?)
-     - Lock-screen + notification deep-link behavior (tapping a push notification should land on that specific approval, not the queue root)
-     - Swipe gestures (swipe-to-approve, swipe-to-deny — table-stakes on mobile, may not exist)
+     - Transport fallback edge cases after repeated primary URL failures
+     - Lock-screen + notification deep-link behavior across installed-PWA/browser contexts
      - Light/dark theme (PWA respects `prefers-color-scheme`?)
      **Effort:** 4-6 hours total. **Single highest-leverage remaining frontend work.**
 
@@ -817,7 +816,7 @@ Numbered 112+ to continue from §6.
 
 | Item | Effort | Foldable into | Standalone if not folded |
 |---|---|---|---|
-| 112 PWA audit + polish | Partial complete; remaining swipe/install/multi-pairing polish | — | yes |
+| 112 PWA audit + polish | Partial complete; gesture/read-only slice done; remaining install/multi-pairing/offline/deep-link polish | — | yes |
 | 113 ApprovalModal behavior | Done | item 108 (visual pass) | done |
 | 114 light-theme CSS sweep | Done | item 110 (token pass) | done |
 | 115 transport loading state | Done | item 103 (StatusBar collapse) | done |
@@ -826,7 +825,7 @@ Numbered 112+ to continue from §6.
 
 ### 7.4 Single most-important if doing only one thing
 
-**Item 112 (mobile PWA audit).** Reason: it is the only chunk of the product I have not opened in any session. Onibi's pitch centers on the phone; if the PWA approval modal is rough, no amount of desktop polish saves the user experience. The audit itself is non-invasive (read-only) and can be done even when shipping v1.5.0 as-is. Any resulting fixes are scoped post-audit.
+**Item 112 (mobile PWA audit).** Reason: Onibi's pitch centers on the phone; remaining PWA polish should be verified in an installed-PWA/browser context, not inferred from desktop code.
 
 ### 7.5 Sequencing recommendation
 
