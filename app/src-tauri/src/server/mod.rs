@@ -250,7 +250,10 @@ pub fn router(state: AppState) -> Router {
                 .layer::<_, Infallible>(DefaultBodyLimit::max(PTY_OUTPUT_BODY_LIMIT)),
         )
         .route("/v1/pair", post(routes::pair))
-        .route("/v1/token/spectator", post(routes::spectator_pairing_payload))
+        .route(
+            "/v1/token/spectator",
+            post(routes::spectator_pairing_payload),
+        )
         .route("/v1/qr", get(routes::qr))
         .route("/v1/run/recent", get(routes::run_recent))
         .route("/v1/desktop/state", post(routes::desktop_state))

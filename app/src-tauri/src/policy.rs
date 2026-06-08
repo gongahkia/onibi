@@ -240,10 +240,9 @@ fn safe_read_only_bash(approval: &Approval) -> bool {
                 "-delete" | "-exec" | "-execdir" | "-ok" | "-okdir" | "-fdelete"
             )
         }),
-        ["git", "status", ..]
-        | ["git", "diff", ..]
-        | ["git", "log", ..]
-        | ["git", "show", ..] => true,
+        ["git", "status", ..] | ["git", "diff", ..] | ["git", "log", ..] | ["git", "show", ..] => {
+            true
+        }
         _ => false,
     }
 }

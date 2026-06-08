@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, PointerEvent, SetStateAction } from "react";
 
 const STORAGE_KEY = "onibi.mobile.connection";
+const PENDING_CACHE_PREFIX = "onibi.mobile.pending.";
 const DEVICE_LABEL = "Onibi Mobile PWA";
 
 type Decision = "allow" | "deny";
@@ -228,7 +229,7 @@ function InboxView({
   connection: Connection;
   onForget: () => void;
 }) {
-  const [pending, setPending] = useState<Approval[]>([]);
+  const [pending, setPending] = useState<Approval[]>(() => loadCachedPending(connection));
   const [recent, setRecent] = useState<RunEvent[]>([]);
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string[]>>({});
   const [selectedSession, setSelectedSession] = useState<string>("");
@@ -239,6 +240,7 @@ function InboxView({
   const [killConfirming, setKillConfirming] = useState(false);
   const [killBusy, setKillBusy] = useState(false);
   const [killStatus, setKillStatus] = useState<string | null>(null);
+  const [replacePairing, setReplacePairing] = useState(false);
   const [targetApprovalId, setTargetApprovalId] = useState(
     () => new URLSearchParams(window.location.search).get("approval"),
   );
@@ -277,6 +279,10 @@ function InboxView({
     setPending((await pendingResponse.json()) as Approval[]);
     setRecent((await recentResponse.json()) as RunEvent[]);
   }, [fetchWithFallback]);
+
+  useEffect(() => {
+    cachePending(connection, pending);
+  }, [connection, pending]);
 
   useEffect(() => {
     void loadInitial().catch((err) =>
@@ -381,14 +387,30 @@ function InboxView({
   );
   const activeSession = selectedSession || sessionOptions[0] || "";
 
+  if (replacePairing) {
+    return (
+      <main className="app-shell">
+        <PairingView
+          onPaired={(next) => {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+            window.location.reload();
+          }}
+        />
+        <button type="button" className="ghost-button" onClick={() => setReplacePairing(false)}>
+          Cancel
+        </button>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="top-bar">
         <div>
-          <p className="eyebrow">{connection.machineId}</p>
-          <h1>Approvals</h1>
+          <p className="eyebrow">Onibi · {connection.scope === "read-only" ? "Read only" : "Full access"}</p>
+          <h1>{connection.machineId}</h1>
           <p className="status-line">
-            {activeTransport} · {connection.deviceId}
+            {activeTransport} · device {connection.deviceId}
           </p>
         </div>
         <div className="top-actions">
@@ -405,6 +427,9 @@ function InboxView({
           ) : (
             <span className="scope-pill">Read only</span>
           )}
+          <button type="button" className="ghost-button" onClick={() => setReplacePairing(true)}>
+            Pair another
+          </button>
           <button type="button" className="ghost-button" onClick={onForget}>
             Unpair
           </button>
@@ -456,6 +481,9 @@ function InboxView({
           {wsState === "connecting"
             ? `Connecting through ${activeTransport}...`
             : `Offline on ${activeTransport}. Pending approvals remain visible when cached.`}
+          <button type="button" className="inline-retry" onClick={() => void loadInitial()}>
+            Retry
+          </button>
         </p>
       ) : null}
 
@@ -743,16 +771,51 @@ function TerminalMirrorView({
 
 function OnboardingView() {
   const ios = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const standalone =
+    typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)").matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true);
   return (
     <div className="onboarding">
-      <strong>{ios ? "iOS home-screen install required for push." : "Push-ready PWA."}</strong>
+      <strong>
+        {standalone
+          ? "Installed PWA."
+          : ios
+            ? "iOS home-screen install required for push."
+            : "Installable PWA."}
+      </strong>
       <span>
-        {ios
-          ? "Open this page from Safari, share it, then add it to Home Screen."
-          : "Install from the browser menu for lock-screen notifications."}
+        {standalone
+          ? "Lock-screen notification deep links open this paired machine."
+          : ios
+            ? "Open this page from Safari, share it, then add it to Home Screen."
+            : "Install from the browser menu for persistent notifications."}
       </span>
     </div>
   );
+}
+
+function pendingCacheKey(connection: Connection): string {
+  return `${PENDING_CACHE_PREFIX}${connection.machineId}`;
+}
+
+function loadCachedPending(connection: Connection): Approval[] {
+  if (!storageAvailable()) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(pendingCacheKey(connection));
+    return raw ? (JSON.parse(raw) as Approval[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function cachePending(connection: Connection, pending: Approval[]) {
+  if (!storageAvailable()) {
+    return;
+  }
+  window.localStorage.setItem(pendingCacheKey(connection), JSON.stringify(pending));
 }
 
 function EmptyState({ title, body }: { title: string; body: string }) {

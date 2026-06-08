@@ -941,7 +941,9 @@ impl OrchestrationState {
         let trust_mode = match mode {
             "approval-required" => TrustMode::ApprovalRequired,
             "full-access" => TrustMode::FullAccess,
-            other => anyhow::bail!("trustMode must be 'approval-required' or 'full-access', got {other}"),
+            other => {
+                anyhow::bail!("trustMode must be 'approval-required' or 'full-access', got {other}")
+            }
         };
         let mut sessions = self.sessions.write().await;
         let current = sessions

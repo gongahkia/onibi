@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[path = "../protocol/mod.rs"]
 mod protocol;
 
@@ -6,8 +7,7 @@ use std::{fs, path::PathBuf};
 use ts_rs::TS;
 
 fn main() -> Result<()> {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../src/lib/contracts/generated.ts");
+    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/lib/contracts/generated.ts");
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
@@ -29,7 +29,6 @@ fn bindings() -> String {
     push::<protocol::ApprovalDecisionResponse>(&mut output);
     push::<protocol::RunEvent>(&mut output);
     push::<protocol::RunEventBody>(&mut output);
-    push::<protocol::ProviderEventBody>(&mut output);
     push::<protocol::DesktopCommandBlock>(&mut output);
     push::<protocol::PtyOutputBody>(&mut output);
     push::<protocol::DesktopNamedRef>(&mut output);

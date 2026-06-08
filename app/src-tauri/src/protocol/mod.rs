@@ -78,7 +78,6 @@ impl ClientScope {
             Self::ReadOnly => "read-only",
         }
     }
-
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -128,7 +127,7 @@ pub struct RunEventBody {
     pub payload: Value,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProviderEventBody {
     #[serde(default)]
     pub protocol_version: Option<String>,

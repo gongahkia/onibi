@@ -18,8 +18,6 @@ export type RunEvent = { id: number, protocol_version: string, machine_id: strin
 
 export type RunEventBody = { protocol_version: string | null, machine_id: string | null, session_id: string, kind: string, timestamp: string | null, payload: JsonValue, };
 
-export type ProviderEventBody = { protocol_version: string | null, machine_id: string | null, session_id: string | null, provider_session_id: string | null, conversation_id: string | null, event: string | null, status: string | null, cwd: string | null, tool: string | null, input: JsonValue, raw: JsonValue | null, };
-
 export type DesktopCommandBlock = { id: string, protocol_version: string | null, sessionId: string, workspaceId: string, agent: string, command: string, cwd: string, startedAt: number, endedAt: number | null, exitCode: number | null, status: string, outputPreview: string, previewUrl: string | null, changedFiles: Array<string>, attention: string | null, source: string | null, };
 
 export type PtyOutputBody = { protocol_version: string | null, machine_id: string | null, session_id: string, data: string, };

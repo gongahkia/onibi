@@ -875,10 +875,10 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
             ensure_daemon_running(port)?;
             print_raw_json_or_text(
                 &authed_http(
-                port,
-                "POST",
-                &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
-                Some("{}"),
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/pane/{}/focus", path_segment(&id)),
+                    Some("{}"),
                 )?,
                 json_output,
             )
@@ -887,10 +887,10 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
             ensure_daemon_running(port)?;
             print_raw_json_or_text(
                 &authed_http(
-                port,
-                "POST",
-                &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
-                Some("{}"),
+                    port,
+                    "POST",
+                    &format!("/v1/desktop/pane/{}/maximize", path_segment(&id)),
+                    Some("{}"),
                 )?,
                 json_output,
             )

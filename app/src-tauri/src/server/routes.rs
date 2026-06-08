@@ -4,17 +4,15 @@ use crate::{
     approval::store::{now_millis, ApprovalHistoryFilter},
     orchestration::AgentStatus,
     policy,
-    pty::TrustMode,
-    secret,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
-        ClientScope,
-        Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
+        ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody,
         DesktopRemoteSshBody, DesktopSessionInputBody, DesktopSessionLaunchBody,
         DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest, PairResponse, PtyOutputBody,
         RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
-    push,
+    pty::TrustMode,
+    push, secret,
     transport::{lan, TransportSnapshot},
 };
 use anyhow::Result;
@@ -516,7 +514,9 @@ pub async fn pair(
     {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ApiError::new("spectator pairing token has already been used")),
+            Json(ApiError::new(
+                "spectator pairing token has already been used",
+            )),
         ));
     }
     state
@@ -792,11 +792,7 @@ pub async fn wait_for_approval_decision(
         policy::evaluate(&approval)?
     };
     if let Some(evaluation) = policy_evaluation {
-        let source = if safe_mode {
-            "safe-mode"
-        } else {
-            "manual"
-        };
+        let source = if safe_mode { "safe-mode" } else { "manual" };
         approval.metadata = with_policy_metadata(approval.metadata.take(), &evaluation, source);
         let response_decision = if trust_mode == TrustMode::ApprovalRequired
             && !safe_mode
