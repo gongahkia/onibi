@@ -26,7 +26,7 @@ pub(super) fn classify_command(command: &str) -> Option<CommandKind> {
         "pty.write" => CommandKind::Write,
         "pty.resize" => CommandKind::Resize,
         "pty.kill" => CommandKind::Kill,
-        "pty.list" => CommandKind::ListLive,
+        "pty.list" | "agent.list" => CommandKind::ListLive,
         "pty.replay" => CommandKind::Replay,
         "session.list" => CommandKind::ListSessions,
         "session.attach" => CommandKind::Attach,

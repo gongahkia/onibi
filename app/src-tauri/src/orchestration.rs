@@ -548,6 +548,11 @@ impl OrchestrationState {
         self.persist_session(&session);
     }
 
+    #[cfg(test)]
+    pub async fn upsert_session_for_test(&self, session: SessionInfo) {
+        self.upsert_session(session).await;
+    }
+
     async fn mark_session_stopped(
         &self,
         session_id: &str,
@@ -2046,6 +2051,15 @@ mod tests {
         let restart = restart_metadata_from_request(&req);
 
         assert_eq!(restart.shell_mode, ShellMode::NonLogin);
+    }
+
+    #[test]
+    fn classifies_orchestration_command_aliases() {
+        assert_eq!(classify_command("pty.spawn"), Some(CommandKind::Spawn));
+        assert_eq!(classify_command("agent.start"), Some(CommandKind::Spawn));
+        assert_eq!(classify_command("agent.list"), Some(CommandKind::ListLive));
+        assert_eq!(classify_command("agent.send"), Some(CommandKind::Write));
+        assert_eq!(classify_command("missing.command"), None);
     }
 
     #[test]

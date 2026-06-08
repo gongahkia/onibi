@@ -2,7 +2,7 @@ use super::{auth, pairing, AppState};
 use crate::{
     adapters,
     approval::store::{now_millis, ApprovalHistoryFilter},
-    orchestration::AgentStatus,
+    orchestration::{AgentStatus, SessionInfo, SessionLifecycle},
     policy,
     protocol::{
         ApiError, Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
