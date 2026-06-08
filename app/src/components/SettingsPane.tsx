@@ -310,6 +310,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
             <GeneralSettings
               theme={settings.theme}
               customColorScheme={settings.customColorScheme}
+              themeOverrides={settings.themeOverrides}
               defaultAgent={settings.defaultAgent}
               agentLabelOverrides={settings.agentLabelOverrides}
               uiFontFamily={settings.uiFontFamily}
@@ -325,6 +326,8 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               terminalOsc52Clipboard={settings.terminalOsc52Clipboard}
               terminalTransparentBackground={settings.terminalTransparentBackground}
               terminalInlineImages={settings.terminalInlineImages}
+              terminalMouseCapture={settings.terminalMouseCapture}
+              mobileLayoutThresholdPx={settings.mobileLayoutThresholdPx}
               notificationDelivery={settings.notificationDelivery}
               soundAlertsEnabled={settings.soundAlertsEnabled}
               soundCompletionPath={settings.soundCompletionPath}
@@ -351,6 +354,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               onCustomColorScheme={(customColorScheme) =>
                 updateSettings({ customColorScheme })
               }
+              onThemeOverrides={(themeOverrides) => updateSettings({ themeOverrides })}
               onDefaultAgent={(defaultAgent) => updateSettings({ defaultAgent })}
               onUiFontFamily={(uiFontFamily) => updateSettings({ uiFontFamily })}
               onTerminalFontFamily={(terminalFontFamily) =>
@@ -383,6 +387,12 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
               }
               onTerminalInlineImages={(terminalInlineImages) =>
                 updateSettings({ terminalInlineImages })
+              }
+              onTerminalMouseCapture={(terminalMouseCapture) =>
+                updateSettings({ terminalMouseCapture })
+              }
+              onMobileLayoutThresholdPx={(mobileLayoutThresholdPx) =>
+                updateSettings({ mobileLayoutThresholdPx })
               }
               onNotificationDelivery={(notificationDelivery) =>
                 updateSettings({ notificationDelivery })
