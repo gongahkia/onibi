@@ -3,16 +3,18 @@
 // half intentionally unused.
 #![allow(dead_code)]
 
+mod decider;
+mod invariants;
+mod projector;
+
 use crate::{
     pty::{
-        PtyEvent, PtyId, PtyManager, PtyOutputSnapshot, PtySpawnRequest, RemoteSessionMetadata,
-        ShellMode, TrustMode,
+        PtyEvent, PtyId, PtyManager, PtySpawnRequest, RemoteSessionMetadata, ShellMode, TrustMode,
     },
     secret,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use bytes::Bytes;
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,10 @@ use tokio::{
 
 #[cfg(unix)]
 use tokio::net::UnixListener;
+
+use decider::infer_status_from_output;
+use invariants::{key_to_bytes, normalize_session_name, resolve_provider_event_session, target_id};
+use projector::{snapshot_json, tail_lines, unwrap_recent_lines, TerminalScreen};
 
 pub const PROTOCOL_VERSION: &str = "1.0";
 pub const DEFAULT_ORCHESTRATION_PORT: u16 = 17894;
