@@ -37,7 +37,7 @@ use tokio::{
 #[cfg(unix)]
 use tokio::net::UnixListener;
 
-use decider::infer_status_from_output;
+use decider::{classify_command, infer_status_from_output, CommandKind};
 use invariants::{key_to_bytes, normalize_session_name, resolve_provider_event_session};
 use projector::{snapshot_json, tail_lines, unwrap_recent_lines, TerminalScreen};
 
@@ -692,23 +692,51 @@ impl OrchestrationState {
                 "tcpPort": DEFAULT_ORCHESTRATION_PORT,
                 "socketPath": orchestration_socket_path().ok().map(|path| path.display().to_string()),
             })),
-            "pty.spawn" => self.spawn(payload).await,
-            "pty.write" => self.write(payload).await,
-            "pty.resize" => self.resize(payload).await,
-            "pty.kill" => self.kill(payload).await,
-            "pty.list" | "agent.list" => self.list_live().await,
-            "pty.replay" => self.replay(payload).await,
-            "session.list" => self.list_sessions().await,
-            "session.attach" => self.attach(payload).await,
-            "session.stop" => self.stop(payload).await,
-            "session.set_trust" => self.set_trust(payload).await,
-            "pane.read" | "agent.read" => self.read(payload).await,
-            "pane.send_keys" => self.send_keys(payload).await,
-            "wait.output" => self.wait_output(payload).await,
-            "wait.agent_status" => self.wait_agent_status(payload).await,
-            "agent.send" => self.write(payload).await,
-            "agent.start" => self.spawn(payload).await,
-            "agent.focus" => self.focus(payload).await,
+            "pty.spawn" | "agent.start" if classify_command(command.as_str()) == Some(CommandKind::Spawn) => {
+                self.spawn(payload).await
+            }
+            "pty.write" | "agent.send" if classify_command(command.as_str()) == Some(CommandKind::Write) => {
+                self.write(payload).await
+            }
+            "pty.resize" if classify_command(command.as_str()) == Some(CommandKind::Resize) => {
+                self.resize(payload).await
+            }
+            "pty.kill" if classify_command(command.as_str()) == Some(CommandKind::Kill) => {
+                self.kill(payload).await
+            }
+            "pty.list" | "agent.list" if classify_command(command.as_str()) == Some(CommandKind::ListLive) => {
+                self.list_live().await
+            }
+            "pty.replay" if classify_command(command.as_str()) == Some(CommandKind::Replay) => {
+                self.replay(payload).await
+            }
+            "session.list" if classify_command(command.as_str()) == Some(CommandKind::ListSessions) => {
+                self.list_sessions().await
+            }
+            "session.attach" if classify_command(command.as_str()) == Some(CommandKind::Attach) => {
+                self.attach(payload).await
+            }
+            "session.stop" if classify_command(command.as_str()) == Some(CommandKind::Stop) => {
+                self.stop(payload).await
+            }
+            "session.set_trust" if classify_command(command.as_str()) == Some(CommandKind::SetTrust) => {
+                self.set_trust(payload).await
+            }
+            "pane.read" | "agent.read" if classify_command(command.as_str()) == Some(CommandKind::Read) => {
+                self.read(payload).await
+            }
+            "pane.send_keys" if classify_command(command.as_str()) == Some(CommandKind::SendKeys) => {
+                self.send_keys(payload).await
+            }
+            "wait.output" if classify_command(command.as_str()) == Some(CommandKind::WaitOutput) => {
+                self.wait_output(payload).await
+            }
+            "wait.agent_status" if classify_command(command.as_str()) == Some(CommandKind::WaitAgentStatus) => {
+                self.wait_agent_status(payload).await
+            }
+            "agent.focus" if classify_command(command.as_str()) == Some(CommandKind::Focus) => {
+                self.focus(payload).await
+            }
             other => Err(anyhow!("unknown orchestration command: {other}")),
         }
     }

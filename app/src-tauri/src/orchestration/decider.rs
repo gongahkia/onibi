@@ -1,5 +1,47 @@
 use super::{canonical_agent, contains_any_phrase, normalize_detection_text, strip_ansi, AgentStatus};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CommandKind {
+    Spawn,
+    Write,
+    Resize,
+    Kill,
+    ListLive,
+    Replay,
+    ListSessions,
+    Attach,
+    Stop,
+    SetTrust,
+    Read,
+    SendKeys,
+    WaitOutput,
+    WaitAgentStatus,
+    Focus,
+    Subscribe,
+}
+
+pub(super) fn classify_command(command: &str) -> Option<CommandKind> {
+    Some(match command {
+        "pty.spawn" | "agent.start" => CommandKind::Spawn,
+        "pty.write" => CommandKind::Write,
+        "pty.resize" => CommandKind::Resize,
+        "pty.kill" => CommandKind::Kill,
+        "pty.list" => CommandKind::ListLive,
+        "pty.replay" => CommandKind::Replay,
+        "session.list" => CommandKind::ListSessions,
+        "session.attach" => CommandKind::Attach,
+        "session.stop" => CommandKind::Stop,
+        "session.set_trust" => CommandKind::SetTrust,
+        "pane.read" | "agent.read" => CommandKind::Read,
+        "pane.send_keys" | "agent.send" => CommandKind::SendKeys,
+        "wait.output" => CommandKind::WaitOutput,
+        "wait.agent_status" => CommandKind::WaitAgentStatus,
+        "agent.focus" => CommandKind::Focus,
+        "events.subscribe" => CommandKind::Subscribe,
+        _ => return None,
+    })
+}
+
 pub(super) fn infer_status_from_output(agent: Option<&str>, text: &str) -> Option<AgentStatus> {
     let command_start = text.rfind("\u{1b}]133;C");
     let command_done = text
