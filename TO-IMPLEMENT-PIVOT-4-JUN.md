@@ -630,7 +630,7 @@ Numbered as 84+ to continue the existing numbering.
 
 92. **[DONE] Tauri auto-updater** — Tauri 2 updater plugin against `latest.json`. Subsumes existing item **62**.
 
-93. **`onibi.sh` static landing page** — mandatory pre-launch. One page with the screencast embedded, three-line pitch, install snippet, link to repo.
+93. **`onibi.sh` static landing page** — mandatory pre-launch. One page with the screencast embedded, three-line pitch, install snippet, link to repo. **Stack:** Astro static-site, mirroring `t3code/apps/marketing/` (`astro.config.mjs`, `vercel.ts`, `src/`); single landing route, deploy target Vercel or Cloudflare Pages. Optional `docs/` subroute can later host a Mintlify-style structured doc set, but v1.5.0 ships landing-only. Cross-reference item 124 (Mintlify-style docs hosting) if/when docs scope exceeds the current in-repo markdown.
 
 ### 5.3 Strengthen — README, launch posts, polish
 
