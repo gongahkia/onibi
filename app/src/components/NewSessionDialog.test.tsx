@@ -61,6 +61,7 @@ describe("NewSessionDialog", () => {
           agent: "shell",
           workspaceId: "workspace:/repo",
           title: "Plain shell · repo",
+          trustMode: "approval-required",
         },
       });
     });
@@ -142,6 +143,7 @@ describe("NewSessionDialog", () => {
           agent: "codex",
           workspaceId: "workspace:/repo",
           title: "Codex · repo",
+          trustMode: "approval-required",
         },
       });
     });
