@@ -4,24 +4,9 @@ import {
   storedApprovalToken,
   type ApprovalDecision,
 } from "./approval-client";
+import type { Approval } from "./contracts/generated";
 
-export interface ApprovalAuditRecord {
-  protocol_version: string;
-  approval_id: string;
-  machine_id: string;
-  session_id: string;
-  agent: string;
-  tool: string;
-  input: unknown;
-  cwd: string;
-  metadata?: unknown;
-  decision?: ApprovalDecision | null;
-  updatedInput?: unknown;
-  reason?: string | null;
-  decided_by?: string | null;
-  created_at: number;
-  decided_at?: number | null;
-}
+export type ApprovalAuditRecord = Approval;
 
 export interface ApprovalHistoryOptions {
   agent?: string;

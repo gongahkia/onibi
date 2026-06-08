@@ -1,49 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  Decision,
+  ServerMessage,
+} from "./contracts/generated";
 
-export type ApprovalDecision = "allow" | "deny";
+export type ApprovalDecision = Decision;
 
-export interface ApprovalPendingMessage {
-  type: "approval-pending";
-  protocol_version: string;
-  approval_id: string;
-  machine_id: string;
-  session_id: string;
-  agent: string;
-  tool: string;
-  input: unknown;
-  cwd: string;
-  metadata?: unknown;
-  created_at?: number;
-  expires_at?: number | null;
-}
+export type ApprovalPendingMessage = Extract<
+  ServerMessage,
+  { type: "approval-pending" }
+>;
 
-export interface ApprovalResolvedMessage {
-  type: "approval-resolved";
-  protocol_version: string;
-  approval_id: string;
-  machine_id: string;
-  decision: ApprovalDecision;
-  by?: string | null;
-  reason?: string | null;
-}
+export type ApprovalResolvedMessage = Extract<
+  ServerMessage,
+  { type: "approval-resolved" }
+>;
 
-export interface DesktopCommandMessage {
-  type: "desktop-command";
-  protocol_version: string;
-  machine_id: string;
-  command_id: string;
-  kind: string;
-  payload: unknown;
-}
+export type DesktopCommandMessage = Extract<
+  ServerMessage,
+  { type: "desktop-command" }
+>;
 
-export type ApprovalRealtimeMessage =
-  | ApprovalPendingMessage
-  | ApprovalResolvedMessage
-  | DesktopCommandMessage
-  | { type: "run-event"; [key: string]: unknown }
-  | { type: "pty-output"; [key: string]: unknown }
-  | { type: "ping"; [key: string]: unknown };
+export type ApprovalRealtimeMessage = ServerMessage;
 
 export interface ApprovalClientOptions {
   port?: number;
