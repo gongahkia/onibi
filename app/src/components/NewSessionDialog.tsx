@@ -45,6 +45,7 @@ export function NewSessionDialog({
   const [trustMode, setTrustMode] = useState<"approval-required" | "full-access">(
     "approval-required",
   );
+  const [worktreeStrategy, setWorktreeStrategy] = useState<"inherit" | "auto">("inherit");
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
   const [checkingBinary, setCheckingBinary] = useState(false);
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
@@ -75,6 +76,12 @@ export function NewSessionDialog({
     }
     setAgent(defaultAgent ?? settings.defaultAgent);
   }, [defaultAgent, open, settings.defaultAgent]);
+
+  useEffect(() => {
+    if (agent === "shell" && worktreeStrategy === "auto") {
+      setWorktreeStrategy("inherit");
+    }
+  }, [agent, worktreeStrategy]);
 
   const launchCommandText =
     agent === "shell"
@@ -147,6 +154,7 @@ export function NewSessionDialog({
       }
       const existing = sessions.find(
         (session) =>
+          worktreeStrategy === "inherit" &&
           session.agent === agent &&
           session.workspaceId === selectedWorkspace.id &&
           session.status !== "stale" &&
@@ -169,6 +177,7 @@ export function NewSessionDialog({
               ? defaultCwd
               : selectedWorkspace.path,
           trustMode,
+          worktreeStrategy,
         },
       );
       setInitialPrompt("");
@@ -257,6 +266,17 @@ export function NewSessionDialog({
                 <option value="approval-required">Approval required</option>
                 <option value="full-access">Full access</option>
               </select>
+            </label>
+            <label className="settings-checkbox-row">
+              <input
+                type="checkbox"
+                checked={worktreeStrategy === "auto"}
+                disabled={agent === "shell"}
+                onChange={(event) =>
+                  setWorktreeStrategy(event.target.checked ? "auto" : "inherit")
+                }
+              />
+              <span>Auto worktree</span>
             </label>
             {selectedWorkspace ? (
               <div className="settings-note">{selectedWorkspace.path}</div>

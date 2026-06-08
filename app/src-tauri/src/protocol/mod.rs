@@ -255,6 +255,8 @@ pub struct DesktopSessionLaunchBody {
     pub prompt: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default, rename = "worktreeStrategy")]
+    pub worktree_strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -185,7 +185,11 @@ async function executeDesktopCommand(message: DesktopCommandMessage): Promise<vo
     const workspace = await workspaceForCommand(workspaceValue);
     const prompt = stringPayloadField(message.payload, "prompt") ?? "";
     const cwd = stringPayloadField(message.payload, "cwd");
-    await spawnAgentSession(agent, workspace, prompt, null, { cwd });
+    const worktreeStrategy =
+      stringPayloadField(message.payload, "worktreeStrategy") === "auto"
+        ? "auto"
+        : "inherit";
+    await spawnAgentSession(agent, workspace, prompt, null, { cwd, worktreeStrategy });
     return;
   }
   if (message.kind === "remote-ssh-launch") {

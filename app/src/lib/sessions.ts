@@ -6589,6 +6589,9 @@ export async function spawnSessionFromLaunchSpec(
     cwd: spec.cwd,
     env: spec.env,
     trustMode: spec.trustMode ?? "approval-required",
+    worktreeStrategy: spec.worktreeStrategy ?? "inherit",
+    worktreePath: spec.worktreePath ?? null,
+    worktreeOwnerPath: spec.worktreeOwnerPath ?? null,
     ...(spec.shellMode ? { shellMode: spec.shellMode } : {}),
     ...(spec.remote ? { remote: spec.remote } : {}),
   };
@@ -6600,6 +6603,9 @@ export async function spawnSessionFromLaunchSpec(
       title: spec.title,
       status: "running",
       trustMode: spec.trustMode ?? "approval-required",
+      worktreeStrategy: spec.worktreeStrategy ?? "inherit",
+      worktreePath: spec.worktreePath ?? null,
+      worktreeOwnerPath: spec.worktreeOwnerPath ?? null,
       createdAt: Date.now(),
       pendingApprovals: [],
       cwd: spec.cwd ?? undefined,
@@ -6812,6 +6818,28 @@ export function sessionNeedsCloseConfirmation(
   );
 }
 
+async function cleanupAutoWorktree(session: Session): Promise<void> {
+  if (
+    session.worktreeStrategy !== "auto" ||
+    !session.worktreePath ||
+    !session.worktreeOwnerPath
+  ) {
+    return;
+  }
+  await removeGitWorktree(
+    session.worktreeOwnerPath,
+    session.worktreePath,
+    false,
+  );
+  const state = useSessionStore.getState();
+  const hasSessions = state.sessions.some(
+    (item) => item.workspaceId === session.workspaceId,
+  );
+  if (!hasSessions) {
+    state.removeWorkspace(session.workspaceId);
+  }
+}
+
 export async function closeSession(sessionId: string, force = false): Promise<boolean> {
   const state = useSessionStore.getState();
   const session = state.sessions.find((item) => item.id === sessionId);
@@ -6833,6 +6861,9 @@ export async function closeSession(sessionId: string, force = false): Promise<bo
     await stopAgentReview(sessionId).catch(() => undefined);
   }
   useSessionStore.getState().removeSession(sessionId);
+  await cleanupAutoWorktree(session).catch((error) => {
+    console.warn("failed to remove auto worktree", error);
+  });
   return true;
 }
 
