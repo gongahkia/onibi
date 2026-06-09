@@ -178,14 +178,16 @@ describe("TerminalView", () => {
   });
 
   test("remounts xterm when renderer internals are missing", async () => {
-    terminalConstructor.mockImplementationOnce(() => ({
-      ...createTerminalMock(),
-      _core: {
-        _renderService: {
-          hasRenderer: vi.fn(() => false),
+    terminalConstructor.mockImplementationOnce(function () {
+      return {
+        ...createTerminalMock(),
+        _core: {
+          _renderService: {
+            hasRenderer: vi.fn(() => false),
+          },
         },
-      },
-    }));
+      };
+    });
 
     render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />);
 
