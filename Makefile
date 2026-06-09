@@ -1,4 +1,6 @@
-.PHONY: dev-app dev-mobile test build clean
+.PHONY: dev dev-app dev-mobile test build clean
+
+dev: dev-app
 
 dev-app:
 	cd app && pnpm tauri dev
