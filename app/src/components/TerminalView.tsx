@@ -132,12 +132,25 @@ interface RenderProfile {
   replayDurationMs: number | null;
 }
 
+type TerminalPrivateCore = {
+  _core?: {
+    _renderService?: {
+      hasRenderer?: () => boolean;
+    };
+  };
+};
+
 const OSC52_CLIPBOARD_MAX_BYTES = 1024 * 1024;
 
 function terminalDebug(message: string, metadata?: Record<string, unknown>) {
   if (terminalRenderProfilingEnabled()) {
     console.debug(`[onibi:terminal] ${message}`, metadata ?? {});
   }
+}
+
+function terminalHasRenderer(term: Terminal): boolean {
+  const renderService = (term as unknown as TerminalPrivateCore)._core?._renderService;
+  return renderService?.hasRenderer?.() !== false;
 }
 
 function isImeCompositionEvent(event: KeyboardEvent): boolean {
