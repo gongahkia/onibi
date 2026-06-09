@@ -58,6 +58,14 @@ pub enum RemoteDaemonStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteDaemonBridgeStatus {
+    Unknown,
+    Attached,
+    Failed,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionMetadata {
@@ -105,6 +113,15 @@ pub struct RemoteSessionMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub last_daemon_start_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub daemon_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub daemon_bridge_status: Option<RemoteDaemonBridgeStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_daemon_attach_error: Option<String>,
 }
 
 #[derive(Debug, Error)]

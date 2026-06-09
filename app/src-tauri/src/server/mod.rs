@@ -123,6 +123,10 @@ impl AppState {
                 checkpointing_enabled: false,
                 checkpoint_max_records: config::DEFAULT_CHECKPOINT_MAX_RECORDS,
                 checkpoint_max_age_days: config::DEFAULT_CHECKPOINT_MAX_AGE_DAYS,
+                checkpoint_max_changed_files: config::DEFAULT_CHECKPOINT_MAX_CHANGED_FILES,
+                checkpoint_max_index_bytes: config::DEFAULT_CHECKPOINT_MAX_INDEX_BYTES,
+                checkpoint_max_file_bytes: config::DEFAULT_CHECKPOINT_MAX_FILE_BYTES,
+                checkpoint_ignored_path_globs: Vec::new(),
             })),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
@@ -161,6 +165,16 @@ impl AppState {
             runtime.checkpoint_max_records,
             runtime.checkpoint_max_age_days,
         )
+    }
+
+    pub async fn checkpoint_guardrails(&self) -> crate::checkpointing::CheckpointGuardrails {
+        let runtime = self.runtime_config.read().await;
+        crate::checkpointing::CheckpointGuardrails {
+            max_changed_files: runtime.checkpoint_max_changed_files,
+            max_index_bytes: runtime.checkpoint_max_index_bytes,
+            max_file_bytes: runtime.checkpoint_max_file_bytes,
+            ignored_path_globs: runtime.checkpoint_ignored_path_globs.clone(),
+        }
     }
 
     pub async fn reload_runtime_config(&self) -> Result<config::RuntimeConfig> {

@@ -881,6 +881,10 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<ConfigSta
             "checkpointing.enabled".to_string(),
             "checkpointing.max_records".to_string(),
             "checkpointing.max_age_days".to_string(),
+            "checkpointing.max_changed_files".to_string(),
+            "checkpointing.max_index_bytes".to_string(),
+            "checkpointing.max_file_bytes".to_string(),
+            "checkpointing.ignored_path_globs".to_string(),
         ],
         restart_required_fields: vec!["server.port".to_string()],
         client_managed_fields: vec![
@@ -917,7 +921,11 @@ pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
             "server.pty_ring_limit",
             "checkpointing.enabled",
             "checkpointing.max_records",
-            "checkpointing.max_age_days"
+            "checkpointing.max_age_days",
+            "checkpointing.max_changed_files",
+            "checkpointing.max_index_bytes",
+            "checkpointing.max_file_bytes",
+            "checkpointing.ignored_path_globs"
         ],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
@@ -1162,7 +1170,8 @@ async fn checkpoint_pre_if_enabled(state: &AppState, approval: &Approval) {
     if !state.checkpointing_enabled().await {
         return;
     }
-    match checkpointing::snapshot_pre(approval) {
+    let guardrails = state.checkpoint_guardrails().await;
+    match checkpointing::snapshot_pre(approval, &guardrails) {
         Ok(record) => {
             if let Err(error) = state.store.upsert_checkpoint_pre(&record) {
                 tracing::warn!(%error, approval_id = approval.approval_id, "store checkpoint pre failed");
@@ -1171,7 +1180,12 @@ async fn checkpoint_pre_if_enabled(state: &AppState, approval: &Approval) {
             }
         }
         Err(error) => {
-            tracing::debug!(%error, approval_id = approval.approval_id, "checkpoint pre skipped");
+            let message = error.to_string();
+            let record = checkpointing::skipped_pre_record(approval, &message);
+            if let Err(store_error) = state.store.upsert_checkpoint_pre(&record) {
+                tracing::warn!(%store_error, approval_id = approval.approval_id, "store checkpoint skip failed");
+            }
+            tracing::debug!(%message, approval_id = approval.approval_id, "checkpoint pre skipped");
         }
     }
 }
@@ -1188,7 +1202,11 @@ async fn checkpoint_post_if_enabled(state: &AppState, session_id: &str, event_ki
             return;
         }
     };
-    match checkpointing::snapshot_post(&record) {
+    if record.error.is_some() {
+        return;
+    }
+    let guardrails = state.checkpoint_guardrails().await;
+    match checkpointing::snapshot_post(&record, &guardrails) {
         Ok(post_ref) => {
             if let Err(error) = state
                 .store
@@ -2735,6 +2753,22 @@ mod tests {
             value["runtimeConfig"]["checkpointMaxAgeDays"],
             crate::config::DEFAULT_CHECKPOINT_MAX_AGE_DAYS
         );
+        assert_eq!(
+            value["runtimeConfig"]["checkpointMaxChangedFiles"],
+            crate::config::DEFAULT_CHECKPOINT_MAX_CHANGED_FILES
+        );
+        assert_eq!(
+            value["runtimeConfig"]["checkpointMaxIndexBytes"],
+            crate::config::DEFAULT_CHECKPOINT_MAX_INDEX_BYTES
+        );
+        assert_eq!(
+            value["runtimeConfig"]["checkpointMaxFileBytes"],
+            crate::config::DEFAULT_CHECKPOINT_MAX_FILE_BYTES
+        );
+        assert!(value["runtimeConfig"]["checkpointIgnoredPathGlobs"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert!(value["uptimeSecs"].is_u64());
         assert!(value["configPath"].is_string());
         assert_eq!(value["orchestration"]["paneCount"], 0);
@@ -2850,8 +2884,16 @@ mod tests {
         assert!(value["runtimeConfig"]["ptyRingLimit"].is_u64());
         assert!(value["runtimeConfig"]["checkpointMaxRecords"].is_u64());
         assert!(value["runtimeConfig"]["checkpointMaxAgeDays"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointMaxChangedFiles"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointMaxIndexBytes"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointMaxFileBytes"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointIgnoredPathGlobs"].is_array());
         assert_eq!(value["appliedFields"][0], "server.approval_timeout_secs");
         assert_eq!(value["appliedFields"][3], "checkpointing.max_records");
+        assert_eq!(
+            value["appliedFields"][7],
+            "checkpointing.ignored_path_globs"
+        );
         assert_eq!(value["restartRequiredFields"][0], "server.port");
     }
 }

@@ -38,11 +38,6 @@ export interface GitWorktree {
   prunable: boolean;
 }
 
-export interface GitCloneResult {
-  path: string;
-  name: string;
-}
-
 export interface GitTreeState {
   badge: string;
   label: string;
@@ -105,10 +100,6 @@ export async function commitGit(root: string, message: string): Promise<string> 
   return invoke<string>("git_commit", { root, message });
 }
 
-export async function syncGit(root: string): Promise<string> {
-  return invoke<string>("git_sync", { root });
-}
-
 export async function getGitFileDiff(
   root: string,
   path: string,
@@ -145,16 +136,4 @@ export async function removeGitWorktree(
   force = false,
 ): Promise<string> {
   return invoke<string>("git_remove_worktree", { root, path, force });
-}
-
-export async function cloneGitRepository(
-  remote: string,
-  destinationParent: string,
-  name?: string,
-): Promise<GitCloneResult> {
-  return invoke<GitCloneResult>("git_clone_repository", {
-    remote,
-    destinationParent,
-    name: name?.trim() || null,
-  });
 }

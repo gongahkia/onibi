@@ -9,7 +9,6 @@ import {
   listGitWorktrees,
   removeGitWorktree,
   stageGitPaths,
-  syncGit,
   type GitStatus,
   type GitStatusEntry,
   type GitWorktree,
@@ -156,11 +155,6 @@ export function SourceControlView({
   );
   const allPaths = useMemo(() => entries.map((entry) => entry.path), [entries]);
   const canCommit = Boolean(workspace && message.trim() && stagedEntries.length > 0);
-  const syncLabel =
-    status && (status.ahead > 0 || status.behind > 0)
-      ? `Sync ${status.behind}↓ ${status.ahead}↑`
-      : "Sync";
-
   async function refreshWorktrees() {
     if (!workspace) {
       setWorktrees([]);
@@ -433,15 +427,6 @@ export function SourceControlView({
               }
             >
               Commit
-            </button>
-            <button
-              type="button"
-              className="source-control-secondary"
-              disabled={busy || !status.upstream}
-              onClick={() => void runAction(() => syncGit(workspace.path))}
-              title={status.upstream ? "Pull with fast-forward, then push" : "No upstream configured"}
-            >
-              {syncLabel}
             </button>
           </div>
           <div className="source-control-actions">

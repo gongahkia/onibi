@@ -425,7 +425,9 @@ describe("NewSessionDialog", () => {
       expect(screen.getByText(/usr\/local\/bin\/hermes/)).toBeTruthy();
     });
     const resumeSelect = await screen.findByLabelText("Resume ACP session");
-    expect(screen.getByText("Hermes · repo - native: hermes-provider-9")).toBeTruthy();
+    expect(
+      screen.getByText("Hermes · repo - resume - provider hermes-provider-9 · native"),
+    ).toBeTruthy();
     fireEvent.change(resumeSelect, {
       target: { value: "hermes-provider-9" },
     });
@@ -457,6 +459,60 @@ describe("NewSessionDialog", () => {
       "hermes-provider-9",
     );
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  test("labels live ACP sessions as reattach options", async () => {
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "hermes") {
+          return "/usr/local/bin/hermes";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "hermes",
+      },
+      sessions: [
+        {
+          id: "pty-hermes-live",
+          agent: "hermes",
+          workspaceId: "workspace:/repo",
+          title: "Hermes · live",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          lastExitCode: null,
+          lastTrigger: null,
+          lastCommandBlockId: null,
+          transcript: null,
+          restart: null,
+          remote: null,
+          provider: {
+            agent: "hermes",
+            providerSessionId: "hermes-provider-live",
+            conversationId: "conversation-live",
+            resume: {
+              command: "hermes",
+              args: ["--resume", "hermes-provider-live"],
+              source: "hermes --resume",
+            },
+            updatedAt: 1,
+          },
+        },
+      ],
+    });
+
+    render(<NewSessionDialog open onClose={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "Hermes · live - reattach - provider hermes-provider-live · conversation conversation-live · hermes --resume",
+      ),
+    ).toBeTruthy();
   });
 
   test("requires a prompt before ACP launch", async () => {

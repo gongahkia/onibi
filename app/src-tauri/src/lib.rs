@@ -36,8 +36,8 @@ use fs::{
 };
 #[cfg(feature = "gui")]
 use git::{
-    git_clone_repository, git_commit, git_create_worktree, git_diff_file, git_discard_paths,
-    git_remove_worktree, git_stage_paths, git_status, git_sync, git_unstage_paths, git_worktrees,
+    git_commit, git_create_worktree, git_diff_file, git_discard_paths, git_remove_worktree,
+    git_stage_paths, git_status, git_unstage_paths, git_worktrees,
 };
 #[cfg(feature = "gui")]
 use pty::{
@@ -487,12 +487,10 @@ pub fn run() {
             git_unstage_paths,
             git_discard_paths,
             git_commit,
-            git_sync,
             git_diff_file,
             git_worktrees,
             git_create_worktree,
             git_remove_worktree,
-            git_clone_repository,
             agent_review_start,
             agent_review_stop,
             agent_review_note_human_write,

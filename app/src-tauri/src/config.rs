@@ -12,6 +12,9 @@ pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 600;
 pub const DEFAULT_PTY_RING_LIMIT: usize = 5_000;
 pub const DEFAULT_CHECKPOINT_MAX_RECORDS: usize = 200;
 pub const DEFAULT_CHECKPOINT_MAX_AGE_DAYS: u64 = 30;
+pub const DEFAULT_CHECKPOINT_MAX_CHANGED_FILES: usize = 2_000;
+pub const DEFAULT_CHECKPOINT_MAX_INDEX_BYTES: u64 = 100 * 1024 * 1024;
+pub const DEFAULT_CHECKPOINT_MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -41,6 +44,10 @@ pub struct CheckpointingConfig {
     pub enabled: bool,
     pub max_records: usize,
     pub max_age_days: u64,
+    pub max_changed_files: usize,
+    pub max_index_bytes: u64,
+    pub max_file_bytes: u64,
+    pub ignored_path_globs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +141,10 @@ pub struct RuntimeConfig {
     pub checkpointing_enabled: bool,
     pub checkpoint_max_records: usize,
     pub checkpoint_max_age_days: u64,
+    pub checkpoint_max_changed_files: usize,
+    pub checkpoint_max_index_bytes: u64,
+    pub checkpoint_max_file_bytes: u64,
+    pub checkpoint_ignored_path_globs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -239,6 +250,10 @@ impl Default for CheckpointingConfig {
             enabled: false,
             max_records: DEFAULT_CHECKPOINT_MAX_RECORDS,
             max_age_days: DEFAULT_CHECKPOINT_MAX_AGE_DAYS,
+            max_changed_files: DEFAULT_CHECKPOINT_MAX_CHANGED_FILES,
+            max_index_bytes: DEFAULT_CHECKPOINT_MAX_INDEX_BYTES,
+            max_file_bytes: DEFAULT_CHECKPOINT_MAX_FILE_BYTES,
+            ignored_path_globs: Vec::new(),
         }
     }
 }
@@ -424,6 +439,32 @@ impl OnibiConfig {
         self.checkpointing.max_age_days.clamp(1, 3_650)
     }
 
+    pub fn checkpoint_max_changed_files(&self) -> usize {
+        self.checkpointing.max_changed_files.clamp(1, 100_000)
+    }
+
+    pub fn checkpoint_max_index_bytes(&self) -> u64 {
+        self.checkpointing
+            .max_index_bytes
+            .clamp(1024 * 1024, 10 * 1024 * 1024 * 1024)
+    }
+
+    pub fn checkpoint_max_file_bytes(&self) -> u64 {
+        self.checkpointing
+            .max_file_bytes
+            .clamp(1024 * 1024, 2 * 1024 * 1024 * 1024)
+    }
+
+    pub fn checkpoint_ignored_path_globs(&self) -> Vec<String> {
+        self.checkpointing
+            .ignored_path_globs
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty() && !value.contains('\0'))
+            .map(ToString::to_string)
+            .collect()
+    }
+
     pub fn runtime_config(&self) -> RuntimeConfig {
         RuntimeConfig {
             approval_timeout_secs: self.approval_timeout_secs(),
@@ -431,6 +472,10 @@ impl OnibiConfig {
             checkpointing_enabled: self.checkpointing.enabled,
             checkpoint_max_records: self.checkpoint_max_records(),
             checkpoint_max_age_days: self.checkpoint_max_age_days(),
+            checkpoint_max_changed_files: self.checkpoint_max_changed_files(),
+            checkpoint_max_index_bytes: self.checkpoint_max_index_bytes(),
+            checkpoint_max_file_bytes: self.checkpoint_max_file_bytes(),
+            checkpoint_ignored_path_globs: self.checkpoint_ignored_path_globs(),
         }
     }
 }
@@ -572,6 +617,19 @@ mod tests {
             validation.runtime.checkpoint_max_age_days,
             DEFAULT_CHECKPOINT_MAX_AGE_DAYS
         );
+        assert_eq!(
+            validation.runtime.checkpoint_max_changed_files,
+            DEFAULT_CHECKPOINT_MAX_CHANGED_FILES
+        );
+        assert_eq!(
+            validation.runtime.checkpoint_max_index_bytes,
+            DEFAULT_CHECKPOINT_MAX_INDEX_BYTES
+        );
+        assert_eq!(
+            validation.runtime.checkpoint_max_file_bytes,
+            DEFAULT_CHECKPOINT_MAX_FILE_BYTES
+        );
+        assert!(validation.runtime.checkpoint_ignored_path_globs.is_empty());
     }
 
     #[test]
@@ -610,6 +668,10 @@ pty_ring_limit = 2048
 enabled = true
 max_records = 25
 max_age_days = 7
+max_changed_files = 9
+max_index_bytes = 2097152
+max_file_bytes = 1048576
+ignored_path_globs = ["node_modules/**", "dist/**"]
 "#,
         )
         .unwrap();
@@ -621,6 +683,13 @@ max_age_days = 7
         assert!(validation.runtime.checkpointing_enabled);
         assert_eq!(validation.runtime.checkpoint_max_records, 25);
         assert_eq!(validation.runtime.checkpoint_max_age_days, 7);
+        assert_eq!(validation.runtime.checkpoint_max_changed_files, 9);
+        assert_eq!(validation.runtime.checkpoint_max_index_bytes, 2_097_152);
+        assert_eq!(validation.runtime.checkpoint_max_file_bytes, 1_048_576);
+        assert_eq!(
+            validation.runtime.checkpoint_ignored_path_globs,
+            vec!["node_modules/**", "dist/**"]
+        );
     }
 
     #[test]

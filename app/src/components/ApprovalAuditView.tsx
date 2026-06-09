@@ -453,7 +453,7 @@ function ApprovalAuditRow({
             <button
               type="button"
               className="text-button"
-              disabled={!checkpoint.postRef}
+              disabled={!checkpoint.postRef || Boolean(checkpoint.error)}
               onClick={() => onShowCheckpointDiff(checkpoint)}
             >
               Show diff
@@ -461,6 +461,7 @@ function ApprovalAuditRow({
             <button
               type="button"
               className="text-button danger"
+              disabled={Boolean(checkpoint.error)}
               onClick={() => onRestoreCheckpoint(checkpoint)}
             >
               Restore before turn

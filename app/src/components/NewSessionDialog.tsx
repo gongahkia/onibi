@@ -469,9 +469,7 @@ function acpResumeOptionsFor(
       return [];
     }
     seen.add(id);
-    const source = cleanString(session.provider?.resume?.source);
-    const suffix = source ? `${source}: ${id}` : id;
-    return [{ id, label: `${session.title || session.id} - ${suffix}` }];
+    return [{ id, label: acpResumeLabel(session, id) }];
   });
 }
 
@@ -487,6 +485,24 @@ function acpResumeId(session: Session): string | null {
     lastNonEmpty(provider?.resume?.args) ??
     null
   );
+}
+
+function acpResumeLabel(session: Session, id: string): string {
+  const provider = session.provider;
+  const details = [
+    cleanString(provider?.providerSessionId)
+      ? `provider ${cleanString(provider?.providerSessionId)}`
+      : null,
+    cleanString(provider?.conversationId)
+      ? `conversation ${cleanString(provider?.conversationId)}`
+      : null,
+    cleanString(provider?.resume?.source),
+  ].filter((value): value is string => value !== null);
+  const state =
+    session.status === "running" || session.status === "awaiting-approval"
+      ? "reattach"
+      : "resume";
+  return `${session.title || session.id} - ${state} - ${details.join(" · ") || id}`;
 }
 
 function cleanString(value: unknown): string | null {
