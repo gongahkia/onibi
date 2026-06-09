@@ -12,6 +12,9 @@ function resetStore() {
     activeWorkspaceId: null,
     activeWorkspaceTabId: null,
     activeSidebarView: "files",
+    rightDockView: "files",
+    rightDockMode: "expanded",
+    sidebarCollapsed: true,
     workspaces: [],
     selectedFile: null,
     settings: DEFAULT_SETTINGS,
@@ -50,5 +53,7 @@ describe("StatusBar", () => {
     fireEvent.click(screen.getByRole("button", { name: /1 pending/i }));
 
     expect(useSessionStore.getState().activeSidebarView).toBe("approvals");
+    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
+    expect(useSessionStore.getState().sidebarCollapsed).toBe(false);
   });
 });

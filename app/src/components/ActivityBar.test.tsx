@@ -42,6 +42,10 @@ function resetStore() {
     sessionEvents: [],
     commandBlocks: [],
     activeCommandBlocks: {},
+    activeSidebarView: "files",
+    rightDockView: "files",
+    rightDockMode: "expanded",
+    sidebarCollapsed: false,
     settings: DEFAULT_SETTINGS,
   });
 }
@@ -79,5 +83,16 @@ describe("ActivityBar", () => {
 
     expect(useSessionStore.getState().selectedFile).toBeNull();
     expect(useSessionStore.getState().activeSessionId).toBe("pty-1");
+  });
+
+  test("explorer and search target the right dock", () => {
+    render(<ActivityBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Explorer"));
+    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
+
+    fireEvent.click(screen.getByLabelText("Search"));
+    expect(useSessionStore.getState().rightDockView).toBe("search");
+    expect(useSessionStore.getState().rightDockMode).toBe("expanded");
   });
 });
