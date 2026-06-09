@@ -38,73 +38,34 @@ const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
 };
 
 export function WorkspaceSidebar() {
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
-  const [gitLoading, setGitLoading] = useState(false);
-  const [gitError, setGitError] = useState("");
-  const [overflowOpen, setOverflowOpen] = useState(false);
-  const sessions = useSessionStore((state) => state.sessions);
-  const workspaces = useSessionStore((state) => state.workspaces);
-  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
-  const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const view = useSessionStore((state) => state.activeSidebarView);
-  const showHiddenFiles = useSessionStore((state) => state.settings.showHiddenFiles);
-  const updateSettings = useSessionStore((state) => state.updateSettings);
-  const activeWorkspace = useMemo(
-    () => activeWorkspaceFor(sessions, workspaces, activeWorkspaceId, activeSessionId),
-    [activeSessionId, activeWorkspaceId, sessions, workspaces],
-  );
-
-  const refreshGitStatus = useCallback(async () => {
-    if (!activeWorkspace) {
-      setGitStatus(null);
-      setGitError("");
-      return;
-    }
-    setGitLoading(true);
-    setGitError("");
-    try {
-      setGitStatus(await getGitStatus(activeWorkspace.path));
-    } catch (caught) {
-      setGitStatus(null);
-      setGitError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setGitLoading(false);
-    }
-  }, [activeWorkspace]);
-
-  const refreshAgentReviews = useCallback(async () => {
-    if (!activeWorkspace) {
-      setAgentReviews([]);
-      return;
-    }
-    setAgentReviews(await listAgentReviews(activeWorkspace.path).catch(() => []));
-  }, [activeWorkspace]);
-
-  useEffect(() => {
-    void refreshGitStatus();
-  }, [refreshGitStatus]);
-
-  useEffect(() => {
-    void refreshAgentReviews();
-    const timer = window.setInterval(() => {
-      void refreshAgentReviews();
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [refreshAgentReviews]);
-
-  const gitStatusByPath = useMemo(() => gitStateByFullPath(gitStatus), [gitStatus]);
-  const agentReviewsByPath = useMemo(
-    () => Object.fromEntries(agentReviews.map((record) => [record.fullPath, record])),
-    [agentReviews],
-  );
-
-  const pendingApprovals = useMemo(() => {
-    return sessions.filter((s) => s.pendingApprovals.length > 0);
-  }, [sessions]);
-
+  if (view === "files" || view === "search") {
+    return null;
+  }
   return (
     <aside className="workspace-sidebar">
+      <WorkspaceSidebarContent view={view} />
+    </aside>
+  );
+}
+
+export function WorkspaceSidebarContent({ view }: { view: WorkspaceSidebarView }) {
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const {
+    activeWorkspace,
+    agentReviewsByPath,
+    gitError,
+    gitLoading,
+    gitStatus,
+    gitStatusByPath,
+    pendingApprovals,
+    refreshGitStatus,
+  } = useWorkspaceSidebarData();
+  const showHiddenFiles = useSessionStore((state) => state.settings.showHiddenFiles);
+  const updateSettings = useSessionStore((state) => state.updateSettings);
+
+  return (
+    <>
       <header className="sidebar-section-header">
         <span className="sidebar-section-title">{VIEW_TITLES[view] ?? "Explorer"}</span>
         <div className="sidebar-section-actions">
@@ -160,8 +121,82 @@ export function WorkspaceSidebar() {
           <ApprovalsView pendingSessions={pendingApprovals} />
         ) : null}
       </div>
-    </aside>
+    </>
   );
+}
+
+function useWorkspaceSidebarData() {
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState("");
+  const sessions = useSessionStore((state) => state.sessions);
+  const workspaces = useSessionStore((state) => state.workspaces);
+  const activeWorkspaceId = useSessionStore((state) => state.activeWorkspaceId);
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const activeWorkspace = useMemo(
+    () => activeWorkspaceFor(sessions, workspaces, activeWorkspaceId, activeSessionId),
+    [activeSessionId, activeWorkspaceId, sessions, workspaces],
+  );
+
+  const refreshGitStatus = useCallback(async () => {
+    if (!activeWorkspace) {
+      setGitStatus(null);
+      setGitError("");
+      return;
+    }
+    setGitLoading(true);
+    setGitError("");
+    try {
+      setGitStatus(await getGitStatus(activeWorkspace.path));
+    } catch (caught) {
+      setGitStatus(null);
+      setGitError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setGitLoading(false);
+    }
+  }, [activeWorkspace]);
+
+  const refreshAgentReviews = useCallback(async () => {
+    if (!activeWorkspace) {
+      setAgentReviews([]);
+      return;
+    }
+    setAgentReviews(await listAgentReviews(activeWorkspace.path).catch(() => []));
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    void refreshGitStatus();
+  }, [refreshGitStatus]);
+
+  useEffect(() => {
+    void refreshAgentReviews();
+    const timer = window.setInterval(() => {
+      void refreshAgentReviews();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [refreshAgentReviews]);
+
+  const gitStatusByPath = useMemo(() => gitStateByFullPath(gitStatus), [gitStatus]);
+  const agentReviewsByPath = useMemo(
+    () => Object.fromEntries(agentReviews.map((record) => [record.fullPath, record])),
+    [agentReviews],
+  );
+
+  const pendingApprovals = useMemo(() => {
+    return sessions.filter((s) => s.pendingApprovals.length > 0);
+  }, [sessions]);
+
+  return {
+    activeWorkspace,
+    agentReviewsByPath,
+    gitError,
+    gitLoading,
+    gitStatus,
+    gitStatusByPath,
+    pendingApprovals,
+    refreshGitStatus,
+  };
 }
 
 interface ApprovalsViewProps {

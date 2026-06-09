@@ -4,6 +4,8 @@ import { useSessionStore } from "../lib/sessions";
 export function StatusBar() {
   const sessions = useSessionStore((state) => state.sessions);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
+  const setSidebarCollapsed = useSessionStore((state) => state.setSidebarCollapsed);
+  const setRightDockMode = useSessionStore((state) => state.setRightDockMode);
   const pendingApprovals = useMemo(
     () => sessions.reduce((sum, session) => sum + session.pendingApprovals.length, 0),
     [sessions],
@@ -30,7 +32,11 @@ export function StatusBar() {
       <button
         type="button"
         className="status-bar-item attention"
-        onClick={() => setView("approvals")}
+        onClick={() => {
+          setRightDockMode("compressed");
+          setSidebarCollapsed(false);
+          setView("approvals");
+        }}
         title="Pending approvals"
       >
         <i className="codicon codicon-bell-dot" aria-hidden="true" />

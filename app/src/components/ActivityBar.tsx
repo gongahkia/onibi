@@ -23,6 +23,10 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
   const view = useSessionStore((state) => state.activeSidebarView);
   const setView = useSessionStore((state) => state.setActiveSidebarView);
+  const rightDockView = useSessionStore((state) => state.rightDockView);
+  const rightDockMode = useSessionStore((state) => state.rightDockMode);
+  const setRightDockView = useSessionStore((state) => state.setRightDockView);
+  const setRightDockMode = useSessionStore((state) => state.setRightDockMode);
   const sessions = useSessionStore((state) => state.sessions);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const selectedFile = useSessionStore((state) => state.selectedFile);
@@ -69,6 +73,14 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   }, []);
 
   function handleSelect(id: WorkspaceSidebarView) {
+    if (id === "files" || id === "search") {
+      if (rightDockView === id && rightDockMode === "expanded") {
+        setRightDockMode("compressed");
+      } else {
+        setRightDockView(id);
+      }
+      return;
+    }
     if (view === id && !sidebarCollapsed) {
       onToggleSidebar();
       return;
@@ -76,6 +88,7 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
     if (sidebarCollapsed) {
       onToggleSidebar();
     }
+    setRightDockMode("compressed");
     setView(id);
   }
 
@@ -117,6 +130,22 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
           <i className="codicon codicon-terminal" aria-hidden="true" />
         </button>
         {topItems.map((item) => (
+          item.id === "files" || item.id === "search" ? (
+            <button
+              key={item.id}
+              type="button"
+              className={`activity-bar-item ${
+                rightDockView === item.id && rightDockMode === "expanded"
+                  ? "active"
+                  : ""
+              }`}
+              aria-label={item.label}
+              title={item.label}
+              onClick={() => handleSelect(item.id)}
+            >
+              <i className={`codicon ${item.icon}`} aria-hidden="true" />
+            </button>
+          ) : (
           <button
             key={item.id}
             type="button"
@@ -138,6 +167,7 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
               </span>
             ) : null}
           </button>
+          )
         ))}
         <button
           type="button"

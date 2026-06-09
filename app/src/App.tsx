@@ -17,6 +17,7 @@ import { TitleBar } from "./components/TitleBar";
 import { TransportWatcher } from "./components/TransportWatcher";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { WorkspaceRightDock } from "./components/WorkspaceRightDock";
 import {
   applyDocumentSettings,
   hydrateSessionStore,
@@ -30,9 +31,11 @@ import "./styles/layout.css";
 function App() {
   const settings = useSessionStore((state) => state.settings);
   const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
+  const activeSidebarView = useSessionStore((state) => state.activeSidebarView);
   const railExpanded = useSessionStore((state) => state.agentRailExpanded);
   const sidebarCollapsed = useSessionStore((state) => state.sidebarCollapsed);
   const setSidebarCollapsed = useSessionStore((state) => state.setSidebarCollapsed);
+  const setRightDockMode = useSessionStore((state) => state.setRightDockMode);
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem("onibi.onboarding.dismissed") !== "1",
   );
@@ -94,8 +97,12 @@ function App() {
   }, [settings.theme]);
 
   const horizontalTabs = settings.tabBarOrientation === "horizontal";
+  const leftSidebarVisible =
+    !sidebarCollapsed &&
+    (activeSidebarView === "source-control" || activeSidebarView === "approvals");
   const openApprovalsView = () => {
     setActiveSidebarView("approvals");
+    setRightDockMode("compressed");
     if (sidebarCollapsed) {
       setSidebarCollapsed(false);
     }
@@ -109,7 +116,7 @@ function App() {
       {horizontalTabs ? (
         <PanelGroup orientation="vertical">
           {settings.tabBarPosition === "bottom" ? (
-            <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
+            <ContentPanels showSidebar={leftSidebarVisible} nestedInPanelGroup />
           ) : (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
               <AgentTabBar
@@ -127,11 +134,11 @@ function App() {
               />
             </Panel>
           ) : (
-            <ContentPanels sidebarCollapsed={sidebarCollapsed} nestedInPanelGroup />
+            <ContentPanels showSidebar={leftSidebarVisible} nestedInPanelGroup />
           )}
         </PanelGroup>
       ) : (
-        <ContentPanels sidebarCollapsed={sidebarCollapsed} />
+        <ContentPanels showSidebar={leftSidebarVisible} />
       )}
     </main>
   );
@@ -158,6 +165,7 @@ function App() {
             onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
           />
           {body}
+          <WorkspaceRightDock />
         </div>
         <StatusBar />
         <FocusHud />
@@ -173,24 +181,24 @@ function App() {
 }
 
 interface ContentPanelsProps {
-  sidebarCollapsed: boolean;
+  showSidebar: boolean;
   nestedInPanelGroup?: boolean;
 }
 
 function ContentPanels({
-  sidebarCollapsed,
+  showSidebar,
   nestedInPanelGroup = false,
 }: ContentPanelsProps) {
   const panels = (
     <PanelGroup orientation="horizontal">
-      {sidebarCollapsed ? null : (
+      {showSidebar ? (
         <>
           <Panel defaultSize="20%" minSize="12%" maxSize="40%" id="sidebar-panel">
             <WorkspaceSidebar />
           </Panel>
           <PanelResizeHandle className="panel-resize-handle" />
         </>
-      )}
+      ) : null}
       <Panel defaultSize="80%" minSize="40%" id="main-panel">
         <MainPane />
       </Panel>

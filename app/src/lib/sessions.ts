@@ -3861,6 +3861,8 @@ function snapshot(state: SessionStore): PersistedState {
     maximizedTerminalPaneId: state.maximizedTerminalPaneId,
     arrangements: state.arrangements,
     activeSidebarView: state.activeSidebarView,
+    rightDockView: state.rightDockView,
+    rightDockMode: state.rightDockMode,
     sidebarCollapsed: state.sidebarCollapsed,
     sidebarFirstLaunchSeen: state.sidebarFirstLaunchSeen,
     sidebarCollapsedExplicit: state.sidebarCollapsedExplicit,
@@ -3894,6 +3896,8 @@ export async function persistNow(): Promise<void> {
     await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
     await store.set("arrangements", state.arrangements);
     await store.set("activeSidebarView", state.activeSidebarView);
+    await store.set("rightDockView", state.rightDockView);
+    await store.set("rightDockMode", state.rightDockMode);
     await store.set("sidebarCollapsed", state.sidebarCollapsed);
     await store.set("sidebarFirstLaunchSeen", state.sidebarFirstLaunchSeen);
     await store.set("sidebarCollapsedExplicit", state.sidebarCollapsedExplicit);
@@ -3921,6 +3925,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   activeWorkspaceTabId: null,
   arrangements: [],
   activeSidebarView: "files",
+  rightDockView: "files",
+  rightDockMode: "expanded",
   workspaces: [],
   selectedFile: null,
   openBuffers: [],
@@ -4389,7 +4395,45 @@ export const useSessionStore = create<SessionStore>((set) => ({
     persistLater();
   },
   setActiveSidebarView: (view) => {
-    set({ activeSidebarView: view });
+    set((state) => {
+      if (view === "files" || view === "search") {
+        return {
+          activeSidebarView: view,
+          rightDockView: view,
+          rightDockMode: "expanded",
+        };
+      }
+      return {
+        activeSidebarView: view,
+        rightDockMode:
+          state.rightDockMode === "expanded" ? "compressed" : state.rightDockMode,
+      };
+    });
+    persistLater();
+  },
+  setRightDockView: (view) => {
+    set({
+      activeSidebarView: view,
+      rightDockView: view,
+      rightDockMode: "expanded",
+    });
+    persistLater();
+  },
+  setRightDockMode: (mode) => {
+    set({ rightDockMode: mode });
+    persistLater();
+  },
+  toggleRightDock: (view) => {
+    set((state) => {
+      const nextView = view ?? state.rightDockView;
+      const shouldCompress =
+        state.rightDockView === nextView && state.rightDockMode === "expanded";
+      return {
+        activeSidebarView: nextView,
+        rightDockView: nextView,
+        rightDockMode: shouldCompress ? "compressed" : "expanded",
+      };
+    });
     persistLater();
   },
   addSession: (session, placement) => {
@@ -5550,6 +5594,8 @@ export async function hydrateSessionStore(): Promise<void> {
       maximizedTerminalPaneId,
       arrangements,
       activeSidebarView,
+      rightDockView,
+      rightDockMode,
       sidebarCollapsed,
       sidebarFirstLaunchSeen,
       sidebarCollapsedExplicit,
@@ -5564,6 +5610,8 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<string | null>("maximizedTerminalPaneId"),
       store.get<Arrangement[]>("arrangements"),
       store.get<WorkspaceSidebarView>("activeSidebarView"),
+      store.get<WorkspaceRightDockView>("rightDockView"),
+      store.get<WorkspaceRightDockMode>("rightDockMode"),
       store.get<boolean>("sidebarCollapsed"),
       store.get<boolean>("sidebarFirstLaunchSeen"),
       store.get<boolean>("sidebarCollapsedExplicit"),
@@ -5736,6 +5784,16 @@ export async function hydrateSessionStore(): Promise<void> {
       !restoredSidebarFirstLaunchSeen ||
       typeof sidebarCollapsedExplicit !== "boolean" ||
       migratedExplicitSidebar;
+    const restoredActiveSidebarView =
+      normalizeWorkspaceSidebarView(activeSidebarView);
+    const restoredRightDockView = normalizeRightDockView(
+      rightDockView,
+      restoredActiveSidebarView === "search" ? "search" : "files",
+    );
+    const restoredRightDockMode = normalizeRightDockMode(
+      rightDockMode,
+      restoredSidebarCollapsed ? "compressed" : "expanded",
+    );
     const restoredClosedStack = capClosedStack(
       (closedBufferStack ?? []).filter((buffer) =>
         workspaceIds.has(buffer.workspaceId),
@@ -5752,7 +5810,9 @@ export async function hydrateSessionStore(): Promise<void> {
       activeWorkspaceId: restoredActiveWorkspaceId,
       activeWorkspaceTabId: restoredActiveWorkspaceTabId,
       arrangements: normalizeArrangements(arrangements),
-      activeSidebarView: normalizeWorkspaceSidebarView(activeSidebarView),
+      activeSidebarView: restoredActiveSidebarView,
+      rightDockView: restoredRightDockView,
+      rightDockMode: restoredRightDockMode,
       sidebarCollapsed: restoredSidebarCollapsed,
       sidebarFirstLaunchSeen: true,
       sidebarCollapsedExplicit: restoredSidebarExplicit,
