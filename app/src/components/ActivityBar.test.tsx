@@ -85,14 +85,12 @@ describe("ActivityBar", () => {
     expect(useSessionStore.getState().activeSessionId).toBe("pty-1");
   });
 
-  test("explorer and search target the right dock", () => {
+  test("does not render explorer and search in the left activity bar", () => {
     render(<ActivityBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText("Explorer"));
-    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
-
-    fireEvent.click(screen.getByLabelText("Search"));
-    expect(useSessionStore.getState().rightDockView).toBe("search");
-    expect(useSessionStore.getState().rightDockMode).toBe("expanded");
+    expect(screen.queryByLabelText("Explorer")).toBeNull();
+    expect(screen.queryByLabelText("Search")).toBeNull();
+    expect(screen.getByLabelText("Source Control")).toBeTruthy();
+    expect(screen.getByLabelText("Approvals")).toBeTruthy();
   });
 });

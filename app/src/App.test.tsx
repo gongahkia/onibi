@@ -123,10 +123,8 @@ describe("App", () => {
     render(<App />);
     expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
     expect(screen.getByTestId("workspace-right-dock")).toBeTruthy();
-
-    fireEvent.click(screen.getByLabelText("Explorer"));
-
-    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
+    expect(screen.queryByLabelText("Explorer")).toBeNull();
+    expect(screen.queryByLabelText("Search")).toBeNull();
     expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
   });
 
