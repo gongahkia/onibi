@@ -284,15 +284,21 @@ fn adapter_detected(name: &str) -> bool {
         "claude-code" => which::which("claude").is_ok(),
         "codex" => which::which("codex").is_ok(),
         "copilot" => which::which("copilot").is_ok(),
+        "cursor" => which::which("cursor-agent").is_ok() || which::which("cursor").is_ok(),
         "goose" => which::which("goose").is_ok(),
+        "omp" => which::which("omp").is_ok(),
         "opencode" => which::which("opencode").is_ok(),
+        "pi" => which::which("pi").is_ok(),
         "qoder" => which::which("qoder").is_ok(),
         _ => false,
     }
 }
 
 fn installable_support(support: &str) -> bool {
-    matches!(support, "full" | "bash-only" | "event-bridge")
+    matches!(
+        support,
+        "full" | "bash-only" | "event-bridge" | "native-observe"
+    )
 }
 
 fn interactive_terminal() -> bool {

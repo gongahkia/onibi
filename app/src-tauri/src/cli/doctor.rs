@@ -250,7 +250,13 @@ fn check_adapters() -> Vec<Check> {
             name: "pi",
             binary: "pi",
             min_version: None,
-            hint: "install Pi when native extension docs are available",
+            hint: "install Pi for native-observe extension events",
+        },
+        AdapterProbe {
+            name: "omp",
+            binary: "omp",
+            min_version: None,
+            hint: "install OMP for native-observe extension events",
         },
     ]
     .into_iter()
@@ -264,7 +270,12 @@ fn check_integrations() -> Vec<Check> {
         .filter(|integration| {
             matches!(
                 integration.support,
-                "full" | "bash-only" | "event-bridge" | "resume-only" | "pending"
+                "full"
+                    | "bash-only"
+                    | "event-bridge"
+                    | "native-observe"
+                    | "resume-only"
+                    | "pending"
             )
         })
         .map(|integration| {

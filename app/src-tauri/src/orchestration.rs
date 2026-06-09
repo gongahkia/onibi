@@ -2138,6 +2138,7 @@ mod tests {
         assert_eq!(classify_command("agent.start"), Some(CommandKind::Spawn));
         assert_eq!(classify_command("agent.list"), Some(CommandKind::ListLive));
         assert_eq!(classify_command("agent.send"), Some(CommandKind::Write));
+        assert_eq!(classify_command("pane.run"), Some(CommandKind::Run));
         assert_eq!(classify_command("missing.command"), None);
     }
 

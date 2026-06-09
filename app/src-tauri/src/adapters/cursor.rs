@@ -195,16 +195,31 @@ mod tests {
         install_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
 
-        assert_eq!(settings["hooks"]["BeforeShellExecution"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            settings["hooks"]["BeforeShellExecution"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(onibi_handlers(&settings).count(), EVENTS.len());
         let status = status_at(&path).unwrap();
         assert!(status.installed);
         assert_eq!(status.support, "native-observe");
-        assert_eq!(status.installed_version.as_deref(), Some(INTEGRATION_VERSION));
+        assert_eq!(
+            status.installed_version.as_deref(),
+            Some(INTEGRATION_VERSION)
+        );
 
         uninstall_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
-        assert_eq!(settings["hooks"]["BeforeShellExecution"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            settings["hooks"]["BeforeShellExecution"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(onibi_handlers(&settings).count(), 0);
     }
 }

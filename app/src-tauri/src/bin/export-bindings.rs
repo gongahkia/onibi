@@ -35,6 +35,7 @@ fn bindings() -> String {
     push::<protocol::PtyOutputBody>(&mut output);
     push::<protocol::PaneSendTextBody>(&mut output);
     push::<protocol::PaneSendKeysBody>(&mut output);
+    push::<protocol::PaneRunBody>(&mut output);
     push::<protocol::PaneSendResponse>(&mut output);
     push::<protocol::PaneTarget>(&mut output);
     push::<protocol::PaneTargetsResponse>(&mut output);

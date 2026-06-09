@@ -148,23 +148,6 @@ pub fn static_info(
     }
 }
 
-pub fn pending_info(
-    name: &'static str,
-    install_path: Option<PathBuf>,
-    message: impl Into<String>,
-) -> IntegrationInfo {
-    IntegrationInfo {
-        name,
-        support: "pending",
-        installed: false,
-        installed_version: None,
-        bundled_version: None,
-        outdated: false,
-        install_path,
-        message: Some(message.into()),
-    }
-}
-
 pub fn resume_only_info(name: &'static str, message: impl Into<String>) -> IntegrationInfo {
     IntegrationInfo {
         name,

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   APP_KEYBINDING_ACTION_LABELS,
   COLOR_SCHEME_OPTIONS,
+  DEFAULT_REMOTE_RUN_DIR,
   DEFAULT_REMOTE_STAGING_DIR,
   DEFAULT_SYSTEM_THEME_PAIR,
   DEFAULT_SETTINGS,
@@ -10,6 +11,7 @@ import {
   appKeybindingConflicts,
   bootstrapRemoteSshSession,
   buildRemoteSshBootstrapRequest,
+  buildRemoteSshDaemonRequest,
   buildRemoteSshLaunchSpec,
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
@@ -23,6 +25,7 @@ import {
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
   stageClipboardImageForRemoteSession,
+  startRemoteSshDaemonSession,
   terminalThemeForSettings,
   type TerminalPaneNode,
   useSessionStore,
@@ -573,6 +576,125 @@ describe("session hydration", () => {
       lastBootstrapAt: 1234,
     });
     expect(session.restart?.remote).toMatchObject(session.remote!);
+  });
+
+  test("starts remote ssh daemon and persists daemon metadata", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          restart: {
+            command: "ssh",
+            args: ["alice@example.com"],
+            cwd: "/repo",
+            env: [],
+          },
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            remoteCwd: "/srv/repo",
+            keybindingPolicy: "local",
+          },
+        },
+      ],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/bin/ssh",
+      },
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "remote_ssh_bootstrap") {
+        return {
+          ok: true,
+          target: "alice@example.com",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          helperVersion: "1.5.0-dev",
+          stagingDir: "/home/alice/.onibi/staged",
+          bootstrappedAt: 1234,
+          stdout: "",
+          stderr: "",
+        };
+      }
+      if (command === "remote_ssh_daemon") {
+        return {
+          ok: true,
+          target: "alice@example.com",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          runDir: "/home/alice/.onibi/run",
+          pid: 4242,
+          status: "started",
+          logPath: "/home/alice/.onibi/run/onibi.log",
+          startedAt: 2345,
+          stdout: "",
+          stderr: "",
+        };
+      }
+      return null;
+    });
+
+    await startRemoteSshDaemonSession("pty-remote");
+
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "remote_ssh_daemon",
+      {
+        req: expect.objectContaining({
+          target: "alice@example.com",
+          user: "alice",
+          host: "example.com",
+          remoteCwd: "/srv/repo",
+          sshCommand: "/usr/bin/ssh",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          runDir: DEFAULT_REMOTE_RUN_DIR,
+        }),
+      },
+    );
+    const session = useSessionStore.getState().sessions[0];
+    expect(session.remote).toMatchObject({
+      bootstrapStatus: "ready",
+      daemonStatus: "running",
+      daemonPid: 4242,
+      daemonLogPath: "/home/alice/.onibi/run/onibi.log",
+      daemonRunDir: "/home/alice/.onibi/run",
+      lastDaemonStartAt: 2345,
+    });
+    expect(session.restart?.remote).toMatchObject(session.remote!);
+  });
+
+  test("builds remote ssh daemon request with existing helper metadata", () => {
+    const req = buildRemoteSshDaemonRequest(
+      {
+        kind: "ssh",
+        target: "alice@example.com",
+        user: "alice",
+        host: "example.com",
+        remoteCwd: "/srv/repo",
+        keybindingPolicy: "local",
+        helperPath: "/home/alice/.onibi/bin/onibi",
+        daemonRunDir: "/home/alice/.onibi/run",
+      },
+      {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/bin/ssh",
+      },
+    );
+
+    expect(req).toMatchObject({
+      target: "alice@example.com",
+      user: "alice",
+      host: "example.com",
+      remoteCwd: "/srv/repo",
+      sshCommand: "/usr/bin/ssh",
+      helperPath: "/home/alice/.onibi/bin/onibi",
+      runDir: "/home/alice/.onibi/run",
+    });
   });
 
   test("stages clipboard images for remote sessions and pastes the remote path", async () => {

@@ -1922,6 +1922,120 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pane_run_dispatches_command_and_audits_kind() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store.clone());
+        let session = state
+            .orchestration
+            .spawn_for_test(PtySpawnRequest {
+                command: "/bin/cat".to_string(),
+                args: Vec::new(),
+                cwd: None,
+                env: Vec::new(),
+                shell_mode: ShellMode::Auto,
+                rows: 24,
+                cols: 80,
+                name: Some("run-test".to_string()),
+                agent: Some("shell".to_string()),
+                workspace_id: Some("workspace:/repo".to_string()),
+                safe_mode: false,
+                trust_mode: TrustMode::FullAccess,
+                title: Some("Run Test".to_string()),
+                remote: None,
+            })
+            .await
+            .unwrap();
+        let app = router(state.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/panes/{}/run", session.pane_id))
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"command": "echo ready"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["sessionId"], session.id);
+        assert!(value["bytes"].as_u64().unwrap() > 0);
+
+        let history = store
+            .list_approvals(ApprovalHistoryFilter {
+                tool: Some("RemoteKeystroke".to_string()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].input["kind"], "run");
+        assert_eq!(history[0].input["payload"]["command"], "echo ready");
+        state.orchestration.stop_all_running_sessions().await;
+    }
+
+    #[tokio::test]
+    async fn pane_run_rejects_empty_command() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store);
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session("session-full", TrustMode::FullAccess))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-full/run")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"command": "   "}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn pane_run_requires_confirmation_for_approval_required_session() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store);
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session(
+                "session-confirm",
+                TrustMode::ApprovalRequired,
+            ))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-confirm/run")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"command": "echo nope"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
     async fn read_only_spectator_cannot_send_pane_text() {
         let dir = tempdir().unwrap();
         let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();

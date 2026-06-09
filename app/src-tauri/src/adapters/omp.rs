@@ -107,8 +107,18 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
 fn installed_version(source: &str) -> Option<String> {
     source
         .lines()
-        .find_map(|line| line.trim().strip_prefix("const ONIBI_INTEGRATION_VERSION = "))
-        .and_then(|value| value.trim().trim_end_matches(';').trim_matches('"').split('"').next())
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("const ONIBI_INTEGRATION_VERSION = ")
+        })
+        .and_then(|value| {
+            value
+                .trim()
+                .trim_end_matches(';')
+                .trim_matches('"')
+                .split('"')
+                .next()
+        })
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
 }
@@ -174,7 +184,10 @@ mod tests {
         let status = status_at(&path).unwrap();
         assert!(status.installed);
         assert_eq!(status.support, "native-observe");
-        assert_eq!(status.installed_version.as_deref(), Some(INTEGRATION_VERSION));
+        assert_eq!(
+            status.installed_version.as_deref(),
+            Some(INTEGRATION_VERSION)
+        );
 
         uninstall_at(&path).unwrap();
         assert!(!path.exists());

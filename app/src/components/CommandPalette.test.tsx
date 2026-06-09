@@ -481,6 +481,92 @@ describe("CommandPalette", () => {
     }
   });
 
+  test("starts the active remote ssh daemon from the palette", async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            keybindingPolicy: "local",
+            bootstrapStatus: "ready",
+            helperPath: "/home/alice/.onibi/bin/onibi",
+          },
+        },
+      ],
+      activeSessionId: "pty-remote",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    const listener = vi.fn();
+    window.addEventListener("onibi:terminal-notice", listener);
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args: Record<string, unknown>) => {
+        if (command === "remote_ssh_daemon") {
+          expect(args.req).toMatchObject({
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            helperPath: "/home/alice/.onibi/bin/onibi",
+          });
+          return {
+            ok: true,
+            target: "alice@example.com",
+            helperPath: "/home/alice/.onibi/bin/onibi",
+            runDir: "/home/alice/.onibi/run",
+            pid: 4242,
+            status: "started",
+            logPath: "/home/alice/.onibi/run/onibi.log",
+            startedAt: 2345,
+            stdout: "",
+            stderr: "",
+          };
+        }
+        return [];
+      },
+    );
+
+    try {
+      render(<CommandPalette />);
+      fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      const input = screen.getByLabelText("Search commands");
+      fireEvent.change(input, { target: { value: "start remote daemon" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+          "remote_ssh_daemon",
+          {
+            req: expect.objectContaining({
+              target: "alice@example.com",
+              helperPath: "/home/alice/.onibi/bin/onibi",
+            }),
+          },
+        );
+      });
+      await waitFor(() => {
+        expect(listener).toHaveBeenCalledWith(
+          expect.objectContaining({
+            detail: expect.objectContaining({
+              title: "Remote Onibi daemon running",
+              body: "pid 4242 · /home/alice/.onibi/run/onibi.log",
+            }),
+          }),
+        );
+      });
+    } finally {
+      window.removeEventListener("onibi:terminal-notice", listener);
+    }
+  });
+
   test("stages and pastes a clipboard image for the active remote ssh session", async () => {
     useSessionStore.setState({
       sessions: [

@@ -470,7 +470,12 @@ fn parse_daemon_stdout(stdout: &str) -> Result<(u32, String, String)> {
     let mut log_path = None;
     for line in stdout.lines() {
         if let Some(value) = line.strip_prefix("pid=") {
-            pid = Some(value.trim().parse::<u32>().context("parse remote daemon pid")?);
+            pid = Some(
+                value
+                    .trim()
+                    .parse::<u32>()
+                    .context("parse remote daemon pid")?,
+            );
         } else if let Some(value) = line.strip_prefix("status=") {
             status = Some(value.trim().to_string());
         } else if let Some(value) = line.strip_prefix("log=") {
@@ -479,7 +484,8 @@ fn parse_daemon_stdout(stdout: &str) -> Result<(u32, String, String)> {
     }
     let pid = pid.ok_or_else(|| anyhow!("remote daemon start did not return a pid"))?;
     let status = status.ok_or_else(|| anyhow!("remote daemon start did not return a status"))?;
-    let log_path = log_path.ok_or_else(|| anyhow!("remote daemon start did not return a log path"))?;
+    let log_path =
+        log_path.ok_or_else(|| anyhow!("remote daemon start did not return a log path"))?;
     Ok((pid, status, log_path))
 }
 

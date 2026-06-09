@@ -238,6 +238,13 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Added `onibi remote bootstrap ssh <target> --workspace <path> [--cwd <remote-dir>] [--ssh-command <command>] [--helper-path <remote-path>] [--staging-dir <remote-dir>]`.
 - Added focused frontend tests for remote metadata persistence, bootstrap command dispatch, image staging, no-image errors, and path paste; added Rust tests for SSH command/script construction and staged filename validation.
 
+### Implemented in the remote daemon, native-observe hooks, and pane run pass
+
+- Added SSH-started remote Onibi helper daemon support via `remote_ssh_daemon`, persisted remote daemon metadata (`daemonStatus`, `daemonPid`, `daemonLogPath`, `daemonRunDir`, `lastDaemonStartAt`), the Command Palette `Start Remote Daemon` action, and `onibi remote daemon ssh ...`.
+- Kept the active terminal path as SSH-local PTY for this pass; the remote daemon is installed/started and verified, but PTY transfer/remote attach is still future work.
+- Replaced Pi, OMP, and Cursor pending stubs with versioned `native-observe` installers, status, uninstall support, `_hook` dispatch, and setup/doctor visibility.
+- Added explicit pane command-run surfaces: orchestration `pane.run`, authenticated `POST /v1/panes/:id/run`, `onibi pane run <id> <command...>`, generated `PaneRunBody`, and frontend `runPaneCommand`.
+
 ### Implemented in the built-in updater pass
 
 - Added Tauri v2 updater integration for signed GUI updater artifacts, backed by GitHub Releases `latest.json`.
@@ -290,10 +297,10 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
-- Full native coverage for Pi/OMP/Cursor remains pending until stable public hook/plugin APIs are verified.
-- Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor remain pending on stable provider APIs.
+- Full blocking native approval coverage for Pi/OMP/Cursor remains pending until stable blocking hook/plugin APIs are verified.
+- Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor now have native-observe event installers, not verified blocking approval.
 - xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, and Kitty keyboard parity remain future terminal-native work.
-- Remote V2 stages the current Onibi binary and files over SSH, but it still does not run a persistent remote Onibi daemon or transfer live remote PTYs between binaries.
+- Remote V2 stages the current Onibi binary and files over SSH and can start a remote helper daemon, but it still does not transfer live remote PTYs between binaries.
 
 ---
 
@@ -315,9 +322,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Yes — vertical/horizontal split with focus, pane zoom, drag-reorder, layout presets, persisted sizes, and per-workspace-tab persistence |
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | Yes — workspace reorder, workspace terminal-tab reorder, and terminal pane reorder |
-| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, and foreground process polling for 11 no-hook agents; Pi/OMP/Cursor native hooks still pending |
+| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, foreground process polling for 11 no-hook agents, and native-observe Pi/OMP/Cursor events |
 | **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, native provider events, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
-| **Direct integrations (hook/plugin/protocol)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP or ACP, Hermes ACP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Gemini resume-only, Pi/OMP/Cursor pending |
+| **Direct integrations (hook/plugin/protocol)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP or ACP, Hermes ACP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Pi/OMP/Cursor native-observe hooks, Gemini resume-only |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | Yes — launch/title/banner-output detection plus foreground process polling for all 11 |
 | **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command relaunch plus provider-ID native resume metadata for Claude/OpenCode/Gemini/Qoder/Hermes/Goose when captured |
 | **Approval / gating layer** | No | Yes (primary feature) |
@@ -326,9 +333,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **API: wait-for-output** | Yes (`herdr wait output --match … --regex`) | Yes |
 | **API: wait-for-agent-status** | Yes (`herdr wait agent-status`) | Yes |
 | **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
-| **API: pane send-text / send-keys / run** | Yes | Partial — authenticated pane `send-text` + preset-backed `send-keys` exist; no explicit `run` helper |
+| **API: pane send-text / send-keys / run** | Yes | Yes — authenticated pane `send-text`, preset-backed `send-keys`, and explicit `run` helper exist |
 | **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/worktree/events with global JSON output |
-| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, and remote keybinding policy; no remote daemon bootstrap yet |
+| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, remote keybinding policy, helper bootstrap, and remote helper daemon start; no remote PTY transfer yet |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
 | **Transport: Tailscale Funnel** | No | Yes |
 | **Transport: Cloudflare Quick Tunnel** | No | Yes |
@@ -526,7 +533,7 @@ Additional orchestration items completed or partially completed outside original
 **Phase B — agent ecosystem reach:**
 Completed from Phase B: 8, 10, 11, 15, 17, 18, 19, 20.
 Partial from Phase B: 16, 31.
-Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor remain pending on stable provider APIs.
+Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor have native-observe installers; blocking approval remains pending on stable provider APIs.
 
 **Phase C — terminal-native polish:**
 Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm reliability hardening for 37 and IME interception hardening for 41.

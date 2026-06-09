@@ -30,6 +30,8 @@ export type PaneSendTextBody = { protocol_version: string | null, text: string, 
 
 export type PaneSendKeysBody = { protocol_version: string | null, preset: string, confirmed: boolean, };
 
+export type PaneRunBody = { protocol_version: string | null, command: string, confirmed: boolean, };
+
 export type PaneSendResponse = { ok: boolean, protocol_version: string, paneId: string, sessionId: string, bytes: number, auditId: string, trustMode: string, requiresConfirmation: boolean, destructive: boolean, preset: string | null, };
 
 export type PaneTarget = { paneId: string, sessionId: string, label: string, agent: string | null, workspaceId: string | null, cwd: string | null, status: string, trustMode: string, };
