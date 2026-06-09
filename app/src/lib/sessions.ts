@@ -9,11 +9,14 @@ import {
   ptySpawn,
   ptyWrite,
   remoteSshBootstrap,
+  remoteSshDaemon,
   remoteSshStageFile,
   sessionAttach,
   shellPath,
   type RemoteSshBootstrapRequest,
   type RemoteSshBootstrapResult,
+  type RemoteSshDaemonRequest,
+  type RemoteSshDaemonResult,
   type RemoteSshStageFileRequest,
   type RemoteSshStageFileResult,
   type PtySessionMetadata,
@@ -226,9 +229,11 @@ export type NewPaneCwdMode =
 export type TerminalShellMode = PtyShellMode;
 export type RemoteKeybindingPolicy = "local" | "remote";
 export type RemoteBootstrapStatus = "unknown" | "ready" | "failed";
+export type RemoteDaemonStatus = "unknown" | "running" | "failed";
 
 export const DEFAULT_REMOTE_HELPER_PATH = "~/.onibi/bin/onibi";
 export const DEFAULT_REMOTE_STAGING_DIR = "~/.onibi/staged";
+export const DEFAULT_REMOTE_RUN_DIR = "~/.onibi/run";
 
 export interface RemoteSessionMetadata {
   kind: "ssh";
@@ -243,6 +248,11 @@ export interface RemoteSessionMetadata {
   helperVersion?: string;
   stagingDir?: string;
   lastBootstrapAt?: number;
+  daemonStatus?: RemoteDaemonStatus;
+  daemonPid?: number;
+  daemonLogPath?: string;
+  daemonRunDir?: string;
+  lastDaemonStartAt?: number;
 }
 
 export interface ParsedSshRemoteTarget {
@@ -2477,6 +2487,12 @@ function normalizeRemoteBootstrapStatus(
     : undefined;
 }
 
+function normalizeRemoteDaemonStatus(value: unknown): RemoteDaemonStatus | undefined {
+  return value === "unknown" || value === "running" || value === "failed"
+    ? value
+    : undefined;
+}
+
 function normalizeRemoteSessionMetadata(
   value: unknown,
 ): RemoteSessionMetadata | null {
@@ -2525,6 +2541,24 @@ function normalizeRemoteSessionMetadata(
   const lastBootstrapAt = Number(value.lastBootstrapAt);
   if (Number.isFinite(lastBootstrapAt) && lastBootstrapAt > 0) {
     normalized.lastBootstrapAt = lastBootstrapAt;
+  }
+  const daemonStatus = normalizeRemoteDaemonStatus(value.daemonStatus);
+  if (daemonStatus) {
+    normalized.daemonStatus = daemonStatus;
+  }
+  const daemonPid = Number(value.daemonPid);
+  if (Number.isInteger(daemonPid) && daemonPid > 0) {
+    normalized.daemonPid = daemonPid;
+  }
+  if (typeof value.daemonLogPath === "string" && value.daemonLogPath.trim()) {
+    normalized.daemonLogPath = value.daemonLogPath.trim();
+  }
+  if (typeof value.daemonRunDir === "string" && value.daemonRunDir.trim()) {
+    normalized.daemonRunDir = value.daemonRunDir.trim();
+  }
+  const lastDaemonStartAt = Number(value.lastDaemonStartAt);
+  if (Number.isFinite(lastDaemonStartAt) && lastDaemonStartAt > 0) {
+    normalized.lastDaemonStartAt = lastDaemonStartAt;
   }
   return normalized;
 }
@@ -6764,6 +6798,22 @@ export function buildRemoteSshBootstrapRequest(
   };
 }
 
+export function buildRemoteSshDaemonRequest(
+  remote: RemoteSessionMetadata,
+  settings: AppSettings,
+): RemoteSshDaemonRequest {
+  return {
+    target: remote.target,
+    ...(remote.user ? { user: remote.user } : {}),
+    host: remote.host,
+    ...(remote.port ? { port: remote.port } : {}),
+    ...(remote.remoteCwd ? { remoteCwd: remote.remoteCwd } : {}),
+    sshCommand: settings.remoteSshCommand || DEFAULT_SETTINGS.remoteSshCommand,
+    helperPath: remote.helperPath ?? DEFAULT_REMOTE_HELPER_PATH,
+    runDir: remote.daemonRunDir ?? DEFAULT_REMOTE_RUN_DIR,
+  };
+}
+
 function buildRemoteSshStageFileRequest(
   remote: RemoteSessionMetadata,
   settings: AppSettings,
@@ -6822,6 +6872,42 @@ export async function bootstrapRemoteSshSession(
     return result;
   } catch (error) {
     patchRemoteSessionMetadata(sessionId, { bootstrapStatus: "failed" });
+    throw error;
+  }
+}
+
+export async function startRemoteSshDaemonSession(
+  sessionId: string,
+): Promise<RemoteSshDaemonResult> {
+  const { remote } = remoteSshSession(sessionId);
+  try {
+    const readyRemote =
+      remote.bootstrapStatus === "ready" && remote.helperPath
+        ? remote
+        : {
+            ...remote,
+            ...(await bootstrapRemoteSshSession(sessionId).then((result) => ({
+              bootstrapStatus: "ready" as const,
+              helperPath: result.helperPath,
+              helperVersion: result.helperVersion,
+              stagingDir: result.stagingDir,
+              lastBootstrapAt: result.bootstrappedAt,
+            }))),
+          };
+    const result = await remoteSshDaemon(
+      buildRemoteSshDaemonRequest(readyRemote, useSessionStore.getState().settings),
+    );
+    patchRemoteSessionMetadata(sessionId, {
+      daemonStatus: "running",
+      daemonPid: result.pid,
+      daemonLogPath: result.logPath,
+      daemonRunDir: result.runDir,
+      lastDaemonStartAt: result.startedAt,
+      helperPath: result.helperPath,
+    });
+    return result;
+  } catch (error) {
+    patchRemoteSessionMetadata(sessionId, { daemonStatus: "failed" });
     throw error;
   }
 }

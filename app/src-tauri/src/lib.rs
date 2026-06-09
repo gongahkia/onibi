@@ -503,6 +503,17 @@ async fn remote_ssh_bootstrap(
 
 #[cfg(feature = "gui")]
 #[tauri::command]
+async fn remote_ssh_daemon(
+    req: remote::RemoteSshDaemonRequest,
+) -> Result<remote::RemoteSshDaemonResult, String> {
+    tauri::async_runtime::spawn_blocking(move || remote::remote_ssh_daemon(req))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "gui")]
+#[tauri::command]
 async fn remote_ssh_stage_file(
     req: remote::RemoteSshStageFileRequest,
 ) -> Result<remote::RemoteSshStageFileResult, String> {
@@ -547,6 +558,7 @@ pub fn run() {
             pty_replay,
             clipboard_read_image_png,
             remote_ssh_bootstrap,
+            remote_ssh_daemon,
             remote_ssh_stage_file,
             approval_server_config,
             onibi_read_config_toml,

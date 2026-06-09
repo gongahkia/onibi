@@ -49,6 +49,14 @@ pub enum RemoteBootstrapStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteDaemonStatus {
+    Unknown,
+    Running,
+    Failed,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionMetadata {
@@ -73,6 +81,16 @@ pub struct RemoteSessionMetadata {
     pub staging_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_bootstrap_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_status: Option<RemoteDaemonStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_log_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_run_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_daemon_start_at: Option<i64>,
 }
 
 #[derive(Debug, Error)]

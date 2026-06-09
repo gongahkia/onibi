@@ -35,6 +35,7 @@ import {
   sessionNeedsAttention,
   spawnAgentSession,
   stageClipboardImageForRemoteSession,
+  startRemoteSshDaemonSession,
   themeFollowsSystem,
   useSessionStore,
 } from "../lib/sessions";
@@ -968,6 +969,33 @@ export function CommandPalette() {
                     emitTerminalNotice(
                       activeSession,
                       "Remote SSH bootstrap failed",
+                      errorMessage(error),
+                    );
+                    throw error;
+                  }
+                },
+              },
+              {
+                id: "remote.start-daemon-active",
+                label: "Start Remote Daemon",
+                group: "Session" as const,
+                description:
+                  activeSession.remote.daemonStatus === "running"
+                    ? activeSession.remote.daemonLogPath ?? "Remote daemon running"
+                    : activeSession.remote.target,
+                keywords: ["remote", "ssh", "daemon", "headless", "server"],
+                run: async () => {
+                  try {
+                    const result = await startRemoteSshDaemonSession(activeSession.id);
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote Onibi daemon running",
+                      `pid ${result.pid} · ${result.logPath}`,
+                    );
+                  } catch (error) {
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote daemon start failed",
                       errorMessage(error),
                     );
                     throw error;

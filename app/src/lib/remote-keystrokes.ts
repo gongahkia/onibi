@@ -5,6 +5,7 @@ import {
 } from "./approval-client";
 import type {
   PaneSendKeysBody,
+  PaneRunBody,
   PaneSendResponse,
   PaneSendTextBody,
   PaneTarget,
@@ -67,9 +68,22 @@ export async function sendPanePreset(
   return sendPaneRequest(`/v1/panes/${encodeURIComponent(paneId)}/send-keys`, body);
 }
 
+export async function runPaneCommand(
+  paneId: string,
+  command: string,
+  confirmed: boolean,
+): Promise<PaneSendResponse> {
+  const body: PaneRunBody = {
+    protocol_version: PROTOCOL_VERSION,
+    command,
+    confirmed,
+  };
+  return sendPaneRequest(`/v1/panes/${encodeURIComponent(paneId)}/run`, body);
+}
+
 async function sendPaneRequest(
   path: string,
-  body: PaneSendTextBody | PaneSendKeysBody,
+  body: PaneSendTextBody | PaneSendKeysBody | PaneRunBody,
 ): Promise<PaneSendResponse> {
   const { token, port } = await ensureApprovalConnectionConfig();
   const response = await fetch(remoteEndpoint(path, port), {

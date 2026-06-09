@@ -339,10 +339,31 @@ enum RemoteCommand {
         #[command(subcommand)]
         command: RemoteBootstrapCommand,
     },
+    Daemon {
+        #[command(subcommand)]
+        command: RemoteDaemonCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
 enum RemoteBootstrapCommand {
+    Ssh {
+        target: String,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long = "ssh-command", default_value = "ssh")]
+        ssh_command: String,
+        #[arg(long)]
+        helper_path: Option<String>,
+        #[arg(long)]
+        staging_dir: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RemoteDaemonCommand {
     Ssh {
         target: String,
         #[arg(long)]
@@ -734,6 +755,53 @@ async fn remote(command: RemoteCommand, json_output: bool) -> Result<()> {
                     println!("Workspace: {}", workspace.display());
                     println!("Helper: {}", result.helper_path);
                     println!("Staging: {}", result.staging_dir);
+                    Ok(())
+                }
+            }
+        },
+        RemoteCommand::Daemon { command } => match command {
+            RemoteDaemonCommand::Ssh {
+                target,
+                workspace,
+                cwd,
+                ssh_command,
+                helper_path,
+                staging_dir,
+            } => {
+                let parsed = parse_ssh_remote_target(&target)?;
+                let remote_cwd = cwd
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| parsed.remote_cwd.clone());
+                let bootstrap = remote::remote_ssh_bootstrap(remote::RemoteSshBootstrapRequest {
+                    target: parsed.target.clone(),
+                    user: parsed.user.clone(),
+                    host: parsed.host.clone(),
+                    port: parsed.port,
+                    remote_cwd: remote_cwd.clone(),
+                    ssh_command: Some(ssh_command.clone()),
+                    helper_path,
+                    staging_dir,
+                })?;
+                let result = remote::remote_ssh_daemon(remote::RemoteSshDaemonRequest {
+                    target: parsed.target,
+                    user: parsed.user,
+                    host: parsed.host,
+                    port: parsed.port,
+                    remote_cwd,
+                    ssh_command: Some(ssh_command),
+                    helper_path: Some(bootstrap.helper_path),
+                    run_dir: None,
+                })?;
+                if json_output {
+                    print_value(serde_json::to_value(result)?, true)
+                } else {
+                    println!("Started remote Onibi daemon for {}", result.target);
+                    println!("Workspace: {}", workspace.display());
+                    println!("PID: {}", result.pid);
+                    println!("Log: {}", result.log_path);
                     Ok(())
                 }
             }
@@ -1590,7 +1658,7 @@ fn print_raw_json_or_text(raw: &str, json_output: bool) -> Result<()> {
 fn hook(name: &str, port: u16) -> Result<()> {
     match name {
         "codex" => adapters::codex::run_stdin_hook(env_port().unwrap_or(port)),
-        "copilot" | "goose" | "qoder" => {
+        "copilot" | "cursor" | "goose" | "omp" | "pi" | "qoder" => {
             let exit = adapters::run_stdin_provider_hook(name, env_port().unwrap_or(port))?;
             if exit.code != 0 {
                 std::process::exit(exit.code);

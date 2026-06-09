@@ -108,6 +108,30 @@ export interface RemoteSshBootstrapResult {
   stderr: string;
 }
 
+export interface RemoteSshDaemonRequest {
+  target: string;
+  user?: string | null;
+  host: string;
+  port?: number | null;
+  remoteCwd?: string | null;
+  sshCommand?: string | null;
+  helperPath?: string | null;
+  runDir?: string | null;
+}
+
+export interface RemoteSshDaemonResult {
+  ok: boolean;
+  target: string;
+  helperPath: string;
+  runDir: string;
+  pid: number;
+  status: string;
+  logPath: string;
+  startedAt: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface RemoteSshStageFileRequest {
   target: string;
   user?: string | null;
@@ -159,6 +183,10 @@ export function remoteSshBootstrap(
   req: RemoteSshBootstrapRequest,
 ): Promise<RemoteSshBootstrapResult> {
   return invoke<RemoteSshBootstrapResult>("remote_ssh_bootstrap", { req });
+}
+
+export function remoteSshDaemon(req: RemoteSshDaemonRequest): Promise<RemoteSshDaemonResult> {
+  return invoke<RemoteSshDaemonResult>("remote_ssh_daemon", { req });
 }
 
 export function remoteSshStageFile(
