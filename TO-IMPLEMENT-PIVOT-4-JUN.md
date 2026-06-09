@@ -851,9 +851,9 @@ Numbered 117+ to continue from §7.
 
 118. **[DONE] Git-backed turn checkpoints (`refs/onibi/turns/<id>/{pre,post}`).** Pair the existing review-baseline SHA256 system with per-turn Git ref snapshots so the user can diff and revert any approval cycle. Snapshot at `PreToolUse` (pre-edit tree), snapshot again at `PostToolUse` / completion (post-edit tree where the provider bridge exposes post-tool events); expose checkpoint diff/restore actions in the approval audit log.
     **t3code reference:** `t3code/apps/server/src/checkpointing/Services/CheckpointStore.ts` and `CheckpointDiffQuery.ts` (Service surface), `t3code/apps/server/src/checkpointing/Layers/CheckpointStore.ts` + `CheckpointDiffQuery.ts` (Effect layer impls, ~17KB diff-query logic), `Diffs.ts`, `Utils.ts`, and `Errors.ts`.
-    **Mapping to onibi:** new `app/src-tauri/src/checkpointing.rs` module uses existing `git` CLI plumbing with a temporary index, writes valid sibling refs `refs/onibi/turns/<approval-id>/pre` and `/post`, indexes checkpoints in SQLite, exposes `/v1/checkpoints/{list,diff,restore}`, and extends `ApprovalAuditView.tsx` with per-row "Show diff" / "Restore before turn" actions using the existing diff renderer.
-    **Scope guard:** opt-in via `[checkpointing] enabled = true` in `~/.config/onibi/config.toml`; default off until the SQLite + ref-pruning story is tested on large repos. Restore is workspace-scoped and never crosses worktree boundaries. Hook-only agents may show "pre only" until a post-tool event is available.
-    **Effort:** Done for the opt-in checkpoint/diff/restore slice. Ref pruning and large-repo performance tuning remain future hardening.
+    **Mapping to onibi:** new `app/src-tauri/src/checkpointing.rs` module uses existing `git` CLI plumbing with a temporary index, writes valid sibling refs `refs/onibi/turns/<approval-id>/pre` and `/post`, indexes checkpoints in SQLite, exposes `/v1/checkpoints/{list,diff,restore,prune}`, and extends `ApprovalAuditView.tsx` with per-row "Show diff" / "Restore before turn" actions using the existing diff renderer.
+    **Scope guard:** opt-in via `[checkpointing] enabled = true` in `~/.config/onibi/config.toml`; retention is bounded by `max_records` and `max_age_days` with best-effort Git ref cleanup. Restore is workspace-scoped and never crosses worktree boundaries. Hook-only agents may show "pre only" until a post-tool event is available.
+    **Effort:** Done for the opt-in checkpoint/diff/restore/prune slice. Large-repo performance tuning remains future hardening.
 
 119. **[DONE] Auto-worktree per session (optional).** Extend the existing worktree CLI / Explorer surface (item 71/72) so launching an agent session can optionally create and bind a fresh worktree, isolating that session's filesystem mutations from the parent workspace. Useful in combination with item 118 (checkpoints) and the trust-mode toggle (item 123).
     **t3code reference:** t3code threads pin to worktrees at thread-start; the relevant glue lives in `t3code/apps/server/src/orchestration/Services/` (workspace resolution) and the `git.ts` contract at `t3code/packages/contracts/src/git.ts`.
@@ -865,13 +865,13 @@ Numbered 117+ to continue from §7.
     **t3code reference:** `t3code/packages/effect-acp/` (Effect-native ACP bindings: `src/`, `scripts/`, `test/`) and `t3code/apps/server/src/provider/acp/` (consumer integration).
     **Mapping to onibi:** `app/src-tauri/src/adapters/acp.rs` implements a Rust stdio JSON-RPC ACP client without adding a Node sidecar. It coexists with the existing HTTP `PreToolUse` adapter behind `[adapters.claude] transport = "hook" | "acp"`; default remains `hook`. `/v1/adapters/:agent/acp/prompt` exposes authenticated ACP prompt execution for Claude and Hermes, maps `session/request_permission` into Onibi approvals, and streams ACP session updates into orchestration provider metadata/status where correlation is possible.
     **Scope guard:** Claude-only. If the ACP shim requires a non-Rust runtime, ship it as a vendored helper binary alongside `onibi` rather than expanding the install footprint with a full Node dependency tree.
-    **Effort:** Done for the shared Rust ACP runtime, Claude opt-in transport, Hermes ACP transport, authenticated prompt endpoint, config, status, and protocol tests. The existing terminal-first GUI launch path remains unchanged unless ACP transport is explicitly called through the daemon API.
+    **Effort:** Done for the shared Rust ACP runtime, Claude opt-in transport, Hermes ACP transport, authenticated prompt endpoint, config, status, protocol tests, and GUI launch/resume controls. The existing terminal-first GUI launch path remains unchanged unless ACP transport is explicitly called through the daemon API.
 
 121. **[DONE] Generated TS types from Rust schemas for `/v1/realtime` + HTTP contracts.** Today, Rust types for the orchestration protocol, approval requests, and `/v1/*` payloads are duplicated by hand in TypeScript. Adopt `ts-rs` to derive TS from Rust at build time and emit a single `app/src/lib/contracts/generated.ts` that the frontend imports.
     **t3code reference:** `t3code/packages/contracts/src/{orchestration.ts, ipc.ts, providerRuntime.ts, provider.ts, relay.ts, git.ts, keybindings.ts}` — single source of typed boundaries used by both web client and server. We replicate the *pattern* (typed contracts as a build artefact) without copying the Effect/Zod implementation.
     **Mapping to onibi:** protocol structs derive `ts_rs::TS`; `cargo run --manifest-path app/src-tauri/Cargo.toml --bin export-bindings` writes `app/src/lib/contracts/generated.ts`; the app package exposes it through `pnpm --dir app contracts`.
     **Scope guard:** code-gen only; no protocol changes. If `specta` cannot express a particular Rust type (e.g. `Option<chrono::DateTime>`), fall back to a manual `// generated-skip:` annotation rather than rewriting the type.
-    **Effort:** Done for initial export. Manual TS removal remains a separate cleanup PR.
+    **Effort:** Done for initial export plus follow-up cleanup of desktop snapshot and command-block HTTP helpers to consume generated DTOs directly.
 
 122. **[DONE] Lexical rich-text composer for prose inputs only.** Replace the plain-`<textarea>` deny-reason field, approval edit-input field (for non-Bash, non-code payloads), and agent-prompt composer with a Lexical-backed editor. **Keep CodeMirror for Bash / `Write` / `Edit` / `MultiEdit` previews and edit fields** — that scope remains correct.
     **t3code reference:** t3code uses Lexical for the message/turn composer; relevant package versions are pinned in `t3code/package.json` and consumed by the web app's input surfaces.
@@ -916,10 +916,10 @@ For traceability against the §1 comparison from 2026-06-08:
 | Item | Effort | Risk | Dependencies |
 |---|---|---|---|
 | 117 CQRS split | Done for first split | Medium (refactor blast radius) | None; behaviour-preserving |
-| 118 turn checkpoints | Done for opt-in checkpoint/diff/restore slice | Medium (Git ref pruning on large repos) | None; opt-in |
+| 118 turn checkpoints | Done for opt-in checkpoint/diff/restore/prune slice | Medium (large-repo performance tuning) | None; opt-in |
 | 119 auto-worktree | Done for inherit/auto launch + cleanup slice | Low | Item 71/72 already shipped |
 | 120 Claude ACP | Done for shared Rust ACP runtime, daemon API, and GUI launch hardening | Medium | Item 117 split landed first |
-| 121 generated TS types | Done for initial export | Low | None |
+| 121 generated TS types | Done for initial export + targeted helper cleanup | Low | None |
 | 122 Lexical composer | Done | Low | None |
 | 123 trust-mode toggle | Done | Low | Item 85 (policy engine) shipped |
 | 124 Mintlify docs | 0.5 day | Low | Gated on item 93 |
@@ -933,8 +933,8 @@ If implementing §8 in isolation:
 1. **121 (generated types)** first — cheapest, unblocks safer iteration on every later item.
 2. **117 (CQRS split)** before 118/120 — both new features land cleaner against a decider/projector skeleton than against the current monolith.
 3. **123 (trust-mode toggle)** + **122 (Lexical composer)** in parallel; both small, low-risk, ship-visible.
-4. **118 (checkpoints)** + **119 (auto-worktree)** are done; keep future work to pruning/performance hardening only.
-5. **120 (Claude ACP)** is done for backend/API and GUI launch surfacing; keep future work to provider-specific ACP UX polish.
+4. **118 (checkpoints)** + **119 (auto-worktree)** are done; keep future work to large-repo performance hardening only.
+5. **120 (Claude ACP)** is done for backend/API and GUI launch/resume surfacing; keep future work to provider-specific ACP UX polish.
 6. **125 (TanStack Query)** opportunistically alongside any frontend work touching audit/session surfaces.
 7. **124 (Mintlify docs)** post-v1.5.0 launch.
 
