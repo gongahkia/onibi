@@ -56,6 +56,10 @@ export type CheckpointDiff = { protocolVersion: string, approvalId: string, preR
 
 export type CheckpointRestoreBody = { protocol_version: string | null, };
 
+export type CheckpointPruneBody = { protocol_version: string | null, };
+
+export type CheckpointPruneResponse = { ok: boolean, protocolVersion: string, recordsDeleted: number, refsAttempted: number, refsDeleted: number, refsFailed: number, };
+
 export type DesktopSessionInputBody = { protocol_version: string | null, text: string, };
 
 export type DesktopPaneSplitBody = { protocol_version: string | null, direction: string, };

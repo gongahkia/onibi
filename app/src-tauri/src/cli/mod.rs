@@ -228,6 +228,11 @@ enum PaneCommand {
         id: String,
         keys: Vec<String>,
     },
+    Run {
+        id: String,
+        #[arg(trailing_var_arg = true)]
+        command: Vec<String>,
+    },
     Split {
         id: String,
         #[arg(long, default_value = "vertical")]
@@ -903,6 +908,14 @@ async fn pane(command: PaneCommand, port: u16, json_output: bool) -> Result<()> 
             print_orchestration(
                 "pane.send_keys",
                 json!({"id": id, "keys": keys}),
+                json_output,
+            )
+            .await
+        }
+        PaneCommand::Run { id, command } => {
+            print_orchestration(
+                "pane.run",
+                json!({"id": id, "command": command.join(" ")}),
                 json_output,
             )
             .await

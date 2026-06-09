@@ -523,6 +523,56 @@ impl ApprovalStore {
         Ok(checkpoints)
     }
 
+    pub fn checkpoint_prune_candidates(
+        &self,
+        max_records: usize,
+        older_than: Option<i64>,
+    ) -> Result<Vec<CheckpointRecord>> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let mut candidates = Vec::new();
+        if let Some(cutoff) = older_than {
+            let mut stmt = conn.prepare(
+                r#"
+                SELECT approval_id, session_id, cwd, pre_ref, post_ref, created_at, updated_at, error
+                FROM checkpoints
+                WHERE created_at < ?
+                ORDER BY created_at ASC
+                "#,
+            )?;
+            let mut rows = stmt.query([cutoff])?;
+            while let Some(row) = rows.next()? {
+                push_unique_checkpoint(&mut candidates, row_to_checkpoint(row)?);
+            }
+        }
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT approval_id, session_id, cwd, pre_ref, post_ref, created_at, updated_at, error
+            FROM checkpoints
+            ORDER BY created_at DESC
+            LIMIT -1 OFFSET ?
+            "#,
+        )?;
+        let mut rows = stmt.query([max_records.max(1) as i64])?;
+        while let Some(row) = rows.next()? {
+            push_unique_checkpoint(&mut candidates, row_to_checkpoint(row)?);
+        }
+        Ok(candidates)
+    }
+
+    pub fn delete_checkpoints(&self, approval_ids: &[String]) -> Result<usize> {
+        let conn = self.pool.get().context("open sqlite connection")?;
+        let mut deleted = 0usize;
+        for approval_id in approval_ids {
+            deleted += conn
+                .execute(
+                    "DELETE FROM checkpoints WHERE approval_id = ?",
+                    [approval_id],
+                )
+                .with_context(|| format!("delete checkpoint {approval_id}"))?;
+        }
+        Ok(deleted)
+    }
+
     pub fn latest_checkpoint_without_post(
         &self,
         session_id: &str,
@@ -756,6 +806,16 @@ fn row_to_checkpoint(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointReco
     })
 }
 
+fn push_unique_checkpoint(checkpoints: &mut Vec<CheckpointRecord>, checkpoint: CheckpointRecord) {
+    if checkpoints
+        .iter()
+        .any(|item| item.approval_id == checkpoint.approval_id)
+    {
+        return;
+    }
+    checkpoints.push(checkpoint);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,5 +1027,50 @@ mod tests {
             .latest_checkpoint_without_post("pty-1")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn selects_and_deletes_checkpoint_prune_candidates() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        for (approval_id, created_at) in
+            [("approval-1", 10), ("approval-2", 20), ("approval-3", 30)]
+        {
+            store
+                .upsert_checkpoint_pre(&CheckpointRecord {
+                    approval_id: approval_id.to_string(),
+                    session_id: "pty-1".to_string(),
+                    cwd: "/repo".to_string(),
+                    pre_ref: format!("refs/onibi/turns/{approval_id}/pre"),
+                    post_ref: Some(format!("refs/onibi/turns/{approval_id}/post")),
+                    created_at,
+                    updated_at: created_at,
+                    error: None,
+                })
+                .unwrap();
+        }
+
+        let by_count = store.checkpoint_prune_candidates(2, None).unwrap();
+        assert_eq!(
+            by_count
+                .iter()
+                .map(|record| record.approval_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["approval-1"]
+        );
+        let by_count_and_age = store.checkpoint_prune_candidates(2, Some(25)).unwrap();
+        assert_eq!(
+            by_count_and_age
+                .iter()
+                .map(|record| record.approval_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["approval-1", "approval-2"]
+        );
+        let ids = by_count_and_age
+            .iter()
+            .map(|record| record.approval_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(store.delete_checkpoints(&ids).unwrap(), 2);
+        assert_eq!(store.list_checkpoints(10).unwrap().len(), 1);
     }
 }

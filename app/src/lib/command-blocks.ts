@@ -3,6 +3,7 @@ import {
   type ApprovalClientOptions,
 } from "./approval-client";
 import type { CommandBlock } from "./sessions";
+import type { DesktopCommandBlock } from "./contracts/generated";
 
 const PROTOCOL_VERSION = "1.0";
 
@@ -18,7 +19,7 @@ function headers(config: ApprovalClientOptions): Record<string, string> {
   return result;
 }
 
-function commandBlockBody(block: CommandBlock) {
+function commandBlockBody(block: CommandBlock): DesktopCommandBlock {
   return {
     protocol_version: PROTOCOL_VERSION,
     id: block.id,

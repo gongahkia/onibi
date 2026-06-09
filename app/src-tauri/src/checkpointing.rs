@@ -12,6 +12,13 @@ use ulid::Ulid;
 
 const MAX_DIFF_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CheckpointPruneRefSummary {
+    pub refs_attempted: usize,
+    pub refs_deleted: usize,
+    pub refs_failed: usize,
+}
+
 pub fn pre_ref(approval_id: &str) -> String {
     format!("refs/onibi/turns/{}/pre", ref_component(approval_id))
 }
@@ -91,6 +98,48 @@ pub fn restore(record: &CheckpointRecord) -> Result<()> {
     git_checked(&root, &["reset", "--hard", &record.pre_ref])?;
     git_checked(&root, &["clean", "-fd"])?;
     Ok(())
+}
+
+pub fn prune_refs(records: &[CheckpointRecord]) -> CheckpointPruneRefSummary {
+    let mut summary = CheckpointPruneRefSummary::default();
+    for record in records {
+        prune_ref(&mut summary, &record.cwd, &record.pre_ref);
+        if let Some(post_ref) = record.post_ref.as_deref() {
+            prune_ref(&mut summary, &record.cwd, post_ref);
+        }
+    }
+    summary
+}
+
+fn prune_ref(summary: &mut CheckpointPruneRefSummary, cwd: &str, reference: &str) {
+    summary.refs_attempted += 1;
+    match delete_ref(Path::new(cwd), reference) {
+        Ok(RefDeleteOutcome::Deleted) => summary.refs_deleted += 1,
+        Ok(RefDeleteOutcome::Missing) => {}
+        Err(error) => {
+            summary.refs_failed += 1;
+            tracing::debug!(%error, %reference, "checkpoint ref prune failed");
+        }
+    }
+}
+
+enum RefDeleteOutcome {
+    Deleted,
+    Missing,
+}
+
+fn delete_ref(cwd: &Path, reference: &str) -> Result<RefDeleteOutcome> {
+    let root = repo_root_for(cwd)?;
+    let verify = git_output(&root, &["rev-parse", "--verify", reference])?;
+    if !verify.status.success() {
+        return Ok(RefDeleteOutcome::Missing);
+    }
+    let output = git_output(&root, &["update-ref", "-d", reference])?;
+    if output.status.success() {
+        Ok(RefDeleteOutcome::Deleted)
+    } else {
+        Err(git_stderr(output, "git update-ref -d failed"))
+    }
 }
 
 fn snapshot_ref(cwd: &Path, reference: &str, message: &str) -> Result<String> {

@@ -7,10 +7,12 @@ import {
   resolveCommandBinary,
   spawnAgentSession,
   type AgentKind,
+  type Session,
   type TerminalPanePlacement,
   useSessionStore,
 } from "../lib/sessions";
 import {
+  type AcpAgentKind,
   acpAdapterForAgent,
   acpCommandLine,
   isAcpTransportEnabled,
@@ -49,6 +51,8 @@ export function NewSessionDialog({
     () => defaultWorkspaceId ?? workspaces[0]?.id ?? "",
   );
   const [initialPrompt, setInitialPrompt] = useState("");
+  const [acpResumeSessionId, setAcpResumeSessionId] = useState("");
+  const [acpResult, setAcpResult] = useState<string | null>(null);
   const [cwdMode, setCwdMode] = useState<"workspace" | "current">("current");
   const [trustMode, setTrustMode] = useState<"approval-required" | "full-access">(
     "approval-required",
@@ -94,6 +98,23 @@ export function NewSessionDialog({
     [agent, configStatus],
   );
   const acpEnabled = isAcpTransportEnabled(agent, configStatus);
+  const acpResumeOptions = useMemo(
+    () => acpResumeOptionsFor(agent, acpEnabled, sessions),
+    [acpEnabled, agent, sessions],
+  );
+
+  useEffect(() => {
+    if (!open || !acpEnabled) {
+      setAcpResumeSessionId("");
+      return;
+    }
+    if (
+      acpResumeSessionId &&
+      !acpResumeOptions.some((option) => option.id === acpResumeSessionId)
+    ) {
+      setAcpResumeSessionId("");
+    }
+  }, [acpEnabled, acpResumeOptions, acpResumeSessionId, open]);
 
   useEffect(() => {
     if ((agent === "shell" || acpEnabled) && worktreeStrategy === "auto") {
@@ -149,6 +170,7 @@ export function NewSessionDialog({
 
   async function chooseWorkspace() {
     setError(null);
+    setAcpResult(null);
     setChoosingWorkspace(true);
     try {
       const workspace = await chooseWorkspaceFolder();
@@ -166,6 +188,7 @@ export function NewSessionDialog({
 
   async function handleStart() {
     setError(null);
+    setAcpResult(null);
     setSpawning(true);
     try {
       if (!selectedWorkspace) {
@@ -207,13 +230,14 @@ export function NewSessionDialog({
         if (!acpAgent) {
           throw new Error(`${agentDisplayLabel(agent, settings)} does not support ACP launch.`);
         }
-        await promptAcpAgentSession({
+        const result = await promptAcpAgentSession({
           agent: acpAgent,
           cwd,
           prompt,
+          resumeSessionId: acpResumeSessionId || null,
         });
         setInitialPrompt("");
-        onClose();
+        setAcpResult(acpResultText(result.sessionId, result.stopReason));
         return;
       }
       await spawnAgentSession(
@@ -264,7 +288,10 @@ export function NewSessionDialog({
               <select
                 className="settings-select"
                 value={agent}
-                onChange={(event) => setAgent(event.target.value as AgentKind)}
+                onChange={(event) => {
+                  setAcpResult(null);
+                  setAgent(event.target.value as AgentKind);
+                }}
               >
                 {AGENT_KINDS.map((kind) => (
                   <option key={kind} value={kind}>
@@ -280,7 +307,10 @@ export function NewSessionDialog({
                   className="settings-select"
                   value={workspaceId}
                   disabled={workspaces.length === 0}
-                  onChange={(event) => setWorkspaceId(event.target.value)}
+                  onChange={(event) => {
+                    setAcpResult(null);
+                    setWorkspaceId(event.target.value);
+                  }}
                 >
                   {workspaces.length === 0 ? (
                     <option value="">No workspace selected</option>
@@ -335,9 +365,10 @@ export function NewSessionDialog({
                 <select
                   className="settings-select"
                   value={cwdMode}
-                  onChange={(event) =>
-                    setCwdMode(event.target.value as "workspace" | "current")
-                  }
+                  onChange={(event) => {
+                    setAcpResult(null);
+                    setCwdMode(event.target.value as "workspace" | "current");
+                  }}
                 >
                   <option value="current">{defaultCwd}</option>
                   <option value="workspace">{selectedWorkspace.path}</option>
@@ -350,9 +381,33 @@ export function NewSessionDialog({
                 ariaLabel="Initial prompt"
                 className="prompt-input prompt-composer"
                 value={initialPrompt}
-                onChange={setInitialPrompt}
+                onChange={(value) => {
+                  setAcpResult(null);
+                  setInitialPrompt(value);
+                }}
               />
             </label>
+            {acpEnabled && acpResumeOptions.length > 0 ? (
+              <label className="field-label">
+                Resume ACP session
+                <select
+                  className="settings-select"
+                  aria-label="Resume ACP session"
+                  value={acpResumeSessionId}
+                  onChange={(event) => {
+                    setAcpResult(null);
+                    setAcpResumeSessionId(event.target.value);
+                  }}
+                >
+                  <option value="">New ACP session</option>
+                  {acpResumeOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <div className="settings-note">
               {acpEnabled ? "ACP command: " : "Launch command: "}
               {launchCommandText}
@@ -365,6 +420,11 @@ export function NewSessionDialog({
             </div>
           </div>
           {error ? <div className="editor-error">{error}</div> : null}
+          {acpResult ? (
+            <div className="settings-note" role="status">
+              {acpResult}
+            </div>
+          ) : null}
           <footer className="dialog-actions">
             <button type="button" className="text-button" onClick={onClose}>
               Cancel
@@ -382,4 +442,64 @@ export function NewSessionDialog({
       </section>
     </div>
   );
+}
+
+interface AcpResumeOption {
+  id: string;
+  label: string;
+}
+
+function acpResumeOptionsFor(
+  agent: AgentKind,
+  acpEnabled: boolean,
+  sessions: Session[],
+): AcpResumeOption[] {
+  if (!acpEnabled || !isAcpAgent(agent)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  return sessions.flatMap((session) => {
+    if (session.agent !== agent) {
+      return [];
+    }
+    const id = acpResumeId(session);
+    if (!id || seen.has(id)) {
+      return [];
+    }
+    seen.add(id);
+    const source = cleanString(session.provider?.resume?.source);
+    const suffix = source ? `${source}: ${id}` : id;
+    return [{ id, label: `${session.title || session.id} - ${suffix}` }];
+  });
+}
+
+function isAcpAgent(agent: AgentKind): agent is AcpAgentKind {
+  return agent === "claude-code" || agent === "hermes";
+}
+
+function acpResumeId(session: Session): string | null {
+  const provider = session.provider;
+  return (
+    cleanString(provider?.providerSessionId) ??
+    cleanString(provider?.conversationId) ??
+    lastNonEmpty(provider?.resume?.args) ??
+    null
+  );
+}
+
+function cleanString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function lastNonEmpty(values: string[] | undefined): string | null {
+  return (
+    values
+      ?.map(cleanString)
+      .filter((value): value is string => value !== null)
+      .at(-1) ?? null
+  );
+}
+
+function acpResultText(sessionId: string, stopReason: string | null): string {
+  return `ACP session ${sessionId}${stopReason ? ` (${stopReason})` : ""}`;
 }

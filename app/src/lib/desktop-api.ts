@@ -22,27 +22,14 @@ import {
   type Workspace,
 } from "./sessions";
 import { ptyWrite } from "./tauri-bridge";
+import type {
+  DesktopNamedRef,
+  DesktopSessionSnapshot,
+  DesktopSnapshotBody,
+  JsonValue,
+} from "./contracts/generated";
 
 const PROTOCOL_VERSION = "1.0";
-
-interface DesktopSnapshot {
-  protocol_version: string;
-  sessions: Array<{
-    id: string;
-    title: string;
-    agent: string;
-    workspaceId: string;
-    cwd?: string | null;
-    status: string;
-    attention: string;
-    previewUrl?: string | null;
-    commandBlockCount?: number;
-    lastCommandBlockId?: string | null;
-    remote?: Session["remote"];
-  }>;
-  arrangements: Array<{ id: string; name: string }>;
-  updatedAt: number;
-}
 
 function desktopEndpoint(path: string, port: number): string {
   return `http://127.0.0.1:${port}${path}`;
@@ -56,11 +43,17 @@ function authHeaders(config: ApprovalClientOptions): Record<string, string> {
   return headers;
 }
 
-function namedRefs<T extends { id: string; name: string }>(items: T[]) {
+function namedRefs<T extends { id: string; name: string }>(
+  items: T[],
+): DesktopNamedRef[] {
   return items.map((item) => ({ id: item.id, name: item.name }));
 }
 
-function snapshotSession(session: Session) {
+function jsonValueOrNull(value: unknown): JsonValue | null {
+  return value == null ? null : (value as JsonValue);
+}
+
+function snapshotSession(session: Session): DesktopSessionSnapshot {
   const state = useSessionStore.getState();
   return {
     id: session.id,
@@ -75,11 +68,11 @@ function snapshotSession(session: Session) {
       (block) => block.sessionId === session.id,
     ).length,
     lastCommandBlockId: session.lastCommandBlockId ?? null,
-    remote: session.remote ?? null,
+    remote: jsonValueOrNull(session.remote),
   };
 }
 
-function desktopSnapshot(): DesktopSnapshot {
+function desktopSnapshot(): DesktopSnapshotBody {
   const state = useSessionStore.getState();
   return {
     protocol_version: PROTOCOL_VERSION,

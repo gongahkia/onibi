@@ -5,6 +5,8 @@ import {
 } from "./approval-client";
 import type {
   CheckpointDiff,
+  CheckpointPruneBody,
+  CheckpointPruneResponse,
   CheckpointRecord,
   CheckpointRestoreBody,
 } from "./contracts/generated";
@@ -56,6 +58,23 @@ export async function restoreCheckpoint(approvalId: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`checkpoint restore failed: HTTP ${response.status}`);
   }
+}
+
+export async function pruneCheckpoints(): Promise<CheckpointPruneResponse> {
+  const { token, port } = await ensureApprovalConnectionConfig();
+  const body: CheckpointPruneBody = { protocol_version: PROTOCOL_VERSION };
+  const response = await fetch(
+    `http://127.0.0.1:${port ?? storedApprovalPort() ?? 17893}/v1/checkpoints/prune`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`checkpoint prune failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as CheckpointPruneResponse;
 }
 
 function authHeaders(token = storedApprovalToken()): Record<string, string> {

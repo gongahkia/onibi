@@ -48,6 +48,8 @@ fn bindings() -> String {
     push::<protocol::CheckpointDiffFile>(&mut output);
     push::<protocol::CheckpointDiff>(&mut output);
     push::<protocol::CheckpointRestoreBody>(&mut output);
+    push::<protocol::CheckpointPruneBody>(&mut output);
+    push::<protocol::CheckpointPruneResponse>(&mut output);
     push::<protocol::DesktopSessionInputBody>(&mut output);
     push::<protocol::DesktopPaneSplitBody>(&mut output);
     push::<protocol::DesktopCommandResponse>(&mut output);

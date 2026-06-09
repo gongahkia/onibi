@@ -8,13 +8,13 @@ use crate::{
     policy,
     protocol::{
         AcpPromptBody, AcpPromptResponse, ApiError, Approval, ApprovalDecisionBody,
-        ApprovalDecisionResponse, ApprovalRequestBody, CheckpointDiff, CheckpointRecord,
-        CheckpointRestoreBody, ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse,
-        DesktopPaneSplitBody, DesktopRemoteSshBody, DesktopSessionInputBody,
-        DesktopSessionLaunchBody, DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest,
-        PairResponse, PaneSendKeysBody, PaneSendResponse, PaneSendTextBody, PaneTarget,
-        PaneTargetsResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage,
-        PROTOCOL_VERSION,
+        ApprovalDecisionResponse, ApprovalRequestBody, CheckpointDiff, CheckpointPruneBody,
+        CheckpointPruneResponse, CheckpointRecord, CheckpointRestoreBody, ClientScope, Decision,
+        DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopRemoteSshBody,
+        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
+        DesktopWorktreeOpenBody, PairRequest, PairResponse, PaneRunBody, PaneSendKeysBody,
+        PaneSendResponse, PaneSendTextBody, PaneTarget, PaneTargetsResponse, PtyOutputBody,
+        RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
     },
     pty::TrustMode,
     push, secret,
@@ -150,6 +150,17 @@ pub async fn checkpoints_list(
     state
         .store
         .list_checkpoints(query.limit.unwrap_or(500))
+        .map(Json)
+        .map_err(internal_error)
+}
+
+pub async fn checkpoints_prune(
+    State(state): State<AppState>,
+    ApiJson(body): ApiJson<CheckpointPruneBody>,
+) -> ApiResult<CheckpointPruneResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    prune_checkpoints(&state)
+        .await
         .map(Json)
         .map_err(internal_error)
 }
@@ -401,6 +412,58 @@ pub async fn pane_send_text(
         bytes,
     )?;
     broadcast_remote_keystroke(&state, &session, &resolved_pane_id, "text", bytes, None);
+    Ok(Json(PaneSendResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        pane_id: resolved_pane_id,
+        session_id: session.id,
+        bytes,
+        audit_id,
+        trust_mode: trust_mode_label(session.trust_mode).to_string(),
+        requires_confirmation: false,
+        destructive: false,
+        preset: None,
+    }))
+}
+
+pub async fn pane_run(
+    State(state): State<AppState>,
+    Extension(auth): Extension<auth::AuthScope>,
+    Path(pane_id): Path<String>,
+    ApiJson(body): ApiJson<PaneRunBody>,
+) -> ApiResult<PaneSendResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    if body.command.trim().is_empty() {
+        return Err(bad_request("command is required"));
+    }
+    if body.command.len() > 16 * 1024 {
+        return Err(bad_request("command exceeds 16 KiB"));
+    }
+    let session = state
+        .orchestration
+        .session_for_pane(&pane_id)
+        .await
+        .ok_or_else(|| not_found("pane not found"))?;
+    require_remote_confirmation(session.trust_mode, false, None, body.confirmed)?;
+    let (resolved_pane_id, bytes) = state
+        .orchestration
+        .run_command_in_pane(&pane_id, &body.command)
+        .await
+        .map_err(orchestration_route_error)?;
+    let audit_id = audit_remote_keystroke(
+        &state,
+        &auth,
+        &session,
+        &resolved_pane_id,
+        "run",
+        json!({
+            "command": body.command,
+        }),
+        false,
+        None,
+        bytes,
+    )?;
+    broadcast_remote_keystroke(&state, &session, &resolved_pane_id, "run", bytes, None);
     Ok(Json(PaneSendResponse {
         ok: true,
         protocol_version: PROTOCOL_VERSION.to_string(),
@@ -811,7 +874,9 @@ pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
         "reloadableFields": [
             "server.approval_timeout_secs",
             "server.pty_ring_limit",
-            "checkpointing.enabled"
+            "checkpointing.enabled",
+            "checkpointing.max_records",
+            "checkpointing.max_age_days"
         ],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
@@ -839,7 +904,9 @@ pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
         "appliedFields": [
             "server.approval_timeout_secs",
             "server.pty_ring_limit",
-            "checkpointing.enabled"
+            "checkpointing.enabled",
+            "checkpointing.max_records",
+            "checkpointing.max_age_days"
         ],
         "restartRequiredFields": ["server.port"],
         "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
@@ -1039,6 +1106,8 @@ async fn checkpoint_pre_if_enabled(state: &AppState, approval: &Approval) {
         Ok(record) => {
             if let Err(error) = state.store.upsert_checkpoint_pre(&record) {
                 tracing::warn!(%error, approval_id = approval.approval_id, "store checkpoint pre failed");
+            } else {
+                prune_checkpoints_if_enabled(state).await;
             }
         }
         Err(error) => {
@@ -1066,6 +1135,8 @@ async fn checkpoint_post_if_enabled(state: &AppState, session_id: &str, event_ki
                 .mark_checkpoint_post(&record.approval_id, &post_ref)
             {
                 tracing::warn!(%error, approval_id = record.approval_id, "store checkpoint post failed");
+            } else {
+                prune_checkpoints_if_enabled(state).await;
             }
         }
         Err(error) => {
@@ -1076,6 +1147,52 @@ async fn checkpoint_post_if_enabled(state: &AppState, session_id: &str, event_ki
             tracing::debug!(%message, approval_id = record.approval_id, "checkpoint post skipped");
         }
     }
+}
+
+async fn prune_checkpoints_if_enabled(state: &AppState) {
+    if !state.checkpointing_enabled().await {
+        return;
+    }
+    if let Err(error) = prune_checkpoints(state).await {
+        tracing::warn!(%error, "checkpoint prune failed");
+    }
+}
+
+async fn prune_checkpoints(state: &AppState) -> Result<CheckpointPruneResponse> {
+    let (max_records, max_age_days) = state.checkpoint_retention().await;
+    let older_than = Some(checkpoint_age_cutoff(max_age_days));
+    let candidates = state
+        .store
+        .checkpoint_prune_candidates(max_records, older_than)?;
+    if candidates.is_empty() {
+        return Ok(CheckpointPruneResponse {
+            ok: true,
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            records_deleted: 0,
+            refs_attempted: 0,
+            refs_deleted: 0,
+            refs_failed: 0,
+        });
+    }
+    let ref_summary = checkpointing::prune_refs(&candidates);
+    let approval_ids = candidates
+        .iter()
+        .map(|record| record.approval_id.clone())
+        .collect::<Vec<_>>();
+    let records_deleted = state.store.delete_checkpoints(&approval_ids)?;
+    Ok(CheckpointPruneResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        records_deleted,
+        refs_attempted: ref_summary.refs_attempted,
+        refs_deleted: ref_summary.refs_deleted,
+        refs_failed: ref_summary.refs_failed,
+    })
+}
+
+fn checkpoint_age_cutoff(max_age_days: u64) -> i64 {
+    let age_ms = (max_age_days.min(3_650) as i64).saturating_mul(86_400_000);
+    now_millis().saturating_sub(age_ms)
 }
 
 fn is_post_tool_event(event_kind: &str) -> bool {
@@ -2369,6 +2486,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn checkpoint_prune_deletes_old_records() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        for (approval_id, created_at) in [("approval-old", 1), ("approval-recent", now_millis())] {
+            store
+                .upsert_checkpoint_pre(&CheckpointRecord {
+                    approval_id: approval_id.to_string(),
+                    session_id: "pty-1".to_string(),
+                    cwd: dir.path().display().to_string(),
+                    pre_ref: format!("refs/onibi/turns/{approval_id}/pre"),
+                    post_ref: Some(format!("refs/onibi/turns/{approval_id}/post")),
+                    created_at,
+                    updated_at: created_at,
+                    error: None,
+                })
+                .unwrap();
+        }
+        let app = router(AppState::for_tests(store.clone()));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/checkpoints/prune")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"protocol_version": "1.0"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let summary: CheckpointPruneResponse = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(summary.records_deleted, 1);
+        assert_eq!(summary.refs_attempted, 2);
+        assert_eq!(summary.refs_failed, 2);
+        assert!(store.get_checkpoint("approval-old").unwrap().is_none());
+        assert!(store.get_checkpoint("approval-recent").unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn status_includes_runtime_config_and_orchestration_summary() {
         let dir = tempdir().unwrap();
         let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
@@ -2394,6 +2553,14 @@ mod tests {
             crate::config::DEFAULT_PTY_RING_LIMIT
         );
         assert_eq!(value["runtimeConfig"]["checkpointingEnabled"], false);
+        assert_eq!(
+            value["runtimeConfig"]["checkpointMaxRecords"],
+            crate::config::DEFAULT_CHECKPOINT_MAX_RECORDS
+        );
+        assert_eq!(
+            value["runtimeConfig"]["checkpointMaxAgeDays"],
+            crate::config::DEFAULT_CHECKPOINT_MAX_AGE_DAYS
+        );
         assert!(value["uptimeSecs"].is_u64());
         assert!(value["configPath"].is_string());
         assert_eq!(value["orchestration"]["paneCount"], 0);
@@ -2507,7 +2674,10 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert!(value["runtimeConfig"]["approvalTimeoutSecs"].is_u64());
         assert!(value["runtimeConfig"]["ptyRingLimit"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointMaxRecords"].is_u64());
+        assert!(value["runtimeConfig"]["checkpointMaxAgeDays"].is_u64());
         assert_eq!(value["appliedFields"][0], "server.approval_timeout_secs");
+        assert_eq!(value["appliedFields"][3], "checkpointing.max_records");
         assert_eq!(value["restartRequiredFields"][0], "server.port");
     }
 }

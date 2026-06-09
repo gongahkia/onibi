@@ -244,6 +244,15 @@ pub struct PaneSendKeysBody {
     pub confirmed: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct PaneRunBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct PaneSendResponse {
     pub ok: bool,
@@ -412,6 +421,23 @@ pub struct CheckpointDiff {
 pub struct CheckpointRestoreBody {
     #[serde(default)]
     pub protocol_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct CheckpointPruneBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointPruneResponse {
+    pub ok: bool,
+    pub protocol_version: String,
+    pub records_deleted: usize,
+    pub refs_attempted: usize,
+    pub refs_deleted: usize,
+    pub refs_failed: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

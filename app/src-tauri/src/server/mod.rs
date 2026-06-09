@@ -121,6 +121,8 @@ impl AppState {
                 approval_timeout_secs: 5,
                 pty_ring_limit: config::DEFAULT_PTY_RING_LIMIT,
                 checkpointing_enabled: false,
+                checkpoint_max_records: config::DEFAULT_CHECKPOINT_MAX_RECORDS,
+                checkpoint_max_age_days: config::DEFAULT_CHECKPOINT_MAX_AGE_DAYS,
             })),
             pty_ring: Arc::new(RwLock::new(HashMap::new())),
             desktop_snapshot: Arc::new(RwLock::new(DesktopSnapshotBody::default())),
@@ -151,6 +153,14 @@ impl AppState {
 
     pub async fn checkpointing_enabled(&self) -> bool {
         self.runtime_config.read().await.checkpointing_enabled
+    }
+
+    pub async fn checkpoint_retention(&self) -> (usize, u64) {
+        let runtime = self.runtime_config.read().await;
+        (
+            runtime.checkpoint_max_records,
+            runtime.checkpoint_max_age_days,
+        )
     }
 
     pub async fn reload_runtime_config(&self) -> Result<config::RuntimeConfig> {
@@ -247,6 +257,7 @@ pub fn router(state: AppState) -> Router {
             get(routes::approval_history_export),
         )
         .route("/v1/checkpoints/list", get(routes::checkpoints_list))
+        .route("/v1/checkpoints/prune", post(routes::checkpoints_prune))
         .route("/v1/checkpoints/:id/diff", get(routes::checkpoint_diff))
         .route(
             "/v1/checkpoints/:id/restore",
@@ -261,6 +272,7 @@ pub fn router(state: AppState) -> Router {
                 .layer::<_, Infallible>(DefaultBodyLimit::max(PTY_OUTPUT_BODY_LIMIT)),
         )
         .route("/v1/panes/targets", get(routes::pane_targets))
+        .route("/v1/panes/:id/run", post(routes::pane_run))
         .route("/v1/panes/:id/send-text", post(routes::pane_send_text))
         .route("/v1/panes/:id/send-keys", post(routes::pane_send_keys))
         .route("/v1/pair", post(routes::pair))

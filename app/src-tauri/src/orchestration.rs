@@ -690,6 +690,7 @@ impl OrchestrationState {
                     "session.stop",
                     "session.set_trust",
                     "pane.read",
+                    "pane.run",
                     "pane.send_keys",
                     "wait.output",
                     "wait.agent_status",
@@ -715,6 +716,7 @@ impl OrchestrationState {
                 Some(CommandKind::Stop) => self.stop(payload).await,
                 Some(CommandKind::SetTrust) => self.set_trust(payload).await,
                 Some(CommandKind::Read) => self.read(payload).await,
+                Some(CommandKind::Run) => self.run_pane_command(payload).await,
                 Some(CommandKind::SendKeys) => self.send_keys(payload).await,
                 Some(CommandKind::WaitOutput) => self.wait_output(payload).await,
                 Some(CommandKind::WaitAgentStatus) => self.wait_agent_status(payload).await,
@@ -912,6 +914,22 @@ impl OrchestrationState {
         Ok(json!({"ok": true, "bytes": bytes.len()}))
     }
 
+    async fn run_pane_command(&self, payload: Value) -> Result<Value> {
+        let id = self.resolve_target_id(&payload).await?;
+        let command = payload
+            .get("command")
+            .or_else(|| payload.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if command.trim().is_empty() {
+            return Err(anyhow!("command is required"));
+        }
+        let mut bytes = command.as_bytes().to_vec();
+        bytes.push(b'\r');
+        self.manager.write(id, &bytes).await?;
+        Ok(json!({"ok": true, "bytes": bytes.len()}))
+    }
+
     async fn resize(&self, payload: Value) -> Result<Value> {
         let id = self.resolve_target_id(&payload).await?;
         let rows = payload.get("rows").and_then(Value::as_u64).unwrap_or(30) as u16;
@@ -1095,6 +1113,15 @@ impl OrchestrationState {
         send_enter: bool,
     ) -> Result<(String, usize)> {
         self.send_remote_input_to_pane(pane_id, Some(text), &[], send_enter)
+            .await
+    }
+
+    pub async fn run_command_in_pane(
+        &self,
+        pane_id: &str,
+        command: &str,
+    ) -> Result<(String, usize)> {
+        self.send_remote_input_to_pane(pane_id, Some(command), &[], true)
             .await
     }
 

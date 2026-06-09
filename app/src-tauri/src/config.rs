@@ -9,6 +9,8 @@ use std::{
 pub const DEFAULT_PORT: u16 = 17_893;
 pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 600;
 pub const DEFAULT_PTY_RING_LIMIT: usize = 5_000;
+pub const DEFAULT_CHECKPOINT_MAX_RECORDS: usize = 200;
+pub const DEFAULT_CHECKPOINT_MAX_AGE_DAYS: u64 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -36,6 +38,8 @@ pub struct ServerConfig {
 #[serde(default)]
 pub struct CheckpointingConfig {
     pub enabled: bool,
+    pub max_records: usize,
+    pub max_age_days: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +131,8 @@ pub struct RuntimeConfig {
     pub approval_timeout_secs: u64,
     pub pty_ring_limit: usize,
     pub checkpointing_enabled: bool,
+    pub checkpoint_max_records: usize,
+    pub checkpoint_max_age_days: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +183,11 @@ impl Default for ServerConfig {
 
 impl Default for CheckpointingConfig {
     fn default() -> Self {
-        Self { enabled: false }
+        Self {
+            enabled: false,
+            max_records: DEFAULT_CHECKPOINT_MAX_RECORDS,
+            max_age_days: DEFAULT_CHECKPOINT_MAX_AGE_DAYS,
+        }
     }
 }
 
@@ -354,11 +364,21 @@ impl OnibiConfig {
         self.server.pty_ring_limit.max(1024)
     }
 
+    pub fn checkpoint_max_records(&self) -> usize {
+        self.checkpointing.max_records.clamp(1, 10_000)
+    }
+
+    pub fn checkpoint_max_age_days(&self) -> u64 {
+        self.checkpointing.max_age_days.clamp(1, 3_650)
+    }
+
     pub fn runtime_config(&self) -> RuntimeConfig {
         RuntimeConfig {
             approval_timeout_secs: self.approval_timeout_secs(),
             pty_ring_limit: self.pty_ring_limit(),
             checkpointing_enabled: self.checkpointing.enabled,
+            checkpoint_max_records: self.checkpoint_max_records(),
+            checkpoint_max_age_days: self.checkpoint_max_age_days(),
         }
     }
 }
@@ -492,6 +512,14 @@ mod tests {
         assert_eq!(validation.runtime.approval_timeout_secs, 600);
         assert_eq!(validation.runtime.pty_ring_limit, 5_000);
         assert!(!validation.runtime.checkpointing_enabled);
+        assert_eq!(
+            validation.runtime.checkpoint_max_records,
+            DEFAULT_CHECKPOINT_MAX_RECORDS
+        );
+        assert_eq!(
+            validation.runtime.checkpoint_max_age_days,
+            DEFAULT_CHECKPOINT_MAX_AGE_DAYS
+        );
     }
 
     #[test]
@@ -528,6 +556,8 @@ pty_ring_limit = 2048
 
 [checkpointing]
 enabled = true
+max_records = 25
+max_age_days = 7
 "#,
         )
         .unwrap();
@@ -537,6 +567,8 @@ enabled = true
         assert_eq!(validation.runtime.approval_timeout_secs, 12);
         assert_eq!(validation.runtime.pty_ring_limit, 2048);
         assert!(validation.runtime.checkpointing_enabled);
+        assert_eq!(validation.runtime.checkpoint_max_records, 25);
+        assert_eq!(validation.runtime.checkpoint_max_age_days, 7);
     }
 
     #[test]

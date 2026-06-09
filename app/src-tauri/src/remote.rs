@@ -9,6 +9,7 @@ use std::{
 
 pub const DEFAULT_REMOTE_HELPER_PATH: &str = "~/.onibi/bin/onibi";
 pub const DEFAULT_REMOTE_STAGING_DIR: &str = "~/.onibi/staged";
+pub const DEFAULT_REMOTE_RUN_DIR: &str = "~/.onibi/run";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +39,40 @@ pub struct RemoteSshBootstrapResult {
     pub helper_version: String,
     pub staging_dir: String,
     pub bootstrapped_at: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSshDaemonRequest {
+    pub target: String,
+    #[serde(default)]
+    pub user: Option<String>,
+    pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub remote_cwd: Option<String>,
+    #[serde(default)]
+    pub ssh_command: Option<String>,
+    #[serde(default)]
+    pub helper_path: Option<String>,
+    #[serde(default)]
+    pub run_dir: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSshDaemonResult {
+    pub ok: bool,
+    pub target: String,
+    pub helper_path: String,
+    pub run_dir: String,
+    pub pid: u32,
+    pub status: String,
+    pub log_path: String,
+    pub started_at: i64,
     pub stdout: String,
     pub stderr: String,
 }
@@ -114,6 +149,40 @@ pub fn remote_ssh_bootstrap_with_bytes(
         staging_dir,
         bootstrapped_at: now_millis(),
         stdout: stdout_lossy(&output),
+        stderr: stderr_lossy(&output),
+    })
+}
+
+pub fn remote_ssh_daemon(request: RemoteSshDaemonRequest) -> Result<RemoteSshDaemonResult> {
+    validate_endpoint(&request.host, request.port)?;
+    let helper_path = normalized_remote_path(
+        request.helper_path.as_deref(),
+        DEFAULT_REMOTE_HELPER_PATH,
+        "helper path",
+    )?;
+    let run_dir = normalized_remote_path(
+        request.run_dir.as_deref(),
+        DEFAULT_REMOTE_RUN_DIR,
+        "run directory",
+    )?;
+    let output = run_ssh_command(
+        &request,
+        &daemon_remote_script(&helper_path, &run_dir, request.remote_cwd.as_deref()),
+        &[],
+    )?;
+    ensure_success(&output, "remote Onibi daemon start")?;
+    let stdout = stdout_lossy(&output);
+    let (pid, status, log_path) = parse_daemon_stdout(&stdout)?;
+    Ok(RemoteSshDaemonResult {
+        ok: true,
+        target: request.target.trim().to_string(),
+        helper_path,
+        run_dir,
+        pid,
+        status,
+        log_path,
+        started_at: now_millis(),
+        stdout,
         stderr: stderr_lossy(&output),
     })
 }
@@ -305,6 +374,58 @@ printf 'onibi staging dir %s\n' "$staging_dir"
     )
 }
 
+fn daemon_remote_script(helper_path: &str, run_dir: &str, remote_cwd: Option<&str>) -> String {
+    let cwd_setup = remote_cwd
+        .map(|cwd| {
+            format!(
+                r#"{cwd}
+cd "$remote_cwd"
+"#,
+                cwd = remote_path_assignment("remote_cwd", cwd)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        r#"set -e
+{helper}
+{run_dir}
+{cwd_setup}if [ ! -x "$helper" ]; then
+  echo "remote Onibi helper is not executable: $helper" >&2
+  exit 1
+fi
+mkdir -p "$run_dir"
+pid_file="$run_dir/onibi.pid"
+log_file="$run_dir/onibi.log"
+if [ -s "$pid_file" ]; then
+  old_pid=$(cat "$pid_file" 2>/dev/null || true)
+  case "$old_pid" in
+    ''|*[!0-9]*) old_pid="" ;;
+  esac
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    printf 'pid=%s\n' "$old_pid"
+    printf 'status=running\n'
+    printf 'log=%s\n' "$log_file"
+    exit 0
+  fi
+fi
+nohup "$helper" --headless > "$log_file" 2>&1 < /dev/null &
+pid=$!
+printf '%s\n' "$pid" > "$pid_file"
+sleep 1
+if ! kill -0 "$pid" 2>/dev/null; then
+  echo "remote Onibi daemon failed to stay running" >&2
+  if [ -s "$log_file" ]; then tail -n 20 "$log_file" >&2; fi
+  exit 1
+fi
+printf 'pid=%s\n' "$pid"
+printf 'status=started\n'
+printf 'log=%s\n' "$log_file"
+"#,
+        helper = remote_path_assignment("helper", helper_path),
+        run_dir = remote_path_assignment("run_dir", run_dir),
+    )
+}
+
 #[cfg(feature = "gui")]
 fn stage_file_remote_script(staging_dir: &str, filename: &str) -> String {
     format!(
@@ -343,6 +464,25 @@ fn stdout_lossy(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+fn parse_daemon_stdout(stdout: &str) -> Result<(u32, String, String)> {
+    let mut pid = None;
+    let mut status = None;
+    let mut log_path = None;
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("pid=") {
+            pid = Some(value.trim().parse::<u32>().context("parse remote daemon pid")?);
+        } else if let Some(value) = line.strip_prefix("status=") {
+            status = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("log=") {
+            log_path = Some(value.trim().to_string());
+        }
+    }
+    let pid = pid.ok_or_else(|| anyhow!("remote daemon start did not return a pid"))?;
+    let status = status.ok_or_else(|| anyhow!("remote daemon start did not return a status"))?;
+    let log_path = log_path.ok_or_else(|| anyhow!("remote daemon start did not return a log path"))?;
+    Ok((pid, status, log_path))
+}
+
 fn stderr_lossy(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).to_string()
 }
@@ -362,6 +502,24 @@ trait RemoteSshEndpoint {
 }
 
 impl RemoteSshEndpoint for RemoteSshBootstrapRequest {
+    fn host(&self) -> &str {
+        &self.host
+    }
+
+    fn user(&self) -> Option<&str> {
+        self.user.as_deref()
+    }
+
+    fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+    fn ssh_command(&self) -> Option<&str> {
+        self.ssh_command.as_deref()
+    }
+}
+
+impl RemoteSshEndpoint for RemoteSshDaemonRequest {
     fn host(&self) -> &str {
         &self.host
     }
@@ -433,5 +591,25 @@ mod tests {
         assert!(script.contains("base64 -d > \"$tmp\""));
         assert!(script.contains("mv \"$tmp\" \"$helper\""));
         assert!(script.contains("mkdir -p \"$helper_dir\" \"$staging_dir\""));
+    }
+
+    #[test]
+    fn daemon_script_starts_headless_helper_and_reuses_live_pid() {
+        let script = daemon_remote_script("~/.onibi/bin/onibi", "~/.onibi/run", Some("~/repo"));
+        assert!(script.contains("cd \"$remote_cwd\""));
+        assert!(script.contains("kill -0 \"$old_pid\""));
+        assert!(script.contains("nohup \"$helper\" --headless"));
+        assert!(script.contains("pid_file=\"$run_dir/onibi.pid\""));
+        assert!(script.contains("log_file=\"$run_dir/onibi.log\""));
+    }
+
+    #[test]
+    fn parses_remote_daemon_start_output() {
+        let (pid, status, log_path) =
+            parse_daemon_stdout("pid=42\nstatus=started\nlog=/home/alice/.onibi/run/onibi.log\n")
+                .unwrap();
+        assert_eq!(pid, 42);
+        assert_eq!(status, "started");
+        assert_eq!(log_path, "/home/alice/.onibi/run/onibi.log");
     }
 }

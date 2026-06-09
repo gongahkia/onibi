@@ -18,7 +18,17 @@ export interface AdapterRuntimeConfig {
   acpArgs: string[];
 }
 
+export interface RuntimeConfigStatus {
+  approvalTimeoutSecs: number;
+  ptyRingLimit: number;
+  checkpointingEnabled: boolean;
+  checkpointMaxRecords: number;
+  checkpointMaxAgeDays: number;
+}
+
 export interface ConfigStatusResponse {
+  runtimeConfig?: RuntimeConfigStatus;
+  fileRuntimeConfig?: RuntimeConfigStatus;
   adapters?: {
     claude?: AdapterRuntimeConfig;
     hermes?: AdapterRuntimeConfig;

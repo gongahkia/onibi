@@ -301,7 +301,88 @@ describe("NewSessionDialog", () => {
       expect.anything(),
     );
     expect(useSessionStore.getState().activeSessionId).toBeNull();
-    expect(onClose).toHaveBeenCalled();
+    expect(await screen.findByText("ACP session hermes-session-1 (end_turn)")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("passes selected ACP resume session id", async () => {
+    const onClose = vi.fn();
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "hermes") {
+          return "/usr/local/bin/hermes";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "hermes",
+      },
+      sessions: [
+        {
+          id: "pty-hermes",
+          agent: "hermes",
+          workspaceId: "workspace:/repo",
+          title: "Hermes · repo",
+          status: "stale",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          lastExitCode: null,
+          lastTrigger: null,
+          lastCommandBlockId: null,
+          transcript: null,
+          restart: null,
+          remote: null,
+          provider: {
+            agent: "hermes",
+            providerSessionId: "hermes-provider-9",
+            conversationId: null,
+            resume: {
+              command: "hermes",
+              args: ["acp", "resume", "fallback-session"],
+              source: "native",
+            },
+            updatedAt: 1,
+          },
+        },
+      ],
+    });
+
+    render(<NewSessionDialog open onClose={onClose} />);
+    await waitFor(() => {
+      expect(screen.getByText(/ACP command:\s*hermes acp/)).toBeTruthy();
+      expect(screen.getByText(/usr\/local\/bin\/hermes/)).toBeTruthy();
+    });
+    const resumeSelect = await screen.findByLabelText("Resume ACP session");
+    expect(screen.getByText("Hermes · repo - native: hermes-provider-9")).toBeTruthy();
+    fireEvent.change(resumeSelect, {
+      target: { value: "hermes-provider-9" },
+    });
+    fireEvent.change(screen.getByTestId("Initial prompt-plain-text"), {
+      target: { value: "continue resumed task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:17893/v1/adapters/hermes/acp/prompt",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const [, request] = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/v1/adapters/hermes/acp/prompt"),
+    )!;
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      protocol_version: "1.0",
+      cwd: "/repo",
+      prompt: "continue resumed task",
+      resumeSessionId: "hermes-provider-9",
+    });
+    expect(await screen.findByText("ACP session hermes-session-1 (end_turn)")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   test("requires a prompt before ACP launch", async () => {
@@ -417,7 +498,8 @@ describe("NewSessionDialog", () => {
       expect.anything(),
     );
     expect(useSessionStore.getState().activeSessionId).toBeNull();
-    expect(onClose).toHaveBeenCalled();
+    expect(await screen.findByText("ACP session claude-acp-session-1 (end_turn)")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   test("surfaces ACP backend error bodies in the dialog", async () => {
