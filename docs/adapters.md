@@ -15,9 +15,9 @@ Adapters let Onibi sit between a local agent and a tool action. Claude Code rema
 | Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
 | Hermes | No minimum | Yes | Yes | Yes | Yes | ACP `hermes acp` |
 | Aider | No minimum | No | No | History restore | Yes | Shell session only |
-| Cursor agent | No minimum | No | Pending | Pending | Yes | Native hook pending |
-| Pi | No minimum | No | Pending | Pending | Yes | Native extension pending |
-| OMP | No minimum | No | Pending | Pending | Yes | Native extension pending |
+| Cursor agent | No minimum | No | Observe-only | Pending | Yes | Cursor CLI hooks |
+| Pi | No minimum | Yes | Yes | Pending | Yes | `~/.pi/agent/extensions/onibi-provider-events.ts` |
+| OMP | No minimum | No | Observe-only | Pending | Yes | OMP native extension |
 
 Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event` or ACP session updates. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
 
@@ -180,12 +180,13 @@ Install:
 onibi adapter install cursor
 ```
 
-Hook surface: shell session only for v1.5.
+Hook surface: Cursor CLI lifecycle hooks invoking `onibi _hook cursor`.
 
 Supported features:
 
 - Launches a configured `cursor-agent` command when present.
 - Terminal mirror and run visibility.
+- Observe-only shell/MCP/file-edit lifecycle events update Onibi's native provider metadata when Cursor emits them.
 
 Known limitations:
 
@@ -277,9 +278,46 @@ Known limitations:
 
 Hermes uses ACP through `hermes acp`. Onibi runs the shared stdio ACP runtime, maps ACP permission requests into the approval flow, records provider session metadata, and keeps `hermes --resume <id>` metadata when a Hermes provider session ID is available. No Python plugin hook is installed.
 
-## Pi / OMP
+## Pi
 
-Pi and OMP are registered as pending native integrations. Onibi keeps heuristic detection and terminal mirroring, but does not install extension files until stable public hook/plugin APIs are verified.
+Install:
+
+```sh
+onibi adapter install pi
+```
+
+Hook surface: native Pi extension at `~/.pi/agent/extensions/onibi-provider-events.ts`.
+
+Supported features:
+
+- Session/tool lifecycle events update Onibi's native provider metadata.
+- `tool_call` blocks on Onibi approval.
+- Approve-with-edits mutates the Pi tool input before the tool runs.
+- Terminal mirror and run visibility.
+
+Known limitations:
+
+- Native resume metadata is not wired.
+
+## OMP
+
+Install:
+
+```sh
+onibi adapter install omp
+```
+
+Hook surface: native OMP extension invoking `onibi _hook omp`.
+
+Supported features:
+
+- Observe-only lifecycle events update Onibi's native provider metadata where OMP emits them.
+- Terminal mirror and run visibility.
+
+Known limitations:
+
+- Blocking approval remains unverified until OMP exposes a stable synchronous hook API.
+- Native resume metadata is not wired.
 
 ## Support
 

@@ -241,8 +241,8 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 ### Implemented in the remote daemon, native-observe hooks, and pane run pass
 
 - Added SSH-started remote Onibi helper daemon support via `remote_ssh_daemon`, persisted remote daemon metadata (`daemonStatus`, `daemonPid`, `daemonLogPath`, `daemonRunDir`, `lastDaemonStartAt`), the Command Palette `Start Remote Daemon` action, and `onibi remote daemon ssh ...`.
-- Kept the active terminal path as SSH-local PTY for this pass; the remote daemon is installed/started and verified, but PTY transfer/remote attach is still future work.
-- Replaced Pi, OMP, and Cursor pending stubs with versioned `native-observe` installers, status, uninstall support, `_hook` dispatch, and setup/doctor visibility.
+- Kept SSH-local PTY remote sessions and added remote helper-daemon session launch/stream attach over SSH. Existing-live-PTY transfer between binaries remains future work.
+- Replaced Pi, OMP, and Cursor pending stubs with versioned native installers, status, uninstall support, `_hook` dispatch, and setup/doctor visibility. Pi now uses the blocking extension path; OMP and Cursor remain observe-only.
 - Added explicit pane command-run surfaces: orchestration `pane.run`, authenticated `POST /v1/panes/:id/run`, `onibi pane run <id> <command...>`, generated `PaneRunBody`, and frontend `runPaneCommand`.
 
 ### Implemented in the generated-contract cleanup and ACP reattach pass
@@ -252,6 +252,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Extended ACP prompt responses with Onibi session ID, pane ID, provider session ID, conversation ID, provider resume metadata, and resumed/reattached flags.
 - Persisted ACP prompt/load results into orchestration provider metadata so GUI resume options can reopen ACP-backed Claude/Hermes sessions instead of only displaying a one-off prompt result.
 - Added focused frontend coverage for ACP new/resume session recording and backend coverage for provider-session create/reattach by provider ID.
+
+### Implemented in the code-scope hardening pass
+
+- Removed Git clone, push, and pull surfaces from the active desktop UI/backend bridge while keeping status, diff, staging, and commit.
+- Hardened turn checkpoints with configurable changed-file, total-index-byte, per-file-byte, and ignored-path guardrails; checkpoint errors are stored in audit rows and restore/diff actions are disabled for failed snapshots.
+- Polished ACP resume options so stale provider sessions say resume, live provider sessions say reattach, and labels expose provider/conversation metadata.
+- Added remote helper-daemon session launch and SSH stream attach (`remote_ssh_daemon_session`, `onibi session stream <id>`, GUI `Attach Remote Daemon Session`) with daemon bridge metadata.
+- Upgraded Pi from pending/observe-only to native-blocking extension install/status/uninstall; kept Cursor and OMP native hooks observe-only where blocking APIs remain unverified.
 
 ### Implemented in the built-in updater pass
 
@@ -264,7 +272,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 ### Implemented in the approval-cockpit launch pass
 
 - Added Apache-2.0 licensing and repositioned README/launch copy around "local-first approval gate for multi-vendor coding agents."
-- Split README adapter support into approval-blocking adapters and mirror/resume/pending-native adapters, removed acknowledgements from launch positioning, and verified README-linked launch assets exist.
+- Split README adapter support into approval-blocking adapters and mirror/resume/observe-only adapters, removed acknowledgements from launch positioning, and verified README-linked launch assets exist.
 - Hardened desktop approvals with queue state, risk badges, optional deny reasons, edit-specific approve CTA, and timeout countdowns.
 - Hardened the mobile PWA with transport fallback, targeted approval deep links, risk badges, optional deny reasons, clearer offline/transport state, and push-notification deep links to `/m/?approval=<id>`.
 - Added approval history storage filters, authenticated history/export endpoints, and an Activity Center approval audit tab with search, decision/edited filters, JSONL export, and daemon-unavailable state.
@@ -305,10 +313,10 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 ### Still out of scope after the orchestration pass
 
 - True live PTY/process survival across daemon restart or binary handoff is still not implemented. Restart persistence is relaunch-based.
-- Full blocking native approval coverage for Pi/OMP/Cursor remains pending until stable blocking hook/plugin APIs are verified.
-- Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, and Goose. Pi/OMP/Cursor now have native-observe event installers, not verified blocking approval.
+- Full blocking native approval coverage for OMP/Cursor remains pending until stable blocking hook/plugin APIs are verified.
+- Provider-native blocking approval now covers Claude Code, Bash-only Codex, OpenCode, Qoder, GitHub Copilot CLI, Goose, and Pi. OMP/Cursor have native-observe event installers, not verified blocking approval.
 - xterm.js remains the chosen terminal path for now; libghostty-vt, Kitty graphics, and Kitty keyboard parity remain future terminal-native work.
-- Remote V2 stages the current Onibi binary and files over SSH and can start a remote helper daemon, but it still does not transfer live remote PTYs between binaries.
+- Remote V2 stages the current Onibi binary and files over SSH, starts a remote helper daemon, and can launch/attach a remote daemon-owned session over an SSH stream. It still does not transfer existing live remote PTYs between binaries.
 
 ---
 
@@ -330,9 +338,9 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **Panes (real splits)** | Yes — drag-resize, mouse-native, tiling | Yes — vertical/horizontal split with focus, pane zoom, drag-reorder, layout presets, persisted sizes, and per-workspace-tab persistence |
 | **Pane runtime** | Real PTYs via portable-pty + ghostty VT | Real PTYs via portable-pty |
 | **Workspace/tab/pane reorder (drag/drop)** | Yes | Yes — workspace reorder, workspace terminal-tab reorder, and terminal pane reorder |
-| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, foreground process polling for 11 no-hook agents, and native-observe Pi/OMP/Cursor events |
+| **Agent detection** | 18 agents (auto, process + heuristic) | Partial — explicit metadata, provider-event metadata, command/title/banner-output heuristics, foreground process polling for 11 no-hook agents, Pi native events, and Cursor/OMP native-observe events |
 | **Agent state model** | 4 states: idle / working / blocked / done (unviewed) | Yes — canonical statuses, approval/exit transitions, native provider events, shell/agent output heuristics, arbitration guardrails, and focus clear are wired |
-| **Direct integrations (hook/plugin/protocol)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP or ACP, Hermes ACP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Pi/OMP/Cursor native-observe hooks, Gemini resume-only |
+| **Direct integrations (hook/plugin/protocol)** | 8 versioned: pi, omp, claude, codex, opencode, hermes, qodercli, copilot | Partial — Claude Code HTTP or ACP, Hermes ACP, Codex Bash, OpenCode plugin, Qoder/Copilot/Goose event hooks, Pi native-blocking extension, Cursor/OMP native-observe hooks, Gemini resume-only |
 | **Heuristic detection (no hook)** | 11 agents (Cursor, Cline, Copilot, Gemini, Grok, Kimi, …) | Yes — launch/title/banner-output detection plus foreground process polling for all 11 |
 | **Native agent session resume** | Yes — Claude/Codex/Pi/Hermes/OpenCode convos restore | Partial — saved command relaunch plus provider-ID native resume metadata for Claude/OpenCode/Gemini/Qoder/Hermes/Goose when captured |
 | **Approval / gating layer** | No | Yes (primary feature) |
@@ -343,7 +351,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
 | **API: pane send-text / send-keys / run** | Yes | Yes — authenticated pane `send-text`, preset-backed `send-keys`, and explicit `run` helper exist |
 | **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/worktree/events with global JSON output |
-| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, remote keybinding policy, helper bootstrap, and remote helper daemon start; no remote PTY transfer yet |
+| **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, remote keybinding policy, helper bootstrap, remote helper daemon start, and remote daemon session stream attach; no existing-PTY transfer yet |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
 | **Transport: Tailscale Funnel** | No | Yes |
 | **Transport: Cloudflare Quick Tunnel** | No | Yes |
@@ -352,7 +360,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **TLS / HSTS / CSP** | No | Yes |
 | **Rate limiting** | No | Yes (tower_governor) |
 | **Git worktree management** | Yes (`herdr worktree …`) | Yes — create/remove/list, Explorer/sidebar open and launch actions, and `onibi worktree open` |
-| **Git status / staging / commit UI** | Status caching, sidebar indicators | Full UI (staging, commit, diffs, clone, push/pull) |
+| **Git status / staging / commit UI** | Status caching, sidebar indicators | Focused UI (status, staging, commit, diffs; clone/push/pull cut) |
 | **Filesystem browse / read / write** | No (it is a multiplexer) | Yes (file tree, search, CRUD) |
 | **In-app editor (CodeMirror)** | No | Yes (syntax HL, Vim mode) |
 | **Review/diff baseline tracking** | No | Yes (SHA256 snapshots, per-file accept/reject) |
@@ -407,8 +415,8 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 12. **[DONE] Per-agent label override** (`herdr agent rename`) — global per-agent display labels are configurable in Settings and persisted through `settings.agent_label_overrides`.
 
 ### 2.3 Integrations (versioned hooks/plugins)
-13. **[BLOCKED] Pi extension** (`~/.pi/agent/extensions/herdr-agent-state.ts`) — registered as pending until a stable public native extension API is verified.
-14. **[BLOCKED] OMP extension** (`~/.omp/agent/extensions/…`) — registered as pending until a stable public native extension API is verified.
+13. **[DONE] Pi extension** (`~/.pi/agent/extensions/onibi-provider-events.ts`) — versioned native extension installer, status/uninstall, session/tool event forwarding, blocking `tool_call` approvals, and approve-with-edits input mutation are wired.
+14. **[PARTIAL] OMP extension** (`~/.omp/agent/extensions/…`) — versioned native-observe installer/status/uninstall and event forwarding are wired. Blocking approval remains unverified until OMP exposes a stable synchronous hook API.
 15. **[DONE] OpenCode plugin** — versioned local plugin installer at `~/.config/opencode/plugins/onibi-provider-events.js`, provider-event ingestion, synchronous `tool.execute.before` approval blocking, approve-with-edits arg updates, and `opencode --session <id>` resume metadata are wired.
 16. **[DONE] Hermes ACP integration** — Hermes is no longer tracked as a Python-plugin target. The integration now reports ACP support through `hermes acp`, shares Onibi's stdio ACP runtime, maps ACP permission requests into the approval flow, and keeps Hermes resume metadata.
 17. **[DONE] Qoder CLI hook** — versioned command-hook installer records session/tool lifecycle events, blocks `PreToolUse` through Onibi with exit-code-2 denial, supports `updatedInput`, and preserves native `qoder -r <id>` resume metadata.
@@ -434,7 +442,7 @@ Grouped by subsystem. Each item is concrete and scoped for implementation. Items
 33. **[DONE] Pane history opt-in** (screen scrollback survives restart) — persisted transcript retention is opt-in through `pane_history_enabled` and restores when no live replay is available.
 
 ### 2.6 Remote
-34. **[DONE] SSH remote attach** (`herdr --remote ssh://…`) — SSH-backed local PTY sessions are implemented through GUI, CLI, desktop API, remote metadata persistence, keybinding policy, and current-binary helper bootstrap. Persistent remote daemon handoff remains a separate future capability.
+34. **[DONE] SSH remote attach** (`herdr --remote ssh://…`) — SSH-backed local PTY sessions are implemented through GUI, CLI, desktop API, remote metadata persistence, keybinding policy, current-binary helper bootstrap, remote helper daemon start, and remote daemon session stream attach. Existing-live-PTY transfer/handoff remains a separate future capability.
 35. **[DONE] Remote keybindings policy** (`--remote-keybindings local|remote`) — available globally, per GUI launch, and through `onibi remote ssh --keybindings`.
 36. **[DONE] Image-paste bridging** (local clipboard image → remote staged file path) — available through the Command Palette for active SSH sessions.
 
@@ -539,9 +547,9 @@ Additional orchestration items completed or partially completed outside original
 2, 25, 26, 27, 28, 29, 30, 31 (partial native resume plus relaunch fallback).
 
 **Phase B — agent ecosystem reach:**
-Completed from Phase B: 8, 10, 11, 15, 17, 18, 19, 20.
-Partial from Phase B: 16, 31.
-Remaining native hook/plugin work: 13, 14. Pi/OMP/Cursor have native-observe installers; blocking approval remains pending on stable provider APIs.
+Completed from Phase B: 8, 10, 11, 13, 15, 17, 18, 19, 20.
+Partial from Phase B: 14, 16, 31.
+Remaining native hook/plugin work: OMP/Cursor blocking approval. Pi has a native-blocking installer; OMP/Cursor have native-observe installers and remain pending on stable synchronous approval APIs.
 
 **Phase C — terminal-native polish:**
 Completed from Phase C: 39, 42, 43, 44, 45, 46, 47, 55, 56, 77, plus xterm reliability hardening for 37 and IME interception hardening for 41.
@@ -589,8 +597,7 @@ Drop from roadmap. Mark `[CUT]` in any tracking issue and close.
 
 | Existing item | Reason |
 |---|---|
-| **13** Pi extension | BLOCKED on stable API; heuristic detection covers demo. |
-| **14** OMP extension | Same as 13. |
+| **14** OMP blocking extension | Observe-only hook exists; blocking approval remains blocked on stable API. |
 | **32** Live server handoff | High engineering cost, near-zero user benefit over relaunch. Herdr-flex. |
 | **37** Vendored libghostty-vt option | xterm.js + WebGL + write batching is sufficient for the audience; libghostty integration is months of C/Zig work. |
 | **38** Kitty graphics protocol | xterm.js does not support; needs item 37 first. |
@@ -604,7 +611,7 @@ Drop from roadmap. Mark `[CUT]` in any tracking issue and close.
 Scope-reductions, not full cuts:
 
 - **55** Built-in themes: reduce 19 to 6 well-tested (Catppuccin, Dracula, Nord, Tokyo Night, Solarized, Onibi Flame). The other 13 are checkbox-feature volume with support cost.
-- Git UI: intended cut is clone / push / pull, but current code still contains clone and push/pull UI paths. Treat this as pending scope cleanup, not completed reduction.
+- Git UI: clone / push / pull are cut and removed from active UI/backend surfaces. Source Control stays focused on status, diff, staging, and commit.
 
 ### 5.2 Adds — high leverage
 
