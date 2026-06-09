@@ -825,6 +825,7 @@ export function TerminalView({
     if (!container) {
       return undefined;
     }
+    renderResetPendingRef.current = false;
     lastResizeRef.current = null;
 
     const term = new Terminal({
@@ -905,7 +906,14 @@ export function TerminalView({
       return true;
     });
 
-    term.open(container);
+    try {
+      term.open(container);
+    } catch (error) {
+      terminalDebug("open failed", { ptyId, error: String(error) });
+      onUnavailable?.(error);
+      term.dispose();
+      return undefined;
+    }
     refreshTerminalLayout(visibleRef.current);
 
     let frame = 0;
@@ -1266,7 +1274,16 @@ export function TerminalView({
       }
       applyOutputMetadata(text);
       applyTriggers(text);
-      term.write(text);
+      try {
+        if (!terminalHasRenderer(term)) {
+          resetTerminalRenderer("write-missing-renderer");
+          return;
+        }
+        term.write(text);
+      } catch (error) {
+        resetTerminalRenderer("write-failed", error);
+        return;
+      }
       const flushLatency = queuedAt === null ? 0 : performance.now() - queuedAt;
       renderProfile.batches += 1;
       renderProfile.maxBatchBytes = Math.max(renderProfile.maxBatchBytes, byteCount);
@@ -1337,7 +1354,11 @@ export function TerminalView({
           cancelAnimationFrame(pendingWriteFrame);
         }
         flushPtyWrites();
-        term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);
+        try {
+          term.write(`\r\n[process exited: ${event.code}${suffix}]\r\n`);
+        } catch (error) {
+          resetTerminalRenderer("exit-write-failed", error);
+        }
         onExit?.({ code: event.code, signal: event.signal });
       }
     };
@@ -1383,7 +1404,11 @@ export function TerminalView({
           });
         } else if (initialTranscriptRef.current) {
           const restored = initialTranscriptRef.current.replace(/\r?\n/g, "\r\n");
-          term.write(`[onibi: restored pane history]\r\n${restored}`);
+          try {
+            term.write(`[onibi: restored pane history]\r\n${restored}`);
+          } catch (error) {
+            resetTerminalRenderer("history-write-failed", error);
+          }
         }
         replayReady = true;
         flushQueuedEvents();
@@ -1408,8 +1433,12 @@ export function TerminalView({
 
     function handleJumpToLastPrompt(event: Event) {
       if ((event as CustomEvent<{ ptyId?: string }>).detail?.ptyId === ptyId) {
-        term.scrollToBottom();
-        term.focus();
+        try {
+          term.scrollToBottom();
+          term.focus();
+        } catch (error) {
+          resetTerminalRenderer("jump-failed", error);
+        }
       }
     }
     function handleCopyModeRequest(event: Event) {
@@ -1429,7 +1458,11 @@ export function TerminalView({
         return;
       }
       const body = notice.body ? ` - ${notice.body}` : "";
-      term.write(`\r\n[onibi: ${notice.title}${body}]\r\n`);
+      try {
+        term.write(`\r\n[onibi: ${notice.title}${body}]\r\n`);
+      } catch (error) {
+        resetTerminalRenderer("notice-write-failed", error);
+      }
     }
     window.addEventListener("onibi:jump-last-prompt", handleJumpToLastPrompt);
     window.addEventListener("onibi:terminal-copy-mode", handleCopyModeRequest);
@@ -1482,11 +1515,13 @@ export function TerminalView({
     onUnavailable,
     openSearch,
     ptyId,
+    resetTerminalRenderer,
     settings.terminalCopyFormat,
     settings.terminalInlineImages,
     settings.terminalMouseCapture,
     settings.terminalOsc52Clipboard,
     settings.terminalScreenReaderMode,
+    terminalResetToken,
     triggerMatchers,
   ]);
 
@@ -1501,20 +1536,26 @@ export function TerminalView({
     if (!term) {
       return;
     }
-    term.options = {
-      fontFamily: resolvedFontFamily,
-      fontSize,
-      letterSpacing: 0,
-      lineHeight: 1,
-      scrollback: resolvedScrollback,
-      screenReaderMode: settings.terminalScreenReaderMode,
-      theme: resolvedTerminalTheme,
-    };
-    term.clearTextureAtlas();
+    try {
+      term.options = {
+        fontFamily: resolvedFontFamily,
+        fontSize,
+        letterSpacing: 0,
+        lineHeight: 1,
+        scrollback: resolvedScrollback,
+        screenReaderMode: settings.terminalScreenReaderMode,
+        theme: resolvedTerminalTheme,
+      };
+      term.clearTextureAtlas();
+    } catch (error) {
+      resetTerminalRenderer("options-failed", error);
+      return;
+    }
     refreshTerminalLayout(visibleRef.current);
   }, [
     fontSize,
     ptyId,
+    resetTerminalRenderer,
     resolvedFontFamily,
     resolvedScrollback,
     settings.terminalScreenReaderMode,

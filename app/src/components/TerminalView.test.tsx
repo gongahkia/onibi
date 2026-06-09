@@ -177,6 +177,21 @@ describe("TerminalView", () => {
     expect(webglConstructor).not.toHaveBeenCalled();
   });
 
+  test("remounts xterm when renderer internals are missing", async () => {
+    terminalConstructor.mockImplementationOnce(() => ({
+      ...createTerminalMock(),
+      _core: {
+        _renderService: {
+          hasRenderer: vi.fn(() => false),
+        },
+      },
+    }));
+
+    render(<TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />);
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalledTimes(2));
+  });
+
   test("filters terminal mouse reports when mouse capture is disabled", async () => {
     render(
       <TerminalView
