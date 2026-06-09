@@ -346,7 +346,7 @@ export type WorkspaceSidebarView =
   | "search"
   | "source-control"
   | "approvals";
-export type WorkspaceRightDockView = "files" | "search";
+export type WorkspaceRightDockView = "files" | "search" | "source-control";
 export type WorkspaceRightDockMode = "compressed" | "expanded";
 
 export interface ArrangementSession {
@@ -2464,7 +2464,9 @@ function normalizeRightDockView(
   value: unknown,
   fallback: WorkspaceRightDockView = "files",
 ): WorkspaceRightDockView {
-  return value === "files" || value === "search" ? value : fallback;
+  return value === "files" || value === "search" || value === "source-control"
+    ? value
+    : fallback;
 }
 
 function normalizeRightDockMode(
@@ -4396,7 +4398,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   setActiveSidebarView: (view) => {
     set((state) => {
-      if (view === "files" || view === "search") {
+      if (view === "files" || view === "search" || view === "source-control") {
         return {
           activeSidebarView: view,
           rightDockView: view,

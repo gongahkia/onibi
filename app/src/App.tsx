@@ -97,9 +97,7 @@ function App() {
   }, [settings.theme]);
 
   const horizontalTabs = settings.tabBarOrientation === "horizontal";
-  const leftSidebarVisible =
-    !sidebarCollapsed &&
-    (activeSidebarView === "source-control" || activeSidebarView === "approvals");
+  const leftSidebarVisible = !sidebarCollapsed && activeSidebarView === "approvals";
   const openApprovalsView = () => {
     setActiveSidebarView("approvals");
     setRightDockMode("compressed");

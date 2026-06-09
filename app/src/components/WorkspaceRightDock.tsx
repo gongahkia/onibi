@@ -11,6 +11,7 @@ const DOCK_ITEMS: Array<{
 }> = [
   { id: "files", label: "Explorer", icon: "codicon-files" },
   { id: "search", label: "Search", icon: "codicon-search" },
+  { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
 ];
 
 export function WorkspaceRightDock() {

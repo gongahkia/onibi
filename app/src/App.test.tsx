@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SETTINGS, useSessionStore } from "./lib/sessions";
@@ -128,13 +128,18 @@ describe("App", () => {
     expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
   });
 
-  test("opens source control in the left sidebar", () => {
+  test("keeps source control out of the left sidebar", () => {
+    useSessionStore.setState({
+      activeSidebarView: "source-control",
+      rightDockView: "source-control",
+      rightDockMode: "expanded",
+    });
+
     render(<App />);
-    fireEvent.click(screen.getByLabelText("Source Control"));
 
     expect(useSessionStore.getState().activeSidebarView).toBe("source-control");
-    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
-    expect(screen.getByTestId("workspace-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
+    expect(screen.getByTestId("workspace-right-dock")).toBeTruthy();
   });
 
   test("refreshes system theme when the OS color scheme changes", () => {

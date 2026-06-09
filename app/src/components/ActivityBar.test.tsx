@@ -90,7 +90,7 @@ describe("ActivityBar", () => {
 
     expect(screen.queryByLabelText("Explorer")).toBeNull();
     expect(screen.queryByLabelText("Search")).toBeNull();
-    expect(screen.getByLabelText("Source Control")).toBeTruthy();
+    expect(screen.queryByLabelText("Source Control")).toBeNull();
     expect(screen.getByLabelText("Approvals")).toBeTruthy();
   });
 });

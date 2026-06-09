@@ -39,7 +39,7 @@ const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
 
 export function WorkspaceSidebar() {
   const view = useSessionStore((state) => state.activeSidebarView);
-  if (view === "files" || view === "search") {
+  if (view === "files" || view === "search" || view === "source-control") {
     return null;
   }
   return (

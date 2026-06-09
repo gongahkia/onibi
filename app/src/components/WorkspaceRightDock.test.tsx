@@ -52,4 +52,14 @@ describe("WorkspaceRightDock", () => {
     expect(useSessionStore.getState().rightDockMode).toBe("expanded");
     expect(screen.getByTestId("dock-content").textContent).toBe("search");
   });
+
+  test("opens source control in the dock", () => {
+    render(<WorkspaceRightDock />);
+
+    fireEvent.click(screen.getByLabelText("Source Control"));
+
+    expect(useSessionStore.getState().rightDockView).toBe("source-control");
+    expect(useSessionStore.getState().activeSidebarView).toBe("source-control");
+    expect(screen.getByTestId("dock-content").textContent).toBe("source-control");
+  });
 });

@@ -37,7 +37,6 @@ export function ActivityBar({ sidebarCollapsed, onToggleSidebar }: ActivityBarPr
   );
 
   const topItems: ActivityItem[] = [
-    { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
     {
       id: "approvals",
       label: "Approvals",
