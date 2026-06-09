@@ -6,9 +6,18 @@ KelpClaw SIFT Sentinel gives Protocol SIFT a safer autonomous DFIR path: a typed
 
 Claude Code provides the agentic framework. Protocol SIFT provides the SIFT Workstation bridge. KelpClaw constrains what the agent can do, checks what it says, and preserves a signed audit trail: claim-to-evidence verification, hostile-evidence firewall, spoliation check, ATT&CK Navigator export, deterministic replay, RFC3161 timestamping, and reviewer HTML.
 
-Public repository: https://github.com/gongahkia/kelp-claw
+Public repository: https://github.com/gongahkia/find-evil-hackathon-2026
 
-Demo video artifact: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
+Demo video artifact, once recorded: `SUBMISSION/kelpclaw-sift-sentinel-demo.mp4`
+
+## Submission Materials
+
+- Judge reproduction guide: [`JUDGES.md`](JUDGES.md)
+- Architecture diagram source: [`docs/architecture.mmd`](docs/architecture.mmd)
+- Dataset documentation: [`docs/dataset-cfreds-hacking-case.md`](docs/dataset-cfreds-hacking-case.md)
+- Accuracy report template: [`docs/accuracy-report-template.md`](docs/accuracy-report-template.md)
+- Devpost story draft: [`docs/devpost-submission-draft.md`](docs/devpost-submission-draft.md)
+- License: [`LICENSE`](LICENSE)
 
 ## v3 Benchmark Anchors
 

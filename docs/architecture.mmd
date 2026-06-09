@@ -1,0 +1,66 @@
+flowchart LR
+  user["Analyst / judge"]
+  caseCfg["Case YAML\nexpected findings + rules"]
+  sentinel["Sentinel orchestrator\nverify, repair, audit"]
+  siftCmd["--sift-command runner\nhooked process execution"]
+  mcp["Custom read-only MCP server\ntyped forensic tools"]
+  hooks["Agent hook normalizer\nagent-execution.jsonl"]
+  cfreds["NIST CFReDS Hacking Case\nE01/E02 image parts"]
+  ewf["ewfmount\nEWF to raw view"]
+  sift["SIFT tools\nmmls, fsstat, tsk_recover, rip.pl"]
+  evidence["Evidence root\nrecovered artifacts + transcripts"]
+  linker["Evidence linkers\nhashing, registry, pcap, timeline"]
+  extractor["Claim extraction\ncacheable, committee optional"]
+  ledger["ClaimLedger\nclaims + evidenceRefs"]
+  verifier["Verifier rules\nsupported, contradicted, missing"]
+  repair["Repair loop\nself-correction trace"]
+  firewall["Hostile-evidence firewall\ntaint scan"]
+  spoliation["Spoliation check\nbefore/after hashes"]
+  attack["ATT&CK Navigator layer"]
+  bundle["Signed audit bundle\nmanifest, signatures, attestation"]
+  reviewer["Reviewer artifacts\nHTML, accuracy report, logs"]
+
+  user --> sentinel
+  caseCfg --> sentinel
+  cfreds --> ewf --> sift --> evidence
+
+  sentinel --> siftCmd --> sift
+  sentinel --> mcp --> sift
+  siftCmd --> hooks --> sentinel
+  mcp --> hooks
+
+  evidence --> linker --> extractor --> ledger
+  ledger --> verifier --> repair --> ledger
+  ledger --> attack
+  hooks --> ledger
+  hooks --> firewall
+  evidence --> spoliation
+
+  ledger --> bundle
+  hooks --> bundle
+  firewall --> bundle
+  spoliation --> bundle
+  attack --> bundle
+  bundle --> reviewer
+
+  subgraph hard["Architectural guardrails"]
+    mcp
+    siftCmd
+  end
+
+  subgraph detective["Detective / post-exec controls"]
+    firewall
+    spoliation
+  end
+
+  classDef hard fill:#e7f5ff,stroke:#1864ab,stroke-width:2px,color:#102a43;
+  classDef detective fill:#fff4e6,stroke:#b45309,stroke-width:2px,color:#3d2300;
+  classDef evidence fill:#f3f4f6,stroke:#4b5563,color:#111827;
+  classDef output fill:#ecfdf5,stroke:#18794e,color:#052e16;
+  classDef orchestrator fill:#f5f3ff,stroke:#6d28d9,color:#2e1065;
+
+  class mcp,siftCmd hard;
+  class firewall,spoliation detective;
+  class cfreds,ewf,sift,evidence evidence;
+  class bundle,reviewer,attack output;
+  class sentinel,ledger,verifier,repair,linker,extractor,hooks orchestrator;
