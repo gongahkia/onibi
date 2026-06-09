@@ -92,7 +92,7 @@ pub fn install(name: &str, token: &str) -> Result<String> {
         "copilot" | "github-copilot" => copilot::install(),
         "hermes" => hermes::install(),
         "pi" => pi::install(),
-        "omp" => omp::install(),
+        "omp" => omp::install(token),
         other => bail!("unknown adapter: {other}"),
     }
 }

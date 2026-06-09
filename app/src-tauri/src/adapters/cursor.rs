@@ -7,10 +7,13 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 const AGENT: &str = "cursor";
-const EVENTS: &[&str] = &[
+const BLOCKING_EVENTS: &[&str] = &[
     "beforeShellExecution",
-    "afterShellExecution",
     "beforeMCPExecution",
+    "beforeReadFile",
+];
+const OBSERVE_EVENTS: &[&str] = &[
+    "afterShellExecution",
     "afterMCPExecution",
     "afterFileEdit",
 ];
@@ -19,7 +22,7 @@ pub fn info() -> AdapterInfo {
     match hooks_path() {
         Ok(path) => status_at(&path).unwrap_or_else(|error| AdapterInfo {
             name: AGENT,
-            support: "native-observe",
+            support: "event-bridge",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -29,7 +32,7 @@ pub fn info() -> AdapterInfo {
         }),
         Err(error) => AdapterInfo {
             name: AGENT,
-            support: "native-observe",
+            support: "event-bridge",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -42,12 +45,12 @@ pub fn info() -> AdapterInfo {
 
 pub fn install() -> Result<String> {
     install_at(&hooks_path()?)?;
-    Ok("Cursor native-observe CLI hooks installed".to_string())
+    Ok("Cursor blocking CLI hooks installed".to_string())
 }
 
 pub fn uninstall() -> Result<String> {
     uninstall_at(&hooks_path()?)?;
-    Ok("Cursor native-observe CLI hooks uninstalled".to_string())
+    Ok("Cursor CLI hooks uninstalled".to_string())
 }
 
 fn hooks_path() -> Result<PathBuf> {
@@ -68,12 +71,19 @@ fn install_at(path: &Path) -> Result<()> {
     let hooks = hooks
         .as_object_mut()
         .context("Cursor hooks field must be an object")?;
-    for event in EVENTS {
+    for event in BLOCKING_EVENTS {
         let handlers = hooks.entry(*event).or_insert_with(|| json!([]));
         let handlers = handlers
             .as_array_mut()
             .with_context(|| format!("Cursor {event} hooks field must be an array"))?;
-        handlers.push(hook_config());
+        handlers.push(hook_config(true));
+    }
+    for event in OBSERVE_EVENTS {
+        let handlers = hooks.entry(*event).or_insert_with(|| json!([]));
+        let handlers = handlers
+            .as_array_mut()
+            .with_context(|| format!("Cursor {event} hooks field must be an array"))?;
+        handlers.push(hook_config(false));
     }
     write_json(path, &settings)
 }
@@ -94,7 +104,7 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
     if !path.exists() {
         return Ok(AdapterInfo {
             name: AGENT,
-            support: "native-observe",
+            support: "event-bridge",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -108,25 +118,22 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
     let installed = installed_version.is_some() || onibi_handlers(&settings).next().is_some();
     Ok(AdapterInfo {
         name: AGENT,
-        support: "native-observe",
+        support: "event-bridge",
         installed,
         installed_version: installed_version.clone(),
         bundled_version: Some(INTEGRATION_VERSION),
         outdated: installed && installed_version.as_deref() != Some(INTEGRATION_VERSION),
         install_path: Some(path.to_path_buf()),
-        message: installed.then_some(
-            "Cursor native-observe CLI hooks installed; lifecycle hooks are not installed"
-                .to_string(),
-        ),
+        message: installed.then_some("Cursor blocking CLI hooks installed".to_string()),
     })
 }
 
-fn hook_config() -> Value {
+fn hook_config(blocking: bool) -> Value {
     json!({
         "type": "command",
         "command": command_string_hook(AGENT),
         "onibiIntegrationVersion": INTEGRATION_VERSION,
-        "blocking": false
+        "blocking": blocking
     })
 }
 
@@ -207,10 +214,21 @@ mod tests {
                 .len(),
             2
         );
-        assert_eq!(onibi_handlers(&settings).count(), EVENTS.len());
+        assert_eq!(
+            settings["hooks"]["beforeShellExecution"][1]["blocking"],
+            json!(true)
+        );
+        assert_eq!(
+            settings["hooks"]["afterShellExecution"][0]["blocking"],
+            json!(false)
+        );
+        assert_eq!(
+            onibi_handlers(&settings).count(),
+            BLOCKING_EVENTS.len() + OBSERVE_EVENTS.len()
+        );
         let status = status_at(&path).unwrap();
         assert!(status.installed);
-        assert_eq!(status.support, "native-observe");
+        assert_eq!(status.support, "event-bridge");
         assert_eq!(
             status.installed_version.as_deref(),
             Some(INTEGRATION_VERSION)
