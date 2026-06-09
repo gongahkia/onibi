@@ -14,6 +14,10 @@ vi.mock("./components/WorkspaceSidebar", () => ({
   WorkspaceSidebar: () => <div data-testid="workspace-sidebar" />,
 }));
 
+vi.mock("./components/WorkspaceRightDock", () => ({
+  WorkspaceRightDock: () => <div data-testid="workspace-right-dock" />,
+}));
+
 vi.mock("./components/MainPane", () => ({
   MainPane: () => <div data-testid="main-pane" />,
 }));
@@ -40,6 +44,9 @@ function resetStore() {
     activeWorkspaceTabId: null,
     workspaces: [],
     selectedFile: null,
+    activeSidebarView: "files",
+    rightDockView: "files",
+    rightDockMode: "expanded",
     sidebarCollapsed: false,
     settings: DEFAULT_SETTINGS,
   });
@@ -112,14 +119,24 @@ describe("App", () => {
     ).toBe("true");
   });
 
-  test("persists sidebar collapse through the shared store", () => {
+  test("keeps explorer in the right dock by default", () => {
     render(<App />);
-    expect(screen.getByTestId("workspace-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
+    expect(screen.getByTestId("workspace-right-dock")).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Explorer"));
 
-    expect(useSessionStore.getState().sidebarCollapsed).toBe(true);
+    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
     expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
+  });
+
+  test("opens source control in the left sidebar", () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText("Source Control"));
+
+    expect(useSessionStore.getState().activeSidebarView).toBe("source-control");
+    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
+    expect(screen.getByTestId("workspace-sidebar")).toBeTruthy();
   });
 
   test("refreshes system theme when the OS color scheme changes", () => {

@@ -1054,6 +1054,10 @@ button.welcome-pill:hover {
   border-left: 1px solid var(--border);
 }
 
+.workspace-right-dock.compressed .workspace-right-rail {
+  border-left: 0;
+}
+
 .workspace-right-rail-group {
   display: flex;
   flex-direction: column;
@@ -5264,6 +5268,16 @@ button.welcome-pill:hover {
 
 .app-frame[data-mobile-layout="true"] .app-shell {
   min-width: 0;
+}
+
+.app-frame[data-mobile-layout="true"] .workspace-right-dock.expanded {
+  width: min(86vw, 420px);
+  max-width: calc(100vw - 44px);
+}
+
+.app-frame[data-mobile-layout="true"] .workspace-right-dock.compressed {
+  flex-basis: 48px;
+  width: 48px;
 }
 
 .app-frame[data-mobile-layout="true"] .approval-side-by-side {
