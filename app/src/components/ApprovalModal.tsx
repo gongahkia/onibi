@@ -138,6 +138,7 @@ export function ApprovalModal({
     () => pending ? approvalPolicyMetadata(pending.metadata) : null,
     [pending],
   );
+  const canEditInput = pending ? approvalSupportsUpdatedInput(pending) : false;
   const timeRemaining = pending?.expires_at
     ? Math.max(0, pending.expires_at - now)
     : null;
@@ -210,7 +211,7 @@ export function ApprovalModal({
           </div>
         ) : null}
 
-        {editing ? (
+        {editing && canEditInput ? (
           <div className="approval-edit-wrap">
             {proseEdit ? (
               <ProseComposer
@@ -265,16 +266,18 @@ export function ApprovalModal({
               >
                 Allow
               </button>
-              <button
-                className="approval-button edit"
-                type="button"
-                onClick={() => {
-                  setEditing(true);
-                  setEditValue(proseEdit?.value ?? formattedInput);
-                }}
-              >
-                Edit input
-              </button>
+              {canEditInput ? (
+                <button
+                  className="approval-button edit"
+                  type="button"
+                  onClick={() => {
+                    setEditing(true);
+                    setEditValue(proseEdit?.value ?? formattedInput);
+                  }}
+                >
+                  Edit input
+                </button>
+              ) : null}
               <button
                 className="approval-button deny"
                 type="button"
@@ -826,6 +829,14 @@ function approvalPolicyMetadata(
     decision: record.decision,
     name: typeof record.name === "string" ? record.name : undefined,
   };
+}
+
+function approvalSupportsUpdatedInput(message: ApprovalPendingMessage): boolean {
+  if (!message.metadata || typeof message.metadata !== "object") {
+    return true;
+  }
+  const metadata = message.metadata as Record<string, unknown>;
+  return metadata.supportsUpdatedInput !== false;
 }
 
 function formatCountdown(ms: number): string {

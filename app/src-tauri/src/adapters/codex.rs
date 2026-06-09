@@ -1,5 +1,7 @@
 use crate::{
-    adapters::{IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_FIELD},
+    adapters::{
+        self, IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_FIELD, EVENT_ROUTE_PREFIX,
+    },
     protocol::{ApprovalRequestBody, Decision, PROTOCOL_VERSION},
     secret,
     server::{routes, AppState},
@@ -15,6 +17,12 @@ use std::{
 };
 
 const HOOK_COMMAND: &str = "onibi _hook codex";
+const EVENTS: &[(&str, Option<&str>, u64)] = &[
+    ("SessionStart", None, 30),
+    ("PreToolUse", Some("Bash"), 660),
+    ("PostToolUse", None, 30),
+    ("Stop", None, 30),
+];
 
 pub fn info() -> IntegrationInfo {
     match hooks_path() {
@@ -72,22 +80,44 @@ pub fn run_stdin_hook(port: u16) -> Result<()> {
         .context("read Codex hook payload from stdin")?;
     let payload: Value = serde_json::from_str(&raw).context("parse Codex hook payload")?;
     let token = secret::load_or_create_token()?.token;
-    let response = post_json(
-        port,
-        "/v1/approval/request",
-        &token,
-        &body_from_payload(payload)?,
-    )?;
+    let event = payload
+        .get("hook_event_name")
+        .or_else(|| payload.get("hookEventName"))
+        .and_then(Value::as_str)
+        .unwrap_or("PreToolUse");
+    let tool = payload
+        .get("tool_name")
+        .or_else(|| payload.get("tool"))
+        .and_then(Value::as_str)
+        .unwrap_or("Bash");
+    if event != "PreToolUse" || tool != "Bash" {
+        let _ = adapters::post_json(
+            port,
+            &format!("{EVENT_ROUTE_PREFIX}/codex/event"),
+            &token,
+            &payload,
+        )?;
+        return Ok(());
+    }
+    let response = post_json(port, "/v1/approval/request", &token, &body_from_payload(payload)?)?;
     let decision = response
         .get("decision")
         .and_then(Value::as_str)
         .unwrap_or("deny");
-    println!(
-        "{}",
-        json!({
-            "permissionDecision": if decision == "allow" { "allow" } else { "deny" }
-        })
-    );
+    let mut hook_specific = json!({
+        "hookEventName": "PreToolUse",
+        "permissionDecision": if decision == "allow" { "allow" } else { "deny" },
+    });
+    if let Some(reason) = response.get("reason").and_then(Value::as_str) {
+        hook_specific["permissionDecisionReason"] = Value::String(reason.to_string());
+    }
+    if decision == "allow" {
+        if let Some(updated_input) = response.get("updatedInput").filter(|value| !value.is_null())
+        {
+            hook_specific["updatedInput"] = updated_input.clone();
+        }
+    }
+    println!("{}", json!({ "hookSpecificOutput": hook_specific }));
     Ok(())
 }
 
@@ -125,6 +155,7 @@ fn body_from_payload(payload: Value) -> Result<ApprovalRequestBody> {
         metadata: Some(json!({
             "source": "codex",
             "limitation": "bash-only",
+            "supportsUpdatedInput": true,
             "raw": payload,
         })),
     })
@@ -144,20 +175,33 @@ fn hooks_path() -> Result<PathBuf> {
 fn install_at(path: &Path) -> Result<()> {
     let mut config = read_hooks(path)?;
     remove_onibi_hook(&mut config);
-    let hooks = config
+    let root = config
         .as_object_mut()
-        .context("Codex hooks file must be an object")?
-        .entry("hooks")
-        .or_insert_with(|| json!([]));
+        .context("Codex hooks file must be an object")?;
+    root.insert(
+        INTEGRATION_VERSION_FIELD.to_string(),
+        Value::String(INTEGRATION_VERSION.to_string()),
+    );
+    let hooks = root.entry("hooks").or_insert_with(|| json!({}));
+    if !hooks.is_object() {
+        *hooks = json!({});
+    }
     let hooks = hooks
-        .as_array_mut()
-        .context("Codex hooks field must be an array")?;
-    hooks.push(json!({
-        "event": "tool",
-        "tool": "Bash",
-        "command": ["onibi", "_hook", "codex"],
-        "onibiIntegrationVersion": INTEGRATION_VERSION
-    }));
+        .as_object_mut()
+        .context("Codex hooks field must be an object")?;
+    for (event, matcher, timeout) in EVENTS {
+        let groups = hooks.entry(*event).or_insert_with(|| json!([]));
+        let groups = groups
+            .as_array_mut()
+            .with_context(|| format!("Codex {event} hooks field must be an array"))?;
+        let mut group = json!({
+            "hooks": [hook_config(*timeout)]
+        });
+        if let Some(matcher) = matcher {
+            group["matcher"] = Value::String((*matcher).to_string());
+        }
+        groups.push(group);
+    }
     write_hooks(path, &config)
 }
 
@@ -208,7 +252,7 @@ fn status_at(path: &Path) -> Result<IntegrationInfo> {
         outdated,
         install_path: Some(path.to_path_buf()),
         message: installed.then_some(
-            "Codex Bash hook installed; native session resume is unverified".to_string(),
+            "Codex Bash hook installed with lifecycle resume metadata".to_string(),
         ),
     })
 }
@@ -225,14 +269,36 @@ fn remove_onibi_hook(config: &mut Value) {
     if let Some(hooks) = config.get_mut("hooks").and_then(Value::as_array_mut) {
         hooks.retain(|hook| !is_onibi_hook(hook));
     }
+    if let Some(hooks) = config.get_mut("hooks").and_then(Value::as_object_mut) {
+        for groups in hooks.values_mut().filter_map(Value::as_array_mut) {
+            for group in groups.iter_mut() {
+                if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
+                    handlers.retain(|handler| !is_onibi_hook(handler));
+                }
+            }
+            groups.retain(|group| {
+                group
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .is_none_or(|handlers| !handlers.is_empty())
+            });
+        }
+        hooks.retain(|_, groups| groups.as_array().is_none_or(|groups| !groups.is_empty()));
+    }
 }
 
 fn onibi_hook_version(config: &Value) -> Option<String> {
-    onibi_hooks(config).find_map(|hook| {
-        hook.get(INTEGRATION_VERSION_FIELD)
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-    })
+    config
+        .get(INTEGRATION_VERSION_FIELD)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .or_else(|| {
+            onibi_hooks(config).find_map(|hook| {
+                hook.get(INTEGRATION_VERSION_FIELD)
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            })
+        })
 }
 
 fn contains_legacy_onibi_hook(config: &Value) -> bool {
@@ -246,20 +312,43 @@ fn onibi_hooks(config: &Value) -> impl Iterator<Item = &Value> {
         .into_iter()
         .flatten()
         .filter(|hook| is_onibi_hook(hook))
+        .chain(
+            config
+                .get("hooks")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|hooks| hooks.values())
+                .filter_map(Value::as_array)
+                .flatten()
+                .filter_map(|group| group.get("hooks").and_then(Value::as_array))
+                .flatten()
+                .filter(|hook| is_onibi_hook(hook)),
+        )
 }
 
 fn is_onibi_hook(hook: &Value) -> bool {
-    hook.get("command")
-        .and_then(Value::as_array)
-        .map(|parts| {
-            parts
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .as_deref()
-        == Some(HOOK_COMMAND)
+    hook.get("command").and_then(Value::as_str) == Some(HOOK_COMMAND)
+        || hook
+            .get("command")
+            .and_then(Value::as_array)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .as_deref()
+            == Some(HOOK_COMMAND)
+}
+
+fn hook_config(timeout: u64) -> Value {
+    json!({
+        "type": "command",
+        "command": HOOK_COMMAND,
+        "timeout": timeout,
+        "statusMessage": "Waiting for Onibi"
+    })
 }
 
 fn post_json<T: serde::Serialize>(port: u16, path: &str, token: &str, body: &T) -> Result<Value> {
@@ -307,11 +396,15 @@ mod tests {
         fs::write(
             &path,
             serde_json::to_string_pretty(&json!({
-                "hooks": [{
-                    "event": "tool",
-                    "tool": "Shell",
-                    "command": ["/tmp/existing-hook"]
-                }]
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "Shell",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "/tmp/existing-hook"
+                        }]
+                    }]
+                }
             }))
             .unwrap(),
         )
@@ -320,7 +413,12 @@ mod tests {
         install_at(&path).unwrap();
         install_at(&path).unwrap();
         let installed = read_hooks(&path).unwrap();
-        assert_eq!(onibi_hooks(&installed).count(), 1);
+        assert_eq!(onibi_hooks(&installed).count(), EVENTS.len());
+        assert_eq!(
+            installed["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "/tmp/existing-hook"
+        );
+        assert_eq!(installed["hooks"]["PreToolUse"][1]["matcher"], "Bash");
         let status = status_at(&path).unwrap();
         assert!(status.installed);
         assert_eq!(
@@ -332,16 +430,10 @@ mod tests {
         uninstall_at(&path).unwrap();
         let uninstalled = read_hooks(&path).unwrap();
         assert_eq!(onibi_hooks(&uninstalled).count(), 0);
-        assert!(uninstalled
-            .get("hooks")
-            .and_then(Value::as_array)
-            .is_some_and(|hooks| hooks.iter().any(|hook| {
-                hook.get("command")
-                    .and_then(Value::as_array)
-                    .is_some_and(|command| {
-                        command.first().and_then(Value::as_str) == Some("/tmp/existing-hook")
-                    })
-            })));
+        assert_eq!(
+            uninstalled["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "/tmp/existing-hook"
+        );
     }
 
     #[test]

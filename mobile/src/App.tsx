@@ -681,6 +681,7 @@ function ApprovalCard({
   const [swipeX, setSwipeX] = useState(0);
   const swipeStart = useRef<number | null>(null);
   const risks = approvalRiskBadges(approval, command);
+  const canEdit = !readOnly && approvalSupportsUpdatedInput(approval);
   const swipeDisabled = editing || busy || readOnly;
 
   const submit = async (decision: Decision, editedCommand?: string, reason?: string) => {
@@ -750,7 +751,7 @@ function ApprovalCard({
           {risks.map((risk) => <span key={risk}>{risk}</span>)}
         </div>
       ) : null}
-      {editing && !readOnly ? (
+      {editing && canEdit ? (
         <div className="edit-panel">
           <textarea
             value={command}
@@ -786,15 +787,15 @@ function ApprovalCard({
         <button type="button" disabled={busy} onClick={() => void submit("allow")}>
           Allow
         </button>
-        {editing ? (
+        {editing && canEdit ? (
           <button type="button" disabled={busy} onClick={() => void submit("allow", command)}>
             Allow edited
           </button>
-        ) : (
+        ) : canEdit ? (
           <button type="button" disabled={busy} onClick={() => setEditing(true)}>
             Edit
           </button>
-        )}
+        ) : null}
         <button
           type="button"
           className="danger-button"
@@ -1351,11 +1352,22 @@ export function buildDecisionBody(
   if (decision === "deny") {
     body.reason = reason?.trim() || "denied from mobile";
   }
-  if (decision === "allow" && editedCommand !== undefined) {
+  if (
+    decision === "allow" &&
+    editedCommand !== undefined &&
+    approvalSupportsUpdatedInput(approval)
+  ) {
     body.updatedInput = editedInput(approval.input, editedCommand);
     body.reason = "edited from mobile";
   }
   return body;
+}
+
+export function approvalSupportsUpdatedInput(approval: Approval): boolean {
+  if (!isRecord(approval.metadata)) {
+    return true;
+  }
+  return approval.metadata.supportsUpdatedInput !== false;
 }
 
 export function emergencyStopRequest(): RequestInit {
