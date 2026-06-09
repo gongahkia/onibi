@@ -1258,6 +1258,8 @@ button.welcome-pill:hover {
 .settings-select,
 .prompt-input {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   color: var(--fg-0);
   background: var(--bg-0);
   border: 1px solid var(--border);
@@ -1489,6 +1491,10 @@ button.welcome-pill:hover {
 .muted {
   color: var(--fg-2);
   font-size: 12px;
+}
+
+.settings-note {
+  overflow-wrap: anywhere;
 }
 
 .tree-depth {
@@ -3874,6 +3880,7 @@ button.welcome-pill:hover {
 .modal-body {
   display: grid;
   gap: 14px;
+  min-width: 0;
   padding: 16px;
 }
 
@@ -4375,6 +4382,7 @@ button.welcome-pill:hover {
 .form-grid {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .workspace-picker-row {
@@ -4385,13 +4393,15 @@ button.welcome-pill:hover {
   min-width: 0;
 }
 
-.workspace-picker-row > .settings-input {
+.workspace-picker-row > .settings-input,
+.workspace-picker-row > .settings-select {
   min-width: 0;
 }
 
 .field-label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--fg-1);
   font-size: 13px;
 }
@@ -4404,7 +4414,7 @@ button.welcome-pill:hover {
   width: min(1080px, calc(100vw - 32px));
   height: min(840px, calc(100vh - 32px));
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -4464,6 +4474,7 @@ button.welcome-pill:hover {
 
 .activity-center-body {
   min-height: 0;
+  min-width: 0;
 }
 
 .settings-grid {

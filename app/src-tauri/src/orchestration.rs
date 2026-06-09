@@ -1285,7 +1285,45 @@ impl OrchestrationState {
         Ok(json!({"sessions": items}))
     }
 
+    async fn reconcile_detached_running_sessions(&self) {
+        let live = self
+            .manager
+            .list()
+            .await
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect::<HashSet<_>>();
+        let now = now_millis();
+        let mut updated = Vec::new();
+        {
+            let mut sessions = self.sessions.write().await;
+            for session in sessions.values_mut() {
+                if session.lifecycle != SessionLifecycle::Running || live.contains(&session.id) {
+                    continue;
+                }
+                session.status = AgentStatus::Done;
+                session.lifecycle = SessionLifecycle::Stale;
+                session.updated_at = now;
+                session.stopped_at.get_or_insert(now);
+                session.exit_code.get_or_insert(1);
+                session
+                    .exit_signal
+                    .get_or_insert_with(|| "process unavailable".to_string());
+                updated.push(session.clone());
+            }
+        }
+        for session in updated {
+            self.persist_session(&session);
+            let _ = self.events.send(OrchestrationEvent::SessionStatus {
+                session_id: session.id.clone(),
+                status: session.status,
+                session: Some(session),
+            });
+        }
+    }
+
     async fn list_sessions(&self) -> Result<Value> {
+        self.reconcile_detached_running_sessions().await;
         let mut items = self
             .sessions
             .read()
@@ -2598,6 +2636,29 @@ mod tests {
             session.restart.as_ref().unwrap().args,
             vec!["--model".to_string(), "gpt-5".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn list_sessions_marks_detached_running_metadata_stale() {
+        let state = OrchestrationState::with_store("token".to_string(), None);
+        let mut session = test_session("session-1", AgentStatus::Working, Some("opencode"));
+        session.restart = Some(SessionRestartMetadata {
+            command: "opencode".to_string(),
+            args: vec![],
+            cwd: Some("/repo".to_string()),
+            env: vec![],
+            shell_mode: ShellMode::Auto,
+            safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
+            remote: None,
+        });
+        state.upsert_session_for_test(session).await;
+
+        let response = state.list_sessions().await.unwrap();
+        let sessions = response.get("sessions").and_then(Value::as_array).unwrap();
+        assert_eq!(sessions[0]["lifecycle"], "stale");
+        assert_eq!(sessions[0]["status"], "done");
+        assert_eq!(sessions[0]["exitSignal"], "process unavailable");
     }
 
     #[test]
