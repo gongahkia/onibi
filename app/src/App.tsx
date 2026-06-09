@@ -4,9 +4,7 @@ import {
   Panel,
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
-import { ActivityBar } from "./components/ActivityBar";
 import { AgentTabBar } from "./components/AgentTabBar";
-import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { FocusHud } from "./components/FocusHud";
 import { MainPane } from "./components/MainPane";
@@ -16,7 +14,6 @@ import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { TransportWatcher } from "./components/TransportWatcher";
 import { UpdateDialog } from "./components/UpdateDialog";
-import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { WorkspaceRightDock } from "./components/WorkspaceRightDock";
 import {
   applyDocumentSettings,
@@ -30,12 +27,6 @@ import "./styles/layout.css";
 
 function App() {
   const settings = useSessionStore((state) => state.settings);
-  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
-  const activeSidebarView = useSessionStore((state) => state.activeSidebarView);
-  const railExpanded = useSessionStore((state) => state.agentRailExpanded);
-  const sidebarCollapsed = useSessionStore((state) => state.sidebarCollapsed);
-  const setSidebarCollapsed = useSessionStore((state) => state.setSidebarCollapsed);
-  const setRightDockMode = useSessionStore((state) => state.setRightDockMode);
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem("onibi.onboarding.dismissed") !== "1",
   );
@@ -97,14 +88,6 @@ function App() {
   }, [settings.theme]);
 
   const horizontalTabs = settings.tabBarOrientation === "horizontal";
-  const leftSidebarVisible = !sidebarCollapsed && activeSidebarView === "approvals";
-  const openApprovalsView = () => {
-    setActiveSidebarView("approvals");
-    setRightDockMode("compressed");
-    if (sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
-  };
 
   const body = (
     <main
@@ -114,29 +97,23 @@ function App() {
       {horizontalTabs ? (
         <PanelGroup orientation="vertical">
           {settings.tabBarPosition === "bottom" ? (
-            <ContentPanels showSidebar={leftSidebarVisible} nestedInPanelGroup />
+            <ContentPanels nestedInPanelGroup />
           ) : (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
-              <AgentTabBar
-                orientation="horizontal"
-                onOpenApprovals={openApprovalsView}
-              />
+              <AgentTabBar orientation="horizontal" />
             </Panel>
           )}
           <PanelResizeHandle className="panel-resize-handle" />
           {settings.tabBarPosition === "bottom" ? (
             <Panel defaultSize="7%" minSize="6%" maxSize="12%">
-              <AgentTabBar
-                orientation="horizontal"
-                onOpenApprovals={openApprovalsView}
-              />
+              <AgentTabBar orientation="horizontal" />
             </Panel>
           ) : (
-            <ContentPanels showSidebar={leftSidebarVisible} nestedInPanelGroup />
+            <ContentPanels nestedInPanelGroup />
           )}
         </PanelGroup>
       ) : (
-        <ContentPanels showSidebar={leftSidebarVisible} />
+        <ContentPanels />
       )}
     </main>
   );
@@ -148,27 +125,18 @@ function App() {
         <div className="app-body">
           {horizontalTabs ? null : (
             <aside
-              className={`agent-rail-shell${railExpanded ? " expanded" : ""}`}
+              className="agent-rail-shell"
               aria-label="Session rail"
-              data-expanded={railExpanded || undefined}
             >
-              <AgentTabBar
-                orientation="vertical"
-                onOpenApprovals={openApprovalsView}
-              />
+              <AgentTabBar orientation="vertical" />
             </aside>
           )}
-          <ActivityBar
-            sidebarCollapsed={sidebarCollapsed}
-            onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-          />
           {body}
           <WorkspaceRightDock />
         </div>
         <StatusBar />
         <FocusHud />
       </div>
-      <ApprovalModal />
       <NotificationToastHost />
       <TransportWatcher />
       <CommandPalette />
@@ -179,25 +147,13 @@ function App() {
 }
 
 interface ContentPanelsProps {
-  showSidebar: boolean;
   nestedInPanelGroup?: boolean;
 }
 
-function ContentPanels({
-  showSidebar,
-  nestedInPanelGroup = false,
-}: ContentPanelsProps) {
+function ContentPanels({ nestedInPanelGroup = false }: ContentPanelsProps) {
   const panels = (
     <PanelGroup orientation="horizontal">
-      {showSidebar ? (
-        <>
-          <Panel defaultSize="20%" minSize="12%" maxSize="40%" id="sidebar-panel">
-            <WorkspaceSidebar />
-          </Panel>
-          <PanelResizeHandle className="panel-resize-handle" />
-        </>
-      ) : null}
-      <Panel defaultSize="80%" minSize="40%" id="main-panel">
+      <Panel defaultSize="100%" minSize="40%" id="main-panel">
         <MainPane />
       </Panel>
     </PanelGroup>

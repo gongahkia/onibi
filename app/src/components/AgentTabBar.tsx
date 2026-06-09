@@ -21,7 +21,6 @@ import { SettingsPane } from "./SettingsPane";
 
 export interface AgentTabBarProps {
   orientation: "vertical" | "horizontal";
-  onOpenApprovals?: () => void;
 }
 
 interface WorkflowContextMenuState {
@@ -52,7 +51,7 @@ function chooseDiffEntry(
   return null;
 }
 
-export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) {
+export function AgentTabBar({ orientation }: AgentTabBarProps) {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<WorkflowContextMenuState | null>(
     null,
@@ -65,7 +64,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   );
   const diffViewMode = useSessionStore((state) => state.settings.diffViewMode);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
-  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
   const selectFile = useSessionStore((state) => state.selectFile);
   const updateSettings = useSessionStore((state) => state.updateSettings);
   const setActivityOpen = useSessionStore((state) => state.setActivityCenterOpen);
@@ -73,10 +71,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
   const setSettingsOpen = useSessionStore((state) => state.setSettingsPaneOpen);
   const railExpanded = useSessionStore((state) => state.agentRailExpanded);
   const toggleRail = useSessionStore((state) => state.toggleAgentRailExpanded);
-  const pendingApprovals = useMemo(
-    () => sessions.reduce((sum, session) => sum + session.pendingApprovals.length, 0),
-    [sessions],
-  );
   const workspaceById = useMemo(
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     [workspaces],
@@ -269,27 +263,6 @@ export function AgentTabBar({ orientation, onOpenApprovals }: AgentTabBarProps) 
         >
           <i className="codicon codicon-add" aria-hidden="true" />
           {expanded ? <span className="icon-button-label">New</span> : null}
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Approvals"
-          title="Approvals"
-          onClick={() => {
-            if (onOpenApprovals) {
-              onOpenApprovals();
-            } else {
-              setActiveSidebarView("approvals");
-            }
-          }}
-        >
-          <i className="codicon codicon-bell" aria-hidden="true" />
-          {expanded ? <span className="icon-button-label">Approvals</span> : null}
-          {pendingApprovals > 0 ? (
-            <span className="agent-action-badge" aria-label={`${pendingApprovals} approvals`}>
-              {pendingApprovals > 99 ? "99+" : pendingApprovals}
-            </span>
-          ) : null}
         </button>
         <button
           type="button"
