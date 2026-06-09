@@ -398,9 +398,11 @@ describe("MainPane", () => {
 
     expect(screen.getByTestId("editor-buffer").textContent).toContain("/repo/a.txt");
     expect(screen.getByTestId("terminal-view").textContent).toContain("pty-1");
+    // editor renders as sheet overlay; terminal stays visible underneath
     expect(screen.getByTestId("terminal-view").getAttribute("data-visible")).toBe(
-      "false",
+      "true",
     );
+    expect(screen.getByRole("dialog", { name: "File preview" })).toBeTruthy();
   });
 
   test("restarts the active pane from the toolbar", async () => {

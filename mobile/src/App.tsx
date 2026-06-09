@@ -748,7 +748,7 @@ function InboxView({
 
       <nav className="tab-strip" aria-label="Mobile views">
         <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>
-          Pending <span>{pending.length}</span>
+          Inbox <span>{pending.length}</span>
         </button>
         <button className={tab === "recent" ? "active" : ""} onClick={() => setTab("recent")}>
           Recent <span>{recent.length}</span>

@@ -13,11 +13,13 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import { AgentReviewBuffer, GitDiffBuffer } from "./DiffBuffer";
+import { ApprovalInlineBanner } from "./ApprovalInlineBanner";
 import { EditorTabBar } from "./EditorTabBar";
 import { EmptyState } from "./EmptyState";
 import { EditorBuffer } from "./EditorBuffer";
 import { InlineSessionLauncher } from "./InlineSessionLauncher";
 import { NewSessionDialog } from "./NewSessionDialog";
+import { PaneComposerDock } from "./PaneComposerDock";
 import { TerminalTabStrip } from "./TerminalTabStrip";
 import { TerminalView, type TerminalShellUpdate } from "./TerminalView";
 import { stopAgentReview } from "../lib/agent-review";
@@ -1439,7 +1441,8 @@ export function MainPane() {
   }, [activeTerminalSession, updateSession]);
 
   if (activeTerminalSession || activeWorkspace) {
-    const terminalVisible = selectedFile === null;
+    // editor renders as overlay sheet above terminal — terminal stays mounted underneath
+    const terminalVisible = true;
     const layout = activeTerminalSession
       ? layoutContainsSession(renderableTerminalLayout, activeTerminalSession.id)
         ? renderableTerminalLayout!
@@ -1462,11 +1465,9 @@ export function MainPane() {
           className="main-pane main-pane-stacked"
           data-testid={selectedFile ? "main-pane-editor" : "main-pane-terminal"}
         >
+          <ApprovalInlineBanner />
           <section
-            className={`main-pane-surface terminal-surface ${
-              terminalVisible ? "is-active" : "is-background"
-            }`}
-            aria-hidden={!terminalVisible}
+            className="main-pane-surface terminal-surface is-active"
           >
             {activeWorkspace ? (
               <WorkspaceTerminalTabStrip
@@ -1512,19 +1513,35 @@ export function MainPane() {
                 </div>
               )}
             </div>
+            {selectedFile ? (
+              <section
+                className="main-pane-surface editor-surface editor-sheet"
+                role="dialog"
+                aria-label="File preview"
+              >
+                <div className="editor-sheet-header">
+                  <EditorTabBar />
+                  <button
+                    type="button"
+                    className="icon-button editor-sheet-close"
+                    aria-label="Close file preview"
+                    title="Close file (Esc)"
+                    onClick={() => useSessionStore.getState().selectFile(null)}
+                  >
+                    <i className="codicon codicon-close" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="editor-surface-body">
+                  <BufferStack
+                    openBuffers={openBuffers}
+                    activeBufferKey={activeBufferKey}
+                    settings={settings}
+                  />
+                </div>
+              </section>
+            ) : null}
           </section>
-          {selectedFile ? (
-            <section className="main-pane-surface editor-surface">
-              <EditorTabBar />
-              <div className="editor-surface-body">
-                <BufferStack
-                  openBuffers={openBuffers}
-                  activeBufferKey={activeBufferKey}
-                  settings={settings}
-                />
-              </div>
-            </section>
-          ) : null}
+          <PaneComposerDock activeSessionId={activeSessionId} />
         </main>
         <NewSessionDialog
           open={splitPlacement !== null}
@@ -1540,6 +1557,7 @@ export function MainPane() {
   if (selectedFile) {
     return (
       <main className="main-pane" data-testid="main-pane-editor">
+        <ApprovalInlineBanner />
         <EditorTabBar />
         <div className="editor-surface-body">
           <BufferStack
@@ -1554,6 +1572,7 @@ export function MainPane() {
 
   return (
     <main className="main-pane" data-testid="main-pane-empty">
+      <ApprovalInlineBanner />
       <EmptyState />
     </main>
   );

@@ -8,29 +8,31 @@ import {
   type RemotePaneTarget,
 } from "../lib/remote-keystrokes";
 
-interface RemoteKeystrokeDialogProps {
+interface PaneComposerDockProps {
   activeSessionId: string | null;
-  open: boolean;
-  onClose: () => void;
 }
 
-interface RemotePreset {
+interface Preset {
   key: string;
   label: string;
   destructive: boolean;
 }
 
-const REMOTE_PRESETS: RemotePreset[] = [
+const PRESETS: Preset[] = [
   { key: "continue", label: "Continue", destructive: false },
   { key: "approve", label: "Approve", destructive: false },
   { key: "interrupt", label: "Interrupt", destructive: true },
 ];
 
-export function RemoteKeystrokeDialog({
-  activeSessionId,
-  open,
-  onClose,
-}: RemoteKeystrokeDialogProps) {
+export function PaneComposerDock({ activeSessionId }: PaneComposerDockProps) {
+  const [collapsed, setCollapsed] = useState(true);
+  useEffect(() => {
+    function handleOpen() {
+      setCollapsed(false);
+    }
+    window.addEventListener("onibi:open-pane-composer", handleOpen);
+    return () => window.removeEventListener("onibi:open-pane-composer", handleOpen);
+  }, []);
   const [targets, setTargets] = useState<RemotePaneTarget[]>([]);
   const [targetId, setTargetId] = useState("");
   const [text, setText] = useState("");
@@ -41,7 +43,7 @@ export function RemoteKeystrokeDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (collapsed) {
       return;
     }
     let cancelled = false;
@@ -49,28 +51,30 @@ export function RemoteKeystrokeDialog({
     setError(null);
     setStatus(null);
     void listPaneTargets()
-      .then((nextTargets) => {
+      .then((next) => {
         if (cancelled) {
           return;
         }
-        setTargets(nextTargets);
+        setTargets(next);
         setTargetId((current) => {
-          if (nextTargets.some((target) => target.paneId === current)) {
+          if (next.some((target) => target.paneId === current)) {
             return current;
           }
-          const active = nextTargets.find(
+          const matched = next.find(
             (target) =>
-              target.paneId === activeSessionId || target.sessionId === activeSessionId,
+              target.paneId === activeSessionId ||
+              target.sessionId === activeSessionId,
           );
-          return active?.paneId ?? nextTargets[0]?.paneId ?? "";
+          return matched?.paneId ?? next[0]?.paneId ?? "";
         });
       })
       .catch((caught) => {
-        if (!cancelled) {
-          setTargets([]);
-          setTargetId("");
-          setError(errorMessage(caught));
+        if (cancelled) {
+          return;
         }
+        setTargets([]);
+        setTargetId("");
+        setError(errorMessage(caught));
       })
       .finally(() => {
         if (!cancelled) {
@@ -80,17 +84,13 @@ export function RemoteKeystrokeDialog({
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, open]);
+  }, [activeSessionId, collapsed]);
 
   const selectedTarget = useMemo(
     () => targets.find((target) => target.paneId === targetId),
     [targetId, targets],
   );
   const disabled = loading || busy || !selectedTarget;
-
-  if (!open) {
-    return null;
-  }
 
   async function dispatchText() {
     if (!selectedTarget) {
@@ -110,7 +110,7 @@ export function RemoteKeystrokeDialog({
     );
   }
 
-  async function dispatchPreset(preset: RemotePreset) {
+  async function dispatchPreset(preset: Preset) {
     if (!selectedTarget) {
       setError("Choose a target pane.");
       return;
@@ -166,65 +166,76 @@ export function RemoteKeystrokeDialog({
     }
   }
 
+  if (collapsed) {
+    return (
+      <div className="pane-composer-dock collapsed">
+        <button
+          type="button"
+          className="text-button"
+          aria-label="Open remote pane composer"
+          onClick={() => setCollapsed(false)}
+        >
+          <i className="codicon codicon-send" aria-hidden="true" />
+          Remote input
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="modal-backdrop remote-keystroke-dialog"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
+    <section
+      className="pane-composer-dock expanded"
+      aria-label="Remote pane composer"
     >
-      <section
-        className="modal-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="remote-keystroke-title"
-      >
-        <header className="modal-header">
-          <h2 className="modal-title" id="remote-keystroke-title">
-            Remote Pane Input
-          </h2>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Close remote pane input"
-            onClick={onClose}
-          >
-            x
-          </button>
-        </header>
-        <div className="modal-body">
-          <label className="field-label">
-            Target
-            <select
-              className="settings-select"
-              value={targetId}
-              disabled={loading || busy || targets.length === 0}
-              onChange={(event) => setTargetId(event.target.value)}
-              aria-label="Target pane"
-            >
-              {targets.length === 0 ? <option value="">No target panes</option> : null}
-              {targets.map((target) => (
-                <option key={target.paneId} value={target.paneId}>
-                  {target.label} - {target.status} - {target.trustMode}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Text
-            <textarea
-              className="remote-keystroke-textarea"
-              value={text}
+      <header className="pane-composer-header">
+        <select
+          className="settings-select pane-composer-target"
+          value={targetId}
+          disabled={loading || busy || targets.length === 0}
+          onChange={(event) => setTargetId(event.target.value)}
+          aria-label="Target pane"
+        >
+          {targets.length === 0 ? <option value="">No target panes</option> : null}
+          {targets.map((target) => (
+            <option key={target.paneId} value={target.paneId}>
+              {target.label} · {target.status} · {target.trustMode}
+            </option>
+          ))}
+        </select>
+        <div className="pane-composer-presets" aria-label="Remote input presets">
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.key}
+              type="button"
+              className={preset.destructive ? "text-button danger" : "text-button"}
               disabled={disabled}
-              rows={6}
-              aria-label="Text to send"
-              onChange={(event) => setText(event.target.value)}
-            />
-          </label>
-          <label className="settings-checkbox-row">
+              onClick={() => void dispatchPreset(preset)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Collapse remote pane composer"
+          onClick={() => setCollapsed(true)}
+        >
+          <i className="codicon codicon-chevron-down" aria-hidden="true" />
+        </button>
+      </header>
+      <div className="pane-composer-body">
+        <textarea
+          className="pane-composer-textarea"
+          value={text}
+          disabled={disabled}
+          rows={3}
+          aria-label="Text to send"
+          placeholder="Type, then press Send or Enter…"
+          onChange={(event) => setText(event.target.value)}
+        />
+        <div className="pane-composer-actions">
+          <label className="settings-checkbox-row pane-composer-checkbox">
             <input
               type="checkbox"
               checked={sendEnter}
@@ -233,38 +244,20 @@ export function RemoteKeystrokeDialog({
             />
             <span>Send Enter</span>
           </label>
-          <div className="remote-keystroke-presets" aria-label="Remote input presets">
-            {REMOTE_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                className={preset.destructive ? "text-button danger" : "text-button"}
-                disabled={disabled}
-                onClick={() => void dispatchPreset(preset)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          {loading ? <div className="settings-note">Loading target panes...</div> : null}
-          {status ? <div className="settings-note">{status}</div> : null}
-          {error ? <div className="editor-error">{error}</div> : null}
-          <footer className="dialog-actions">
-            <button type="button" className="text-button" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="text-button primary"
-              disabled={disabled || (!text && !sendEnter)}
-              onClick={() => void dispatchText()}
-            >
-              {busy ? "Sending" : "Send"}
-            </button>
-          </footer>
+          <button
+            type="button"
+            className="text-button primary"
+            disabled={disabled || (!text && !sendEnter)}
+            onClick={() => void dispatchText()}
+          >
+            {busy ? "Sending" : "Send"}
+          </button>
         </div>
-      </section>
-    </div>
+      </div>
+      {loading ? <div className="pane-composer-status">Loading target panes…</div> : null}
+      {status ? <div className="pane-composer-status">{status}</div> : null}
+      {error ? <div className="pane-composer-error">{error}</div> : null}
+    </section>
   );
 }
 

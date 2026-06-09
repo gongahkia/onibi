@@ -5330,3 +5330,199 @@ button.welcome-pill:hover {
 .app-frame[data-mobile-layout="true"] .command-meta {
   justify-content: space-between;
 }
+
+/* === Approval inline banner (v1.5 pivot — replaces ApprovalModal as default) === */
+.approval-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-1);
+  border-bottom: 2px solid var(--accent);
+  color: var(--fg-0);
+  font-size: var(--font-size-ui);
+}
+.approval-banner-toast {
+  border-bottom-color: var(--border);
+  color: var(--fg-2);
+  padding: 6px 14px;
+}
+.approval-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.approval-banner-agent { font-weight: 600; }
+.approval-banner-tool {
+  padding: 1px 6px;
+  background: var(--bg-2);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.approval-banner-cwd {
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+  white-space: nowrap;
+}
+.approval-banner-queue {
+  margin-left: auto;
+  color: var(--fg-2);
+  font-size: 0.85em;
+}
+.approval-banner-preview {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.approval-banner-deny {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85em;
+  color: var(--fg-2);
+}
+.approval-banner-deny input {
+  flex: 1;
+  padding: 4px 6px;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.approval-banner-edit { display: flex; flex-direction: column; gap: 6px; }
+.approval-banner-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  resize: vertical;
+}
+.approval-banner-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.approval-banner-actions .approval-allow { background: var(--success, #2ea043); color: #fff; }
+.approval-banner-actions .approval-deny { color: var(--danger, #f85149); }
+.approval-banner-error {
+  color: var(--danger, #f85149);
+  font-size: 0.85em;
+}
+
+/* === Editor as sheet (overlay above terminal) === */
+.terminal-surface { position: relative; }
+.editor-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--bg-0);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
+}
+.editor-sheet-header {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.editor-sheet-header > :first-child { flex: 1; }
+.editor-sheet-close { padding: 4px 8px; }
+
+/* === Pane composer dock (docked under focused pane) === */
+.pane-composer-dock {
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--fg-0);
+  font-size: var(--font-size-ui);
+}
+.pane-composer-dock.collapsed {
+  padding: 4px 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+.pane-composer-dock.expanded { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.pane-composer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pane-composer-target { min-width: 220px; }
+.pane-composer-presets { display: flex; gap: 4px; }
+.pane-composer-body { display: flex; flex-direction: column; gap: 6px; }
+.pane-composer-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  resize: vertical;
+}
+.pane-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.pane-composer-checkbox { font-size: 0.85em; color: var(--fg-2); }
+.pane-composer-status { font-size: 0.85em; color: var(--fg-2); }
+.pane-composer-error { font-size: 0.85em; color: var(--danger, #f85149); }
+
+/* === Recent files list (replaces FileTree) === */
+.recent-files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.recent-files-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 5px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--fg-0);
+  text-align: left;
+  cursor: pointer;
+  gap: 1px;
+}
+.recent-files-item:hover { background: var(--bg-2); }
+.recent-files-item.active { background: var(--accent); color: #fff; }
+.recent-files-item.open .recent-files-title::before {
+  content: "● ";
+  color: var(--accent);
+  font-size: 0.7em;
+}
+.recent-files-item.active.open .recent-files-title::before { color: #fff; }
+.recent-files-title { font-size: var(--font-size-ui); }
+.recent-files-subtitle {
+  font-size: 0.75em;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.recent-files-item.active .recent-files-subtitle { color: rgba(255,255,255,0.8); }
