@@ -346,6 +346,8 @@ export type WorkspaceSidebarView =
   | "search"
   | "source-control"
   | "approvals";
+export type WorkspaceRightDockView = "files" | "search";
+export type WorkspaceRightDockMode = "compressed" | "expanded";
 
 export interface ArrangementSession {
   sessionId: string;
@@ -777,6 +779,8 @@ type PersistedState = {
   maximizedTerminalPaneId?: string | null;
   arrangements?: Arrangement[];
   activeSidebarView?: WorkspaceSidebarView;
+  rightDockView?: WorkspaceRightDockView;
+  rightDockMode?: WorkspaceRightDockMode;
   sidebarCollapsed?: boolean;
   sidebarFirstLaunchSeen?: boolean;
   sidebarCollapsedExplicit?: boolean;
@@ -800,6 +804,8 @@ type SessionStore = {
   activeWorkspaceTabId: string | null;
   arrangements: Arrangement[];
   activeSidebarView: WorkspaceSidebarView;
+  rightDockView: WorkspaceRightDockView;
+  rightDockMode: WorkspaceRightDockMode;
   workspaces: Workspace[];
   selectedFile: MainSelection | null;
   openBuffers: MainSelection[];
@@ -848,6 +854,9 @@ type SessionStore = {
   ) => void;
   applyTerminalLayoutPreset: (preset: TerminalLayoutPreset) => void;
   setActiveSidebarView: (view: WorkspaceSidebarView) => void;
+  setRightDockView: (view: WorkspaceRightDockView) => void;
+  setRightDockMode: (mode: WorkspaceRightDockMode) => void;
+  toggleRightDock: (view?: WorkspaceRightDockView) => void;
   setActivePaneSession: (paneId: string, sessionId: string) => void;
   addSession: (session: Session, placement?: TerminalPanePlacement | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
