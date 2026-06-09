@@ -2364,6 +2364,35 @@ mod tests {
     }
 
     #[test]
+    fn provider_relaunch_requires_verified_native_resume_metadata() {
+        let mut session = test_session("session-1", AgentStatus::Done, Some("codex"));
+        session.cwd = Some("/repo".to_string());
+        session.restart = Some(SessionRestartMetadata {
+            command: "codex".to_string(),
+            args: vec!["--model".to_string(), "gpt-5".to_string()],
+            cwd: Some("/repo".to_string()),
+            env: vec![],
+            shell_mode: ShellMode::Auto,
+            safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
+            remote: None,
+        });
+        session.provider = Some(ProviderSessionMetadata {
+            agent: "codex".to_string(),
+            provider_session_id: Some("provider-session-1".to_string()),
+            conversation_id: Some("conversation-1".to_string()),
+            resume: None,
+            updated_at: 1,
+        });
+
+        assert!(provider_restart_metadata(&session).is_none());
+        assert_eq!(
+            session.restart.as_ref().unwrap().args,
+            vec!["--model".to_string(), "gpt-5".to_string()]
+        );
+    }
+
+    #[test]
     fn normalizes_session_names() {
         assert_eq!(
             normalize_session_name("  build  "),

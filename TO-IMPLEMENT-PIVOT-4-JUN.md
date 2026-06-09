@@ -326,7 +326,7 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 | **API: wait-for-output** | Yes (`herdr wait output --match … --regex`) | Yes |
 | **API: wait-for-agent-status** | Yes (`herdr wait agent-status`) | Yes |
 | **API: pane read (visible/recent/ANSI)** | Yes | Yes — structured visible/recent/recent-unwrapped/ANSI reads |
-| **API: pane send-text / send-keys / run** | Yes | Partial — PTY write + common `send-keys`; no explicit `run` helper |
+| **API: pane send-text / send-keys / run** | Yes | Partial — authenticated pane `send-text` + preset-backed `send-keys` exist; no explicit `run` helper |
 | **CLI surface** | Very broad: workspace/tab/pane/agent/worktree/wait/session/integration/status/config | Expanded: setup/doctor/adapter/transport/token/session/pane/wait/agent/worktree/events with global JSON output |
 | **Remote attach** | Yes — SSH bootstrap, auto-install on remote | Partial — SSH-backed local PTY remote sessions with metadata, CLI/API/dialog launch, and remote keybinding policy; no remote daemon bootstrap yet |
 | **Mobile / phone UX** | Mobile-narrow TUI layout only | First-class installable PWA |
@@ -665,7 +665,7 @@ Do not add, even if requested:
 | Bucket | Effort |
 |---|---|
 | §5.1 cuts (mostly doc/issue closure) | 1–2 days |
-| §5.3 strengthen (README + launch posts + landing) | Mostly done; dev.to launch copy and landing page remain |
+| §5.3 strengthen (README + launch posts + landing) | Mostly done; static landing page remains deferred |
 | §5.2 top tier 84–86 | Done |
 | §5.2 secondary 87–93 | 87, 88, 89, 90, and 92 done; 91 and 93 remain. [Inference] WSL2 docs are small; landing page scope depends on deployment target |
 
@@ -918,13 +918,13 @@ For traceability against the §1 comparison from 2026-06-08:
 | 117 CQRS split | Done for first split | Medium (refactor blast radius) | None; behaviour-preserving |
 | 118 turn checkpoints | Done for opt-in checkpoint/diff/restore slice | Medium (Git ref pruning on large repos) | None; opt-in |
 | 119 auto-worktree | Done for inherit/auto launch + cleanup slice | Low | Item 71/72 already shipped |
-| 120 Claude ACP | Done for shared Rust ACP runtime and daemon API; GUI launch hardening remains active code work | Medium | Item 117 split landed first |
+| 120 Claude ACP | Done for shared Rust ACP runtime, daemon API, and GUI launch hardening | Medium | Item 117 split landed first |
 | 121 generated TS types | Done for initial export | Low | None |
-| 122 Lexical composer | ~1 day | Low | None |
+| 122 Lexical composer | Done | Low | None |
 | 123 trust-mode toggle | Done | Low | Item 85 (policy engine) shipped |
 | 124 Mintlify docs | 0.5 day | Low | Gated on item 93 |
 | 125 TanStack Query | Done for selected surfaces | Low | None |
-| **Remaining code total** | ACP GUI launch hardening + native-resume guard tests | | |
+| **Remaining code total** | None in §8; native-resume guard coverage added | | |
 
 ### 8.4 Sequencing recommendation
 
@@ -934,7 +934,7 @@ If implementing §8 in isolation:
 2. **117 (CQRS split)** before 118/120 — both new features land cleaner against a decider/projector skeleton than against the current monolith.
 3. **123 (trust-mode toggle)** + **122 (Lexical composer)** in parallel; both small, low-risk, ship-visible.
 4. **118 (checkpoints)** + **119 (auto-worktree)** are done; keep future work to pruning/performance hardening only.
-5. **120 (Claude ACP)** is done for backend/API; next code work is desktop ACP launch surfacing and route hardening.
+5. **120 (Claude ACP)** is done for backend/API and GUI launch surfacing; keep future work to provider-specific ACP UX polish.
 6. **125 (TanStack Query)** opportunistically alongside any frontend work touching audit/session surfaces.
 7. **124 (Mintlify docs)** post-v1.5.0 launch.
 
@@ -987,8 +987,8 @@ Numbered 126+ to continue from §8.
     - **Session trust-mode interaction.** Sessions marked `approval-required` (item 123) require an explicit pre-flight confirmation before the composer dispatches; `full-access` sessions dispatch immediately but still audit-log.
     **Effort:** Done. Accepted dispatches are audited as synthetic `RemoteKeystroke` approval rows and mirrored into `remote-keystroke-dispatch` run events.
 
-129. **PWA-first surface; desktop parity is non-blocking.** The user-facing wedge is the phone — desktop users already have direct pane access. The PWA composer + confirmation sheet is shipped for v1.5.0; desktop composer + Command Palette entry can land in v1.5.x without blocking the launch.
-    **Effort:** PWA composer is the launch-blocker; desktop composer is follow-up.
+129. **[DONE] PWA-first surface; desktop parity is non-blocking.** The user-facing wedge is the phone — desktop users already have direct pane access. The PWA composer + confirmation sheet is shipped for v1.5.0; desktop composer + Command Palette entry now use the same authenticated pane HTTP routes.
+    **Effort:** Done.
 
 130. **Explicit non-adoptions from TELEGRAM-IDEA, for traceability.**
     - **`ghostty-notify` socket intake client + Unix domain socket protocol.** Onibi's daemon already exposes JSON-lines orchestration over Unix socket + localhost TCP (§2.4 items 21–27); no parallel intake socket needed.
@@ -998,13 +998,13 @@ Numbered 126+ to continue from §8.
 
 ### 9.3 Launch-blocking decision and trade
 
-The user marked items 126–128 (PWA path only, per item 129) as **v1.5.0 launch-blocking** on 2026-06-08. The PWA launch slice is now implemented; desktop parity remains item 129.
+The user marked items 126–128 (PWA path only, per item 129) as **v1.5.0 launch-blocking** on 2026-06-08. The PWA launch slice is implemented; desktop parity is also implemented as a non-blocking follow-up.
 
 This adds scope on top of the §5 launch-blockers (#91 WSL2 docs, #93 landing page). Trade documented:
 
-- **Pro:** the phone gains a "type into the agent" surface that the PWA does not have today. Pairs naturally with edit-before-approve and Onibi's existing pane orchestration. Closes a real gap the TELEGRAM-IDEA evaluation surfaced (free-text → keystrokes is the one thing antirez/tgterm does that Onibi cannot).
-- **Con:** delays v1.5.0 by [Speculation] ~3–4 days of focused work. Risks blurring positioning from "approval gate" toward "remote terminal" if marketing copy is not careful — mitigation is item 128's audit log + safety primitives keep it framed as "authenticated, audited remote pane control," not "ssh-from-phone."
-- **Mitigation if scope slips:** demote 126 from launch-blocking to v1.5.x; ship v1.5.0 on existing §5 plan; revisit.
+- **Pro:** the phone and desktop now share a "type into the agent" surface. Pairs naturally with edit-before-approve and Onibi's existing pane orchestration. Closes the gap the TELEGRAM-IDEA evaluation surfaced: free-text → audited keystrokes into an Onibi-owned pane.
+- **Con:** shipped scope can blur positioning from "approval gate" toward "remote terminal" if marketing copy is not careful — mitigation is item 128's audit log + safety primitives keep it framed as "authenticated, audited remote pane control," not "ssh-from-phone."
+- **Mitigation if scope slips:** no longer applies to 126–129; remaining launch questions are §5 docs/landing decisions.
 
 ### 9.4 Effort estimate
 
@@ -1013,15 +1013,15 @@ This adds scope on top of the §5 launch-blockers (#91 WSL2 docs, #93 landing pa
 | 126 Remote pane keystroke composer (PWA) | Done | Low | HTTP pane routes + PWA Send tab |
 | 127 Target resolution (reply-to/explicit/recent) | Done | Low | Approval card binding + target picker |
 | 128 Safety primitives + audit log | Done | Low | Literal-only routes, preset allowlist, audit rows |
-| 129 Desktop parity | non-blocking, ~1 day post-launch | Low | None |
-| **Launch-blocking total** | **3–4.5 days** | Low–Medium | — |
+| 129 Desktop parity | Done | Low | Same HTTP pane routes |
+| **Launch-blocking total** | Done for remote-input slice | Low–Medium | — |
 
 ### 9.5 Sequencing recommendation
 
 1. **128 (safety primitives + audit + route hardening)** — done.
 2. **127 (target resolution wiring on notification cards)** — done.
 3. **126 (PWA composer UI)** — done for launch slice.
-4. **129 (desktop composer)** post-launch.
+4. **129 (desktop composer)** — done.
 
 ### 9.6 Single most-important item if doing only one
 

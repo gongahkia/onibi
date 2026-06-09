@@ -4408,6 +4408,33 @@ button.welcome-pill:hover {
   overflow: hidden;
 }
 
+.remote-keystroke-dialog .modal-panel {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.remote-keystroke-textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  color: var(--fg-0);
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 10px;
+  font: 13px/1.5 var(--font-editor);
+}
+
+.remote-keystroke-textarea:focus {
+  border-color: var(--accent-2);
+  outline: none;
+}
+
+.remote-keystroke-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .handoff-dialog {
   width: min(720px, calc(100% - 32px));
 }

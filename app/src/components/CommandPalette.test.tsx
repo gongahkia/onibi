@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 import { DEFAULT_SETTINGS, type Session, useSessionStore } from "../lib/sessions";
 import {
@@ -28,6 +28,8 @@ function resetStore() {
   });
   globalThis.__TAURI_MOCKS__.invoke.mockReset();
   globalThis.__TAURI_MOCKS__.invoke.mockResolvedValue([]);
+  globalThis.__TAURI_MOCKS__.dialogConfirm.mockReset();
+  globalThis.__TAURI_MOCKS__.dialogConfirm.mockResolvedValue(true);
   globalThis.__TAURI_MOCKS__.updateCheck.mockReset();
   globalThis.__TAURI_MOCKS__.updateCheck.mockResolvedValue(null);
   vi.mocked(window.confirm).mockReset();
@@ -37,12 +39,18 @@ function resetStore() {
   clearTerminalRenderProfiles();
   localStorage.removeItem("onibiTerminalDebug");
   localStorage.removeItem(COMMAND_PALETTE_USED_KEY);
+  localStorage.removeItem("onibi.token");
+  localStorage.removeItem("onibi.port");
 }
 
 describe("CommandPalette", () => {
   beforeEach(() => {
     resetStore();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   test("opens with ctrl+p and executes a settings command", () => {
@@ -217,6 +225,174 @@ describe("CommandPalette", () => {
     expect(
       screen.getByRole("dialog", { name: "New Remote SSH Session" }),
     ).toBeTruthy();
+  });
+
+  test("sends desktop remote input through pane HTTP routes", async () => {
+    localStorage.setItem("onibi.token", "test-token");
+    localStorage.setItem("onibi.port", "17893");
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: "pty-1",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "Shell",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+        },
+      ],
+      activeSessionId: "pty-1",
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/panes/targets")) {
+        return new Response(
+          JSON.stringify({
+            protocol_version: "1.0",
+            targets: [
+              {
+                paneId: "pty-1",
+                sessionId: "pty-1",
+                label: "Shell",
+                agent: "shell",
+                workspaceId: "workspace:/repo",
+                cwd: "/repo",
+                status: "running",
+                trustMode: "full-access",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/panes/pty-1/send-text")) {
+        expect(init?.headers).toMatchObject({ authorization: "Bearer test-token" });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            protocol_version: "1.0",
+            paneId: "pty-1",
+            sessionId: "pty-1",
+            bytes: 6,
+            auditId: "audit-1",
+            trustMode: "full-access",
+            requiresConfirmation: false,
+            destructive: false,
+            preset: null,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "send text active pane" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(
+      await screen.findByRole("dialog", { name: "Remote Pane Input" }),
+    ).toBeTruthy();
+    await screen.findByText("Shell - running - full-access");
+    fireEvent.change(screen.getByLabelText("Text to send"), {
+      target: { value: "hello" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:17893/v1/panes/pty-1/send-text",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const postCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/v1/panes/pty-1/send-text"),
+    );
+    expect(postCall).toBeTruthy();
+    const request = postCall![1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      protocol_version: "1.0",
+      text: "hello",
+      sendEnter: true,
+      confirmed: false,
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "pty_write",
+      expect.anything(),
+    );
+  });
+
+  test("confirms approval-required desktop remote input before dispatch", async () => {
+    localStorage.setItem("onibi.token", "test-token");
+    localStorage.setItem("onibi.port", "17893");
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("/v1/panes/targets")) {
+        return new Response(
+          JSON.stringify({
+            protocol_version: "1.0",
+            targets: [
+              {
+                paneId: "pty-approval",
+                sessionId: "pty-approval",
+                label: "Claude",
+                agent: "claude-code",
+                workspaceId: "workspace:/repo",
+                cwd: "/repo",
+                status: "blocked",
+                trustMode: "approval-required",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/panes/pty-approval/send-text")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            protocol_version: "1.0",
+            paneId: "pty-approval",
+            sessionId: "pty-approval",
+            bytes: 9,
+            auditId: "audit-2",
+            trustMode: "approval-required",
+            requiresConfirmation: false,
+            destructive: false,
+            preset: null,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CommandPalette />);
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    const input = screen.getByLabelText("Search commands");
+    fireEvent.change(input, { target: { value: "remote input" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await screen.findByText("Claude - blocked - approval-required");
+    fireEvent.change(screen.getByLabelText("Text to send"), {
+      target: { value: "continue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(globalThis.__TAURI_MOCKS__.dialogConfirm).toHaveBeenCalled());
+    const postCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/v1/panes/pty-approval/send-text"),
+    );
+    expect(postCall).toBeTruthy();
+    const request = postCall![1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      text: "continue",
+      confirmed: true,
+    });
   });
 
   test("dispatches update checks from the palette", () => {

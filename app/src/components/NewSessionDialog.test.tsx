@@ -334,4 +334,140 @@ describe("NewSessionDialog", () => {
       ),
     ).toBe(false);
   });
+
+  test("runs Claude through ACP when config enables ACP transport", async () => {
+    const onClose = vi.fn();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/v1/config/status")) {
+        return new Response(
+          JSON.stringify({
+            adapters: {
+              claude: {
+                transport: "acp",
+                acpCommand: "claude-agent-acp",
+                acpArgs: [],
+              },
+              hermes: { transport: "acp", acpCommand: "hermes", acpArgs: ["acp"] },
+            },
+            policyValidation: { ok: true },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/v1/adapters/claude-code/acp/prompt")) {
+        return new Response(
+          JSON.stringify({
+            protocol_version: "1.0",
+            sessionId: "claude-acp-session-1",
+            stopReason: "end_turn",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "claude-agent-acp") {
+          return "/usr/local/bin/claude-agent-acp";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "claude-code",
+      },
+    });
+
+    render(<NewSessionDialog open onClose={onClose} />);
+    await waitFor(() => {
+      expect(screen.getByText(/ACP command:\s*claude-agent-acp/)).toBeTruthy();
+      expect(screen.getByText(/usr\/local\/bin\/claude-agent-acp/)).toBeTruthy();
+    });
+    expect((screen.getByLabelText("Trust mode") as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByLabelText("Auto worktree") as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    fireEvent.change(screen.getByTestId("Initial prompt-plain-text"), {
+      target: { value: "review this branch" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:17893/v1/adapters/claude-code/acp/prompt",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const [, request] = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/v1/adapters/claude-code/acp/prompt"),
+    )!;
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      protocol_version: "1.0",
+      cwd: "/repo",
+      prompt: "review this branch",
+      resumeSessionId: null,
+    });
+    expect(globalThis.__TAURI_MOCKS__.invoke).not.toHaveBeenCalledWith(
+      "pty_spawn",
+      expect.anything(),
+    );
+    expect(useSessionStore.getState().activeSessionId).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  test("surfaces ACP backend error bodies in the dialog", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/v1/config/status")) {
+        return new Response(
+          JSON.stringify({
+            adapters: {
+              claude: { transport: "hook", acpCommand: "claude-agent-acp", acpArgs: [] },
+              hermes: { transport: "acp", acpCommand: "hermes", acpArgs: ["acp"] },
+            },
+            policyValidation: { ok: true },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/v1/adapters/hermes/acp/prompt")) {
+        return new Response(JSON.stringify({ error: "ACP bridge unavailable" }), {
+          status: 502,
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
+      async (command: string, args?: { command?: string }) => {
+        if (command === "fs_resolve_binary" && args?.command === "hermes") {
+          return "/usr/local/bin/hermes";
+        }
+        return null;
+      },
+    );
+    useSessionStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultAgent: "hermes",
+      },
+    });
+
+    render(<NewSessionDialog open onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText(/ACP command:\s*hermes acp/)).toBeTruthy();
+      expect(screen.getByText(/usr\/local\/bin\/hermes/)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByTestId("Initial prompt-plain-text"), {
+      target: { value: "continue the task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    expect(
+      await screen.findByText("hermes ACP prompt failed: ACP bridge unavailable"),
+    ).toBeTruthy();
+  });
 });

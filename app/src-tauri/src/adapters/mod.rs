@@ -887,6 +887,31 @@ mod tests {
     }
 
     #[test]
+    fn unverified_provider_events_do_not_attach_native_resume_metadata() {
+        for agent in ["codex", "aider", "cursor"] {
+            let ingest = normalize_provider_event(
+                agent,
+                json!({
+                    "event": "session.idle",
+                    "sessionId": "provider-session-1",
+                    "conversationId": "conversation-1",
+                    "cwd": "/repo"
+                }),
+            )
+            .unwrap();
+
+            assert_eq!(
+                ingest.update.provider_session_id.as_deref(),
+                Some("provider-session-1")
+            );
+            assert!(
+                ingest.update.resume.is_none(),
+                "{agent} must not native-resume"
+            );
+        }
+    }
+
+    #[test]
     fn provider_approval_body_prefers_correlated_onibi_session() {
         let body = approval_body_from_provider_payload(
             "qoder",

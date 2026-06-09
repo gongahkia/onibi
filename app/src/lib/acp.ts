@@ -71,11 +71,27 @@ export async function promptAcpAgentSession({
     },
   );
   if (!response.ok) {
-    throw new Error(`${agent} ACP prompt failed: HTTP ${response.status}`);
+    throw new Error(`${agent} ACP prompt failed: ${await responseError(response)}`);
   }
   return (await response.json()) as AcpPromptResponse;
 }
 
 function authHeaders(token = storedApprovalToken()): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+async function responseError(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  if (text.trim()) {
+    try {
+      const payload = JSON.parse(text);
+      if (payload && typeof payload.error === "string" && payload.error.trim()) {
+        return payload.error;
+      }
+    } catch {
+      return text.trim();
+    }
+    return text.trim();
+  }
+  return `HTTP ${response.status}`;
 }

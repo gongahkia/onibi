@@ -50,6 +50,7 @@ import {
 import { markCommandPaletteUsed } from "../lib/command-palette-discovery";
 import { chooseWorkspaceFolder } from "../lib/workspace-picker";
 import { NewSessionDialog } from "./NewSessionDialog";
+import { RemoteKeystrokeDialog } from "./RemoteKeystrokeDialog";
 import { RemoteSessionDialog } from "./RemoteSessionDialog";
 import { SettingsPane } from "./SettingsPane";
 
@@ -203,6 +204,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [remoteSessionOpen, setRemoteSessionOpen] = useState(false);
+  const [remoteInputOpen, setRemoteInputOpen] = useState(false);
   const settingsOpen = useSessionStore((state) => state.settingsPaneOpen);
   const setSettingsOpen = useSessionStore((state) => state.setSettingsPaneOpen);
   const [workspaceNavigatorOpen, setWorkspaceNavigatorOpen] = useState(false);
@@ -637,6 +639,14 @@ export function CommandPalette() {
         run: () => {
           window.open("/m/", "_blank", "noopener,noreferrer");
         },
+      },
+      {
+        id: "terminal.remote-input",
+        label: "Send Text to Active Pane",
+        group: "Terminal",
+        description: activeSession?.title ?? "Choose a target pane",
+        keywords: ["remote", "pane", "input", "keystroke", "send"],
+        run: () => setRemoteInputOpen(true),
       },
       {
         id: "terminal.focus",
@@ -1256,6 +1266,11 @@ export function CommandPalette() {
       <RemoteSessionDialog
         open={remoteSessionOpen}
         onClose={() => setRemoteSessionOpen(false)}
+      />
+      <RemoteKeystrokeDialog
+        open={remoteInputOpen}
+        activeSessionId={activeSessionId}
+        onClose={() => setRemoteInputOpen(false)}
       />
       <SettingsPane open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {workspaceNavigatorOpen ? (
