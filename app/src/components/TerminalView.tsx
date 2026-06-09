@@ -667,9 +667,11 @@ export function TerminalView({
   const copyModeRef = useRef<CopyModeState | null>(null);
   const onShellUpdateRef = useRef(onShellUpdate);
   const onTriggerRef = useRef(onTrigger);
+  const renderResetPendingRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [copyModeActive, setCopyModeActive] = useState(false);
+  const [terminalResetToken, setTerminalResetToken] = useState(0);
   const terminalTheme = useMemo(() => terminalThemeForSettings(settings), [settings]);
   const resolvedTerminalTheme = useMemo(
     () =>
@@ -710,6 +712,18 @@ export function TerminalView({
       window.open(uri, "_blank", "noopener,noreferrer");
     },
     [onOpenLink],
+  );
+
+  const resetTerminalRenderer = useCallback(
+    (reason: string, error?: unknown) => {
+      if (renderResetPendingRef.current) {
+        return;
+      }
+      renderResetPendingRef.current = true;
+      terminalDebug("renderer reset", { ptyId, reason, error: error ? String(error) : null });
+      setTerminalResetToken((value) => value + 1);
+    },
+    [ptyId],
   );
 
   const openSearch = useCallback(() => {
@@ -772,10 +786,19 @@ export function TerminalView({
       if (!term || !fitAddon) {
         return;
       }
-      fitAddon.fit();
-      term.refresh(0, Math.max(term.rows - 1, 0));
-      if (shouldFocus) {
-        term.focus();
+      if (!terminalHasRenderer(term)) {
+        resetTerminalRenderer("missing-renderer");
+        return;
+      }
+      try {
+        fitAddon.fit();
+        term.refresh(0, Math.max(term.rows - 1, 0));
+        if (shouldFocus) {
+          term.focus();
+        }
+      } catch (error) {
+        resetTerminalRenderer("layout-failed", error);
+        return;
       }
       const nextSize = { rows: term.rows, cols: term.cols };
       const lastSize = lastResizeRef.current;
