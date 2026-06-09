@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listAgentReviews, type AgentReviewRecord } from "../lib/agent-review";
-import { getGitStatus, gitStateByFullPath, type GitStatus } from "../lib/git";
+import { getGitStatus, type GitStatus } from "../lib/git";
 import {
   useSessionStore,
   type Session,
   type Workspace,
   type WorkspaceSidebarView,
 } from "../lib/sessions";
-import { FileTree } from "./FileTree";
-import { SessionListView } from "./SessionListView";
+import { RecentFilesList } from "./RecentFilesList";
 import { SourceControlView } from "./SourceControlView";
 import { WorkspaceSearchView } from "./WorkspaceSearchView";
 
@@ -31,82 +29,29 @@ function activeWorkspaceFor(
 }
 
 const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
-  files: "Explorer",
+  files: "Recent Files",
   search: "Search",
   "source-control": "Source Control",
   approvals: "Approvals",
 };
 
-export function WorkspaceSidebar() {
-  const view = useSessionStore((state) => state.activeSidebarView);
-  if (view === "files" || view === "search" || view === "source-control") {
-    return null;
-  }
-  return (
-    <aside className="workspace-sidebar">
-      <WorkspaceSidebarContent view={view} />
-    </aside>
-  );
-}
-
 export function WorkspaceSidebarContent({ view }: { view: WorkspaceSidebarView }) {
-  const [overflowOpen, setOverflowOpen] = useState(false);
   const {
     activeWorkspace,
-    agentReviewsByPath,
     gitError,
     gitLoading,
     gitStatus,
-    gitStatusByPath,
-    pendingApprovals,
     refreshGitStatus,
   } = useWorkspaceSidebarData();
-  const showHiddenFiles = useSessionStore((state) => state.settings.showHiddenFiles);
-  const updateSettings = useSessionStore((state) => state.updateSettings);
 
   return (
     <>
       <header className="sidebar-section-header">
-        <span className="sidebar-section-title">{VIEW_TITLES[view] ?? "Explorer"}</span>
-        <div className="sidebar-section-actions">
-          {view === "files" ? (
-            <button
-              type="button"
-              className="sidebar-icon-button"
-              aria-label="More actions"
-              title="Views and More Actions..."
-              onClick={() => setOverflowOpen((v) => !v)}
-            >
-              <i className="codicon codicon-ellipsis" aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
+        <span className="sidebar-section-title">{VIEW_TITLES[view] ?? "Recent Files"}</span>
       </header>
-      {overflowOpen && view === "files" ? (
-        <div className="sidebar-overflow-menu" role="menu">
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={showHiddenFiles}
-            onClick={() => {
-              updateSettings({ showHiddenFiles: !showHiddenFiles });
-              setOverflowOpen(false);
-            }}
-          >
-            <i
-              className={`codicon ${showHiddenFiles ? "codicon-check" : "codicon-blank"}`}
-              aria-hidden="true"
-            />
-            Show Hidden Files
-          </button>
-        </div>
-      ) : null}
       <div className="workspace-view-pane">
         {view === "files" ? (
-          <FileTree
-            gitStatusByPath={gitStatusByPath}
-            agentReviewsByPath={agentReviewsByPath}
-          />
+          <RecentFilesList />
         ) : view === "search" ? (
           <WorkspaceSearchView />
         ) : view === "source-control" ? (
@@ -117,8 +62,6 @@ export function WorkspaceSidebarContent({ view }: { view: WorkspaceSidebarView }
             error={gitError}
             onRefresh={refreshGitStatus}
           />
-        ) : view === "approvals" ? (
-          <ApprovalsView pendingSessions={pendingApprovals} />
         ) : null}
       </div>
     </>
@@ -127,7 +70,6 @@ export function WorkspaceSidebarContent({ view }: { view: WorkspaceSidebarView }
 
 function useWorkspaceSidebarData() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [agentReviews, setAgentReviews] = useState<AgentReviewRecord[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState("");
   const sessions = useSessionStore((state) => state.sessions);
@@ -157,61 +99,15 @@ function useWorkspaceSidebarData() {
     }
   }, [activeWorkspace]);
 
-  const refreshAgentReviews = useCallback(async () => {
-    if (!activeWorkspace) {
-      setAgentReviews([]);
-      return;
-    }
-    setAgentReviews(await listAgentReviews(activeWorkspace.path).catch(() => []));
-  }, [activeWorkspace]);
-
   useEffect(() => {
     void refreshGitStatus();
   }, [refreshGitStatus]);
 
-  useEffect(() => {
-    void refreshAgentReviews();
-    const timer = window.setInterval(() => {
-      void refreshAgentReviews();
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [refreshAgentReviews]);
-
-  const gitStatusByPath = useMemo(() => gitStateByFullPath(gitStatus), [gitStatus]);
-  const agentReviewsByPath = useMemo(
-    () => Object.fromEntries(agentReviews.map((record) => [record.fullPath, record])),
-    [agentReviews],
-  );
-
-  const pendingApprovals = useMemo(() => {
-    return sessions.filter((s) => s.pendingApprovals.length > 0);
-  }, [sessions]);
-
   return {
     activeWorkspace,
-    agentReviewsByPath,
     gitError,
     gitLoading,
     gitStatus,
-    gitStatusByPath,
-    pendingApprovals,
     refreshGitStatus,
   };
-}
-
-interface ApprovalsViewProps {
-  pendingSessions: Session[];
-}
-
-function ApprovalsView({ pendingSessions }: ApprovalsViewProps) {
-  if (pendingSessions.length === 0) {
-    return (
-      <div className="sidebar-empty">
-        <i className="codicon codicon-bell-slash" aria-hidden="true" />
-        <p>No pending approvals</p>
-        <span>You'll see agent tool calls awaiting your decision here.</span>
-      </div>
-    );
-  }
-  return <SessionListView />;
 }
