@@ -12,11 +12,7 @@ const BLOCKING_EVENTS: &[&str] = &[
     "beforeMCPExecution",
     "beforeReadFile",
 ];
-const OBSERVE_EVENTS: &[&str] = &[
-    "afterShellExecution",
-    "afterMCPExecution",
-    "afterFileEdit",
-];
+const OBSERVE_EVENTS: &[&str] = &["afterShellExecution", "afterMCPExecution", "afterFileEdit"];
 
 pub fn info() -> AdapterInfo {
     match hooks_path() {

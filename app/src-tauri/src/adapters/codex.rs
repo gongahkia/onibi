@@ -1,6 +1,6 @@
 use crate::{
     adapters::{
-        self, IntegrationInfo, INTEGRATION_VERSION, INTEGRATION_VERSION_FIELD, EVENT_ROUTE_PREFIX,
+        self, IntegrationInfo, EVENT_ROUTE_PREFIX, INTEGRATION_VERSION, INTEGRATION_VERSION_FIELD,
     },
     protocol::{ApprovalRequestBody, Decision, PROTOCOL_VERSION},
     secret,
@@ -99,7 +99,12 @@ pub fn run_stdin_hook(port: u16) -> Result<()> {
         )?;
         return Ok(());
     }
-    let response = post_json(port, "/v1/approval/request", &token, &body_from_payload(payload)?)?;
+    let response = post_json(
+        port,
+        "/v1/approval/request",
+        &token,
+        &body_from_payload(payload)?,
+    )?;
     let decision = response
         .get("decision")
         .and_then(Value::as_str)
@@ -112,7 +117,9 @@ pub fn run_stdin_hook(port: u16) -> Result<()> {
         hook_specific["permissionDecisionReason"] = Value::String(reason.to_string());
     }
     if decision == "allow" {
-        if let Some(updated_input) = response.get("updatedInput").filter(|value| !value.is_null())
+        if let Some(updated_input) = response
+            .get("updatedInput")
+            .filter(|value| !value.is_null())
         {
             hook_specific["updatedInput"] = updated_input.clone();
         }
@@ -251,9 +258,8 @@ fn status_at(path: &Path) -> Result<IntegrationInfo> {
         bundled_version: Some(INTEGRATION_VERSION),
         outdated,
         install_path: Some(path.to_path_buf()),
-        message: installed.then_some(
-            "Codex Bash hook installed with lifecycle resume metadata".to_string(),
-        ),
+        message: installed
+            .then_some("Codex Bash hook installed with lifecycle resume metadata".to_string()),
     })
 }
 

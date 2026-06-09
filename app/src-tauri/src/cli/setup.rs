@@ -297,7 +297,7 @@ fn adapter_detected(name: &str) -> bool {
 fn installable_support(support: &str) -> bool {
     matches!(
         support,
-        "full" | "bash-only" | "event-bridge" | "native-observe"
+        "full" | "bash-only" | "event-bridge" | "native-observe" | "native-blocking"
     )
 }
 
