@@ -317,9 +317,14 @@ fn approval_body_from_provider_payload(
             "providerSessionId": body.provider_session_id,
             "conversationId": body.conversation_id,
             "providerEvent": body.event,
+            "supportsUpdatedInput": provider_supports_updated_input(agent),
             "raw": payload,
         })),
     })
+}
+
+fn provider_supports_updated_input(agent: &str) -> bool {
+    !matches!(agent, "cursor" | "omp")
 }
 
 fn correlated_session_id_from_event_response(response: &Value) -> Option<String> {
@@ -366,6 +371,7 @@ fn provider_hook_result_from_decision(
     let allowed = approval.decision == "allow";
     match agent {
         "copilot" => copilot_hook_result(allowed, approval),
+        "cursor" => cursor_hook_result(allowed, approval),
         "goose" | "qoder" => open_plugins_hook_result(allowed, approval),
         _ => open_plugins_hook_result(allowed, approval),
     }
@@ -419,6 +425,28 @@ fn open_plugins_hook_result(
         stdout: Some(json!({ "hookSpecificOutput": hook_specific })),
         stderr: (!allowed).then_some(reason),
         exit_code: if allowed { 0 } else { 2 },
+    }
+}
+
+fn cursor_hook_result(
+    allowed: bool,
+    approval: &ProviderApprovalDecision,
+) -> ProviderHookCommandResult {
+    let reason = approval
+        .reason
+        .clone()
+        .unwrap_or_else(|| "Denied by Onibi".to_string());
+    let mut stdout = json!({
+        "permission": if allowed { "allow" } else { "deny" },
+    });
+    if !allowed {
+        stdout["user_message"] = Value::String(reason.clone());
+        stdout["agent_message"] = Value::String(reason);
+    }
+    ProviderHookCommandResult {
+        stdout: Some(stdout),
+        stderr: None,
+        exit_code: 0,
     }
 }
 
@@ -620,7 +648,14 @@ fn is_pre_tool_provider_payload(payload: &Value) -> bool {
     ) {
         return matches!(
             normalize_event_token(&event).as_str(),
-            "pretooluse" | "tool.executebefore" | "tool.before" | "toolbefore"
+            "pretooluse"
+                | "tool.executebefore"
+                | "tool.before"
+                | "toolbefore"
+                | "toolcall"
+                | "beforeshellexecution"
+                | "beforemcpexecution"
+                | "beforereadfile"
         );
     }
 
@@ -673,7 +708,14 @@ fn provider_status(event: Option<&str>, status: Option<&str>) -> Option<AgentSta
     }
 
     let event = event.map(normalize_event_token)?;
-    if event.contains("permission") || event == "pretooluse" || event == "tool.executebefore" {
+    if event.contains("permission")
+        || event == "pretooluse"
+        || event == "tool.executebefore"
+        || event == "toolcall"
+        || event == "beforeshellexecution"
+        || event == "beforemcpexecution"
+        || event == "beforereadfile"
+    {
         return Some(AgentStatus::Blocked);
     }
     if event.contains("error")
@@ -714,6 +756,7 @@ pub(crate) fn resume_metadata_for_agent(agent: &str, id: &str) -> Option<Provide
             vec!["session", "resume", id],
             "goose session resume",
         ),
+        "codex" => ("codex", vec!["resume", id], "codex resume"),
         _ => return None,
     };
     Some(ProviderResumeMetadata {

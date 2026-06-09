@@ -826,6 +826,12 @@ pub async fn spectator_pairing_payload(State(state): State<AppState>) -> ApiResu
         .map_err(|err| internal_error(err.into()))
 }
 
+pub async fn token_rotate(State(state): State<AppState>) -> ApiResult<Value> {
+    let token = secret::rotate_token().map_err(internal_error)?;
+    state.replace_token(token.token.clone());
+    Ok(Json(json!({ "token": token.token })))
+}
+
 pub async fn qr(State(state): State<AppState>) -> Result<Response, (StatusCode, Json<ApiError>)> {
     let payload = state.transports.pairing_payload().await;
     let payload = serde_json::to_string(&payload)

@@ -239,7 +239,7 @@ async fn pairing_uri(port: u16, state: &server::AppState, daemon_running: bool) 
 
     Ok(format!(
         "onibi://pair?token={}&baseUrl={}&machineId={}&vapidPublicKey={}",
-        percent_encode(&state.token),
+        percent_encode(&state.token()),
         percent_encode(&host),
         percent_encode(&state.machine_id),
         percent_encode(&state.vapid.public_key)

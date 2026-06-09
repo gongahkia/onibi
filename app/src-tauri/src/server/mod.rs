@@ -30,7 +30,7 @@ use std::{
     io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::{Duration, Instant},
 };
 use tokio::{net::TcpListener, sync::RwLock};
@@ -50,7 +50,7 @@ pub struct AppState {
     pub pending: PendingApprovals,
     pub hub: ws_hub::WsHub,
     pub machine_id: String,
-    pub token: String,
+    pub token: Arc<StdRwLock<String>>,
     pub vapid: VapidKeys,
     pub transports: TransportManager,
     pub orchestration: Arc<OrchestrationState>,
@@ -81,7 +81,7 @@ impl AppState {
             pending: PendingApprovals::default(),
             hub: ws_hub::WsHub::new(),
             machine_id: machine_id.clone(),
-            token: token.clone(),
+            token: Arc::new(StdRwLock::new(token.clone())),
             vapid: vapid.clone(),
             transports: TransportManager::new(
                 port,
@@ -104,7 +104,7 @@ impl AppState {
             pending: PendingApprovals::default(),
             hub: ws_hub::WsHub::new(),
             machine_id: "01H00000000000000000000000".to_string(),
-            token: "test-token".to_string(),
+            token: Arc::new(StdRwLock::new("test-token".to_string())),
             vapid: VapidKeys {
                 public_key: "test-vapid".to_string(),
                 private_key: "test-vapid-private".to_string(),
@@ -135,6 +135,22 @@ impl AppState {
 
     pub fn broadcast(&self, message: ServerMessage) {
         self.hub.broadcast(message);
+    }
+
+    pub fn token(&self) -> String {
+        self.token
+            .read()
+            .map(|token| token.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn replace_token(&self, token: String) {
+        if let Ok(mut current) = self.token.write() {
+            *current = token.clone();
+        }
+        self.transports.set_token(token.clone());
+        self.orchestration.set_token(token.clone());
+        mirror_token_file(&token);
     }
 
     pub async fn append_pty_output(&self, session_id: &str, data: &str) {
@@ -294,6 +310,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/token/spectator",
             post(routes::spectator_pairing_payload),
         )
+        .route("/v1/token/rotate", post(routes::token_rotate))
         .route("/v1/qr", get(routes::qr))
         .route("/v1/run/recent", get(routes::run_recent))
         .route("/v1/desktop/state", post(routes::desktop_state))

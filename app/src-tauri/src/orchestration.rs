@@ -24,7 +24,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -385,7 +385,7 @@ struct ErrorFrame {
 #[derive(Clone)]
 pub struct OrchestrationState {
     manager: Arc<PtyManager>,
-    token: String,
+    token: Arc<StdRwLock<String>>,
     sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
     store: Option<Arc<SessionMetadataStore>>,
     screens: Arc<RwLock<HashMap<String, TerminalScreen>>>,
@@ -412,12 +412,25 @@ impl OrchestrationState {
             .unwrap_or_default();
         Arc::new(Self {
             manager: PtyManager::new(),
-            token,
+            token: Arc::new(StdRwLock::new(token)),
             sessions: Arc::new(RwLock::new(sessions)),
             store,
             screens: Arc::new(RwLock::new(HashMap::new())),
             events,
         })
+    }
+
+    pub fn set_token(&self, token: String) {
+        if let Ok(mut current) = self.token.write() {
+            *current = token;
+        }
+    }
+
+    fn token(&self) -> String {
+        self.token
+            .read()
+            .map(|token| token.clone())
+            .unwrap_or_default()
     }
 
     pub async fn start_listeners(self: Arc<Self>) -> Result<()> {
@@ -1949,7 +1962,7 @@ where
             continue;
         }
         if frame.command == "hello" {
-            if !trusted && !frame_token(&frame).is_some_and(|token| token == state.token) {
+            if !trusted && !frame_token(&frame).is_some_and(|token| token == state.token()) {
                 write_response(
                     &mut writer,
                     ResponseFrame::error(frame.id, "unauthorized", "invalid bearer token"),

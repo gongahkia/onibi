@@ -5,7 +5,10 @@ use super::{
 use crate::protocol::ClientScope;
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock as StdRwLock},
+};
 use tokio::sync::RwLock;
 use ts_rs::TS;
 
@@ -19,7 +22,7 @@ pub fn default_transport_names() -> [&'static str; 3] {
 pub struct TransportManager {
     local_port: u16,
     machine_id: String,
-    token: String,
+    token: Arc<StdRwLock<String>>,
     vapid_public_key: String,
     transports: Arc<Vec<Arc<dyn Transport>>>,
     handles: Arc<RwLock<HashMap<String, TransportHandle>>>,
@@ -35,7 +38,7 @@ impl TransportManager {
         Self::with_transports(
             local_port,
             machine_id,
-            token,
+            Arc::new(StdRwLock::new(token)),
             vapid_public_key,
             vec![
                 Arc::new(TailscaleFunnel::default()),
@@ -106,8 +109,19 @@ impl TransportManager {
         snapshots
     }
 
+    pub fn set_token(&self, token: String) {
+        if let Ok(mut current) = self.token.write() {
+            *current = token;
+        }
+    }
+
     pub async fn pairing_payload(&self) -> PairingPayload {
         let handles = self.handles.read().await;
+        let token = self
+            .token
+            .read()
+            .map(|token| token.clone())
+            .unwrap_or_default();
         let mut transports = vec![TransportEndpoint {
             name: LOOPBACK_NAME.to_string(),
             url: format!("http://127.0.0.1:{}/", self.local_port),
@@ -134,7 +148,7 @@ impl TransportManager {
             machine_id: self.machine_id.clone(),
             host: "127.0.0.1".to_string(),
             port: self.local_port,
-            token: self.token.clone(),
+            token,
             scope: ClientScope::Full,
             vapid_public_key: self.vapid_public_key.clone(),
             cert_fingerprint: None,

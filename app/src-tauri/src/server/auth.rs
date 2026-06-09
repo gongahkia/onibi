@@ -50,7 +50,7 @@ fn authorized_scope(state: &AppState, req: &Request<Body>) -> Option<AuthScope> 
 }
 
 fn token_scope(state: &AppState, token: &str) -> Option<AuthScope> {
-    if token == state.token {
+    if token == state.token() {
         return Some(AuthScope {
             scope: ClientScope::Full,
             token: token.to_string(),

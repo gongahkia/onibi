@@ -1220,8 +1220,13 @@ fn config_command(command: ConfigCommand, port: u16, json_output: bool) -> Resul
 fn token(command: TokenCommand, port: u16, json_output: bool) -> Result<()> {
     match command {
         TokenCommand::Rotate => {
-            let token = secret::rotate_token()?;
-            print_value(json!({"token": token.token}), json_output)?;
+            if healthz(port) {
+                let raw = authed_http(port, "POST", "/v1/token/rotate", Some("{}"))?;
+                print_raw_json_or_text(&raw, json_output)?;
+            } else {
+                let token = secret::rotate_token()?;
+                print_value(json!({"token": token.token}), json_output)?;
+            }
         }
         TokenCommand::Show => {
             let token = secret::load_or_create_token()?;
