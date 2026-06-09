@@ -69,7 +69,9 @@ export const evidenceRefSchema = z.object({
   artifact: z.string().min(1),
   locator: z.string().min(1),
   supports: evidenceSupportSchema,
-  hash: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+  hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  toolUseId: z.string().min(1).optional(),
+  toolName: z.string().min(1).optional()
 });
 
 export const repairActionSchema = z.object({

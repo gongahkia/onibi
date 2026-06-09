@@ -22,15 +22,19 @@ export interface GroundTruthMatch {
 }
 
 export interface BenchmarkScore {
+  readonly confirmedClaims: number;
   readonly truePositives: number;
   readonly falsePositives: number;
   readonly falseNegatives: number;
+  readonly hallucinationCount: number;
+  readonly hallucinationRate: number;
   readonly precision: number;
   readonly recall: number;
   readonly f1: number;
 }
 
 export interface BenchmarkReport extends BenchmarkScore {
+  readonly hallucinationDefinition: string;
   readonly expectedFindings: number;
   readonly evaluatedClaims: number;
   readonly matches: readonly GroundTruthMatch[];

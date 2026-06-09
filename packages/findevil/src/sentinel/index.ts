@@ -6,7 +6,7 @@ import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/
 import { buildNavigatorLayer, writeNavigatorLayer } from "../attack/navigator-layer.js";
 import { extractClaims } from "../extractor/index.js";
 import { classifyToolCall, firewallEventFromDecision } from "../firewall/index.js";
-import { linkEvidence } from "../linker/index.js";
+import { linkEvidence, type EvidenceArtifactProvenance } from "../linker/index.js";
 import { runRepairLoop, type RepairAgentRunner, type RepairTraceRow } from "../repair/index.js";
 import { requestTimestampResponse } from "../evidence/tsa.js";
 import { hashEvidenceTree, spoliationCheck } from "../spoliation/index.js";
@@ -82,6 +82,7 @@ interface NormalizedAgentRow {
   readonly sessionId: string;
   readonly hookEvent: string;
   readonly toolName: string;
+  readonly toolUseId?: string | undefined;
   readonly args: JsonRecord;
   readonly status: string;
 }
@@ -171,6 +172,7 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
   });
   await writeJsonl(outputs.agentExecution, agentRows, options.deterministic);
   await writeJsonl(outputs.firewallEvents, firewallEvents, options.deterministic);
+  const evidenceProvenance = buildEvidenceProvenance(agentRows, options.evidenceRoot);
 
   let baselineLedger: ClaimLedger | undefined;
   let repairedLedger: ClaimLedger | undefined;
@@ -185,7 +187,9 @@ export async function runSentinel(opts: RunSentinelOptions): Promise<SentinelRes
       deterministic: options.deterministic
     });
     baselineLedger = verifyLedger(extractedLedger);
-    const linkedLedger = verifyLedger(linkLedger(baselineLedger, options.evidenceRoot));
+    const linkedLedger = verifyLedger(
+      linkLedger(baselineLedger, options.evidenceRoot, evidenceProvenance)
+    );
     const repairRunner =
       options.repairRunnerMode === "evidence-linked"
         ? evidenceBackedRepairRunner(linkedLedger)
@@ -633,11 +637,72 @@ function verifyLedger(ledger: ClaimLedger): ClaimLedger {
   });
 }
 
-function linkLedger(ledger: ClaimLedger, evidenceRoot: string): ClaimLedger {
+function linkLedger(
+  ledger: ClaimLedger,
+  evidenceRoot: string,
+  provenance: ReadonlyMap<string, EvidenceArtifactProvenance> = new Map()
+): ClaimLedger {
   return claimLedgerSchema.parse({
     ...ledger,
-    claims: ledger.claims.map((claim) => linkEvidence(claim, evidenceRoot))
+    claims: ledger.claims.map((claim) => linkEvidence(claim, evidenceRoot, { provenance }))
   });
+}
+
+function buildEvidenceProvenance(
+  rows: readonly NormalizedAgentRow[],
+  evidenceRoot: string
+): Map<string, EvidenceArtifactProvenance> {
+  const provenance = new Map<string, EvidenceArtifactProvenance>();
+  for (const row of rows) {
+    if (!row.toolUseId) {
+      continue;
+    }
+    for (const artifact of artifactPathsFromJson(row.args, evidenceRoot)) {
+      if (!provenance.has(artifact)) {
+        provenance.set(artifact, { toolUseId: row.toolUseId, toolName: row.toolName });
+      }
+    }
+  }
+  return provenance;
+}
+
+function artifactPathsFromJson(value: unknown, evidenceRoot: string, key = ""): string[] {
+  if (typeof value === "string" && isPathKey(key)) {
+    const artifact = evidenceArtifactPath(value, evidenceRoot);
+    return artifact ? [artifact] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => artifactPathsFromJson(item, evidenceRoot, key));
+  }
+  if (isJsonRecord(value)) {
+    return Object.entries(value).flatMap(([childKey, childValue]) =>
+      artifactPathsFromJson(childValue, evidenceRoot, childKey)
+    );
+  }
+  return [];
+}
+
+function evidenceArtifactPath(value: string, evidenceRoot: string): string | undefined {
+  const text = value.trim();
+  if (text.length === 0 || /[\r\n]/u.test(text)) {
+    return undefined;
+  }
+  const root = resolve(evidenceRoot);
+  for (const candidate of [resolve(process.cwd(), text), resolve(root, text)]) {
+    if (containedPath(root, candidate)) {
+      return relative(root, candidate).split(sep).join("/");
+    }
+  }
+  return undefined;
+}
+
+function containedPath(root: string, candidate: string): boolean {
+  const rootWithSeparator = root.endsWith(sep) ? root : `${root}${sep}`;
+  return candidate === root || candidate.startsWith(rootWithSeparator);
+}
+
+function isPathKey(key: string): boolean {
+  return /^(?:path|filepath|file|source|artifact|imagepath|outputpath)$/iu.test(key);
 }
 
 function evidenceBackedRepairRunner(linkedLedger: ClaimLedger): RepairAgentRunner {

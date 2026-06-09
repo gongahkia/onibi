@@ -1,4 +1,9 @@
-import { matchGroundTruth, score, unmatchedFalsePositiveClaims } from "./scorer.js";
+import {
+  hallucinationDefinition,
+  matchGroundTruth,
+  score,
+  unmatchedFalsePositiveClaims
+} from "./scorer.js";
 import type {
   BenchmarkCaseManifest,
   BenchmarkLedger,
@@ -16,6 +21,7 @@ export function runBenchmark(
   const unmatchedFalsePositiveRows = unmatchedFalsePositiveClaims(ledger, expectedFindings);
   return {
     ...totals,
+    hallucinationDefinition,
     expectedFindings: expectedFindings.length,
     evaluatedClaims: ledger.claims.length,
     matches,

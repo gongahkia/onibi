@@ -46,6 +46,32 @@ describe("evidence linker", () => {
       }
     ]);
   });
+
+  it("threads producing tool metadata into linked evidence refs", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findevil-linker-provenance-"));
+    await writeFile(join(directory, "prefetch.txt"), inlinePrefetch(), "utf8");
+
+    const linked = linkEvidence(
+      baseClaim({
+        text: "evil.exe executed from C:\\Users\\Public\\Downloads\\evil.exe"
+      }),
+      directory,
+      {
+        provenance: new Map([
+          ["prefetch.txt", { toolUseId: "call-prefetch-001", toolName: "filesystem.read_file" }]
+        ])
+      }
+    );
+
+    expect(linked.evidenceRefs).toContainEqual(
+      expect.objectContaining({
+        artifact: "prefetch.txt",
+        supports: "prefetch_entry",
+        toolUseId: "call-prefetch-001",
+        toolName: "filesystem.read_file"
+      })
+    );
+  });
 });
 
 async function caseDirectory(): Promise<string> {

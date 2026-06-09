@@ -5,20 +5,46 @@ import type {
   GroundTruthMatch
 } from "./types.js";
 
+export const hallucinationDefinition =
+  "A hallucinated finding is a confirmed claim with no ground-truth support; inferred claims are excluded.";
+
 export function score(
   ledger: BenchmarkLedger,
   expected: readonly ExpectedFinding[]
 ): BenchmarkScore {
   const matches = matchGroundTruth(ledger, expected);
+  const confirmedClaims = ledger.claims.filter((claim) => claim.status === "confirmed").length;
+  // hallucination = confirmed assertion with no accepted ground-truth support; inferred claims do not count.
+  const hallucinationCount = hallucinatedConfirmedClaims(ledger, expected).length;
   const truePositives = matches.filter((match) => match.truePositive).length;
   const falseNegatives = matches.filter((match) => match.falseNegative).length;
   const falsePositives =
     matches.filter((match) => match.falsePositive).length +
     unmatchedFalsePositiveClaims(ledger, expected).length;
+  const hallucinationRate = ratio(hallucinationCount, confirmedClaims);
   const precision = ratio(truePositives, truePositives + falsePositives);
   const recall = ratio(truePositives, truePositives + falseNegatives);
   const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
-  return { truePositives, falsePositives, falseNegatives, precision, recall, f1 };
+  return {
+    confirmedClaims,
+    truePositives,
+    falsePositives,
+    falseNegatives,
+    hallucinationCount,
+    hallucinationRate,
+    precision,
+    recall,
+    f1
+  };
+}
+
+export function hallucinatedConfirmedClaims(
+  ledger: BenchmarkLedger,
+  expected: readonly ExpectedFinding[]
+): BenchmarkLedger["claims"] {
+  return ledger.claims
+    .filter((claim) => claim.status === "confirmed")
+    .filter((claim) => !hasGroundTruthSupport(claim, expected));
 }
 
 export function matchGroundTruth(
@@ -80,6 +106,20 @@ export function unmatchedFalsePositiveClaims(
 
 function normalizedTechniqueIds(ids: readonly string[]): string[] {
   return [...new Set(ids.map((id) => id.trim()).filter((id) => /^T\d{4}(\.\d{3})?$/u.test(id)))];
+}
+
+function hasGroundTruthSupport(
+  claim: BenchmarkLedger["claims"][number],
+  expected: readonly ExpectedFinding[]
+): boolean {
+  const claimTechniqueIds = claim.attackTechniques.map((technique) => technique.id);
+  return expected.some((finding) => {
+    if (finding.claimId !== claim.id) {
+      return false;
+    }
+    const acceptedTechniqueIds = normalizedTechniqueIds(finding.acceptedTechniques);
+    return claimTechniqueIds.some((id) => acceptedTechniqueIds.includes(id));
+  });
 }
 
 function ratio(numerator: number, denominator: number): number {

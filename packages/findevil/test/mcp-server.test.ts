@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -42,6 +42,26 @@ describe("Find Evil read-only MCP server", () => {
     ).rejects.toThrow("Path escapes evidenceRoot");
   });
 
+  it("rejects symlink escapes while still reading normal contained files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findevil-mcp-symlink-"));
+    const evidenceRoot = join(directory, "evidence");
+    await mkdir(evidenceRoot);
+    await writeFile(join(evidenceRoot, "inside.txt"), "inside\n", "utf8");
+    await writeFile(join(directory, "outside.txt"), "outside\n", "utf8");
+    await symlink(join(directory, "outside.txt"), join(evidenceRoot, "escape.txt"));
+    const server = createFindEvilMcpServer({ evidenceRoot });
+
+    await expect(
+      server.callTool("findevil.hash_evidence_file", { path: "escape.txt" })
+    ).rejects.toThrow("Path escapes evidenceRoot");
+    await expect(server.callTool("findevil.hash_evidence_file", { path: "inside.txt" })).resolves
+      .toMatchObject({
+        ok: true,
+        path: "inside.txt",
+        digest: createHash("sha256").update("inside\n").digest("hex")
+      });
+  });
+
   it("wraps Sleuth Kit commands through an allowlisted runner", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findevil-mcp-sleuthkit-"));
     await writeFile(join(directory, "disk.E01"), "ewf", "utf8");
@@ -67,7 +87,7 @@ describe("Find Evil read-only MCP server", () => {
       imagePath: "disk.E01"
     });
 
-    expect(calls).toEqual([`mmls ${join(directory, "disk.E01")}`]);
+    expect(calls).toEqual([`mmls ${await realpath(join(directory, "disk.E01"))}`]);
     expect(result.partitions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

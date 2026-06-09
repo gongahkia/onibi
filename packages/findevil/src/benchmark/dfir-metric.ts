@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { runSentinel } from "../sentinel/index.js";
 import type { Claim, ClaimLedger } from "../types/claim.js";
 import { runBenchmark } from "./benchmark.js";
+import { hallucinationDefinition } from "./scorer.js";
 import type { BenchmarkReport, BenchmarkScore, ExpectedFinding } from "./types.js";
 
 export interface DfirMetricCase {
@@ -334,6 +335,9 @@ function renderCaseAccuracyReport(
     `- True positives: ${report.truePositives}`,
     `- False positives: ${report.falsePositives}`,
     `- False negatives: ${report.falseNegatives}`,
+    `- Hallucination definition: ${report.hallucinationDefinition}`,
+    `- Hallucination count: ${report.hallucinationCount}`,
+    `- Hallucination rate: ${formatRatio(report.hallucinationRate)}`,
     `- Precision: ${formatRatio(report.precision)}`,
     `- Recall: ${formatRatio(report.recall)}`,
     `- F1: ${formatRatio(report.f1)}`,
@@ -354,17 +358,20 @@ function renderAggregateReport(report: DfirMetricBenchmarkReport): string {
     `- True positives: ${report.truePositives}`,
     `- False positives: ${report.falsePositives}`,
     `- False negatives: ${report.falseNegatives}`,
+    `- Hallucination definition: ${report.hallucinationDefinition}`,
+    `- Hallucination count: ${report.hallucinationCount}`,
+    `- Hallucination rate: ${formatRatio(report.hallucinationRate)}`,
     `- Precision: ${formatRatio(report.precision)}`,
     `- Recall: ${formatRatio(report.recall)}`,
     `- F1: ${formatRatio(report.f1)}`,
     "",
     "## Per Category",
     "",
-    "| Category | Cases | Expected | Claims | Precision | Recall | F1 |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    "| Category | Cases | Expected | Claims | Hallucinations | Hallucination Rate | Precision | Recall | F1 |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ...report.perCategory.map(
       (row) =>
-        `| ${escapeMarkdown(row.category)} | ${row.cases} | ${row.expectedFindings} | ${row.evaluatedClaims} | ${formatRatio(row.precision)} | ${formatRatio(row.recall)} | ${formatRatio(row.f1)} |`
+        `| ${escapeMarkdown(row.category)} | ${row.cases} | ${row.expectedFindings} | ${row.evaluatedClaims} | ${row.hallucinationCount} | ${formatRatio(row.hallucinationRate)} | ${formatRatio(row.precision)} | ${formatRatio(row.recall)} | ${formatRatio(row.f1)} |`
     ),
     ""
   ].join("\n");
@@ -426,18 +433,24 @@ function parseJsonValue(input: string): unknown {
 }
 
 function aggregateBenchmarkReports(reports: readonly BenchmarkReport[]): BenchmarkReport {
+  const confirmedClaims = reports.reduce((sum, report) => sum + report.confirmedClaims, 0);
   const truePositives = reports.reduce((sum, report) => sum + report.truePositives, 0);
   const falsePositives = reports.reduce((sum, report) => sum + report.falsePositives, 0);
   const falseNegatives = reports.reduce((sum, report) => sum + report.falseNegatives, 0);
+  const hallucinationCount = reports.reduce((sum, report) => sum + report.hallucinationCount, 0);
   const precision = ratio(truePositives, truePositives + falsePositives);
   const recall = ratio(truePositives, truePositives + falseNegatives);
   return {
+    confirmedClaims,
     truePositives,
     falsePositives,
     falseNegatives,
+    hallucinationCount,
+    hallucinationRate: ratio(hallucinationCount, confirmedClaims),
     precision,
     recall,
     f1: precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall),
+    hallucinationDefinition,
     expectedFindings: reports.reduce((sum, report) => sum + report.expectedFindings, 0),
     evaluatedClaims: reports.reduce((sum, report) => sum + report.evaluatedClaims, 0),
     matches: reports.flatMap((report) => report.matches),
@@ -463,6 +476,9 @@ function categoryReports(caseReports: readonly DfirMetricCaseReport[]): DfirMetr
         truePositives: aggregate.truePositives,
         falsePositives: aggregate.falsePositives,
         falseNegatives: aggregate.falseNegatives,
+        hallucinationCount: aggregate.hallucinationCount,
+        hallucinationRate: aggregate.hallucinationRate,
+        confirmedClaims: aggregate.confirmedClaims,
         precision: aggregate.precision,
         recall: aggregate.recall,
         f1: aggregate.f1

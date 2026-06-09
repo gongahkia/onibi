@@ -89,7 +89,16 @@ const persistenceProof = [
 const networkProof = ["netflow-or-pcap", "volatility-netscan"] as const;
 const malwareIdentificationProof = ["yara_hit"] as const;
 
-export function linkEvidence(claim: Claim, caseDir: string): Claim {
+export interface EvidenceArtifactProvenance {
+  readonly toolUseId?: string | undefined;
+  readonly toolName?: string | undefined;
+}
+
+export interface LinkEvidenceOptions {
+  readonly provenance?: ReadonlyMap<string, EvidenceArtifactProvenance> | undefined;
+}
+
+export function linkEvidence(claim: Claim, caseDir: string, options: LinkEvidenceOptions = {}): Claim {
   const files = listCaseFiles(caseDir);
   const additions: EvidenceRef[] = [];
   switch (claim.type) {
@@ -142,7 +151,10 @@ export function linkEvidence(claim: Claim, caseDir: string): Claim {
   }
   additions.push(...linkMftEvidence(claim, caseDir, files));
 
-  const evidenceRefs = dedupeEvidenceRefs([...claim.evidenceRefs, ...additions]);
+  const evidenceRefs = withEvidenceProvenance(
+    dedupeEvidenceRefs([...claim.evidenceRefs, ...additions]),
+    options.provenance
+  );
   return claimSchema.parse({
     ...claim,
     evidenceRefs,
@@ -521,6 +533,30 @@ function dedupeEvidenceRefs(refs: readonly EvidenceRef[]): EvidenceRef[] {
       refs.map((ref) => [`${ref.artifact}\0${ref.locator}\0${ref.supports}\0${ref.hash}`, ref])
     ).values()
   ];
+}
+
+function withEvidenceProvenance(
+  refs: readonly EvidenceRef[],
+  provenance: ReadonlyMap<string, EvidenceArtifactProvenance> | undefined
+): EvidenceRef[] {
+  if (!provenance || provenance.size === 0) {
+    return [...refs];
+  }
+  return refs.map((ref) => {
+    const source = provenance.get(normalizeArtifactKey(ref.artifact));
+    if (!source) {
+      return ref;
+    }
+    return {
+      ...ref,
+      ...(ref.toolUseId ?? source.toolUseId ? { toolUseId: ref.toolUseId ?? source.toolUseId } : {}),
+      ...(ref.toolName ?? source.toolName ? { toolName: ref.toolName ?? source.toolName } : {})
+    };
+  });
+}
+
+function normalizeArtifactKey(artifact: string): string {
+  return artifact.split(/[\\/]/u).filter(Boolean).join("/");
 }
 
 function missingEvidenceFor(

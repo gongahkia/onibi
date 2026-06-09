@@ -62,7 +62,9 @@ export const claimLedgerJsonSchema = {
                 artifact: { type: "string", minLength: 1 },
                 locator: { type: "string", minLength: 1 },
                 supports: { type: "string", minLength: 1 },
-                hash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }
+                hash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+                toolUseId: { type: "string", minLength: 1 },
+                toolName: { type: "string", minLength: 1 }
               }
             }
           },

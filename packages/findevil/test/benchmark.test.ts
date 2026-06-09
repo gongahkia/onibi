@@ -43,9 +43,12 @@ describe("ground-truth benchmark scoring", () => {
     });
 
     expect(score(ledger, expectedFindings)).toEqual({
+      confirmedClaims: 3,
       truePositives: 1,
       falsePositives: 2,
       falseNegatives: 2,
+      hallucinationCount: 2,
+      hallucinationRate: 2 / 3,
       precision: 1 / 3,
       recall: 1 / 3,
       f1: 1 / 3
@@ -65,6 +68,26 @@ describe("ground-truth benchmark scoring", () => {
     expect(report.unmatchedFalsePositiveClaims).toMatchObject([
       { claimId: "claim-extra", falsePositive: true }
     ]);
+  });
+
+  it("counts confirmed unsupported claims as hallucinations but excludes inferred claims", () => {
+    const ledger = claimLedgerSchema.parse({
+      id: "ledger-hallucination-test",
+      generatedAt: "2026-05-30T00:00:00.000Z",
+      claims: [
+        claim("claim-001", "confirmed", "T1059"),
+        claim("claim-hallucinated", "confirmed", "T1003"),
+        claim("claim-inferred-extra", "inferred", "T1003")
+      ]
+    });
+
+    expect(score(ledger, [expectedFindings[0]])).toMatchObject({
+      confirmedClaims: 2,
+      truePositives: 1,
+      falsePositives: 1,
+      hallucinationCount: 1,
+      hallucinationRate: 1 / 2
+    });
   });
 
   it("parses expected findings from the case manifest shape", () => {

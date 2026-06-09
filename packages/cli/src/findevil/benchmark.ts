@@ -10,6 +10,10 @@ interface DfirMetricCliReport {
   readonly truePositives: number;
   readonly falsePositives: number;
   readonly falseNegatives: number;
+  readonly confirmedClaims: number;
+  readonly hallucinationDefinition: string;
+  readonly hallucinationCount: number;
+  readonly hallucinationRate: number;
   readonly precision: number;
   readonly recall: number;
   readonly f1: number;
@@ -43,6 +47,10 @@ export async function runFindEvilBenchmarkCommand(args: readonly string[]): Prom
           truePositives: report.truePositives,
           falsePositives: report.falsePositives,
           falseNegatives: report.falseNegatives,
+          confirmedClaims: report.confirmedClaims,
+          hallucinationDefinition: report.hallucinationDefinition,
+          hallucinationCount: report.hallucinationCount,
+          hallucinationRate: report.hallucinationRate,
           precision: report.precision,
           recall: report.recall,
           f1: report.f1,

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { createReadStream } from "node:fs";
-import { opendir, readFile, stat } from "node:fs/promises";
+import { constants, realpathSync } from "node:fs";
+import { open, opendir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { stdin, stdout } from "node:process";
 
@@ -387,7 +387,7 @@ async function searchRecoveredArtifacts(
       ...textMatches(
         file,
         options.evidenceRoot,
-        await readFile(file),
+        await readFileNoFollow(file),
         pattern,
         maxMatches - matches.length
       )
@@ -488,8 +488,9 @@ function normalizeMcpOptions(options: FindEvilMcpOptions): NormalizedMcpOptions 
   if (!options.evidenceRoot.trim()) {
     throw new Error("Find Evil MCP evidenceRoot is required.");
   }
+  const evidenceRoot = realpathSync(resolve(options.evidenceRoot)); // mount-level ro check: see spoliation/mount.ts; not wired here.
   return {
-    evidenceRoot: resolve(options.evidenceRoot),
+    evidenceRoot,
     maxRuntimeSeconds: positiveNumber(options.maxRuntimeSeconds ?? defaultMaxRuntimeSeconds),
     runner: options.runner ?? defaultRunner
   };
@@ -507,7 +508,13 @@ async function resolveContainedPath(root: string, requested: string): Promise<st
   if (candidate !== root && !candidate.startsWith(rootWithSeparator)) {
     throw new Error(`Path escapes evidenceRoot: ${requested}`);
   }
-  return candidate;
+  const realRoot = await realpath(root);
+  const realCandidate = await realpath(candidate);
+  const realRootWithSeparator = realRoot.endsWith(sep) ? realRoot : `${realRoot}${sep}`;
+  if (realCandidate !== realRoot && !realCandidate.startsWith(realRootWithSeparator)) {
+    throw new Error(`Path escapes evidenceRoot: ${requested}`);
+  }
+  return realCandidate;
 }
 
 async function* walkFiles(startPath: string, root: string): AsyncGenerator<EvidenceFileRecord> {
@@ -626,10 +633,33 @@ function commandEnvelope(result: ReadOnlyCommandResult): JsonRecord {
 
 async function hashFile(path: string, algorithm: "sha256" | "md5"): Promise<string> {
   const hash = createHash(algorithm);
-  for await (const chunk of createReadStream(path)) {
-    hash.update(chunk);
+  const file = await open(path, readOnlyNoFollowFlags());
+  try {
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    for (;;) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) {
+        break;
+      }
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    await file.close();
   }
   return hash.digest("hex");
+}
+
+async function readFileNoFollow(path: string): Promise<Buffer> {
+  const file = await open(path, readOnlyNoFollowFlags());
+  try {
+    return await file.readFile();
+  } finally {
+    await file.close();
+  }
+}
+
+function readOnlyNoFollowFlags(): number {
+  return constants.O_RDONLY | (typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0);
 }
 
 function toolContent(value: JsonRecord): JsonRecord {
