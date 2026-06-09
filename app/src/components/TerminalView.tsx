@@ -641,6 +641,9 @@ export function TerminalView({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
+  const webglContextLossDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const rendererRef = useRef<"webgl" | "dom">("dom");
   const lastResizeRef = useRef<{ rows: number; cols: number } | null>(null);
   const textDecoderRef = useRef(new TextDecoder());
   const triggerLineBufferRef = useRef("");
@@ -699,6 +702,45 @@ export function TerminalView({
     },
     [onOpenLink],
   );
+
+  const disposeWebglRenderer = useCallback(() => {
+    webglContextLossDisposableRef.current?.dispose();
+    webglContextLossDisposableRef.current = null;
+    webglAddonRef.current?.dispose();
+    webglAddonRef.current = null;
+    rendererRef.current = "dom";
+  }, []);
+
+  const activateWebglRenderer = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term || webglAddonRef.current) {
+      return;
+    }
+    let webglAddon: WebglAddon | null = null;
+    let webglContextLossDisposable: { dispose: () => void } | null = null;
+    try {
+      webglAddon = new WebglAddon();
+      webglContextLossDisposable =
+        webglAddon.onContextLoss?.(() => {
+          terminalDebug("webgl context lost", { ptyId });
+          disposeWebglRenderer();
+        }) ?? null;
+      term.loadAddon(webglAddon);
+      webglAddonRef.current = webglAddon;
+      webglContextLossDisposableRef.current = webglContextLossDisposable;
+      rendererRef.current = "webgl";
+      terminalDebug("renderer selected", { ptyId, renderer: "webgl" });
+    } catch (error) {
+      terminalDebug("renderer fallback", {
+        ptyId,
+        renderer: "dom",
+        error: String(error),
+      });
+      webglContextLossDisposable?.dispose();
+      webglAddon?.dispose();
+      rendererRef.current = "dom";
+    }
+  }, [disposeWebglRenderer, ptyId]);
 
   const openSearch = useCallback(() => {
     setSearchOpen(true);
@@ -871,29 +913,9 @@ export function TerminalView({
     });
 
     term.open(container);
-    let webglAddon: WebglAddon | null = null;
-    let webglContextLossDisposable: { dispose: () => void } | null = null;
-    let renderer: "webgl" | "dom" = "dom";
-    try {
-      webglAddon = new WebglAddon();
-      webglContextLossDisposable =
-        webglAddon.onContextLoss?.(() => {
-          terminalDebug("webgl context lost", { ptyId });
-          webglAddon?.dispose();
-          webglAddon = null;
-          renderer = "dom";
-        }) ?? null;
-      term.loadAddon(webglAddon);
-      renderer = "webgl";
-      terminalDebug("renderer selected", { ptyId, renderer: "webgl" });
-    } catch (error) {
-      terminalDebug("renderer fallback", {
-        ptyId,
-        renderer: "dom",
-        error: String(error),
-      });
-      webglAddon?.dispose();
-      webglAddon = null;
+    rendererRef.current = "dom";
+    if (visibleRef.current) {
+      activateWebglRenderer();
     }
     refreshTerminalLayout(visibleRef.current);
 
@@ -1204,7 +1226,7 @@ export function TerminalView({
       }
       const report = {
         ptyId,
-        renderer,
+        renderer: rendererRef.current,
         inlineImageMode: settings.terminalInlineImages,
         rows: term.rows,
         cols: term.cols,
@@ -1454,10 +1476,9 @@ export function TerminalView({
       inputDisposable.dispose();
       binaryDisposable.dispose();
       webLinksAddon.dispose();
-      webglContextLossDisposable?.dispose();
-      webglAddon?.dispose();
       imageAddon?.dispose();
       captureRenderProfile("dispose");
+      disposeWebglRenderer();
       searchAddon.dispose();
       fitAddon.dispose();
       unicode11Addon.dispose();
@@ -1469,6 +1490,8 @@ export function TerminalView({
     };
   }, [
     handleTerminalLink,
+    activateWebglRenderer,
+    disposeWebglRenderer,
     onExit,
     onUnavailable,
     openSearch,
@@ -1483,9 +1506,12 @@ export function TerminalView({
 
   useEffect(() => {
     if (visible) {
+      activateWebglRenderer();
       refreshTerminalLayout(true);
+    } else {
+      disposeWebglRenderer();
     }
-  }, [visible]);
+  }, [activateWebglRenderer, disposeWebglRenderer, visible]);
 
   useEffect(() => {
     const term = terminalRef.current;

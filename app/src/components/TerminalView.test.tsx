@@ -166,7 +166,7 @@ describe("TerminalView", () => {
       <TerminalView
         ptyId="pty-1"
         settings={{ ...DEFAULT_SETTINGS, terminalScreenReaderMode: true }}
-        visible={false}
+        visible={true}
       />,
     );
 
@@ -175,6 +175,41 @@ describe("TerminalView", () => {
       screenReaderMode: true,
     });
     expect(webglConstructor).toHaveBeenCalled();
+  });
+
+  test("defers the webgl renderer while hidden", async () => {
+    const { rerender } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(terminalConstructor).toHaveBeenCalled());
+    expect(webglConstructor).not.toHaveBeenCalled();
+
+    rerender(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />,
+    );
+
+    await waitFor(() => expect(webglConstructor).toHaveBeenCalledTimes(1));
+  });
+
+  test("disposes the webgl renderer when hidden", async () => {
+    const dispose = vi.fn();
+    webglConstructor.mockImplementationOnce(function () {
+      return {
+        dispose,
+        onContextLoss: vi.fn(),
+      };
+    });
+    const { rerender } = render(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />,
+    );
+
+    await waitFor(() => expect(webglConstructor).toHaveBeenCalledTimes(1));
+    rerender(
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+    );
+
+    await waitFor(() => expect(dispose).toHaveBeenCalled());
   });
 
   test("filters terminal mouse reports when mouse capture is disabled", async () => {
@@ -596,7 +631,7 @@ describe("TerminalView", () => {
       },
     );
     const { unmount } = render(
-      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={false} />,
+      <TerminalView ptyId="pty-1" settings={DEFAULT_SETTINGS} visible={true} />,
     );
 
     await waitFor(() => expect(emitPty).toBeDefined());
