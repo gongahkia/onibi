@@ -156,7 +156,7 @@ function App() {
           connections={connections.connections}
           activeId={activeConnection.id}
           onSelect={connections.selectConnection}
-          onForget={connections.removeConnection}
+          onForget={() => connections.removeConnection(activeConnection.id)}
         />
         <section className="repair-panel" aria-label="Re-pair machine">
           <p className="eyebrow">Token expired</p>
@@ -1776,11 +1776,11 @@ async function scanQrImage(file: File): Promise<string> {
 }
 
 class HttpStatusError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 

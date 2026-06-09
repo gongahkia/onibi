@@ -213,7 +213,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn install_writes_versioned_native_observe_extension() {
+    fn install_writes_versioned_native_blocking_extension() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("onibi.ts");
         install_at(&path, "token").unwrap();
