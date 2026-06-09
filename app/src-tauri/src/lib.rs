@@ -9,9 +9,9 @@ pub mod git;
 #[cfg(feature = "gui")]
 mod orchestration;
 #[cfg(feature = "gui")]
-pub mod pty;
-#[cfg(feature = "gui")]
 pub mod protocol;
+#[cfg(feature = "gui")]
+pub mod pty;
 #[cfg(feature = "gui")]
 pub mod remote;
 #[cfg(feature = "gui")]

@@ -162,8 +162,14 @@ pub struct PtySpawnRequest {
 #[derive(Clone, Serialize, TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PtyWireEvent {
-    Data { data: String, offset: u64 },
-    Exit { code: u32, signal: Option<String> },
+    Data {
+        data: String,
+        offset: u64,
+    },
+    Exit {
+        code: u32,
+        signal: Option<String>,
+    },
     Notification {
         source: String,
         title: String,

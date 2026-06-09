@@ -70,7 +70,7 @@ Core protocol endpoints:
 
 Approval-blocking adapters:
 
-- Claude Code - full approve, deny, and edit-before-approve through `updatedInput`.
+- Claude Code - full approve, deny, and edit-before-approve through `updatedInput`; optional ACP prompt/resume path.
 - Codex CLI - Bash approval interception; `apply_patch` and MCP tools are not blocked.
 - OpenCode - provider-event bridge, blocking pre-tool approval, and edited input forwarding.
 - Qoder CLI - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
@@ -79,10 +79,10 @@ Approval-blocking adapters:
 
 Mirror, protocol, resume-only, or pending-native adapters:
 
-- Hermes - ACP permission approval plus resume metadata when provider session IDs are available.
+- Hermes - ACP permission approval plus GUI resume/reattach from provider session metadata.
 - Gemini - resume metadata when provider session IDs are available.
 - Aider - terminal mirror plus history-based restore.
-- Cursor, Pi, and OMP - terminal mirror and heuristic detection while stable native hook APIs are pending.
+- Cursor, Pi, and OMP - terminal mirror, heuristic detection, and observe-only native hooks.
 
 Platforms:
 

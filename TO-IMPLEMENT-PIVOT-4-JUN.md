@@ -245,6 +245,14 @@ Do **not** remove this file yet. The original SPEC.md work is done and SPEC.md h
 - Replaced Pi, OMP, and Cursor pending stubs with versioned `native-observe` installers, status, uninstall support, `_hook` dispatch, and setup/doctor visibility.
 - Added explicit pane command-run surfaces: orchestration `pane.run`, authenticated `POST /v1/panes/:id/run`, `onibi pane run <id> <command...>`, generated `PaneRunBody`, and frontend `runPaneCommand`.
 
+### Implemented in the generated-contract cleanup and ACP reattach pass
+
+- Extended generated Rust-owned TypeScript contracts beyond approval/checkpoint bodies to config status, transport status, PTY session metadata, remote SSH request/result bodies, and ACP provider prompt responses.
+- Removed matching hand-written frontend wire types from config status, transport status, Tauri PTY/remote bridge helpers, and remote session metadata aliases while keeping frontend-only session/workspace state local to TypeScript.
+- Extended ACP prompt responses with Onibi session ID, pane ID, provider session ID, conversation ID, provider resume metadata, and resumed/reattached flags.
+- Persisted ACP prompt/load results into orchestration provider metadata so GUI resume options can reopen ACP-backed Claude/Hermes sessions instead of only displaying a one-off prompt result.
+- Added focused frontend coverage for ACP new/resume session recording and backend coverage for provider-session create/reattach by provider ID.
+
 ### Implemented in the built-in updater pass
 
 - Added Tauri v2 updater integration for signed GUI updater artifacts, backed by GitHub Releases `latest.json`.
@@ -870,15 +878,15 @@ Numbered 117+ to continue from §7.
 
 120. **[DONE] ACP-native Claude Code adapter (scoped to Claude only).** Replace the HTTP `PreToolUse` hook for Claude Code with a Claude Agent Protocol (ACP) runtime adapter so onibi receives richer lifecycle events (turn-start, tool-call-stream, message-delta, completion) instead of just pre-tool callbacks. **Explicit non-goal: do not generalise this to all 11+ supported agents.** Cursor / Cline / Copilot / Gemini / Grok / Kimi / Kiro / Droid / Amp / Antigravity / Kilo have no public protocol; Codex (Bash-only hook) and OpenCode (existing plugin) already cover their wedge — leave both as-is. ACP adoption is justified only for Claude, where the protocol is stable and the event surface is materially richer.
     **t3code reference:** `t3code/packages/effect-acp/` (Effect-native ACP bindings: `src/`, `scripts/`, `test/`) and `t3code/apps/server/src/provider/acp/` (consumer integration).
-    **Mapping to onibi:** `app/src-tauri/src/adapters/acp.rs` implements a Rust stdio JSON-RPC ACP client without adding a Node sidecar. It coexists with the existing HTTP `PreToolUse` adapter behind `[adapters.claude] transport = "hook" | "acp"`; default remains `hook`. `/v1/adapters/:agent/acp/prompt` exposes authenticated ACP prompt execution for Claude and Hermes, maps `session/request_permission` into Onibi approvals, and streams ACP session updates into orchestration provider metadata/status where correlation is possible.
+    **Mapping to onibi:** `app/src-tauri/src/adapters/acp.rs` implements a Rust stdio JSON-RPC ACP client without adding a Node sidecar. It coexists with the existing HTTP `PreToolUse` adapter behind `[adapters.claude] transport = "hook" | "acp"`; default remains `hook`. `/v1/adapters/:agent/acp/prompt` exposes authenticated ACP prompt execution for Claude and Hermes, maps `session/request_permission` into Onibi approvals, persists ACP provider metadata into orchestration sessions, and returns GUI session linkage for resume/reattach.
     **Scope guard:** Claude-only. If the ACP shim requires a non-Rust runtime, ship it as a vendored helper binary alongside `onibi` rather than expanding the install footprint with a full Node dependency tree.
-    **Effort:** Done for the shared Rust ACP runtime, Claude opt-in transport, Hermes ACP transport, authenticated prompt endpoint, config, status, protocol tests, and GUI launch/resume controls. The existing terminal-first GUI launch path remains unchanged unless ACP transport is explicitly called through the daemon API.
+    **Effort:** Done for the shared Rust ACP runtime, Claude opt-in transport, Hermes ACP transport, authenticated prompt endpoint, config, status, protocol tests, GUI launch/resume controls, and provider-backed GUI session reattach. The existing terminal-first GUI launch path remains unchanged unless ACP transport is explicitly called through the daemon API.
 
 121. **[DONE] Generated TS types from Rust schemas for `/v1/realtime` + HTTP contracts.** Today, Rust types for the orchestration protocol, approval requests, and `/v1/*` payloads are duplicated by hand in TypeScript. Adopt `ts-rs` to derive TS from Rust at build time and emit a single `app/src/lib/contracts/generated.ts` that the frontend imports.
     **t3code reference:** `t3code/packages/contracts/src/{orchestration.ts, ipc.ts, providerRuntime.ts, provider.ts, relay.ts, git.ts, keybindings.ts}` — single source of typed boundaries used by both web client and server. We replicate the *pattern* (typed contracts as a build artefact) without copying the Effect/Zod implementation.
     **Mapping to onibi:** protocol structs derive `ts_rs::TS`; `cargo run --manifest-path app/src-tauri/Cargo.toml --bin export-bindings` writes `app/src/lib/contracts/generated.ts`; the app package exposes it through `pnpm --dir app contracts`.
-    **Scope guard:** code-gen only; no protocol changes. If `specta` cannot express a particular Rust type (e.g. `Option<chrono::DateTime>`), fall back to a manual `// generated-skip:` annotation rather than rewriting the type.
-    **Effort:** Done for initial export plus follow-up cleanup of desktop snapshot and command-block HTTP helpers to consume generated DTOs directly.
+    **Scope guard:** code-gen first; protocol changes stay explicit and feature-owned, as with the ACP response extension in item 120. If `ts-rs` cannot express a particular Rust type, fall back to a manual `// generated-skip:` annotation rather than rewriting the type.
+    **Effort:** Done for initial export plus follow-up cleanup of desktop snapshot, command-block HTTP helpers, config status, transport status, PTY session metadata, remote SSH request/result helpers, and ACP prompt responses to consume generated DTOs directly.
 
 122. **[DONE] Lexical rich-text composer for prose inputs only.** Replace the plain-`<textarea>` deny-reason field, approval edit-input field (for non-Bash, non-code payloads), and agent-prompt composer with a Lexical-backed editor. **Keep CodeMirror for Bash / `Write` / `Edit` / `MultiEdit` previews and edit fields** — that scope remains correct.
     **t3code reference:** t3code uses Lexical for the message/turn composer; relevant package versions are pinned in `t3code/package.json` and consumed by the web app's input surfaces.
@@ -925,8 +933,8 @@ For traceability against the §1 comparison from 2026-06-08:
 | 117 CQRS split | Done for first split | Medium (refactor blast radius) | None; behaviour-preserving |
 | 118 turn checkpoints | Done for opt-in checkpoint/diff/restore/prune slice | Medium (large-repo performance tuning) | None; opt-in |
 | 119 auto-worktree | Done for inherit/auto launch + cleanup slice | Low | Item 71/72 already shipped |
-| 120 Claude ACP | Done for shared Rust ACP runtime, daemon API, and GUI launch hardening | Medium | Item 117 split landed first |
-| 121 generated TS types | Done for initial export + targeted helper cleanup | Low | None |
+| 120 Claude ACP | Done for shared Rust ACP runtime, daemon API, GUI launch hardening, and provider-backed reattach | Medium | Item 117 split landed first |
+| 121 generated TS types | Done for initial export + broad wire-helper cleanup | Low | None |
 | 122 Lexical composer | Done | Low | None |
 | 123 trust-mode toggle | Done | Low | Item 85 (policy engine) shipped |
 | 124 Mintlify docs | 0.5 day | Low | Gated on item 93 |

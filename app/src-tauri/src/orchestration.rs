@@ -682,7 +682,9 @@ impl OrchestrationState {
         let reattached = target_id.is_some();
         let id = target_id.unwrap_or_else(|| PtyId::new_v4().to_string());
         let previous = sessions.get(&id).cloned();
-        let previous_provider = previous.as_ref().and_then(|session| session.provider.clone());
+        let previous_provider = previous
+            .as_ref()
+            .and_then(|session| session.provider.clone());
         let mut session = previous.unwrap_or_else(|| SessionInfo {
             id: id.clone(),
             pane_id: id.clone(),

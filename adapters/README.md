@@ -4,12 +4,13 @@ Phase-03 freezes the local approval protocol and ships adapter templates for the
 
 | Agent | Support | Notes |
 | --- | --- | --- |
-| Claude Code | Full | HTTP `PreToolUse` hook blocks for Onibi approval and supports edited tool input. Requires Claude Code v2.0.10+. |
+| Claude Code | Full / ACP optional | HTTP `PreToolUse` hook blocks for Onibi approval and supports edited tool input. Optional ACP prompt/resume is available when `[adapters.claude] transport = "acp"`. Requires Claude Code v2.0.10+. |
 | Codex | Bash-only | Command hook posts Bash tool calls to Onibi. `apply_patch` and non-Bash tools are not intercepted in Phase-03. |
+| Hermes | ACP | ACP permission requests map into Onibi approvals; provider session metadata supports GUI resume/reattach. |
 | OpenCode | Plugin | Installs the bundled Onibi plugin and emits provider events. |
 | Gemini | Resume-only | No approval hook installed; native resume metadata is used when available. |
 | Aider | History-restore | No approval hook installed. |
-| Cursor | Native-observe | Installs observe-only hooks for stable Cursor events. Blocking approval is not claimed. |
+| Cursor | Native-observe | Installs observe-only hooks for Cursor events. Blocking approval is not claimed. |
 | Goose | Event bridge | Installs lifecycle/provider-event hooks. |
 | Qoder | Event bridge | Installs lifecycle/provider-event hooks. |
 | GitHub Copilot CLI | Event bridge | Installs lifecycle/provider-event hooks. |
