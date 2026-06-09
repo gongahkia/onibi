@@ -10,10 +10,6 @@ vi.mock("./components/AgentTabBar", () => ({
   ),
 }));
 
-vi.mock("./components/WorkspaceSidebar", () => ({
-  WorkspaceSidebar: () => <div data-testid="workspace-sidebar" />,
-}));
-
 vi.mock("./components/WorkspaceRightDock", () => ({
   WorkspaceRightDock: () => <div data-testid="workspace-right-dock" />,
 }));
@@ -80,7 +76,7 @@ describe("App", () => {
     expect(
       appBody?.children[0].querySelector('[data-testid="agent-tab-bar"]'),
     ).toBeTruthy();
-    expect(appBody?.children[1].getAttribute("aria-label")).toBe("Activity bar");
+    expect(screen.queryByLabelText("Activity bar")).toBeNull();
   });
 
   test("renders horizontal tab layout when configured", () => {
@@ -119,27 +115,11 @@ describe("App", () => {
     ).toBe("true");
   });
 
-  test("keeps explorer in the right dock by default", () => {
+  test("keeps recent files in the right dock by default", () => {
     render(<App />);
-    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
     expect(screen.getByTestId("workspace-right-dock")).toBeTruthy();
     expect(screen.queryByLabelText("Explorer")).toBeNull();
-    expect(screen.queryByLabelText("Search")).toBeNull();
-    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
-  });
-
-  test("keeps source control out of the left sidebar", () => {
-    useSessionStore.setState({
-      activeSidebarView: "source-control",
-      rightDockView: "source-control",
-      rightDockMode: "expanded",
-    });
-
-    render(<App />);
-
-    expect(useSessionStore.getState().activeSidebarView).toBe("source-control");
-    expect(screen.queryByTestId("workspace-sidebar")).toBeNull();
-    expect(screen.getByTestId("workspace-right-dock")).toBeTruthy();
+    expect(screen.queryByLabelText("Source Control")).toBeNull();
   });
 
   test("refreshes system theme when the OS color scheme changes", () => {

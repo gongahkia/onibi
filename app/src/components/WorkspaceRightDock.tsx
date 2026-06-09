@@ -9,7 +9,7 @@ const DOCK_ITEMS: Array<{
   label: string;
   icon: string;
 }> = [
-  { id: "files", label: "Explorer", icon: "codicon-files" },
+  { id: "files", label: "Recent Files", icon: "codicon-files" },
   { id: "search", label: "Search", icon: "codicon-search" },
   { id: "source-control", label: "Source Control", icon: "codicon-source-control" },
 ];
