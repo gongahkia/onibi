@@ -22,7 +22,7 @@ export type AcpProviderSession = { agent: string, providerSessionId: string | nu
 
 export type AcpPromptResponse = { protocol_version: string, sessionId: string, paneId: string, agent: string, cwd: string, providerSessionId: string | null, conversationId: string | null, provider: AcpProviderSession, resumed: boolean, reattached: boolean, stopReason: string | null, };
 
-export type RuntimeConfig = { approvalTimeoutSecs: number, ptyRingLimit: number, checkpointingEnabled: boolean, checkpointMaxRecords: number, checkpointMaxAgeDays: number, };
+export type RuntimeConfig = { approvalTimeoutSecs: number, ptyRingLimit: number, checkpointingEnabled: boolean, checkpointMaxRecords: number, checkpointMaxAgeDays: number, checkpointMaxChangedFiles: number, checkpointMaxIndexBytes: number, checkpointMaxFileBytes: number, checkpointIgnoredPathGlobs: Array<string>, };
 
 export type AdapterRuntimeConfig = { transport: string, acpCommand: string, acpArgs: Array<string>, };
 
@@ -46,7 +46,9 @@ export type RemoteBootstrapStatus = "unknown" | "ready" | "failed";
 
 export type RemoteDaemonStatus = "unknown" | "running" | "failed";
 
-export type RemoteSessionMetadata = { kind: string, target: string, user?: string, host: string, port?: number, remoteCwd?: string, keybindingPolicy: RemoteKeybindingPolicy, bootstrapStatus?: RemoteBootstrapStatus, helperPath?: string, helperVersion?: string, stagingDir?: string, lastBootstrapAt?: number, daemonStatus?: RemoteDaemonStatus, daemonPid?: number, daemonLogPath?: string, daemonRunDir?: string, lastDaemonStartAt?: number, };
+export type RemoteDaemonBridgeStatus = "unknown" | "attached" | "failed";
+
+export type RemoteSessionMetadata = { kind: string, target: string, user?: string, host: string, port?: number, remoteCwd?: string, keybindingPolicy: RemoteKeybindingPolicy, bootstrapStatus?: RemoteBootstrapStatus, helperPath?: string, helperVersion?: string, stagingDir?: string, lastBootstrapAt?: number, daemonStatus?: RemoteDaemonStatus, daemonPid?: number, daemonLogPath?: string, daemonRunDir?: string, lastDaemonStartAt?: number, daemonSessionId?: string, daemonBridgeStatus?: RemoteDaemonBridgeStatus, lastDaemonAttachError?: string, };
 
 export type PtySpawnRequest = { command: string, args: Array<string>, cwd: string | null, env: Array<[string, string]>, shellMode: ShellMode, rows: number, cols: number, name?: string, agent?: string, workspaceId?: string, safeMode: boolean, trustMode: TrustMode, title?: string, remote?: RemoteSessionMetadata, };
 
@@ -71,6 +73,10 @@ export type RemoteSshBootstrapResult = { ok: boolean, target: string, helperPath
 export type RemoteSshDaemonRequest = { target: string, user?: string, host: string, port?: number, remoteCwd?: string, sshCommand?: string, helperPath?: string, runDir?: string, };
 
 export type RemoteSshDaemonResult = { ok: boolean, target: string, helperPath: string, runDir: string, pid: number, status: string, logPath: string, startedAt: number, stdout: string, stderr: string, };
+
+export type RemoteSshDaemonSessionRequest = { target: string, user?: string, host: string, port?: number, workspace: string, remoteCwd?: string, sshCommand?: string, helperPath?: string, stagingDir?: string, runDir?: string, name?: string, agent?: string, prompt?: string, };
+
+export type RemoteSshDaemonSessionResult = { ok: boolean, target: string, helperPath: string, runDir: string, pid: number, status: string, logPath: string, startedAt: number, remoteSessionId: string, attachCommand: string, attachArgs: Array<string>, stdout: string, stderr: string, };
 
 export type RemoteSshStageFileRequest = { target: string, user?: string, host: string, port?: number, remoteCwd?: string, sshCommand?: string, stagingDir?: string, filename: string, data: Array<number>, };
 

@@ -12,6 +12,7 @@ import {
   bootstrapRemoteSshSession,
   buildRemoteSshBootstrapRequest,
   buildRemoteSshDaemonRequest,
+  buildRemoteSshDaemonSessionRequest,
   buildRemoteSshLaunchSpec,
   hydrateSessionStore,
   keyChordFromKeyboardEvent,
@@ -25,6 +26,7 @@ import {
   resolveNewPaneCwd,
   serializeOnibiConfigToml,
   stageClipboardImageForRemoteSession,
+  attachRemoteSshDaemonSession,
   startRemoteSshDaemonSession,
   terminalThemeForSettings,
   type TerminalPaneNode,
@@ -695,6 +697,139 @@ describe("session hydration", () => {
       helperPath: "/home/alice/.onibi/bin/onibi",
       runDir: "/home/alice/.onibi/run",
     });
+  });
+
+  test("builds remote daemon session request from active ssh metadata", () => {
+    const req = buildRemoteSshDaemonSessionRequest(
+      {
+        kind: "ssh",
+        target: "alice@example.com",
+        user: "alice",
+        host: "example.com",
+        remoteCwd: "/srv/repo",
+        keybindingPolicy: "local",
+        helperPath: "/home/alice/.onibi/bin/onibi",
+        stagingDir: "/home/alice/.onibi/staged",
+        daemonRunDir: "/home/alice/.onibi/run",
+      },
+      {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/bin/ssh",
+      },
+      {
+        id: "pty-remote",
+        agent: "claude-code",
+        workspaceId: "workspace:/repo",
+        title: "Claude remote",
+        status: "running",
+        createdAt: 1,
+        pendingApprovals: [],
+        cwd: "/repo",
+        lastExitCode: null,
+        lastTrigger: null,
+        lastCommandBlockId: null,
+        transcript: null,
+        restart: null,
+        remote: null,
+      },
+    );
+
+    expect(req).toMatchObject({
+      target: "alice@example.com",
+      user: "alice",
+      host: "example.com",
+      workspace: "/srv/repo",
+      remoteCwd: "/srv/repo",
+      sshCommand: "/usr/bin/ssh",
+      helperPath: "/home/alice/.onibi/bin/onibi",
+      stagingDir: "/home/alice/.onibi/staged",
+      runDir: "/home/alice/.onibi/run",
+      name: "Claude remote daemon",
+      agent: "claude-code",
+    });
+  });
+
+  test("attaches remote daemon sessions through returned ssh stream command", async () => {
+    useSessionStore.setState({
+      workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
+      sessions: [
+        {
+          id: "pty-remote",
+          agent: "shell",
+          workspaceId: "workspace:/repo",
+          title: "SSH",
+          status: "running",
+          createdAt: 1,
+          pendingApprovals: [],
+          cwd: "/repo",
+          remote: {
+            kind: "ssh",
+            target: "alice@example.com",
+            user: "alice",
+            host: "example.com",
+            remoteCwd: "/srv/repo",
+            keybindingPolicy: "local",
+          },
+        },
+      ],
+      settings: {
+        ...DEFAULT_SETTINGS,
+        remoteSshCommand: "/usr/bin/ssh",
+      },
+    });
+    globalThis.__TAURI_MOCKS__.invoke.mockImplementation(async (command: string) => {
+      if (command === "remote_ssh_daemon_session") {
+        return {
+          ok: true,
+          target: "alice@example.com",
+          helperPath: "/home/alice/.onibi/bin/onibi",
+          runDir: "/home/alice/.onibi/run",
+          pid: 4242,
+          status: "started",
+          logPath: "/home/alice/.onibi/run/onibi.log",
+          startedAt: 2345,
+          remoteSessionId: "remote-session-1",
+          attachCommand: "/usr/bin/ssh",
+          attachArgs: [
+            "-t",
+            "alice@example.com",
+            "helper=\"$HOME/.onibi/bin/onibi\"\n\"$helper\" session stream 'remote-session-1'",
+          ],
+          stdout: "",
+          stderr: "",
+        };
+      }
+      if (command === "pty_spawn") {
+        return "pty-daemon-stream";
+      }
+      return null;
+    });
+
+    await attachRemoteSshDaemonSession("pty-remote");
+
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "remote_ssh_daemon_session",
+      {
+        req: expect.objectContaining({
+          target: "alice@example.com",
+          workspace: "/srv/repo",
+          sshCommand: "/usr/bin/ssh",
+        }),
+      },
+    );
+    expect(globalThis.__TAURI_MOCKS__.invoke).toHaveBeenCalledWith(
+      "pty_spawn",
+      expect.objectContaining({
+        req: expect.objectContaining({
+          command: "/usr/bin/ssh",
+          args: expect.arrayContaining(["-t", "alice@example.com"]),
+          remote: expect.objectContaining({
+            daemonSessionId: "remote-session-1",
+            daemonBridgeStatus: "attached",
+          }),
+        }),
+      }),
+    );
   });
 
   test("stages clipboard images for remote sessions and pastes the remote path", async () => {

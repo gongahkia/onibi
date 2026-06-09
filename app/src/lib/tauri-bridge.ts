@@ -11,6 +11,8 @@ import type {
   RemoteSshBootstrapResult,
   RemoteSshDaemonRequest,
   RemoteSshDaemonResult,
+  RemoteSshDaemonSessionRequest,
+  RemoteSshDaemonSessionResult,
   RemoteSshStageFileRequest,
   RemoteSshStageFileResult,
   ShellMode,
@@ -29,6 +31,8 @@ export type {
   RemoteSshBootstrapResult,
   RemoteSshDaemonRequest,
   RemoteSshDaemonResult,
+  RemoteSshDaemonSessionRequest,
+  RemoteSshDaemonSessionResult,
   RemoteSshStageFileRequest,
   RemoteSshStageFileResult,
 };
@@ -57,6 +61,12 @@ export function remoteSshBootstrap(
 
 export function remoteSshDaemon(req: RemoteSshDaemonRequest): Promise<RemoteSshDaemonResult> {
   return invoke<RemoteSshDaemonResult>("remote_ssh_daemon", { req });
+}
+
+export function remoteSshDaemonSession(
+  req: RemoteSshDaemonSessionRequest,
+): Promise<RemoteSshDaemonSessionResult> {
+  return invoke<RemoteSshDaemonSessionResult>("remote_ssh_daemon_session", { req });
 }
 
 export function remoteSshStageFile(

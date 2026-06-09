@@ -42,7 +42,7 @@ pub struct IntegrationInfo {
 
 pub type AdapterInfo = IntegrationInfo;
 
-pub const INTEGRATION_VERSION: &str = "1.1.0";
+pub const INTEGRATION_VERSION: &str = "1.2.0";
 pub const INTEGRATION_VERSION_HEADER: &str = "X-Onibi-Integration-Version";
 pub const INTEGRATION_VERSION_FIELD: &str = "onibiIntegrationVersion";
 pub const EVENT_ROUTE_PREFIX: &str = "/v1/adapters";

@@ -8,12 +8,11 @@ use std::path::{Path, PathBuf};
 
 const AGENT: &str = "cursor";
 const EVENTS: &[&str] = &[
-    "SessionStart",
-    "UserPromptSubmit",
-    "BeforeShellExecution",
-    "AfterShellExecution",
-    "AfterFileEdit",
-    "Stop",
+    "beforeShellExecution",
+    "afterShellExecution",
+    "beforeMCPExecution",
+    "afterMCPExecution",
+    "afterFileEdit",
 ];
 
 pub fn info() -> AdapterInfo {
@@ -43,12 +42,12 @@ pub fn info() -> AdapterInfo {
 
 pub fn install() -> Result<String> {
     install_at(&hooks_path()?)?;
-    Ok("Cursor native-observe hooks installed".to_string())
+    Ok("Cursor native-observe CLI hooks installed".to_string())
 }
 
 pub fn uninstall() -> Result<String> {
     uninstall_at(&hooks_path()?)?;
-    Ok("Cursor native-observe hooks uninstalled".to_string())
+    Ok("Cursor native-observe CLI hooks uninstalled".to_string())
 }
 
 fn hooks_path() -> Result<PathBuf> {
@@ -115,7 +114,10 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
         bundled_version: Some(INTEGRATION_VERSION),
         outdated: installed && installed_version.as_deref() != Some(INTEGRATION_VERSION),
         install_path: Some(path.to_path_buf()),
-        message: installed.then_some("Cursor native-observe hooks installed".to_string()),
+        message: installed.then_some(
+            "Cursor native-observe CLI hooks installed; lifecycle hooks are not installed"
+                .to_string(),
+        ),
     })
 }
 
@@ -185,7 +187,7 @@ mod tests {
             &path,
             &json!({
                 "hooks": {
-                    "BeforeShellExecution": [{"command": "custom"}]
+                    "beforeShellExecution": [{"command": "custom"}]
                 }
             }),
         )
@@ -195,8 +197,13 @@ mod tests {
         install_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
 
-        assert_eq!(
+        assert!(
             settings["hooks"]["BeforeShellExecution"]
+                .as_array()
+                .is_none()
+        );
+        assert_eq!(
+            settings["hooks"]["beforeShellExecution"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -213,8 +220,13 @@ mod tests {
 
         uninstall_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
-        assert_eq!(
+        assert!(
             settings["hooks"]["BeforeShellExecution"]
+                .as_array()
+                .is_none()
+        );
+        assert_eq!(
+            settings["hooks"]["beforeShellExecution"]
                 .as_array()
                 .unwrap()
                 .len(),

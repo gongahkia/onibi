@@ -8,6 +8,7 @@ use crate::{
     adapters, config, headless, orchestration, policy, secret, self_update, server, transport, util,
 };
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 #[cfg(feature = "gui")]
 use app_lib::remote;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -195,6 +196,9 @@ enum SessionCommand {
         worktree: String,
     },
     Attach {
+        id: String,
+    },
+    Stream {
         id: String,
     },
     Stop {
@@ -624,6 +628,7 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
             }
             print_value(response, json_output)
         }
+        SessionCommand::Stream { id } => session_stream(id).await,
         SessionCommand::Stop { id } => {
             print_orchestration("session.stop", json!({"id": id}), json_output).await
         }
@@ -657,6 +662,71 @@ async fn session(command: SessionCommand, port: u16, json_output: bool) -> Resul
             print_raw_json_or_text(&response, json_output)
         }
     }
+}
+
+async fn session_stream(id: String) -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let attached = orchestration::client::request("session.attach", json!({"id": id})).await?;
+    let session_id = attached
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            attached
+                .get("session")
+                .and_then(|session| session.get("id"))
+                .and_then(Value::as_str)
+        })
+        .map(str::to_string)
+        .context("session attach did not return a session id")?;
+    let mut events =
+        orchestration::client::event_receiver(json!({"sessionId": session_id.clone()})).await?;
+    let input_session_id = session_id.clone();
+    let stdin_task = tokio::spawn(async move {
+        let mut stdin = tokio::io::stdin();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let count = stdin.read(&mut buffer).await?;
+            if count == 0 {
+                break;
+            }
+            orchestration::client::request(
+                "pty.write",
+                json!({
+                    "id": input_session_id,
+                    "data": STANDARD.encode(&buffer[..count]),
+                }),
+            )
+            .await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
+    let mut stdout = tokio::io::stdout();
+    while let Some(frame) = events.recv().await {
+        let Some(event) = frame.get("event") else {
+            continue;
+        };
+        match event.get("type").and_then(Value::as_str) {
+            Some("pty-output") => {
+                if event.get("sessionId").and_then(Value::as_str) != Some(session_id.as_str()) {
+                    continue;
+                }
+                if let Some(data) = event.get("data").and_then(Value::as_str) {
+                    let bytes = STANDARD.decode(data).context("decode pty output")?;
+                    stdout.write_all(&bytes).await?;
+                    stdout.flush().await?;
+                }
+            }
+            Some("pty-exit") => {
+                if event.get("sessionId").and_then(Value::as_str) == Some(session_id.as_str()) {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    stdin_task.abort();
+    Ok(())
 }
 
 async fn remote(command: RemoteCommand, json_output: bool) -> Result<()> {

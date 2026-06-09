@@ -9,6 +9,7 @@ pub use notifications::{
 pub use session::{
     PtyAttachResult, PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot,
     PtyProviderResume, PtyProviderSession, PtyReplaySnapshot, PtySession, PtySessionMetadata,
-    PtySessionRestart, PtySpawnRequest, PtyWireEvent, RemoteBootstrapStatus, RemoteDaemonStatus,
-    RemoteKeybindingPolicy, RemoteSessionMetadata, ShellMode, TrustMode,
+    PtySessionRestart, PtySpawnRequest, PtyWireEvent, RemoteBootstrapStatus,
+    RemoteDaemonBridgeStatus, RemoteDaemonStatus, RemoteKeybindingPolicy, RemoteSessionMetadata,
+    ShellMode, TrustMode,
 };

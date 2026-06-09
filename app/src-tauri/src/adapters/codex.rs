@@ -207,7 +207,8 @@ fn status_at(path: &Path) -> Result<IntegrationInfo> {
         bundled_version: Some(INTEGRATION_VERSION),
         outdated,
         install_path: Some(path.to_path_buf()),
-        message: installed.then_some("Codex Bash hook installed".to_string()),
+        message: installed
+            .then_some("Codex Bash hook installed; native session resume is unverified".to_string()),
     })
 }
 

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     io::Write,
     process::{Command, Output, Stdio},
@@ -86,6 +87,62 @@ pub struct RemoteSshDaemonResult {
     pub status: String,
     pub log_path: String,
     pub started_at: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSshDaemonSessionRequest {
+    pub target: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub user: Option<String>,
+    pub host: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub port: Option<u16>,
+    pub workspace: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub remote_cwd: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub ssh_command: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub helper_path: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub staging_dir: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub run_dir: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub prompt: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSshDaemonSessionResult {
+    pub ok: bool,
+    pub target: String,
+    pub helper_path: String,
+    pub run_dir: String,
+    pub pid: u32,
+    pub status: String,
+    pub log_path: String,
+    pub started_at: i64,
+    pub remote_session_id: String,
+    pub attach_command: String,
+    pub attach_args: Vec<String>,
     pub stdout: String,
     pub stderr: String,
 }
@@ -202,6 +259,78 @@ pub fn remote_ssh_daemon(request: RemoteSshDaemonRequest) -> Result<RemoteSshDae
         started_at: now_millis(),
         stdout,
         stderr: stderr_lossy(&output),
+    })
+}
+
+pub fn remote_ssh_daemon_session(
+    request: RemoteSshDaemonSessionRequest,
+) -> Result<RemoteSshDaemonSessionResult> {
+    validate_endpoint(&request.host, request.port)?;
+    let workspace = normalized_remote_path(Some(&request.workspace), "", "workspace")?;
+    if workspace.is_empty() {
+        bail!("remote workspace is required");
+    }
+    let bootstrap = remote_ssh_bootstrap(RemoteSshBootstrapRequest {
+        target: request.target.clone(),
+        user: request.user.clone(),
+        host: request.host.clone(),
+        port: request.port,
+        remote_cwd: request.remote_cwd.clone().or_else(|| Some(workspace.clone())),
+        ssh_command: request.ssh_command.clone(),
+        helper_path: request.helper_path.clone(),
+        staging_dir: request.staging_dir.clone(),
+    })?;
+    let daemon = remote_ssh_daemon(RemoteSshDaemonRequest {
+        target: request.target.clone(),
+        user: request.user.clone(),
+        host: request.host.clone(),
+        port: request.port,
+        remote_cwd: request.remote_cwd.clone().or_else(|| Some(workspace.clone())),
+        ssh_command: request.ssh_command.clone(),
+        helper_path: Some(bootstrap.helper_path.clone()),
+        run_dir: request.run_dir.clone(),
+    })?;
+    let launch = run_ssh_command(
+        &request,
+        &daemon_session_launch_script(
+            &bootstrap.helper_path,
+            &workspace,
+            request.name.as_deref(),
+            request.agent.as_deref(),
+            request.prompt.as_deref(),
+        ),
+        &[],
+    )?;
+    ensure_success(&launch, "remote Onibi daemon session launch")?;
+    let launch_stdout = stdout_lossy(&launch);
+    let remote_session_id = parse_remote_session_id(&launch_stdout)?;
+    let attach_command = request
+        .ssh_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("ssh")
+        .to_string();
+    Ok(RemoteSshDaemonSessionResult {
+        ok: true,
+        target: request.target.trim().to_string(),
+        helper_path: bootstrap.helper_path.clone(),
+        run_dir: daemon.run_dir,
+        pid: daemon.pid,
+        status: daemon.status,
+        log_path: daemon.log_path,
+        started_at: daemon.started_at,
+        remote_session_id: remote_session_id.clone(),
+        attach_command,
+        attach_args: remote_session_stream_args(
+            &request.host,
+            request.user.as_deref(),
+            request.port,
+            &bootstrap.helper_path,
+            &remote_session_id,
+        )?,
+        stdout: format!("{}{}", daemon.stdout, launch_stdout),
+        stderr: format!("{}{}", daemon.stderr, stderr_lossy(&launch)),
     })
 }
 
@@ -444,6 +573,89 @@ printf 'log=%s\n' "$log_file"
     )
 }
 
+fn daemon_session_launch_script(
+    helper_path: &str,
+    workspace: &str,
+    name: Option<&str>,
+    agent: Option<&str>,
+    prompt: Option<&str>,
+) -> String {
+    let name = name.map(str::trim).filter(|value| !value.is_empty());
+    let agent = agent
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "shell");
+    let prompt = prompt.map(str::trim).filter(|value| !value.is_empty());
+    format!(
+        r#"set -e
+{helper}
+{workspace}
+if [ ! -x "$helper" ]; then
+  echo "remote Onibi helper is not executable: $helper" >&2
+  exit 1
+fi
+set -- "$helper" --json session launch --workspace "$workspace"
+{name_arg}{agent_arg}{prompt_arg}"$@"
+"#,
+        helper = remote_path_assignment("helper", helper_path),
+        workspace = remote_path_assignment("workspace", workspace),
+        name_arg = name
+            .map(|value| format!("set -- \"$@\" --name {}\n", shell_single_quote(value)))
+            .unwrap_or_default(),
+        agent_arg = agent
+            .map(|value| format!("set -- \"$@\" --agent {}\n", shell_single_quote(value)))
+            .unwrap_or_default(),
+        prompt_arg = prompt
+            .map(|value| format!("set -- \"$@\" --prompt {}\n", shell_single_quote(value)))
+            .unwrap_or_default(),
+    )
+}
+
+pub fn remote_session_stream_args(
+    host: &str,
+    user: Option<&str>,
+    port: Option<u16>,
+    helper_path: &str,
+    session_id: &str,
+) -> Result<Vec<String>> {
+    validate_endpoint(host, port)?;
+    if session_id.trim().is_empty() || session_id.contains('\0') {
+        bail!("remote session id is required");
+    }
+    let mut args = Vec::new();
+    if let Some(port) = port {
+        args.push("-p".to_string());
+        args.push(port.to_string());
+    }
+    args.push("-t".to_string());
+    args.push(ssh_target(host, user));
+    args.push(remote_session_stream_command(helper_path, session_id));
+    Ok(args)
+}
+
+fn remote_session_stream_command(helper_path: &str, session_id: &str) -> String {
+    format!(
+        r#"{helper}
+"$helper" session stream {session_id}"#,
+        helper = remote_path_assignment("helper", helper_path),
+        session_id = shell_single_quote(session_id),
+    )
+}
+
+fn parse_remote_session_id(stdout: &str) -> Result<String> {
+    let payload: Value = serde_json::from_str(stdout.trim())
+        .context("parse remote Onibi session launch response")?;
+    let id = payload
+        .get("session")
+        .and_then(|session| session.get("id"))
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("sessionId").and_then(Value::as_str))
+        .or_else(|| payload.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("remote session launch did not return a session id"))?;
+    Ok(id.to_string())
+}
+
 #[cfg(feature = "gui")]
 fn stage_file_remote_script(staging_dir: &str, filename: &str) -> String {
     format!(
@@ -561,6 +773,24 @@ impl RemoteSshEndpoint for RemoteSshDaemonRequest {
     }
 }
 
+impl RemoteSshEndpoint for RemoteSshDaemonSessionRequest {
+    fn host(&self) -> &str {
+        &self.host
+    }
+
+    fn user(&self) -> Option<&str> {
+        self.user.as_deref()
+    }
+
+    fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+    fn ssh_command(&self) -> Option<&str> {
+        self.ssh_command.as_deref()
+    }
+}
+
 #[cfg(feature = "gui")]
 impl RemoteSshEndpoint for RemoteSshStageFileRequest {
     fn host(&self) -> &str {
@@ -625,6 +855,50 @@ mod tests {
         assert!(script.contains("nohup \"$helper\" --headless"));
         assert!(script.contains("pid_file=\"$run_dir/onibi.pid\""));
         assert!(script.contains("log_file=\"$run_dir/onibi.log\""));
+    }
+
+    #[test]
+    fn daemon_session_launch_script_invokes_helper_session_launch() {
+        let script = daemon_session_launch_script(
+            "~/.onibi/bin/onibi",
+            "~/repo",
+            Some("remote task"),
+            Some("claude-code"),
+            Some("continue"),
+        );
+        assert!(script.contains("--json session launch --workspace \"$workspace\""));
+        assert!(script.contains("set -- \"$@\" --name 'remote task'"));
+        assert!(script.contains("set -- \"$@\" --agent 'claude-code'"));
+        assert!(script.contains("set -- \"$@\" --prompt 'continue'"));
+    }
+
+    #[test]
+    fn remote_stream_args_build_tty_ssh_command() {
+        let args = remote_session_stream_args(
+            "example.com",
+            Some("alice"),
+            Some(2222),
+            "~/.onibi/bin/onibi",
+            "session-1",
+        )
+        .unwrap();
+        assert_eq!(args[0], "-p");
+        assert_eq!(args[1], "2222");
+        assert_eq!(args[2], "-t");
+        assert_eq!(args[3], "alice@example.com");
+        assert!(args[4].contains("session stream 'session-1'"));
+    }
+
+    #[test]
+    fn parses_remote_session_launch_response() {
+        assert_eq!(
+            parse_remote_session_id(r#"{"session":{"id":"remote-1"}}"#).unwrap(),
+            "remote-1"
+        );
+        assert_eq!(
+            parse_remote_session_id(r#"{"sessionId":"remote-2"}"#).unwrap(),
+            "remote-2"
+        );
     }
 
     #[test]

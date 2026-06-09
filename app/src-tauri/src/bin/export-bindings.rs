@@ -40,6 +40,7 @@ fn bindings() -> String {
     push::<pty::RemoteKeybindingPolicy>(&mut output);
     push::<pty::RemoteBootstrapStatus>(&mut output);
     push::<pty::RemoteDaemonStatus>(&mut output);
+    push::<pty::RemoteDaemonBridgeStatus>(&mut output);
     push::<pty::RemoteSessionMetadata>(&mut output);
     push::<pty::PtySpawnRequest>(&mut output);
     push::<pty::PtyWireEvent>(&mut output);
@@ -53,6 +54,8 @@ fn bindings() -> String {
     push::<remote::RemoteSshBootstrapResult>(&mut output);
     push::<remote::RemoteSshDaemonRequest>(&mut output);
     push::<remote::RemoteSshDaemonResult>(&mut output);
+    push::<remote::RemoteSshDaemonSessionRequest>(&mut output);
+    push::<remote::RemoteSshDaemonSessionResult>(&mut output);
     push::<remote::RemoteSshStageFileRequest>(&mut output);
     push::<remote::RemoteSshStageFileResult>(&mut output);
     push::<protocol::RunEvent>(&mut output);

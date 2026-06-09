@@ -14,6 +14,7 @@ import {
   DEFAULT_AGENT_COMMANDS,
   DEFAULT_SYSTEM_THEME_PAIR,
   agentDisplayLabel,
+  attachRemoteSshDaemonSession,
   type AppSettings,
   type AppKeybindingAction,
   type CustomCommandKeybinding,
@@ -996,6 +997,34 @@ export function CommandPalette() {
                     emitTerminalNotice(
                       activeSession,
                       "Remote daemon start failed",
+                      errorMessage(error),
+                    );
+                    throw error;
+                  }
+                },
+              },
+              {
+                id: "remote.attach-daemon-session",
+                label: "Attach Remote Daemon Session",
+                group: "Session" as const,
+                description:
+                  activeSession.remote.daemonSessionId ??
+                  activeSession.remote.target,
+                keywords: ["remote", "ssh", "daemon", "attach", "stream", "pty"],
+                run: async () => {
+                  try {
+                    const { result } = await attachRemoteSshDaemonSession(
+                      activeSession.id,
+                    );
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote daemon session attached",
+                      result.remoteSessionId,
+                    );
+                  } catch (error) {
+                    emitTerminalNotice(
+                      activeSession,
+                      "Remote daemon attach failed",
                       errorMessage(error),
                     );
                     throw error;

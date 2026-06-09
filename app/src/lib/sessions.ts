@@ -10,6 +10,7 @@ import {
   ptyWrite,
   remoteSshBootstrap,
   remoteSshDaemon,
+  remoteSshDaemonSession,
   remoteSshStageFile,
   sessionAttach,
   shellPath,
@@ -17,6 +18,8 @@ import {
   type RemoteSshBootstrapResult,
   type RemoteSshDaemonRequest,
   type RemoteSshDaemonResult,
+  type RemoteSshDaemonSessionRequest,
+  type RemoteSshDaemonSessionResult,
   type RemoteSshStageFileRequest,
   type RemoteSshStageFileResult,
   type PtySessionMetadata,
@@ -29,6 +32,7 @@ import { createGitWorktree, getGitStatus, removeGitWorktree } from "./git";
 import type {
   AcpPromptResponse,
   RemoteBootstrapStatus as GeneratedRemoteBootstrapStatus,
+  RemoteDaemonBridgeStatus as GeneratedRemoteDaemonBridgeStatus,
   RemoteDaemonStatus as GeneratedRemoteDaemonStatus,
   RemoteKeybindingPolicy as GeneratedRemoteKeybindingPolicy,
   RemoteSessionMetadata as GeneratedRemoteSessionMetadata,
@@ -243,6 +247,7 @@ export type TerminalShellMode = PtyShellMode;
 export type RemoteKeybindingPolicy = GeneratedRemoteKeybindingPolicy;
 export type RemoteBootstrapStatus = GeneratedRemoteBootstrapStatus;
 export type RemoteDaemonStatus = GeneratedRemoteDaemonStatus;
+export type RemoteDaemonBridgeStatus = GeneratedRemoteDaemonBridgeStatus;
 
 export const DEFAULT_REMOTE_HELPER_PATH = "~/.onibi/bin/onibi";
 export const DEFAULT_REMOTE_STAGING_DIR = "~/.onibi/staged";
@@ -2488,6 +2493,14 @@ function normalizeRemoteDaemonStatus(value: unknown): RemoteDaemonStatus | undef
     : undefined;
 }
 
+function normalizeRemoteDaemonBridgeStatus(
+  value: unknown,
+): RemoteDaemonBridgeStatus | undefined {
+  return value === "unknown" || value === "attached" || value === "failed"
+    ? value
+    : undefined;
+}
+
 function normalizeRemoteSessionMetadata(
   value: unknown,
 ): RemoteSessionMetadata | null {
@@ -2552,6 +2565,19 @@ function normalizeRemoteSessionMetadata(
   const lastDaemonStartAt = Number(value.lastDaemonStartAt);
   if (Number.isFinite(lastDaemonStartAt) && lastDaemonStartAt > 0) {
     normalized.lastDaemonStartAt = lastDaemonStartAt;
+  }
+  if (typeof value.daemonSessionId === "string" && value.daemonSessionId.trim()) {
+    normalized.daemonSessionId = value.daemonSessionId.trim();
+  }
+  const daemonBridgeStatus = normalizeRemoteDaemonBridgeStatus(value.daemonBridgeStatus);
+  if (daemonBridgeStatus) {
+    normalized.daemonBridgeStatus = daemonBridgeStatus;
+  }
+  if (
+    typeof value.lastDaemonAttachError === "string" &&
+    value.lastDaemonAttachError.trim()
+  ) {
+    normalized.lastDaemonAttachError = value.lastDaemonAttachError.trim();
   }
   return normalized;
 }
@@ -6816,6 +6842,27 @@ export function buildRemoteSshDaemonRequest(
   };
 }
 
+export function buildRemoteSshDaemonSessionRequest(
+  remote: RemoteSessionMetadata,
+  settings: AppSettings,
+  session: Session,
+): RemoteSshDaemonSessionRequest {
+  return {
+    target: remote.target,
+    ...(remote.user ? { user: remote.user } : {}),
+    host: remote.host,
+    ...(remote.port ? { port: remote.port } : {}),
+    workspace: remote.remoteCwd ?? session.cwd ?? "",
+    ...(remote.remoteCwd ? { remoteCwd: remote.remoteCwd } : {}),
+    sshCommand: settings.remoteSshCommand || DEFAULT_SETTINGS.remoteSshCommand,
+    helperPath: remote.helperPath ?? DEFAULT_REMOTE_HELPER_PATH,
+    stagingDir: remote.stagingDir ?? DEFAULT_REMOTE_STAGING_DIR,
+    runDir: remote.daemonRunDir ?? DEFAULT_REMOTE_RUN_DIR,
+    name: `${session.title || session.id} daemon`,
+    ...(session.agent === "shell" ? {} : { agent: session.agent }),
+  };
+}
+
 function buildRemoteSshStageFileRequest(
   remote: RemoteSessionMetadata,
   settings: AppSettings,
@@ -6910,6 +6957,62 @@ export async function startRemoteSshDaemonSession(
     return result;
   } catch (error) {
     patchRemoteSessionMetadata(sessionId, { daemonStatus: "failed" });
+    throw error;
+  }
+}
+
+export async function attachRemoteSshDaemonSession(
+  sessionId: string,
+  placement?: TerminalPanePlacement | null,
+): Promise<{ id: PtyId; result: RemoteSshDaemonSessionResult }> {
+  const { session, remote } = remoteSshSession(sessionId);
+  const settings = useSessionStore.getState().settings;
+  try {
+    const result = await remoteSshDaemonSession(
+      buildRemoteSshDaemonSessionRequest(remote, settings, session),
+    );
+    const nextRemote: RemoteSessionMetadata = {
+      ...remote,
+      bootstrapStatus: "ready",
+      helperPath: result.helperPath,
+      daemonStatus: "running",
+      daemonPid: result.pid,
+      daemonLogPath: result.logPath,
+      daemonRunDir: result.runDir,
+      lastDaemonStartAt: result.startedAt,
+      daemonSessionId: result.remoteSessionId,
+      daemonBridgeStatus: "attached",
+      lastDaemonAttachError: undefined,
+    };
+    patchRemoteSessionMetadata(sessionId, nextRemote);
+    const workspace =
+      useSessionStore
+        .getState()
+        .workspaces.find((workspace) => workspace.id === session.workspaceId) ??
+      ({
+        id: session.workspaceId ?? `workspace:${session.cwd ?? result.target}`,
+        path: session.cwd ?? result.target,
+        name: session.title || result.target,
+      } as Workspace);
+    const id = await spawnSessionFromLaunchSpec(
+      {
+        agent: session.agent,
+        workspaceId: workspace.id,
+        title: `${session.title || "Remote"} · daemon`,
+        command: result.attachCommand,
+        args: result.attachArgs,
+        cwd: workspace.path,
+        env: [],
+        remote: nextRemote,
+      },
+      placement,
+    );
+    return { id, result };
+  } catch (error) {
+    patchRemoteSessionMetadata(sessionId, {
+      daemonBridgeStatus: "failed",
+      lastDaemonAttachError: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
