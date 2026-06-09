@@ -1,13 +1,13 @@
 # Adapters
 
-Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, ACP adapters map protocol permission requests into Onibi approvals, and provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model. OpenCode, Qoder, Copilot CLI, and Goose also block native pre-tool hooks through Onibi where the provider exposes a synchronous hook.
+Adapters let Onibi sit between a local agent and a tool action. Claude Code remains the full approval/edit path, Codex covers Bash approval interception, ACP adapters map protocol permission requests into Onibi approvals, and provider-event adapters feed native lifecycle/session/tool events into Onibi's common arbitration model. OpenCode, Qoder, Copilot CLI, Goose, Cursor, and OMP also block native pre-tool hooks through Onibi where the provider exposes a synchronous hook.
 
 ## Capability Matrix
 
 | Agent | Minimum version | Approval intercept | Native events | Native resume | Terminal mirror | Hook surface |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` or ACP |
-| Codex CLI | Launch-tested current | Bash only | Bash only | Unverified | Yes | `~/.codex/hooks.json` shell hook |
+| Codex CLI | Launch-tested current | Bash only | Lifecycle + Bash | `codex resume <id>` when session ID captured | Yes | `~/.codex/hooks.json` shell hook |
 | OpenCode | No minimum | Yes | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
 | Qoder CLI | No minimum | Yes | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
 | GitHub Copilot CLI | No minimum | Yes | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
@@ -15,9 +15,9 @@ Adapters let Onibi sit between a local agent and a tool action. Claude Code rema
 | Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
 | Hermes | No minimum | Yes | Yes | Yes | Yes | ACP `hermes acp` |
 | Aider | No minimum | No | No | History restore | Yes | Shell session only |
-| Cursor agent | No minimum | No | Observe-only | Pending | Yes | Cursor CLI hooks |
+| Cursor agent | No minimum | Allow/deny only | Yes | Pending | Yes | Cursor CLI hooks |
 | Pi | No minimum | Yes | Yes | Pending | Yes | `~/.pi/agent/extensions/onibi-provider-events.ts` |
-| OMP | No minimum | No | Observe-only | Pending | Yes | OMP native extension |
+| OMP | No minimum | Allow/deny only | Yes | Pending | Yes | OMP native extension |
 
 Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event` or ACP session updates. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
 
@@ -72,7 +72,7 @@ Supported features:
 Known limitations:
 
 - `apply_patch`, MCP tools, and non-Bash tool calls are not interceptable in the launch adapter.
-- Edited input is not returned to Codex; use deny-and-rerun if a command needs changes.
+- Edited Bash input is returned to Codex where the current hook contract accepts `updatedInput`.
 
 Sample interaction:
 
@@ -186,11 +186,12 @@ Supported features:
 
 - Launches a configured `cursor-agent` command when present.
 - Terminal mirror and run visibility.
-- Observe-only shell/MCP/file-edit lifecycle events update Onibi's native provider metadata when Cursor emits them.
+- Shell/MCP/read-file pre-events block through Onibi with allow/deny responses.
+- Post-event lifecycle hooks update Onibi's native provider metadata when Cursor emits them.
 
 Known limitations:
 
-- Cursor's stable blocking hook surface was not part of the launch adapter.
+- Edited-input forwarding is not enabled until Cursor documents a stable input-rewrite contract.
 - Users may need to configure the command path manually.
 
 Sample interaction:
@@ -311,12 +312,13 @@ Hook surface: native OMP extension invoking `onibi _hook omp`.
 
 Supported features:
 
-- Observe-only lifecycle events update Onibi's native provider metadata where OMP emits them.
+- `tool_call` blocks through Onibi with allow/deny responses.
+- Lifecycle events update Onibi's native provider metadata where OMP emits them.
 - Terminal mirror and run visibility.
 
 Known limitations:
 
-- Blocking approval remains unverified until OMP exposes a stable synchronous hook API.
+- Edited-input forwarding is not enabled until OMP documents a stable input-rewrite contract.
 - Native resume metadata is not wired.
 
 ## Support

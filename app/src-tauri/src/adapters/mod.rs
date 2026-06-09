@@ -894,6 +894,7 @@ mod tests {
             ("qoder", "qoder", vec!["-r", "session-1"]),
             ("hermes", "hermes", vec!["--resume", "session-1"]),
             ("goose", "goose", vec!["session", "resume", "session-1"]),
+            ("codex", "codex", vec!["resume", "session-1"]),
         ];
         for (agent, command, args) in supported {
             let resume = resume_metadata_for_agent(agent, "session-1").unwrap();
@@ -906,7 +907,7 @@ mod tests {
             );
         }
 
-        for agent in ["codex", "aider", "cursor", ""] {
+        for agent in ["aider", "cursor", ""] {
             assert!(resume_metadata_for_agent(agent, "session-1").is_none());
         }
         assert!(resume_metadata_for_agent("claude-code", " ").is_none());
@@ -914,7 +915,7 @@ mod tests {
 
     #[test]
     fn unverified_provider_events_do_not_attach_native_resume_metadata() {
-        for agent in ["codex", "aider", "cursor"] {
+        for agent in ["aider", "cursor"] {
             let ingest = normalize_provider_event(
                 agent,
                 json!({
@@ -1027,5 +1028,43 @@ mod tests {
             "toolArgs": { "command": "make test" },
             "toolResult": { "resultType": "success" }
         })));
+    }
+
+    #[test]
+    fn cursor_deny_uses_cursor_permission_contract() {
+        let result = provider_hook_result_from_decision(
+            "cursor",
+            &ProviderApprovalDecision {
+                decision: "deny".to_string(),
+                reason: Some("too broad".to_string()),
+                updated_input: Some(json!({ "command": "echo ignored" })),
+            },
+        );
+
+        assert_eq!(result.exit_code, 0);
+        let stdout = result.stdout.unwrap();
+        assert_eq!(stdout["permission"], "deny");
+        assert_eq!(stdout["user_message"], "too broad");
+        assert!(stdout.get("updatedInput").is_none());
+    }
+
+    #[test]
+    fn cursor_and_omp_approval_metadata_disable_editing() {
+        for agent in ["cursor", "omp"] {
+            let body = approval_body_from_provider_payload(
+                agent,
+                &json!({
+                    "event": "tool_call",
+                    "toolName": "bash",
+                    "toolArgs": { "command": "make test" }
+                }),
+                None,
+            )
+            .unwrap();
+            assert_eq!(
+                body.metadata.unwrap()["supportsUpdatedInput"],
+                serde_json::Value::Bool(false)
+            );
+        }
     }
 }

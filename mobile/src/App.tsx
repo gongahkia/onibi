@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, PointerEvent, SetStateAction } from "react";
 
 const STORAGE_KEY = "onibi.mobile.connection";
+const CONNECTIONS_STORAGE_KEY = "onibi.mobile.connections.v1";
+const ACTIVE_CONNECTION_STORAGE_KEY = "onibi.mobile.activeConnectionId";
 const PENDING_CACHE_PREFIX = "onibi.mobile.pending.";
 const DEVICE_LABEL = "Onibi Mobile PWA";
 
@@ -47,6 +49,7 @@ interface PairResponse {
 }
 
 export interface Connection {
+  id: string;
   baseUrl: string;
   token: string;
   deviceId: string;
@@ -54,6 +57,8 @@ export interface Connection {
   scope: ClientScope;
   vapidPublicKey?: string;
   transports: TransportEndpoint[];
+  needsRePair?: boolean;
+  authError?: string;
 }
 
 export interface Approval {
@@ -137,48 +142,179 @@ type BarcodeDetectorCtor = new (options: { formats: string[] }) => {
 };
 
 function App() {
-  const [connection, setConnection] = useStoredConnection();
+  const connections = useStoredConnections();
+  const activeConnection = connections.activeConnection;
 
-  return connection ? (
-    <InboxView connection={connection} onForget={() => setConnection(null)} />
-  ) : (
-    <PairingView onPaired={setConnection} />
+  if (!activeConnection) {
+    return <PairingView onPaired={connections.addConnection} />;
+  }
+
+  if (activeConnection.needsRePair) {
+    return (
+      <main className="app-shell">
+        <ConnectionSwitcher
+          connections={connections.connections}
+          activeId={activeConnection.id}
+          onSelect={connections.selectConnection}
+          onForget={connections.removeConnection}
+        />
+        <section className="repair-panel" aria-label="Re-pair machine">
+          <p className="eyebrow">Token expired</p>
+          <h1>{shortMachineId(activeConnection.machineId)}</h1>
+          <p className="error-line">
+            {activeConnection.authError ?? "Pair this machine again to continue."}
+          </p>
+          <PairingView
+            embedded
+            onPaired={(next) => connections.replaceConnection(activeConnection.id, next)}
+          />
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <InboxView
+      connection={activeConnection}
+      connections={connections.connections}
+      onPaired={connections.addConnection}
+      onForget={() => connections.removeConnection(activeConnection.id)}
+      onSelectConnection={connections.selectConnection}
+      onAuthInvalid={(message) => connections.markNeedsRePair(activeConnection.id, message)}
+    />
   );
 }
 
-function useStoredConnection(): [Connection | null, (next: Connection | null) => void] {
-  const [connection, setConnectionState] = useState<Connection | null>(() => {
-    if (!storageAvailable()) {
-      return null;
-    }
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? normalizeConnection(JSON.parse(raw) as Connection) : null;
-  });
+interface StoredConnectionsState {
+  connections: Connection[];
+  activeId: string | null;
+  activeConnection: Connection | null;
+  addConnection: (next: Connection) => void;
+  replaceConnection: (oldId: string, next: Connection) => void;
+  removeConnection: (id: string) => void;
+  selectConnection: (id: string) => void;
+  markNeedsRePair: (id: string, message: string) => void;
+}
 
-  const setConnection = (next: Connection | null) => {
-    setConnectionState(next);
+function useStoredConnections(): StoredConnectionsState {
+  const [connections, setConnectionsState] = useState<Connection[]>(() =>
+    loadStoredConnections(),
+  );
+  const [activeId, setActiveIdState] = useState<string | null>(() =>
+    loadStoredActiveConnectionId(),
+  );
+  const activeConnection =
+    connections.find((connection) => connection.id === activeId) ?? connections[0] ?? null;
+
+  const persist = (nextConnections: Connection[], nextActiveId: string | null) => {
+    setConnectionsState(nextConnections);
+    setActiveIdState(nextActiveId);
     if (!storageAvailable()) {
       return;
     }
-    if (next) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(nextConnections));
+    if (nextActiveId) {
+      window.localStorage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, nextActiveId);
     } else {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(ACTIVE_CONNECTION_STORAGE_KEY);
     }
+    window.localStorage.removeItem(STORAGE_KEY);
   };
 
-  return [connection, setConnection];
+  const upsertConnection = (next: Connection, replaceId?: string) => {
+    const normalized = normalizeConnection(next);
+    const merged = mergeConnection(connections, normalized, replaceId);
+    persist(merged, normalized.id);
+  };
+
+  return {
+    connections,
+    activeId: activeConnection?.id ?? null,
+    activeConnection,
+    addConnection: (next) => upsertConnection(next),
+    replaceConnection: (oldId, next) => upsertConnection(next, oldId),
+    removeConnection: (id) => {
+      const next = connections.filter((connection) => connection.id !== id);
+      const nextActive = activeConnection?.id === id ? next[0]?.id ?? null : activeConnection?.id ?? null;
+      persist(next, nextActive);
+    },
+    selectConnection: (id) => {
+      if (connections.some((connection) => connection.id === id)) {
+        persist(connections, id);
+      }
+    },
+    markNeedsRePair: (id, message) => {
+      const next = connections.map((connection) =>
+        connection.id === id
+          ? { ...connection, token: "", needsRePair: true, authError: message }
+          : connection,
+      );
+      persist(next, id);
+    },
+  };
 }
 
 function normalizeConnection(connection: Connection): Connection {
+  const machineId = connection.machineId || "unknown-machine";
+  const deviceId = connection.deviceId || "unknown-device";
   return {
     ...connection,
+    id: connection.id || connectionId(machineId, deviceId),
+    machineId,
+    deviceId,
     scope: connection.scope ?? "full",
     transports: connection.transports ?? [],
+    needsRePair: connection.needsRePair ?? false,
   };
 }
 
-function PairingView({ onPaired }: { onPaired: (connection: Connection) => void }) {
+function connectionId(machineId: string, deviceId: string): string {
+  return `${machineId}:${deviceId}`;
+}
+
+function loadStoredConnections(): Connection[] {
+  if (!storageAvailable()) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(CONNECTIONS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Connection[];
+      return parsed.map(normalizeConnection);
+    }
+    const legacy = window.localStorage.getItem(STORAGE_KEY);
+    return legacy ? [normalizeConnection(JSON.parse(legacy) as Connection)] : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredActiveConnectionId(): string | null {
+  if (!storageAvailable()) {
+    return null;
+  }
+  return window.localStorage.getItem(ACTIVE_CONNECTION_STORAGE_KEY);
+}
+
+export function mergeConnection(
+  connections: Connection[],
+  next: Connection,
+  replaceId?: string,
+): Connection[] {
+  const normalized = normalizeConnection(next);
+  const withoutOld = connections.filter(
+    (connection) => connection.id !== normalized.id && connection.id !== replaceId,
+  );
+  return [...withoutOld, normalized];
+}
+
+function PairingView({
+  onPaired,
+  embedded = false,
+}: {
+  onPaired: (connection: Connection) => void;
+  embedded?: boolean;
+}) {
   const [raw, setRaw] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Paste the pairing payload from Onibi.");
@@ -201,6 +337,7 @@ function PairingView({ onPaired }: { onPaired: (connection: Connection) => void 
       });
       const paired = (await response.json()) as PairResponse;
       onPaired({
+        id: connectionId(paired.machineId, paired.deviceId),
         baseUrl,
         token: payload.token,
         deviceId: paired.deviceId,
@@ -232,9 +369,8 @@ function PairingView({ onPaired }: { onPaired: (connection: Connection) => void 
     }
   };
 
-  return (
-    <main className="pairing-screen">
-      <section className="pairing-panel" aria-labelledby="pair-title">
+  const content = (
+    <section className="pairing-panel" aria-labelledby="pair-title">
         <div className="brand-row">
           <img src="/favicon.svg" alt="" className="brand-mark" />
           <div>
@@ -267,17 +403,60 @@ function PairingView({ onPaired }: { onPaired: (connection: Connection) => void 
         </form>
         <p className="status-line">{message}</p>
         <OnboardingView />
-      </section>
-    </main>
+    </section>
+  );
+  return embedded ? content : <main className="pairing-screen">{content}</main>;
+}
+
+function ConnectionSwitcher({
+  connections,
+  activeId,
+  onSelect,
+  onForget,
+}: {
+  connections: Connection[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  onForget: () => void;
+}) {
+  if (connections.length <= 1) {
+    return null;
+  }
+  return (
+    <div className="machine-switcher">
+      <select
+        aria-label="Paired machine"
+        value={activeId}
+        onChange={(event) => onSelect(event.target.value)}
+      >
+        {connections.map((connection) => (
+          <option key={connection.id} value={connection.id}>
+            {shortMachineId(connection.machineId)}
+            {connection.needsRePair ? " - re-pair" : ""}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="ghost-button" onClick={onForget}>
+        Remove
+      </button>
+    </div>
   );
 }
 
 function InboxView({
   connection,
+  connections,
+  onPaired,
   onForget,
+  onSelectConnection,
+  onAuthInvalid,
 }: {
   connection: Connection;
+  connections: Connection[];
+  onPaired: (connection: Connection) => void;
   onForget: () => void;
+  onSelectConnection: (id: string) => void;
+  onAuthInvalid: (message: string) => void;
 }) {
   const [pending, setPending] = useState<Approval[]>(() => loadCachedPending(connection));
   const [recent, setRecent] = useState<RunEvent[]>([]);
@@ -316,13 +495,22 @@ function InboxView({
           }
           return response;
         } catch (caught) {
+          if (shouldMarkAuthInvalid(caught, connection.scope)) {
+            const message = caught instanceof Error ? caught.message : "Pairing token rejected.";
+            onAuthInvalid(message);
+            throw caught;
+          }
           lastError = caught;
         }
       }
       throw lastError instanceof Error ? lastError : new Error("No paired transport is reachable.");
     },
-    [activeBaseUrl, baseUrlCandidates, connection.token],
+    [activeBaseUrl, baseUrlCandidates, connection.scope, connection.token, onAuthInvalid],
   );
+
+  useEffect(() => {
+    setActiveBaseUrl(connection.baseUrl);
+  }, [connection.baseUrl, connection.id]);
 
   const loadInitial = useCallback(async () => {
     const [pendingResponse, recentResponse, targetsResponse] = await Promise.all([
@@ -377,8 +565,12 @@ function InboxView({
         applyServerMessage(message, setPending, setRecent, setTerminalOutput, setSelectedSession);
       };
       socket.onerror = () => setError("Realtime connection failed.");
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         setWsState("closed");
+        if (event.code === 1008) {
+          onAuthInvalid("Realtime token rejected. Pair this machine again.");
+          return;
+        }
         if (closed) {
           return;
         }
@@ -399,7 +591,7 @@ function InboxView({
       window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [activeBaseUrl, baseUrlCandidates, connection]);
+  }, [activeBaseUrl, baseUrlCandidates, connection, onAuthInvalid]);
 
   const decide = async (
     approval: Approval,
@@ -464,9 +656,10 @@ function InboxView({
     return (
       <main className="app-shell">
         <PairingView
+          embedded
           onPaired={(next) => {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-            window.location.reload();
+            onPaired(next);
+            setReplacePairing(false);
           }}
         />
         <button type="button" className="ghost-button" onClick={() => setReplacePairing(false)}>
@@ -482,6 +675,12 @@ function InboxView({
         <div>
           <p className="eyebrow">Onibi · {connection.scope === "read-only" ? "Read only" : "Full access"}</p>
           <h1>{shortMachineId(connection.machineId)}</h1>
+          <ConnectionSwitcher
+            connections={connections}
+            activeId={connection.id}
+            onSelect={onSelectConnection}
+            onForget={onForget}
+          />
           <dl className="identity-grid" aria-label="Paired machine identity">
             <div>
               <dt>Machine</dt>
@@ -1576,6 +1775,15 @@ async function scanQrImage(file: File): Promise<string> {
   return raw;
 }
 
+class HttpStatusError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 function authedFetch(
   baseUrl: string,
   token: string,
@@ -1589,10 +1797,14 @@ function authedFetch(
   }
   return fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { ...init, headers }).then((response) => {
     if (!response.ok) {
-      throw new Error(`${path} failed with HTTP ${response.status}`);
+      throw new HttpStatusError(`${path} failed with HTTP ${response.status}`, response.status);
     }
     return response;
   });
+}
+
+function shouldMarkAuthInvalid(error: unknown, scope: ClientScope): boolean {
+  return error instanceof HttpStatusError && (error.status === 401 || (scope === "full" && error.status === 403));
 }
 
 function realtimeUrl(connection: Connection): string {

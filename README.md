@@ -83,7 +83,7 @@ Mirror, protocol, resume-only, or observe-only adapters:
 - Hermes - ACP permission approval plus GUI resume/reattach from provider session metadata.
 - Gemini - resume metadata when provider session IDs are available.
 - Aider - terminal mirror plus history-based restore.
-- Cursor and OMP - terminal mirror, heuristic detection, and observe-only native hooks.
+- Cursor and OMP - terminal mirror, heuristic detection, and allow/deny blocking hooks without edited-input forwarding.
 
 Platforms:
 

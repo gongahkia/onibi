@@ -146,6 +146,23 @@ pre {
   background: rgba(127, 29, 29, 0.22);
 }
 
+.repair-panel,
+.machine-switcher {
+  display: grid;
+  gap: 10px;
+}
+
+.repair-panel {
+  padding: 14px;
+  border: 1px solid #243447;
+  border-radius: 8px;
+  background: rgba(9, 15, 23, 0.92);
+}
+
+.machine-switcher {
+  max-width: 320px;
+}
+
 .kill-switch-panel p {
   margin-top: 4px;
   color: #fecaca;
