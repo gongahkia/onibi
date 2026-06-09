@@ -2890,8 +2890,9 @@ mod tests {
         assert!(value["runtimeConfig"]["checkpointIgnoredPathGlobs"].is_array());
         assert_eq!(value["appliedFields"][0], "server.approval_timeout_secs");
         assert_eq!(value["appliedFields"][3], "checkpointing.max_records");
+        assert_eq!(value["appliedFields"].as_array().unwrap().len(), 9);
         assert_eq!(
-            value["appliedFields"][7],
+            value["appliedFields"][8],
             "checkpointing.ignored_path_globs"
         );
         assert_eq!(value["restartRequiredFields"][0], "server.port");

@@ -69,7 +69,7 @@ describe("SourceControlView", () => {
     );
 
     expect(screen.getByText("main")).toBeTruthy();
-    expect(screen.getByText("Sync 2↓ 1↑")).toBeTruthy();
+    expect(screen.queryByText(/Sync/)).toBeNull();
     expect(screen.getByText("README.md")).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Stage README.md"));

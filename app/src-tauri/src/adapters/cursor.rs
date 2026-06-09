@@ -197,11 +197,9 @@ mod tests {
         install_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
 
-        assert!(
-            settings["hooks"]["BeforeShellExecution"]
-                .as_array()
-                .is_none()
-        );
+        assert!(settings["hooks"]["BeforeShellExecution"]
+            .as_array()
+            .is_none());
         assert_eq!(
             settings["hooks"]["beforeShellExecution"]
                 .as_array()
@@ -220,11 +218,9 @@ mod tests {
 
         uninstall_at(&path).unwrap();
         let settings = read_json(&path, json!({})).unwrap();
-        assert!(
-            settings["hooks"]["BeforeShellExecution"]
-                .as_array()
-                .is_none()
-        );
+        assert!(settings["hooks"]["BeforeShellExecution"]
+            .as_array()
+            .is_none());
         assert_eq!(
             settings["hooks"]["beforeShellExecution"]
                 .as_array()

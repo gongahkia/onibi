@@ -60,7 +60,10 @@ pub fn skipped_pre_record(approval: &Approval, error: impl Into<String>) -> Chec
     }
 }
 
-pub fn snapshot_pre(approval: &Approval, guardrails: &CheckpointGuardrails) -> Result<CheckpointRecord> {
+pub fn snapshot_pre(
+    approval: &Approval,
+    guardrails: &CheckpointGuardrails,
+) -> Result<CheckpointRecord> {
     let cwd = PathBuf::from(&approval.cwd);
     let pre_ref = pre_ref(&approval.approval_id);
     snapshot_ref(
@@ -82,7 +85,10 @@ pub fn snapshot_pre(approval: &Approval, guardrails: &CheckpointGuardrails) -> R
     })
 }
 
-pub fn snapshot_post(record: &CheckpointRecord, guardrails: &CheckpointGuardrails) -> Result<String> {
+pub fn snapshot_post(
+    record: &CheckpointRecord,
+    guardrails: &CheckpointGuardrails,
+) -> Result<String> {
     let post_ref = post_ref(&record.approval_id);
     snapshot_ref(
         Path::new(&record.cwd),
@@ -589,14 +595,21 @@ mod tests {
             ..CheckpointGuardrails::default()
         };
 
-        let record = snapshot_pre(&test_approval(dir.path(), "approval-ignore"), &guardrails)
-            .unwrap();
+        let record =
+            snapshot_pre(&test_approval(dir.path(), "approval-ignore"), &guardrails).unwrap();
 
-        run_git(dir.path(), &["cat-file", "-e", &format!("{}:src.txt", record.pre_ref)]);
+        run_git(
+            dir.path(),
+            &["cat-file", "-e", &format!("{}:src.txt", record.pre_ref)],
+        );
         let missing = Command::new("git")
             .arg("-C")
             .arg(dir.path())
-            .args(["cat-file", "-e", &format!("{}:dist/bundle.js", record.pre_ref)])
+            .args([
+                "cat-file",
+                "-e",
+                &format!("{}:dist/bundle.js", record.pre_ref),
+            ])
             .output()
             .unwrap();
         assert!(!missing.status.success());

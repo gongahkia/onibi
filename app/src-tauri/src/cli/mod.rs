@@ -8,9 +8,9 @@ use crate::{
     adapters, config, headless, orchestration, policy, secret, self_update, server, transport, util,
 };
 use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 #[cfg(feature = "gui")]
 use app_lib::remote;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
 use std::{

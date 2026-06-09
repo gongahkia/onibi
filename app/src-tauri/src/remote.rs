@@ -275,7 +275,10 @@ pub fn remote_ssh_daemon_session(
         user: request.user.clone(),
         host: request.host.clone(),
         port: request.port,
-        remote_cwd: request.remote_cwd.clone().or_else(|| Some(workspace.clone())),
+        remote_cwd: request
+            .remote_cwd
+            .clone()
+            .or_else(|| Some(workspace.clone())),
         ssh_command: request.ssh_command.clone(),
         helper_path: request.helper_path.clone(),
         staging_dir: request.staging_dir.clone(),
@@ -285,7 +288,10 @@ pub fn remote_ssh_daemon_session(
         user: request.user.clone(),
         host: request.host.clone(),
         port: request.port,
-        remote_cwd: request.remote_cwd.clone().or_else(|| Some(workspace.clone())),
+        remote_cwd: request
+            .remote_cwd
+            .clone()
+            .or_else(|| Some(workspace.clone())),
         ssh_command: request.ssh_command.clone(),
         helper_path: Some(bootstrap.helper_path.clone()),
         run_dir: request.run_dir.clone(),
