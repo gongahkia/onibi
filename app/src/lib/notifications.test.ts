@@ -23,7 +23,6 @@ function resetStore() {
     activeTerminalPaneId: null,
     maximizedTerminalPaneId: null,
     arrangements: [],
-    activeSidebarView: "files",
     workspaces: [],
     selectedFile: null,
     sessionEvents: [],

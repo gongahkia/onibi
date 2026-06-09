@@ -231,7 +231,7 @@ export function CommandPalette() {
   const selectFile = useSessionStore((state) => state.selectFile);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
-  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
+  const setRightDockView = useSessionStore((state) => state.setRightDockView);
   const focusRelativeAttentionSession = useSessionStore(
     (state) => state.focusRelativeAttentionSession,
   );
@@ -601,7 +601,7 @@ export function CommandPalette() {
         group: "Workspace",
         description: currentWorkspace?.name ?? "No active workspace",
         keywords: ["find", "ripgrep", "text"],
-        run: () => setActiveSidebarView("search"),
+        run: () => setRightDockView("search"),
       },
       {
         id: "attention.next",
@@ -1177,7 +1177,7 @@ export function CommandPalette() {
     sessionEvents,
     sessions,
     setActiveSession,
-    setActiveSidebarView,
+    setRightDockView,
     settings,
     sendCustomCommand,
     applyTerminalLayoutPreset,

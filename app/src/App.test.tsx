@@ -40,7 +40,6 @@ function resetStore() {
     activeWorkspaceTabId: null,
     workspaces: [],
     selectedFile: null,
-    activeSidebarView: "files",
     rightDockView: "files",
     rightDockMode: "expanded",
     sidebarCollapsed: false,

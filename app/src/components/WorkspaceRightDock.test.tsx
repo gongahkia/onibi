@@ -17,7 +17,6 @@ function resetStore() {
     workspaceTabs: [],
     activeWorkspaceId: null,
     activeWorkspaceTabId: null,
-    activeSidebarView: "files",
     rightDockView: "files",
     rightDockMode: "expanded",
     workspaces: [],
@@ -59,7 +58,6 @@ describe("WorkspaceRightDock", () => {
     fireEvent.click(screen.getByLabelText("Source Control"));
 
     expect(useSessionStore.getState().rightDockView).toBe("source-control");
-    expect(useSessionStore.getState().activeSidebarView).toBe("source-control");
     expect(screen.getByTestId("dock-content").textContent).toBe("source-control");
   });
 });

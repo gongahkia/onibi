@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS, useSessionStore } from "../lib/sessions";
 import { StatusBar } from "./StatusBar";
 
@@ -11,7 +11,6 @@ function resetStore() {
     workspaceTabs: [],
     activeWorkspaceId: null,
     activeWorkspaceTabId: null,
-    activeSidebarView: "files",
     rightDockView: "files",
     rightDockMode: "expanded",
     sidebarCollapsed: true,
@@ -34,7 +33,7 @@ describe("StatusBar", () => {
     expect(screen.queryByText(/pending/i)).toBeNull();
   });
 
-  test("opens approvals when pending approvals need attention", () => {
+  test("dispatches focus-approval-banner when pending approvals need attention", () => {
     useSessionStore.setState({
       sessions: [
         {
@@ -48,12 +47,15 @@ describe("StatusBar", () => {
         },
       ],
     });
+    const listener = vi.fn();
+    window.addEventListener("onibi:focus-approval-banner", listener);
 
-    render(<StatusBar />);
-    fireEvent.click(screen.getByRole("button", { name: /1 pending/i }));
-
-    expect(useSessionStore.getState().activeSidebarView).toBe("approvals");
-    expect(useSessionStore.getState().rightDockMode).toBe("compressed");
-    expect(useSessionStore.getState().sidebarCollapsed).toBe(false);
+    try {
+      render(<StatusBar />);
+      fireEvent.click(screen.getByRole("button", { name: /1 pending/i }));
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("onibi:focus-approval-banner", listener);
+    }
   });
 });

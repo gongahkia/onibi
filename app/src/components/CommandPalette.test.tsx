@@ -20,7 +20,6 @@ function resetStore() {
     activeTerminalPaneId: null,
     maximizedTerminalPaneId: null,
     arrangements: [],
-    activeSidebarView: "files",
     workspaces: [],
     selectedFile: null,
     sessionEvents: [],
@@ -182,7 +181,7 @@ describe("CommandPalette", () => {
     fireEvent.change(input, { target: { value: "workspace search" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(useSessionStore.getState().activeSidebarView).toBe("search");
+    expect(useSessionStore.getState().rightDockView).toBe("search");
   });
 
   test("opens the quick workspace launcher", () => {

@@ -32,7 +32,6 @@ const VIEW_TITLES: Record<WorkspaceSidebarView, string> = {
   files: "Recent Files",
   search: "Search",
   "source-control": "Source Control",
-  approvals: "Approvals",
 };
 
 export function WorkspaceSidebarContent({ view }: { view: WorkspaceSidebarView }) {

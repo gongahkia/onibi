@@ -341,12 +341,9 @@ export interface SessionTranscript {
   updatedAt: number;
 }
 
-export type WorkspaceSidebarView =
-  | "files"
-  | "search"
-  | "source-control"
-  | "approvals";
 export type WorkspaceRightDockView = "files" | "search" | "source-control";
+/** @deprecated kept as alias for source-compat — same value space as WorkspaceRightDockView */
+export type WorkspaceSidebarView = WorkspaceRightDockView;
 export type WorkspaceRightDockMode = "compressed" | "expanded";
 
 export interface ArrangementSession {
@@ -369,7 +366,7 @@ export interface Arrangement {
   selectedFile: MainSelection | null;
   openBuffers?: MainSelection[];
   activeBufferKey?: string | null;
-  activeSidebarView: WorkspaceSidebarView;
+  rightDockView: WorkspaceRightDockView;
   sessions: ArrangementSession[];
 }
 
@@ -778,7 +775,8 @@ type PersistedState = {
   activeTerminalPaneId?: string | null;
   maximizedTerminalPaneId?: string | null;
   arrangements?: Arrangement[];
-  activeSidebarView?: WorkspaceSidebarView;
+  /** @deprecated read-only legacy field; load logic falls back from this when rightDockView is absent */
+  activeSidebarView?: WorkspaceRightDockView;
   rightDockView?: WorkspaceRightDockView;
   rightDockMode?: WorkspaceRightDockMode;
   sidebarCollapsed?: boolean;
@@ -803,7 +801,6 @@ type SessionStore = {
   activeWorkspaceId: string | null;
   activeWorkspaceTabId: string | null;
   arrangements: Arrangement[];
-  activeSidebarView: WorkspaceSidebarView;
   rightDockView: WorkspaceRightDockView;
   rightDockMode: WorkspaceRightDockMode;
   workspaces: Workspace[];
@@ -853,7 +850,6 @@ type SessionStore = {
     position: TerminalPaneDropPosition,
   ) => void;
   applyTerminalLayoutPreset: (preset: TerminalLayoutPreset) => void;
-  setActiveSidebarView: (view: WorkspaceSidebarView) => void;
   setRightDockView: (view: WorkspaceRightDockView) => void;
   setRightDockMode: (mode: WorkspaceRightDockMode) => void;
   toggleRightDock: (view?: WorkspaceRightDockView) => void;
@@ -1771,7 +1767,6 @@ function getStore(): Promise<Store> {
       activeTerminalPaneId: null,
       maximizedTerminalPaneId: null,
       arrangements: [],
-      activeSidebarView: "files",
       rightDockView: "files",
       rightDockMode: "expanded",
       sessionEvents: [],
@@ -2449,15 +2444,6 @@ function normalizeAgentKind(value: unknown, fallback: AgentKind): AgentKind {
   return typeof value === "string" && (AGENT_KINDS as readonly string[]).includes(value)
     ? (value as AgentKind)
     : fallback;
-}
-
-function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
-  return value === "files" ||
-    value === "search" ||
-    value === "source-control" ||
-    value === "approvals"
-    ? value
-    : "files";
 }
 
 function normalizeRightDockView(
@@ -3708,7 +3694,9 @@ function normalizeArrangements(value: unknown): Arrangement[] {
       selectedFile: isRecord(item.selectedFile)
         ? (item.selectedFile as unknown as MainSelection)
         : null,
-      activeSidebarView: normalizeWorkspaceSidebarView(item.activeSidebarView),
+      rightDockView: normalizeRightDockView(
+        item.rightDockView ?? item.activeSidebarView,
+      ),
       sessions: normalizeArrangementSessions(item.sessions),
     });
   }
@@ -3862,7 +3850,6 @@ function snapshot(state: SessionStore): PersistedState {
     activeTerminalPaneId: state.activeTerminalPaneId,
     maximizedTerminalPaneId: state.maximizedTerminalPaneId,
     arrangements: state.arrangements,
-    activeSidebarView: state.activeSidebarView,
     rightDockView: state.rightDockView,
     rightDockMode: state.rightDockMode,
     sidebarCollapsed: state.sidebarCollapsed,
@@ -3897,7 +3884,6 @@ export async function persistNow(): Promise<void> {
     await store.set("activeTerminalPaneId", state.activeTerminalPaneId);
     await store.set("maximizedTerminalPaneId", state.maximizedTerminalPaneId);
     await store.set("arrangements", state.arrangements);
-    await store.set("activeSidebarView", state.activeSidebarView);
     await store.set("rightDockView", state.rightDockView);
     await store.set("rightDockMode", state.rightDockMode);
     await store.set("sidebarCollapsed", state.sidebarCollapsed);
@@ -3926,7 +3912,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
   activeWorkspaceId: null,
   activeWorkspaceTabId: null,
   arrangements: [],
-  activeSidebarView: "files",
   rightDockView: "files",
   rightDockMode: "expanded",
   workspaces: [],
@@ -4396,26 +4381,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
     });
     persistLater();
   },
-  setActiveSidebarView: (view) => {
-    set((state) => {
-      if (view === "files" || view === "search" || view === "source-control") {
-        return {
-          activeSidebarView: view,
-          rightDockView: view,
-          rightDockMode: "expanded",
-        };
-      }
-      return {
-        activeSidebarView: view,
-        rightDockMode:
-          state.rightDockMode === "expanded" ? "compressed" : state.rightDockMode,
-      };
-    });
-    persistLater();
-  },
   setRightDockView: (view) => {
     set({
-      activeSidebarView: view,
       rightDockView: view,
       rightDockMode: "expanded",
     });
@@ -4431,7 +4398,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
       const shouldCompress =
         state.rightDockView === nextView && state.rightDockMode === "expanded";
       return {
-        activeSidebarView: nextView,
         rightDockView: nextView,
         rightDockMode: shouldCompress ? "compressed" : "expanded",
       };
@@ -4815,7 +4781,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
       selectedFile: state.selectedFile,
       openBuffers: state.openBuffers,
       activeBufferKey: state.activeBufferKey,
-      activeSidebarView: state.activeSidebarView,
+      rightDockView: state.rightDockView,
       sessions,
     };
     set((current) => ({
@@ -5611,7 +5577,7 @@ export async function hydrateSessionStore(): Promise<void> {
       store.get<string | null>("activeTerminalPaneId"),
       store.get<string | null>("maximizedTerminalPaneId"),
       store.get<Arrangement[]>("arrangements"),
-      store.get<WorkspaceSidebarView>("activeSidebarView"),
+      store.get<WorkspaceRightDockView>("activeSidebarView"),
       store.get<WorkspaceRightDockView>("rightDockView"),
       store.get<WorkspaceRightDockMode>("rightDockMode"),
       store.get<boolean>("sidebarCollapsed"),
@@ -5786,11 +5752,10 @@ export async function hydrateSessionStore(): Promise<void> {
       !restoredSidebarFirstLaunchSeen ||
       typeof sidebarCollapsedExplicit !== "boolean" ||
       migratedExplicitSidebar;
-    const restoredActiveSidebarView =
-      normalizeWorkspaceSidebarView(activeSidebarView);
+    // rightDockView is the canonical field; fall back to legacy activeSidebarView for older saves
     const restoredRightDockView = normalizeRightDockView(
-      rightDockView,
-      restoredActiveSidebarView === "search" ? "search" : "files",
+      rightDockView ?? activeSidebarView,
+      "files",
     );
     const restoredRightDockMode = normalizeRightDockMode(
       rightDockMode,
@@ -5812,7 +5777,6 @@ export async function hydrateSessionStore(): Promise<void> {
       activeWorkspaceId: restoredActiveWorkspaceId,
       activeWorkspaceTabId: restoredActiveWorkspaceTabId,
       arrangements: normalizeArrangements(arrangements),
-      activeSidebarView: restoredActiveSidebarView,
       rightDockView: restoredRightDockView,
       rightDockMode: restoredRightDockMode,
       sidebarCollapsed: restoredSidebarCollapsed,
@@ -7569,7 +7533,7 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
     selectedFile: resolvedSelected,
     openBuffers: fallbackBuffers,
     activeBufferKey: resolvedActiveKey,
-    activeSidebarView: arrangement.activeSidebarView,
+    rightDockView: arrangement.rightDockView,
     sessionEvents: appendEvent(current.sessionEvents, {
       type: "arrangement-restored",
       workspaceId: arrangement.workspaceId,

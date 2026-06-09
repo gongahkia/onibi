@@ -17,7 +17,6 @@ function resetStore() {
     activeTerminalPaneId: null,
     maximizedTerminalPaneId: null,
     arrangements: [],
-    activeSidebarView: "files",
     workspaces: [{ id: "workspace:/repo", path: "/repo", name: "repo" }],
     selectedFile: null,
     sessionEvents: [],

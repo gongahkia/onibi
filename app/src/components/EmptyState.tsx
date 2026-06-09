@@ -12,7 +12,7 @@ export function EmptyState() {
   const sessions = useSessionStore((state) => state.sessions);
   const addWorkspace = useSessionStore((state) => state.addWorkspace);
   const setActiveWorkspace = useSessionStore((state) => state.setActiveWorkspace);
-  const setActiveSidebarView = useSessionStore((state) => state.setActiveSidebarView);
+  const setRightDockView = useSessionStore((state) => state.setRightDockView);
   const recentWorkspaces = useMemo(() => workspaces.slice(0, 5), [workspaces]);
 
   const pendingApprovals = useMemo(
@@ -31,7 +31,7 @@ export function EmptyState() {
     if (workspace) {
       addWorkspace(workspace);
       setActiveWorkspace(workspace.id);
-      setActiveSidebarView("files");
+      setRightDockView("files");
     }
   }
 
@@ -45,18 +45,20 @@ export function EmptyState() {
           </div>
         </div>
         <div className="welcome-cockpit" role="status" aria-label="Cockpit summary">
-          <button
-            type="button"
+          <span
             className={`welcome-pill ${pendingApprovals > 0 ? "attention" : ""}`}
-            onClick={() => setActiveSidebarView("approvals")}
-            title={pendingApprovals > 0 ? "Open approvals view" : "No pending approvals"}
+            title={
+              pendingApprovals > 0
+                ? "Approvals appear inline in the active session"
+                : "No pending approvals"
+            }
           >
             <i
               className={`codicon ${pendingApprovals > 0 ? "codicon-bell-dot" : "codicon-bell"}`}
               aria-hidden="true"
             />
             <span>{pendingApprovals} pending</span>
-          </button>
+          </span>
           <span className="welcome-pill" title="Active agent sessions">
             <i className="codicon codicon-rocket" aria-hidden="true" />
             <span>{activeSessions} session{activeSessions === 1 ? "" : "s"}</span>
@@ -96,7 +98,7 @@ export function EmptyState() {
                   className="welcome-link"
                   onClick={() => {
                     setActiveWorkspace(workspace.id);
-                    setActiveSidebarView("files");
+                    setRightDockView("files");
                   }}
                   title={workspace.path}
                 >

@@ -1,0 +1,50 @@
+[
+  {
+    "label": "http://localhost:1420/ titleBar",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:1420/ agentRail",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:1420/ rightDock",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:1420/ mainPane",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:1420/ emptyState",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:1420/ screenshot",
+    "value": "/Users/gongahkia/Desktop/coding/projects/onibi/output/smoke/desktop-empty.png"
+  },
+  {
+    "label": "http://localhost:1420/ console errors",
+    "value": 3
+  },
+  {
+    "label": "http://localhost:5173/ pairingPanel",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:5173/ pairTextarea",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:5173/ pairButton",
+    "value": 1
+  },
+  {
+    "label": "http://localhost:5173/ screenshot",
+    "value": "/Users/gongahkia/Desktop/coding/projects/onibi/output/smoke/mobile-pairing.png"
+  },
+  {
+    "label": "http://localhost:5173/ console errors",
+    "value": 1
+  }
+]

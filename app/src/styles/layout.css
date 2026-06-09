@@ -5415,7 +5415,7 @@ button.welcome-pill:hover {
   font-size: 0.85em;
   resize: vertical;
 }
-.approval-banner-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.approval-banner-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; position: relative; z-index: 2; }
 .approval-banner-actions .approval-allow { background: var(--success, #2ea043); color: #fff; }
 .approval-banner-actions .approval-deny { color: var(--danger, #f85149); }
 .approval-banner-error {
@@ -5526,3 +5526,105 @@ button.welcome-pill:hover {
   max-width: 100%;
 }
 .recent-files-item.active .recent-files-subtitle { color: rgba(255,255,255,0.8); }
+
+/* === Approval banner — rich preview (countdown, risk, policy, file diff, pager) === */
+.approval-banner-countdown {
+  margin-left: 8px;
+  color: var(--danger, #f85149);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+.approval-banner-risk-list {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.approval-banner-risk-badge {
+  padding: 1px 6px;
+  background: var(--danger, #f85149);
+  color: #fff;
+  border-radius: 3px;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.approval-banner-policy {
+  font-size: 0.8em;
+  color: var(--fg-2);
+  padding: 2px 6px;
+  background: var(--bg-2);
+  border-radius: 3px;
+  align-self: flex-start;
+}
+.approval-banner-preview-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.approval-banner-preview-header {
+  font-size: 0.75em;
+  color: var(--fg-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.approval-banner-code-preview {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+.approval-banner-file-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+  background: var(--bg-0);
+}
+.approval-banner-file-preview-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85em;
+}
+.approval-banner-file-preview-header code {
+  font-family: var(--font-mono);
+  color: var(--fg-2);
+}
+.approval-banner-file-preview-section { display: flex; flex-direction: column; gap: 3px; }
+.approval-banner-file-preview-label {
+  font-size: 0.75em;
+  color: var(--fg-2);
+  text-transform: uppercase;
+}
+.approval-banner-side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.approval-banner-side-pane { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.approval-banner-side-label { font-size: 0.7em; color: var(--fg-2); }
+.approval-banner-preview-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8em;
+  color: var(--fg-2);
+  justify-content: flex-end;
+}
+.approval-banner-preview-page-button {
+  padding: 2px 8px;
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: inherit;
+}
+.approval-banner-preview-page-button:disabled { opacity: 0.5; cursor: default; }
+.approval-banner-deny-label { display: flex; flex-direction: column; gap: 2px; font-size: 0.85em; color: var(--fg-2); }
+.approval-banner-deny-input {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+.approval-banner-prose { min-height: 80px; }

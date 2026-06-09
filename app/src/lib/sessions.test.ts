@@ -1328,7 +1328,7 @@ claude-code = "claude --dangerously-skip-permissions"
           createdAt: 1,
           updatedAt: 1,
           selectedFile: null,
-          activeSidebarView: "files",
+          rightDockView: "files",
           sessions: [],
         },
       ],
