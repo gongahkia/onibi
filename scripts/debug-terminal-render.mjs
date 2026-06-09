@@ -108,7 +108,13 @@ const probe = await page.evaluate(() => {
     terminalView: rect(".terminal-view"),
     xtermScreen: rect(".xterm-screen"),
     composer: rect(".pane-composer-dock"),
-    terminalPaneInnerHTML: document.querySelector(".terminal-pane")?.innerHTML.slice(0, 1200),
+    terminalPaneInnerHTML: document.querySelector(".terminal-pane")?.innerHTML,
+    terminalPaneChildren: [...(document.querySelector(".terminal-pane")?.children ?? [])].map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      classes: el.className,
+      width: Math.round(el.getBoundingClientRect().width),
+      height: Math.round(el.getBoundingClientRect().height),
+    })),
   };
 });
 
