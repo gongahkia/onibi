@@ -87,6 +87,21 @@ describe("ApprovalModal", () => {
     });
   });
 
+  test("hides edit controls when provider cannot apply updated input", () => {
+    render(
+      <ApprovalModal
+        initialPending={{
+          ...pending,
+          agent: "cursor",
+          metadata: { supportsUpdatedInput: false },
+        }}
+        token="test-token"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Edit input" })).toBeNull();
+  });
+
   test("submits custom deny reason", async () => {
     render(<ApprovalModal initialPending={pending} token="test-token" />);
     fireEvent.change(screen.getByTestId("Deny reason-plain-text"), {

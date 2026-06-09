@@ -38,7 +38,7 @@ impl TransportManager {
         Self::with_transports(
             local_port,
             machine_id,
-            Arc::new(StdRwLock::new(token)),
+            token,
             vapid_public_key,
             vec![
                 Arc::new(TailscaleFunnel::default()),
@@ -58,7 +58,7 @@ impl TransportManager {
         Self {
             local_port,
             machine_id,
-            token,
+            token: Arc::new(StdRwLock::new(token)),
             vapid_public_key,
             transports: Arc::new(transports),
             handles: Arc::new(RwLock::new(HashMap::new())),

@@ -9,6 +9,8 @@ import {
   emergencyStopRequest,
   installStateBody,
   installStateTitle,
+  approvalSupportsUpdatedInput,
+  mergeConnection,
   needsRemoteConfirmation,
   parsePairingInput,
   reconnectDelay,
@@ -61,11 +63,25 @@ describe("mobile pairing and approval helpers", () => {
       by: "mobile",
       reason: "too broad",
     });
+    expect(
+      buildDecisionBody(
+        { ...approval, metadata: { supportsUpdatedInput: false } },
+        "allow",
+        "echo ignored",
+      ),
+    ).toEqual({
+      decision: "allow",
+      by: "mobile",
+    });
+    expect(approvalSupportsUpdatedInput(approval)).toBe(true);
+    expect(approvalSupportsUpdatedInput({ ...approval, metadata: { supportsUpdatedInput: false } }))
+      .toBe(false);
   });
 
   test("orders paired transports for phone reachability", () => {
     expect(candidateBaseUrls({
       baseUrl: "http://127.0.0.1:17893",
+      id: "machine:device",
       token: "secret",
       deviceId: "device",
       machineId: "machine",
@@ -79,6 +95,45 @@ describe("mobile pairing and approval helpers", () => {
       "http://127.0.0.1:17893",
       "https://192.168.1.10:17893",
       "https://demo.trycloudflare.com",
+    ]);
+  });
+
+  test("merges paired machines and replaces repaired entries", () => {
+    const first = {
+      id: "machine-a:device-a",
+      baseUrl: "https://a.example",
+      token: "a",
+      deviceId: "device-a",
+      machineId: "machine-a",
+      scope: "full" as const,
+      transports: [],
+    };
+    const repaired = {
+      id: "machine-a:device-b",
+      baseUrl: "https://a.example",
+      token: "b",
+      deviceId: "device-b",
+      machineId: "machine-a",
+      scope: "full" as const,
+      transports: [],
+    };
+    const second = {
+      id: "machine-c:device-c",
+      baseUrl: "https://c.example",
+      token: "c",
+      deviceId: "device-c",
+      machineId: "machine-c",
+      scope: "read-only" as const,
+      transports: [],
+    };
+
+    expect(mergeConnection([first], second).map((item) => item.id)).toEqual([
+      "machine-a:device-a",
+      "machine-c:device-c",
+    ]);
+    expect(mergeConnection([first, second], repaired, first.id).map((item) => item.id)).toEqual([
+      "machine-c:device-c",
+      "machine-a:device-b",
     ]);
   });
 
