@@ -1772,6 +1772,8 @@ function getStore(): Promise<Store> {
       maximizedTerminalPaneId: null,
       arrangements: [],
       activeSidebarView: "files",
+      rightDockView: "files",
+      rightDockMode: "expanded",
       sessionEvents: [],
       settings: DEFAULT_SETTINGS,
     },
@@ -2456,6 +2458,20 @@ function normalizeWorkspaceSidebarView(value: unknown): WorkspaceSidebarView {
     value === "approvals"
     ? value
     : "files";
+}
+
+function normalizeRightDockView(
+  value: unknown,
+  fallback: WorkspaceRightDockView = "files",
+): WorkspaceRightDockView {
+  return value === "files" || value === "search" ? value : fallback;
+}
+
+function normalizeRightDockMode(
+  value: unknown,
+  fallback: WorkspaceRightDockMode = "expanded",
+): WorkspaceRightDockMode {
+  return value === "compressed" || value === "expanded" ? value : fallback;
 }
 
 function normalizeDiffViewMode(value: unknown): DiffViewMode {
