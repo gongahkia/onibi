@@ -260,6 +260,9 @@ pub fn router(state: AppState) -> Router {
             post(routes::pty_output)
                 .layer::<_, Infallible>(DefaultBodyLimit::max(PTY_OUTPUT_BODY_LIMIT)),
         )
+        .route("/v1/panes/targets", get(routes::pane_targets))
+        .route("/v1/panes/:id/send-text", post(routes::pane_send_text))
+        .route("/v1/panes/:id/send-keys", post(routes::pane_send_keys))
         .route("/v1/pair", post(routes::pair))
         .route(
             "/v1/token/spectator",

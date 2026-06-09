@@ -49,7 +49,7 @@ Then scan the pairing QR with your phone, install the PWA, and run:
 claude code "remove the old generated test fixtures"
 ```
 
-When Claude pauses at a tool call, Onibi shows the approval on desktop and phone. Editing `rm -rf tests/legacy` into `mv tests/legacy tests/legacy.bak` returns an `updatedInput` decision to the agent.
+When Claude pauses at a tool call, Onibi shows the approval on desktop and phone. Editing `rm -rf tests/legacy` into `mv tests/legacy tests/legacy.bak` returns an `updatedInput` decision to the agent. The PWA can also send literal text or allowlisted presets into a selected Onibi pane over the same authenticated local transport.
 
 ## Architecture
 
@@ -61,6 +61,8 @@ Core protocol endpoints:
 
 - `POST /v1/approval/request` - adapter long-polls until a decision exists.
 - `POST /v1/approval/:id/decide` - desktop or phone submits allow/deny/edit.
+- `POST /v1/panes/:id/send-text` - authenticated PWA sends literal text to a pane.
+- `POST /v1/panes/:id/send-keys` - authenticated PWA runs a server-owned preset key sequence.
 - `WS /v1/realtime` - approvals, run events, terminal output, and heartbeat.
 - `GET /v1/qr` - pairing payload with token, machine ID, and transports.
 
@@ -115,7 +117,7 @@ The desktop app, mobile PWA, CLI, and headless daemon all talk to the same local
 
 ## Roadmap
 
-Near-term work is focused on landing-page/docs cleanup, WSL2 install notes, and remaining mobile PWA polish.
+Near-term work is focused on landing-page/docs cleanup, WSL2 install notes, and post-launch desktop parity for the PWA remote-input composer.
 
 ## License
 

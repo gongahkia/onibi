@@ -963,31 +963,31 @@ The single product-shaped idea that survives policy filtering: **free-text from 
 
 Numbered 126+ to continue from §8.
 
-126. **Remote pane keystroke composer.** Add a user-facing "send text to active pane" surface in the PWA (and, for parity, in the desktop app). Composer captures free text, target-pane selection, and Enter/no-Enter intent; submission calls the existing orchestration `pane send-text` / `pane send-keys` over the authenticated bearer-token HTTP+WebSocket channels already used for approvals.
+126. **[DONE] Remote pane keystroke composer, PWA launch slice.** The PWA now has a user-facing "send text to active pane" surface. Composer captures free text, target-pane selection, and Enter/no-Enter intent; submission calls authenticated `POST /v1/panes/:pane_id/send-text` and preset-backed `POST /v1/panes/:pane_id/send-keys`, which write literal PTY input through the existing orchestration runtime.
     **Mapping to onibi:**
-    - Frontend: new `app/src/components/composer/RemoteKeystrokeComposer.tsx` (Lexical-backed per item 122; prose only, never wraps CodeMirror) plus mobile equivalent at `mobile/src/components/RemoteKeystrokeComposer.tsx`. Available from the active pane surface and via a Command Palette entry.
-    - Backend: no new wire protocol. Routes hit existing `/v1/realtime` WebSocket plus a new authenticated `POST /v1/panes/:pane_id/send-text` and `POST /v1/panes/:pane_id/send-keys` endpoint pair if the orchestration HTTP surface does not already expose them; otherwise reuse the existing routes used by the CLI `onibi pane send-keys`.
-    - Reuses bearer-token auth (single-user, ULID, keyring), TLS/HSTS/CSP, rate limiting (`tower_governor`), and read-only spectator scope checks from item 89. Read-only paired clients must be server-blocked from this surface, same way they are blocked from approval decisions.
-    **Effort:** [Speculation] 2–3 days (PWA + desktop composers, route hardening, tests, audit logging).
+    - Frontend: implemented in the mobile PWA as the Send tab/composer, reusing local state and HTTP fallback transport logic. Desktop composer/Command Palette parity remains item 129.
+    - Backend: no new wire protocol. Added `/v1/panes/targets`, `/v1/panes/:pane_id/send-text`, and `/v1/panes/:pane_id/send-keys` over the existing bearer-token HTTP channel; realtime still carries run events.
+    - Reuses bearer-token auth (single-user, ULID, keyring), TLS/HSTS/CSP, and read-only spectator scope checks from item 89. Read-only paired clients are server-blocked from this surface.
+    **Effort:** Done for the v1.5.0 PWA launch slice; desktop parity is deferred.
 
-127. **Target resolution: reply-to + explicit target + most-recent.** Adopt the TELEGRAM-IDEA §4.5 resolution model, scoped to Onibi's pane abstraction. Priority order:
+127. **[DONE] Target resolution: reply-to + explicit target + most-recent.** Adopted the TELEGRAM-IDEA §4.5 resolution model, scoped to Onibi's pane abstraction. Priority order:
     1. **Reply-to-notification context.** When the user invokes the composer from a specific in-app notification or approval card, the composer is bound to that pane.
     2. **Explicit target.** A pane picker (workspace → session → pane) overrides the reply-to default.
     3. **Most-recent-event pane.** Default target if neither of the above is set.
     4. **Ambiguity prompt.** If no target can be resolved, the composer surfaces a list of current panes (mirrors TELEGRAM-IDEA's inline-keyboard fallback, via the existing Command Palette / pane picker).
-    **Mapping to onibi:** notification payloads already carry pane/session IDs; extend the notification dispatcher (notifications UX pass §2026-06-04) so PWA approval/notification cards expose a "Reply with text" affordance that opens the composer pre-bound. Store the binding in client state only; no new server schema.
-    **Effort:** [Speculation] 0.5–1 day.
+    **Mapping to onibi:** approval cards expose a Reply action that opens the composer pre-bound to the approval session. The composer also has an explicit target picker backed by `/v1/panes/targets` and falls back through recent events. Store the binding in client state only; no new server schema.
+    **Effort:** Done for PWA.
 
-128. **Safety primitives carried over from TELEGRAM-IDEA §7.** Hard rules ported verbatim, scoped to Onibi:
+128. **[DONE] Safety primitives carried over from TELEGRAM-IDEA §7.** Hard rules ported verbatim, scoped to Onibi:
     - **No shell assembly from chat / composer.** Free text only becomes literal `send-keys` input. No Telegram-supplied string (or any client-supplied string) is ever concatenated into a shell command. Mirrors TELEGRAM-IDEA SEC3.
     - **Closed preset allowlist.** Optional preset buttons (Approve / Continue / Interrupt → `Ctrl+C`) resolve to predefined keystrokes only; editable in `~/.config/onibi/config.toml`, never from a chat client. Mirrors TELEGRAM-IDEA §4.6.
-    - **Confirm-destructive presets.** Destructive presets (e.g. `interrupt`, `stop_session`) require a confirm tap before dispatching, mirrors TELEGRAM-IDEA SEC6 and reuses the native confirmation dialog wrapper from item 107 on desktop / a native confirm sheet on the PWA.
+    - **Confirm-destructive presets.** Destructive presets (e.g. `interrupt`, `stop_session`) require a confirm tap before dispatching, mirrors TELEGRAM-IDEA SEC6 and uses the PWA confirmation sheet for the launch slice.
     - **Audit log entry per dispatch.** Every remote keystroke dispatch lands in the existing approval audit log (item 84) with payload, pane target, client identity (bearer-token fingerprint), and timestamp. Keeps the "Onibi remembers everything" positioning intact.
     - **Read-only spectator block.** Read-only paired clients (item 89) are server-blocked from the new send-text / send-keys routes.
     - **Session trust-mode interaction.** Sessions marked `approval-required` (item 123) require an explicit pre-flight confirmation before the composer dispatches; `full-access` sessions dispatch immediately but still audit-log.
-    **Effort:** [Speculation] 0.5 day, mostly route hardening and audit-log glue.
+    **Effort:** Done. Accepted dispatches are audited as synthetic `RemoteKeystroke` approval rows and mirrored into `remote-keystroke-dispatch` run events.
 
-129. **PWA-first surface; desktop parity is non-blocking.** The user-facing wedge is the phone — desktop users already have direct pane access. Ship the PWA composer + native PWA confirm sheet for v1.5.0; desktop composer + Command Palette entry can land in v1.5.x without blocking the launch.
+129. **PWA-first surface; desktop parity is non-blocking.** The user-facing wedge is the phone — desktop users already have direct pane access. The PWA composer + confirmation sheet is shipped for v1.5.0; desktop composer + Command Palette entry can land in v1.5.x without blocking the launch.
     **Effort:** PWA composer is the launch-blocker; desktop composer is follow-up.
 
 130. **Explicit non-adoptions from TELEGRAM-IDEA, for traceability.**
@@ -998,7 +998,7 @@ Numbered 126+ to continue from §8.
 
 ### 9.3 Launch-blocking decision and trade
 
-The user marked items 126–128 (PWA path only, per item 129) as **v1.5.0 launch-blocking** on 2026-06-08.
+The user marked items 126–128 (PWA path only, per item 129) as **v1.5.0 launch-blocking** on 2026-06-08. The PWA launch slice is now implemented; desktop parity remains item 129.
 
 This adds scope on top of the §5 launch-blockers (#91 WSL2 docs, #93 landing page). Trade documented:
 
@@ -1010,17 +1010,17 @@ This adds scope on top of the §5 launch-blockers (#91 WSL2 docs, #93 landing pa
 
 | Item | Effort | Risk | Dependencies |
 |---|---|---|---|
-| 126 Remote pane keystroke composer (PWA) | 2–3 days | Low | Item 122 (Lexical) for prose composer reuse |
-| 127 Target resolution (reply-to/explicit/recent) | 0.5–1 day | Low | Existing notification dispatcher |
-| 128 Safety primitives + audit log | 0.5 day | Low | Items 84 (audit), 89 (spectator scope), 107 (confirm), 123 (trust mode) |
+| 126 Remote pane keystroke composer (PWA) | Done | Low | HTTP pane routes + PWA Send tab |
+| 127 Target resolution (reply-to/explicit/recent) | Done | Low | Approval card binding + target picker |
+| 128 Safety primitives + audit log | Done | Low | Literal-only routes, preset allowlist, audit rows |
 | 129 Desktop parity | non-blocking, ~1 day post-launch | Low | None |
 | **Launch-blocking total** | **3–4.5 days** | Low–Medium | — |
 
 ### 9.5 Sequencing recommendation
 
-1. **128 (safety primitives + audit + route hardening)** first — pure backend, unblocks the composer landing safely.
-2. **127 (target resolution wiring on notification cards)** next — small, isolated, sets up the composer entry points.
-3. **126 (PWA composer UI)** last for the launch slice — visible, demoable, copies item 122's Lexical pattern.
+1. **128 (safety primitives + audit + route hardening)** — done.
+2. **127 (target resolution wiring on notification cards)** — done.
+3. **126 (PWA composer UI)** — done for launch slice.
 4. **129 (desktop composer)** post-launch.
 
 ### 9.6 Single most-important item if doing only one

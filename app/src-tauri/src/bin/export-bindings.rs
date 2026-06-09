@@ -33,6 +33,11 @@ fn bindings() -> String {
     push::<protocol::RunEventBody>(&mut output);
     push::<protocol::DesktopCommandBlock>(&mut output);
     push::<protocol::PtyOutputBody>(&mut output);
+    push::<protocol::PaneSendTextBody>(&mut output);
+    push::<protocol::PaneSendKeysBody>(&mut output);
+    push::<protocol::PaneSendResponse>(&mut output);
+    push::<protocol::PaneTarget>(&mut output);
+    push::<protocol::PaneTargetsResponse>(&mut output);
     push::<protocol::DesktopNamedRef>(&mut output);
     push::<protocol::DesktopSessionSnapshot>(&mut output);
     push::<protocol::DesktopSnapshotBody>(&mut output);

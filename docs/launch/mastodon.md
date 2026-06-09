@@ -5,7 +5,7 @@ Post 1:
 ```text
 I built Onibi: a local-first approval gate for AI coding agents, with approvals on your phone.
 
-Agents run locally. When a tool call needs permission, Onibi sends it to the desktop and mobile PWA so you can approve, deny, or edit before it runs.
+Agents run locally. When a tool call needs permission, Onibi sends it to the desktop and mobile PWA so you can approve, deny, edit, or send audited literal text into the pane before it runs.
 
 https://github.com/gongahkia/onibi
 ```

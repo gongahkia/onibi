@@ -553,6 +553,12 @@ impl OrchestrationState {
         self.upsert_session(session).await;
     }
 
+    #[cfg(test)]
+    pub async fn spawn_for_test(&self, req: PtySpawnRequest) -> Result<SessionInfo> {
+        let metadata = SpawnMetadata::from_payload(&json!({}), &req);
+        self.spawn_from_request(req, metadata).await
+    }
+
     async fn mark_session_stopped(
         &self,
         session_id: &str,
@@ -1052,6 +1058,78 @@ impl OrchestrationState {
             .get(session_id)
             .map(|session| session.trust_mode)
             .unwrap_or_default()
+    }
+
+    pub async fn session_for_pane(&self, pane_id: &str) -> Option<SessionInfo> {
+        let sessions = self.sessions.read().await;
+        sessions.get(pane_id).cloned().or_else(|| {
+            sessions
+                .values()
+                .find(|session| session.pane_id == pane_id)
+                .cloned()
+        })
+    }
+
+    pub async fn pane_targets(&self) -> Vec<SessionInfo> {
+        let mut sessions = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .filter(|session| session.lifecycle != SessionLifecycle::Stopped)
+            .cloned()
+            .collect::<Vec<_>>();
+        sessions.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| right.created_at.cmp(&left.created_at))
+        });
+        sessions
+    }
+
+    pub async fn send_text_to_pane(
+        &self,
+        pane_id: &str,
+        text: &str,
+        send_enter: bool,
+    ) -> Result<(String, usize)> {
+        self.send_remote_input_to_pane(pane_id, Some(text), &[], send_enter)
+            .await
+    }
+
+    pub async fn send_keys_to_pane(
+        &self,
+        pane_id: &str,
+        keys: &[String],
+    ) -> Result<(String, usize)> {
+        self.send_remote_input_to_pane(pane_id, None, keys, false)
+            .await
+    }
+
+    pub async fn send_remote_input_to_pane(
+        &self,
+        pane_id: &str,
+        text: Option<&str>,
+        keys: &[String],
+        send_enter: bool,
+    ) -> Result<(String, usize)> {
+        let id = self
+            .resolve_target_id(&json!({ "paneId": pane_id }))
+            .await
+            .with_context(|| format!("resolve pane {pane_id}"))?;
+        let mut bytes = Vec::new();
+        if let Some(text) = text {
+            bytes.extend_from_slice(text.as_bytes());
+        }
+        for key in keys {
+            bytes.extend_from_slice(key_to_bytes(key)?.as_ref());
+        }
+        if send_enter {
+            bytes.push(b'\r');
+        }
+        self.manager.write(id, &bytes).await?;
+        Ok((id.to_string(), bytes.len()))
     }
 
     async fn session_is_live(&self, session_id: &str) -> bool {

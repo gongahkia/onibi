@@ -26,6 +26,16 @@ export type DesktopCommandBlock = { id: string, protocol_version: string | null,
 
 export type PtyOutputBody = { protocol_version: string | null, machine_id: string | null, session_id: string, data: string, };
 
+export type PaneSendTextBody = { protocol_version: string | null, text: string, sendEnter: boolean, confirmed: boolean, };
+
+export type PaneSendKeysBody = { protocol_version: string | null, preset: string, confirmed: boolean, };
+
+export type PaneSendResponse = { ok: boolean, protocol_version: string, paneId: string, sessionId: string, bytes: number, auditId: string, trustMode: string, requiresConfirmation: boolean, destructive: boolean, preset: string | null, };
+
+export type PaneTarget = { paneId: string, sessionId: string, label: string, agent: string | null, workspaceId: string | null, cwd: string | null, status: string, trustMode: string, };
+
+export type PaneTargetsResponse = { protocol_version: string, targets: Array<PaneTarget>, };
+
 export type DesktopNamedRef = { id: string, name: string, };
 
 export type DesktopSessionSnapshot = { id: string, title: string, agent: string, workspaceId: string, cwd: string | null, status: string, attention: string, previewUrl: string | null, commandBlockCount: number | null, lastCommandBlockId: string | null, remote: JsonValue | null, };

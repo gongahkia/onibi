@@ -17,7 +17,7 @@ Body:
 ```text
 I built Onibi, a local-first approval gate for AI coding agents.
 
-The main workflow: run Claude Code, Codex, OpenCode, Qoder, Copilot CLI, Goose, or another local agent, let it work, and when it pauses before a tool call, Onibi sends the approval to your phone. You can approve, deny, or edit the command before the agent continues. Claude Code is the strongest path through updatedInput; Codex is Bash-only; several other adapters now have blocking hook/event integrations.
+The main workflow: run Claude Code, Codex, OpenCode, Qoder, Copilot CLI, Goose, or another local agent, let it work, and when it pauses before a tool call, Onibi sends the approval to your phone. You can approve, deny, edit the command, or send audited literal text into a selected Onibi pane before the agent continues. Claude Code is the strongest path through updatedInput; Codex is Bash-only; several other adapters now have blocking hook/event integrations.
 
 It is Rust/Tauri plus a mobile PWA, runs as a desktop app or headless daemon, and supports Tailscale Funnel, Cloudflare Quick Tunnel, and LAN HTTPS.
 

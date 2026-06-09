@@ -10,7 +10,7 @@ Onibi has four important boundaries:
 | --- | --- | --- |
 | Local host process | PTY output, approval requests, SQLite state | Loopback server, OS user permissions |
 | Adapter hooks | Agent tool payloads, long-poll decisions | Bearer token and schema validation |
-| Mobile PWA | Pending approvals, terminal mirror, decisions | Pairing QR, bearer token, HTTPS transport |
+| Mobile PWA | Pending approvals, terminal mirror, decisions, remote pane input | Pairing QR, bearer token, HTTPS transport |
 | Public transport | Tailscale Funnel, Cloudflare Tunnel, LAN TLS | TLS plus mandatory bearer token |
 
 The v1.5 launch deliberately avoids accounts, hosted relay infrastructure, and telemetry. There is no Onibi cloud service.
@@ -25,7 +25,7 @@ Risk that remains: if the full token is copied from the QR, shell history, scree
 
 ### Read-Only Spectator Tokens
 
-`onibi token spectator` creates a one-time pairing payload with `scope = "read-only"`. The token can pair one device once, then remains valid only for read endpoints and realtime observation. Read-only tokens can fetch pending/history/status data and subscribe to `/v1/realtime`, but the server rejects decisions, emergency stop, PTY/control, hook, and config mutation routes with `403 Forbidden`.
+`onibi token spectator` creates a one-time pairing payload with `scope = "read-only"`. The token can pair one device once, then remains valid only for read endpoints and realtime observation. Read-only tokens can fetch pending/history/status data and subscribe to `/v1/realtime`, but the server rejects decisions, emergency stop, remote pane input, PTY/control, hook, and config mutation routes with `403 Forbidden`.
 
 ### Adversary On The Public Internet
 
@@ -50,6 +50,20 @@ Adapters can POST arbitrary JSON. Onibi does not evaluate or execute any receive
 
 Risk that remains: a legitimate user can approve a dangerous tool call. Onibi is a gate, not a sandbox.
 
+### Remote Pane Input
+
+The PWA remote-input surface writes literal bytes to an existing Onibi PTY. `send-text` never assembles shell commands; it writes the submitted text and an optional Enter byte. `send-keys` accepts only server-owned preset keys from the closed allowlist. Destructive presets and `approval-required` sessions require an explicit confirmation before dispatch. Every accepted dispatch is recorded in the approval audit log as `RemoteKeystroke` with pane/session target, payload, token fingerprint, trust mode, and timestamp.
+
+Preset keys are configured on the daemon, not supplied by the client:
+
+```toml
+[[remote_control.presets]]
+key = "interrupt"
+label = "Interrupt"
+keys = ["Ctrl+C"]
+destructive = true
+```
+
 ## Implemented Hardening
 
 | Control | Status | Implementation |
@@ -62,6 +76,7 @@ Risk that remains: a legitimate user can approve a dangerous tool call. Onibi is
 | HSTS | Done | Tunnel-bound responses only; LAN self-signed flow is excluded |
 | PWA CSP | Done | Header for `/m/*` and meta CSP in `mobile/index.html` |
 | Read-only spectator scope | Done | One-time spectator pairing plus route-level mutation block |
+| Remote pane input safety | Done | Literal-only text route, preset allowlist, confirmation gate, audit rows |
 | Release HTTP errors | Done | Internal error bodies are generic in non-debug builds |
 | Token fallback permissions | Done | File fallback written `0600` on Unix |
 

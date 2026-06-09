@@ -1,9 +1,10 @@
 use super::{auth, pairing, AppState};
 use crate::{
     adapters,
-    approval::store::{now_millis, ApprovalHistoryFilter},
+    approval::store::{now_millis, token_hash, ApprovalHistoryFilter},
     checkpointing,
-    orchestration::AgentStatus,
+    config::{self, RemoteControlConfig, RemoteControlPresetConfig},
+    orchestration::{AgentStatus, SessionInfo},
     policy,
     protocol::{
         AcpPromptBody, AcpPromptResponse, ApiError, Approval, ApprovalDecisionBody,
@@ -11,7 +12,9 @@ use crate::{
         CheckpointRestoreBody, ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse,
         DesktopPaneSplitBody, DesktopRemoteSshBody, DesktopSessionInputBody,
         DesktopSessionLaunchBody, DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest,
-        PairResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
+        PairResponse, PaneSendKeysBody, PaneSendResponse, PaneSendTextBody, PaneTarget,
+        PaneTargetsResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage,
+        PROTOCOL_VERSION,
     },
     pty::TrustMode,
     push, secret,
@@ -326,6 +329,158 @@ pub async fn pty_output(
     Ok(Json(
         json!({"ok": true, "protocol_version": PROTOCOL_VERSION}),
     ))
+}
+
+pub async fn pane_targets(State(state): State<AppState>) -> ApiResult<PaneTargetsResponse> {
+    let targets = state
+        .orchestration
+        .pane_targets()
+        .await
+        .into_iter()
+        .map(|session| {
+            let label = session
+                .name
+                .clone()
+                .or_else(|| session.title.clone())
+                .or_else(|| session.agent.clone())
+                .unwrap_or_else(|| session.id.clone());
+            PaneTarget {
+                pane_id: session.pane_id,
+                session_id: session.id,
+                label,
+                agent: session.agent,
+                workspace_id: session.workspace_id,
+                cwd: session.cwd,
+                status: agent_status_label(session.status).to_string(),
+                trust_mode: trust_mode_label(session.trust_mode).to_string(),
+            }
+        })
+        .collect();
+    Ok(Json(PaneTargetsResponse {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        targets,
+    }))
+}
+
+pub async fn pane_send_text(
+    State(state): State<AppState>,
+    Extension(auth): Extension<auth::AuthScope>,
+    Path(pane_id): Path<String>,
+    ApiJson(body): ApiJson<PaneSendTextBody>,
+) -> ApiResult<PaneSendResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    if body.text.is_empty() && !body.send_enter {
+        return Err(bad_request("text or sendEnter is required"));
+    }
+    if body.text.len() > 16 * 1024 {
+        return Err(bad_request("text exceeds 16 KiB"));
+    }
+    let session = state
+        .orchestration
+        .session_for_pane(&pane_id)
+        .await
+        .ok_or_else(|| not_found("pane not found"))?;
+    require_remote_confirmation(session.trust_mode, false, None, body.confirmed)?;
+    let (resolved_pane_id, bytes) = state
+        .orchestration
+        .send_text_to_pane(&pane_id, &body.text, body.send_enter)
+        .await
+        .map_err(orchestration_route_error)?;
+    let audit_id = audit_remote_keystroke(
+        &state,
+        &auth,
+        &session,
+        &resolved_pane_id,
+        "text",
+        json!({
+            "text": body.text,
+            "sendEnter": body.send_enter,
+        }),
+        false,
+        None,
+        bytes,
+    )?;
+    broadcast_remote_keystroke(&state, &session, &resolved_pane_id, "text", bytes, None);
+    Ok(Json(PaneSendResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        pane_id: resolved_pane_id,
+        session_id: session.id,
+        bytes,
+        audit_id,
+        trust_mode: trust_mode_label(session.trust_mode).to_string(),
+        requires_confirmation: false,
+        destructive: false,
+        preset: None,
+    }))
+}
+
+pub async fn pane_send_keys(
+    State(state): State<AppState>,
+    Extension(auth): Extension<auth::AuthScope>,
+    Path(pane_id): Path<String>,
+    ApiJson(body): ApiJson<PaneSendKeysBody>,
+) -> ApiResult<PaneSendResponse> {
+    validate_version(body.protocol_version.as_deref())?;
+    let preset = remote_control_preset(&body.preset)?
+        .ok_or_else(|| bad_request("unknown remote-control preset"))?;
+    let session = state
+        .orchestration
+        .session_for_pane(&pane_id)
+        .await
+        .ok_or_else(|| not_found("pane not found"))?;
+    require_remote_confirmation(
+        session.trust_mode,
+        preset.destructive,
+        Some(&preset.key),
+        body.confirmed,
+    )?;
+    let text = preset.text.as_deref();
+    if text.is_none() && preset.keys.is_empty() && !preset.send_enter {
+        return Err(bad_request("remote-control preset has no action"));
+    }
+    let (resolved_pane_id, bytes) = state
+        .orchestration
+        .send_remote_input_to_pane(&pane_id, text, &preset.keys, preset.send_enter)
+        .await
+        .map_err(orchestration_route_error)?;
+    let audit_id = audit_remote_keystroke(
+        &state,
+        &auth,
+        &session,
+        &resolved_pane_id,
+        "preset",
+        json!({
+            "preset": preset.key.clone(),
+            "label": preset.label.clone(),
+            "text": preset.text.clone(),
+            "keys": preset.keys.clone(),
+            "sendEnter": preset.send_enter,
+        }),
+        preset.destructive,
+        Some(&body.preset),
+        bytes,
+    )?;
+    broadcast_remote_keystroke(
+        &state,
+        &session,
+        &resolved_pane_id,
+        "preset",
+        bytes,
+        Some(&body.preset),
+    );
+    Ok(Json(PaneSendResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        pane_id: resolved_pane_id,
+        session_id: session.id,
+        bytes,
+        audit_id,
+        trust_mode: trust_mode_label(session.trust_mode).to_string(),
+        requires_confirmation: false,
+        destructive: preset.destructive,
+        preset: Some(body.preset),
+    }))
 }
 
 pub async fn desktop_state(
@@ -1144,6 +1299,172 @@ fn with_trust_metadata(metadata: Option<Value>, mode: &str) -> Option<Value> {
     Some(Value::Object(root))
 }
 
+fn remote_control_preset(
+    key: &str,
+) -> Result<Option<RemoteControlPresetConfig>, (StatusCode, Json<ApiError>)> {
+    let config = config::load().map_err(internal_error)?;
+    let configured = config
+        .remote_control
+        .presets
+        .into_iter()
+        .find(|preset| !preset.key.is_empty() && preset.key == key);
+    if configured.is_some() {
+        return Ok(configured);
+    }
+    Ok(RemoteControlConfig::default()
+        .presets
+        .into_iter()
+        .find(|preset| preset.key == key))
+}
+
+fn require_remote_confirmation(
+    trust_mode: TrustMode,
+    destructive: bool,
+    preset: Option<&str>,
+    confirmed: bool,
+) -> Result<(), (StatusCode, Json<ApiError>)> {
+    let approval_required = trust_mode == TrustMode::ApprovalRequired;
+    if confirmed || (!approval_required && !destructive) {
+        return Ok(());
+    }
+    let reason = if destructive {
+        "confirmation required for destructive remote preset"
+    } else {
+        "confirmation required for approval-required session"
+    };
+    Err((
+        StatusCode::CONFLICT,
+        Json(ApiError::with_details(
+            reason,
+            json!({
+                "requiresConfirmation": true,
+                "destructive": destructive,
+                "preset": preset,
+                "trustMode": trust_mode_label(trust_mode),
+            }),
+        )),
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn audit_remote_keystroke(
+    state: &AppState,
+    auth: &auth::AuthScope,
+    session: &SessionInfo,
+    resolved_pane_id: &str,
+    kind: &str,
+    payload: Value,
+    destructive: bool,
+    preset: Option<&str>,
+    bytes: usize,
+) -> Result<String, (StatusCode, Json<ApiError>)> {
+    let now = now_millis();
+    let audit_id = Ulid::new().to_string();
+    let token_digest = token_hash(&auth.token);
+    let token_fingerprint = token_digest
+        .get(..12)
+        .unwrap_or(token_digest.as_str())
+        .to_string();
+    let event_payload = json!({
+        "kind": kind,
+        "paneId": resolved_pane_id,
+        "sessionId": session.id,
+        "bytes": bytes,
+        "preset": preset,
+        "destructive": destructive,
+        "trustMode": trust_mode_label(session.trust_mode),
+        "clientScope": auth.scope.as_str(),
+        "tokenFingerprint": token_fingerprint,
+    });
+    let approval = Approval {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        approval_id: audit_id.clone(),
+        machine_id: state.machine_id.clone(),
+        session_id: session.id.clone(),
+        agent: session
+            .agent
+            .clone()
+            .unwrap_or_else(|| "remote-keystroke".to_string()),
+        tool: "RemoteKeystroke".to_string(),
+        input: json!({
+            "kind": kind,
+            "payload": payload,
+            "bytes": bytes,
+        }),
+        cwd: session.cwd.clone().unwrap_or_default(),
+        metadata: Some(json!({
+            "onibi_remote_keystroke": {
+                "paneId": resolved_pane_id,
+                "sessionId": session.id,
+                "clientScope": auth.scope.as_str(),
+                "tokenFingerprint": event_payload["tokenFingerprint"],
+                "trustMode": trust_mode_label(session.trust_mode),
+                "destructive": destructive,
+                "preset": preset,
+                "timestamp": now,
+            }
+        })),
+        decision: Some(Decision::Allow),
+        updated_input: None,
+        reason: Some("remote keystroke dispatched".to_string()),
+        decided_by: Some("remote-keystroke".to_string()),
+        created_at: now,
+        decided_at: Some(now),
+    };
+    state
+        .store
+        .insert_approval(&approval)
+        .map_err(internal_error)?;
+    state
+        .store
+        .insert_run_event(
+            &state.machine_id,
+            &session.id,
+            "remote-keystroke-dispatch",
+            &event_payload,
+        )
+        .map_err(internal_error)?;
+    Ok(audit_id)
+}
+
+fn broadcast_remote_keystroke(
+    state: &AppState,
+    session: &SessionInfo,
+    pane_id: &str,
+    kind: &str,
+    bytes: usize,
+    preset: Option<&str>,
+) {
+    state.broadcast(ServerMessage::RunEvent {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        machine_id: state.machine_id.clone(),
+        session_id: session.id.clone(),
+        kind: "remote-keystroke-dispatch".to_string(),
+        payload: json!({
+            "kind": kind,
+            "paneId": pane_id,
+            "bytes": bytes,
+            "preset": preset,
+        }),
+    });
+}
+
+fn agent_status_label(status: AgentStatus) -> &'static str {
+    match status {
+        AgentStatus::Idle => "idle",
+        AgentStatus::Working => "working",
+        AgentStatus::Blocked => "blocked",
+        AgentStatus::Done => "done",
+    }
+}
+
+fn trust_mode_label(mode: TrustMode) -> &'static str {
+    match mode {
+        TrustMode::ApprovalRequired => "approval-required",
+        TrustMode::FullAccess => "full-access",
+    }
+}
+
 fn validate_version(version: Option<&str>) -> Result<(), (StatusCode, Json<ApiError>)> {
     if version.is_some_and(|version| version != PROTOCOL_VERSION) {
         Err((
@@ -1170,6 +1491,19 @@ fn internal_error(error: anyhow::Error) -> (StatusCode, Json<ApiError>) {
     )
 }
 
+fn bad_request(message: &str) -> (StatusCode, Json<ApiError>) {
+    (StatusCode::BAD_REQUEST, Json(ApiError::new(message)))
+}
+
+fn orchestration_route_error(error: anyhow::Error) -> (StatusCode, Json<ApiError>) {
+    let message = error.to_string();
+    if message.contains("not found") || message.contains("was not found") {
+        (StatusCode::NOT_FOUND, Json(ApiError::new(message)))
+    } else {
+        (StatusCode::BAD_REQUEST, Json(ApiError::new(message)))
+    }
+}
+
 fn not_found(message: &str) -> (StatusCode, Json<ApiError>) {
     (StatusCode::NOT_FOUND, Json(ApiError::new(message)))
 }
@@ -1191,8 +1525,9 @@ impl ApprovalHistoryQuery {
 mod tests {
     use super::*;
     use crate::{
-        approval::store::ApprovalStore,
+        approval::store::{ApprovalHistoryFilter, ApprovalStore},
         orchestration::{SessionInfo, SessionLifecycle},
+        pty::{PtySpawnRequest, ShellMode},
         server::router,
     };
     use axum::{
@@ -1366,6 +1701,187 @@ mod tests {
             history[0].metadata.as_ref().unwrap()["onibi_trust_mode"]["mode"],
             "full-access"
         );
+    }
+
+    #[tokio::test]
+    async fn pane_send_text_requires_confirmation_for_approval_required_session() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store);
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session(
+                "session-confirm",
+                TrustMode::ApprovalRequired,
+            ))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-confirm/send-text")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"text": "continue"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["details"]["requiresConfirmation"], true);
+        assert_eq!(value["details"]["trustMode"], "approval-required");
+    }
+
+    #[tokio::test]
+    async fn pane_send_text_dispatches_and_audits_for_full_access_session() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store.clone());
+        let session = state
+            .orchestration
+            .spawn_for_test(PtySpawnRequest {
+                command: "/bin/cat".to_string(),
+                args: Vec::new(),
+                cwd: None,
+                env: Vec::new(),
+                shell_mode: ShellMode::Auto,
+                rows: 24,
+                cols: 80,
+                name: Some("remote-test".to_string()),
+                agent: Some("claude-code".to_string()),
+                workspace_id: Some("workspace:/repo".to_string()),
+                safe_mode: false,
+                trust_mode: TrustMode::FullAccess,
+                title: Some("Remote Test".to_string()),
+                remote: None,
+            })
+            .await
+            .unwrap();
+        let app = router(state.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/panes/{}/send-text", session.pane_id))
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"text": "hello from pwa", "sendEnter": true}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["sessionId"], session.id);
+        assert!(value["bytes"].as_u64().unwrap() > 0);
+
+        let history = store
+            .list_approvals(ApprovalHistoryFilter {
+                tool: Some("RemoteKeystroke".to_string()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].decision, Some(Decision::Allow));
+        assert_eq!(history[0].decided_by.as_deref(), Some("remote-keystroke"));
+        assert_eq!(
+            history[0].metadata.as_ref().unwrap()["onibi_remote_keystroke"]["trustMode"],
+            "full-access"
+        );
+        let events = store.list_recent_run_events(10).unwrap();
+        assert_eq!(events[0].kind, "remote-keystroke-dispatch");
+        assert_eq!(events[0].session_id, session.id);
+        state.orchestration.stop_all_running_sessions().await;
+    }
+
+    #[tokio::test]
+    async fn read_only_spectator_cannot_send_pane_text() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        store.insert_spectator_token("spectator-token").unwrap();
+        let state = AppState::for_tests(store);
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session("session-full", TrustMode::FullAccess))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-full/send-text")
+                    .header("authorization", "Bearer spectator-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"text": "nope", "confirmed": true}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn destructive_preset_requires_confirmation_even_for_full_access() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let state = AppState::for_tests(store);
+        state
+            .orchestration
+            .upsert_session_for_test(route_test_session("session-full", TrustMode::FullAccess))
+            .await;
+        let app = router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-full/send-keys")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"preset": "interrupt"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["details"]["destructive"], true);
+        assert_eq!(value["details"]["preset"], "interrupt");
+    }
+
+    #[tokio::test]
+    async fn pane_send_keys_rejects_unknown_preset() {
+        let dir = tempdir().unwrap();
+        let store = ApprovalStore::open(dir.path().join("onibi.db")).unwrap();
+        let app = router(AppState::for_tests(store));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/panes/session-full/send-keys")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"preset": "rm-rf"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

@@ -15,7 +15,7 @@ https://github.com/gongahkia/onibi
 Body/comment:
 
 ```text
-Hi HN, I built Onibi: a local-first approval gate for AI coding agents. It blocks local tool calls, mirrors them to the desktop and a mobile PWA, and lets you approve, deny, or edit the payload before the agent continues.
+Hi HN, I built Onibi: a local-first approval gate for AI coding agents. It blocks local tool calls, mirrors them to the desktop and a mobile PWA, and lets you approve, deny, edit the payload, or send audited literal text into a selected pane before the agent continues.
 
 The demo is the whole idea. An agent proposes something like `rm -rf tests/legacy`, Onibi blocks the hook, your phone buzzes, and you can change it to `mv tests/legacy tests/legacy.bak` before approving. Claude Code is the strongest path through `updatedInput`; Codex is Bash-only; OpenCode, Qoder, Copilot CLI, and Goose also have blocking hook/event integrations.
 

@@ -17,6 +17,7 @@ pub struct OnibiConfig {
     pub server: ServerConfig,
     pub checkpointing: CheckpointingConfig,
     pub adapters: AdaptersConfig,
+    pub remote_control: RemoteControlConfig,
     pub ui: UiConfig,
     pub terminal: TerminalConfig,
     pub keybindings: KeybindingsConfig,
@@ -50,6 +51,23 @@ pub struct AgentAdapterConfig {
     pub transport: String,
     pub acp_command: String,
     pub acp_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteControlConfig {
+    pub presets: Vec<RemoteControlPresetConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct RemoteControlPresetConfig {
+    pub key: String,
+    pub label: String,
+    pub text: Option<String>,
+    pub keys: Vec<String>,
+    pub send_enter: bool,
+    pub destructive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +156,7 @@ impl Default for OnibiConfig {
             server: ServerConfig::default(),
             checkpointing: CheckpointingConfig::default(),
             adapters: AdaptersConfig::default(),
+            remote_control: RemoteControlConfig::default(),
             ui: UiConfig::default(),
             terminal: TerminalConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -185,6 +204,52 @@ impl Default for AgentAdapterConfig {
             transport: "hook".to_string(),
             acp_command: String::new(),
             acp_args: Vec::new(),
+        }
+    }
+}
+
+impl Default for RemoteControlConfig {
+    fn default() -> Self {
+        Self {
+            presets: vec![
+                RemoteControlPresetConfig {
+                    key: "continue".to_string(),
+                    label: "Continue".to_string(),
+                    text: None,
+                    keys: vec!["Enter".to_string()],
+                    send_enter: false,
+                    destructive: false,
+                },
+                RemoteControlPresetConfig {
+                    key: "approve".to_string(),
+                    label: "Approve".to_string(),
+                    text: Some("yes".to_string()),
+                    keys: Vec::new(),
+                    send_enter: true,
+                    destructive: false,
+                },
+                RemoteControlPresetConfig {
+                    key: "interrupt".to_string(),
+                    label: "Interrupt".to_string(),
+                    text: None,
+                    keys: vec!["Ctrl+C".to_string()],
+                    send_enter: false,
+                    destructive: true,
+                },
+            ],
+        }
+    }
+}
+
+impl Default for RemoteControlPresetConfig {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            label: String::new(),
+            text: None,
+            keys: Vec::new(),
+            send_enter: false,
+            destructive: false,
         }
     }
 }

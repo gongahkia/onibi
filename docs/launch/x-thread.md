@@ -5,7 +5,7 @@ Post 1:
 ```text
 I built Onibi: a local-first approval gate for AI coding agents, with approvals on your phone.
 
-An agent pauses. Your phone buzzes. You approve, deny, or edit the command before it runs.
+An agent pauses. Your phone buzzes. You approve, deny, edit the command, or send audited literal text into the pane before it runs.
 
 Demo:
 ```

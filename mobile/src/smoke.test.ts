@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildDecisionBody,
+  buildPaneTargetOptions,
   candidateBaseUrls,
   chooseBaseUrl,
   commandText,
@@ -8,10 +9,16 @@ import {
   emergencyStopRequest,
   installStateBody,
   installStateTitle,
+  needsRemoteConfirmation,
   parsePairingInput,
   reconnectDelay,
+  resolveRemoteTarget,
+  sendRemotePresetRequest,
+  sendRemoteTextRequest,
   swipeDecision,
   type Approval,
+  type PaneTarget,
+  type RunEvent,
 } from "./App";
 
 describe("mobile pairing and approval helpers", () => {
@@ -116,5 +123,92 @@ describe("mobile pairing and approval helpers", () => {
     expect(installStateBody({ standalone: true, ios: false, installable: false })).toContain(
       "deep links",
     );
+  });
+
+  test("resolves remote pane targets by explicit, approval, recent, then singleton", () => {
+    const targets: PaneTarget[] = [
+      {
+        paneId: "pane-a",
+        sessionId: "pane-a",
+        label: "A",
+        status: "working",
+        trustMode: "full-access",
+      },
+      {
+        paneId: "pane-b",
+        sessionId: "pane-b",
+        label: "B",
+        status: "blocked",
+        trustMode: "approval-required",
+      },
+    ];
+    const pending: Approval[] = [
+      {
+        approval_id: "approval-b",
+        machine_id: "machine",
+        session_id: "pane-b",
+        agent: "claude-code",
+        tool: "Bash",
+        input: {},
+        cwd: "/repo",
+        created_at: 1,
+      },
+    ];
+    const recent: RunEvent[] = [{ session_id: "pane-a", kind: "done", payload: {}, ts: 2 }];
+
+    expect(resolveRemoteTarget("pane-a", targets, recent, pending, "approval-b")).toBe("pane-a");
+    expect(resolveRemoteTarget("", targets, recent, pending, "approval-b")).toBe("pane-b");
+    expect(resolveRemoteTarget("", targets, recent, [], null)).toBe("pane-a");
+    expect(resolveRemoteTarget("", [targets[0]], [], [], null)).toBe("pane-a");
+  });
+
+  test("builds fallback pane targets from pending, recent, and terminal output", () => {
+    const targets = buildPaneTargetOptions(
+      [],
+      [{ session_id: "recent-session", kind: "event", payload: {}, ts: 1 }],
+      { "terminal-session": [""] },
+      [
+        {
+          approval_id: "approval",
+          machine_id: "machine",
+          session_id: "approval-session",
+          agent: "codex",
+          tool: "Bash",
+          input: {},
+          cwd: "/repo",
+          created_at: 1,
+        },
+      ],
+    );
+
+    expect(targets.map((target) => target.paneId)).toEqual([
+      "approval-session",
+      "recent-session",
+      "terminal-session",
+    ]);
+  });
+
+  test("builds remote input request bodies and confirmation state", () => {
+    const approvalRequired: PaneTarget = {
+      paneId: "pane",
+      sessionId: "pane",
+      label: "Pane",
+      status: "working",
+      trustMode: "approval-required",
+    };
+    const fullAccess: PaneTarget = { ...approvalRequired, trustMode: "full-access" };
+
+    expect(sendRemoteTextRequest("continue", true, false)).toEqual({
+      text: "continue",
+      sendEnter: true,
+      confirmed: false,
+    });
+    expect(sendRemotePresetRequest("interrupt", true)).toEqual({
+      preset: "interrupt",
+      confirmed: true,
+    });
+    expect(needsRemoteConfirmation(approvalRequired, false)).toBe(true);
+    expect(needsRemoteConfirmation(fullAccess, false)).toBe(false);
+    expect(needsRemoteConfirmation(fullAccess, true)).toBe(true);
   });
 });

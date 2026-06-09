@@ -123,13 +123,15 @@ pre {
 .pair-form,
 .approval-list,
 .run-list,
-.terminal-pane {
+.terminal-pane,
+.remote-composer {
   display: grid;
   gap: 12px;
 }
 
 .pair-actions,
-.approval-actions {
+.approval-actions,
+.preset-row {
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -192,7 +194,8 @@ pre {
 .approval-card,
 .empty-state,
 .run-row,
-.terminal-pane {
+.terminal-pane,
+.remote-composer {
   border: 1px solid #243447;
   border-radius: 8px;
   background: rgba(9, 15, 23, 0.92);
@@ -291,7 +294,7 @@ pre {
 
 .tab-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -398,6 +401,58 @@ pre {
   padding: 12px;
 }
 
+.remote-composer {
+  padding: 14px;
+}
+
+.composer-header,
+.toggle-row,
+.preset-row {
+  display: flex;
+  align-items: center;
+}
+
+.composer-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote-composer h2 {
+  font-size: 1rem;
+}
+
+.remote-composer label {
+  display: grid;
+  gap: 6px;
+  color: #8aa0b6;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.toggle-row {
+  width: fit-content;
+  grid-template-columns: none;
+  gap: 8px;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+}
+
+.preset-row {
+  display: flex;
+}
+
+.confirm-sheet {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  border-radius: 8px;
+  background: rgba(120, 53, 15, 0.22);
+}
+
 .terminal-toolbar {
   gap: 10px;
 }
@@ -484,7 +539,8 @@ pre {
   .approval-card,
   .empty-state,
   .run-row,
-  .terminal-pane {
+  .terminal-pane,
+  .remote-composer {
     border-color: #cbd5e1;
     background-color: #ffffff;
     color: #172033;
@@ -513,6 +569,11 @@ pre {
   }
 
   .target-missing {
+    background: #fffbeb;
+    color: #713f12;
+  }
+
+  .confirm-sheet {
     background: #fffbeb;
     color: #713f12;
   }

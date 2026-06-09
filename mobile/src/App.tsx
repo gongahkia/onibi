@@ -7,12 +7,19 @@ const DEVICE_LABEL = "Onibi Mobile PWA";
 
 type Decision = "allow" | "deny";
 type ClientScope = "full" | "read-only";
+type TrustMode = "approval-required" | "full-access";
 export type WsState = "idle" | "connecting" | "fallback" | "open" | "closed";
-type Tab = "pending" | "recent" | "terminal";
+type Tab = "pending" | "recent" | "terminal" | "send";
 type BeforeInstallPromptEvent = Event & {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
+
+const REMOTE_PRESETS: RemotePreset[] = [
+  { key: "continue", label: "Continue", destructive: false },
+  { key: "approve", label: "Approve", destructive: false },
+  { key: "interrupt", label: "Interrupt", destructive: true },
+];
 
 export interface TransportEndpoint {
   name: string;
@@ -61,12 +68,51 @@ export interface Approval {
   created_at: number;
 }
 
-interface RunEvent {
+export interface RunEvent {
   id?: number;
   session_id: string;
   kind: string;
   payload: unknown;
   ts: number;
+}
+
+export interface PaneTarget {
+  paneId: string;
+  sessionId: string;
+  label: string;
+  agent?: string | null;
+  workspaceId?: string | null;
+  cwd?: string | null;
+  status: string;
+  trustMode: TrustMode;
+}
+
+interface PaneTargetsResponse {
+  targets: PaneTarget[];
+}
+
+interface PaneSendResponse {
+  ok: boolean;
+  paneId: string;
+  sessionId: string;
+  bytes: number;
+  auditId: string;
+  trustMode: TrustMode;
+  destructive: boolean;
+  preset?: string | null;
+}
+
+interface RemotePreset {
+  key: string;
+  label: string;
+  destructive: boolean;
+}
+
+interface PendingRemoteDispatch {
+  kind: "text" | "preset";
+  preset?: RemotePreset;
+  destructive: boolean;
+  message: string;
 }
 
 interface ServerMessage {
@@ -235,8 +281,10 @@ function InboxView({
 }) {
   const [pending, setPending] = useState<Approval[]>(() => loadCachedPending(connection));
   const [recent, setRecent] = useState<RunEvent[]>([]);
+  const [paneTargets, setPaneTargets] = useState<PaneTarget[]>([]);
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string[]>>({});
   const [selectedSession, setSelectedSession] = useState<string>("");
+  const [composerTarget, setComposerTarget] = useState<string>("");
   const [tab, setTab] = useState<Tab>("pending");
   const [wsState, setWsState] = useState<WsState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -277,12 +325,15 @@ function InboxView({
   );
 
   const loadInitial = useCallback(async () => {
-    const [pendingResponse, recentResponse] = await Promise.all([
+    const [pendingResponse, recentResponse, targetsResponse] = await Promise.all([
       fetchWithFallback("/v1/approval/pending"),
       fetchWithFallback("/v1/run/recent"),
+      fetchWithFallback("/v1/panes/targets"),
     ]);
     setPending((await pendingResponse.json()) as Approval[]);
     setRecent((await recentResponse.json()) as RunEvent[]);
+    const targets = (await targetsResponse.json()) as PaneTargetsResponse;
+    setPaneTargets(targets.targets ?? []);
     setLoadedInitial(true);
   }, [fetchWithFallback]);
 
@@ -392,6 +443,17 @@ function InboxView({
     () => Object.keys(terminalOutput).sort(),
     [terminalOutput],
   );
+  const targetOptions = useMemo(
+    () => buildPaneTargetOptions(paneTargets, recent, terminalOutput, pending),
+    [paneTargets, recent, terminalOutput, pending],
+  );
+  const resolvedComposerTarget = resolveRemoteTarget(
+    composerTarget,
+    targetOptions,
+    recent,
+    pending,
+    targetApprovalId,
+  );
   const activeSession = selectedSession || sessionOptions[0] || "";
   const targetIsMissing =
     Boolean(targetApprovalId) &&
@@ -495,6 +557,9 @@ function InboxView({
         <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
           Terminal <span>{sessionOptions.length}</span>
         </button>
+        <button className={tab === "send" ? "active" : ""} onClick={() => setTab("send")}>
+          Send <span>{targetOptions.length}</span>
+        </button>
       </nav>
 
       {error ? <p className="error-line">{error}</p> : null}
@@ -534,6 +599,10 @@ function InboxView({
                 targeted={approval.approval_id === targetApprovalId}
                 readOnly={connection.scope === "read-only"}
                 onDecide={decide}
+                onReply={() => {
+                  setComposerTarget(approval.session_id);
+                  setTab("send");
+                }}
               />
             ))
           )}
@@ -572,6 +641,17 @@ function InboxView({
           onSelect={setSelectedSession}
         />
       ) : null}
+
+      {tab === "send" ? (
+        <RemoteKeystrokeComposer
+          readOnly={connection.scope === "read-only"}
+          targets={targetOptions}
+          targetId={resolvedComposerTarget}
+          onTargetChange={setComposerTarget}
+          fetchWithFallback={fetchWithFallback}
+          onSent={() => void loadInitial()}
+        />
+      ) : null}
     </main>
   );
 }
@@ -581,6 +661,7 @@ function ApprovalCard({
   targeted,
   readOnly,
   onDecide,
+  onReply,
 }: {
   approval: Approval;
   targeted?: boolean;
@@ -591,6 +672,7 @@ function ApprovalCard({
     editedCommand?: string,
     reason?: string,
   ) => Promise<void>;
+  onReply: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [command, setCommand] = useState(commandText(approval.input));
@@ -698,6 +780,9 @@ function ApprovalCard({
       ) : null}
       {readOnly ? <p className="readonly-note">Read-only spectator session. Decisions are disabled.</p> : null}
       {!readOnly ? <div className="approval-actions">
+        <button type="button" className="ghost-button" disabled={busy} onClick={onReply}>
+          Reply
+        </button>
         <button type="button" disabled={busy} onClick={() => void submit("allow")}>
           Allow
         </button>
@@ -720,6 +805,196 @@ function ApprovalCard({
         </button>
       </div> : null}
     </article>
+  );
+}
+
+function RemoteKeystrokeComposer({
+  readOnly,
+  targets,
+  targetId,
+  onTargetChange,
+  fetchWithFallback,
+  onSent,
+}: {
+  readOnly: boolean;
+  targets: PaneTarget[];
+  targetId: string;
+  onTargetChange: (targetId: string) => void;
+  fetchWithFallback: (path: string, init?: RequestInit) => Promise<Response>;
+  onSent: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [sendEnter, setSendEnter] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [pendingDispatch, setPendingDispatch] = useState<PendingRemoteDispatch | null>(null);
+  const selectedTarget = targets.find((target) => target.paneId === targetId);
+  const disabled = readOnly || busy || !selectedTarget;
+
+  const dispatch = async (next: PendingRemoteDispatch, confirmed: boolean) => {
+    if (readOnly) {
+      setStatus("Read-only spectator session. Remote typing is disabled.");
+      return;
+    }
+    if (!selectedTarget) {
+      setStatus("Choose a target pane.");
+      return;
+    }
+    if (!confirmed && needsRemoteConfirmation(selectedTarget, next.destructive)) {
+      setPendingDispatch(next);
+      setStatus(null);
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    try {
+      const path =
+        next.kind === "text"
+          ? `/v1/panes/${encodeURIComponent(selectedTarget.paneId)}/send-text`
+          : `/v1/panes/${encodeURIComponent(selectedTarget.paneId)}/send-keys`;
+      const body =
+        next.kind === "text"
+          ? sendRemoteTextRequest(text, sendEnter, confirmed)
+          : sendRemotePresetRequest(next.preset?.key ?? "", confirmed);
+      const response = await fetchWithFallback(path, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const result = (await response.json()) as PaneSendResponse;
+      setPendingDispatch(null);
+      setStatus(`Sent ${result.bytes} bytes to ${selectedTarget.label}.`);
+      if (next.kind === "text") {
+        setText("");
+      }
+      onSent();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      if (message.includes("HTTP 409")) {
+        setPendingDispatch(next);
+        setStatus(null);
+      } else {
+        setStatus(message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitText = () => {
+    const hasPayload = text.length > 0 || sendEnter;
+    if (!hasPayload) {
+      setStatus("Text or Enter is required.");
+      return;
+    }
+    void dispatch(
+      {
+        kind: "text",
+        destructive: false,
+        message: "Send text to this pane?",
+      },
+      false,
+    );
+  };
+
+  return (
+    <section className="remote-composer" aria-label="Send text to pane">
+      <div className="composer-header">
+        <div>
+          <p className="eyebrow">Remote input</p>
+          <h2>Send to pane</h2>
+        </div>
+        {readOnly ? <span className="scope-pill">Read only</span> : null}
+      </div>
+      <label>
+        <span>Target</span>
+        <select
+          value={targetId}
+          disabled={readOnly || busy || targets.length === 0}
+          onChange={(event) => onTargetChange(event.target.value)}
+          aria-label="Target pane"
+        >
+          {targets.length === 0 ? <option value="">No panes</option> : null}
+          {targets.length > 0 ? <option value="">Choose target</option> : null}
+          {targets.map((target) => (
+            <option key={target.paneId} value={target.paneId}>
+              {target.label} · {target.status} · {target.trustMode}
+            </option>
+          ))}
+        </select>
+      </label>
+      <textarea
+        value={text}
+        disabled={disabled}
+        onChange={(event) => setText(event.target.value)}
+        rows={5}
+        aria-label="Text to send"
+        placeholder="Text to send"
+      />
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={sendEnter}
+          disabled={disabled}
+          onChange={(event) => setSendEnter(event.target.checked)}
+        />
+        <span>Send Enter</span>
+      </label>
+      <div className="preset-row" aria-label="Remote input presets">
+        {REMOTE_PRESETS.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            className={preset.destructive ? "danger-button" : "ghost-button"}
+            disabled={disabled}
+            onClick={() =>
+              void dispatch(
+                {
+                  kind: "preset",
+                  preset,
+                  destructive: preset.destructive,
+                  message: `${preset.label} on this pane?`,
+                },
+                false,
+              )
+            }
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <div className="approval-actions">
+        <button type="button" disabled={disabled} onClick={submitText}>
+          Send text
+        </button>
+      </div>
+      {pendingDispatch ? (
+        <div className="confirm-sheet" role="alert">
+          <strong>{confirmationMessageForDispatch(selectedTarget, pendingDispatch)}</strong>
+          <div className="approval-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={busy}
+              onClick={() => setPendingDispatch(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={pendingDispatch.destructive ? "danger-button" : ""}
+              disabled={busy}
+              onClick={() => void dispatch(pendingDispatch, true)}
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {readOnly ? (
+        <p className="readonly-note">Read-only spectator session. Remote typing is disabled.</p>
+      ) : null}
+      {status ? <p className={status.includes("failed") ? "error-line" : "status-line"}>{status}</p> : null}
+    </section>
   );
 }
 
@@ -1134,6 +1409,114 @@ function approvalRiskBadges(approval: Approval, text: string): string[] {
     badges.add("Outside cwd");
   }
   return [...badges];
+}
+
+export function buildPaneTargetOptions(
+  paneTargets: PaneTarget[],
+  recent: RunEvent[],
+  terminalOutput: Record<string, string[]>,
+  pending: Approval[],
+): PaneTarget[] {
+  const targets = new Map<string, PaneTarget>();
+  for (const target of paneTargets) {
+    targets.set(target.paneId, target);
+  }
+  for (const approval of pending) {
+    if (!approval.session_id || targets.has(approval.session_id)) {
+      continue;
+    }
+    targets.set(approval.session_id, {
+      paneId: approval.session_id,
+      sessionId: approval.session_id,
+      label: `${approval.agent} ${approval.tool}`,
+      agent: approval.agent,
+      cwd: approval.cwd,
+      status: "blocked",
+      trustMode: "approval-required",
+    });
+  }
+  for (const event of recent) {
+    if (!event.session_id || targets.has(event.session_id)) {
+      continue;
+    }
+    targets.set(event.session_id, {
+      paneId: event.session_id,
+      sessionId: event.session_id,
+      label: event.session_id,
+      status: event.kind,
+      trustMode: "approval-required",
+    });
+  }
+  for (const sessionId of Object.keys(terminalOutput).sort()) {
+    if (targets.has(sessionId)) {
+      continue;
+    }
+    targets.set(sessionId, {
+      paneId: sessionId,
+      sessionId,
+      label: sessionId,
+      status: "mirrored",
+      trustMode: "approval-required",
+    });
+  }
+  return [...targets.values()];
+}
+
+export function resolveRemoteTarget(
+  explicitTarget: string,
+  targets: PaneTarget[],
+  recent: RunEvent[],
+  pending: Approval[],
+  targetApprovalId: string | null,
+): string {
+  if (explicitTarget && targets.some((target) => target.paneId === explicitTarget)) {
+    return explicitTarget;
+  }
+  const approvalTarget = pending.find(
+    (approval) => approval.approval_id === targetApprovalId && approval.session_id,
+  )?.session_id;
+  if (approvalTarget && targets.some((target) => target.paneId === approvalTarget)) {
+    return approvalTarget;
+  }
+  const recentTarget = recent.find((event) =>
+    targets.some((target) => target.paneId === event.session_id),
+  )?.session_id;
+  if (recentTarget) {
+    return recentTarget;
+  }
+  return targets.length === 1 ? targets[0].paneId : "";
+}
+
+export function needsRemoteConfirmation(target: PaneTarget | undefined, destructive: boolean): boolean {
+  return Boolean(target && (destructive || target.trustMode === "approval-required"));
+}
+
+export function sendRemoteTextRequest(text: string, sendEnter: boolean, confirmed: boolean) {
+  return {
+    text,
+    sendEnter,
+    confirmed,
+  };
+}
+
+export function sendRemotePresetRequest(preset: string, confirmed: boolean) {
+  return {
+    preset,
+    confirmed,
+  };
+}
+
+function confirmationMessageForDispatch(
+  target: PaneTarget | undefined,
+  dispatch: PendingRemoteDispatch,
+): string {
+  if (dispatch.destructive) {
+    return `${dispatch.message} This preset can interrupt the running process.`;
+  }
+  if (target?.trustMode === "approval-required") {
+    return `${dispatch.message} This session requires approval confirmation.`;
+  }
+  return dispatch.message;
 }
 
 async function createPushSubscription(vapidPublicKey: string | undefined): Promise<unknown | null> {

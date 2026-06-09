@@ -17,7 +17,7 @@ Onibi v1.5.0 is the first launch release of the local-first approval gate for AI
 
 - Desktop cockpit built with Tauri, React, and xterm.js.
 - Headless daemon mode for Linux and Raspberry Pi 5.
-- Mobile PWA for pending approvals and terminal mirror.
+- Mobile PWA for pending approvals, terminal mirror, emergency stop, and audited remote pane input.
 - Mobile emergency stop to terminate daemon-owned sessions and deny pending approvals.
 - Approval protocol with long-polling hooks, WebSocket fanout, and structured allow/deny/edit decisions.
 - Approval audit history with desktop filters, per-tool aggregates, edited-input diffs, and JSONL export.
@@ -30,7 +30,7 @@ Onibi v1.5.0 is the first launch release of the local-first approval gate for AI
 - Hermes ACP support, plus Gemini, Aider, Cursor, Pi, and OMP mirror, resume-only, or pending-native support.
 - Tailscale Funnel, Cloudflare Quick Tunnel, and LAN HTTPS transports.
 - `onibi setup`, `onibi status`, and `onibi doctor` support commands.
-- Security hardening: bearer auth, approval rate limit, body limits, WebSocket message cap, HSTS for tunnel responses, CSP for the PWA.
+- Security hardening: bearer auth, approval rate limit, body limits, WebSocket message cap, HSTS for tunnel responses, CSP for the PWA, read-only spectator blocking, and literal-only remote-input audit logging.
 
 ## Install
 

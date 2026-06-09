@@ -224,6 +224,72 @@ pub struct PtyOutputBody {
     pub data: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct PaneSendTextBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub text: String,
+    #[serde(default, rename = "sendEnter")]
+    pub send_enter: bool,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct PaneSendKeysBody {
+    #[serde(default)]
+    pub protocol_version: Option<String>,
+    pub preset: String,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PaneSendResponse {
+    pub ok: bool,
+    pub protocol_version: String,
+    #[serde(rename = "paneId")]
+    pub pane_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    pub bytes: usize,
+    #[serde(rename = "auditId")]
+    pub audit_id: String,
+    #[serde(rename = "trustMode")]
+    pub trust_mode: String,
+    #[serde(default, rename = "requiresConfirmation")]
+    pub requires_confirmation: bool,
+    #[serde(default)]
+    pub destructive: bool,
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PaneTarget {
+    #[serde(rename = "paneId")]
+    pub pane_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    pub label: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    pub status: String,
+    #[serde(rename = "trustMode")]
+    pub trust_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PaneTargetsResponse {
+    pub protocol_version: String,
+    pub targets: Vec<PaneTarget>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default, TS)]
 pub struct DesktopNamedRef {
     pub id: String,
@@ -473,6 +539,8 @@ impl ServerMessage {
 pub struct ApiError {
     pub protocol_version: &'static str,
     pub error: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 impl ApiError {
@@ -480,6 +548,15 @@ impl ApiError {
         Self {
             protocol_version: PROTOCOL_VERSION,
             error: error.into(),
+            details: None,
+        }
+    }
+
+    pub fn with_details(error: impl Into<String>, details: Value) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            error: error.into(),
+            details: Some(details),
         }
     }
 }
