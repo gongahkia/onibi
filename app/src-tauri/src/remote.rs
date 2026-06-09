@@ -6,31 +6,38 @@ use std::{
     process::{Command, Output, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
+use ts_rs::TS;
 
 pub const DEFAULT_REMOTE_HELPER_PATH: &str = "~/.onibi/bin/onibi";
 pub const DEFAULT_REMOTE_STAGING_DIR: &str = "~/.onibi/staged";
 pub const DEFAULT_REMOTE_RUN_DIR: &str = "~/.onibi/run";
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSshBootstrapRequest {
     pub target: String,
     #[serde(default)]
+    #[ts(optional)]
     pub user: Option<String>,
     pub host: String,
     #[serde(default)]
+    #[ts(optional)]
     pub port: Option<u16>,
     #[serde(default)]
+    #[ts(optional)]
     pub remote_cwd: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub ssh_command: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub helper_path: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub staging_dir: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSshBootstrapResult {
     pub ok: bool,
@@ -43,26 +50,32 @@ pub struct RemoteSshBootstrapResult {
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSshDaemonRequest {
     pub target: String,
     #[serde(default)]
+    #[ts(optional)]
     pub user: Option<String>,
     pub host: String,
     #[serde(default)]
+    #[ts(optional)]
     pub port: Option<u16>,
     #[serde(default)]
+    #[ts(optional)]
     pub remote_cwd: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub ssh_command: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub helper_path: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub run_dir: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSshDaemonResult {
     pub ok: bool,
@@ -77,27 +90,32 @@ pub struct RemoteSshDaemonResult {
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "gui")]
 pub struct RemoteSshStageFileRequest {
     pub target: String,
     #[serde(default)]
+    #[ts(optional)]
     pub user: Option<String>,
     pub host: String,
     #[serde(default)]
+    #[ts(optional)]
     pub port: Option<u16>,
     #[serde(default)]
+    #[ts(optional)]
     pub remote_cwd: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub ssh_command: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub staging_dir: Option<String>,
     pub filename: String,
     pub data: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "gui")]
 pub struct RemoteSshStageFileResult {

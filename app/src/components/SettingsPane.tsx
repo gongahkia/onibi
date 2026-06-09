@@ -217,10 +217,13 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps) {
       args: ["-lc", command],
       cwd: workspace.path,
       env: [],
+      shellMode: "auto",
       rows: 30,
       cols: 100,
       agent: "shell",
       workspaceId: workspace.id,
+      safeMode: false,
+      trustMode: "approval-required",
       title: `Install ${displayAgent(agent)} · ${workspace.name}`,
     });
     addSession({

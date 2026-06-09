@@ -12,6 +12,7 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::oneshot;
+use ts_rs::TS;
 
 #[async_trait::async_trait]
 pub trait Transport: Send + Sync {
@@ -64,7 +65,7 @@ impl TransportHandle {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum TransportStatus {
     Stopped,

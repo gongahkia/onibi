@@ -164,10 +164,39 @@ pub struct AcpPromptBody {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpProviderResume {
+    pub command: String,
+    pub args: Vec<String>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpProviderSession {
+    pub agent: String,
+    pub provider_session_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub resume: Option<AcpProviderResume>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, TS)]
 pub struct AcpPromptResponse {
     pub protocol_version: String,
     #[serde(rename = "sessionId")]
     pub session_id: String,
+    #[serde(rename = "paneId")]
+    pub pane_id: String,
+    pub agent: String,
+    pub cwd: String,
+    #[serde(default, rename = "providerSessionId")]
+    pub provider_session_id: Option<String>,
+    #[serde(default, rename = "conversationId")]
+    pub conversation_id: Option<String>,
+    pub provider: AcpProviderSession,
+    pub resumed: bool,
+    pub reattached: bool,
     #[serde(default, rename = "stopReason")]
     pub stop_reason: Option<String>,
 }

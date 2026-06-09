@@ -10,13 +10,14 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
+use ts_rs::TS;
 use uuid::Uuid;
 
 pub type PtyId = Uuid;
 
 const OUTPUT_REPLAY_LIMIT: usize = 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellMode {
     #[default]
@@ -25,7 +26,7 @@ pub enum ShellMode {
     NonLogin,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteKeybindingPolicy {
     #[default]
@@ -33,7 +34,7 @@ pub enum RemoteKeybindingPolicy {
     Remote,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum TrustMode {
     #[default]
@@ -41,7 +42,7 @@ pub enum TrustMode {
     FullAccess,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteBootstrapStatus {
     Unknown,
@@ -49,7 +50,7 @@ pub enum RemoteBootstrapStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteDaemonStatus {
     Unknown,
@@ -57,39 +58,52 @@ pub enum RemoteDaemonStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionMetadata {
     pub kind: String,
     pub target: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub user: Option<String>,
     pub host: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_cwd: Option<String>,
     #[serde(default)]
     pub keybinding_policy: RemoteKeybindingPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub bootstrap_status: Option<RemoteBootstrapStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub helper_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub helper_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub staging_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_bootstrap_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub daemon_status: Option<RemoteDaemonStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub daemon_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub daemon_log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub daemon_run_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_daemon_start_at: Option<i64>,
 }
 
@@ -107,7 +121,7 @@ pub enum PtyError {
     Pty(#[from] anyhow::Error),
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PtySpawnRequest {
     #[serde(default = "crate::util::shell::default_shell")]
@@ -125,19 +139,125 @@ pub struct PtySpawnRequest {
     #[serde(default = "default_cols")]
     pub cols: u16,
     #[serde(default)]
+    #[ts(optional)]
     pub name: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub agent: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub workspace_id: Option<String>,
     #[serde(default, rename = "safeMode")]
     pub safe_mode: bool,
     #[serde(default, rename = "trustMode")]
     pub trust_mode: TrustMode,
     #[serde(default)]
+    #[ts(optional)]
     pub title: Option<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub remote: Option<RemoteSessionMetadata>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum PtyWireEvent {
+    Data { data: String, offset: u64 },
+    Exit { code: u32, signal: Option<String> },
+    Notification {
+        source: String,
+        title: String,
+        body: Option<String>,
+        urgency: Option<String>,
+    },
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyReplaySnapshot {
+    pub data: String,
+    pub start_offset: u64,
+    pub end_offset: u64,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtySessionRestart {
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub shell_mode: ShellMode,
+    #[serde(default)]
+    pub safe_mode: bool,
+    #[serde(default)]
+    pub trust_mode: TrustMode,
+    #[serde(default)]
+    #[ts(optional)]
+    pub remote: Option<RemoteSessionMetadata>,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyProviderResume {
+    pub command: String,
+    pub args: Vec<String>,
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyProviderSession {
+    pub agent: String,
+    pub provider_session_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub resume: Option<PtyProviderResume>,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtySessionMetadata {
+    pub id: String,
+    pub pane_id: String,
+    pub name: Option<String>,
+    pub agent: Option<String>,
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub safe_mode: bool,
+    #[serde(default)]
+    pub trust_mode: TrustMode,
+    pub cwd: Option<String>,
+    pub title: Option<String>,
+    pub status: String,
+    pub lifecycle: String,
+    pub rows: u16,
+    pub cols: u16,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub process_id: Option<u32>,
+    pub stopped_at: Option<i64>,
+    pub exit_code: Option<u32>,
+    pub exit_signal: Option<String>,
+    pub restart: Option<PtySessionRestart>,
+    pub provider: Option<PtyProviderSession>,
+    #[serde(default)]
+    pub remote: Option<RemoteSessionMetadata>,
+}
+
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyAttachResult {
+    pub ok: bool,
+    pub attached: bool,
+    pub relaunched: bool,
+    pub previous_session_id: Option<String>,
+    pub id: String,
+    pub session_id: String,
+    pub pane_id: String,
+    pub session: PtySessionMetadata,
 }
 
 fn default_rows() -> u16 {

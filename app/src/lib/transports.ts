@@ -1,20 +1,6 @@
 import { storedApprovalPort, storedApprovalToken } from "./approval-client";
-
-export type TransportStatus =
-  | { state: "stopped" }
-  | { state: "starting" }
-  | { state: "running"; url?: string | null; fingerprint?: string | null }
-  | { state: "failed"; message: string };
-
-export interface TransportSnapshot {
-  name: string;
-  label: string;
-  requiresExternalDep?: string | null;
-  enabled: boolean;
-  status: TransportStatus;
-  url?: string | null;
-  fingerprint?: string | null;
-}
+export type { TransportSnapshot, TransportStatus } from "./contracts/generated";
+import type { TransportSnapshot } from "./contracts/generated";
 
 function endpoint(path: string, port = storedApprovalPort() ?? 17893): string {
   return `http://127.0.0.1:${port}${path}`;

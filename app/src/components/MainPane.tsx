@@ -83,6 +83,8 @@ async function spawnShellReplacement(
     cols: 100,
     agent: "shell",
     workspaceId: workspace.id,
+    safeMode: false,
+    trustMode: "approval-required",
     title: sessionTitle("shell", workspace),
   });
   return {

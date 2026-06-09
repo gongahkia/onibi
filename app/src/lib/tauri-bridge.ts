@@ -1,167 +1,37 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  PtyAttachResult,
+  PtyReplaySnapshot,
+  PtyProviderSession,
+  PtySessionMetadata,
+  PtySpawnRequest,
+  PtyWireEvent,
+  RemoteSshBootstrapRequest,
+  RemoteSshBootstrapResult,
+  RemoteSshDaemonRequest,
+  RemoteSshDaemonResult,
+  RemoteSshStageFileRequest,
+  RemoteSshStageFileResult,
+  ShellMode,
+} from "./contracts/generated";
 
 export type PtyId = string;
-export type PtyShellMode = "auto" | "login" | "non_login";
-
-export interface PtySpawnRequest {
-  command: string;
-  args: string[];
-  cwd: string | null;
-  env: Array<[string, string]>;
-  shellMode?: PtyShellMode;
-  rows: number;
-  cols: number;
-  name?: string | null;
-  agent?: string | null;
-  workspaceId?: string | null;
-  trustMode?: import("./sessions").TrustMode;
-  title?: string | null;
-  remote?: import("./sessions").RemoteSessionMetadata | null;
-}
-
-export interface PtyNotificationPayload {
-  source: "osc9" | "osc99" | "osc777";
-  title: string;
-  body?: string | null;
-  urgency?: string | null;
-}
-
-export type PtyWireEvent =
-  | { type: "data"; data: string; offset: number }
-  | { type: "exit"; code: number; signal: string | null }
-  | ({ type: "notification" } & PtyNotificationPayload);
-
-export interface PtyReplaySnapshot {
-  data: string;
-  startOffset: number;
-  endOffset: number;
-}
-
-export interface PtySessionRestart {
-  command: string;
-  args: string[];
-  cwd: string | null;
-  env: Array<[string, string]>;
-  shellMode?: PtyShellMode;
-  trustMode?: import("./sessions").TrustMode;
-  remote?: import("./sessions").RemoteSessionMetadata | null;
-}
-
-export interface PtyProviderResume {
-  command: string;
-  args: string[];
-  source?: string | null;
-}
-
-export interface PtyProviderSession {
-  agent: string;
-  providerSessionId?: string | null;
-  conversationId?: string | null;
-  resume?: PtyProviderResume | null;
-  updatedAt: number;
-}
-
-export interface PtySessionMetadata {
-  id: string;
-  paneId: string;
-  name?: string | null;
-  agent?: string | null;
-  workspaceId?: string | null;
-  cwd?: string | null;
-  title?: string | null;
-  status: "idle" | "working" | "blocked" | "done";
-  trustMode?: import("./sessions").TrustMode | null;
-  lifecycle: "running" | "stale" | "stopped";
-  rows: number;
-  cols: number;
-  createdAt: number;
-  updatedAt: number;
-  processId?: number | null;
-  stoppedAt?: number | null;
-  exitCode?: number | null;
-  exitSignal?: string | null;
-  restart?: PtySessionRestart | null;
-  provider?: PtyProviderSession | null;
-  remote?: import("./sessions").RemoteSessionMetadata | null;
-}
-
-export interface RemoteSshBootstrapRequest {
-  target: string;
-  user?: string | null;
-  host: string;
-  port?: number | null;
-  remoteCwd?: string | null;
-  sshCommand?: string | null;
-  helperPath?: string | null;
-  stagingDir?: string | null;
-}
-
-export interface RemoteSshBootstrapResult {
-  ok: boolean;
-  target: string;
-  helperPath: string;
-  helperVersion: string;
-  stagingDir: string;
-  bootstrappedAt: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface RemoteSshDaemonRequest {
-  target: string;
-  user?: string | null;
-  host: string;
-  port?: number | null;
-  remoteCwd?: string | null;
-  sshCommand?: string | null;
-  helperPath?: string | null;
-  runDir?: string | null;
-}
-
-export interface RemoteSshDaemonResult {
-  ok: boolean;
-  target: string;
-  helperPath: string;
-  runDir: string;
-  pid: number;
-  status: string;
-  logPath: string;
-  startedAt: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface RemoteSshStageFileRequest {
-  target: string;
-  user?: string | null;
-  host: string;
-  port?: number | null;
-  remoteCwd?: string | null;
-  sshCommand?: string | null;
-  stagingDir?: string | null;
-  filename: string;
-  data: number[];
-}
-
-export interface RemoteSshStageFileResult {
-  ok: boolean;
-  remotePath: string;
-  bytes: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface PtyAttachResult {
-  ok: boolean;
-  attached: boolean;
-  relaunched: boolean;
-  previousSessionId?: string | null;
-  id: string;
-  sessionId: string;
-  paneId: string;
-  session: PtySessionMetadata;
-}
+export type PtyShellMode = ShellMode;
+export type {
+  PtyAttachResult,
+  PtyProviderSession,
+  PtyReplaySnapshot,
+  PtySessionMetadata,
+  PtySpawnRequest,
+  PtyWireEvent,
+  RemoteSshBootstrapRequest,
+  RemoteSshBootstrapResult,
+  RemoteSshDaemonRequest,
+  RemoteSshDaemonResult,
+  RemoteSshStageFileRequest,
+  RemoteSshStageFileResult,
+};
 
 export function shellPath(): string {
   return "";

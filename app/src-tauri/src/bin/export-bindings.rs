@@ -1,8 +1,5 @@
-#[allow(dead_code)]
-#[path = "../protocol/mod.rs"]
-mod protocol;
-
 use anyhow::{Context, Result};
+use app_lib::{config, protocol, pty, remote, transport};
 use std::{fs, path::PathBuf};
 use ts_rs::TS;
 
@@ -28,7 +25,36 @@ fn bindings() -> String {
     push::<protocol::ApprovalDecisionBody>(&mut output);
     push::<protocol::ApprovalDecisionResponse>(&mut output);
     push::<protocol::AcpPromptBody>(&mut output);
+    push::<protocol::AcpProviderResume>(&mut output);
+    push::<protocol::AcpProviderSession>(&mut output);
     push::<protocol::AcpPromptResponse>(&mut output);
+    push::<config::RuntimeConfig>(&mut output);
+    push::<config::AdapterRuntimeConfig>(&mut output);
+    push::<config::AdapterRuntimeConfigs>(&mut output);
+    push::<config::PolicyValidationStatus>(&mut output);
+    push::<config::ConfigStatusResponse>(&mut output);
+    push::<transport::TransportStatus>(&mut output);
+    push::<transport::TransportSnapshot>(&mut output);
+    push::<pty::ShellMode>(&mut output);
+    push::<pty::TrustMode>(&mut output);
+    push::<pty::RemoteKeybindingPolicy>(&mut output);
+    push::<pty::RemoteBootstrapStatus>(&mut output);
+    push::<pty::RemoteDaemonStatus>(&mut output);
+    push::<pty::RemoteSessionMetadata>(&mut output);
+    push::<pty::PtySpawnRequest>(&mut output);
+    push::<pty::PtyWireEvent>(&mut output);
+    push::<pty::PtyReplaySnapshot>(&mut output);
+    push::<pty::PtySessionRestart>(&mut output);
+    push::<pty::PtyProviderResume>(&mut output);
+    push::<pty::PtyProviderSession>(&mut output);
+    push::<pty::PtySessionMetadata>(&mut output);
+    push::<pty::PtyAttachResult>(&mut output);
+    push::<remote::RemoteSshBootstrapRequest>(&mut output);
+    push::<remote::RemoteSshBootstrapResult>(&mut output);
+    push::<remote::RemoteSshDaemonRequest>(&mut output);
+    push::<remote::RemoteSshDaemonResult>(&mut output);
+    push::<remote::RemoteSshStageFileRequest>(&mut output);
+    push::<remote::RemoteSshStageFileResult>(&mut output);
     push::<protocol::RunEvent>(&mut output);
     push::<protocol::RunEventBody>(&mut output);
     push::<protocol::DesktopCommandBlock>(&mut output);

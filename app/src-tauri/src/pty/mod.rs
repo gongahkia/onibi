@@ -7,6 +7,8 @@ pub use notifications::{
     notification_hook, set_notification_hook, NotificationHook, NotificationSource, OscNotification,
 };
 pub use session::{
-    PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot, PtySession, PtySpawnRequest,
-    RemoteBootstrapStatus, RemoteKeybindingPolicy, RemoteSessionMetadata, ShellMode, TrustMode,
+    PtyAttachResult, PtyError, PtyEvent, PtyExitStatus, PtyId, PtyOutputSnapshot,
+    PtyProviderResume, PtyProviderSession, PtyReplaySnapshot, PtySession, PtySessionMetadata,
+    PtySessionRestart, PtySpawnRequest, PtyWireEvent, RemoteBootstrapStatus,
+    RemoteDaemonStatus, RemoteKeybindingPolicy, RemoteSessionMetadata, ShellMode, TrustMode,
 };

@@ -43,6 +43,24 @@ function resetStore() {
         JSON.stringify({
           protocol_version: "1.0",
           sessionId: "hermes-session-1",
+          paneId: "hermes-session-1",
+          agent: "hermes",
+          cwd: "/repo",
+          providerSessionId: "hermes-provider-1",
+          conversationId: null,
+          provider: {
+            agent: "hermes",
+            providerSessionId: "hermes-provider-1",
+            conversationId: null,
+            resume: {
+              command: "hermes",
+              args: ["--resume", "hermes-provider-1"],
+              source: "hermes --resume",
+            },
+            updatedAt: 1,
+          },
+          resumed: false,
+          reattached: false,
           stopReason: "end_turn",
         }),
         { status: 200 },
@@ -300,13 +318,60 @@ describe("NewSessionDialog", () => {
       "pty_spawn",
       expect.anything(),
     );
-    expect(useSessionStore.getState().activeSessionId).toBeNull();
-    expect(await screen.findByText("ACP session hermes-session-1 (end_turn)")).toBeTruthy();
-    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("hermes-session-1");
+    });
+    expect(useSessionStore.getState().sessions[0].provider?.providerSessionId).toBe(
+      "hermes-provider-1",
+    );
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   test("passes selected ACP resume session id", async () => {
     const onClose = vi.fn();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/v1/config/status")) {
+        return new Response(
+          JSON.stringify({
+            adapters: {
+              claude: { transport: "hook", acpCommand: "claude-agent-acp", acpArgs: [] },
+              hermes: { transport: "acp", acpCommand: "hermes", acpArgs: ["acp"] },
+            },
+            policyValidation: { ok: true },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/v1/adapters/hermes/acp/prompt")) {
+        return new Response(
+          JSON.stringify({
+            protocol_version: "1.0",
+            sessionId: "pty-hermes",
+            paneId: "pty-hermes",
+            agent: "hermes",
+            cwd: "/repo",
+            providerSessionId: "hermes-provider-9",
+            conversationId: null,
+            provider: {
+              agent: "hermes",
+              providerSessionId: "hermes-provider-9",
+              conversationId: null,
+              resume: {
+                command: "hermes",
+                args: ["--resume", "hermes-provider-9"],
+                source: "hermes --resume",
+              },
+              updatedAt: 2,
+            },
+            resumed: true,
+            reattached: true,
+            stopReason: "end_turn",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
     globalThis.__TAURI_MOCKS__.invoke.mockImplementation(
       async (command: string, args?: { command?: string }) => {
         if (command === "fs_resolve_binary" && args?.command === "hermes") {
@@ -381,8 +446,14 @@ describe("NewSessionDialog", () => {
       prompt: "continue resumed task",
       resumeSessionId: "hermes-provider-9",
     });
-    expect(await screen.findByText("ACP session hermes-session-1 (end_turn)")).toBeTruthy();
-    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("pty-hermes");
+    });
+    expect(useSessionStore.getState().sessions).toHaveLength(1);
+    expect(useSessionStore.getState().sessions[0].provider?.providerSessionId).toBe(
+      "hermes-provider-9",
+    );
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   test("requires a prompt before ACP launch", async () => {
@@ -440,6 +511,24 @@ describe("NewSessionDialog", () => {
           JSON.stringify({
             protocol_version: "1.0",
             sessionId: "claude-acp-session-1",
+            paneId: "claude-acp-session-1",
+            agent: "claude-code",
+            cwd: "/repo",
+            providerSessionId: "claude-provider-1",
+            conversationId: null,
+            provider: {
+              agent: "claude-code",
+              providerSessionId: "claude-provider-1",
+              conversationId: null,
+              resume: {
+                command: "claude",
+                args: ["--resume", "claude-provider-1"],
+                source: "claude-code --resume",
+              },
+              updatedAt: 1,
+            },
+            resumed: false,
+            reattached: false,
             stopReason: "end_turn",
           }),
           { status: 200 },
@@ -497,9 +586,13 @@ describe("NewSessionDialog", () => {
       "pty_spawn",
       expect.anything(),
     );
-    expect(useSessionStore.getState().activeSessionId).toBeNull();
-    expect(await screen.findByText("ACP session claude-acp-session-1 (end_turn)")).toBeTruthy();
-    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(useSessionStore.getState().activeSessionId).toBe("claude-acp-session-1");
+    });
+    expect(useSessionStore.getState().sessions[0].provider?.providerSessionId).toBe(
+      "claude-provider-1",
+    );
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   test("surfaces ACP backend error bodies in the dialog", async () => {

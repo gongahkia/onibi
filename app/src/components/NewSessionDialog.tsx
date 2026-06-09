@@ -3,6 +3,7 @@ import {
   AGENT_KINDS,
   DEFAULT_AGENT_COMMANDS,
   agentDisplayLabel,
+  recordAcpPromptSession,
   resolveAgentBinary,
   resolveCommandBinary,
   spawnAgentSession,
@@ -236,8 +237,9 @@ export function NewSessionDialog({
           prompt,
           resumeSessionId: acpResumeSessionId || null,
         });
+        recordAcpPromptSession(agent, selectedWorkspace, result);
         setInitialPrompt("");
-        setAcpResult(acpResultText(result.sessionId, result.stopReason));
+        onClose();
         return;
       }
       await spawnAgentSession(
@@ -498,8 +500,4 @@ function lastNonEmpty(values: string[] | undefined): string | null {
       .filter((value): value is string => value !== null)
       .at(-1) ?? null
   );
-}
-
-function acpResultText(sessionId: string, stopReason: string | null): string {
-  return `ACP session ${sessionId}${stopReason ? ` (${stopReason})` : ""}`;
 }

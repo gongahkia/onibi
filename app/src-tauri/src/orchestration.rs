@@ -111,6 +111,12 @@ pub struct ProviderEventUpdate {
     pub resume: Option<ProviderResumeMetadata>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProviderSessionUpsert {
+    pub session: SessionInfo,
+    pub reattached: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -664,6 +670,84 @@ impl OrchestrationState {
             session: Some(updated.clone()),
         });
         Some(updated)
+    }
+
+    pub async fn upsert_provider_session(
+        &self,
+        update: ProviderEventUpdate,
+    ) -> ProviderSessionUpsert {
+        let now = now_millis();
+        let mut sessions = self.sessions.write().await;
+        let target_id = resolve_provider_event_session(&sessions, &update);
+        let reattached = target_id.is_some();
+        let id = target_id.unwrap_or_else(|| PtyId::new_v4().to_string());
+        let previous = sessions.get(&id).cloned();
+        let previous_provider = previous.as_ref().and_then(|session| session.provider.clone());
+        let mut session = previous.unwrap_or_else(|| SessionInfo {
+            id: id.clone(),
+            pane_id: id.clone(),
+            name: None,
+            agent: Some(update.agent.clone()),
+            workspace_id: None,
+            safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
+            cwd: update.cwd.clone(),
+            title: Some(format!("{} ACP", update.agent)),
+            status: AgentStatus::Done,
+            lifecycle: SessionLifecycle::Stale,
+            rows: 30,
+            cols: 100,
+            created_at: now,
+            updated_at: now,
+            process_id: None,
+            stopped_at: Some(now),
+            exit_code: None,
+            exit_signal: None,
+            restart: None,
+            provider: None,
+            remote: None,
+        });
+        if session.agent.is_none() {
+            session.agent = Some(update.agent.clone());
+        }
+        if session.cwd.is_none() {
+            session.cwd = update.cwd.clone();
+        }
+        if let Some(status) = update.status {
+            session.status = status;
+        }
+        session.provider = Some(ProviderSessionMetadata {
+            agent: update.agent,
+            provider_session_id: update.provider_session_id.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.provider_session_id.clone())
+            }),
+            conversation_id: update.conversation_id.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.conversation_id.clone())
+            }),
+            resume: update.resume.or_else(|| {
+                previous_provider
+                    .as_ref()
+                    .and_then(|item| item.resume.clone())
+            }),
+            updated_at: now,
+        });
+        session.updated_at = now;
+        sessions.insert(session.id.clone(), session.clone());
+        drop(sessions);
+        self.persist_session(&session);
+        let _ = self.events.send(OrchestrationEvent::SessionStatus {
+            session_id: session.id.clone(),
+            status: session.status,
+            session: Some(session.clone()),
+        });
+        ProviderSessionUpsert {
+            session,
+            reattached,
+        }
     }
 
     async fn session_agent(&self, session_id: &str) -> Option<String> {
@@ -2352,6 +2436,87 @@ mod tests {
         assert_eq!(
             provider.resume.unwrap().args,
             vec!["--session".to_string(), "provider-session-1".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_session_upsert_creates_logical_session() {
+        let state = OrchestrationState::with_store("token".to_string(), None);
+        let upsert = state
+            .upsert_provider_session(ProviderEventUpdate {
+                agent: "hermes".to_string(),
+                session_id: None,
+                provider_session_id: Some("hermes-provider-1".to_string()),
+                conversation_id: None,
+                cwd: Some("/repo".to_string()),
+                status: Some(AgentStatus::Done),
+                resume: Some(ProviderResumeMetadata {
+                    command: "hermes".to_string(),
+                    args: vec!["--resume".to_string(), "hermes-provider-1".to_string()],
+                    source: Some("hermes --resume".to_string()),
+                }),
+            })
+            .await;
+
+        assert!(!upsert.reattached);
+        assert_eq!(upsert.session.agent.as_deref(), Some("hermes"));
+        assert_eq!(upsert.session.cwd.as_deref(), Some("/repo"));
+        assert_eq!(upsert.session.lifecycle, SessionLifecycle::Stale);
+        assert_eq!(
+            upsert
+                .session
+                .provider
+                .as_ref()
+                .and_then(|provider| provider.provider_session_id.as_deref()),
+            Some("hermes-provider-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_session_upsert_reattaches_by_provider_id() {
+        let state = OrchestrationState::with_store("token".to_string(), None);
+        let first = state
+            .upsert_provider_session(ProviderEventUpdate {
+                agent: "hermes".to_string(),
+                session_id: None,
+                provider_session_id: Some("hermes-provider-1".to_string()),
+                conversation_id: None,
+                cwd: Some("/repo".to_string()),
+                status: Some(AgentStatus::Done),
+                resume: None,
+            })
+            .await;
+        let second = state
+            .upsert_provider_session(ProviderEventUpdate {
+                agent: "hermes".to_string(),
+                session_id: None,
+                provider_session_id: Some("hermes-provider-1".to_string()),
+                conversation_id: None,
+                cwd: Some("/repo".to_string()),
+                status: Some(AgentStatus::Done),
+                resume: Some(ProviderResumeMetadata {
+                    command: "hermes".to_string(),
+                    args: vec!["--resume".to_string(), "hermes-provider-1".to_string()],
+                    source: Some("hermes --resume".to_string()),
+                }),
+            })
+            .await;
+
+        assert!(second.reattached);
+        assert_eq!(second.session.id, first.session.id);
+        assert_eq!(
+            state
+                .sessions
+                .read()
+                .await
+                .values()
+                .filter(|session| session.provider.is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            second.session.provider.unwrap().resume.unwrap().args,
+            vec!["--resume".to_string(), "hermes-provider-1".to_string()]
         );
     }
 

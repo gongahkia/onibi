@@ -5,6 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use ts_rs::TS;
 
 pub const DEFAULT_PORT: u16 = 17_893;
 pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 600;
@@ -125,7 +126,7 @@ pub struct WorkspaceConfig {
     pub collapsed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeConfig {
     pub approval_timeout_secs: u64,
@@ -133,6 +134,57 @@ pub struct RuntimeConfig {
     pub checkpointing_enabled: bool,
     pub checkpoint_max_records: usize,
     pub checkpoint_max_age_days: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterRuntimeConfig {
+    pub transport: String,
+    pub acp_command: String,
+    pub acp_args: Vec<String>,
+}
+
+impl From<&AgentAdapterConfig> for AdapterRuntimeConfig {
+    fn from(adapter: &AgentAdapterConfig) -> Self {
+        Self {
+            transport: adapter.transport.clone(),
+            acp_command: adapter.acp_command.clone(),
+            acp_args: adapter.acp_args.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterRuntimeConfigs {
+    pub claude: AdapterRuntimeConfig,
+    pub hermes: AdapterRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyValidationStatus {
+    pub path: String,
+    pub exists: bool,
+    pub rule_count: usize,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigStatusResponse {
+    pub ok: bool,
+    pub protocol_version: String,
+    pub path: PathBuf,
+    pub exists: bool,
+    pub runtime_config: RuntimeConfig,
+    pub file_runtime_config: RuntimeConfig,
+    pub adapters: AdapterRuntimeConfigs,
+    pub reloadable_fields: Vec<String>,
+    pub restart_required_fields: Vec<String>,
+    pub client_managed_fields: Vec<String>,
+    pub policy_validation: PolicyValidationStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

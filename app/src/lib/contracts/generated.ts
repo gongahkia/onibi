@@ -16,7 +16,65 @@ export type ApprovalDecisionResponse = { protocol_version: string, approval_id: 
 
 export type AcpPromptBody = { protocol_version: string | null, cwd: string, prompt: string, resumeSessionId: string | null, };
 
-export type AcpPromptResponse = { protocol_version: string, sessionId: string, stopReason: string | null, };
+export type AcpProviderResume = { command: string, args: Array<string>, source: string | null, };
+
+export type AcpProviderSession = { agent: string, providerSessionId: string | null, conversationId: string | null, resume: AcpProviderResume | null, updatedAt: number, };
+
+export type AcpPromptResponse = { protocol_version: string, sessionId: string, paneId: string, agent: string, cwd: string, providerSessionId: string | null, conversationId: string | null, provider: AcpProviderSession, resumed: boolean, reattached: boolean, stopReason: string | null, };
+
+export type RuntimeConfig = { approvalTimeoutSecs: number, ptyRingLimit: number, checkpointingEnabled: boolean, checkpointMaxRecords: number, checkpointMaxAgeDays: number, };
+
+export type AdapterRuntimeConfig = { transport: string, acpCommand: string, acpArgs: Array<string>, };
+
+export type AdapterRuntimeConfigs = { claude: AdapterRuntimeConfig, hermes: AdapterRuntimeConfig, };
+
+export type PolicyValidationStatus = { path: string, exists: boolean, ruleCount: number, ok: boolean, error: string | null, };
+
+export type ConfigStatusResponse = { ok: boolean, protocolVersion: string, path: string, exists: boolean, runtimeConfig: RuntimeConfig, fileRuntimeConfig: RuntimeConfig, adapters: AdapterRuntimeConfigs, reloadableFields: Array<string>, restartRequiredFields: Array<string>, clientManagedFields: Array<string>, policyValidation: PolicyValidationStatus, };
+
+export type TransportStatus = { "state": "stopped" } | { "state": "starting" } | { "state": "running", url: string | null, fingerprint: string | null, } | { "state": "failed", message: string, };
+
+export type TransportSnapshot = { name: string, label: string, requiresExternalDep: string | null, enabled: boolean, status: TransportStatus, url: string | null, fingerprint: string | null, };
+
+export type ShellMode = "auto" | "login" | "non_login";
+
+export type TrustMode = "approval-required" | "full-access";
+
+export type RemoteKeybindingPolicy = "local" | "remote";
+
+export type RemoteBootstrapStatus = "unknown" | "ready" | "failed";
+
+export type RemoteDaemonStatus = "unknown" | "running" | "failed";
+
+export type RemoteSessionMetadata = { kind: string, target: string, user?: string, host: string, port?: number, remoteCwd?: string, keybindingPolicy: RemoteKeybindingPolicy, bootstrapStatus?: RemoteBootstrapStatus, helperPath?: string, helperVersion?: string, stagingDir?: string, lastBootstrapAt?: number, daemonStatus?: RemoteDaemonStatus, daemonPid?: number, daemonLogPath?: string, daemonRunDir?: string, lastDaemonStartAt?: number, };
+
+export type PtySpawnRequest = { command: string, args: Array<string>, cwd: string | null, env: Array<[string, string]>, shellMode: ShellMode, rows: number, cols: number, name?: string, agent?: string, workspaceId?: string, safeMode: boolean, trustMode: TrustMode, title?: string, remote?: RemoteSessionMetadata, };
+
+export type PtyWireEvent = { "type": "data", data: string, offset: number, } | { "type": "exit", code: number, signal: string | null, } | { "type": "notification", source: string, title: string, body: string | null, urgency: string | null, };
+
+export type PtyReplaySnapshot = { data: string, startOffset: number, endOffset: number, };
+
+export type PtySessionRestart = { command: string, args: Array<string>, cwd: string | null, env: Array<[string, string]>, shellMode: ShellMode, safeMode: boolean, trustMode: TrustMode, remote?: RemoteSessionMetadata, };
+
+export type PtyProviderResume = { command: string, args: Array<string>, source: string | null, };
+
+export type PtyProviderSession = { agent: string, providerSessionId: string | null, conversationId: string | null, resume: PtyProviderResume | null, updatedAt: number, };
+
+export type PtySessionMetadata = { id: string, paneId: string, name: string | null, agent: string | null, workspaceId: string | null, safeMode: boolean, trustMode: TrustMode, cwd: string | null, title: string | null, status: string, lifecycle: string, rows: number, cols: number, createdAt: number, updatedAt: number, processId: number | null, stoppedAt: number | null, exitCode: number | null, exitSignal: string | null, restart: PtySessionRestart | null, provider: PtyProviderSession | null, remote: RemoteSessionMetadata | null, };
+
+export type PtyAttachResult = { ok: boolean, attached: boolean, relaunched: boolean, previousSessionId: string | null, id: string, sessionId: string, paneId: string, session: PtySessionMetadata, };
+
+export type RemoteSshBootstrapRequest = { target: string, user?: string, host: string, port?: number, remoteCwd?: string, sshCommand?: string, helperPath?: string, stagingDir?: string, };
+
+export type RemoteSshBootstrapResult = { ok: boolean, target: string, helperPath: string, helperVersion: string, stagingDir: string, bootstrappedAt: number, stdout: string, stderr: string, };
+
+export type RemoteSshDaemonRequest = { target: string, user?: string, host: string, port?: number, remoteCwd?: string, sshCommand?: string, helperPath?: string, runDir?: string, };
+
+export type RemoteSshDaemonResult = { ok: boolean, target: string, helperPath: string, runDir: string, pid: number, status: string, logPath: string, startedAt: number, stdout: string, stderr: string, };
+
+export type RemoteSshStageFileRequest = { target: string, user?: string, host: string, port?: number, remoteCwd?: string, sshCommand?: string, stagingDir?: string, filename: string, data: Array<number>, };
+
+export type RemoteSshStageFileResult = { ok: boolean, remotePath: string, bytes: number, stdout: string, stderr: string, };
 
 export type RunEvent = { id: number, protocol_version: string, machine_id: string, session_id: string, kind: string, payload: JsonValue, ts: number, };
 

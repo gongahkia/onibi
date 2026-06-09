@@ -22,11 +22,18 @@ import {
   type PtySessionMetadata,
   type PtyId,
   type PtyShellMode,
-  type PtySpawnRequest,
 } from "./tauri-bridge";
 import { startAgentReview, stopAgentReview } from "./agent-review";
 import { confirmAction } from "./native-dialogs";
 import { createGitWorktree, getGitStatus, removeGitWorktree } from "./git";
+import type {
+  AcpPromptResponse,
+  RemoteBootstrapStatus as GeneratedRemoteBootstrapStatus,
+  RemoteDaemonStatus as GeneratedRemoteDaemonStatus,
+  RemoteKeybindingPolicy as GeneratedRemoteKeybindingPolicy,
+  RemoteSessionMetadata as GeneratedRemoteSessionMetadata,
+  TrustMode as GeneratedTrustMode,
+} from "./contracts/generated";
 
 export const AGENT_KINDS = [
   "claude-code",
@@ -60,7 +67,7 @@ export type SessionStatus =
   | "completed"
   | "error"
   | "stale";
-export type TrustMode = "approval-required" | "full-access";
+export type TrustMode = GeneratedTrustMode;
 export type WorktreeStrategy = "inherit" | "auto";
 
 export interface Session {
@@ -193,6 +200,12 @@ export interface TerminalLaunchSpec extends SessionRestartMetadata {
   worktreeOwnerPath?: string | null;
 }
 
+interface AgentLaunchCommand {
+  command: string;
+  args: string[];
+  shellMode?: TerminalShellMode;
+}
+
 export type SessionAttentionState =
   | "idle"
   | "running"
@@ -227,33 +240,15 @@ export type NewPaneCwdMode =
   | "follow"
   | `fixed:${string}`;
 export type TerminalShellMode = PtyShellMode;
-export type RemoteKeybindingPolicy = "local" | "remote";
-export type RemoteBootstrapStatus = "unknown" | "ready" | "failed";
-export type RemoteDaemonStatus = "unknown" | "running" | "failed";
+export type RemoteKeybindingPolicy = GeneratedRemoteKeybindingPolicy;
+export type RemoteBootstrapStatus = GeneratedRemoteBootstrapStatus;
+export type RemoteDaemonStatus = GeneratedRemoteDaemonStatus;
 
 export const DEFAULT_REMOTE_HELPER_PATH = "~/.onibi/bin/onibi";
 export const DEFAULT_REMOTE_STAGING_DIR = "~/.onibi/staged";
 export const DEFAULT_REMOTE_RUN_DIR = "~/.onibi/run";
 
-export interface RemoteSessionMetadata {
-  kind: "ssh";
-  target: string;
-  user?: string;
-  host: string;
-  port?: number;
-  remoteCwd?: string | null;
-  keybindingPolicy: RemoteKeybindingPolicy;
-  bootstrapStatus?: RemoteBootstrapStatus;
-  helperPath?: string;
-  helperVersion?: string;
-  stagingDir?: string;
-  lastBootstrapAt?: number;
-  daemonStatus?: RemoteDaemonStatus;
-  daemonPid?: number;
-  daemonLogPath?: string;
-  daemonRunDir?: string;
-  lastDaemonStartAt?: number;
-}
+export type RemoteSessionMetadata = GeneratedRemoteSessionMetadata;
 
 export interface ParsedSshRemoteTarget {
   target: string;
@@ -2522,8 +2517,6 @@ function normalizeRemoteSessionMetadata(
   }
   if (typeof value.remoteCwd === "string" && value.remoteCwd.trim()) {
     normalized.remoteCwd = value.remoteCwd.trim();
-  } else if (value.remoteCwd === null) {
-    normalized.remoteCwd = null;
   }
   const bootstrapStatus = normalizeRemoteBootstrapStatus(value.bootstrapStatus);
   if (bootstrapStatus) {
@@ -5219,12 +5212,26 @@ async function loadDaemonSessions(): Promise<PtySessionMetadata[]> {
     return liveIds.map((id) => ({
       id,
       paneId: id,
+      name: null,
+      agent: null,
+      workspaceId: null,
+      safeMode: false,
+      trustMode: "approval-required",
+      cwd: null,
+      title: null,
       status: "working",
       lifecycle: "running",
       rows: 30,
       cols: 100,
       createdAt: now,
       updatedAt: now,
+      processId: null,
+      stoppedAt: null,
+      exitCode: null,
+      exitSignal: null,
+      restart: null,
+      provider: null,
+      remote: null,
     }));
   }
 }
@@ -6483,7 +6490,7 @@ export function launchCommandForAgent(
   agent: AgentKind,
   settings: AppSettings,
   initialPrompt: string,
-): Pick<PtySpawnRequest, "command" | "args" | "shellMode"> {
+): AgentLaunchCommand {
   if (agent === "shell") {
     return { command: shellPath(), args: [], shellMode: settings.terminalShellMode };
   }
@@ -6530,12 +6537,6 @@ function shellIntegrationEnv(
   return agent === "shell" && settings.terminalShellIntegration
     ? [["ONIBI_SHELL_INTEGRATION", "1"]]
     : [];
-}
-
-function shellModePatch(
-  shellMode: TerminalShellMode | null | undefined,
-): Pick<PtySpawnRequest, "shellMode"> | Record<string, never> {
-  return shellMode ? { shellMode } : {};
 }
 
 function autoWorktreeId(now = Date.now()): string {
@@ -6705,14 +6706,15 @@ export async function spawnSessionFromLaunchSpec(
     args: spec.args,
     cwd: spec.cwd,
     env: spec.env,
+    shellMode: spec.shellMode ?? "auto",
     rows: 30,
     cols: 100,
     agent: spec.agent,
     workspaceId: spec.workspaceId,
+    safeMode: false,
     title: spec.title,
     trustMode: spec.trustMode ?? "approval-required",
     ...(spec.remote ? { remote: spec.remote } : {}),
-    ...shellModePatch(spec.shellMode),
   });
   const restart: SessionRestartMetadata = {
     command: spec.command,
@@ -6990,6 +6992,83 @@ export async function spawnAgentSession(
   );
 }
 
+export function recordAcpPromptSession(
+  agent: AgentKind,
+  workspace: Workspace,
+  result: AcpPromptResponse,
+): Session {
+  const now = Date.now();
+  const provider = result.provider;
+  const providerSessionId =
+    result.providerSessionId ?? provider?.providerSessionId ?? result.sessionId;
+  const conversationId = result.conversationId ?? provider?.conversationId ?? null;
+  const state = useSessionStore.getState();
+  const existing =
+    state.sessions.find((session) => session.id === result.sessionId) ??
+    state.sessions.find(
+      (session) =>
+        providerSessionId &&
+        session.provider?.providerSessionId === providerSessionId,
+    ) ??
+    state.sessions.find(
+      (session) =>
+        conversationId &&
+        session.provider?.conversationId === conversationId,
+    );
+  const session: Session = {
+    ...(existing ?? {
+      id: result.sessionId,
+      agent,
+      workspaceId: workspace.id,
+      title: sessionTitle(agent, workspace, state.settings),
+      createdAt: now,
+      pendingApprovals: [],
+      lastExitCode: null,
+      lastTrigger: null,
+      lastCommandBlockId: null,
+      transcript: null,
+      restart: null,
+      remote: null,
+    }),
+    id: existing?.id ?? result.sessionId,
+    agent,
+    workspaceId: existing?.workspaceId ?? workspace.id,
+    title: existing?.title ?? sessionTitle(agent, workspace, state.settings),
+    status: "completed",
+    trustMode: existing?.trustMode ?? "approval-required",
+    worktreeStrategy: existing?.worktreeStrategy ?? "inherit",
+    worktreePath: existing?.worktreePath ?? null,
+    worktreeOwnerPath: existing?.worktreeOwnerPath ?? null,
+    createdAt: existing?.createdAt ?? now,
+    pendingApprovals: existing?.pendingApprovals ?? [],
+    cwd: result.cwd || existing?.cwd || workspace.path,
+    lastExitCode: existing?.lastExitCode ?? null,
+    lastTrigger: existing?.lastTrigger ?? null,
+    lastCommandBlockId: existing?.lastCommandBlockId ?? null,
+    transcript: existing?.transcript ?? null,
+    restart: existing?.restart ?? null,
+    provider: {
+      agent: provider?.agent ?? agent,
+      providerSessionId,
+      conversationId,
+      resume: provider?.resume ?? existing?.provider?.resume ?? null,
+      updatedAt: provider?.updatedAt ?? now,
+    },
+    remote: existing?.remote ?? null,
+  };
+  useSessionStore.setState((current) => ({
+    sessions: [
+      ...current.sessions.filter((candidate) => candidate.id !== session.id),
+      session,
+    ],
+    activeWorkspaceId: session.workspaceId,
+    activeSessionId: session.id,
+    selectedFile: null,
+  }));
+  persistLater();
+  return session;
+}
+
 export function sessionNeedsCloseConfirmation(
   session: Session | null | undefined,
   settings: AppSettings,
@@ -7093,16 +7172,17 @@ export async function restartSession(sessionId: string): Promise<PtyId | null> {
     args: session.restart.args,
     cwd: session.restart.cwd,
     env: session.restart.env,
+    shellMode: session.restart.shellMode ?? "auto",
     rows: 30,
     cols: 100,
     agent: session.agent,
     workspaceId: session.workspaceId,
+    safeMode: false,
     title: session.title,
     trustMode: session.restart.trustMode ?? session.trustMode ?? "approval-required",
     ...(session.remote ?? session.restart.remote
-      ? { remote: session.remote ?? session.restart.remote ?? null }
+      ? { remote: session.remote ?? session.restart.remote ?? undefined }
       : {}),
-    ...shellModePatch(session.restart.shellMode),
   });
   const replacement: Session = {
     ...session,
@@ -7198,12 +7278,14 @@ export async function restoreArrangement(arrangementId: string): Promise<boolean
       args: launch.args,
       cwd: launch.cwd,
       env: launch.env,
+      shellMode: launch.shellMode ?? "auto",
       rows: 30,
       cols: 100,
       agent: savedSession.agent,
       workspaceId: savedSession.workspaceId,
+      safeMode: false,
+      trustMode: "approval-required",
       title: savedSession.title,
-      ...shellModePatch(launch.shellMode),
     });
     sessionIds.set(savedSession.sessionId, id);
     newSessions.push({

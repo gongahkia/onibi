@@ -3,38 +3,13 @@ import {
   storedApprovalPort,
   storedApprovalToken,
 } from "./approval-client";
-
-export interface PolicyValidationStatus {
-  path: string;
-  exists: boolean;
-  ruleCount: number;
-  ok: boolean;
-  error?: string | null;
-}
-
-export interface AdapterRuntimeConfig {
-  transport: string;
-  acpCommand: string;
-  acpArgs: string[];
-}
-
-export interface RuntimeConfigStatus {
-  approvalTimeoutSecs: number;
-  ptyRingLimit: number;
-  checkpointingEnabled: boolean;
-  checkpointMaxRecords: number;
-  checkpointMaxAgeDays: number;
-}
-
-export interface ConfigStatusResponse {
-  runtimeConfig?: RuntimeConfigStatus;
-  fileRuntimeConfig?: RuntimeConfigStatus;
-  adapters?: {
-    claude?: AdapterRuntimeConfig;
-    hermes?: AdapterRuntimeConfig;
-  };
-  policyValidation?: PolicyValidationStatus;
-}
+export type {
+  AdapterRuntimeConfig,
+  ConfigStatusResponse,
+  PolicyValidationStatus,
+  RuntimeConfig,
+} from "./contracts/generated";
+import type { ConfigStatusResponse } from "./contracts/generated";
 
 export async function fetchConfigStatus(): Promise<ConfigStatusResponse> {
   const { token, port } = await ensureApprovalConnectionConfig();

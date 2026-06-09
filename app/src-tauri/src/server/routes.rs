@@ -3,18 +3,22 @@ use crate::{
     adapters,
     approval::store::{now_millis, token_hash, ApprovalHistoryFilter},
     checkpointing,
-    config::{self, RemoteControlConfig, RemoteControlPresetConfig},
-    orchestration::{AgentStatus, SessionInfo},
+    config::{
+        self, AdapterRuntimeConfig, AdapterRuntimeConfigs, ConfigStatusResponse,
+        PolicyValidationStatus, RemoteControlConfig, RemoteControlPresetConfig,
+    },
+    orchestration::{AgentStatus, ProviderEventUpdate, ProviderSessionMetadata, SessionInfo},
     policy,
     protocol::{
-        AcpPromptBody, AcpPromptResponse, ApiError, Approval, ApprovalDecisionBody,
-        ApprovalDecisionResponse, ApprovalRequestBody, CheckpointDiff, CheckpointPruneBody,
-        CheckpointPruneResponse, CheckpointRecord, CheckpointRestoreBody, ClientScope, Decision,
-        DesktopCommandBlock, DesktopCommandResponse, DesktopPaneSplitBody, DesktopRemoteSshBody,
-        DesktopSessionInputBody, DesktopSessionLaunchBody, DesktopSnapshotBody,
-        DesktopWorktreeOpenBody, PairRequest, PairResponse, PaneRunBody, PaneSendKeysBody,
-        PaneSendResponse, PaneSendTextBody, PaneTarget, PaneTargetsResponse, PtyOutputBody,
-        RunEvent, RunEventBody, ServerMessage, PROTOCOL_VERSION,
+        AcpPromptBody, AcpPromptResponse, AcpProviderResume, AcpProviderSession, ApiError,
+        Approval, ApprovalDecisionBody, ApprovalDecisionResponse, ApprovalRequestBody,
+        CheckpointDiff, CheckpointPruneBody, CheckpointPruneResponse, CheckpointRecord,
+        CheckpointRestoreBody, ClientScope, Decision, DesktopCommandBlock, DesktopCommandResponse,
+        DesktopPaneSplitBody, DesktopRemoteSshBody, DesktopSessionInputBody,
+        DesktopSessionLaunchBody, DesktopSnapshotBody, DesktopWorktreeOpenBody, PairRequest,
+        PairResponse, PaneRunBody, PaneSendKeysBody, PaneSendResponse, PaneSendTextBody,
+        PaneTarget, PaneTargetsResponse, PtyOutputBody, RunEvent, RunEventBody, ServerMessage,
+        PROTOCOL_VERSION,
     },
     pty::TrustMode,
     push, secret,
@@ -856,40 +860,47 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Value> {
     })))
 }
 
-pub async fn config_status(State(state): State<AppState>) -> ApiResult<Value> {
+pub async fn config_status(State(state): State<AppState>) -> ApiResult<ConfigStatusResponse> {
     let runtime_config = state.runtime_config().await;
     let validation = crate::config::validate().map_err(internal_error)?;
     let app_config = crate::config::load().map_err(internal_error)?;
-    Ok(Json(json!({
-        "ok": true,
-        "protocol_version": PROTOCOL_VERSION,
-        "path": validation.path,
-        "exists": validation.exists,
-        "runtimeConfig": runtime_config,
-        "fileRuntimeConfig": validation.runtime,
-        "adapters": {
-            "claude": adapter_runtime_json(&app_config.adapters.claude),
-            "hermes": adapter_runtime_json(&app_config.adapters.hermes),
+    Ok(Json(ConfigStatusResponse {
+        ok: true,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        path: validation.path,
+        exists: validation.exists,
+        runtime_config,
+        file_runtime_config: validation.runtime,
+        adapters: AdapterRuntimeConfigs {
+            claude: AdapterRuntimeConfig::from(&app_config.adapters.claude),
+            hermes: AdapterRuntimeConfig::from(&app_config.adapters.hermes),
         },
-        "reloadableFields": [
-            "server.approval_timeout_secs",
-            "server.pty_ring_limit",
-            "checkpointing.enabled",
-            "checkpointing.max_records",
-            "checkpointing.max_age_days"
+        reloadable_fields: vec![
+            "server.approval_timeout_secs".to_string(),
+            "server.pty_ring_limit".to_string(),
+            "checkpointing.enabled".to_string(),
+            "checkpointing.max_records".to_string(),
+            "checkpointing.max_age_days".to_string(),
         ],
-        "restartRequiredFields": ["server.port"],
-        "clientManagedFields": ["ui", "terminal", "keybindings", "workspaces"],
-        "policyValidation": policy::validate(),
-    })))
+        restart_required_fields: vec!["server.port".to_string()],
+        client_managed_fields: vec![
+            "ui".to_string(),
+            "terminal".to_string(),
+            "keybindings".to_string(),
+            "workspaces".to_string(),
+        ],
+        policy_validation: policy_validation_status(policy::validate()),
+    }))
 }
 
-fn adapter_runtime_json(adapter: &crate::config::AgentAdapterConfig) -> Value {
-    json!({
-        "transport": adapter.transport,
-        "acpCommand": adapter.acp_command,
-        "acpArgs": adapter.acp_args,
-    })
+fn policy_validation_status(validation: policy::PolicyValidation) -> PolicyValidationStatus {
+    PolicyValidationStatus {
+        path: validation.path,
+        exists: validation.exists,
+        rule_count: validation.rule_count,
+        ok: validation.ok,
+        error: validation.error,
+    }
 }
 
 pub async fn config_reload(State(state): State<AppState>) -> ApiResult<Value> {
@@ -989,14 +1000,63 @@ pub async fn provider_acp_prompt(
     canonical_acp_agent(&agent)?;
     let app_config = crate::config::load().map_err(internal_error)?;
     let launch = build_acp_prompt_launch(&app_config, &agent, body)?;
+    let requested_resume = launch.input.resume_session_id.clone();
+    let prompt_agent = launch.input.agent.clone();
+    let prompt_cwd = launch.input.cwd.display().to_string();
     let result = adapters::acp::run_prompt_session(&state, launch.spawn, launch.input)
         .await
         .map_err(internal_error)?;
+    let provider_session_id = result.session_id;
+    let upsert = state
+        .orchestration
+        .upsert_provider_session(ProviderEventUpdate {
+            agent: prompt_agent.clone(),
+            session_id: None,
+            provider_session_id: Some(provider_session_id.clone()),
+            conversation_id: None,
+            cwd: Some(prompt_cwd.clone()),
+            status: Some(AgentStatus::Done),
+            resume: adapters::resume_metadata_for_agent(&prompt_agent, &provider_session_id),
+        })
+        .await;
+    let provider = upsert
+        .session
+        .provider
+        .clone()
+        .unwrap_or_else(|| ProviderSessionMetadata {
+            agent: prompt_agent.clone(),
+            provider_session_id: Some(provider_session_id.clone()),
+            conversation_id: None,
+            resume: adapters::resume_metadata_for_agent(&prompt_agent, &provider_session_id),
+            updated_at: now_millis(),
+        });
     Ok(Json(AcpPromptResponse {
         protocol_version: PROTOCOL_VERSION.to_string(),
-        session_id: result.session_id,
+        session_id: upsert.session.id,
+        pane_id: upsert.session.pane_id,
+        agent: prompt_agent,
+        cwd: prompt_cwd,
+        provider_session_id: provider.provider_session_id.clone(),
+        conversation_id: provider.conversation_id.clone(),
+        provider: acp_provider_response(provider),
+        resumed: requested_resume.is_some(),
+        reattached: upsert.reattached,
         stop_reason: result.stop_reason,
     }))
+}
+
+fn acp_provider_response(provider: ProviderSessionMetadata) -> AcpProviderSession {
+    AcpProviderSession {
+        agent: provider.agent,
+        provider_session_id: provider.provider_session_id,
+        conversation_id: provider.conversation_id,
+        resume: provider.resume.map(|resume| AcpProviderResume {
+            command: resume.command,
+            args: resume.args,
+            source: resume.source,
+        }),
+        updated_at: provider.updated_at,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2203,13 +2263,13 @@ mod tests {
     }
 
     #[test]
-    fn adapter_runtime_json_reports_acp_fields() {
+    fn adapter_runtime_config_reports_acp_fields() {
         let config = crate::config::OnibiConfig::default();
-        let value = adapter_runtime_json(&config.adapters.hermes);
+        let value = AdapterRuntimeConfig::from(&config.adapters.hermes);
 
-        assert_eq!(value["transport"], "acp");
-        assert_eq!(value["acpCommand"], "hermes");
-        assert_eq!(value["acpArgs"][0], "acp");
+        assert_eq!(value.transport, "acp");
+        assert_eq!(value.acp_command, "hermes");
+        assert_eq!(value.acp_args[0], "acp");
     }
 
     #[tokio::test]

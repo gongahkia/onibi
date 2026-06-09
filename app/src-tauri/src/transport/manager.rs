@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
+use ts_rs::TS;
 
 const LOOPBACK_NAME: &str = "loopback";
 
@@ -184,7 +185,7 @@ fn snapshot_from_handle(transport: &dyn Transport, handle: &TransportHandle) -> 
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TransportSnapshot {
     pub name: String,

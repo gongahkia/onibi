@@ -11,11 +11,15 @@ mod orchestration;
 #[cfg(feature = "gui")]
 pub mod pty;
 #[cfg(feature = "gui")]
+pub mod protocol;
+#[cfg(feature = "gui")]
 pub mod remote;
 #[cfg(feature = "gui")]
 pub mod review;
 #[cfg(feature = "gui")]
 pub mod secret;
+#[cfg(feature = "gui")]
+pub mod transport;
 #[cfg(feature = "gui")]
 pub mod util;
 
@@ -36,14 +40,16 @@ use git::{
     git_remove_worktree, git_stage_paths, git_status, git_sync, git_unstage_paths, git_worktrees,
 };
 #[cfg(feature = "gui")]
-use pty::{PtyId, PtySpawnRequest};
+use pty::{
+    PtyAttachResult, PtyId, PtyReplaySnapshot, PtySessionMetadata, PtySpawnRequest, PtyWireEvent,
+};
 #[cfg(feature = "gui")]
 use review::{
     agent_review_accept, agent_review_diff, agent_review_note_human_write, agent_review_records,
     agent_review_reject, agent_review_start, agent_review_stop, AgentReviewManager,
 };
 #[cfg(feature = "gui")]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 #[cfg(feature = "gui")]
 use serde_json::{json, Value};
 #[cfg(feature = "gui")]
@@ -55,109 +61,6 @@ use std::{
 use tauri::{Emitter, Manager};
 #[cfg(feature = "gui")]
 use tracing_subscriber::EnvFilter;
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum PtyWireEvent {
-    Data {
-        data: String,
-        offset: u64,
-    },
-    Exit {
-        code: u32,
-        signal: Option<String>,
-    },
-    Notification {
-        source: String,
-        title: String,
-        body: Option<String>,
-        urgency: Option<String>,
-    },
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtyReplay {
-    data: String,
-    start_offset: u64,
-    end_offset: u64,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtySessionRestart {
-    command: String,
-    args: Vec<String>,
-    cwd: Option<String>,
-    env: Vec<(String, String)>,
-    #[serde(default)]
-    remote: Option<pty::RemoteSessionMetadata>,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtyProviderResume {
-    command: String,
-    args: Vec<String>,
-    source: Option<String>,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtyProviderSession {
-    agent: String,
-    provider_session_id: Option<String>,
-    conversation_id: Option<String>,
-    resume: Option<PtyProviderResume>,
-    updated_at: i64,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtySessionMetadata {
-    id: String,
-    pane_id: String,
-    name: Option<String>,
-    agent: Option<String>,
-    workspace_id: Option<String>,
-    cwd: Option<String>,
-    title: Option<String>,
-    status: String,
-    lifecycle: String,
-    rows: u16,
-    cols: u16,
-    created_at: i64,
-    updated_at: i64,
-    #[serde(default)]
-    process_id: Option<u32>,
-    stopped_at: Option<i64>,
-    exit_code: Option<u32>,
-    exit_signal: Option<String>,
-    restart: Option<PtySessionRestart>,
-    provider: Option<PtyProviderSession>,
-    #[serde(default)]
-    remote: Option<pty::RemoteSessionMetadata>,
-}
-
-#[cfg(feature = "gui")]
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PtyAttachResult {
-    ok: bool,
-    attached: bool,
-    relaunched: bool,
-    previous_session_id: Option<String>,
-    id: String,
-    session_id: String,
-    pane_id: String,
-    session: PtySessionMetadata,
-}
 
 #[cfg(feature = "gui")]
 #[derive(Clone, Serialize)]
@@ -456,7 +359,7 @@ async fn session_attach(window: tauri::Window, id: String) -> Result<PtyAttachRe
 
 #[cfg(feature = "gui")]
 #[tauri::command]
-async fn pty_replay(id: PtyId) -> Result<Option<PtyReplay>, String> {
+async fn pty_replay(id: PtyId) -> Result<Option<PtyReplaySnapshot>, String> {
     let response = orchestration::client::request("pty.replay", json!({"id": id.to_string()}))
         .await
         .map_err(|err| err.to_string())?;
@@ -468,7 +371,7 @@ async fn pty_replay(id: PtyId) -> Result<Option<PtyReplay>, String> {
     if data.is_empty() {
         return Ok(None);
     }
-    Ok(Some(PtyReplay {
+    Ok(Some(PtyReplaySnapshot {
         data,
         start_offset: response
             .get("startOffset")
