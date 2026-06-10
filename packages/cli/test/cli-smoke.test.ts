@@ -77,6 +77,7 @@ describe("kelp-claw smoke commands", () => {
         checks: expect.arrayContaining([
           expect.objectContaining({ id: "node-version", status: "pass" }),
           expect.objectContaining({ id: "workspace-writable", status: "pass" }),
+          expect.objectContaining({ id: "policy-pack:appsec-agent-baseline", status: "pass" }),
           expect.objectContaining({ id: "policy-pack:sg-agentic-ai-baseline", status: "pass" }),
           expect.objectContaining({ id: "codex-cli", status: "warn", required: false })
         ])
@@ -100,6 +101,12 @@ describe("kelp-claw smoke commands", () => {
         name: "kelp-claw",
         schemaVersion: "1.0.0",
         policyPacks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "appsec-agent-baseline",
+            version: "1.0.0",
+            region: "global",
+            maturity: "strict"
+          }),
           expect.objectContaining({
             name: "sg-agentic-ai-baseline",
             version: "1.1.0",
@@ -1373,6 +1380,8 @@ rm -rf /tmp/kelpclaw-inventory-fail
     );
 
     expect(action).toContain("mode:");
+    expect(action).toContain("appsec audit");
+    expect(action).toContain("agent-command");
     expect(action).toContain("inventory scan");
     expect(action).toContain("inventory graph");
     expect(action).toContain("inventory coverage");

@@ -334,7 +334,15 @@ export function runHelpCommand(): JsonRecord {
     commands: [
       {
         group: "adoption",
-        entries: ["help", "version", "doctor", "appsec audit", "demo governance", "compat", "policy explain"]
+        entries: [
+          "help",
+          "version",
+          "doctor",
+          "appsec audit",
+          "demo governance",
+          "compat",
+          "policy explain"
+        ]
       },
       {
         group: "runtime",

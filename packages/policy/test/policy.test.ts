@@ -132,6 +132,7 @@ rules:
       "sg-pdpa-strict",
       "sg-financial-ai",
       "asean-genai-baseline",
+      "appsec-agent-baseline",
       "web-search-safe",
       "sg-web-research",
       "browser-automation-strict"
@@ -216,6 +217,32 @@ rules:
     ).toMatchObject({
       action: "require-approval",
       matchedRuleIds: ["sg-financial-ai-review-financial-shell"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Bash",
+          args: { command: "sqlmap -u http://target.local" }
+        },
+        requirePolicyPack("appsec-agent-baseline").ruleset
+      )
+    ).toMatchObject({
+      action: "deny",
+      matchedRuleIds: ["appsec-agent-deny-exploit-execution"]
+    });
+
+    expect(
+      evaluatePolicy(
+        {
+          tool: "Bash",
+          args: { command: "nuclei -u http://target.local" }
+        },
+        requirePolicyPack("appsec-agent-baseline").ruleset
+      )
+    ).toMatchObject({
+      action: "require-approval",
+      matchedRuleIds: ["appsec-agent-review-active-scanner"]
     });
 
     expect(

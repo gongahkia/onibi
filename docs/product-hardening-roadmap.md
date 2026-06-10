@@ -8,13 +8,13 @@ KelpClaw is focused on reproducible AppSec agent triage: scoped target builds, p
 - `appsec-agent-baseline` blocks destructive shell, credential exfiltration, exploit execution, persistence, and lateral movement by default.
 - Evidence workspaces import SARIF, Nmap, Nuclei, Burp, ZAP, and Nessus outputs.
 - Static audit bundles include manifests, signatures, attestations, SARIF, logs, policy decisions, and review HTML.
+- The GitHub Action supports `mode: appsec`.
 - Repository inventory and skill audit remain available as supporting surfaces.
 
 ## Next Product Directions
 
 1. AppSec harness ergonomics
    - Add a sample vulnerable Docker app and sample triage agent.
-   - Add `mode: appsec` coverage to the GitHub Action.
    - Improve reviewer HTML for AppSec-specific findings.
 
 2. Evidence quality

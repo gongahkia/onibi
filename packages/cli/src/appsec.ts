@@ -1,18 +1,6 @@
 import { spawn } from "node:child_process";
-import {
-  createHash,
-  createPrivateKey,
-  generateKeyPairSync,
-  sign as signBytes
-} from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  readdir,
-  stat,
-  writeFile
-} from "node:fs/promises";
+import { createHash, createPrivateKey, generateKeyPairSync, sign as signBytes } from "node:crypto";
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   createEvidenceWorkspace,
@@ -112,7 +100,9 @@ export async function runAppsecCommand(args: readonly string[]): Promise<void> {
     printJson(await appsecAudit(commandArgs));
     return;
   }
-  throw new Error("Usage: kelp-claw appsec audit --context DIR --dockerfile Dockerfile --agent-command CMD");
+  throw new Error(
+    "Usage: kelp-claw appsec audit --context DIR --dockerfile Dockerfile --agent-command CMD"
+  );
 }
 
 export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditOutput> {
@@ -124,6 +114,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const imageTag = option(args, "--image-tag") ?? `kelpclaw-appsec:${safeTag(runId)}`;
   const policyPackName = option(args, "--policy") ?? "appsec-agent-baseline";
   const policyPack = requirePolicyPack(policyPackName);
+  const agentCommand = requiredOption(args, "--agent-command");
   const evidenceWorkspace = join(outDir, "evidence-workspace");
   const bundleDir = join(outDir, "audit-bundle");
   await mkdir(outDir, { recursive: true });
@@ -135,22 +126,21 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
 
   const contextDigest = await hashDirectory(contextDir);
   const dockerfileSha256 = await sha256File(dockerfile);
-  const dockerBuildCommand = [
-    dockerBin,
-    "build",
-    "-f",
-    dockerfile,
-    "-t",
-    imageTag,
-    contextDir
-  ];
+  const dockerBuildCommand = [dockerBin, "build", "-f", dockerfile, "-t", imageTag, contextDir];
   const policyDecisions: AppsecPolicyRecord[] = [
-    policyRecord("docker-build", "Bash", { command: dockerBuildCommand.join(" ") }, policyPack.ruleset)
+    policyRecord(
+      "docker-build",
+      "Bash",
+      { command: dockerBuildCommand.join(" ") },
+      policyPack.ruleset
+    ),
+    policyRecord("agent-command", "Bash", { command: agentCommand }, policyPack.ruleset)
   ];
   const buildBlocked = policyDecisions.some((record) => policyBlocks(record.decision));
-  const build = buildBlocked || hasFlag(args, "--skip-docker-build")
-    ? skippedCommand(dockerBuildCommand)
-    : await runCommand(dockerBuildCommand, outDir);
+  const build =
+    buildBlocked || hasFlag(args, "--skip-docker-build")
+      ? skippedCommand(dockerBuildCommand)
+      : await runCommand(dockerBuildCommand, outDir);
   await writeFile(join(outDir, "docker-build.stdout.log"), build.stdout, "utf8");
   await writeFile(join(outDir, "docker-build.stderr.log"), build.stderr, "utf8");
   const imageId =
@@ -201,14 +191,8 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const triageOutputPath = join(outDir, "appsec-triage.json");
   await writeJson(triageInputPath, triageInput);
 
-  const agentCommand = requiredOption(args, "--agent-command");
-  const agentDenied = agentCommand
-    ? policyRecord("agent-command", "Bash", { command: agentCommand }, policyPack.ruleset)
-    : undefined;
-  if (agentDenied) {
-    policyDecisions.push(agentDenied);
-  }
-  const agentBlocked = agentDenied ? policyBlocks(agentDenied.decision) : false;
+  const agentDecision = policyDecisions.find((record) => record.subject === "agent-command");
+  const agentBlocked = agentDecision ? policyBlocks(agentDecision.decision) : false;
   const agent =
     agentCommand && !agentBlocked
       ? await runCommand([agentCommand, ...options(args, "--agent-arg")], outDir, {
@@ -334,18 +318,19 @@ async function importScannerEvidence(
 }
 
 function appsecFindingSummary(finding: NormalizedEvidenceFinding): JsonRecord {
+  const sourceReferences = finding.sourceReferences.map((source) => ({
+    tool: source.tool,
+    rawPath: source.rawPath,
+    ...(source.locator ? { locator: source.locator } : {})
+  }));
   return {
     id: finding.id,
     title: finding.title,
     severity: finding.severity,
     confidence: finding.confidence,
     status: finding.status,
-    weaknessIds: finding.weaknessIds,
-    sourceReferences: finding.sourceReferences.map((source) => ({
-      tool: source.tool,
-      rawPath: source.rawPath,
-      locator: source.locator
-    }))
+    weaknessIds: [...finding.weaknessIds],
+    sourceReferences
   };
 }
 
@@ -448,7 +433,7 @@ function appsecSarif(input: {
       severity: finding.severity,
       confidence: finding.confidence,
       status: finding.status,
-      weaknessIds: finding.weaknessIds
+      weaknessIds: [...finding.weaknessIds]
     }
   }));
   const triageResults = (input.triage?.triageFindings ?? []).map((finding) => ({
@@ -460,7 +445,7 @@ function appsecSarif(input: {
       source: "appsec-agent",
       severity: finding.severity,
       confidence: finding.confidence,
-      evidenceIds: finding.evidenceIds,
+      evidenceIds: [...finding.evidenceIds],
       rationale: finding.rationale,
       recommendedAction: finding.recommendedAction
     }
@@ -481,7 +466,7 @@ function appsecSarif(input: {
         results: [...evidenceResults, ...triageResults]
       }
     ]
-  };
+  } as unknown as JsonRecord;
 }
 
 async function writeAuditBundle(input: {
@@ -510,7 +495,11 @@ async function writeAuditBundle(input: {
       copied.push(file);
     }
   }
-  await writeFile(join(input.bundleDir, "index.html"), appsecIndexHtml(input.runId, copied), "utf8");
+  await writeFile(
+    join(input.bundleDir, "index.html"),
+    appsecIndexHtml(input.runId, copied),
+    "utf8"
+  );
   copied.push("index.html");
   if (!input.signed) {
     return;
@@ -526,7 +515,9 @@ async function writeAuditBundle(input: {
   await writeAuditAttestation({
     bundleDir: input.bundleDir,
     runId: input.runId,
-    files: copied.filter((file) => !["manifest.json", "manifest.sig", "manifest.pub.json"].includes(file)),
+    files: copied.filter(
+      (file) => !["manifest.json", "manifest.sig", "manifest.pub.json"].includes(file)
+    ),
     key
   });
 }
@@ -644,13 +635,16 @@ async function ensureAuditSigningKey(keyDir: string): Promise<AppsecAuditKeyFile
   return key;
 }
 
-async function auditManifestFile(root: string, path: string): Promise<AppsecAuditBundleManifestFile> {
+async function auditManifestFile(
+  root: string,
+  path: string
+): Promise<AppsecAuditBundleManifestFile> {
   const absolutePath = join(root, path);
   const info = await stat(absolutePath);
   return {
     path,
     size: info.size,
-    sha256: `sha256:${await sha256File(absolutePath)}`
+    sha256: await sha256File(absolutePath)
   };
 }
 
@@ -769,7 +763,9 @@ const excludedContextEntries = new Set([
 ]);
 
 async function sha256File(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 function resolvePath(base: string, value: string): string {

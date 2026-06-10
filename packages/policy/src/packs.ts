@@ -375,8 +375,7 @@ const packs: readonly PolicyPack[] = [
   },
   {
     name: "appsec-agent-baseline",
-    description:
-      "Safe AppSec agent defaults for reproducible triage without exploit execution.",
+    description: "Safe AppSec agent defaults for reproducible triage without exploit execution.",
     metadata: {
       version: "1.0.0",
       region: "global",

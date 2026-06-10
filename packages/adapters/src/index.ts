@@ -3,7 +3,6 @@ import { stableJsonStringify } from "@kelpclaw/workflow-spec";
 import { createMcpAdapter, importMcpConnector, testMcpConnector } from "./mcp-adapter.js";
 import type {
   Adapter,
-  AdapterFixturePayload,
   AdapterInvocation,
   AdapterMetadata,
   AdapterOperationDefinition,
@@ -17,8 +16,6 @@ const objectSchema = {
   type: "object",
   additionalProperties: true
 } as const satisfies JsonSchemaShape;
-const arraySchema = { type: "array", items: objectSchema } as const satisfies JsonSchemaShape;
-const stringSchema = { type: "string" } as const satisfies JsonSchemaShape;
 const noneNetworkPolicy = { mode: "none", allowedHosts: [] } as const;
 const defaultRateLimit = { maxRequests: 60, perSeconds: 60 } as const;
 const defaultRetry = {
