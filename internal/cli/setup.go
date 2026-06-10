@@ -95,8 +95,14 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 		notifyBin, err := locateNotifyBinary()
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+err.Error())
-		} else if err := runInteractiveHooks(cmd, db, notifyBin, false); err != nil {
-			return err
+		} else {
+			cfg, _, err := config.Load(paths)
+			if err != nil {
+				return err
+			}
+			if err := runInteractiveHooks(cmd, db, notifyBin, false, cfg.Shell.MinDuration.Std().Milliseconds()); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nDoctor summary:")

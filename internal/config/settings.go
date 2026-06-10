@@ -20,7 +20,7 @@ type Duration time.Duration
 
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
-func (d Duration) String() string { return time.Duration(d).String() }
+func (d Duration) String() string { return FormatDuration(time.Duration(d)) }
 
 func (d Duration) MarshalYAML() (any, error) { return d.String(), nil }
 
@@ -179,6 +179,25 @@ func ParseDuration(s string) (time.Duration, error) {
 		return 0, errors.New("duration must be non-negative")
 	}
 	return time.Duration(n) * time.Second, nil
+}
+
+func FormatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", d/time.Hour)
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", d/time.Minute)
+	}
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%ds", d/time.Second)
+	}
+	if d%time.Millisecond == 0 {
+		return fmt.Sprintf("%dms", d/time.Millisecond)
+	}
+	return d.String()
 }
 
 func Set(cfg *Config, key, value string) error {
