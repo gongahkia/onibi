@@ -429,19 +429,19 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 3 — Blocking approval protocol + audit log (5–7d)
 
-- [ ] `internal/approval/queue.go` — SQLite-backed queue, request/decide/cancel, state machine (`pending → decided{approve|deny|edit} | expired | cancelled`), atomic transitions
-- [ ] `internal/approval/expiry.go` — background sweeper marks pending → expired after 5 min; notifies adapter to default-deny
-- [ ] `internal/approval/scrub.go` — conservative regex-based redaction of tokens/passwords/env values in rendered tool inputs before send
-- [ ] `internal/telegram/keyboards.go` — `[Approve] [Deny] [Edit]` inline keyboard builder
-- [ ] `internal/telegram/router.go` — callback query dispatcher, owner-checked, maps callback_data → approval_id → decision
-- [ ] `internal/adapters/claude/pretooluse.go` — handler for blocking, returns updatedInput / deny / allow
-- [ ] `internal/store/audit.go` — write `(ts, action, session_id, payload_hash, decided_by_chat_id)` for every decision
-- [ ] On block: send Telegram message with tool name + scrubbed inputs + keyboard
-- [ ] On callback: resolve, unblock, edit message to show outcome (and decision in audit log)
+- [x] `internal/approval/queue.go` — SQLite-backed queue, request/decide/cancel, state machine (`pending → decided{approve|deny|edit} | expired | cancelled`), atomic transitions
+- [x] `internal/approval/expiry.go` — background sweeper marks pending → expired after 5 min; notifies adapter to default-deny
+- [x] `internal/approval/scrub.go` — conservative regex-based redaction of tokens/passwords/env values in rendered tool inputs before send
+- [x] `internal/telegram/keyboards.go` — `[Approve] [Deny] [Edit]` inline keyboard builder
+- [x] `internal/telegram/router.go` — callback query dispatcher, owner-checked, maps callback_data → approval_id → decision
+- [x] `internal/adapters/claude/pretooluse.go` — handler for blocking, returns updatedInput / deny / allow
+- [x] `internal/store/audit.go` — write `(ts, action, session_id, payload_hash, decided_by_chat_id)` for every decision
+- [x] On block: send Telegram message with tool name + scrubbed inputs + keyboard
+- [x] On callback: resolve, unblock, edit message to show outcome (and decision in audit log)
 - [ ] Test: Claude tries `Bash` tool → blocks → Telegram message appears → tap Approve → tool runs.
-- [ ] Test: kill daemon mid-approval, restart, pending approval reappears.
-- [ ] Test: approval older than 5 min auto-expires; late callback rejected with "Expired" toast.
-- [ ] Test: callback from non-owner chat dropped without state mutation.
+- [x] Test: kill daemon mid-approval, restart, pending approval reappears. (unit-covered; manual daemon kill still recommended)
+- [x] Test: approval older than 5 min auto-expires; late callback rejected with "Expired" toast. (unit-covered)
+- [x] Test: callback from non-owner chat dropped without state mutation. (unit-covered)
 
 ### Phase 4 — Edit-before-approve (2–3d)
 
