@@ -2,12 +2,12 @@
 
 package intake
 
-import "syscall"
+import "golang.org/x/sys/unix"
 
-// readPeerUID returns the effective uid of the connecting peer on Linux
-// via SO_PEERCRED. Returns the credentials struct's Uid field.
+// readPeerUID returns the uid of the connecting peer on Linux via
+// getsockopt(SOL_SOCKET, SO_PEERCRED).
 func readPeerUID(fd int) (uint32, error) {
-	cred, err := syscall.GetsockoptUcred(fd, syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+	cred, err := unix.GetsockoptUcred(fd, unix.SOL_SOCKET, unix.SO_PEERCRED)
 	if err != nil {
 		return 0, err
 	}

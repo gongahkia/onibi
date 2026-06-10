@@ -2,15 +2,14 @@
 
 package intake
 
-import "syscall"
+import "golang.org/x/sys/unix"
 
-// readPeerUID returns the effective uid of the connecting peer on macOS.
-// Uses SOL_LOCAL / LOCAL_PEEREPID? — actually LOCAL_PEEREUID for euid;
-// stdlib exposes GetsockoptInt with these values.
+// readPeerUID returns the uid of the connecting peer on macOS via
+// getsockopt(SOL_LOCAL, LOCAL_PEERCRED), which returns a Xucred struct.
 func readPeerUID(fd int) (uint32, error) {
-	uid, err := syscall.GetsockoptInt(fd, syscall.SOL_LOCAL, syscall.LOCAL_PEERUID)
+	xc, err := unix.GetsockoptXucred(fd, unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
 	if err != nil {
 		return 0, err
 	}
-	return uint32(uid), nil
+	return xc.Uid, nil
 }
