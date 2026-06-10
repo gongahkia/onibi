@@ -2,15 +2,21 @@ package daemon
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 func newApprovalDaemon(t *testing.T) *Daemon {
@@ -111,5 +117,46 @@ func TestCallbackExpiredMarksExpired(t *testing.T) {
 	a, _ := d.Queue.Get(ctx, id)
 	if a.State != approval.StateExpired {
 		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestRestorePendingApprovalsRerenders(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/sendMessage") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":321,"date":1,"chat":{"id":100,"type":"private"},"text":"ok"}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	bot, err := tgbot.New("xxx", tgbot.WithServerURL(srv.URL), tgbot.WithSkipGetMe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Bot = &telegram.Client{Bot: bot}
+
+	if err := d.RestorePendingApprovals(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotBody, "Re-sent after daemon restart") {
+		t.Fatalf("body = %s", gotBody)
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ChatID != 100 || a.MsgID != 321 {
+		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
 	}
 }

@@ -94,6 +94,9 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 }
 
 func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
+	if d.Bot == nil || d.Bot.Bot == nil {
+		return nil, errors.New("telegram bot unavailable")
+	}
 	msg := renderApprovalMessage(tool, inputJSON, sessLabel)
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
@@ -105,8 +108,8 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 	})
 }
 
-// respondAndAnnotate edits the Telegram message in place with a decided-
-// state label, writes an audit row, and produces the intake.Response.
+// respondAndAnnotate edits the Telegram message in place with a decided-state
+// label and produces the intake.Response. Decision audit is written by Queue.
 func (d *Daemon) respondAndAnnotate(
 	ctx context.Context, approvalID string, sent *models.Message,
 	dec approval.Decision, ev intake.Event,

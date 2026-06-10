@@ -234,9 +234,8 @@ func (q *Queue) Cancel(ctx context.Context, id, reason string) error {
 	return q.Decide(ctx, id, VerdictCancel, "", reason, 0)
 }
 
-// PendingIDs returns the ids of all currently-pending approvals (used by
-// the expiry sweeper). Excludes already-expired-but-not-swept rows by
-// checking expires_at > now-grace.
+// PendingIDs returns the ids of all currently-pending approvals, including
+// overdue rows that the expiry sweeper still needs to mark expired.
 func (q *Queue) PendingIDs(ctx context.Context) ([]string, error) {
 	rows, err := q.db.SQL().QueryContext(ctx,
 		`SELECT id FROM approvals WHERE state = ?`, StatePending)
