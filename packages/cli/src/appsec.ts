@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import {
   createHash,
   createPrivateKey,
-  createPublicKey,
   generateKeyPairSync,
   sign as signBytes
 } from "node:crypto";
@@ -14,7 +13,7 @@ import {
   stat,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   createEvidenceWorkspace,
   importBurpEvidence,
@@ -148,8 +147,8 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const policyDecisions: AppsecPolicyRecord[] = [
     policyRecord("docker-build", "Bash", { command: dockerBuildCommand.join(" ") }, policyPack.ruleset)
   ];
-  const buildDenied = policyDecisions.some((record) => record.decision.action === "deny");
-  const build = buildDenied || hasFlag(args, "--skip-docker-build")
+  const buildBlocked = policyDecisions.some((record) => policyBlocks(record.decision));
+  const build = buildBlocked || hasFlag(args, "--skip-docker-build")
     ? skippedCommand(dockerBuildCommand)
     : await runCommand(dockerBuildCommand, outDir);
   await writeFile(join(outDir, "docker-build.stdout.log"), build.stdout, "utf8");
@@ -202,14 +201,14 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const triageOutputPath = join(outDir, "appsec-triage.json");
   await writeJson(triageInputPath, triageInput);
 
-  const agentCommand = option(args, "--agent-command");
+  const agentCommand = requiredOption(args, "--agent-command");
   const agentDenied = agentCommand
     ? policyRecord("agent-command", "Bash", { command: agentCommand }, policyPack.ruleset)
     : undefined;
   if (agentDenied) {
     policyDecisions.push(agentDenied);
   }
-  const agentBlocked = agentDenied?.decision.action === "deny";
+  const agentBlocked = agentDenied ? policyBlocks(agentDenied.decision) : false;
   const agent =
     agentCommand && !agentBlocked
       ? await runCommand([agentCommand, ...options(args, "--agent-arg")], outDir, {
@@ -221,9 +220,9 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   await writeFile(join(outDir, "agent.stdout.log"), agent.stdout, "utf8");
   await writeFile(join(outDir, "agent.stderr.log"), agent.stderr, "utf8");
 
-  const triage = await readTriageOutput(triageOutputPath, agentCommand !== undefined);
+  const triage = await readTriageOutput(triageOutputPath, !agentBlocked);
   const status: AppsecStatus =
-    buildDenied || agentBlocked
+    buildBlocked || agentBlocked
       ? "blocked"
       : build.exitCode !== 0 || agent.exitCode !== 0 || !triage.ok
         ? "failed"
@@ -237,13 +236,13 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     policyPack: policyPack.name,
     target: triageInput.target,
     docker: {
-      built: !hasFlag(args, "--skip-docker-build") && !buildDenied,
+      built: !hasFlag(args, "--skip-docker-build") && !buildBlocked,
       exitCode: build.exitCode,
       command: build.command,
       ...(imageId ? { imageId } : {})
     },
     agent: {
-      ran: agentCommand !== undefined && !agentBlocked,
+      ran: !agentBlocked,
       exitCode: agent.exitCode,
       command: agent.command
     },
@@ -296,13 +295,13 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     evidenceWorkspace,
     importedFindings: evidenceState.findings.findings.length,
     docker: {
-      built: !hasFlag(args, "--skip-docker-build") && !buildDenied,
+      built: !hasFlag(args, "--skip-docker-build") && !buildBlocked,
       exitCode: build.exitCode,
       imageTag,
       ...(imageId ? { imageId } : {})
     },
     agent: {
-      ran: agentCommand !== undefined && !agentBlocked,
+      ran: !agentBlocked,
       exitCode: agent.exitCode
     }
   };
@@ -401,17 +400,21 @@ function validateTriageOutput(
   if (!Array.isArray(record.limitations)) {
     return { ok: false, error: "AppSec triage output requires limitations array." };
   }
-  return {
-    ok: true,
-    output: {
-      summary: record.summary,
-      triageFindings: record.triageFindings.map((finding, index) =>
-        appsecAgentFinding(finding, index)
-      ),
-      recommendedNextSteps: record.recommendedNextSteps.map(String),
-      limitations: record.limitations.map(String)
-    }
-  };
+  try {
+    return {
+      ok: true,
+      output: {
+        summary: record.summary,
+        triageFindings: record.triageFindings.map((finding, index) =>
+          appsecAgentFinding(finding, index)
+        ),
+        recommendedNextSteps: record.recommendedNextSteps.map(String),
+        limitations: record.limitations.map(String)
+      }
+    };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
 }
 
 function appsecAgentFinding(value: unknown, index: number): AppsecAgentFinding {
@@ -663,6 +666,10 @@ function policyRecord(
     args,
     decision: evaluatePolicy({ tool, args }, ruleset)
   };
+}
+
+function policyBlocks(decision: PolicyDecision): boolean {
+  return decision.action === "deny" || decision.action === "require-approval";
 }
 
 function runCommand(

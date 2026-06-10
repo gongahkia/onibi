@@ -2,7 +2,7 @@
   "name": "kelpclaw",
   "version": "0.1.0",
   "private": true,
-  "description": "KelpClaw deterministic AI workflow design and execution monorepo.",
+  "description": "KelpClaw reproducible AppSec agent harness monorepo.",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
