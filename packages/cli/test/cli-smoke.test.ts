@@ -1,8 +1,18 @@
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  appsecAudit,
   compatibilityReport,
   exportAuditBundle,
   exportSarif,
@@ -120,6 +130,167 @@ describe("kelp-claw smoke commands", () => {
         failures: []
       });
     } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs AppSec audit into scanner evidence, SARIF, and a signed bundle", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-"));
+    const outDir = join(tempDir, "out");
+    const dockerBin = join(tempDir, "fake-docker.js");
+    const agentBin = join(tempDir, "appsec-agent.js");
+    const sarifPath = join(tempDir, "scanner.sarif");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(join(tempDir, "app.js"), "console.log('demo');\n", "utf8");
+      await writeFile(
+        dockerBin,
+        `#!/usr/bin/env node
+if (process.argv[2] === "build") {
+  console.log("fake docker build ok");
+  process.exit(0);
+}
+if (process.argv[2] === "image") {
+  console.log("sha256:fake-image-id");
+  process.exit(0);
+}
+process.exit(1);
+`,
+        "utf8"
+      );
+      await chmod(dockerBin, 0o755);
+      await writeFile(
+        agentBin,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const input = JSON.parse(fs.readFileSync(process.env.KELPCLAW_APPSEC_INPUT, "utf8"));
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "Reviewed " + input.findings.length + " imported finding.",
+  triageFindings: [{
+    id: "agent-1",
+    title: "Correlated scanner finding",
+    severity: "high",
+    confidence: "medium",
+    evidenceIds: input.findings.map((finding) => finding.id),
+    rationale: "Scanner evidence requires owner review.",
+    recommendedAction: "Patch and rerun scanner."
+  }],
+  recommendedNextSteps: ["Patch and rerun scanner."],
+  limitations: ["No exploit execution was performed."]
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(agentBin, 0o755);
+      await writeFile(sarifPath, JSON.stringify(cliSarifFixture("error"), null, 2), "utf8");
+
+      const result = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--docker-bin",
+        dockerBin,
+        "--agent-command",
+        agentBin,
+        "--sarif",
+        sarifPath,
+        "--run-id",
+        "appsec-run.test",
+        "--out",
+        outDir,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+
+      expect(result).toMatchObject({
+        ok: true,
+        runId: "appsec-run.test",
+        status: "succeeded",
+        importedFindings: 1,
+        docker: { built: true, exitCode: 0, imageId: "sha256:fake-image-id" },
+        agent: { ran: true, exitCode: 0 }
+      });
+      await expect(readFile(join(outDir, "appsec-input.json"), "utf8")).resolves.toContain(
+        "kelpclaw.appsec.input.v1"
+      );
+      await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
+        "kelp.appsec.triage.agent-1"
+      );
+      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
+        "KelpClaw AppSec Audit Bundle"
+      );
+      await expect(verifyAuditBundle([join(outDir, "audit-bundle")])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true }
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when an AppSec triage agent writes invalid JSON", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-invalid-"));
+    const outDir = join(tempDir, "out");
+    const dockerBin = join(tempDir, "fake-docker.js");
+    const agentBin = join(tempDir, "bad-agent.js");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(
+        dockerBin,
+        `#!/usr/bin/env node
+if (process.argv[2] === "build" || process.argv[2] === "image") {
+  console.log("ok");
+  process.exit(0);
+}
+process.exit(1);
+`,
+        "utf8"
+      );
+      await chmod(dockerBin, 0o755);
+      await writeFile(
+        agentBin,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, "{");
+`,
+        "utf8"
+      );
+      await chmod(agentBin, 0o755);
+
+      const result = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--docker-bin",
+        dockerBin,
+        "--agent-command",
+        agentBin,
+        "--run-id",
+        "appsec-run.invalid",
+        "--out",
+        outDir,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+
+      expect(result).toMatchObject({
+        ok: false,
+        status: "failed",
+        agent: { ran: true, exitCode: 0 }
+      });
+      await expect(readFile(join(outDir, "appsec-run.json"), "utf8")).resolves.toContain(
+        "Unable to read AppSec triage output"
+      );
+      await expect(verifyAuditBundle([join(outDir, "audit-bundle")])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true }
+      });
+    } finally {
+      process.exitCode = undefined;
       await rm(tempDir, { recursive: true, force: true });
     }
   });
@@ -2138,7 +2309,7 @@ console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf ignored"
   });
 });
 
-function cliSarifFixture() {
+function cliSarifFixture(level: "warning" | "error" = "warning") {
   return {
     version: "2.1.0",
     runs: [
@@ -2160,7 +2331,7 @@ function cliSarifFixture() {
         results: [
           {
             ruleId: "KC001",
-            level: "warning",
+            level,
             message: { text: "Evidence finding observed" },
             locations: [
               {

@@ -1,26 +1,8 @@
 services:
-  sentinel:
+  kelp:
     image: ghcr.io/gongahkia/kelp-claw:latest
     build:
       context: .
       dockerfile: Dockerfile.kelp
     command:
-      - findevil
-      - sentinel
-      - --case
-      - /data/case/case.yml
-      - --evidence-root
-      - /data/case/case-data
-      - --trace
-      - /app/fixtures/protocol-sift-baseline/baseline.jsonl
-      - --max-iterations
-      - "3"
-      - --out
-      - /data/out
-    volumes:
-      - ./examples/findevil-sift-sentinel/case-data:/data/case/case-data:ro
-      - ./examples/findevil-sift-sentinel/case.yml:/data/case/case.yml:ro
-      - kelpclaw-output:/data/out
-
-volumes:
-  kelpclaw-output:
+      - help

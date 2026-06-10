@@ -1,11 +1,35 @@
-name: Audit KelpClaw Skill
-description: Analyze, policy-check, run, and export an audit bundle for a SKILL.md.
+name: KelpClaw AppSec Harness
+description: Run AppSec audit, repository inventory, or legacy SKILL.md audit and export signed evidence.
 
 inputs:
   mode:
-    description: Run a single SKILL.md audit or repository inventory.
+    description: Run appsec, audit, or inventory.
     required: false
-    default: audit
+    default: appsec
+  context:
+    description: AppSec audit Docker build context.
+    required: false
+    default: .
+  dockerfile:
+    description: AppSec audit Dockerfile path relative to context.
+    required: false
+    default: Dockerfile
+  agent-command:
+    description: AppSec triage agent command.
+    required: false
+    default: ""
+  sarif:
+    description: Optional SARIF file to import during AppSec audit.
+    required: false
+    default: ""
+  nuclei-jsonl:
+    description: Optional Nuclei JSONL file to import during AppSec audit.
+    required: false
+    default: ""
+  zap-json:
+    description: Optional ZAP JSON file to import during AppSec audit.
+    required: false
+    default: ""
   skill:
     description: Path to the SKILL.md to audit.
     required: false
@@ -71,6 +95,51 @@ runs:
       shell: bash
       run: |
         mkdir -p .kelpclaw
+        if [ "${{ inputs.mode }}" = "appsec" ]; then
+          if [ -z "${{ inputs.agent-command }}" ]; then
+            echo "::error title=KelpClaw AppSec::mode=appsec requires agent-command."
+            exit 1
+          fi
+          APPSEC_OUT=".kelpclaw/appsec-action"
+          APPSEC_ARGS=(appsec audit --context "${{ inputs.context }}" --dockerfile "${{ inputs.dockerfile }}" --agent-command "${{ inputs.agent-command }}" --out "$APPSEC_OUT")
+          if [ -n "${{ inputs.sarif }}" ]; then
+            APPSEC_ARGS+=(--sarif "${{ inputs.sarif }}")
+          fi
+          if [ -n "${{ inputs.nuclei-jsonl }}" ]; then
+            APPSEC_ARGS+=(--nuclei-jsonl "${{ inputs.nuclei-jsonl }}")
+          fi
+          if [ -n "${{ inputs.zap-json }}" ]; then
+            APPSEC_ARGS+=(--zap-json "${{ inputs.zap-json }}")
+          fi
+          set +e
+          node packages/cli/dist/index.js "${APPSEC_ARGS[@]}" > .kelpclaw/appsec-output.json
+          APPSEC_EXIT=$?
+          set -e
+          cat .kelpclaw/appsec-output.json
+          RUN_ID="$(node -e 'const fs = require("node:fs"); console.log(JSON.parse(fs.readFileSync(".kelpclaw/appsec-output.json", "utf8")).runId);')"
+          BUNDLE_PATH="$(node -e 'const fs = require("node:fs"); console.log(JSON.parse(fs.readFileSync(".kelpclaw/appsec-output.json", "utf8")).bundleDir);')"
+          echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "bundle-path=$BUNDLE_PATH" >> "$GITHUB_OUTPUT"
+          echo "artifact-path=$APPSEC_OUT" >> "$GITHUB_OUTPUT"
+          echo "sarif-path=$APPSEC_OUT/findings.sarif" >> "$GITHUB_OUTPUT"
+          node packages/cli/dist/index.js verify-audit-bundle "$BUNDLE_PATH" > .kelpclaw/appsec-bundle-verify.json
+          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require("node:fs");
+          const result = JSON.parse(fs.readFileSync(".kelpclaw/appsec-output.json", "utf8"));
+          const verify = JSON.parse(fs.readFileSync(".kelpclaw/appsec-bundle-verify.json", "utf8"));
+          console.log("## KelpClaw AppSec Audit");
+          console.log("");
+          console.log(`- Run ID: \`${result.runId}\``);
+          console.log(`- Status: \`${result.status}\``);
+          console.log(`- Bundle: \`${result.bundleDir}\``);
+          console.log(`- Imported findings: \`${result.importedFindings}\``);
+          console.log(`- Docker built: \`${result.docker.built}\``);
+          console.log(`- Agent ran: \`${result.agent.ran}\``);
+          console.log(`- Bundle signature: \`${verify.signature.valid ? "valid" : "invalid"}\``);
+          NODE
+          exit "$APPSEC_EXIT"
+        fi
+
         if [ "${{ inputs.mode }}" = "inventory" ]; then
           mkdir -p .kelpclaw/inventory-output
           node packages/cli/dist/index.js inventory scan --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --out .kelpclaw/inventory-output/agent-inventory.json > .kelpclaw/inventory-output/scan-output.json

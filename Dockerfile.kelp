@@ -18,7 +18,7 @@ ENV NODE_ENV=production
 
 COPY --from=builder /app /app
 
-RUN mkdir -p /data/case /data/out && chown -R 10000:10000 /data
+RUN mkdir -p /data/app /data/out && chown -R 10000:10000 /data
 
 USER 10000:10000
 

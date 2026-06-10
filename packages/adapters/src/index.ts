@@ -276,7 +276,7 @@ export function createDefaultLiveAdapters(): Map<string, Adapter> {
       {
         metadata,
         async invoke() {
-          throw new Error(`Adapter '${metadata.id}' is shelved in this DFIR build.`);
+          throw new Error(`Adapter '${metadata.id}' is disabled in this build.`);
         }
       }
     ])

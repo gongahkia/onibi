@@ -1,67 +1,35 @@
 # Product Hardening Roadmap
 
-KelpClaw remains focused on agent skill governance: policy decisions before and during runs, replayable execution evidence, signed audit bundles, and reviewer-friendly governance outputs. Piranesi's useful role is the local evidence workspace inside that flow: custody, normalized findings, QA, retest comparison, and portable evidence views.
+KelpClaw is focused on reproducible AppSec agent triage: scoped target builds, passive scanner evidence, policy-gated agent review, SARIF, signed audit bundles, and reviewer-friendly evidence handoff.
 
-## External Anchors
+## Implemented
 
-- Singapore IMDA's [Model AI Governance Framework for Agentic AI](https://www.imda.gov.sg/resources/press-releases-factsheets-and-speeches/press-releases/2026/new-model-ai-governance-framework-for-agentic-ai), launched on 22 January 2026, should remain the primary SG positioning anchor for autonomy, human accountability, traceability, and safe deployment.
-- IMDA's [AI Agents Sandbox insights](https://www.imda.gov.sg/resources/press-releases-factsheets-and-speeches/factsheets/2026/ai-agents-insights-from-the-singapore-government-and-google-sandbox), published on 20 May 2026, support KelpClaw's focus on computer-use agents, distributed safeguards, runtime evidence, and governance at platform, organisational, and end-user levels.
-- The [AI Verify / IMDA Generative AI governance work](https://www.imda.gov.sg/resources/press-releases-factsheets-and-speeches/factsheets/2024/gen-ai-and-digital-foss-ai-governance-playbook) remains useful for model and application governance language, but KelpClaw should differentiate around tool-using agent runs rather than generic model evaluation.
-- [SLSA](https://slsa.dev/spec/v1.0/levels) and [OpenSSF SLSA](https://openssf.org/projects/slsa/) are the right references for release provenance and artifact trust.
-- [NIST SP 800-218 SSDF](https://csrc.nist.gov/pubs/sp/800/218/final) is the right reference for secure software development controls when selling into multinational enterprises.
-
-## Implemented Hardening
-
-- `kelp-claw help` returns adoption workflows and command groups as structured JSON.
-- `kelp-claw doctor` checks local demo readiness: Node.js, workspace writes, policy packs, Git, optional Codex CLI, Exa, TinyFish, and API environment.
-- `kelp-claw demo governance` generates a complete local handoff with a sample skill, input, evidence workspace, imported SARIF finding, signed bundle, governance report, controls, SARIF, and strict verification.
-- `kelp-claw version --json`, `kelp-claw release manifest`, and `kelp-claw verify-release` provide local release metadata, SBOM, provenance, and signature verification.
-- `verify-audit-bundle --profile reviewer|regulator|ci` applies audience-specific bundle requirements on top of signature/hash checks.
-- Static audit bundles include a searchable reviewer `index.html` and a default redaction pass for secret-like and email-like content before signing.
-- Policy packs now carry versioned metadata, maturity, region, control mappings, and changelog notes.
-- The SG agentic AI baseline maps directly to IMDA Agentic AI control areas and includes delegation, networked shell, irreversible action, and unclassified-tool rules.
-- Live wrapper coverage now treats Codex CLI, Claude Code, and Goose as first-class agent names, with shared JSONL normalization and fail-closed handling under enforcement.
-- `examples/agentic-ai-governance-demo` provides a passing skill, blocked skill, web-evidence skill, replay-diff skill, and sample input.
-- Signed audit bundles and evidence workspaces are portable enough for security and compliance review without running KelpClaw.
-- SG/APAC policy packs and governance reports are first-class, with US/UK/EU expansion left as later coverage.
+- `kelp-claw appsec audit` builds a Dockerfile target, records build metadata, imports passive scanner output, runs a scoped triage assistant, and exports a signed audit bundle.
+- `appsec-agent-baseline` blocks destructive shell, credential exfiltration, exploit execution, persistence, and lateral movement by default.
+- Evidence workspaces import SARIF, Nmap, Nuclei, Burp, ZAP, and Nessus outputs.
+- Static audit bundles include manifests, signatures, attestations, SARIF, logs, policy decisions, and review HTML.
+- Repository inventory and skill audit remain available as supporting surfaces.
 
 ## Next Product Directions
 
-1. Release and install hardening
-   - Publish a stable npm package and Homebrew tap.
-   - Wire `release manifest` into GitHub Releases with artifact upload and external provenance.
-   - Add external key support for signing release manifests.
+1. AppSec harness ergonomics
+   - Add a sample vulnerable Docker app and sample triage agent.
+   - Add `mode: appsec` coverage to the GitHub Action.
+   - Improve reviewer HTML for AppSec-specific findings.
 
-2. Live enforcement depth
-   - Expand wrapper enforcement from JSONL classification to stronger command/file/network mediation where each agent runtime exposes hooks.
-   - Add agent-specific event parsers as Claude Code and Goose JSONL schemas evolve.
-   - Track unsupported agent actions as explicit fail-closed findings under `--enforce-policy`.
+2. Evidence quality
+   - Add correlation between imported scanner findings and agent triage findings.
+   - Add stable finding IDs across reruns.
+   - Add evidence QA checks for missing source refs and scanner drift.
 
-3. Reviewer portal
-   - Add a static bundle reviewer UI with search, filters, decision timeline, evidence previews, policy explanations, and redaction status.
-   - Keep it static-first so reviewers can open the bundle without deploying KelpClaw.
+3. Safe validation
+   - Add explicit lab-mode local PoC validation with allowlisted commands and target network isolation.
+   - Keep exploit execution out of default mode.
 
-4. Policy pack marketplace
-   - Add pack metadata, changelogs, compatibility ranges, severity mappings, and local override layers.
-   - Prioritize SG PDPA, MAS model risk, ASEAN GenAI, procurement/vendor review, and enterprise no-destructive-shell packs before US/UK/EU-specific packs.
+4. Release hardening
+   - Publish npm package and Homebrew tap.
+   - Add release provenance and external signing key support.
 
-5. Evidence connector breadth
-   - Add imports for GitHub code scanning, Dependabot, Semgrep, Trivy, Snyk, Jira, Linear, and ticket exports.
-   - Keep connectors evidence-oriented; KelpClaw should not become a general vulnerability scanner.
-
-6. Enterprise operations
-   - Add retention policies, redaction profiles, key rotation, external signing keys, approval workflows, and audit bundle verification policies.
-   - Add API endpoints for bundle ingestion and inventory dashboards after the static workflow is stable.
-
-7. Corpus and benchmarks
-   - Grow the public `SKILL.md` compatibility corpus with real public skills.
-   - Snapshot compatibility, policy explain, governance, replay diff, and bundle verification outputs.
-   - Add benchmark runs for parser drift, policy pack regressions, and wrapper event normalization.
-
-8. Replay diff visualization
-   - Render cross-agent replay diffs as timeline views inside static bundles.
-   - Show tool sequence, normalized args, output hashes, policy decisions, and unclassified events side by side.
-
-## Near-Term Priority
-
-The highest-leverage next work is release hardening plus reviewer experience: make KelpClaw trivial to install, run, verify, and forward to a reviewer. That aligns tightly with the value prop and avoids drifting into a broad agent platform.
+5. Benchmarks
+   - Add small AppSec fixture apps with expected scanner evidence and triage outputs.
+   - Track parser drift, SARIF output stability, and audit bundle verification.
