@@ -43,19 +43,47 @@ func TestInstallCreatesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	hooks := m["hooks"].(map[string]any)
-	stop := hooks["Stop"].([]any)
-	if len(stop) != 1 {
-		t.Fatalf("expected 1 Stop entry, got %d", len(stop))
+
+	// both Stop and PreToolUse must be installed
+	for _, ev := range []string{"Stop", "PreToolUse"} {
+		entries, _ := hooks[ev].([]any)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 %s entry, got %d", ev, len(entries))
+		}
+		entry := entries[0].(map[string]any)
+		if entry[guardKey] != true {
+			t.Fatalf("%s entry missing onibi-managed marker", ev)
+		}
 	}
-	entry := stop[0].(map[string]any)
-	if entry[guardKey] != true {
-		t.Fatal("expected onibi-managed marker")
+
+	// PreToolUse must use --wait so Claude blocks for the daemon
+	pre := hooks["PreToolUse"].([]any)[0].(map[string]any)["hooks"].([]any)
+	cmd := pre[0].(map[string]any)["command"].(string)
+	if !contains(cmd, "--wait") {
+		t.Fatalf("PreToolUse command missing --wait: %s", cmd)
 	}
+	if !contains(cmd, "approval_request") {
+		t.Fatalf("PreToolUse command missing approval_request type: %s", cmd)
+	}
+
 	// settings file perms
 	fi, _ := os.Stat(path)
 	if fi.Mode().Perm() != 0o600 {
 		t.Fatalf("perms %#o (want 0600)", fi.Mode().Perm())
 	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && indexOf(s, sub) >= 0
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestInstallIdempotent(t *testing.T) {
@@ -69,9 +97,12 @@ func TestInstallIdempotent(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	stop := m["hooks"].(map[string]any)["Stop"].([]any)
-	if len(stop) != 1 {
-		t.Fatalf("re-install should not duplicate; got %d entries", len(stop))
+	hooks := m["hooks"].(map[string]any)
+	if got := len(hooks["Stop"].([]any)); got != 1 {
+		t.Fatalf("re-install should not duplicate Stop; got %d entries", got)
+	}
+	if got := len(hooks["PreToolUse"].([]any)); got != 1 {
+		t.Fatalf("re-install should not duplicate PreToolUse; got %d entries", got)
 	}
 }
 
