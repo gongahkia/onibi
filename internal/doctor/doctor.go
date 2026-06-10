@@ -56,6 +56,7 @@ type Options struct {
 	Offline      bool
 	Service      *service.Manager
 	PreferDotenv bool
+	Mode         string
 }
 
 // Run performs local integrity checks and optional live Telegram checks.
@@ -66,12 +67,13 @@ func Run(ctx context.Context, opts Options) Report {
 }
 
 type runner struct {
-	ctx    context.Context
-	opts   Options
-	checks []Check
-	db     *store.DB
-	sec    *secrets.Store
-	token  string
+	ctx      context.Context
+	opts     Options
+	checks   []Check
+	db       *store.DB
+	sec      *secrets.Store
+	token    string
+	hasOwner bool
 }
 
 func (r *runner) add(name string, st Status, detail string) {
@@ -79,6 +81,7 @@ func (r *runner) add(name string, st Status, detail string) {
 }
 
 func (r *runner) run() {
+	r.normalizeMode()
 	r.checkStateDir()
 	r.checkEnvFile()
 	r.openDB()
@@ -99,10 +102,39 @@ func (r *runner) run() {
 	}
 }
 
+func (r *runner) normalizeMode() {
+	switch r.opts.Mode {
+	case "", "auto", "preflight", "installed", "ci":
+		if r.opts.Mode == "" {
+			r.opts.Mode = "auto"
+		}
+	default:
+		r.add("doctor mode", Fail, "invalid mode "+r.opts.Mode)
+		r.opts.Mode = "auto"
+	}
+	if r.opts.Mode == "ci" {
+		r.opts.Offline = true
+	}
+}
+
+func (r *runner) installedStrict() bool {
+	if r.opts.Mode == "installed" {
+		return true
+	}
+	return r.opts.Mode == "auto" && r.token != "" && r.hasOwner
+}
+
+func (r *runner) missingStatus() Status {
+	if r.opts.Mode == "installed" {
+		return Fail
+	}
+	return Warn
+}
+
 func (r *runner) checkStateDir() {
 	fi, err := os.Stat(r.opts.Paths.StateDir)
 	if err != nil {
-		r.add("state dir", Fail, err.Error())
+		r.add("state dir", r.missingStatus(), err.Error())
 		return
 	}
 	if !fi.IsDir() {
@@ -135,7 +167,7 @@ func (r *runner) checkEnvFile() {
 
 func (r *runner) openDB() {
 	if _, err := os.Stat(r.opts.Paths.DBFile); err != nil {
-		r.add("sqlite db", Fail, err.Error())
+		r.add("sqlite db", r.missingStatus(), err.Error())
 		return
 	}
 	db, err := store.Open(r.opts.Paths.DBFile)
@@ -174,7 +206,7 @@ func (r *runner) checkToken() {
 		return
 	}
 	if !ok || token == "" {
-		r.add("bot token", Fail, "missing")
+		r.add("bot token", r.missingStatus(), "missing")
 		return
 	}
 	r.token = token
@@ -191,7 +223,7 @@ func (r *runner) checkOwner() {
 		return
 	}
 	if !ok || v == "" {
-		r.add("owner chat_id", Fail, "missing")
+		r.add("owner chat_id", r.missingStatus(), "missing")
 		return
 	}
 	id, err := strconv.ParseInt(v, 10, 64)
@@ -199,13 +231,18 @@ func (r *runner) checkOwner() {
 		r.add("owner chat_id", Fail, "invalid")
 		return
 	}
+	r.hasOwner = true
 	r.add("owner chat_id", Pass, v)
 }
 
 func (r *runner) checkSocket() {
 	fi, err := os.Stat(r.opts.Paths.Socket)
 	if errors.Is(err, os.ErrNotExist) {
-		r.add("unix socket", Fail, "not present; daemon not running")
+		st := Warn
+		if r.installedStrict() {
+			st = Fail
+		}
+		r.add("unix socket", st, "not present; daemon not running")
 		return
 	}
 	if err != nil {
@@ -237,11 +274,19 @@ func (r *runner) checkService() {
 	}
 	st := m.Status(r.ctx)
 	if !st.Installed {
-		r.add("service", Fail, "not installed")
+		status := Warn
+		if r.installedStrict() {
+			status = Fail
+		}
+		r.add("service", status, "not installed")
 		return
 	}
 	if !st.Running {
-		r.add("service", Fail, "installed but not running: "+st.Detail)
+		status := Warn
+		if r.installedStrict() {
+			status = Fail
+		}
+		r.add("service", status, "installed but not running: "+st.Detail)
 		return
 	}
 	r.add("service", Pass, st.Path)
@@ -290,6 +335,9 @@ func (r *runner) checkHooks() {
 	}
 	if n == 0 {
 		r.add("hooks", Warn, "none installed")
+	}
+	if rows, err := r.db.PromptList(r.ctx, "", false, 1000); err == nil {
+		r.add("prompt queue", Pass, fmt.Sprintf("%d queued", len(rows)))
 	}
 }
 

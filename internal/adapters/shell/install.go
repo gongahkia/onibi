@@ -98,7 +98,7 @@ func VerifyHash(ctx context.Context, db *store.DB, name string) error {
 	}
 	got := extractBlock(string(b), block)
 	if !strings.Contains(got, begin) {
-		return errors.New("Onibi-managed shell hook is missing")
+		return errors.New("onibi-managed shell hook is missing")
 	}
 	return common.VerifyRecorded(ctx, db, "shell:"+name, path, []byte(got))
 }

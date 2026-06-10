@@ -24,6 +24,7 @@ func Root() *cobra.Command {
 		installHooksCmd(),
 		installServiceCmd(),
 		uninstallServiceCmd(),
+		adaptersCmd(),
 		sessionsCmd(),
 		logCmd(),
 		versionCmd(),

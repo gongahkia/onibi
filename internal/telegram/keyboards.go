@@ -9,10 +9,10 @@ import (
 // Callback data prefixes. Telegram limits callback_data to 64 bytes; our
 // ids are 16 hex chars so verb:id stays well under.
 const (
-	CBApprove = "approve:"
-	CBDeny    = "deny:"
-	CBEdit    = "edit:"
-	CBTarget  = "target:"
+	CBApprove      = "approve:"
+	CBDeny         = "deny:"
+	CBEdit         = "edit:"
+	CBTarget       = "target:"
 	CBPromptSend   = "psend:"
 	CBPromptEdit   = "pedit:"
 	CBPromptCancel = "pcancel:"

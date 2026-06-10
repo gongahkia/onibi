@@ -10,9 +10,10 @@ inbound network, no accounts.
 [![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> **Status:** v2 development in progress. Setup, daemon, Claude approvals,
-> multi-agent hook installers, service install, and doctor are implemented;
-> see `TODO-10-JUN.md` for remaining phase work.
+> **Status:** v2 development. Core setup, daemon, approvals, prompt queue,
+> Telegram session controls, multi-agent hook installers, service install,
+> doctor, and release snapshot flow are implemented. Live Telegram/provider
+> e2e is still required before a public tagged release.
 > See `TODO-10-JUN.md` for the single source of truth on plan, phases,
 > security model, and decisions. Prior v1 (Swift, archived under
 > `docs/archive/v0-README.md`) and v1.5 (Rust+Tauri+PWA, archived under
@@ -26,24 +27,29 @@ inbound network, no accounts.
 - Zero install on mobile. Zero network setup. Zero certs.
 - Outbound HTTPS only — daemon never opens a port.
 
-## Install (not yet shipping)
+## Install
 
 ```sh
-brew install gongahkia/onibi/onibi
-onibi setup
-onibi install-service
+git clone https://github.com/gongahkia/onibi
+cd onibi
+make install
+onibi setup --complete
 ```
 
-`onibi setup` walks you through three user-visible steps:
+`onibi setup --complete` walks you through:
 
 1. Create a bot in @BotFather and paste the token (stored in macOS Keychain).
 2. Tap the deeplink the wizard prints (or scan the terminal QR) to permanently
    pair your Telegram account as the daemon's owner.
 3. Acknowledge the Telegram 2-step verification reminder (mandatory — see
    security model).
+4. Optionally install the background service and detected agent/shell hooks.
+5. Run a final `onibi doctor` summary.
 
 After that you never see an auth prompt during normal use. Pair once, then
 linked.
+
+For release packaging and Homebrew tap work, see `docs/release.md`.
 
 ## Security in one paragraph
 
@@ -67,6 +73,7 @@ Single Go binary. Subcommands:
 - `onibi install-hooks --agent <name>` — write hook block/plugin to agent settings
 - `onibi install-service` — install LaunchAgent (macOS) or systemd user unit
 - `onibi doctor` — health + integrity check
+- `onibi adapters` — detection + hook status for all supported integrations
 - `onibi rotate-token` — replace bot token via @BotFather /revoke
 - `onibi sessions` / `onibi log` — introspection
 - `onibi version`
@@ -81,6 +88,17 @@ Current first-class adapters: Claude, Codex, OpenCode, Goose, Gemini,
 GitHub Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
 Blocking approvals are used where the provider supports them; Goose and shell
 hooks are event/notification bridges.
+
+Telegram commands:
+
+- `/new`, `/sessions`, `/target`, `/status`, `/help`
+- `/prompt`, `/queue`, `/editprompt`, `/cancelprompt`, `/moveprompt`, `/flushqueue`
+- `/peek`, `/interrupt`, `/kill`, `/rename`, `/menu`
+- `/snooze`, `/unsnooze`, `/log`, `/text`, `/screenshot`
+
+Telegram free text is stored in a durable per-session prompt queue. The daemon
+dispatches one prompt at a time and waits for the next turn-complete/idle
+signal before sending the next queued prompt.
 
 ## License
 

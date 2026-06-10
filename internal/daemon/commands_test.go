@@ -81,6 +81,21 @@ func TestNotifyTurnCompleteDefaultsToText(t *testing.T) {
 	if len(mock.Sent()) != 1 || len(mock.Photos()) != 0 {
 		t.Fatalf("messages = %d photos = %d", len(mock.Sent()), len(mock.Photos()))
 	}
+	if !strings.Contains(mock.Sent()[0].Text, "<pre>hello</pre>") {
+		t.Fatalf("text = %s", mock.Sent()[0].Text)
+	}
+}
+
+func TestLongOutputUsesDocument(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	body := strings.Repeat("x", telegram.SafeTextLimit*maxTextChunks+100)
+	if _, err := d.sendTextOutput(context.Background(), mock, 100, "long", body, "long.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if len(mock.Documents()) != 1 {
+		t.Fatalf("docs = %d messages = %d", len(mock.Documents()), len(mock.Sent()))
+	}
 }
 
 func TestFreeTextInjectsOnlyLiveSession(t *testing.T) {
@@ -100,6 +115,13 @@ func TestFreeTextInjectsOnlyLiveSession(t *testing.T) {
 	}
 	if got := readPipe(t, r); got != "continue\n" {
 		t.Fatalf("injected = %q", got)
+	}
+	rows, err := d.DB.PromptList(context.Background(), s.ID, true, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].State != "sent" {
+		t.Fatalf("prompt rows = %#v", rows)
 	}
 }
 
@@ -169,6 +191,82 @@ func TestSnoozeSuppressesTurnComplete(t *testing.T) {
 	}
 	if len(d.Bot.(*telegram.Mock).Sent()) != 0 {
 		t.Fatalf("sent while snoozed = %#v", d.Bot.(*telegram.Mock).Sent())
+	}
+}
+
+func TestQueuedPromptWaitsUntilTurnComplete(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	d.threadMu.Lock()
+	d.busySessions[s.ID] = true
+	d.threadMu.Unlock()
+	if err := d.onText(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "second prompt",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := d.DB.PromptList(context.Background(), s.ID, false, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].State != "queued" {
+		t.Fatalf("queued rows = %#v", rows)
+	}
+	_, _ = s.Buf.Write([]byte("done"))
+	if err := d.notifyTurnComplete(context.Background(), s.ID, "agent_done", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "second prompt\n" {
+		t.Fatalf("injected after ready = %q", got)
+	}
+}
+
+func TestEditPromptCommand(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	p, err := d.DB.PromptEnqueue(context.Background(), s.ID, 100, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleTextCommand(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/editprompt " + p.ID + " new text",
+	})
+	got, err := d.DB.PromptGet(context.Background(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Text != "new text" {
+		t.Fatalf("text = %q", got.Text)
+	}
+}
+
+func TestInterruptAndKillSession(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleInterruptCommand(context.Background(), mock, 100, s.ID)
+	if got := readPipe(t, r); got != string([]byte{3}) {
+		t.Fatalf("interrupt = %q", got)
+	}
+	d.handleKillCommand(context.Background(), mock, 100, s.ID)
+	if !s.Ended() {
+		t.Fatal("session not ended")
 	}
 }
 

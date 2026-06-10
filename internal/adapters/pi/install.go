@@ -71,7 +71,7 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 		return err
 	}
 	if !strings.Contains(string(body), `ONIBI_AGENT = "pi"`) {
-		return errors.New("Onibi-managed Pi extension is missing")
+		return errors.New("onibi-managed Pi extension is missing")
 	}
 	return common.VerifyRecorded(ctx, db, Agent, path, body)
 }

@@ -110,6 +110,7 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID:      d.Owner.ID(),
 		Text:        msg,
+		ParseMode:   models.ParseModeHTML,
 		ReplyMarkup: telegram.ApprovalKeyboard(id),
 	})
 	if err == nil && sent != nil {
@@ -308,9 +309,8 @@ func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
 	return fmt.Sprintf(
 		"Approval request\n"+
 			"Session: %s\n"+
-			"Tool: %s\n"+
-			"```json\n%s\n```",
-		sessLabel, tool, string(pretty))
+			"Tool: %s\n%s",
+		telegram.EscapeHTML(sessLabel), telegram.EscapeHTML(tool), telegram.HTMLPre(string(pretty)))
 }
 
 func (d *Daemon) finishCallbackDecision(ctx context.Context, api telegram.API, q *models.CallbackQuery, a *approval.Approval, res approval.DecisionResult, err error, okText string) error {

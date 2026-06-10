@@ -77,7 +77,7 @@ func (d *Daemon) handleRenameCommand(ctx context.Context, api telegram.API, chat
 	}
 	s.Name = name
 	if d.DB != nil {
-		_ = d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, "", s.Cmd, "pty", "", s.StartedAt())
+		_ = d.DB.SessionRename(ctx, s.ID, name)
 		_ = d.DB.AuditAppend(ctx, "session.rename", s.ID, "", chatID, "name="+name)
 	}
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("Renamed %s to %s.", s.ID, name)})

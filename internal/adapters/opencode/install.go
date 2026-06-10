@@ -84,7 +84,7 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 		return err
 	}
 	if !strings.Contains(string(body), "ONIBI_AGENT = \"opencode\"") {
-		return errors.New("Onibi-managed OpenCode plugin is missing")
+		return errors.New("onibi-managed OpenCode plugin is missing")
 	}
 	return common.VerifyRecorded(ctx, db, Agent, path, body)
 }

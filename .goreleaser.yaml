@@ -50,8 +50,11 @@ archives:
     files:
       - LICENSE
       - README.md
-      - TODO-10-JUN.md
-      - docs/**/*
+      - SECURITY.md
+      - docs/security.md
+      - docs/release.md
+      - scripts/manual-e2e-*.md
+      - packaging/homebrew/onibi.rb.template
 
 checksum:
   name_template: "checksums.txt"

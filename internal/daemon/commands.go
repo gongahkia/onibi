@@ -343,7 +343,7 @@ func parseSnooze(arg string) (string, time.Duration, error) {
 	}
 	dur, err := time.ParseDuration(fields[1])
 	if err != nil {
-		return "", 0, errors.New("Invalid duration. Example: /snooze 30m or /snooze claude 1h")
+		return "", 0, errors.New("invalid duration. Example: /snooze 30m or /snooze claude 1h")
 	}
 	return scope, dur, nil
 }

@@ -123,7 +123,7 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 	stop := extractEventHook(existing, "Stop")
 	pre := extractEventHook(existing, "PreToolUse")
 	if stop == nil || pre == nil {
-		return errors.New("Onibi-managed Stop or PreToolUse hook is missing")
+		return errors.New("onibi-managed Stop or PreToolUse hook is missing")
 	}
 	combined := struct {
 		Stop, PreToolUse map[string]any

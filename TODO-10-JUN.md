@@ -510,17 +510,18 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 ### Phase 10 — Hardening, polish, launch (5–7d)
 
 - [x] Rate limiter (token-bucket, 1 msg/sec/chat soft cap, 25 msgs/sec global)
-- [ ] Long-output chunking (Telegram 4096-char per text message; switch to `sendDocument` for >5 messages worth)
+- [x] Long-output chunking (Telegram 4096-char per text message; switch to `sendDocument` for >5 messages worth)
 - [ ] Sleep/wake recovery — long-poll auto-resumes; queue replay for missed events; resync owner_id check after wake
 - [ ] `getUpdates` race detector (warns owner if 10 consecutive empty polls despite expected traffic)
 - [ ] Defensive `deleteWebhook` on every startup + alert if pre-existing webhook found
 - [ ] Bot identity check: `getMe` on startup, compare `id` against stored value, refuse to start if mismatched
-- [ ] `onibi doctor` complete per §6.4
+- [x] `onibi doctor` complete per §6.4; mode-aware `auto|preflight|installed|ci`
 - [x] `onibi log` (last N audit events from SQLite); `onibi log --export <file>`
 - [x] `/snooze 30m`, `/snooze claude`, `/unsnooze`
+- [x] Durable Telegram prompt queue: `/prompt`, `/queue`, edit/cancel/reorder/flush, inline buttons, one-at-a-time dispatch
 - [x] `setMyCommands` registered with Telegram so `/sessions`, `/status`, `/help`, `/snooze`, `/new`, `/log` appear in Telegram's native command UI
 - [x] `docs/security.md` written: threat model (copy §7.1), enforcements (copy §7.3), non-defenses (copy §7.4), checklist (copy §7.5), responsible disclosure contact
-- [ ] README rewrite (Telegram-first, drop PWA/Tauri references, include security model summary + 2FA call-out)
+- [x] README rewrite (Telegram-first, drop PWA/Tauri references, include security model summary + 2FA call-out)
 - [ ] Screencast demo (90s: brew install → pair → enable 2FA → Claude task → approve from phone)
 - [ ] HN/blog launch with explicit framing: "v1.5 archived; this is the right shape per tgterm validation; here's the threat model"
 
@@ -561,11 +562,11 @@ Listed for explicit visibility — don't expand scope of phases unless agreed.
 ### 9.5 UX
 - [ ] Session naming (`onibi run --name fix-tests claude -- …`)
 - [ ] Color theme for PNG render (light/dark, configurable palette)
-- [ ] Inline session preview in Telegram: `/peek <name>` sends current screenshot
-- [ ] `/interrupt <name>` sends Ctrl-C to a session
-- [ ] `/kill <name>` terminates a session
-- [ ] Preset menu (`/menu`) with allowlisted quick actions per agent ("yes", "Continue", "Skip tests", "Run again")
-- [ ] Telegram MarkdownV2 formatting for tool name + args
+- [x] Inline session preview in Telegram: `/peek <name>` sends current screenshot/text preview
+- [x] `/interrupt <name>` sends Ctrl-C to a session
+- [x] `/kill <name>` terminates a session
+- [x] Preset menu (`/menu`) with session actions; allowlisted agent quick actions still future
+- [x] Telegram HTML formatting for tool name + args
 - [ ] Approval edit history: tap "Edit" multiple times, keep last attempt
 
 ### 9.6 Observability

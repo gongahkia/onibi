@@ -1,15 +1,19 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/secrets"
+	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -21,6 +25,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	paranoid, _ := cmd.Flags().GetBool("paranoid")
 	printChecklist, _ := cmd.Flags().GetBool("print-checklist")
 	tokenStdin, _ := cmd.Flags().GetBool("token-stdin")
+	complete, _ := cmd.Flags().GetBool("complete")
 
 	if printChecklist {
 		printSetupChecklist(cmd.OutOrStdout())
@@ -65,7 +70,51 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	if _, err := setup.Run(ctx, db, sec, flags, io); err != nil {
 		return err
 	}
+	if complete {
+		return runSetupComplete(cmd, paths, db)
+	}
 	return nil
+}
+
+func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
+	br := bufio.NewReader(cmd.InOrStdin())
+	if askYesNo(cmd, br, "Install and start background service? [Y/n] ", true) {
+		m, err := service.NewManager(paths, "")
+		if err != nil {
+			return err
+		}
+		if err := m.Install(cmd.Context()); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "Service installed.")
+	}
+	if askYesNo(cmd, br, "Auto-detect and install agent/shell hooks? [Y/n] ", true) {
+		notifyBin, err := locateNotifyBinary()
+		if err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+err.Error())
+		} else if err := runInteractiveHooks(cmd, db, notifyBin, false); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nDoctor summary:")
+	report := doctor.Run(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
+	for _, c := range report.Checks {
+		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
+	}
+	if report.Failed() {
+		return fmt.Errorf("setup complete but doctor failed")
+	}
+	return nil
+}
+
+func askYesNo(cmd *cobra.Command, br *bufio.Reader, prompt string, def bool) bool {
+	fmt.Fprint(cmd.OutOrStdout(), prompt)
+	line, _ := br.ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	if line == "" {
+		return def
+	}
+	return line == "y" || line == "yes"
 }
 
 // runGetChatID is the fallback for users who can't use deeplinks: it opens
@@ -139,4 +188,3 @@ func printSetupChecklist(out interface{ Write([]byte) (int, error) }) {
 `
 	_, _ = out.Write([]byte(body))
 }
-

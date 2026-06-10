@@ -17,6 +17,8 @@ func BotCommands() []models.BotCommand {
 		{Command: "prompt", Description: "queue a prompt"},
 		{Command: "editprompt", Description: "edit a queued prompt"},
 		{Command: "cancelprompt", Description: "cancel a queued prompt"},
+		{Command: "moveprompt", Description: "reorder queued prompts"},
+		{Command: "flushqueue", Description: "cancel queued prompts"},
 		{Command: "peek", Description: "send session preview"},
 		{Command: "interrupt", Description: "send Ctrl-C to session"},
 		{Command: "kill", Description: "terminate a session"},

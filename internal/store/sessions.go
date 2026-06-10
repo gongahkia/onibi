@@ -46,6 +46,11 @@ func (d *DB) SessionMarkEnded(ctx context.Context, id string, ended time.Time) e
 	return err
 }
 
+func (d *DB) SessionRename(ctx context.Context, id, name string) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE sessions SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
 func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]SessionEntry, error) {
 	if n <= 0 {
 		n = 50

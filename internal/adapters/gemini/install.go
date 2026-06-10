@@ -135,7 +135,7 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 		return err
 	}
 	if len(body) <= 2 {
-		return errors.New("Onibi-managed Gemini hook is missing")
+		return errors.New("onibi-managed Gemini hook is missing")
 	}
 	return common.VerifyRecorded(ctx, db, Agent, path, body)
 }

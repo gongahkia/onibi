@@ -47,24 +47,22 @@ func (l *RateLimiter) Wait(ctx context.Context, chatID int64) error {
 	if l == nil {
 		return nil
 	}
-	for {
-		l.mu.Lock()
-		now := l.now()
-		wait := l.global.reserve(now)
-		if chatID != 0 {
-			chat := l.chatBucket(chatID)
-			if w := chat.reserve(now); w > wait {
-				wait = w
-			}
+	l.mu.Lock()
+	now := l.now()
+	wait := l.global.reserve(now)
+	if chatID != 0 {
+		chat := l.chatBucket(chatID)
+		if w := chat.reserve(now); w > wait {
+			wait = w
 		}
-		l.mu.Unlock()
-		if wait > 0 {
-			if err := l.sleep(ctx, wait); err != nil {
-				return err
-			}
-		}
-		return ctx.Err()
 	}
+	l.mu.Unlock()
+	if wait > 0 {
+		if err := l.sleep(ctx, wait); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 func (l *RateLimiter) chatBucket(chatID int64) *bucket {

@@ -12,13 +12,14 @@ import (
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
 	offline, _ := cmd.Flags().GetBool("offline")
+	mode, _ := cmd.Flags().GetString("mode")
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
-	report := doctor.Run(ctx, doctor.Options{Paths: paths, Offline: offline})
+	report := doctor.Run(ctx, doctor.Options{Paths: paths, Offline: offline, Mode: mode})
 	for _, c := range report.Checks {
 		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
 	}

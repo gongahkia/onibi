@@ -92,23 +92,23 @@ func New(opts Options) *Daemon {
 		opts.Log = slog.Default()
 	}
 	d := &Daemon{
-		Paths:           opts.Paths,
-		DB:              opts.DB,
-		Secrets:         opts.Secrets,
-		Owner:           opts.Owner,
-		Bot:             opts.Bot,
-		Log:             opts.Log,
-		Registry:        NewRegistry(),
-		notified:        map[string]bool{},
-		started:         time.Now(),
-		renderOverrides: map[string]render.Mode{},
-		messageSessions: map[messageKey]string{},
-		defaultTargets:  map[int64]string{},
-		pendingInjects:  map[int64]string{},
-		busySessions:    map[string]bool{},
-		pendingEdits:    map[int64]string{},
+		Paths:              opts.Paths,
+		DB:                 opts.DB,
+		Secrets:            opts.Secrets,
+		Owner:              opts.Owner,
+		Bot:                opts.Bot,
+		Log:                opts.Log,
+		Registry:           NewRegistry(),
+		notified:           map[string]bool{},
+		started:            time.Now(),
+		renderOverrides:    map[string]render.Mode{},
+		messageSessions:    map[messageKey]string{},
+		defaultTargets:     map[int64]string{},
+		pendingInjects:     map[int64]string{},
+		busySessions:       map[string]bool{},
+		pendingEdits:       map[int64]string{},
 		pendingPromptEdits: map[int64]string{},
-		ExitWhenIdle:    opts.ExitWhenIdle,
+		ExitWhenIdle:       opts.ExitWhenIdle,
 	}
 
 	// approval queue + expiry sweeper
@@ -455,9 +455,7 @@ func (d *Daemon) notifyCmdDone(ctx context.Context, ev intake.Event) error {
 	if cmd == "" {
 		cmd = "(unknown command)"
 	}
-	body := fmt.Sprintf("[shell] command done rc=%d elapsed=%s\n```shell\n%s\n```",
-		ev.Status, time.Duration(ev.Elapsed)*time.Millisecond, cmd)
-	_, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{ChatID: d.Owner.ID(), Text: body})
+	_, err := d.sendTextOutput(ctx, d.Bot, d.Owner.ID(), fmt.Sprintf("[shell] command done rc=%d elapsed=%s", ev.Status, time.Duration(ev.Elapsed)*time.Millisecond), cmd, "onibi-shell.txt")
 	return err
 }
 
@@ -506,6 +504,7 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 		return nil // session not ours — likely a different daemon's hook firing
 	}
 	if d.isSnoozed(ctx, s.Agent) {
+		d.markSessionReady(ctx, d.Bot, s)
 		return nil
 	}
 
@@ -527,6 +526,7 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 			})
 			if sendErr == nil {
 				d.bindMessage(sent, s.ID)
+				d.markSessionReady(ctx, d.Bot, s)
 				return nil
 			}
 			d.Log.Warn("send turn-complete screenshot", slog.Any("err", sendErr))
@@ -534,18 +534,15 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 			d.Log.Warn("render screenshot", slog.Any("err", pngErr))
 		}
 	}
-	tail := render.TextTail(buf, render.Options{Lang: ""})
-	body := header + "\n" + tail
-	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID: d.Owner.ID(),
-		Text:   body,
-	})
+	tail := render.TextTailBody(buf, render.Options{Lang: ""})
+	sent, err := d.sendTextOutput(ctx, d.Bot, d.Owner.ID(), header, tail, "onibi-"+s.ID+".txt")
 	if err == nil {
 		d.bindMessage(sent, s.ID)
 	}
 	if err != nil {
 		d.Log.Warn("send turn-complete", slog.Any("err", err))
 	}
+	d.markSessionReady(ctx, d.Bot, s)
 	return nil
 }
 

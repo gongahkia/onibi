@@ -118,8 +118,24 @@ func TestDoctorFailsMissingOwner(t *testing.T) {
 	if err := sec.Set(secrets.KeyBotToken, "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err != nil {
 		t.Fatal(err)
 	}
-	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true})
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "installed"})
 	if !report.Failed() {
 		t.Fatalf("expected failure: %#v", report.Checks)
+	}
+}
+
+func TestDoctorPreflightWarnsMissingOwner(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	if report.Failed() {
+		t.Fatalf("preflight should warn, not fail: %#v", report.Checks)
 	}
 }

@@ -24,6 +24,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().Bool("paranoid", false, "enable TOTP + 60s approval expiry + confirm-tap on presets")
 	cmd.Flags().Bool("print-checklist", false, "print setup security checklist and exit")
 	cmd.Flags().Bool("token-stdin", false, "read bot token from stdin (avoids argv leak)")
+	cmd.Flags().Bool("complete", false, "after pairing, offer service install, hook install, and doctor")
 	return cmd
 }
 
@@ -50,6 +51,7 @@ func doctorCmd() *cobra.Command {
 		RunE:  runDoctor,
 	}
 	cmd.Flags().Bool("offline", false, "skip live Telegram network checks")
+	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
 	return cmd
 }
 
@@ -81,6 +83,16 @@ func uninstallServiceCmd() *cobra.Command {
 		Short: "Stop and remove LaunchAgent / systemd user unit",
 		RunE:  runUninstallService,
 	}
+}
+
+func adaptersCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "adapters",
+		Short: "Show agent and shell adapter status",
+		RunE:  runAdapters,
+	}
+	cmd.Flags().Bool("json", false, "print JSON")
+	return cmd
 }
 
 func sessionsCmd() *cobra.Command {
