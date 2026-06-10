@@ -2,19 +2,14 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	tgbot "github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
@@ -187,9 +182,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		d.Log.Info("shutdown signal — closing socket and sessions")
+		d.Log.Info("shutdown signal: closing socket and sessions")
 		cancel()
 	}()
+
+	if err := d.RestorePendingApprovals(ctx); err != nil {
+		d.Log.Warn("restore pending approvals", slog.Any("err", err))
+	}
 
 	var wg sync.WaitGroup
 

@@ -33,14 +33,13 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/adapters/claude"
 	"github.com/gongahkia/onibi/internal/intake"
 )
 
@@ -48,20 +47,6 @@ const (
 	maxTailBytes    = 64 << 10
 	approvalTimeout = 6 * time.Minute // approval TTL is 5min + slack
 )
-
-// claudeHookOutput mirrors the JSON Claude Code expects on stdout from a
-// PreToolUse hook. We don't import Claude's package to avoid a dep — the
-// shape is stable per https://code.claude.com/docs/en/hooks.
-type claudeHookOutput struct {
-	HookSpecificOutput claudeHookSpecific `json:"hookSpecificOutput"`
-}
-
-type claudeHookSpecific struct {
-	HookEventName            string         `json:"hookEventName"`
-	PermissionDecision       string         `json:"permissionDecision"`           // "allow" | "deny" | "ask"
-	PermissionDecisionReason string         `json:"permissionDecisionReason,omitempty"`
-	UpdatedInput             map[string]any `json:"updatedInput,omitempty"`
-}
 
 func main() {
 	typ := flag.String("type", "", "event type")
@@ -117,7 +102,7 @@ func runWait(sock, typ string) {
 	}
 
 	// read Claude's PreToolUse stdin payload (best effort)
-	tool, inputJSON := parseClaudeStdin()
+	tool, inputJSON := claude.ParsePreToolUse(os.Stdin)
 
 	ev := intake.Event{
 		Type:      intake.TypeApprovalRequest,
@@ -135,84 +120,12 @@ func runWait(sock, typ string) {
 		os.Exit(0)
 	}
 
-	switch resp.Decision {
-	case "approve":
-		emitClaudeJSON(claudeHookSpecific{
-			HookEventName:      "PreToolUse",
-			PermissionDecision: "allow",
-		})
-		os.Exit(0)
-
-	case "edited":
-		var updated map[string]any
-		if resp.UpdatedInput != "" {
-			_ = json.Unmarshal([]byte(resp.UpdatedInput), &updated)
-		}
-		emitClaudeJSON(claudeHookSpecific{
-			HookEventName:            "PreToolUse",
-			PermissionDecision:       "allow",
-			PermissionDecisionReason: "edited by owner via Telegram",
-			UpdatedInput:             updated,
-		})
-		os.Exit(0)
-
-	case "deny":
-		reason := resp.Reason
-		if reason == "" {
-			reason = "denied by owner via Telegram"
-		}
-		emitClaudeJSON(claudeHookSpecific{
-			HookEventName:            "PreToolUse",
-			PermissionDecision:       "deny",
-			PermissionDecisionReason: reason,
-		})
-		fmt.Fprintln(os.Stderr, reason)
-		os.Exit(2)
-
-	case "expired":
-		fmt.Fprintln(os.Stderr, "approval expired (no decision within 5 min)")
-		emitClaudeJSON(claudeHookSpecific{
-			HookEventName:            "PreToolUse",
-			PermissionDecision:       "deny",
-			PermissionDecisionReason: "approval expired",
-		})
-		os.Exit(2)
-
-	case "cancelled":
-		// daemon could not handle the approval — fail open
-		os.Exit(0)
-
-	default:
-		// unknown decision string — fail open
-		os.Exit(0)
+	result := claude.PreToolUseResponse(resp)
+	if result.Stdout != "" {
+		_, _ = os.Stdout.WriteString(result.Stdout)
 	}
-}
-
-// parseClaudeStdin reads the PreToolUse stdin JSON and returns the tool
-// name + the inner tool_input JSON. Returns ("", "{}") on any error so the
-// daemon still gets a valid request (the user will just see less context).
-func parseClaudeStdin() (string, string) {
-	lim := io.LimitReader(os.Stdin, 1<<20) // 1 MiB cap on payload
-	b, err := io.ReadAll(lim)
-	if err != nil || len(b) == 0 {
-		return "", "{}"
+	if result.Stderr != "" {
+		_, _ = os.Stderr.WriteString(result.Stderr)
 	}
-	var top struct {
-		ToolName  string          `json:"tool_name"`
-		ToolInput json.RawMessage `json:"tool_input"`
-	}
-	if err := json.Unmarshal(b, &top); err != nil {
-		return "", "{}"
-	}
-	if len(top.ToolInput) == 0 {
-		top.ToolInput = json.RawMessage("{}")
-	}
-	return top.ToolName, string(top.ToolInput)
-}
-
-func emitClaudeJSON(spec claudeHookSpecific) {
-	out := claudeHookOutput{HookSpecificOutput: spec}
-	b, _ := json.Marshal(out)
-	_, _ = os.Stdout.Write(b)
-	_, _ = os.Stdout.Write([]byte("\n"))
+	os.Exit(result.ExitCode)
 }

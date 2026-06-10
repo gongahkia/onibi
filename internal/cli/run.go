@@ -68,7 +68,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	logger := logging.New(cmd.ErrOrStderr(), slog.LevelInfo)
 
-	bot, err := telegram.New(ctx, telegram.Options{Token: token})
+	router := &telegram.Router{Owner: owner, Log: logger}
+	bot, err := telegram.New(ctx, telegram.Options{Token: token, DefaultHandler: router.Dispatch})
 	if err != nil {
 		return err
 	}
@@ -79,6 +80,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Secrets: sec,
 		Owner:   owner,
 		Bot:     bot,
+		Router:  router,
 		Log:     logger,
 	})
 	if bufSize > 0 {

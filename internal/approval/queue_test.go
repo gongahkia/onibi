@@ -142,6 +142,63 @@ func TestExpireOverdueDelivers(t *testing.T) {
 	}
 }
 
+func TestLateUserDecisionExpiresInsteadOfApproving(t *testing.T) {
+	db := openDB(t)
+	q := New(db, DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+
+	_, err := q.db.SQL().ExecContext(ctx,
+		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
+		time.Now().Add(-time.Minute).Unix(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = q.DecideWithResult(ctx, id, VerdictApprove, "", "", 1)
+	if !errors.Is(err, ErrExpired) {
+		t.Fatalf("expected ErrExpired, got %v", err)
+	}
+	d := <-ch
+	if d.Verdict != VerdictExpire {
+		t.Fatalf("verdict = %s", d.Verdict)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.State != StateExpired {
+		t.Fatalf("state = %s", a.State)
+	}
+	n, err := db.AuditCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
+func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	keep, _, _ := q.Request(ctx, "s1", "claude", "Bash", "{}")
+	expired, _, _ := q.Request(ctx, "s2", "claude", "Bash", "{}")
+	decided, _, _ := q.Request(ctx, "s3", "claude", "Bash", "{}")
+	_, err := q.db.SQL().ExecContext(ctx,
+		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
+		time.Now().Add(-time.Minute).Unix(), expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Decide(ctx, decided, VerdictDeny, "", "no", 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := q.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != keep {
+		t.Fatalf("pending = %+v", got)
+	}
+}
+
 func TestDropWaiterStopsDelivery(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()

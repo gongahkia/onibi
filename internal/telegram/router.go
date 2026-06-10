@@ -48,20 +48,18 @@ func (r *Router) Dispatch(ctx context.Context, b *tgbot.Bot, update *models.Upda
 			r.Log.Warn("dropped non-owner callback", slog.Int64("from", q.From.ID))
 			return
 		}
-		// always answer the callback first so the spinner clears even if
-		// our handler is slow or errors out
-		if b != nil {
-			_, _ = b.AnswerCallbackQuery(ctx, &tgbot.AnswerCallbackQueryParams{CallbackQueryID: q.ID})
-		}
 		verb, id := ParseCallback(q.Data)
 		if verb == "" {
+			r.ackOnly(ctx, b, q.ID)
 			r.Log.Debug("unknown callback data", slog.String("data", q.Data))
 			return
 		}
 		if r.OnCB == nil {
+			r.ackOnly(ctx, b, q.ID)
 			return
 		}
 		if err := r.OnCB(ctx, b, q, verb, id); err != nil {
+			r.ackOnly(ctx, b, q.ID)
 			r.Log.Warn("callback handler", slog.String("verb", verb), slog.Any("err", err))
 		}
 		return

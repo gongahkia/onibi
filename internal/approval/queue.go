@@ -21,6 +21,17 @@ var ErrAlreadyDecided = errors.New("approval already decided")
 // ErrUnknownApproval is returned when no row matches the supplied id.
 var ErrUnknownApproval = errors.New("unknown approval id")
 
+// ErrExpired is returned when a user decision arrives after expires_at. The
+// row is atomically moved to expired before this error is returned.
+var ErrExpired = errors.New("approval expired")
+
+// DecisionResult reports the stored decision plus whether an in-memory waiter
+// was present to receive it.
+type DecisionResult struct {
+	Decision  Decision
+	Delivered bool
+}
+
 // Queue owns the in-memory waiters map plus the SQLite-backed state machine.
 // Safe for concurrent use.
 type Queue struct {
@@ -108,6 +119,39 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 	return a, nil
 }
 
+// Pending returns unexpired pending approvals, oldest first. Used on daemon
+// restart to re-render approvals that still have a valid Telegram lifetime.
+func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
+	rows, err := q.db.SQL().QueryContext(ctx,
+		`SELECT id, session_id, agent, tool, input_json, state,
+		        COALESCE(edited_json, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
+		        created_at, COALESCE(decided_at, 0), expires_at
+		   FROM approvals
+		  WHERE state = ? AND expires_at > ?
+		  ORDER BY created_at ASC`,
+		StatePending, time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Approval
+	for rows.Next() {
+		a := &Approval{}
+		var createdAt, decidedAt, expiresAt int64
+		if err := rows.Scan(&a.ID, &a.SessionID, &a.Agent, &a.Tool, &a.InputJSON, &a.State,
+			&a.EditedJSON, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &expiresAt); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = time.Unix(createdAt, 0)
+		if decidedAt > 0 {
+			a.DecidedAt = time.Unix(decidedAt, 0)
+		}
+		a.ExpiresAt = time.Unix(expiresAt, 0)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // Decide is the only path that transitions a pending approval to a terminal
 // state. Atomic — uses WHERE state='pending' guard so concurrent callers
 // (Telegram callback + expiry sweeper + cancel) can't double-decide.
@@ -116,31 +160,53 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 // removes it from the waiters map. Returns ErrAlreadyDecided if another
 // caller won.
 func (q *Queue) Decide(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) error {
+	_, err := q.DecideWithResult(ctx, id, verdict, editedJSON, reason, decidedBy)
+	return err
+}
+
+// DecideWithResult is Decide plus delivery metadata for callers that must
+// handle orphaned approvals after daemon restart.
+func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) (DecisionResult, error) {
 	st := StateForVerdict(verdict)
 	if st == "" {
-		return fmt.Errorf("invalid verdict %q", verdict)
+		return DecisionResult{}, fmt.Errorf("invalid verdict %q", verdict)
 	}
 	now := time.Now()
+	a, err := q.Get(ctx, id)
+	if err != nil {
+		return DecisionResult{}, err
+	}
+	if a.State != StatePending {
+		return DecisionResult{}, ErrAlreadyDecided
+	}
+	if userVerdict(verdict) && !a.ExpiresAt.After(now) {
+		res, err := q.finish(ctx, a, VerdictExpire, "", "approval expired (5 min TTL)", 0, now)
+		if err != nil {
+			return res, err
+		}
+		return res, ErrExpired
+	}
+	return q.finish(ctx, a, verdict, editedJSON, reason, decidedBy, now)
+}
+
+func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, editedJSON, reason string, decidedBy int64, now time.Time) (DecisionResult, error) {
+	st := StateForVerdict(verdict)
 	res, err := q.db.SQL().ExecContext(ctx,
 		`UPDATE approvals
 		   SET state = ?,
 		       edited_json = ?,
 		       decided_at = ?
 		 WHERE id = ? AND state = ?`,
-		st, nullIfEmpty(editedJSON), now.Unix(), id, StatePending)
+		st, nullIfEmpty(editedJSON), now.Unix(), a.ID, StatePending)
 	if err != nil {
-		return fmt.Errorf("update approval: %w", err)
+		return DecisionResult{}, fmt.Errorf("update approval: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return DecisionResult{}, err
 	}
 	if n == 0 {
-		// either unknown id or already decided — distinguish for caller
-		if _, gerr := q.Get(ctx, id); errors.Is(gerr, ErrUnknownApproval) {
-			return ErrUnknownApproval
-		}
-		return ErrAlreadyDecided
+		return DecisionResult{}, ErrAlreadyDecided
 	}
 
 	d := Decision{
@@ -152,8 +218,14 @@ func (q *Queue) Decide(ctx context.Context, id string, verdict Verdict, editedJS
 	if verdict == VerdictEdit && editedJSON != "" {
 		d.UpdatedInput = json.RawMessage(editedJSON)
 	}
-	q.deliver(id, d)
-	return nil
+	payload := a.InputJSON
+	if editedJSON != "" {
+		payload = editedJSON
+	}
+	_ = q.db.AuditAppend(ctx, "approval.decided", a.SessionID, payload, decidedBy,
+		fmt.Sprintf("id=%s verdict=%s", a.ID, verdict))
+	delivered := q.deliver(a.ID, d)
+	return DecisionResult{Decision: d, Delivered: delivered}, nil
 }
 
 // Cancel is a convenience that decides with VerdictCancel. Use this when
@@ -222,7 +294,7 @@ func (q *Queue) ExpireOverdue(ctx context.Context) (int, error) {
 // Idempotent — if no waiter is registered (e.g. daemon restart, the hook's
 // socket connection already EOF'd), this is a no-op. The DB row still
 // reflects the decision for audit and `onibi log`.
-func (q *Queue) deliver(id string, d Decision) {
+func (q *Queue) deliver(id string, d Decision) bool {
 	q.mu.Lock()
 	ch, ok := q.waiters[id]
 	if ok {
@@ -230,7 +302,7 @@ func (q *Queue) deliver(id string, d Decision) {
 	}
 	q.mu.Unlock()
 	if !ok {
-		return
+		return false
 	}
 	// non-blocking send into 1-buffered channel — guaranteed to succeed
 	// since each waiter is created fresh per Request and only delivered to
@@ -238,6 +310,7 @@ func (q *Queue) deliver(id string, d Decision) {
 	// observe channel close.
 	ch <- d
 	close(ch)
+	return true
 }
 
 // DropWaiter removes the in-memory waiter for id without changing the DB
@@ -268,4 +341,13 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func userVerdict(v Verdict) bool {
+	switch v {
+	case VerdictApprove, VerdictDeny, VerdictEdit:
+		return true
+	default:
+		return false
+	}
 }
