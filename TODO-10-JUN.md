@@ -490,13 +490,16 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 9 — LaunchAgent + systemd + signed distribution (5–7d)
 
-- [ ] `internal/service/launchd.go` — generate `sh.onibi.daemon.plist`; `launchctl bootstrap`/`bootout`; `RunAtLoad=true`, `KeepAlive=true`, `ProcessType=Interactive`
-- [ ] `internal/service/systemd.go` — generate `~/.config/systemd/user/onibi.service`; `systemctl --user enable --now onibi`
-- [ ] `onibi install-service` / `onibi uninstall-service`
+- [x] `internal/service/launchd.go` — generate `sh.onibi.daemon.plist`; `launchctl bootstrap`/`bootout`; `RunAtLoad=true`, `KeepAlive=true`, `ProcessType=Interactive`
+- [x] `internal/service/systemd.go` — generate `~/.config/systemd/user/onibi.service`; `systemctl --user enable --now onibi`
+- [x] `onibi install-service` / `onibi uninstall-service`
+- [x] `onibi doctor` initial implementation: token, owner, state perms, socket, service, hooks, TOTP, 2FA ack, live Telegram `getMe` + non-destructive `getUpdates` probe (`--offline` skips network)
+- [x] `internal/telegram/mock.go` + daemon API seam for deterministic CI coverage of setup, router, and approval flow
+- [x] Daemon-only `onibi run` lifecycle fixed for LaunchAgent/systemd: stays alive until signal; interactive agent runs still exit when hosted sessions end
 - [ ] Apple Developer ID Application certificate obtained ($99/yr, one-time setup)
-- [ ] `.goreleaser.yaml` integrated with `mitchellh/gon` for codesign + notarize step
+- [x] `.goreleaser.yaml` integrated with env-gated GoReleaser macOS binary signing + notarization stanzas
 - [ ] Hardened Runtime enabled in entitlements
-- [ ] `.goreleaser.yaml` complete: macOS arm64+x86_64 (signed+notarized), Linux arm64+x86_64
+- [x] `.goreleaser.yaml` complete: macOS arm64+x86_64 (signed+notarized when Apple env vars are set), Linux arm64+x86_64
 - [ ] Release artifacts include SHA256 checksums file, signed with gpg key (release-key in `docs/security.md`)
 - [ ] Homebrew tap repo `homebrew-onibi` set up; GoReleaser pushes formula with pinned tag+sha256 on release
 - [ ] Install script `curl -fsSL https://onibi.sh/install.sh | bash` for Linux (sha256-verified)

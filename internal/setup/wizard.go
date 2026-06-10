@@ -21,6 +21,17 @@ import (
 	"github.com/gongahkia/onibi/internal/telegram"
 )
 
+type pairClient interface {
+	telegram.API
+}
+
+var newPairClient = func(ctx context.Context, token string, handler telegram.HandlerFunc) (pairClient, error) {
+	return telegram.New(ctx, telegram.Options{
+		Token:      token,
+		APIHandler: handler,
+	})
+}
+
 // Flags configures wizard behavior.
 type Flags struct {
 	// RotateOwner allows overwriting an existing owner.
@@ -172,7 +183,7 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 		return 0, err
 	}
 
-	handler := func(ctx context.Context, b *tgbot.Bot, update *models.Update) {
+	handler := func(ctx context.Context, api telegram.API, update *models.Update) {
 		// only act on /start messages with our prefix; ignore everything
 		// else during pair (owner isn't established yet — we have no
 		// other auth signal to trust)
@@ -191,31 +202,28 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 		}
 		// constant-time compare so timing doesn't leak token bytes
 		if subtle.ConstantTimeCompare([]byte(got), []byte(pairTok)) != 1 {
-			_, _ = b.SendMessage(ctx, &tgbot.SendMessageParams{
+			_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Invalid pairing link.",
 			})
 			return
 		}
 		if err := Consume(ctx, db, got); err != nil {
-			_, _ = b.SendMessage(ctx, &tgbot.SendMessageParams{
+			_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Pairing link expired or already used.",
 			})
 			errCh <- err
 			return
 		}
-		_, _ = b.SendMessage(ctx, &tgbot.SendMessageParams{
+		_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Paired. This chat is now the owner channel for Onibi.",
 		})
 		doneCh <- update.Message.From.ID
 	}
 
-	cli, err := telegram.New(ctx, telegram.Options{
-		Token:          token,
-		DefaultHandler: handler,
-	})
+	cli, err := newPairClient(ctx, token, handler)
 	if err != nil {
 		return 0, err
 	}

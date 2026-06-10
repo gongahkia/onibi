@@ -59,13 +59,13 @@ type Daemon struct {
 
 // Options bundles construction inputs.
 type Options struct {
-	Paths   config.Paths
-	DB      *store.DB
-	Secrets *secrets.Store
-	Owner   *auth.Owner
-	Bot     telegram.API
-	Router  *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
-	Log     *slog.Logger
+	Paths        config.Paths
+	DB           *store.DB
+	Secrets      *secrets.Store
+	Owner        *auth.Owner
+	Bot          telegram.API
+	Router       *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
+	Log          *slog.Logger
 	ExitWhenIdle bool
 }
 

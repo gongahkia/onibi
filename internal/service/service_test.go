@@ -1,0 +1,99 @@
+package service
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gongahkia/onibi/internal/config"
+)
+
+type call struct {
+	name string
+	args []string
+}
+
+type fakeRunner struct {
+	calls []call
+	out   []byte
+	err   error
+}
+
+func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, call{name: name, args: append([]string(nil), args...)})
+	return f.out, f.err
+}
+
+func testPaths(t *testing.T) config.Paths {
+	t.Helper()
+	dir := t.TempDir()
+	return config.Paths{
+		StateDir: filepath.Join(dir, "state"),
+		Socket:   filepath.Join(dir, "state", "onibi.sock"),
+		DBFile:   filepath.Join(dir, "state", "onibi.sqlite"),
+		EnvFile:  filepath.Join(dir, "state", ".env"),
+		LogDir:   filepath.Join(dir, "state", "logs"),
+	}
+}
+
+func TestInstallLaunchdWritesPlistAndBootstraps(t *testing.T) {
+	paths := testPaths(t)
+	r := &fakeRunner{}
+	m := &Manager{
+		Paths:      paths,
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "darwin",
+		Home:       t.TempDir(),
+		UID:        501,
+	}
+	if err := m.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := m.ServicePath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	for _, want := range []string{Label, "/usr/local/bin/onibi", "<string>run</string>", "RunAtLoad", "KeepAlive", "Interactive"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("plist missing %q:\n%s", want, body)
+		}
+	}
+	if len(r.calls) != 2 || r.calls[0].args[0] != "bootout" || r.calls[1].args[0] != "bootstrap" {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestInstallSystemdWritesUnitAndEnables(t *testing.T) {
+	paths := testPaths(t)
+	r := &fakeRunner{}
+	m := &Manager{
+		Paths:      paths,
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "linux",
+		Home:       t.TempDir(),
+		UID:        1000,
+	}
+	if err := m.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := m.ServicePath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	for _, want := range []string{"ExecStart=\"/usr/local/bin/onibi\" run", "Restart=always", "WantedBy=default.target"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("unit missing %q:\n%s", want, body)
+		}
+	}
+	if len(r.calls) != 2 || r.calls[0].args[1] != "daemon-reload" || r.calls[1].args[1] != "enable" {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}

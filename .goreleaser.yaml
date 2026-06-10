@@ -57,6 +57,22 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
+notarize:
+  macos:
+    - enabled: '{{ and (isEnvSet "MACOS_SIGN_P12") (ne .Env.MACOS_SIGN_P12 "") }}'
+      ids:
+        - onibi
+        - onibi-notify
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 snapshot:
   version_template: "{{ incpatch .Version }}-dev"
 
@@ -67,19 +83,6 @@ changelog:
       - "^docs:"
       - "^test:"
 
-# phase 9 additions (commented until cert is in place):
-#
-# notarize:
-#   macos:
-#     - enabled: true
-#       sign:
-#         certificate: "{{ .Env.MACOS_SIGN_P12 }}"
-#         password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
-#       notarize:
-#         issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
-#         key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
-#         key: "{{ .Env.MACOS_NOTARY_KEY }}"
-#
 # brews:
 #   - repository:
 #       owner: gongahkia

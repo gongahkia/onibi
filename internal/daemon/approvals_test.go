@@ -11,6 +11,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -144,5 +145,67 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 	}
 	if a.ChatID != 100 || a.MsgID != 1 {
 		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
+	}
+}
+
+func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	mock.SetHandler(d.Router.Dispatch)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	respCh := make(chan intake.Response, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := d.handleApprovalRequest(ctx, intake.Event{
+			Type:      intake.TypeApprovalRequest,
+			Session:   "s",
+			Tool:      "Bash",
+			InputJSON: `{"command":"echo ok"}`,
+		})
+		respCh <- resp
+		errCh <- err
+	}()
+
+	var id string
+	for ctx.Err() == nil {
+		row := d.DB.SQL().QueryRowContext(ctx, `SELECT id FROM approvals WHERE state = ?`, approval.StatePending)
+		if err := row.Scan(&id); err == nil && id != "" && len(mock.Sent()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("approval was not rendered")
+	}
+	mock.Dispatch(ctx, &models.Update{CallbackQuery: &models.CallbackQuery{
+		ID:   "cb1",
+		From: models.User{ID: 100},
+		Data: "approve:" + id,
+	}})
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	select {
+	case resp := <-respCh:
+		if resp.Decision != "approve" {
+			t.Fatalf("decision = %s", resp.Decision)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if len(mock.Answered()) != 1 {
+		t.Fatalf("answers = %d", len(mock.Answered()))
+	}
+	if len(mock.Edited()) != 1 {
+		t.Fatalf("edits = %d", len(mock.Edited()))
 	}
 }

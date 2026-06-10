@@ -1,0 +1,333 @@
+package doctor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/gongahkia/onibi/internal/adapters/claude"
+	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/secrets"
+	"github.com/gongahkia/onibi/internal/service"
+	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/telegram"
+)
+
+// Status is a check result class.
+type Status string
+
+const (
+	Pass Status = "PASS"
+	Warn Status = "WARN"
+	Fail Status = "FAIL"
+)
+
+// Check is one doctor line.
+type Check struct {
+	Name   string
+	Status Status
+	Detail string
+}
+
+// Report is the full doctor result.
+type Report struct {
+	Checks []Check
+}
+
+// Failed reports whether any check failed.
+func (r Report) Failed() bool {
+	for _, c := range r.Checks {
+		if c.Status == Fail {
+			return true
+		}
+	}
+	return false
+}
+
+// Options configures Run.
+type Options struct {
+	Paths        config.Paths
+	Offline      bool
+	Service      *service.Manager
+	PreferDotenv bool
+}
+
+// Run performs local integrity checks and optional live Telegram checks.
+func Run(ctx context.Context, opts Options) Report {
+	d := runner{ctx: ctx, opts: opts}
+	d.run()
+	return Report{Checks: d.checks}
+}
+
+type runner struct {
+	ctx    context.Context
+	opts   Options
+	checks []Check
+	db     *store.DB
+	sec    *secrets.Store
+	token  string
+}
+
+func (r *runner) add(name string, st Status, detail string) {
+	r.checks = append(r.checks, Check{Name: name, Status: st, Detail: detail})
+}
+
+func (r *runner) run() {
+	r.checkStateDir()
+	r.checkEnvFile()
+	r.openDB()
+	defer func() {
+		if r.db != nil {
+			_ = r.db.Close()
+		}
+	}()
+	r.openSecrets()
+	r.checkToken()
+	r.checkOwner()
+	r.checkSocket()
+	r.checkService()
+	r.checkHooks()
+	r.checkTOTP()
+	if !r.opts.Offline {
+		r.checkTelegram()
+	}
+}
+
+func (r *runner) checkStateDir() {
+	fi, err := os.Stat(r.opts.Paths.StateDir)
+	if err != nil {
+		r.add("state dir", Fail, err.Error())
+		return
+	}
+	if !fi.IsDir() {
+		r.add("state dir", Fail, "not a directory")
+		return
+	}
+	if p := fi.Mode().Perm(); p != 0o700 {
+		r.add("state dir", Fail, fmt.Sprintf("perms %#o want 0700", p))
+		return
+	}
+	r.add("state dir", Pass, r.opts.Paths.StateDir)
+}
+
+func (r *runner) checkEnvFile() {
+	fi, err := os.Stat(r.opts.Paths.EnvFile)
+	if errors.Is(err, os.ErrNotExist) {
+		r.add(".env fallback", Pass, "not present")
+		return
+	}
+	if err != nil {
+		r.add(".env fallback", Fail, err.Error())
+		return
+	}
+	if p := fi.Mode().Perm(); p != 0o600 {
+		r.add(".env fallback", Fail, fmt.Sprintf("perms %#o want 0600", p))
+		return
+	}
+	r.add(".env fallback", Warn, "present; OS keystore preferred")
+}
+
+func (r *runner) openDB() {
+	if _, err := os.Stat(r.opts.Paths.DBFile); err != nil {
+		r.add("sqlite db", Fail, err.Error())
+		return
+	}
+	db, err := store.Open(r.opts.Paths.DBFile)
+	if err != nil {
+		r.add("sqlite db", Fail, err.Error())
+		return
+	}
+	r.db = db
+	r.add("sqlite db", Pass, r.opts.Paths.DBFile)
+}
+
+func (r *runner) openSecrets() {
+	sec, err := secrets.Open(secrets.Options{
+		EnvFallbackPath: r.opts.Paths.EnvFile,
+		PreferDotenv:    r.opts.PreferDotenv,
+	})
+	if err != nil {
+		r.add("secrets backend", Fail, err.Error())
+		return
+	}
+	r.sec = sec
+	if sec.Backend() == secrets.BackendDotenv {
+		r.add("secrets backend", Warn, "dotenv fallback")
+		return
+	}
+	r.add("secrets backend", Pass, string(sec.Backend()))
+}
+
+func (r *runner) checkToken() {
+	if r.sec == nil {
+		return
+	}
+	token, ok, err := r.sec.Get(secrets.KeyBotToken)
+	if err != nil {
+		r.add("bot token", Fail, err.Error())
+		return
+	}
+	if !ok || token == "" {
+		r.add("bot token", Fail, "missing")
+		return
+	}
+	r.token = token
+	r.add("bot token", Pass, "present")
+}
+
+func (r *runner) checkOwner() {
+	if r.db == nil {
+		return
+	}
+	v, ok, err := r.db.KVGetString(r.ctx, auth.KVKeyOwnerID)
+	if err != nil {
+		r.add("owner chat_id", Fail, err.Error())
+		return
+	}
+	if !ok || v == "" {
+		r.add("owner chat_id", Fail, "missing")
+		return
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || id == 0 {
+		r.add("owner chat_id", Fail, "invalid")
+		return
+	}
+	r.add("owner chat_id", Pass, v)
+}
+
+func (r *runner) checkSocket() {
+	fi, err := os.Stat(r.opts.Paths.Socket)
+	if errors.Is(err, os.ErrNotExist) {
+		r.add("unix socket", Fail, "not present; daemon not running")
+		return
+	}
+	if err != nil {
+		r.add("unix socket", Fail, err.Error())
+		return
+	}
+	if p := fi.Mode().Perm(); p != 0o600 {
+		r.add("unix socket", Fail, fmt.Sprintf("perms %#o want 0600", p))
+		return
+	}
+	c, err := net.DialTimeout("unix", r.opts.Paths.Socket, 500*time.Millisecond)
+	if err != nil {
+		r.add("unix socket", Fail, "not listening: "+err.Error())
+		return
+	}
+	_ = c.Close()
+	r.add("unix socket", Pass, "listening")
+}
+
+func (r *runner) checkService() {
+	m := r.opts.Service
+	if m == nil {
+		var err error
+		m, err = service.NewManager(r.opts.Paths, "")
+		if err != nil {
+			r.add("service", Fail, err.Error())
+			return
+		}
+	}
+	st := m.Status(r.ctx)
+	if !st.Installed {
+		r.add("service", Fail, "not installed")
+		return
+	}
+	if !st.Running {
+		r.add("service", Fail, "installed but not running: "+st.Detail)
+		return
+	}
+	r.add("service", Pass, st.Path)
+}
+
+func (r *runner) checkHooks() {
+	if r.db == nil {
+		return
+	}
+	rows, err := r.db.SQL().QueryContext(r.ctx, `SELECT agent, path FROM hooks ORDER BY agent, path`)
+	if err != nil {
+		r.add("hooks", Fail, err.Error())
+		return
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		n++
+		var agent, path string
+		if err := rows.Scan(&agent, &path); err != nil {
+			r.add("hooks", Fail, err.Error())
+			return
+		}
+		switch agent {
+		case "claude":
+			if err := claude.VerifyHash(r.ctx, r.db); err != nil {
+				r.add("hook claude", Fail, err.Error())
+			} else {
+				r.add("hook claude", Pass, path)
+			}
+		default:
+			r.add("hook "+agent, Warn, "no verifier implemented for "+path)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		r.add("hooks", Fail, err.Error())
+		return
+	}
+	if n == 0 {
+		r.add("hooks", Warn, "none installed")
+	}
+}
+
+func (r *runner) checkTOTP() {
+	if r.sec == nil {
+		return
+	}
+	_, ok, err := r.sec.Get(secrets.KeyTOTPSecret)
+	if err != nil {
+		r.add("totp", Fail, err.Error())
+		return
+	}
+	if ok {
+		r.add("totp", Pass, "enabled")
+	} else {
+		r.add("totp", Warn, "optional second factor not enabled")
+	}
+	if r.db != nil {
+		v, ok, _ := r.db.KVGetString(r.ctx, "tg_2fa_ack")
+		if ok {
+			r.add("telegram 2fa ack", Pass, v)
+		} else {
+			r.add("telegram 2fa ack", Warn, "not acknowledged")
+		}
+	}
+}
+
+func (r *runner) checkTelegram() {
+	if r.token == "" {
+		return
+	}
+	res, err := telegram.ProbeToken(r.ctx, r.token, false)
+	if err != nil {
+		r.add("telegram reachability", Fail, err.Error())
+		return
+	}
+	r.add("telegram getMe", Pass, res.Self.Username)
+	if r.db != nil {
+		want, ok, _ := r.db.KVGetString(r.ctx, auth.KVKeyBotID)
+		got := fmt.Sprintf("%d", res.Self.ID)
+		if ok && want != "" && want != got {
+			r.add("bot identity", Fail, "stored "+want+" got "+got)
+		} else {
+			r.add("bot identity", Pass, got)
+		}
+	}
+	if res.GetUpdatesOK {
+		r.add("telegram getUpdates", Pass, res.GetUpdatesDetail)
+	}
+}
