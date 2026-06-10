@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -101,7 +102,9 @@ func Load(paths Paths) (Config, LoadMeta, error) {
 	var raw rawConfig
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
-	if err := dec.Decode(&raw); err != nil {
+	if err := dec.Decode(&raw); errors.Is(err, io.EOF) {
+		return cfg, meta, nil
+	} else if err != nil {
 		return cfg, meta, fmt.Errorf("parse %s: %w", path, err)
 	}
 	applyRaw(&cfg, &meta, raw)

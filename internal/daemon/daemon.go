@@ -123,8 +123,11 @@ func New(opts Options) *Daemon {
 	if ttl <= 0 {
 		ttl = approval.DefaultTTL
 	}
-	if opts.ApprovalTTL <= 0 && v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid"); ok && v == "1" {
-		ttl = approval.ParanoidTTL
+	if opts.ApprovalTTL <= 0 && opts.DB != nil {
+		v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid")
+		if ok && v == "1" {
+			ttl = approval.ParanoidTTL
+		}
 	}
 	d.Queue = approval.New(opts.DB, ttl)
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
