@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -104,41 +103,7 @@ func (d *Daemon) sessionByID(id string) (*Session, error) {
 }
 
 func (d *Daemon) injectTelegramText(ctx context.Context, api telegram.API, chatID int64, sessionID, text string) error {
-	text = strings.TrimRight(text, "\r\n")
-	if text == "" {
-		return nil
-	}
-	s, err := d.resolveInjectTarget(ctx, chatID, sessionID)
-	if errors.Is(err, errAmbiguousTarget) {
-		d.queuePendingInject(chatID, text)
-		d.sendTargetPicker(ctx, api, chatID, "Pick target session.")
-		return nil
-	}
-	if errors.Is(err, ErrUnknownSession) {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active PTY session."})
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if s.Host == nil {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Session has no writable PTY."})
-		return nil
-	}
-	payload := text
-	if !strings.HasSuffix(payload, "\n") {
-		payload += "\n"
-	}
-	if _, err := s.Host.Write([]byte(payload)); err != nil {
-		return fmt.Errorf("write PTY: %w", err)
-	}
-	s.Touch()
-	d.setDefaultTarget(ctx, chatID, s.ID)
-	if d.DB != nil {
-		_ = d.DB.AuditAppend(ctx, "session.inject", s.ID, payload, chatID, "telegram text")
-	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Sent to " + s.Name + " (" + s.ID + ")."})
-	return nil
+	return d.enqueuePromptText(ctx, api, chatID, sessionID, text)
 }
 
 func (d *Daemon) queuePendingInject(chatID int64, text string) {

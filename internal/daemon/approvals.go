@@ -148,6 +148,12 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
 	}
+	switch verb {
+	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
+		return d.handlePromptCallback(ctx, api, q, verb, id)
+	case "peek", "interrupt", "kill":
+		return d.handleSessionActionCallback(ctx, api, q, verb, id)
+	}
 	a, err := d.Queue.Get(ctx, id)
 	if err != nil {
 		// could be a stale callback (daemon restart, approval already gone)
@@ -211,6 +217,9 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	}
 	d.editMu.Unlock()
 	if !ok {
+		if d.handlePendingPromptEdit(ctx, api, m) {
+			return nil
+		}
 		return d.injectTelegramText(ctx, api, m.Chat.ID, d.sessionIDForReply(m), m.Text)
 	}
 
@@ -271,6 +280,9 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 }
 
 func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message) error {
+	if !strings.HasPrefix(strings.TrimSpace(m.Text), "/") && d.handlePendingPromptEdit(ctx, api, m) {
+		return nil
+	}
 	if d.handleTextCommand(ctx, api, m) {
 		return nil
 	}

@@ -36,6 +36,28 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleTargetCommand(ctx, api, m.Chat.ID, arg)
 	case "/new":
 		d.handleNewCommand(ctx, api, m.Chat.ID, arg)
+	case "/queue":
+		d.handleQueueCommand(ctx, api, m.Chat.ID, arg)
+	case "/prompt":
+		d.handlePromptCommand(ctx, api, m.Chat.ID, arg)
+	case "/editprompt":
+		d.handleEditPromptCommand(ctx, api, m.Chat.ID, arg)
+	case "/cancelprompt":
+		d.handleCancelPromptCommand(ctx, api, m.Chat.ID, arg)
+	case "/moveprompt":
+		d.handleMovePromptCommand(ctx, api, m.Chat.ID, arg)
+	case "/flushqueue":
+		d.handleFlushQueueCommand(ctx, api, m.Chat.ID, arg)
+	case "/peek":
+		d.handlePeekCommand(ctx, api, m.Chat.ID, arg)
+	case "/interrupt":
+		d.handleInterruptCommand(ctx, api, m.Chat.ID, arg)
+	case "/kill":
+		d.handleKillCommand(ctx, api, m.Chat.ID, arg)
+	case "/rename":
+		d.handleRenameCommand(ctx, api, m.Chat.ID, arg)
+	case "/menu":
+		d.handleMenuCommand(ctx, api, m.Chat.ID)
 	case "/snooze":
 		d.handleSnoozeCommand(ctx, api, m.Chat.ID, arg)
 	case "/unsnooze":
@@ -136,8 +158,14 @@ func (d *Daemon) statusText(ctx context.Context) string {
 			pending = fmt.Sprintf("%d", len(p))
 		}
 	}
-	return fmt.Sprintf("Onibi status\nuptime=%s\nsessions=%d\npending_approvals=%s\n\n%s",
-		time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), pending, d.sessionsText())
+	queued := "unknown"
+	if d.DB != nil {
+		if p, err := d.DB.PromptList(ctx, "", false, 1000); err == nil {
+			queued = fmt.Sprintf("%d", len(p))
+		}
+	}
+	return fmt.Sprintf("Onibi status\nuptime=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
+		time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), pending, queued, d.sessionsText())
 }
 
 func helpText() string {
@@ -147,6 +175,17 @@ func helpText() string {
 		"/status - show daemon status",
 		"/target <id|name> - set default session",
 		"/new <agent> [args...] - start an agent session",
+		"/queue [id|name] - list queued prompts",
+		"/prompt <text> - queue a prompt",
+		"/editprompt <id> <text> - edit a queued prompt",
+		"/cancelprompt <id> - cancel a queued prompt",
+		"/moveprompt <id> <position> - reorder queued prompts",
+		"/flushqueue [id|name] - cancel queued prompts",
+		"/peek <id|name> - send session preview",
+		"/interrupt <id|name> - send Ctrl-C",
+		"/kill <id|name> - terminate session",
+		"/rename <id|name> <name> - rename session",
+		"/menu - show session actions",
 		"/snooze [duration|agent [duration]] - pause non-approval notifications",
 		"/unsnooze [agent] - resume notifications",
 		"/log [n] - show recent audit entries",
