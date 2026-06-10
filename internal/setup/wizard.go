@@ -216,6 +216,9 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 			errCh <- err
 			return
 		}
+		if err := telegram.RegisterCommands(ctx, api); err != nil {
+			fmt.Fprintf(io.Err, "warning: could not register Telegram commands: %v\n", err)
+		}
 		_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Paired. This chat is now the owner channel for Onibi.",

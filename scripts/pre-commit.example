@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+files="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$files" ] && exit 0
+
+bad_path=0
+for f in $files; do
+	case "$f" in
+		.env|*.env|*.env.*|*.token|*.totp|*.sqlite|*.sqlite-*|*.log)
+			printf '%s\n' "blocked staged secret/state path: $f" >&2
+			bad_path=1
+			;;
+	esac
+done
+[ "$bad_path" -eq 1 ] && exit 1
+
+pattern='([0-9]{8,12}:[A-Za-z0-9_-]{30,}|(api[_-]?key|token|secret|password)[[:space:]]*[:=][[:space:]]*["'\'']?[A-Za-z0-9_./+=:-]{16,})'
+if git diff --cached --unified=0 -- $files | grep -E "^\+[^+].*$pattern" >/dev/null; then
+	printf '%s\n' "blocked staged token-shaped string" >&2
+	exit 1
+fi
+
+exit 0

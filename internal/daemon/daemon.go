@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
@@ -48,6 +50,10 @@ type Daemon struct {
 
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once
+	started  time.Time
+
+	renderMu        sync.RWMutex
+	renderOverrides map[string]render.Mode
 
 	// pendingEdit tracks "the user just tapped Edit" so the next text
 	// reply they send is treated as the edited JSON payload.
@@ -76,16 +82,18 @@ func New(opts Options) *Daemon {
 		opts.Log = slog.Default()
 	}
 	d := &Daemon{
-		Paths:        opts.Paths,
-		DB:           opts.DB,
-		Secrets:      opts.Secrets,
-		Owner:        opts.Owner,
-		Bot:          opts.Bot,
-		Log:          opts.Log,
-		Registry:     NewRegistry(),
-		notified:     map[string]bool{},
-		pendingEdits: map[int64]string{},
-		ExitWhenIdle: opts.ExitWhenIdle,
+		Paths:           opts.Paths,
+		DB:              opts.DB,
+		Secrets:         opts.Secrets,
+		Owner:           opts.Owner,
+		Bot:             opts.Bot,
+		Log:             opts.Log,
+		Registry:        NewRegistry(),
+		notified:        map[string]bool{},
+		started:         time.Now(),
+		renderOverrides: map[string]render.Mode{},
+		pendingEdits:    map[int64]string{},
+		ExitWhenIdle:    opts.ExitWhenIdle,
 	}
 
 	// approval queue + expiry sweeper
@@ -323,7 +331,27 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if hint != "" {
 		header += "\n" + hint
 	}
-	tail := render.TextTail(s.Buf.Snapshot(), render.Options{Lang: ""})
+	buf := s.Buf.Snapshot()
+	if render.ResolveMode(buf, d.renderOverride(s.ID)) == render.ModePNG {
+		img, pngErr := render.RenderPNG(buf, render.PNGOptions{})
+		if pngErr == nil {
+			_, err = d.Bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
+				ChatID:  d.Owner.ID(),
+				Caption: trimCaption(header),
+				Photo: &models.InputFileUpload{
+					Filename: "onibi-" + s.ID + ".png",
+					Data:     bytes.NewReader(img),
+				},
+			})
+			if err == nil {
+				return nil
+			}
+			d.Log.Warn("send turn-complete screenshot", slog.Any("err", err))
+		} else {
+			d.Log.Warn("render screenshot", slog.Any("err", pngErr))
+		}
+	}
+	tail := render.TextTail(buf, render.Options{Lang: ""})
 	body := header + "\n" + tail
 	_, err = d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: d.Owner.ID(),
@@ -333,6 +361,14 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 		d.Log.Warn("send turn-complete", slog.Any("err", err))
 	}
 	return nil
+}
+
+func trimCaption(s string) string {
+	r := []rune(s)
+	if len(r) <= 900 {
+		return s
+	}
+	return string(r[:900]) + "..."
 }
 
 // SendOwner is a convenience wrapper for ad-hoc messages (welcome, errors).

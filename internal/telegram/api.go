@@ -13,8 +13,10 @@ type API interface {
 	Start(context.Context)
 	Self() *models.User
 	SendMessage(context.Context, *tgbot.SendMessageParams) (*models.Message, error)
+	SendPhoto(context.Context, *tgbot.SendPhotoParams) (*models.Message, error)
 	EditMessageReplyMarkup(context.Context, *tgbot.EditMessageReplyMarkupParams) (*models.Message, error)
 	AnswerCallbackQuery(context.Context, *tgbot.AnswerCallbackQueryParams) (bool, error)
+	SetMyCommands(context.Context, *tgbot.SetMyCommandsParams) (bool, error)
 }
 
 // HandlerFunc is the API-aware update handler used by Router.

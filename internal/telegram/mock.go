@@ -17,8 +17,10 @@ type Mock struct {
 	nextID  int
 
 	SentMessages []tgbot.SendMessageParams
+	SentPhotos   []tgbot.SendPhotoParams
 	Edits        []tgbot.EditMessageReplyMarkupParams
 	Answers      []tgbot.AnswerCallbackQueryParams
+	Commands     []tgbot.SetMyCommandsParams
 }
 
 // NewMock returns a Mock with a stable bot identity.
@@ -55,6 +57,23 @@ func (m *Mock) SendMessage(_ context.Context, params *tgbot.SendMessageParams) (
 	}, nil
 }
 
+// SendPhoto records params and returns a synthetic Telegram message.
+func (m *Mock) SendPhoto(_ context.Context, params *tgbot.SendPhotoParams) (*models.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *params
+	m.SentPhotos = append(m.SentPhotos, cp)
+	id := m.nextID
+	m.nextID++
+	chatID, _ := params.ChatID.(int64)
+	return &models.Message{
+		ID:      id,
+		Date:    int(time.Now().Unix()),
+		Chat:    models.Chat{ID: chatID, Type: "private"},
+		Caption: params.Caption,
+	}, nil
+}
+
 // EditMessageReplyMarkup records params and returns a synthetic message.
 func (m *Mock) EditMessageReplyMarkup(_ context.Context, params *tgbot.EditMessageReplyMarkupParams) (*models.Message, error) {
 	m.mu.Lock()
@@ -78,6 +97,15 @@ func (m *Mock) AnswerCallbackQuery(_ context.Context, params *tgbot.AnswerCallba
 	return true, nil
 }
 
+// SetMyCommands records command registration.
+func (m *Mock) SetMyCommands(_ context.Context, params *tgbot.SetMyCommandsParams) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *params
+	m.Commands = append(m.Commands, cp)
+	return true, nil
+}
+
 // Dispatch injects an update into the mock handler.
 func (m *Mock) Dispatch(ctx context.Context, update *models.Update) {
 	if m.handler != nil {
@@ -91,6 +119,15 @@ func (m *Mock) Sent() []tgbot.SendMessageParams {
 	defer m.mu.Unlock()
 	out := make([]tgbot.SendMessageParams, len(m.SentMessages))
 	copy(out, m.SentMessages)
+	return out
+}
+
+// Photos returns a snapshot of sent photos.
+func (m *Mock) Photos() []tgbot.SendPhotoParams {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]tgbot.SendPhotoParams, len(m.SentPhotos))
+	copy(out, m.SentPhotos)
 	return out
 }
 
@@ -109,5 +146,14 @@ func (m *Mock) Answered() []tgbot.AnswerCallbackQueryParams {
 	defer m.mu.Unlock()
 	out := make([]tgbot.AnswerCallbackQueryParams, len(m.Answers))
 	copy(out, m.Answers)
+	return out
+}
+
+// RegisteredCommands returns a snapshot of set-my-commands calls.
+func (m *Mock) RegisteredCommands() []tgbot.SetMyCommandsParams {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]tgbot.SetMyCommandsParams, len(m.Commands))
+	copy(out, m.Commands)
 	return out
 }

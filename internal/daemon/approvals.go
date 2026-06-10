@@ -257,10 +257,10 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	return nil
 }
 
-// onText is the catch-all for non-reply, non-callback owner messages.
-// Phase 6 will use this for /sessions, /target, free-text injection, etc.
-// Phase 3 just logs them.
-func (d *Daemon) onText(_ context.Context, _ telegram.API, m *models.Message) error {
+func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message) error {
+	if d.handleTextCommand(ctx, api, m) {
+		return nil
+	}
 	d.Log.Debug("text from owner (no handler wired yet)", slog.String("text", m.Text))
 	return nil
 }

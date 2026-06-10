@@ -455,12 +455,12 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 5 — Auto-switch renderer (PNG path) (5–7d)
 
-- [ ] `internal/render/png.go` — feed PTY bytes into `jaguilar/vt100`, walk cell grid, rasterize via `image.NewRGBA` + stdlib `font.Drawer`
-- [ ] Embed a free fixed-width font (JetBrains Mono OFL or IBM Plex Mono OFL) via `//go:embed`
-- [ ] ANSI color palette (16 colors + 256-color extension)
-- [ ] `internal/render/switch.go` — heuristic: if buffer contains `\x1b[H` / `\x1b[?1049h` / `\x1b[s` cursor save / multiple `\x1b[<n>;<m>H` → PNG; else text
-- [ ] `/text` and `/screenshot` commands force one or the other (per-session sticky)
-- [ ] Test: text mode for `npm test` output; PNG mode for Claude Code TUI.
+- [x] `internal/render/png.go` — feed PTY bytes into `jaguilar/vt100`, walk cell grid, rasterize via `image.NewRGBA` + stdlib `image/png`
+- [x] Use Go `basicfont` fixed-width face (chosen over embedded OFL font for this pass)
+- [x] ANSI color palette (16 colors + 256-color extension)
+- [x] `internal/render/switch.go` — heuristic: if buffer contains `\x1b[H` / `\x1b[?1049h` / `\x1b[s` cursor save / multiple `\x1b[<n>;<m>H` → PNG; else text
+- [x] `/text` and `/screenshot` commands force one or the other (runtime per-session sticky)
+- [x] Test: text mode for `npm test` output; PNG mode for Claude Code TUI.
 
 ### Phase 6 — Multi-session + reply-to-message routing (3–5d)
 
@@ -507,7 +507,7 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 10 — Hardening, polish, launch (5–7d)
 
-- [ ] Rate limiter (token-bucket, 1 msg/sec/chat soft cap, 25 msgs/sec global)
+- [x] Rate limiter (token-bucket, 1 msg/sec/chat soft cap, 25 msgs/sec global)
 - [ ] Long-output chunking (Telegram 4096-char per text message; switch to `sendDocument` for >5 messages worth)
 - [ ] Sleep/wake recovery — long-poll auto-resumes; queue replay for missed events; resync owner_id check after wake
 - [ ] `getUpdates` race detector (warns owner if 10 consecutive empty polls despite expected traffic)
@@ -516,8 +516,8 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [ ] `onibi doctor` complete per §6.4
 - [ ] `onibi log` (last N audit events from SQLite); `onibi log --export <file>`
 - [ ] `/snooze 30m`, `/snooze claude`, `/unsnooze`
-- [ ] `setMyCommands` registered with Telegram so `/sessions`, `/status`, `/help`, `/snooze`, `/new`, `/log` appear in Telegram's native command UI
-- [ ] `docs/security.md` written: threat model (copy §7.1), enforcements (copy §7.3), non-defenses (copy §7.4), checklist (copy §7.5), responsible disclosure contact
+- [x] `setMyCommands` registered with Telegram so `/sessions`, `/status`, `/help`, `/snooze`, `/new`, `/log` appear in Telegram's native command UI
+- [x] `docs/security.md` written: threat model (copy §7.1), enforcements (copy §7.3), non-defenses (copy §7.4), checklist (copy §7.5), responsible disclosure contact
 - [ ] README rewrite (Telegram-first, drop PWA/Tauri references, include security model summary + 2FA call-out)
 - [ ] Screencast demo (90s: brew install → pair → enable 2FA → Claude task → approve from phone)
 - [ ] HN/blog launch with explicit framing: "v1.5 archived; this is the right shape per tgterm validation; here's the threat model"

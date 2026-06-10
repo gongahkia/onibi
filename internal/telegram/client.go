@@ -27,6 +27,7 @@ type Client struct {
 	Bot     *tgbot.Bot
 	self    *models.User
 	allowed []string
+	limiter *RateLimiter
 }
 
 // Options configures Client construction.
@@ -78,7 +79,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("telegram new: %w", err)
 	}
 
-	c = &Client{Bot: b, allowed: AllowedUpdateTypes}
+	c = &Client{Bot: b, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter()}
 
 	// getMe — populates Self and validates the token in one call
 	me, err := b.GetMe(ctx)
@@ -129,7 +130,22 @@ func (c *Client) Self() *models.User { return c.self }
 
 // SendMessage delegates to the real bot.
 func (c *Client) SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error) {
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
+			return nil, err
+		}
+	}
 	return c.Bot.SendMessage(ctx, params)
+}
+
+// SendPhoto delegates to the real bot after rate limiting.
+func (c *Client) SendPhoto(ctx context.Context, params *tgbot.SendPhotoParams) (*models.Message, error) {
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
+			return nil, err
+		}
+	}
+	return c.Bot.SendPhoto(ctx, params)
 }
 
 // EditMessageReplyMarkup delegates to the real bot.
@@ -140,4 +156,9 @@ func (c *Client) EditMessageReplyMarkup(ctx context.Context, params *tgbot.EditM
 // AnswerCallbackQuery delegates to the real bot.
 func (c *Client) AnswerCallbackQuery(ctx context.Context, params *tgbot.AnswerCallbackQueryParams) (bool, error) {
 	return c.Bot.AnswerCallbackQuery(ctx, params)
+}
+
+// SetMyCommands delegates to the real bot.
+func (c *Client) SetMyCommands(ctx context.Context, params *tgbot.SetMyCommandsParams) (bool, error) {
+	return c.Bot.SetMyCommands(ctx, params)
 }
