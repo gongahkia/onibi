@@ -462,15 +462,15 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [x] `/text` and `/screenshot` commands force one or the other (runtime per-session sticky)
 - [x] Test: text mode for `npm test` output; PNG mode for Claude Code TUI.
 
-### Phase 6 — Multi-session + reply-to-message routing (3–5d)
+### Phase 6 — Multi-session + reply-to-message routing (3–5d) — **CODE DONE 2026-06-10; awaiting live Telegram e2e**
 
-- [ ] `internal/telegram/threading.go` — store `message_id → session_id` for every outbound msg
-- [ ] On inbound reply: look up parent message_id → resolve session → write to that PTY
-- [ ] Free text without reply → write to active session (most-recent-event); ambiguous → inline keyboard "Pick session"
-- [ ] `/sessions` lists all active sessions with name + running command
-- [ ] `/target <name>` sets default session for non-reply inputs
-- [ ] `/status` shows daemon uptime, queue depth, all sessions
-- [ ] `/new <agent>` spawns new agent session from Telegram
+- [x] `internal/daemon/threading.go` — store `message_id → session_id` for outbound session messages
+- [x] On inbound reply: look up parent message_id → resolve session → write to that PTY
+- [x] Free text without reply → write to sole/default active session; ambiguous → inline keyboard "Pick session"
+- [x] `/sessions` lists all active sessions with name + running command
+- [x] `/target <name>` sets default session for non-reply inputs
+- [x] `/status` shows daemon uptime, queue depth, all sessions
+- [x] `/new <agent>` spawns new agent session from Telegram
 
 ### Phase 7 — Tmux attach backend (3–5d)
 
@@ -516,8 +516,8 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [ ] Defensive `deleteWebhook` on every startup + alert if pre-existing webhook found
 - [ ] Bot identity check: `getMe` on startup, compare `id` against stored value, refuse to start if mismatched
 - [ ] `onibi doctor` complete per §6.4
-- [ ] `onibi log` (last N audit events from SQLite); `onibi log --export <file>`
-- [ ] `/snooze 30m`, `/snooze claude`, `/unsnooze`
+- [x] `onibi log` (last N audit events from SQLite); `onibi log --export <file>`
+- [x] `/snooze 30m`, `/snooze claude`, `/unsnooze`
 - [x] `setMyCommands` registered with Telegram so `/sessions`, `/status`, `/help`, `/snooze`, `/new`, `/log` appear in Telegram's native command UI
 - [x] `docs/security.md` written: threat model (copy §7.1), enforcements (copy §7.3), non-defenses (copy §7.4), checklist (copy §7.5), responsible disclosure contact
 - [ ] README rewrite (Telegram-first, drop PWA/Tauri references, include security model summary + 2FA call-out)

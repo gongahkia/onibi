@@ -17,6 +17,7 @@ type Session struct {
 	ID    string // stable opaque id (also passed to hooks via ONIBI_SESSION_ID)
 	Name  string // human-readable label (CLI --name or auto from agent)
 	Agent string // adapter name (claude, codex, ...)
+	Cmd   string
 	Host  *pty.Host
 	Buf   *RingBuffer
 

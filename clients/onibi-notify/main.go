@@ -111,7 +111,7 @@ func main() {
 // on stdin. We normalize it, ask the daemon, then emit provider output.
 func runWait(sock, typ, agent, format, response string) {
 	if typ != "approval_request" {
-		// not implemented — fail open
+		// unsupported RPC type — fail open
 		os.Exit(0)
 	}
 

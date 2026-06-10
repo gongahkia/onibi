@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -169,6 +170,9 @@ func (d *DB) ensureColumn(ctx context.Context, table, column, decl string) error
 		return err
 	}
 	_, err = d.sql.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+decl)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return nil
+	}
 	return err
 }
 

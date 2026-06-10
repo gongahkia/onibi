@@ -11,6 +11,7 @@ type SessionEntry struct {
 	Name       string
 	Agent      string
 	CWD        string
+	Command    string
 	Transport  string
 	TmuxTarget string
 	StartedAt  time.Time
@@ -18,22 +19,23 @@ type SessionEntry struct {
 	Ended      bool
 }
 
-func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, transport, tmuxTarget string, started time.Time) error {
+func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, command, transport, tmuxTarget string, started time.Time) error {
 	if transport == "" {
 		transport = "pty"
 	}
 	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO sessions(id, name, agent, cwd, transport, tmux_target, started_at, ended_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+		`INSERT INTO sessions(id, name, agent, cwd, cmd, transport, tmux_target, started_at, ended_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
 		 ON CONFLICT(id) DO UPDATE SET
 		   name=excluded.name,
 		   agent=excluded.agent,
 		   cwd=excluded.cwd,
+		   cmd=excluded.cmd,
 		   transport=excluded.transport,
 		   tmux_target=excluded.tmux_target,
 		   started_at=excluded.started_at,
 		   ended_at=NULL`,
-		id, name, agent, nullIfEmpty(cwd), transport, nullIfEmpty(tmuxTarget), started.Unix())
+		id, name, agent, nullIfEmpty(cwd), nullIfEmpty(command), transport, nullIfEmpty(tmuxTarget), started.Unix())
 	return err
 }
 
@@ -53,7 +55,7 @@ func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]Se
 		where = ""
 	}
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT id, name, agent, COALESCE(cwd, ''), transport, COALESCE(tmux_target, ''),
+		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
 		        started_at, ended_at
 		   FROM sessions `+where+`
 		  ORDER BY started_at DESC LIMIT ?`, n)
@@ -66,7 +68,7 @@ func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]Se
 		var e SessionEntry
 		var started int64
 		var ended sql.NullInt64
-		if err := rows.Scan(&e.ID, &e.Name, &e.Agent, &e.CWD, &e.Transport, &e.TmuxTarget, &started, &ended); err != nil {
+		if err := rows.Scan(&e.ID, &e.Name, &e.Agent, &e.CWD, &e.Command, &e.Transport, &e.TmuxTarget, &started, &ended); err != nil {
 			return nil, err
 		}
 		e.StartedAt = time.Unix(started, 0)

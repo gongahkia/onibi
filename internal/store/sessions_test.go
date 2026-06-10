@@ -15,14 +15,14 @@ func TestSessionStartRecentAndEnd(t *testing.T) {
 	defer db.Close()
 	ctx := context.Background()
 	started := time.Now().Add(-time.Minute).Truncate(time.Second)
-	if err := db.SessionUpsertStart(ctx, "s1", "claude", "claude", "/tmp", "pty", "", started); err != nil {
+	if err := db.SessionUpsertStart(ctx, "s1", "claude", "claude", "/tmp", "claude --resume", "pty", "", started); err != nil {
 		t.Fatal(err)
 	}
 	active, err := db.SessionsRecent(ctx, 10, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(active) != 1 || active[0].ID != "s1" || active[0].Ended {
+	if len(active) != 1 || active[0].ID != "s1" || active[0].Command != "claude --resume" || active[0].Ended {
 		t.Fatalf("active = %#v", active)
 	}
 	if err := db.SessionMarkEnded(ctx, "s1", time.Now()); err != nil {

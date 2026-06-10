@@ -164,6 +164,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args [
 		return nil, err
 	}
 	s := NewSession(id, name, agent, host, BufferSize)
+	s.Cmd = commandLine(bin, args)
 	if err := d.Registry.Add(s); err != nil {
 		_ = host.Close()
 		return nil, err
@@ -218,7 +219,7 @@ func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, "pty", "", s.StartedAt()); err != nil {
+	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, "pty", "", s.StartedAt()); err != nil {
 		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
 	}
 	_ = d.DB.AuditAppend(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
@@ -385,9 +386,15 @@ func (d *Daemon) sessionForEvent(ev intake.Event) *Session {
 		name += "-" + shortID(ev.ProviderSessionID)
 	}
 	s := NewSession(id, name, agent, nil, BufferSize)
+	s.Cmd = ev.Cmd
 	_ = d.Registry.Add(s)
 	d.persistSessionStart(context.Background(), s, ev.CWD)
 	return s
+}
+
+func commandLine(bin string, args []string) string {
+	parts := append([]string{bin}, args...)
+	return strings.Join(parts, " ")
 }
 
 func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {

@@ -120,7 +120,11 @@ func (d *Daemon) sessionsText() string {
 	var b strings.Builder
 	b.WriteString("Active sessions:\n")
 	for _, s := range live {
-		fmt.Fprintf(&b, "%s  %s  %s  age=%s\n", s.ID, s.Name, s.Agent, time.Since(s.StartedAt()).Truncate(time.Second))
+		cmd := s.Cmd
+		if cmd == "" {
+			cmd = s.Agent
+		}
+		fmt.Fprintf(&b, "%s  %s  %s  age=%s  cmd=%s\n", s.ID, s.Name, s.Agent, time.Since(s.StartedAt()).Truncate(time.Second), cmd)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -132,8 +136,8 @@ func (d *Daemon) statusText(ctx context.Context) string {
 			pending = fmt.Sprintf("%d", len(p))
 		}
 	}
-	return fmt.Sprintf("Onibi status\nuptime=%s\nsessions=%d\npending_approvals=%s",
-		time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), pending)
+	return fmt.Sprintf("Onibi status\nuptime=%s\nsessions=%d\npending_approvals=%s\n\n%s",
+		time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), pending, d.sessionsText())
 }
 
 func helpText() string {
