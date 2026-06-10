@@ -1,3 +1,17 @@
-# Claude Code Adapter
+# Claude Code hook templates
 
-The installer merges the HTTP `PreToolUse` hook into `~/.claude/settings.json`, preserving unrelated hooks. Onibi refuses to install when `claude --version` reports a version older than 2.0.10.
+Source-of-truth templates installed by `onibi install-hooks --agent claude`
+(phase 8) into `~/.claude/settings.json` as a guarded block.
+
+Events used:
+
+- `Stop` — turn complete; emits `agent_done` event.
+- `PreToolUse` — blocking approval; emits `approval_request` event and waits
+  for the daemon's decision (`updatedInput` for edits, exit 2 for deny).
+
+Hook script body invokes `onibi-notify` which talks to the daemon over the
+local Unix socket. If the daemon is down the hook exits 0 silently — never
+blocks the user's session.
+
+Hashes recorded in the SQLite `hooks` table on install; `onibi doctor`
+verifies (threat T9 in TODO §7.1).

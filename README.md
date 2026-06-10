@@ -1,124 +1,79 @@
 # Onibi
 
-Onibi - local-first approval gate for multi-vendor coding agents.
+Telegram-controlled coding-agent host. A single static Go binary runs as a
+user-agent on your laptop; coding agents (Claude Code, Codex, OpenCode,
+Goose) live under PTYs that the daemon owns, and approval prompts /
+turn-completion signals get routed to a Telegram bot. You approve, deny,
+edit, and inject text from your phone — no PWA install, no tunnels, no
+inbound network, no accounts.
 
-[![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg?branch=v1.5)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
+[![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Onibi runs Claude Code, Codex, OpenCode, Goose, Qoder, Copilot CLI, and other local agents in a desktop or headless daemon. When an agent pauses before a tool call, Onibi blocks the hook, sends the approval to your desktop and phone, and lets you allow, deny, or edit the payload before it runs.
+> **Status:** v2 development in progress (Phase 0 — repo reset complete).
+> See `TODO-10-JUN.md` for the single source of truth on plan, phases,
+> security model, and decisions. Prior v1 (Swift, archived under
+> `docs/archive/v0-README.md`) and v1.5 (Rust+Tauri+PWA, archived under
+> `docs/archive/v1.5-rust/`) never shipped. This is the right shape per
+> antirez/tgterm validation.
 
-![Onibi launch screencast](asset/screencast/onibi-launch.gif)
+## Why Telegram
 
-## Install
+- The app is already on your phone, authenticated, and supports rich UI
+  (inline keyboards, photos, replies, threading).
+- Zero install on mobile. Zero network setup. Zero certs.
+- Outbound HTTPS only — daemon never opens a port.
 
-macOS:
-
-```sh
-brew tap gongahkia/onibi
-brew install onibi
-```
-
-Linux / Raspberry Pi:
-
-```sh
-curl -fsSL https://onibi.sh/install.sh | bash
-```
-
-Source checkout:
+## Install (not yet shipping)
 
 ```sh
-git clone https://github.com/gongahkia/onibi
-cd onibi
-pnpm install
-cd app/src-tauri
-cargo build
-```
-
-## Quick Start
-
-```sh
+brew install gongahkia/onibi/onibi
 onibi setup
-onibi doctor
-onibi adapter install claude-code
-onibi --headless --auto-transports
+onibi install-service
 ```
 
-Then scan the pairing QR with your phone, install the PWA, and run:
+`onibi setup` walks you through three user-visible steps:
 
-```sh
-claude code "remove the old generated test fixtures"
-```
+1. Create a bot in @BotFather and paste the token (stored in macOS Keychain).
+2. Tap the deeplink the wizard prints (or scan the terminal QR) to permanently
+   pair your Telegram account as the daemon's owner.
+3. Acknowledge the Telegram 2-step verification reminder (mandatory — see
+   security model).
 
-When Claude pauses at a tool call, Onibi shows the approval on desktop and phone. Editing `rm -rf tests/legacy` into `mv tests/legacy tests/legacy.bak` returns an `updatedInput` decision to the agent. The PWA can also send literal text or allowlisted presets into a selected Onibi pane over the same authenticated local transport.
+After that you never see an auth prompt during normal use. Pair once, then
+linked.
+
+## Security in one paragraph
+
+The daemon's only network surface is outbound HTTPS to `api.telegram.org`.
+The bot token is stored in your macOS Keychain (or `.env` 0600 fallback) and
+never appears in argv or logs. Every inbound Telegram update is checked
+against the owner chat_id at a chokepoint before any handler runs.
+Approvals expire after 5 minutes. The deeplink-pair token is single-use,
+constant-time-compared, and 5-minute-TTL'd, eliminating the
+first-message-becomes-owner race. The single threat we do not defend against
+is compromise of the user's Telegram account itself — which is why the setup
+wizard requires acknowledgment of Telegram's built-in 2-step verification.
+Full threat model in `TODO-10-JUN.md` §7 and (later) `docs/security.md`.
 
 ## Architecture
 
-![Onibi architecture](docs/architecture.png)
+Single Go binary. Subcommands:
 
-Onibi is a single Rust/Tauri codebase with a headless mode. The same approval server backs the desktop UI, the mobile PWA, and the CLI.
+- `onibi setup` — one-time pair flow
+- `onibi run` — start the daemon (called by LaunchAgent / systemd)
+- `onibi install-hooks --agent <name>` — write hook block to agent settings
+- `onibi install-service` — install LaunchAgent (macOS) or systemd user unit
+- `onibi doctor` — health + integrity check
+- `onibi rotate-token` — replace bot token via @BotFather /revoke
+- `onibi sessions` / `onibi log` — introspection
+- `onibi version`
 
-Core protocol endpoints:
+The same binary spawned without subcommand prints help.
 
-- `POST /v1/approval/request` - adapter long-polls until a decision exists.
-- `POST /v1/approval/:id/decide` - desktop or phone submits allow/deny/edit.
-- `POST /v1/panes/:id/send-text` - authenticated PWA sends literal text to a pane.
-- `POST /v1/panes/:id/send-keys` - authenticated PWA runs a server-owned preset key sequence.
-- `WS /v1/realtime` - approvals, run events, terminal output, and heartbeat.
-- `GET /v1/qr` - pairing payload with token, machine ID, and transports.
-
-## Agent Support
-
-Approval-blocking adapters:
-
-- Claude Code - full approve, deny, and edit-before-approve through `updatedInput`; optional ACP prompt/resume path.
-- Codex CLI - Bash approval interception; `apply_patch` and MCP tools are not blocked.
-- OpenCode - provider-event bridge, blocking pre-tool approval, and edited input forwarding.
-- Qoder CLI - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
-- GitHub Copilot CLI - lifecycle events, blocking pre-tool approval, edited argument forwarding.
-- Goose - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
-- Cursor and OMP - lifecycle events and allow/deny blocking hooks without edited-input forwarding.
-- Pi - native extension events, blocking tool-call approval, and edited input forwarding.
-
-Mirror, protocol, or resume-only adapters:
-
-- Hermes - ACP permission approval plus GUI resume/reattach from provider session metadata.
-- Gemini - resume metadata when provider session IDs are available.
-- Aider - terminal mirror plus `--restore-chat-history` stale-session fallback.
-
-Platforms:
-
-| Platform | Desktop app | Headless daemon | Notes |
-| --- | ---: | ---: | --- |
-| macOS arm64/x86_64 | Yes | Yes | Homebrew install path. |
-| Linux x86_64 | Yes | Yes | AppImage/deb plus curl-pipe daemon. |
-| Raspberry Pi 5 arm64 | No | Yes | Headless-first self-hosted path. |
-| Windows | No | No | Not planned for v1.5. |
-
-Transports:
-
-| Transport | Public LTE access | Account | Notes |
-| --- | ---: | ---: | --- |
-| Tailscale Funnel | Yes | Tailscale | Best persistent personal setup. |
-| Cloudflare Quick Tunnel | Yes | No | Best demo path; URL is ephemeral. |
-| LAN HTTPS | No | No | Requires trusting Onibi's self-signed cert. |
-
-## How Onibi Is Different
-
-Onibi is the local-first approval gate for multi-vendor agents with edit-before-approve. The approval is a structured protocol object, not just a notification: the tool call blocks, your phone gets context, and the final decision can include an edited payload.
-
-The desktop app, mobile PWA, CLI, and headless daemon all talk to the same local server. There are no accounts, no telemetry, and no hosted relay in v1.5.
-
-## Docs
-
-- [Security model](docs/security.md)
-- [Adapter capabilities](docs/adapters.md)
-- [Approval policies](docs/policies.md)
-- [Transports](docs/transports.md)
-- [Troubleshooting](docs/troubleshooting.md)
-
-## Roadmap
-
-Near-term work is focused on landing-page/docs cleanup, WSL2 install notes, and post-launch desktop parity for the PWA remote-input composer.
+A second tiny binary `onibi-notify` is invoked by agent and shell hooks; it
+writes a JSON event to the daemon's local Unix-domain socket and fails open
+when the daemon is down.
 
 ## License
 

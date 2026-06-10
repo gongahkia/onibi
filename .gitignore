@@ -1,66 +1,28 @@
-# v1.5
-target/
-dist/
-dist-ssr/
-node_modules/
-*.local
-.DS_Store
+# onibi v2 (Go)
+/onibi
+/dist/
+/build/
+/bin/
+*.exe
+*.test
+*.out
+*.prof
+coverage.txt
 
-# Xcode
-*.xcodeproj/*
-!*.xcodeproj/project.pbxproj
-!*.xcodeproj/xcshareddata/
-!*.xcworkspace/contents.xcworkspacedata
-/*.gcno
-**/xcshareddata/WorkspaceSettings.xcsettings
+# secrets — NEVER commit
+.env
+.env.local
+*.token
+*.totp
+mybot.sqlite
+onibi.sqlite
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 
-# Build generated
-build/
-DerivedData/
-
-# Various settings
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata/
-
-# Other
-*.moved-aside
-*.xcuserstate
-*.xcscmblueprint
-
-# Swift Package Manager
-.build/
-Packages/
-Package.pins
-Package.resolved
-*.xcodeproj
-.swiftpm/
-
-# CocoaPods
-Pods/
-*.xcworkspace
-
-# Carthage
-Carthage/Build/
-
-# Accio
-Dependencies/
-.accio/
-
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
-# Code Injection
-iOSInjectionProject/
+# state dir snapshots
+state/
 
 # macOS
 .DS_Store
@@ -68,18 +30,34 @@ iOSInjectionProject/
 .LSOverride
 ._*
 
+# editors
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
 *.log
 
-# OnibiWeb
-OnibiWeb/node_modules/
-OnibiWeb/dist/
-OnibiWeb/*.tsbuildinfo
-OnibiWeb/vite.config.js
-OnibiWeb/vite.config.d.ts
-
+# CLAUDE / agents instruction symlinks
 CLAUDE.md
 AGENTS.md
 
+# untracked external refs
 .codex
 .playwright-cli
 t3code
+tgterm
+
+# legacy v1.5 (TS/Node + Rust/Tauri) artifacts that may regenerate if user runs old tooling
+node_modules/
+.pnpm-store/
+target/
+dist-ssr/
+*.local
+.swiftpm/
+.build/
+Pods/
+xcuserdata/
+DerivedData/

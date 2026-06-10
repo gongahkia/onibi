@@ -1,3 +1,3 @@
-# Goose Adapter
+# Goose hook templates
 
-Phase-03 registers Goose as a stub adapter. No hooks are installed.
+Templates installed by `onibi install-hooks --agent goose` (phase 8).

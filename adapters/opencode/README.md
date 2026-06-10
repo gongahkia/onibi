@@ -1,3 +1,10 @@
-# OpenCode Adapter
+# OpenCode plugin templates
 
-Phase-03 registers OpenCode as a stub adapter. No hooks are installed until a stable approval interception surface is available.
+Templates for the OpenCode TS plugin API, installed by
+`onibi install-hooks --agent opencode` (phase 8).
+
+Events used:
+
+- `tool.execute.before` — blocking approval.
+- `permission.replied` — captures user's decision to mirror into our audit log.
+- `session.idle` — turn-complete signal.
