@@ -10,6 +10,7 @@ export const policyPackNames = [
   "sg-pdpa-strict",
   "sg-financial-ai",
   "asean-genai-baseline",
+  "appsec-agent-baseline",
   "web-search-safe",
   "sg-web-research",
   "browser-automation-strict"
@@ -368,6 +369,64 @@ const packs: readonly PolicyPack[] = [
           when: 'tool == "Bash" && args.command =~ "(gh (issue|pr|label|release) (create|edit|delete|reopen|comment|merge|close)|git push|curl -X (POST|PUT|PATCH|DELETE))"',
           action: "require-approval",
           approverRole: "ai-governance-reviewer"
+        }
+      ]
+    }
+  },
+  {
+    name: "appsec-agent-baseline",
+    description:
+      "Safe AppSec agent defaults for reproducible triage without exploit execution.",
+    metadata: {
+      version: "1.0.0",
+      region: "global",
+      maturity: "strict",
+      controlMappings: [
+        "appsec-triage",
+        "exploit-execution-prevention",
+        "evidence-review",
+        "audit-logging"
+      ],
+      changelog: ["Initial AppSec agent harness policy pack."]
+    },
+    ruleset: {
+      rules: [
+        {
+          id: "appsec-agent-deny-destructive-shell",
+          when: 'tool == "Bash" && args.command =~ "(rm -rf|sudo rm|mkfs|diskutil erase|git reset --hard|git clean -fd)"',
+          action: "deny"
+        },
+        {
+          id: "appsec-agent-deny-secret-exfil",
+          when: 'tool == "Bash" && args.command =~ "(curl|wget|nc|scp).*(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)"',
+          action: "deny"
+        },
+        {
+          id: "appsec-agent-deny-exploit-execution",
+          when: 'tool == "Bash" && args.command =~ "(msfconsole|metasploit|sqlmap|hydra|exploit|reverse shell|meterpreter|payload)"',
+          action: "deny"
+        },
+        {
+          id: "appsec-agent-deny-persistence-lateral",
+          when: 'tool == "Bash" && args.command =~ "(persistence|lateral movement|pass-the-hash|kerberoast|mimikatz)"',
+          action: "deny"
+        },
+        {
+          id: "appsec-agent-review-active-scanner",
+          when: 'tool == "Bash" && args.command =~ "(nmap|nuclei|zap|ffuf|gobuster|nikto|burp|dirsearch)"',
+          action: "require-approval",
+          approverRole: "appsec-reviewer"
+        },
+        {
+          id: "appsec-agent-review-container-run",
+          when: 'tool == "Bash" && args.command =~ "docker (run|compose up|exec)"',
+          action: "require-approval",
+          approverRole: "appsec-reviewer"
+        },
+        {
+          id: "appsec-agent-log-docker-build",
+          when: 'tool == "Bash" && args.command =~ "docker build"',
+          action: "log-only"
         }
       ]
     }

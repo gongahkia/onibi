@@ -5,7 +5,6 @@ packages:
   - "packages/nanoclaw"
   - "packages/codegen"
   - "packages/cli"
-  - "packages/findevil"
   - "packages/workflow-spec"
   - "packages/testing"
   - "packages/adapters"

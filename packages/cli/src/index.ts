@@ -63,7 +63,7 @@ import {
   versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
-import { runFindEvilCommand } from "./findevil/index.js";
+import { appsecAudit, runAppsecCommand } from "./appsec.js";
 
 type JsonRecord = Record<string, unknown>;
 type DoctorStatus = "pass" | "warn" | "fail";
@@ -263,13 +263,13 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(await runOtlpSmoke(args));
     case "cross-agent-replay-smoke":
       return printJson(runCrossAgentReplaySmoke());
-    case "findevil":
-      return runFindEvilCommand(args);
+    case "appsec":
+      return runAppsecCommand(args);
     case "mcp":
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <help|version|doctor|demo|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|findevil|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <help|version|doctor|demo|appsec|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -293,17 +293,25 @@ export {
   versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
+export { appsecAudit };
 
 export function runHelpCommand(): JsonRecord {
   return {
     ok: true,
     name: "kelp-claw",
     description:
-      "Agent Skill Governance Framework with policy, sandboxing, replay, evidence, and audit.",
+      "Reproducible AppSec Agent Harness with scoped triage, policy, SARIF, replay, evidence, and audit.",
     usage: "kelp-claw <command> [options]",
     workflows: [
       {
-        name: "Assess a skill",
+        name: "Audit a Dockerized app",
+        commands: [
+          "kelp-claw appsec audit --context . --dockerfile Dockerfile --agent-command ./appsec-agent.sh",
+          "kelp-claw verify-audit-bundle .kelpclaw/appsec/<runId>/audit-bundle"
+        ]
+      },
+      {
+        name: "Assess an agent skill",
         commands: [
           "kelp-claw compat ./SKILL.md --policy baseline",
           "kelp-claw policy explain ./SKILL.md --policy baseline",
@@ -326,19 +334,16 @@ export function runHelpCommand(): JsonRecord {
     commands: [
       {
         group: "adoption",
-        entries: ["help", "version", "doctor", "demo governance", "compat", "policy explain"]
+        entries: ["help", "version", "doctor", "appsec audit", "demo governance", "compat", "policy explain"]
       },
       {
         group: "runtime",
         entries: [
+          "appsec audit",
           "run-skill",
           "replay-diff",
           "verify-claude-code",
-          "cross-agent-replay-smoke",
-          "findevil verify",
-          "findevil firewall",
-          "findevil mcp",
-          "findevil sentinel"
+          "cross-agent-replay-smoke"
         ]
       },
       {
@@ -369,6 +374,7 @@ export async function runDoctorCommand(args: readonly string[] = []): Promise<Js
     nodeVersionCheck(),
     await writableDirectoryCheck(root),
     policyPackCheck("baseline"),
+    policyPackCheck("appsec-agent-baseline"),
     policyPackCheck("sg-agentic-ai-baseline"),
     policyPackCheck("sg-pdpa-strict"),
     policyPackCheck("web-search-safe"),
