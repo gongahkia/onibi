@@ -8,12 +8,12 @@
 //     payload from stdin, sends it, blocks for the daemon's decision,
 //     writes the agent-appropriate response JSON to stdout, exits with a
 //     code the agent's hook system understands:
-//        - approve  → exit 0
-//        - edited   → exit 0 with updatedInput in stdout JSON
-//        - deny     → exit 2 with reason on stderr
-//        - expired  → exit 2 with "Approval expired" on stderr
-//        - cancelled→ exit 0 (let the tool proceed normally — daemon
-//                     unavailable shouldn't block work)
+//     - approve  → exit 0
+//     - edited   → exit 0 with updatedInput in stdout JSON
+//     - deny     → exit 2 with reason on stderr
+//     - expired  → exit 2 with "Approval expired" on stderr
+//     - cancelled→ exit 0 (let the tool proceed normally — daemon
+//     unavailable shouldn't block work)
 //
 // Identity is supplied by env vars set when the daemon spawned the agent:
 //

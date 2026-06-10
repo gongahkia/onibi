@@ -21,12 +21,12 @@ type MessageHandler func(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 // chokepoint per §11 rule 13: every inbound update is filtered through
 // MustBeOwner before reaching any handler.
 type Router struct {
-	Owner    *auth.Owner
-	Log      *slog.Logger
-	OnCB     CallbackHandler
-	OnText   MessageHandler
-	OnReply  MessageHandler // when message.reply_to_message is set
-	dropped  uint64         // counter of non-owner drops (informational)
+	Owner   *auth.Owner
+	Log     *slog.Logger
+	OnCB    CallbackHandler
+	OnText  MessageHandler
+	OnReply MessageHandler // when message.reply_to_message is set
+	dropped uint64         // counter of non-owner drops (informational)
 }
 
 // Dispatch is the single entry point invoked by the telegram client's
