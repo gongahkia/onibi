@@ -16,11 +16,16 @@ type adapterStatus struct {
 	Support          string `json:"support"`
 	Detected         bool   `json:"detected"`
 	Installed        bool   `json:"installed"`
+	Managed          bool   `json:"managed"`
+	HashRecorded     bool   `json:"hash_recorded"`
+	Tampered         bool   `json:"tampered"`
+	Adoptable        bool   `json:"adoptable"`
 	InstalledVersion string `json:"installed_version,omitempty"`
 	BundledVersion   string `json:"bundled_version"`
 	Outdated         bool   `json:"outdated"`
 	Path             string `json:"path,omitempty"`
 	Message          string `json:"message,omitempty"`
+	Next             string `json:"next,omitempty"`
 }
 
 func runAdapters(cmd *cobra.Command, _ []string) error {
@@ -70,11 +75,16 @@ func statusFromInfo(info common.Info, detected bool) adapterStatus {
 		Support:          info.Support,
 		Detected:         detected,
 		Installed:        info.Installed,
+		Managed:          info.Managed,
+		HashRecorded:     info.HashRecorded,
+		Tampered:         info.Tampered,
+		Adoptable:        info.Adoptable,
 		InstalledVersion: installed,
 		BundledVersion:   info.BundledVersion,
 		Outdated:         info.Outdated,
 		Path:             info.InstallPath,
 		Message:          info.Message,
+		Next:             info.Next,
 	}
 }
 

@@ -25,6 +25,8 @@ type pairClient interface {
 	telegram.API
 }
 
+var ErrOwnerAlreadyPaired = errors.New("owner already paired")
+
 var newPairClient = func(ctx context.Context, token string, handler telegram.HandlerFunc) (pairClient, error) {
 	return telegram.New(ctx, telegram.Options{
 		Token:      token,
@@ -81,7 +83,7 @@ func Run(ctx context.Context, db *store.DB, sec *secrets.Store, flags Flags, io 
 			return 0, fmt.Errorf("check owner: %w", err)
 		}
 		if exists {
-			return 0, errors.New("owner already paired — re-run with --rotate-owner to replace, or `onibi rotate-token` to keep owner and rotate token")
+			return 0, fmt.Errorf("%w — re-run with --rotate-owner to replace, or `onibi rotate-token` to keep owner and rotate token", ErrOwnerAlreadyPaired)
 		}
 	}
 
@@ -129,12 +131,27 @@ func Run(ctx context.Context, db *store.DB, sec *secrets.Store, flags Flags, io 
 		return 0, err
 	}
 
-	fmt.Fprintln(io.Out, "\nSetup complete. Next steps:")
-	fmt.Fprintln(io.Out, "  • onibi install-service     # auto-start on every login")
-	fmt.Fprintln(io.Out, "  • onibi install-hooks       # wire up coding-agent hooks")
-	fmt.Fprintln(io.Out, "  • onibi doctor              # health + integrity check")
-	fmt.Fprintln(io.Out, "  • onibi run                 # start the daemon manually")
+	fmt.Fprintln(io.Out, "\nSetup complete. Preferred next command:")
+	fmt.Fprintln(io.Out, "  onibi setup --complete      # service, hooks, doctor")
+	fmt.Fprintln(io.Out, "Manual alternatives:")
+	fmt.Fprintln(io.Out, "  onibi install-service")
+	fmt.Fprintln(io.Out, "  onibi install-hooks --interactive")
+	fmt.Fprintln(io.Out, "  onibi doctor")
 	return chatID, nil
+}
+
+func welcomeText() string {
+	return strings.Join([]string{
+		"Onibi is paired.",
+		"",
+		"Useful commands:",
+		"/new <agent> - start a session",
+		"/sessions - list sessions",
+		"/status - daemon health",
+		"/help - command list",
+		"",
+		"Run onibi setup --complete on your laptop to install the service and hooks.",
+	}, "\n")
 }
 
 // promptToken reads the bot token either from stdin (--token-stdin) or
@@ -222,6 +239,10 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 		_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Paired. This chat is now the owner channel for Onibi.",
+		})
+		_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   welcomeText(),
 		})
 		doneCh <- update.Message.From.ID
 	}

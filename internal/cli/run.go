@@ -73,6 +73,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if want, ok, err := db.KVGetString(ctx, auth.KVKeyBotID); err != nil {
+		return err
+	} else if ok && want != "" && want != fmt.Sprintf("%d", bot.Self().ID) {
+		return fmt.Errorf("bot identity mismatch: stored %s got %d; run `onibi rotate-token`", want, bot.Self().ID)
+	}
 
 	d := daemon.New(daemon.Options{
 		Paths:        paths,

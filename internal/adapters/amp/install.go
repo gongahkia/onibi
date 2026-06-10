@@ -56,7 +56,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			info.Message = "not installed"
+			common.MarkNotInstalled(&info)
 			return info
 		}
 		info.Message = err.Error()
@@ -65,13 +65,18 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	src := string(body)
 	version := installedVersion(src)
 	info.Installed = strings.Contains(src, `ONIBI_AGENT = "amp"`)
+	if !info.Installed {
+		if strings.Contains(src, "onibi-notify") {
+			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --agent amp to adopt"
+			info.Next = "onibi install-hooks --agent amp"
+		} else {
+			common.MarkNotInstalled(&info)
+		}
+		return info
+	}
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != "" && version != common.IntegrationVersion
-	if err := common.VerifyRecorded(ctx, db, Agent, path, body); err != nil {
-		info.Message = err.Error()
-	} else {
-		info.Message = "Amp plugin installed"
-	}
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Amp plugin installed", "onibi install-hooks --agent amp")
 	return info
 }
 
@@ -88,6 +93,21 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 		return errors.New("onibi-managed Amp plugin is missing")
 	}
 	return common.VerifyRecorded(ctx, db, Agent, path, body)
+}
+
+func Adopt(ctx context.Context, db *store.DB) error {
+	path, err := PluginPath()
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(body), `ONIBI_AGENT = "amp"`) {
+		return errors.New("onibi-managed Amp plugin is missing")
+	}
+	return common.Record(ctx, db, Agent, path, body)
 }
 
 func installedVersion(src string) string {

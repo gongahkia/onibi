@@ -1,33 +1,23 @@
 # Onibi
 
-Telegram-controlled coding-agent host. A single static Go binary runs as a
-user-agent on your laptop; coding agents (Claude Code, Codex, OpenCode,
-Goose) live under PTYs that the daemon owns, and approval prompts /
-turn-completion signals get routed to a Telegram bot. You approve, deny,
-edit, and inject text from your phone — no PWA install, no tunnels, no
-inbound network, no accounts.
+Telegram-controlled coding-agent host.
+
+Onibi runs as a local user daemon on macOS/Linux, hosts coding agents under
+PTYs, and routes approvals, turn-complete signals, screenshots, and prompt
+injection through a Telegram bot. It uses outbound HTTPS to Telegram only: no
+tunnels, no inbound ports, no SaaS account.
 
 [![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> **Status:** v2 development. Core setup, daemon, approvals, prompt queue,
-> Telegram session controls, multi-agent hook installers, service install,
-> doctor, and release snapshot flow are implemented. Live Telegram/provider
-> e2e is still required before a public tagged release.
-> See `TODO-10-JUN.md` for the single source of truth on plan, phases,
-> security model, and decisions. Prior v1 (Swift, archived under
-> `docs/archive/v0-README.md`) and v1.5 (Rust+Tauri+PWA, archived under
-> `docs/archive/v1.5-rust/`) never shipped. This is the right shape per
-> antirez/tgterm validation.
-
-## Why Telegram
-
-- The app is already on your phone, authenticated, and supports rich UI
-  (inline keyboards, photos, replies, threading).
-- Zero install on mobile. Zero network setup. Zero certs.
-- Outbound HTTPS only — daemon never opens a port.
+> Status: v2 development. Core daemon, setup, approvals, prompt queue,
+> Telegram controls, service install, doctor, and adapters are implemented.
+> Live provider e2e and signed public release validation still gate a stable
+> tag.
 
 ## Install
+
+Development:
 
 ```sh
 git clone https://github.com/gongahkia/onibi
@@ -36,69 +26,66 @@ make install
 onibi setup --complete
 ```
 
-`onibi setup --complete` walks you through:
+Release path after the tap is published:
 
-1. Create a bot in @BotFather and paste the token (stored in macOS Keychain).
-2. Tap the deeplink the wizard prints (or scan the terminal QR) to permanently
-   pair your Telegram account as the daemon's owner.
-3. Acknowledge the Telegram 2-step verification reminder (mandatory — see
-   security model).
-4. Optionally install the background service and detected agent/shell hooks.
-5. Run a final `onibi doctor` summary.
+```sh
+brew install --cask gongahkia/onibi/onibi
+onibi setup --complete
+```
 
-After that you never see an auth prompt during normal use. Pair once, then
-linked.
+`setup --complete` pairs your Telegram bot, stores the token in Keychain when
+available, offers service install, offers detected agent hooks, and ends with
+`onibi doctor`.
 
-For release packaging and Homebrew tap work, see `docs/release.md`.
+## Use
 
-## Security in one paragraph
-
-The daemon's only network surface is outbound HTTPS to `api.telegram.org`.
-The bot token is stored in your macOS Keychain (or `.env` 0600 fallback) and
-never appears in argv or logs. Every inbound Telegram update is checked
-against the owner chat_id at a chokepoint before any handler runs.
-Approvals expire after 5 minutes. The deeplink-pair token is single-use,
-constant-time-compared, and 5-minute-TTL'd, eliminating the
-first-message-becomes-owner race. The single threat we do not defend against
-is compromise of the user's Telegram account itself — which is why the setup
-wizard requires acknowledgment of Telegram's built-in 2-step verification.
-Full threat model in `TODO-10-JUN.md` §7 and (later) `docs/security.md`.
-
-## Architecture
-
-Single Go binary. Subcommands:
-
-- `onibi setup` — one-time pair flow
-- `onibi run` — start the daemon (called by LaunchAgent / systemd)
-- `onibi install-hooks --agent <name>` — write hook block/plugin to agent settings
-- `onibi install-service` — install LaunchAgent (macOS) or systemd user unit
-- `onibi doctor` — health + integrity check
-- `onibi adapters` — detection + hook status for all supported integrations
-- `onibi rotate-token` — replace bot token via @BotFather /revoke
-- `onibi sessions` / `onibi log` — introspection
-- `onibi version`
-
-The same binary spawned without subcommand prints help.
-
-A second tiny binary `onibi-notify` is invoked by agent and shell hooks; it
-writes a JSON event to the daemon's local Unix-domain socket and fails open
-when the daemon is down.
-
-Current first-class adapters: Claude, Codex, OpenCode, Goose, Gemini,
-GitHub Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
-Blocking approvals are used where the provider supports them; Goose and shell
-hooks are event/notification bridges.
+```sh
+onibi doctor
+onibi adapters
+onibi run claude
+```
 
 Telegram commands:
 
-- `/new`, `/sessions`, `/target`, `/status`, `/help`
-- `/prompt`, `/queue`, `/editprompt`, `/cancelprompt`, `/moveprompt`, `/flushqueue`
-- `/peek`, `/interrupt`, `/kill`, `/rename`, `/menu`
-- `/snooze`, `/unsnooze`, `/log`, `/text`, `/screenshot`
+- `/new <agent>`
+- `/sessions`
+- `/status`
+- `/prompt <text>`
+- `/peek`
+- `/interrupt`
+- `/kill`
+- `/snooze`
+- `/log`
+- `/help`
 
-Telegram free text is stored in a durable per-session prompt queue. The daemon
-dispatches one prompt at a time and waits for the next turn-complete/idle
-signal before sending the next queued prompt.
+Supported adapters: Claude Code, Codex, OpenCode, Goose, Gemini, GitHub
+Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
+
+## Security
+
+Bot token storage prefers macOS Keychain or Linux Secret Service; `.env` is a
+0600 fallback. Every inbound Telegram update is checked against the paired
+owner chat id before handlers run. Approvals expire. Pairing uses a single-use
+deeplink token. Onibi does not defend against full compromise of the local user
+account or owner Telegram account.
+
+Enable Telegram 2-step verification. Full model: [docs/security.md](docs/security.md).
+
+## Recovery
+
+Start with:
+
+```sh
+onibi doctor --fix
+```
+
+Then see [docs/troubleshooting.md](docs/troubleshooting.md) for lost token,
+owner rotation, stale webhook, no updates, sleep/wake, service, and hook drift.
+
+## Release
+
+Release checklist and signing/notarization rules live in
+[docs/release.md](docs/release.md).
 
 ## License
 

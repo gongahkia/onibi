@@ -81,7 +81,7 @@ func statusFile(ctx context.Context, db *store.DB, path string) common.Info {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			info.Message = "not installed"
+			common.MarkNotInstalled(&info)
 			return info
 		}
 		info.Message = err.Error()
@@ -90,14 +90,34 @@ func statusFile(ctx context.Context, db *store.DB, path string) common.Info {
 	src := string(body)
 	version := installedVersion(src)
 	info.Installed = strings.Contains(src, `ONIBI_AGENT = "pi"`)
+	if !info.Installed {
+		if strings.Contains(src, "onibi-notify") {
+			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --agent pi to adopt"
+			info.Next = "onibi install-hooks --agent pi"
+		} else {
+			common.MarkNotInstalled(&info)
+		}
+		return info
+	}
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != "" && version != common.IntegrationVersion
-	if err := common.VerifyRecorded(ctx, db, Agent, path, body); err != nil {
-		info.Message = err.Error()
-	} else {
-		info.Message = "Pi extension installed"
-	}
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Pi extension installed", "onibi install-hooks --agent pi")
 	return info
+}
+
+func Adopt(ctx context.Context, db *store.DB) error {
+	path, err := ExtensionPath()
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(body), `ONIBI_AGENT = "pi"`) {
+		return errors.New("onibi-managed Pi extension is missing")
+	}
+	return common.Record(ctx, db, Agent, path, body)
 }
 
 func installedVersion(src string) string {

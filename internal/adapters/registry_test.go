@@ -51,6 +51,31 @@ func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
 	}
 }
 
+func TestStatusReportsAdoptableWhenHashMissing(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ONIBI_CODEX_HOOKS", filepath.Join(dir, "codex-hooks.json"))
+	a, _ := Get("codex")
+	if err := a.Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL().ExecContext(context.Background(), `DELETE FROM hooks WHERE agent = 'codex'`); err != nil {
+		t.Fatal(err)
+	}
+	info := a.Status(context.Background(), db)
+	if !info.Installed || !info.Managed || !info.Adoptable || info.HashRecorded || info.Next == "" {
+		t.Fatalf("bad status: %+v", info)
+	}
+}
+
 func TestShellInstallVerifyUninstall(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

@@ -2,15 +2,13 @@ package claude
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
+	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -66,19 +64,8 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 		return err
 	}
 
-	// record hash for tamper detection (TODO §7.3, T9). The hash covers
-	// both managed entries concatenated so any tampering of either is
-	// detected.
-	combined := struct {
-		Stop, PreToolUse map[string]any
-	}{stop, pre}
-	body, _ := json.Marshal(combined)
-	sum := sha256.Sum256(body)
-	_, err = db.SQL().ExecContext(ctx,
-		`INSERT INTO hooks(agent, path, sha256, installed_at) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(agent, path) DO UPDATE SET sha256=excluded.sha256, installed_at=excluded.installed_at`,
-		"claude", path, hex.EncodeToString(sum[:]), time.Now().Unix())
-	return err
+	body := managedBody(stop, pre)
+	return common.Record(ctx, db, "claude", path, body)
 }
 
 // Uninstall removes all Onibi-managed hooks from Claude's settings.json.
@@ -99,8 +86,7 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err := writeJSON(path, cleaned); err != nil {
 		return err
 	}
-	_, err = db.SQL().ExecContext(ctx, `DELETE FROM hooks WHERE agent = ? AND path = ?`, "claude", path)
-	return err
+	return common.DeleteRecord(ctx, db, "claude", path)
 }
 
 // VerifyHash returns nil iff the currently installed hook block (Stop +
@@ -110,30 +96,44 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	row := db.SQL().QueryRowContext(ctx,
-		`SELECT sha256 FROM hooks WHERE agent = ? AND path = ?`, "claude", path)
-	var want string
-	if err := row.Scan(&want); err != nil {
-		return fmt.Errorf("no installed hash on record: %w", err)
-	}
-	existing, err := readJSON(path)
+	body, err := ManagedBody(path)
 	if err != nil {
 		return err
+	}
+	return common.VerifyRecorded(ctx, db, "claude", path, body)
+}
+
+func Adopt(ctx context.Context, db *store.DB) error {
+	path, err := SettingsPath()
+	if err != nil {
+		return err
+	}
+	body, err := ManagedBody(path)
+	if err != nil {
+		return err
+	}
+	return common.Record(ctx, db, "claude", path, body)
+}
+
+func ManagedBody(path string) ([]byte, error) {
+	existing, err := readJSON(path)
+	if err != nil {
+		return nil, err
 	}
 	stop := extractEventHook(existing, "Stop")
 	pre := extractEventHook(existing, "PreToolUse")
 	if stop == nil || pre == nil {
-		return errors.New("onibi-managed Stop or PreToolUse hook is missing")
+		return nil, errors.New("onibi-managed Stop or PreToolUse hook is missing")
 	}
+	return managedBody(stop, pre), nil
+}
+
+func managedBody(stop, pre map[string]any) []byte {
 	combined := struct {
 		Stop, PreToolUse map[string]any
 	}{stop, pre}
 	body, _ := json.Marshal(combined)
-	sum := sha256.Sum256(body)
-	if got := hex.EncodeToString(sum[:]); got != want {
-		return fmt.Errorf("hook tampered: have %s want %s", got, want)
-	}
-	return nil
+	return body
 }
 
 // ----------------------------------------------------------------------------

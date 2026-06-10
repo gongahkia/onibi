@@ -26,18 +26,19 @@ type Adapter struct {
 	Uninstall func(context.Context, *store.DB) error
 	Status    func(context.Context, *store.DB) common.Info
 	Verify    func(context.Context, *store.DB) error
+	Adopt     func(context.Context, *store.DB) error
 }
 
 func Registry() map[string]Adapter {
 	return map[string]Adapter{
-		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash},
-		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash},
-		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash},
-		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash},
-		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash},
-		"goose":    {Name: "goose", Install: goose.Install, Uninstall: goose.Uninstall, Status: goose.Status, Verify: goose.VerifyHash},
-		"opencode": {Name: "opencode", Install: opencode.Install, Uninstall: opencode.Uninstall, Status: opencode.Status, Verify: opencode.VerifyHash},
-		"pi":       {Name: "pi", Install: pi.Install, Uninstall: pi.Uninstall, Status: pi.Status, Verify: pi.VerifyHash},
+		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt},
+		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt},
+		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt},
+		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash, Adopt: copilot.Adopt},
+		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash, Adopt: gemini.Adopt},
+		"goose":    {Name: "goose", Install: goose.Install, Uninstall: goose.Uninstall, Status: goose.Status, Verify: goose.VerifyHash, Adopt: goose.Adopt},
+		"opencode": {Name: "opencode", Install: opencode.Install, Uninstall: opencode.Uninstall, Status: opencode.Status, Verify: opencode.VerifyHash, Adopt: opencode.Adopt},
+		"pi":       {Name: "pi", Install: pi.Install, Uninstall: pi.Uninstall, Status: pi.Status, Verify: pi.VerifyHash, Adopt: pi.Adopt},
 	}
 }
 
@@ -47,12 +48,16 @@ func claudeStatus(ctx context.Context, db *store.DB) common.Info {
 		return common.Info{Name: "claude", Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
 	}
 	info := common.Info{Name: "claude", Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
-	if err := claude.VerifyHash(ctx, db); err != nil {
+	body, err := claude.ManagedBody(path)
+	if err != nil {
+		if strings.Contains(err.Error(), "onibi-managed Stop or PreToolUse hook is missing") {
+			common.MarkNotInstalled(&info)
+			return info
+		}
 		info.Message = err.Error()
 		return info
 	}
-	info.Installed = true
-	info.Message = "Claude hooks installed"
+	common.ApplyManagedStatus(ctx, db, &info, "claude", path, body, "Claude hooks installed", "onibi install-hooks --agent claude")
 	return info
 }
 
@@ -84,6 +89,10 @@ func ShellStatus(ctx context.Context, db *store.DB, name string) common.Info {
 
 func VerifyShell(ctx context.Context, db *store.DB, name string) error {
 	return shell.VerifyHash(ctx, db, strings.ToLower(strings.TrimSpace(name)))
+}
+
+func AdoptShell(ctx context.Context, db *store.DB, name string) error {
+	return shell.Adopt(ctx, db, strings.ToLower(strings.TrimSpace(name)))
 }
 
 func ShellNames() []string { return shell.Supported() }

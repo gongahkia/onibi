@@ -28,11 +28,16 @@ type Info struct {
 	Name             string
 	Support          string
 	Installed        bool
+	Managed          bool
+	HashRecorded     bool
+	Tampered         bool
+	Adoptable        bool
 	InstalledVersion *string
 	BundledVersion   string
 	Outdated         bool
 	InstallPath      string
 	Message          string
+	Next             string
 }
 
 func VersionPtr(v string) *string {
@@ -126,20 +131,71 @@ func DeleteRecord(ctx context.Context, db *store.DB, agent, path string) error {
 }
 
 func VerifyRecorded(ctx context.Context, db *store.DB, agent, path string, body []byte) error {
-	var want string
-	err := db.SQL().QueryRowContext(ctx,
-		`SELECT sha256 FROM hooks WHERE agent = ? AND path = ?`, agent, path).Scan(&want)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("no installed hash on record")
-	}
+	recorded, tampered, got, want, err := RecordState(ctx, db, agent, path, body)
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(body)
-	if got := hex.EncodeToString(sum[:]); got != want {
-		return fmt.Errorf("hook tampered: have %s want %s", got, want)
+	if !recorded {
+		return fmt.Errorf("managed hook hash missing")
+	}
+	if tampered {
+		return fmt.Errorf("managed hook tampered: have %s want %s", got, want)
 	}
 	return nil
+}
+
+func RecordState(ctx context.Context, db *store.DB, agent, path string, body []byte) (recorded, tampered bool, got, want string, err error) {
+	err = db.SQL().QueryRowContext(ctx,
+		`SELECT sha256 FROM hooks WHERE agent = ? AND path = ?`, agent, path).Scan(&want)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, "", "", nil
+	}
+	if err != nil {
+		return false, false, "", "", err
+	}
+	sum := sha256.Sum256(body)
+	got = hex.EncodeToString(sum[:])
+	return true, got != want, got, want, nil
+}
+
+func ApplyManagedStatus(ctx context.Context, db *store.DB, info *Info, agent, path string, body []byte, okMessage, next string) {
+	info.Installed = true
+	info.Managed = true
+	info.Next = ""
+	recorded, tampered, _, _, err := RecordState(ctx, db, agent, path, body)
+	if err != nil {
+		info.Message = err.Error()
+		return
+	}
+	info.HashRecorded = recorded
+	info.Tampered = tampered
+	if info.Outdated {
+		info.Message = "managed, outdated; run " + next
+		info.Next = next
+		return
+	}
+	if !recorded {
+		info.Adoptable = true
+		info.Message = "managed, hash missing; run " + next + " to adopt"
+		info.Next = next
+		return
+	}
+	if tampered {
+		info.Message = "managed, tampered; review " + path + " then run " + next
+		info.Next = next
+		return
+	}
+	info.Message = okMessage
+}
+
+func MarkNotInstalled(info *Info) {
+	info.Installed = false
+	info.Managed = false
+	info.HashRecorded = false
+	info.Tampered = false
+	info.Adoptable = false
+	info.Message = "not installed"
+	info.Next = ""
 }
 
 func StableJSON(v any) []byte {

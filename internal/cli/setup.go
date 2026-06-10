@@ -68,6 +68,9 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	if _, err := setup.Run(ctx, db, sec, flags, io); err != nil {
+		if complete && errors.Is(err, setup.ErrOwnerAlreadyPaired) {
+			return runSetupComplete(cmd, paths, db)
+		}
 		return err
 	}
 	if complete {

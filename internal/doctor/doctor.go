@@ -30,9 +30,11 @@ const (
 
 // Check is one doctor line.
 type Check struct {
-	Name   string
-	Status Status
-	Detail string
+	Name    string
+	Status  Status
+	Detail  string
+	Next    string
+	Fixable bool
 }
 
 // Report is the full doctor result.
@@ -77,7 +79,8 @@ type runner struct {
 }
 
 func (r *runner) add(name string, st Status, detail string) {
-	r.checks = append(r.checks, Check{Name: name, Status: st, Detail: detail})
+	next, fixable := nextAction(name, detail, st)
+	r.checks = append(r.checks, Check{Name: name, Status: st, Detail: detail, Next: next, Fixable: fixable})
 }
 
 func (r *runner) run() {
@@ -100,6 +103,55 @@ func (r *runner) run() {
 	if !r.opts.Offline {
 		r.checkTelegram()
 	}
+}
+
+func nextAction(name, detail string, st Status) (string, bool) {
+	if st == Pass {
+		return "", false
+	}
+	switch {
+	case name == "state dir":
+		return "onibi doctor --fix", true
+	case name == ".env fallback" && strings.Contains(detail, "perms"):
+		return "onibi doctor --fix", true
+	case name == ".env fallback":
+		return "keep OS keychain preferred; use onibi rotate-token after keychain is available", false
+	case name == "sqlite db":
+		return "onibi setup --complete", false
+	case name == "secrets backend":
+		return "install OS keyring support, then run onibi rotate-token", false
+	case name == "bot token":
+		return "onibi setup --complete", false
+	case name == "owner chat_id":
+		return "onibi setup --complete", false
+	case name == "unix socket" && strings.Contains(detail, "not listening"):
+		return "onibi doctor --fix", true
+	case name == "unix socket":
+		return "onibi install-service or onibi run", false
+	case name == "service":
+		return "onibi install-service", true
+	case name == "hooks":
+		return "onibi install-hooks --interactive", false
+	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "hash missing"):
+		return "onibi doctor --fix", true
+	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "tampered"):
+		return "review hook file, then run onibi install-hooks --interactive", false
+	case strings.HasPrefix(name, "hook "):
+		return "onibi install-hooks --interactive", false
+	case name == "totp":
+		return "onibi setup --enable-totp", false
+	case name == "telegram 2fa ack":
+		return "enable Telegram 2-step verification, then rerun setup when rotating owner", false
+	case name == "telegram reachability":
+		return "see docs/troubleshooting.md#no-telegram-updates", false
+	case name == "telegram webhook":
+		return "restart onibi; startup deletes webhooks, then run onibi doctor", false
+	case name == "bot identity":
+		return "onibi rotate-token", false
+	case name == "doctor mode":
+		return "onibi doctor --mode auto", false
+	}
+	return "", false
 }
 
 func (r *runner) normalizeMode() {
@@ -303,6 +355,7 @@ func (r *runner) checkHooks() {
 	}
 	defer rows.Close()
 	n := 0
+	seen := map[string]bool{}
 	for rows.Next() {
 		n++
 		var agent, path string
@@ -310,6 +363,7 @@ func (r *runner) checkHooks() {
 			r.add("hooks", Fail, err.Error())
 			return
 		}
+		seen[agent] = true
 		if strings.HasPrefix(agent, "shell:") {
 			name := strings.TrimPrefix(agent, "shell:")
 			if err := adapters.VerifyShell(r.ctx, r.db, name); err != nil {
@@ -332,6 +386,35 @@ func (r *runner) checkHooks() {
 	if err := rows.Err(); err != nil {
 		r.add("hooks", Fail, err.Error())
 		return
+	}
+	for _, name := range adapters.Names() {
+		if seen[name] {
+			continue
+		}
+		info := adapters.Registry()[name].Status(r.ctx, r.db)
+		if info.Installed {
+			n++
+			st := Warn
+			if info.Tampered {
+				st = Fail
+			}
+			r.add("hook "+name, st, info.Message)
+		}
+	}
+	for _, name := range adapters.ShellNames() {
+		agent := "shell:" + name
+		if seen[agent] {
+			continue
+		}
+		info := adapters.ShellStatus(r.ctx, r.db, name)
+		if info.Installed {
+			n++
+			st := Warn
+			if info.Tampered {
+				st = Fail
+			}
+			r.add("hook "+agent, st, info.Message)
+		}
 	}
 	if n == 0 {
 		r.add("hooks", Warn, "none installed")
@@ -375,6 +458,9 @@ func (r *runner) checkTelegram() {
 		return
 	}
 	r.add("telegram getMe", Pass, res.Self.Username)
+	if res.WebhookURL != "" {
+		r.add("telegram webhook", Warn, res.WebhookDetail)
+	}
 	if r.db != nil {
 		want, ok, _ := r.db.KVGetString(r.ctx, auth.KVKeyBotID)
 		got := fmt.Sprintf("%d", res.Self.ID)

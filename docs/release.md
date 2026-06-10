@@ -1,8 +1,8 @@
 # Release
 
-Onibi is release-ready when local artifacts, checksums, and install paths pass
-without live credentials. Apple notarization remains gated on Apple Developer
-secrets.
+Onibi is release-ready when local artifacts, checksums, install paths, signing,
+notarization, and Homebrew install pass. Public macOS release tags must fail if
+Apple signing secrets are unavailable.
 
 ## Local Snapshot
 
@@ -12,6 +12,7 @@ go vet ./...
 staticcheck ./...
 make build
 goreleaser release --snapshot --clean
+scripts/release-smoke.sh dist
 ```
 
 Expected artifacts:
@@ -22,16 +23,11 @@ Expected artifacts:
 
 ## Homebrew Tap
 
-Use `packaging/homebrew/onibi.rb.template` as the tap formula source. Replace:
-
-- `{{VERSION}}`
-- `{{URL}}`
-- `{{SHA256}}`
-
-Then test from the tap checkout:
+GoReleaser publishes a cask to `gongahkia/homebrew-onibi` when
+`HOMEBREW_TAP_TOKEN` is set. Test from the tap checkout:
 
 ```sh
-brew install --build-from-source ./Formula/onibi.rb
+brew install --cask ./Casks/onibi.rb
 onibi version
 onibi doctor --mode preflight --offline
 ```
@@ -47,4 +43,5 @@ GoReleaser is configured to sign/notarize only when these env vars are set:
 - `MACOS_NOTARY_KEY`
 
 No release notes may claim notarization passed unless the tagged release was
-built with those values and verified on a clean Mac.
+built with those values and verified on a clean Mac using
+`scripts/manual-e2e-release.md`.

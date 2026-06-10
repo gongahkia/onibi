@@ -5,8 +5,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
@@ -137,5 +139,52 @@ func TestDoctorPreflightWarnsMissingOwner(t *testing.T) {
 	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
 	if report.Failed() {
 		t.Fatalf("preflight should warn, not fail: %#v", report.Checks)
+	}
+	found := false
+	for _, c := range report.Checks {
+		if c.Name == "owner chat_id" && strings.Contains(c.Next, "setup --complete") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing next action: %#v", report.Checks)
+	}
+}
+
+func TestFixAdoptsMissingHookHash(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notify := filepath.Join(t.TempDir(), "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ONIBI_CODEX_HOOKS", filepath.Join(t.TempDir(), "codex-hooks.json"))
+	a, _ := adapters.Get("codex")
+	if err := a.Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL().ExecContext(context.Background(), `DELETE FROM hooks WHERE agent = 'codex'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	fixes := Fix(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true})
+	if fixes.Failed() {
+		t.Fatalf("fix failed: %#v", fixes.Errors)
+	}
+	db, err = store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	info := a.Status(context.Background(), db)
+	if !info.HashRecorded || info.Adoptable || info.Tampered {
+		t.Fatalf("hook not adopted: %+v actions=%v", info, fixes.Actions)
 	}
 }

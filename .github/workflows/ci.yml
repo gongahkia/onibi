@@ -55,3 +55,19 @@ jobs:
         run: |
           go build -o /tmp/onibi ./cmd/onibi
           go build -o /tmp/onibi-notify ./clients/onibi-notify
+
+  release-smoke:
+    name: release smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --snapshot --clean --skip=publish
+      - name: smoke artifacts
+        run: scripts/release-smoke.sh dist

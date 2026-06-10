@@ -66,7 +66,7 @@ func Status(ctx context.Context, db *store.DB, name string) common.Info {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			info.Message = "not installed"
+			common.MarkNotInstalled(&info)
 			return info
 		}
 		info.Message = err.Error()
@@ -75,15 +75,16 @@ func Status(ctx context.Context, db *store.DB, name string) common.Info {
 	src := string(b)
 	info.Installed = strings.Contains(src, begin) && strings.Contains(src, end)
 	if !info.Installed {
-		info.Message = "not installed"
+		if strings.Contains(src, "onibi-notify") {
+			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --shell " + name + " to adopt"
+			info.Next = "onibi install-hooks --shell " + name
+		} else {
+			common.MarkNotInstalled(&info)
+		}
 		return info
 	}
 	info.InstalledVersion = common.VersionPtr(installedVersion(src))
-	if err := common.VerifyRecorded(ctx, db, agent, path, []byte(extractBlock(src, block))); err != nil {
-		info.Message = err.Error()
-	} else {
-		info.Message = name + " hook installed"
-	}
+	common.ApplyManagedStatus(ctx, db, &info, agent, path, []byte(extractBlock(src, block)), name+" hook installed", "onibi install-hooks --shell "+name)
 	return info
 }
 
@@ -101,6 +102,22 @@ func VerifyHash(ctx context.Context, db *store.DB, name string) error {
 		return errors.New("onibi-managed shell hook is missing")
 	}
 	return common.VerifyRecorded(ctx, db, "shell:"+name, path, []byte(got))
+}
+
+func Adopt(ctx context.Context, db *store.DB, name string) error {
+	path, block, err := target(name, "/bin/true")
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	got := extractBlock(string(b), block)
+	if !strings.Contains(got, begin) {
+		return errors.New("onibi-managed shell hook is missing")
+	}
+	return common.Record(ctx, db, "shell:"+name, path, []byte(got))
 }
 
 func target(name, notifyBin string) (string, string, error) {

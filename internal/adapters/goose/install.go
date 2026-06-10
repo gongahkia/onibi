@@ -82,7 +82,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	body, err := ManagedBody(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			info.Message = "not installed"
+			common.MarkNotInstalled(&info)
 			return info
 		}
 		info.Message = err.Error()
@@ -90,17 +90,13 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	}
 	info.Installed = len(body) > 2
 	if !info.Installed {
-		info.Message = "not installed"
+		common.MarkNotInstalled(&info)
 		return info
 	}
 	version := installedVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != "" && version != common.IntegrationVersion
-	if err := common.VerifyRecorded(ctx, db, Agent, path, body); err != nil {
-		info.Message = err.Error()
-	} else {
-		info.Message = "Goose lifecycle hooks installed"
-	}
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Goose lifecycle hooks installed", "onibi install-hooks --agent goose")
 	return info
 }
 
@@ -117,6 +113,21 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 		return errors.New("onibi-managed Goose hook is missing")
 	}
 	return common.VerifyRecorded(ctx, db, Agent, path, body)
+}
+
+func Adopt(ctx context.Context, db *store.DB) error {
+	path, err := HooksPath()
+	if err != nil {
+		return err
+	}
+	body, err := ManagedBody(path)
+	if err != nil {
+		return err
+	}
+	if len(body) <= 2 {
+		return errors.New("onibi-managed Goose hook is missing")
+	}
+	return common.Record(ctx, db, Agent, path, body)
 }
 
 func hook(notifyBin string, e eventSpec) map[string]any {

@@ -1,21 +1,24 @@
 class Onibi < Formula
   desc "Telegram-controlled coding-agent host"
   homepage "https://github.com/gongahkia/onibi"
-  url "{{URL}}"
-  sha256 "{{SHA256}}"
   license "Apache-2.0"
   version "{{VERSION}}"
 
-  depends_on "go" => :build
+  if Hardware::CPU.arm?
+    url "{{URL_ARM64}}"
+    sha256 "{{SHA256_ARM64}}"
+  else
+    url "{{URL_X86_64}}"
+    sha256 "{{SHA256_X86_64}}"
+  end
 
   def install
-    ldflags = "-s -w -X main.version=#{version}"
-    system "go", "build", "-ldflags", ldflags, "-o", bin/"onibi", "./cmd/onibi"
-    system "go", "build", "-ldflags", "-s -w", "-o", bin/"onibi-notify", "./clients/onibi-notify"
+    bin.install "onibi"
+    bin.install "onibi-notify"
   end
 
   test do
-    assert_match "onibi", shell_output("#{bin}/onibi version")
+    system "#{bin}/onibi", "version"
     system "#{bin}/onibi", "doctor", "--mode", "preflight", "--offline"
   end
 end

@@ -17,6 +17,8 @@ type ProbeResult struct {
 	Self             *models.User
 	GetUpdatesOK     bool
 	GetUpdatesDetail string
+	WebhookURL       string
+	WebhookDetail    string
 }
 
 // ProbeToken validates token with getMe and probes getUpdates without
@@ -37,6 +39,16 @@ func ProbeToken(ctx context.Context, token string, allowEnvProxy bool) (*ProbeRe
 		return nil, err
 	}
 	res := &ProbeResult{Self: self}
+	var webhook struct {
+		URL                string `json:"url"`
+		PendingUpdateCount int    `json:"pending_update_count"`
+	}
+	if err := rawBotCall(ctx, hc, token, "getWebhookInfo", map[string]any{}, &webhook); err == nil {
+		res.WebhookURL = webhook.URL
+		if webhook.URL != "" {
+			res.WebhookDetail = fmt.Sprintf("%s (%d pending)", webhook.URL, webhook.PendingUpdateCount)
+		}
+	}
 	var updates []models.Update
 	err := rawBotCall(ctx, hc, token, "getUpdates", map[string]any{
 		"offset":          0,

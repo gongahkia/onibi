@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/gongahkia/onibi/internal/buildinfo"
+	"github.com/spf13/cobra"
+)
 
 func runCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -52,6 +57,7 @@ func doctorCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("offline", false, "skip live Telegram network checks")
 	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
+	cmd.Flags().Bool("fix", false, "apply safe local fixes for doctor warnings")
 	return cmd
 }
 
@@ -122,7 +128,9 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version and build info",
 		Run: func(cmd *cobra.Command, _ []string) {
-			cmd.Println("onibi v2-dev")
+			cmd.Println(fmt.Sprintf("onibi %s", buildinfo.Version))
+			cmd.Println("commit " + buildinfo.Commit)
+			cmd.Println("date " + buildinfo.Date)
 		},
 	}
 }
