@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
+
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
@@ -34,7 +36,7 @@ type Daemon struct {
 	DB      *store.DB
 	Secrets *secrets.Store
 	Owner   *auth.Owner
-	Bot     *telegram.Client
+	Bot     telegram.API
 	Log     *slog.Logger
 
 	Registry *Registry
@@ -59,7 +61,7 @@ type Options struct {
 	DB      *store.DB
 	Secrets *secrets.Store
 	Owner   *auth.Owner
-	Bot     *telegram.Client
+	Bot     telegram.API
 	Router  *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
 	Log     *slog.Logger
 }
@@ -317,7 +319,10 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	}
 	tail := render.TextTail(s.Buf.Snapshot(), render.Options{Lang: ""})
 	body := header + "\n" + tail
-	_, err = d.Bot.Send(ctx, d.Owner.ID(), body)
+	_, err = d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID: d.Owner.ID(),
+		Text:   body,
+	})
 	if err != nil {
 		d.Log.Warn("send turn-complete", slog.Any("err", err))
 	}
@@ -326,6 +331,9 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 
 // SendOwner is a convenience wrapper for ad-hoc messages (welcome, errors).
 func (d *Daemon) SendOwner(ctx context.Context, text string) error {
-	_, err := d.Bot.Send(ctx, d.Owner.ID(), text)
+	_, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID: d.Owner.ID(),
+		Text:   text,
+	})
 	return err
 }

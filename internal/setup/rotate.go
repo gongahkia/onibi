@@ -29,7 +29,7 @@ func RunRotateToken(ctx context.Context, db *store.DB, sec *secrets.Store, io IO
 	if err != nil {
 		return fmt.Errorf("validate new token: %w", err)
 	}
-	newBotID := cli.Self.ID
+	newBotID := cli.Self().ID
 
 	prevStr, ok, err := db.KVGetString(ctx, kvKeyBotID)
 	if err != nil {

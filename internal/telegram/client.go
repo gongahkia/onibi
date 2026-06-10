@@ -25,7 +25,7 @@ var AllowedUpdateTypes = []string{"message", "callback_query"}
 // api.telegram.org, defensive deleteWebhook on Init, getMe identity check.
 type Client struct {
 	Bot     *tgbot.Bot
-	Self    *models.User
+	self    *models.User
 	allowed []string
 }
 
@@ -39,6 +39,9 @@ type Options struct {
 	// DefaultHandler runs for any update that no registered handler
 	// matches. Optional; useful for the pair-wizard wait loop.
 	DefaultHandler tgbot.HandlerFunc
+	// APIHandler is the daemon/test handler path. If set, it takes
+	// precedence over DefaultHandler.
+	APIHandler HandlerFunc
 }
 
 // New constructs a Client. Calls getMe to populate Self, and proactively
@@ -58,11 +61,16 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		},
 	}
 
+	var c *Client
 	botOpts := []tgbot.Option{
 		tgbot.WithHTTPClient(HTTPTimeout, hc),
 		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates(AllowedUpdateTypes)),
 	}
-	if opts.DefaultHandler != nil {
+	if opts.APIHandler != nil {
+		botOpts = append(botOpts, tgbot.WithDefaultHandler(func(ctx context.Context, _ *tgbot.Bot, update *models.Update) {
+			opts.APIHandler(ctx, c, update)
+		}))
+	} else if opts.DefaultHandler != nil {
 		botOpts = append(botOpts, tgbot.WithDefaultHandler(opts.DefaultHandler))
 	}
 	b, err := tgbot.New(opts.Token, botOpts...)
@@ -70,7 +78,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("telegram new: %w", err)
 	}
 
-	c := &Client{Bot: b, allowed: AllowedUpdateTypes}
+	c = &Client{Bot: b, allowed: AllowedUpdateTypes}
 
 	// getMe — populates Self and validates the token in one call
 	me, err := b.GetMe(ctx)
@@ -80,7 +88,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	if me == nil {
 		return nil, errors.New("telegram getMe returned nil")
 	}
-	c.Self = me
+	c.self = me
 
 	// defensive deleteWebhook so an attacker who flipped to webhook mode
 	// loses the side channel. Drop pending updates too — they may be
@@ -107,7 +115,7 @@ func noProxy(allow bool) func(*http.Request) (*url.URL, error) {
 // Send is a thin shortcut for sendMessage in plain text. Callers using
 // keyboards or formatting should call c.Bot directly.
 func (c *Client) Send(ctx context.Context, chatID int64, text string) (*models.Message, error) {
-	return c.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+	return c.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: chatID,
 		Text:   text,
 	})
@@ -115,3 +123,21 @@ func (c *Client) Send(ctx context.Context, chatID int64, text string) (*models.M
 
 // Start enters the long-polling loop until ctx is cancelled.
 func (c *Client) Start(ctx context.Context) { c.Bot.Start(ctx) }
+
+// Self returns the getMe identity cached during New.
+func (c *Client) Self() *models.User { return c.self }
+
+// SendMessage delegates to the real bot.
+func (c *Client) SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error) {
+	return c.Bot.SendMessage(ctx, params)
+}
+
+// EditMessageReplyMarkup delegates to the real bot.
+func (c *Client) EditMessageReplyMarkup(ctx context.Context, params *tgbot.EditMessageReplyMarkupParams) (*models.Message, error) {
+	return c.Bot.EditMessageReplyMarkup(ctx, params)
+}
+
+// AnswerCallbackQuery delegates to the real bot.
+func (c *Client) AnswerCallbackQuery(ctx context.Context, params *tgbot.AnswerCallbackQueryParams) (bool, error) {
+	return c.Bot.AnswerCallbackQuery(ctx, params)
+}

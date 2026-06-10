@@ -220,11 +220,11 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 		return 0, err
 	}
 	// persist bot_id so rotate-token can refuse a different bot's token
-	if err := db.KVSetString(ctx, kvKeyBotID, fmt.Sprintf("%d", cli.Self.ID)); err != nil {
+	if err := db.KVSetString(ctx, kvKeyBotID, fmt.Sprintf("%d", cli.Self().ID)); err != nil {
 		return 0, err
 	}
 
-	deepLink := DeepLink(cli.Self.Username, pairTok)
+	deepLink := DeepLink(cli.Self().Username, pairTok)
 	fmt.Fprintln(io.Out, "")
 	fmt.Fprintln(io.Out, "2) Tap this link on your phone (or scan the QR below):")
 	fmt.Fprintf(io.Out, "   %s\n\n", deepLink)

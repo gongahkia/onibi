@@ -69,7 +69,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 // It does not recreate waiters: the original hook may already have failed
 // open. The row remains useful for owner visibility and audit.
 func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
-	if d.Queue == nil || d.Bot == nil || d.Bot.Bot == nil || d.Owner == nil {
+	if d.Queue == nil || d.Bot == nil || d.Owner == nil {
 		return nil
 	}
 	pending, err := d.Queue.Pending(ctx)
@@ -94,14 +94,14 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 }
 
 func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
-	if d.Bot == nil || d.Bot.Bot == nil {
+	if d.Bot == nil {
 		return nil, errors.New("telegram bot unavailable")
 	}
 	msg := renderApprovalMessage(tool, inputJSON, sessLabel)
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
 	}
-	return d.Bot.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+	return d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID:      d.Owner.ID(),
 		Text:        msg,
 		ReplyMarkup: telegram.ApprovalKeyboard(id),
@@ -132,16 +132,16 @@ func (d *Daemon) respondAndAnnotate(
 // onCallback handles owner-checked [Approve][Deny][Edit] taps. Approve and
 // Deny terminate the approval directly. Edit parks the approval awaiting a
 // reply-text from the user containing the new JSON.
-func (d *Daemon) onCallback(ctx context.Context, b *tgbot.Bot, q *models.CallbackQuery, verb, id string) error {
+func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, verb, id string) error {
 	a, err := d.Queue.Get(ctx, id)
 	if err != nil {
 		// could be a stale callback (daemon restart, approval already gone)
-		answerCallback(ctx, b, q.ID, "Unknown approval")
+		answerCallback(ctx, api, q.ID, "Unknown approval")
 		return nil
 	}
 	if a.State != approval.StatePending {
 		// already decided — answer with an "already decided" toast
-		answerCallback(ctx, b, q.ID, "Already "+a.State)
+		answerCallback(ctx, api, q.ID, "Already "+a.State)
 		return nil
 	}
 	if !a.ExpiresAt.After(time.Now()) {
@@ -149,19 +149,19 @@ func (d *Daemon) onCallback(ctx context.Context, b *tgbot.Bot, q *models.Callbac
 		if err == nil && !res.Delivered {
 			d.editStoredDecision(ctx, a, res.Decision)
 		}
-		answerCallback(ctx, b, q.ID, "Expired")
+		answerCallback(ctx, api, q.ID, "Expired")
 		return nil
 	}
 
 	switch verb {
 	case "approve":
 		res, err := d.Queue.DecideWithResult(ctx, id, approval.VerdictApprove, "", "", q.From.ID)
-		return d.finishCallbackDecision(ctx, b, q, a, res, err, "Approved")
+		return d.finishCallbackDecision(ctx, api, q, a, res, err, "Approved")
 
 	case "deny":
 		res, err := d.Queue.DecideWithResult(ctx, id, approval.VerdictDeny, "",
 			"denied by owner via Telegram", q.From.ID)
-		return d.finishCallbackDecision(ctx, b, q, a, res, err, "Denied")
+		return d.finishCallbackDecision(ctx, api, q, a, res, err, "Denied")
 
 	case "edit":
 		// park: next text reply from the owner becomes the edited JSON
@@ -169,7 +169,7 @@ func (d *Daemon) onCallback(ctx context.Context, b *tgbot.Bot, q *models.Callbac
 		d.pendingEdits[q.From.ID] = id
 		d.editMu.Unlock()
 		// prompt the user
-		answerCallback(ctx, b, q.ID, "Send edited JSON")
+		answerCallback(ctx, api, q.ID, "Send edited JSON")
 		params := &tgbot.SendMessageParams{
 			ChatID: q.From.ID,
 			Text:   "Reply to this message with edited tool input JSON for approval " + id + ".\nReply 'cancel' to abort edit mode.",
@@ -177,7 +177,7 @@ func (d *Daemon) onCallback(ctx context.Context, b *tgbot.Bot, q *models.Callbac
 		if q.Message.Message != nil {
 			params.ReplyParameters = &models.ReplyParameters{MessageID: q.Message.Message.ID}
 		}
-		sendMessage(ctx, b, params)
+		sendMessage(ctx, api, params)
 		return nil
 
 	default:
@@ -188,7 +188,7 @@ func (d *Daemon) onCallback(ctx context.Context, b *tgbot.Bot, q *models.Callbac
 // onReply handles a text message that's a reply to one of our approval
 // messages. If we have a pending edit for this user, parse the JSON and
 // decide the approval as edited.
-func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) error {
+func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Message) error {
 	d.editMu.Lock()
 	approvalID, ok := d.pendingEdits[m.From.ID]
 	if ok {
@@ -203,7 +203,7 @@ func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 
 	txt := strings.TrimSpace(m.Text)
 	if strings.EqualFold(txt, "cancel") {
-		sendMessage(ctx, b, &tgbot.SendMessageParams{
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
 			ChatID: m.Chat.ID,
 			Text:   "Edit cancelled. Tap [Approve] or [Deny] on the original approval.",
 		})
@@ -213,7 +213,7 @@ func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 	// validate JSON
 	var anyObj any
 	if err := json.Unmarshal([]byte(txt), &anyObj); err != nil {
-		sendMessage(ctx, b, &tgbot.SendMessageParams{
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
 			ChatID: m.Chat.ID,
 			Text:   "Invalid JSON: " + err.Error() + "\nReply again with valid JSON, or 'cancel' to abort.",
 		})
@@ -226,19 +226,19 @@ func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 
 	a, getErr := d.Queue.Get(ctx, approvalID)
 	if getErr != nil {
-		sendMessage(ctx, b, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown approval."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown approval."})
 		return nil
 	}
 	res, err := d.Queue.DecideWithResult(ctx, approvalID, approval.VerdictEdit, txt, "", m.From.ID)
 	if errors.Is(err, approval.ErrExpired) {
-		sendMessage(ctx, b, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Approval expired."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Approval expired."})
 		if !res.Delivered {
 			d.editStoredDecision(ctx, a, res.Decision)
 		}
 		return nil
 	}
 	if errors.Is(err, approval.ErrAlreadyDecided) {
-		sendMessage(ctx, b, &tgbot.SendMessageParams{
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
 			ChatID: m.Chat.ID,
 			Text:   "Approval already decided by another path.",
 		})
@@ -250,7 +250,7 @@ func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 	if !res.Delivered {
 		d.editStoredDecision(ctx, a, res.Decision)
 	}
-	sendMessage(ctx, b, &tgbot.SendMessageParams{
+	sendMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID: m.Chat.ID,
 		Text:   "Edited input accepted; tool will run with your version.",
 	})
@@ -260,7 +260,7 @@ func (d *Daemon) onReply(ctx context.Context, b *tgbot.Bot, m *models.Message) e
 // onText is the catch-all for non-reply, non-callback owner messages.
 // Phase 6 will use this for /sessions, /target, free-text injection, etc.
 // Phase 3 just logs them.
-func (d *Daemon) onText(_ context.Context, _ *tgbot.Bot, m *models.Message) error {
+func (d *Daemon) onText(_ context.Context, _ telegram.API, m *models.Message) error {
 	d.Log.Debug("text from owner (no handler wired yet)", slog.String("text", m.Text))
 	return nil
 }
@@ -285,22 +285,22 @@ func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
 		sessLabel, tool, string(pretty))
 }
 
-func (d *Daemon) finishCallbackDecision(ctx context.Context, b *tgbot.Bot, q *models.CallbackQuery, a *approval.Approval, res approval.DecisionResult, err error, okText string) error {
+func (d *Daemon) finishCallbackDecision(ctx context.Context, api telegram.API, q *models.CallbackQuery, a *approval.Approval, res approval.DecisionResult, err error, okText string) error {
 	if errors.Is(err, approval.ErrExpired) {
-		answerCallback(ctx, b, q.ID, "Expired")
+		answerCallback(ctx, api, q.ID, "Expired")
 		if !res.Delivered {
 			d.editStoredDecision(ctx, a, res.Decision)
 		}
 		return nil
 	}
 	if errors.Is(err, approval.ErrAlreadyDecided) {
-		answerCallback(ctx, b, q.ID, "Already decided")
+		answerCallback(ctx, api, q.ID, "Already decided")
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	answerCallback(ctx, b, q.ID, okText)
+	answerCallback(ctx, api, q.ID, okText)
 	if !res.Delivered {
 		d.editStoredDecision(ctx, a, res.Decision)
 	}
@@ -315,10 +315,10 @@ func (d *Daemon) editStoredDecision(ctx context.Context, a *approval.Approval, d
 }
 
 func (d *Daemon) editDecisionKeyboard(ctx context.Context, chatID int64, msgID int64, dec approval.Decision) {
-	if d.Bot == nil || d.Bot.Bot == nil || chatID == 0 || msgID == 0 {
+	if d.Bot == nil || chatID == 0 || msgID == 0 {
 		return
 	}
-	_, _ = d.Bot.Bot.EditMessageReplyMarkup(ctx, &tgbot.EditMessageReplyMarkupParams{
+	_, _ = d.Bot.EditMessageReplyMarkup(ctx, &tgbot.EditMessageReplyMarkupParams{
 		ChatID:      chatID,
 		MessageID:   int(msgID),
 		ReplyMarkup: telegram.DecidedKeyboard(decisionLabel(dec)),
@@ -333,20 +333,20 @@ func decisionLabel(dec approval.Decision) string {
 	return label
 }
 
-func answerCallback(ctx context.Context, b *tgbot.Bot, id, text string) {
-	if b == nil || id == "" {
+func answerCallback(ctx context.Context, api telegram.API, id, text string) {
+	if api == nil || id == "" {
 		return
 	}
-	_, _ = b.AnswerCallbackQuery(ctx, &tgbot.AnswerCallbackQueryParams{
+	_, _ = api.AnswerCallbackQuery(ctx, &tgbot.AnswerCallbackQueryParams{
 		CallbackQueryID: id,
 		Text:            text,
 		ShowAlert:       false,
 	})
 }
 
-func sendMessage(ctx context.Context, b *tgbot.Bot, params *tgbot.SendMessageParams) {
-	if b == nil {
+func sendMessage(ctx context.Context, api telegram.API, params *tgbot.SendMessageParams) {
+	if api == nil {
 		return
 	}
-	_, _ = b.SendMessage(ctx, params)
+	_, _ = api.SendMessage(ctx, params)
 }

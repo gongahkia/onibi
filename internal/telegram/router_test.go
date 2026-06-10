@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/auth"
@@ -32,9 +31,8 @@ func TestRouterDropsNonOwnerMessages(t *testing.T) {
 	var called atomic.Int32
 	r := &Router{
 		Owner:  o,
-		OnText: func(_ context.Context, _ *tgbot.Bot, _ *models.Message) error { called.Add(1); return nil },
+		OnText: func(_ context.Context, _ API, _ *models.Message) error { called.Add(1); return nil },
 	}
-	_ = r // OnText signature uses *tgbot.Bot in production; use type assertion via interface{}
 	upd := &models.Update{Message: &models.Message{From: &models.User{ID: 9999}, Text: "hi"}}
 	r.Dispatch(context.Background(), nil, upd)
 	if called.Load() != 0 {
@@ -50,7 +48,7 @@ func TestRouterDropsNonOwnerCallbacks(t *testing.T) {
 	var called atomic.Int32
 	r := &Router{
 		Owner: o,
-		OnCB: func(_ context.Context, _ *tgbot.Bot, _ *models.CallbackQuery, _, _ string) error {
+		OnCB: func(_ context.Context, _ API, _ *models.CallbackQuery, _, _ string) error {
 			called.Add(1)
 			return nil
 		},
@@ -75,7 +73,7 @@ func TestRouterAcceptsOwnerCallback(t *testing.T) {
 	var gotVerb, gotID string
 	r := &Router{
 		Owner: o,
-		OnCB: func(_ context.Context, _ *tgbot.Bot, _ *models.CallbackQuery, verb, id string) error {
+		OnCB: func(_ context.Context, _ API, _ *models.CallbackQuery, verb, id string) error {
 			gotVerb, gotID = verb, id
 			return nil
 		},
@@ -97,8 +95,8 @@ func TestRouterReplyPath(t *testing.T) {
 	var replyCalled, textCalled atomic.Int32
 	r := &Router{
 		Owner:   o,
-		OnText:  func(_ context.Context, _ *tgbot.Bot, _ *models.Message) error { textCalled.Add(1); return nil },
-		OnReply: func(_ context.Context, _ *tgbot.Bot, _ *models.Message) error { replyCalled.Add(1); return nil },
+		OnText:  func(_ context.Context, _ API, _ *models.Message) error { textCalled.Add(1); return nil },
+		OnReply: func(_ context.Context, _ API, _ *models.Message) error { replyCalled.Add(1); return nil },
 	}
 	_ = r
 	upd := &models.Update{Message: &models.Message{

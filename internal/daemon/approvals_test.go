@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/approval"
@@ -140,11 +139,12 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	bot, err := tgbot.New("xxx", tgbot.WithServerURL(srv.URL), tgbot.WithSkipGetMe())
+	bot, err := telegram.New(context.Background(), telegram.Options{Token: "xxx", DefaultHandler: nil})
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Bot = &telegram.Client{Bot: bot}
+	_ = bot
+	d.Bot = &telegram.Client{Bot: bot.Bot}
 
 	if err := d.RestorePendingApprovals(ctx); err != nil {
 		t.Fatal(err)
