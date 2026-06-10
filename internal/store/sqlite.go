@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   name          TEXT NOT NULL,
   agent         TEXT NOT NULL,
   cwd           TEXT,
+  cmd           TEXT,
   transport     TEXT NOT NULL DEFAULT 'pty',  -- pty|tmux
   tmux_target   TEXT,
   started_at    INTEGER NOT NULL,
@@ -135,11 +136,40 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schemaV1); err != nil {
 		return fmt.Errorf("apply schema v1: %w", err)
 	}
+	if err := d.ensureColumn(ctx, "sessions", "cmd", "TEXT"); err != nil {
+		return err
+	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
 	return nil
+}
+
+func (d *DB) ensureColumn(ctx context.Context, table, column, decl string) error {
+	rows, err := d.sql.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = d.sql.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+decl)
+	return err
 }
 
 // ----------------------------------------------------------------------------
