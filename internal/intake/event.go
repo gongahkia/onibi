@@ -1,0 +1,36 @@
+package intake
+
+// Event types emitted by hooks and consumed by the daemon.
+const (
+	TypeAgentDone      = "agent_done"      // turn complete, no input awaited
+	TypeAgentAwaiting  = "agent_awaiting"  // agent is blocked on user input
+	TypeAgentMessage   = "agent_message"   // arbitrary status message
+	TypeCmdDone        = "cmd_done"        // shell command finished (zsh precmd hook)
+	TypeSessionExited  = "session_exited"  // host process exited
+	TypeApprovalRequest = "approval_request" // Phase 3: tool-call blocked
+)
+
+// Event is the wire-level JSON schema written by hooks and onibi-notify.
+// Field set is intentionally a union — hooks fill what they have, daemon
+// reads what it needs. Schema is forward-compatible: unknown fields ignored.
+type Event struct {
+	Type    string `json:"type"`              // one of the Type* constants
+	Session string `json:"session,omitempty"` // session id (from ONIBI_SESSION_ID env)
+	PID     int    `json:"pid,omitempty"`     // emitting process id (fallback identity)
+
+	// cmd_done / session_exited
+	Status int    `json:"status,omitempty"` // exit code
+	Cmd    string `json:"cmd,omitempty"`    // command line
+	Elapsed int64 `json:"elapsed_ms,omitempty"`
+
+	// agent_*
+	Text string `json:"text,omitempty"` // optional human-readable detail
+	Tail string `json:"tail,omitempty"` // optional output tail provided by hook
+
+	// approval_request (Phase 3 — schema reserved now)
+	ApprovalID string `json:"approval_id,omitempty"`
+	Tool       string `json:"tool,omitempty"`
+	InputJSON  string `json:"input_json,omitempty"`
+
+	TS int64 `json:"ts,omitempty"` // unix epoch seconds; if 0, server fills
+}
