@@ -211,6 +211,9 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 		return
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
+	if api == nil {
+		return
+	}
 	sent, err := api.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: chatID,
 		Text:   fmt.Sprintf("Started %s (%s). Default target set.", s.Name, s.ID),

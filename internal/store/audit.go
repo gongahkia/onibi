@@ -61,6 +61,29 @@ func (d *DB) AuditRecent(ctx context.Context, n int) ([]AuditEntry, error) {
 	return out, rows.Err()
 }
 
+func (d *DB) AuditAll(ctx context.Context) ([]AuditEntry, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT id, ts, action, COALESCE(session_id, ''), COALESCE(payload_hash, ''),
+		        COALESCE(decided_by_chat, 0), COALESCE(detail, '')
+		 FROM audit ORDER BY ts ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var ts int64
+		if err := rows.Scan(&e.ID, &ts, &e.Action, &e.SessionID, &e.PayloadHash,
+			&e.DecidedByChat, &e.Detail); err != nil {
+			return nil, err
+		}
+		e.TS = time.Unix(ts, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // AuditCount reports total rows; useful for `onibi doctor` summary.
 func (d *DB) AuditCount(ctx context.Context) (int64, error) {
 	var n int64
