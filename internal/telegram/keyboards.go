@@ -13,6 +13,14 @@ const (
 	CBDeny    = "deny:"
 	CBEdit    = "edit:"
 	CBTarget  = "target:"
+	CBPromptSend   = "psend:"
+	CBPromptEdit   = "pedit:"
+	CBPromptCancel = "pcancel:"
+	CBPromptUp     = "pup:"
+	CBPromptDown   = "pdown:"
+	CBPeek         = "peek:"
+	CBInterrupt    = "int:"
+	CBKill         = "kill:"
 )
 
 type SessionTarget struct {
@@ -61,6 +69,39 @@ func SessionTargetKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup
 	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
+func PromptKeyboard(id string) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "Send now", CallbackData: CBPromptSend + id},
+				{Text: "Edit", CallbackData: CBPromptEdit + id},
+				{Text: "Cancel", CallbackData: CBPromptCancel + id},
+			},
+			{
+				{Text: "Up", CallbackData: CBPromptUp + id},
+				{Text: "Down", CallbackData: CBPromptDown + id},
+			},
+		},
+	}
+}
+
+func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
+	rows := make([][]models.InlineKeyboardButton, 0, len(targets)*2)
+	for _, t := range targets {
+		label := t.Label
+		if label == "" {
+			label = t.ID
+		}
+		rows = append(rows, []models.InlineKeyboardButton{{Text: trimButton(label), CallbackData: CBTarget + t.ID}})
+		rows = append(rows, []models.InlineKeyboardButton{
+			{Text: "Peek", CallbackData: CBPeek + t.ID},
+			{Text: "Interrupt", CallbackData: CBInterrupt + t.ID},
+			{Text: "Kill", CallbackData: CBKill + t.ID},
+		})
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
 // ParseCallback splits a callback_data string into (verb, approvalID).
 // Returns ("", "") for unknown verbs so callers can ignore.
 func ParseCallback(data string) (verb, id string) {
@@ -73,6 +114,22 @@ func ParseCallback(data string) (verb, id string) {
 		return "edit", strings.TrimPrefix(data, CBEdit)
 	case strings.HasPrefix(data, CBTarget):
 		return "target", strings.TrimPrefix(data, CBTarget)
+	case strings.HasPrefix(data, CBPromptSend):
+		return "prompt_send", strings.TrimPrefix(data, CBPromptSend)
+	case strings.HasPrefix(data, CBPromptEdit):
+		return "prompt_edit", strings.TrimPrefix(data, CBPromptEdit)
+	case strings.HasPrefix(data, CBPromptCancel):
+		return "prompt_cancel", strings.TrimPrefix(data, CBPromptCancel)
+	case strings.HasPrefix(data, CBPromptUp):
+		return "prompt_up", strings.TrimPrefix(data, CBPromptUp)
+	case strings.HasPrefix(data, CBPromptDown):
+		return "prompt_down", strings.TrimPrefix(data, CBPromptDown)
+	case strings.HasPrefix(data, CBPeek):
+		return "peek", strings.TrimPrefix(data, CBPeek)
+	case strings.HasPrefix(data, CBInterrupt):
+		return "interrupt", strings.TrimPrefix(data, CBInterrupt)
+	case strings.HasPrefix(data, CBKill):
+		return "kill", strings.TrimPrefix(data, CBKill)
 	}
 	return "", ""
 }

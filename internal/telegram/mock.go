@@ -18,6 +18,7 @@ type Mock struct {
 
 	SentMessages []tgbot.SendMessageParams
 	SentPhotos   []tgbot.SendPhotoParams
+	SentDocs     []tgbot.SendDocumentParams
 	Edits        []tgbot.EditMessageReplyMarkupParams
 	Answers      []tgbot.AnswerCallbackQueryParams
 	Commands     []tgbot.SetMyCommandsParams
@@ -63,6 +64,23 @@ func (m *Mock) SendPhoto(_ context.Context, params *tgbot.SendPhotoParams) (*mod
 	defer m.mu.Unlock()
 	cp := *params
 	m.SentPhotos = append(m.SentPhotos, cp)
+	id := m.nextID
+	m.nextID++
+	chatID, _ := params.ChatID.(int64)
+	return &models.Message{
+		ID:      id,
+		Date:    int(time.Now().Unix()),
+		Chat:    models.Chat{ID: chatID, Type: "private"},
+		Caption: params.Caption,
+	}, nil
+}
+
+// SendDocument records params and returns a synthetic Telegram message.
+func (m *Mock) SendDocument(_ context.Context, params *tgbot.SendDocumentParams) (*models.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *params
+	m.SentDocs = append(m.SentDocs, cp)
 	id := m.nextID
 	m.nextID++
 	chatID, _ := params.ChatID.(int64)
@@ -128,6 +146,15 @@ func (m *Mock) Photos() []tgbot.SendPhotoParams {
 	defer m.mu.Unlock()
 	out := make([]tgbot.SendPhotoParams, len(m.SentPhotos))
 	copy(out, m.SentPhotos)
+	return out
+}
+
+// Documents returns a snapshot of sent documents.
+func (m *Mock) Documents() []tgbot.SendDocumentParams {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]tgbot.SendDocumentParams, len(m.SentDocs))
+	copy(out, m.SentDocs)
 	return out
 }
 

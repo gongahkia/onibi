@@ -148,6 +148,16 @@ func (c *Client) SendPhoto(ctx context.Context, params *tgbot.SendPhotoParams) (
 	return c.Bot.SendPhoto(ctx, params)
 }
 
+// SendDocument delegates to the real bot after rate limiting.
+func (c *Client) SendDocument(ctx context.Context, params *tgbot.SendDocumentParams) (*models.Message, error) {
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
+			return nil, err
+		}
+	}
+	return c.Bot.SendDocument(ctx, params)
+}
+
 // EditMessageReplyMarkup delegates to the real bot.
 func (c *Client) EditMessageReplyMarkup(ctx context.Context, params *tgbot.EditMessageReplyMarkupParams) (*models.Message, error) {
 	return c.Bot.EditMessageReplyMarkup(ctx, params)

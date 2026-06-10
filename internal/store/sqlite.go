@@ -129,6 +129,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
+
+-- Telegram-originated prompt queue (durable, per-session FIFO)
+CREATE TABLE IF NOT EXISTS prompt_queue (
+  id          TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  chat_id     INTEGER NOT NULL,
+  text        TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'queued', -- queued|sent|cancelled|failed
+  position    INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  sent_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_queue_session_state_pos ON prompt_queue(session_id, state, position);
+CREATE INDEX IF NOT EXISTS idx_prompt_queue_state ON prompt_queue(state, created_at);
 `
 
 func (d *DB) migrate() error {

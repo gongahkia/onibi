@@ -62,11 +62,13 @@ type Daemon struct {
 	messageSessions map[messageKey]string
 	defaultTargets  map[int64]string
 	pendingInjects  map[int64]string
+	busySessions    map[string]bool
 
 	// pendingEdit tracks "the user just tapped Edit" so the next text
 	// reply they send is treated as the edited JSON payload.
-	editMu       sync.Mutex
-	pendingEdits map[int64]string // owner chat id → approval id awaiting edit
+	editMu             sync.Mutex
+	pendingEdits       map[int64]string // owner chat id → approval id awaiting edit
+	pendingPromptEdits map[int64]string // owner chat id → prompt id awaiting edit
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 }
@@ -103,7 +105,9 @@ func New(opts Options) *Daemon {
 		messageSessions: map[messageKey]string{},
 		defaultTargets:  map[int64]string{},
 		pendingInjects:  map[int64]string{},
+		busySessions:    map[string]bool{},
 		pendingEdits:    map[int64]string{},
+		pendingPromptEdits: map[int64]string{},
 		ExitWhenIdle:    opts.ExitWhenIdle,
 	}
 
@@ -232,6 +236,9 @@ func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
 	if d.DB == nil {
 		return
 	}
+	if n, err := d.DB.PromptFailQueued(ctx, s.ID); err == nil && n > 0 {
+		_ = d.DB.AuditAppend(ctx, "prompt.failed", s.ID, "", 0, fmt.Sprintf("%d queued prompt(s) failed: session ended", n))
+	}
 	if err := d.DB.SessionMarkEnded(ctx, s.ID, time.Now()); err != nil {
 		d.Log.Warn("persist session end", slog.String("session", s.ID), slog.Any("err", err))
 	}
@@ -255,6 +262,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if err := d.RestorePendingApprovals(ctx); err != nil {
 		d.Log.Warn("restore pending approvals", slog.Any("err", err))
+	}
+	if err := telegram.RegisterCommands(ctx, d.Bot); err != nil {
+		d.Log.Warn("register telegram commands", slog.Any("err", err))
 	}
 
 	var wg sync.WaitGroup

@@ -24,6 +24,12 @@ type Options struct {
 // (with a "[…N lines truncated…]" marker) when the result would exceed
 // MaxChars.
 func TextTail(buf []byte, opts Options) string {
+	body := TextTailBody(buf, opts)
+	lang := opts.Lang
+	return fence + lang + "\n" + body + "\n" + fence
+}
+
+func TextTailBody(buf []byte, opts Options) string {
 	if opts.MaxLines <= 0 {
 		opts.MaxLines = DefaultMaxLines
 	}
@@ -33,7 +39,7 @@ func TextTail(buf []byte, opts Options) string {
 
 	clean := StripANSI(buf)
 	if len(clean) == 0 {
-		return fence + "\n(no output)\n" + fence
+		return "(no output)"
 	}
 
 	// split, take last MaxLines
@@ -68,8 +74,7 @@ func TextTail(buf []byte, opts Options) string {
 	if dropped > 0 {
 		header = "[…" + plural(dropped, "byte", "bytes") + " truncated…]\n"
 	}
-	lang := opts.Lang
-	return fence + lang + "\n" + header + body + "\n" + fence
+	return header + body
 }
 
 // StripANSI removes ANSI escape sequences (CSI sequences and most basic
