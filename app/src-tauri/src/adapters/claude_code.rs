@@ -48,14 +48,16 @@ pub fn info() -> IntegrationInfo {
 pub fn install(token: &str) -> Result<String> {
     let adapter = config::load().unwrap_or_default().adapters.claude;
     if adapter.transport == "acp" {
-        if which::which(&adapter.acp_command).is_err() {
+        if crate::util::bin::resolve_binary(&adapter.acp_command).is_none() {
             bail!("Claude ACP command not found: {}", adapter.acp_command);
         }
         return Ok(
             "claude-code ACP transport is configured; no HTTP hook was installed".to_string(),
         );
     }
-    let version = Command::new("claude")
+    let claude_path =
+        crate::util::bin::resolve_binary("claude").unwrap_or_else(|| PathBuf::from("claude"));
+    let version = Command::new(claude_path)
         .arg("--version")
         .output()
         .context("run claude --version; install Claude Code v2.0.10+")?;

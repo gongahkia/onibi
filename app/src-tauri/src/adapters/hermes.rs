@@ -9,7 +9,7 @@ pub fn info() -> AdapterInfo {
 
 pub fn install() -> Result<String> {
     let adapter = config::load().unwrap_or_default().adapters.hermes;
-    if which::which(&adapter.acp_command).is_err() {
+    if crate::util::bin::resolve_binary(&adapter.acp_command).is_none() {
         bail!("Hermes ACP command not found: {}", adapter.acp_command);
     }
     Ok("hermes ACP transport is available; no plugin hook was installed".to_string())

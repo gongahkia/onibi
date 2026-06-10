@@ -361,25 +361,7 @@ pub async fn fs_delete_path(root: PathBuf, path: PathBuf) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn fs_resolve_binary(command: String) -> Result<Option<PathBuf>, String> {
-    let command = command.trim();
-    if command.is_empty() {
-        return Ok(None);
-    }
-    let candidate = PathBuf::from(command);
-    if candidate.components().count() > 1 {
-        return Ok(candidate.is_file().then_some(candidate));
-    }
-
-    let Some(paths) = env::var_os("PATH") else {
-        return Ok(None);
-    };
-    for dir in env::split_paths(&paths) {
-        let candidate = dir.join(command);
-        if candidate.is_file() {
-            return Ok(Some(candidate));
-        }
-    }
-    Ok(None)
+    Ok(crate::util::bin::resolve_binary(&command))
 }
 
 fn is_search_skipped_dir(path: &Path) -> bool {

@@ -192,7 +192,9 @@ impl AcpChild {
 }
 
 pub async fn spawn(config: &AcpSpawnConfig) -> Result<AcpChild> {
-    let mut command = Command::new(&config.command);
+    let command_path = crate::util::bin::resolve_binary(&config.command)
+        .unwrap_or_else(|| PathBuf::from(&config.command));
+    let mut command = Command::new(command_path);
     command.args(&config.args);
     if let Some(cwd) = config.cwd.as_ref() {
         command.current_dir(cwd);
@@ -306,7 +308,7 @@ where
 }
 
 pub fn status_info(name: &'static str, command: &str, args: &[String]) -> IntegrationInfo {
-    let command_path = which::which(command).ok();
+    let command_path = crate::util::bin::resolve_binary(command);
     let installed = command_path.is_some();
     let command_line = if args.is_empty() {
         command.to_string()

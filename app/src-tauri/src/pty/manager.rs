@@ -60,7 +60,9 @@ impl PtyManager {
         if apply_shell_mode && shell_mode == ShellMode::Login {
             apply_login_shell_mode(&command, &mut args);
         }
-        let mut cmd = CommandBuilder::new(&command);
+        let resolved_command =
+            crate::util::bin::resolve_binary(&command).unwrap_or_else(|| PathBuf::from(&command));
+        let mut cmd = CommandBuilder::new(resolved_command.as_os_str());
         cmd.args(args.iter());
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
