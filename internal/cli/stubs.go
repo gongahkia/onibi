@@ -1,13 +1,6 @@
 package cli
 
-import (
-	"errors"
-
-	"github.com/spf13/cobra"
-)
-
-// errNotImplemented is returned by unfinished subcommands.
-var errNotImplemented = errors.New("not implemented yet")
+import "github.com/spf13/cobra"
 
 func runCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -91,18 +84,21 @@ func uninstallServiceCmd() *cobra.Command {
 }
 
 func sessionsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "sessions",
-		Short: "List active sessions hosted by the daemon (phase 6)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "List sessions recorded by the daemon",
+		RunE:  runSessions,
 	}
+	cmd.Flags().Bool("all", false, "include ended sessions")
+	cmd.Flags().Int("n", 50, "number of sessions to print")
+	return cmd
 }
 
 func logCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "log",
-		Short: "Print recent audit-log entries (phase 10)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Print recent audit-log entries",
+		RunE:  runLog,
 	}
 	cmd.Flags().Int("n", 50, "number of entries to print")
 	cmd.Flags().String("export", "", "export full log to file (csv|json by extension)")

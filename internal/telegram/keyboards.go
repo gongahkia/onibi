@@ -12,7 +12,13 @@ const (
 	CBApprove = "approve:"
 	CBDeny    = "deny:"
 	CBEdit    = "edit:"
+	CBTarget  = "target:"
 )
+
+type SessionTarget struct {
+	ID    string
+	Label string
+}
 
 // ApprovalKeyboard returns the inline keyboard rendered alongside an
 // approval request. Three buttons in one row so they stay tappable on a
@@ -40,6 +46,21 @@ func DecidedKeyboard(label string) *models.InlineKeyboardMarkup {
 	}
 }
 
+func SessionTargetKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
+	rows := make([][]models.InlineKeyboardButton, 0, len(targets))
+	for _, t := range targets {
+		label := t.Label
+		if label == "" {
+			label = t.ID
+		}
+		rows = append(rows, []models.InlineKeyboardButton{{
+			Text:         trimButton(label),
+			CallbackData: CBTarget + t.ID,
+		}})
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
 // ParseCallback splits a callback_data string into (verb, approvalID).
 // Returns ("", "") for unknown verbs so callers can ignore.
 func ParseCallback(data string) (verb, id string) {
@@ -50,6 +71,16 @@ func ParseCallback(data string) (verb, id string) {
 		return "deny", strings.TrimPrefix(data, CBDeny)
 	case strings.HasPrefix(data, CBEdit):
 		return "edit", strings.TrimPrefix(data, CBEdit)
+	case strings.HasPrefix(data, CBTarget):
+		return "target", strings.TrimPrefix(data, CBTarget)
 	}
 	return "", ""
+}
+
+func trimButton(s string) string {
+	r := []rune(s)
+	if len(r) <= 40 {
+		return s
+	}
+	return string(r[:37]) + "..."
 }

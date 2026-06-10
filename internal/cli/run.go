@@ -115,12 +115,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// forward stdin → PTY (so the user can interact with the agent)
 		go func() { _, _ = io.Copy(s.Host.Master, os.Stdin) }()
 
-		// when agent exits, the read loop marks the session ended which
-		// triggers daemon.Run to exit
-		go func() {
-			_ = s.Host.Wait()
-			s.MarkEnded()
-		}()
 	} else {
 		fmt.Fprintln(cmd.ErrOrStderr(), "daemon-only mode (no agent spawned); waiting for hook events on", paths.Socket)
 	}

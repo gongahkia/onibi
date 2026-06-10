@@ -54,6 +54,12 @@ func (s *Session) SinceActivity() time.Duration {
 	return time.Since(s.lastActivity)
 }
 
+func (s *Session) LastActivityAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastActivity
+}
+
 // StartedAt returns when the session began.
 func (s *Session) StartedAt() time.Time {
 	s.mu.Lock()
@@ -62,10 +68,14 @@ func (s *Session) StartedAt() time.Time {
 }
 
 // MarkEnded sets the session as ended. Idempotent.
-func (s *Session) MarkEnded() {
+func (s *Session) MarkEnded() bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ended {
+		return false
+	}
 	s.ended = true
-	s.mu.Unlock()
+	return true
 }
 
 // Ended reports whether MarkEnded was called.

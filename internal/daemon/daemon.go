@@ -58,6 +58,11 @@ type Daemon struct {
 	renderMu        sync.RWMutex
 	renderOverrides map[string]render.Mode
 
+	threadMu        sync.RWMutex
+	messageSessions map[messageKey]string
+	defaultTargets  map[int64]string
+	pendingInjects  map[int64]string
+
 	// pendingEdit tracks "the user just tapped Edit" so the next text
 	// reply they send is treated as the edited JSON payload.
 	editMu       sync.Mutex
@@ -95,6 +100,9 @@ func New(opts Options) *Daemon {
 		notified:        map[string]bool{},
 		started:         time.Now(),
 		renderOverrides: map[string]render.Mode{},
+		messageSessions: map[messageKey]string{},
+		defaultTargets:  map[int64]string{},
+		pendingInjects:  map[int64]string{},
 		pendingEdits:    map[int64]string{},
 		ExitWhenIdle:    opts.ExitWhenIdle,
 	}
@@ -160,8 +168,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args [
 		_ = host.Close()
 		return nil, err
 	}
+	d.persistSessionStart(ctx, s, "")
 
 	go d.readLoop(s)
+	go d.waitHost(s)
 	return s, nil
 }
 
@@ -182,10 +192,49 @@ func (d *Daemon) readLoop(s *Session) {
 			d.mu.Unlock()
 		}
 		if err != nil {
-			s.MarkEnded()
+			d.markSessionEnded(context.Background(), s)
 			return
 		}
 	}
+}
+
+func (d *Daemon) waitHost(s *Session) {
+	if s == nil || s.Host == nil {
+		return
+	}
+	_ = s.Host.Wait()
+	d.markSessionEnded(context.Background(), s)
+}
+
+type messageKey struct {
+	chatID int64
+	msgID  int
+}
+
+func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string) {
+	if d.DB == nil || s == nil {
+		return
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, "pty", "", s.StartedAt()); err != nil {
+		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
+	}
+	_ = d.DB.AuditAppend(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
+}
+
+func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
+	if s == nil || !s.MarkEnded() {
+		return
+	}
+	if d.DB == nil {
+		return
+	}
+	if err := d.DB.SessionMarkEnded(ctx, s.ID, time.Now()); err != nil {
+		d.Log.Warn("persist session end", slog.String("session", s.ID), slog.Any("err", err))
+	}
+	_ = d.DB.AuditAppend(ctx, "session.end", s.ID, "", 0, "ended")
 }
 
 // Run starts intake + idle detector + (if running interactively) waits for
@@ -306,7 +355,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 		s := d.sessionForEvent(ev)
 		if s != nil {
 			d.appendEventOutput(s, ev)
-			s.MarkEnded()
+			d.markSessionEnded(ctx, s)
 		}
 		return nil
 	default:
@@ -337,6 +386,7 @@ func (d *Daemon) sessionForEvent(ev intake.Event) *Session {
 	}
 	s := NewSession(id, name, agent, nil, BufferSize)
 	_ = d.Registry.Add(s)
+	d.persistSessionStart(context.Background(), s, ev.CWD)
 	return s
 }
 
@@ -381,6 +431,9 @@ func (d *Daemon) notifyCmdDone(ctx context.Context, ev intake.Event) error {
 	if d.Bot == nil || d.Owner == nil {
 		return nil
 	}
+	if d.isSnoozed(ctx, "shell") {
+		return nil
+	}
 	cmd := strings.TrimSpace(ev.Cmd)
 	if cmd == "" {
 		cmd = "(unknown command)"
@@ -420,6 +473,9 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if sessionID == "" {
 		return nil
 	}
+	if d.Bot == nil || d.Owner == nil {
+		return nil
+	}
 	d.mu.Lock()
 	if d.notified[sessionID] {
 		d.mu.Unlock()
@@ -432,6 +488,9 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if err != nil {
 		return nil // session not ours — likely a different daemon's hook firing
 	}
+	if d.isSnoozed(ctx, s.Agent) {
+		return nil
+	}
 
 	header := fmt.Sprintf("[%s] turn complete (%s)", s.Name, kind)
 	if hint != "" {
@@ -441,7 +500,7 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if render.ResolveMode(buf, d.renderOverride(s.ID)) == render.ModePNG {
 		img, pngErr := render.RenderPNG(buf, render.PNGOptions{})
 		if pngErr == nil {
-			_, err = d.Bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
+			sent, sendErr := d.Bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
 				ChatID:  d.Owner.ID(),
 				Caption: trimCaption(header),
 				Photo: &models.InputFileUpload{
@@ -449,20 +508,24 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 					Data:     bytes.NewReader(img),
 				},
 			})
-			if err == nil {
+			if sendErr == nil {
+				d.bindMessage(sent, s.ID)
 				return nil
 			}
-			d.Log.Warn("send turn-complete screenshot", slog.Any("err", err))
+			d.Log.Warn("send turn-complete screenshot", slog.Any("err", sendErr))
 		} else {
 			d.Log.Warn("render screenshot", slog.Any("err", pngErr))
 		}
 	}
 	tail := render.TextTail(buf, render.Options{Lang: ""})
 	body := header + "\n" + tail
-	_, err = d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: d.Owner.ID(),
 		Text:   body,
 	})
+	if err == nil {
+		d.bindMessage(sent, s.ID)
+	}
 	if err != nil {
 		d.Log.Warn("send turn-complete", slog.Any("err", err))
 	}

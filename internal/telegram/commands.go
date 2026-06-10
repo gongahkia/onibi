@@ -11,12 +11,14 @@ func BotCommands() []models.BotCommand {
 	return []models.BotCommand{
 		{Command: "sessions", Description: "list active sessions"},
 		{Command: "status", Description: "show daemon status"},
+		{Command: "target", Description: "set default session"},
+		{Command: "new", Description: "start an agent session"},
+		{Command: "snooze", Description: "pause notifications"},
+		{Command: "unsnooze", Description: "resume notifications"},
+		{Command: "log", Description: "show recent audit entries"},
 		{Command: "help", Description: "show Onibi commands"},
 		{Command: "text", Description: "force text output for a session"},
 		{Command: "screenshot", Description: "force screenshot output for a session"},
-		{Command: "snooze", Description: "pause notifications"},
-		{Command: "new", Description: "start a new agent session"},
-		{Command: "log", Description: "show recent audit entries"},
 	}
 }
 

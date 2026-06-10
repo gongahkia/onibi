@@ -107,11 +107,17 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
 	}
-	return d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID:      d.Owner.ID(),
 		Text:        msg,
 		ReplyMarkup: telegram.ApprovalKeyboard(id),
 	})
+	if err == nil && sent != nil {
+		if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
+			d.bindMessage(sent, a.SessionID)
+		}
+	}
+	return sent, err
 }
 
 // respondAndAnnotate edits the Telegram message in place with a decided-state
@@ -139,6 +145,9 @@ func (d *Daemon) respondAndAnnotate(
 // Deny terminate the approval directly. Edit parks the approval awaiting a
 // reply-text from the user containing the new JSON.
 func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, verb, id string) error {
+	if verb == "target" {
+		return d.handleTargetCallback(ctx, api, q, id)
+	}
 	a, err := d.Queue.Get(ctx, id)
 	if err != nil {
 		// could be a stale callback (daemon restart, approval already gone)
@@ -202,9 +211,7 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	}
 	d.editMu.Unlock()
 	if !ok {
-		// not awaiting an edit — Phase 6 will route reply-to-message
-		// into a session inject
-		return nil
+		return d.injectTelegramText(ctx, api, m.Chat.ID, d.sessionIDForReply(m), m.Text)
 	}
 
 	txt := strings.TrimSpace(m.Text)
@@ -267,8 +274,11 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 	if d.handleTextCommand(ctx, api, m) {
 		return nil
 	}
-	d.Log.Debug("text from owner (no handler wired yet)", slog.String("text", m.Text))
-	return nil
+	if cmd, _, ok := parseTelegramCommand(m.Text); ok {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown command: " + cmd})
+		return nil
+	}
+	return d.injectTelegramText(ctx, api, m.Chat.ID, "", m.Text)
 }
 
 // renderApprovalMessage formats the Telegram message body for an approval

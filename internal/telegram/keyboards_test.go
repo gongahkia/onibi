@@ -31,6 +31,7 @@ func TestParseCallback(t *testing.T) {
 		{"approve:abc123", "approve", "abc123"},
 		{"deny:def456", "deny", "def456"},
 		{"edit:ghi789", "edit", "ghi789"},
+		{"target:s1", "target", "s1"},
 		{"bogus:x", "", ""},
 		{"", "", ""},
 	}
