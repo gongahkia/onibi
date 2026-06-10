@@ -249,7 +249,7 @@ func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string
 	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, "pty", "", s.StartedAt()); err != nil {
 		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
 	}
-	_ = d.DB.AuditAppend(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
+	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
 }
 
 func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
@@ -260,12 +260,12 @@ func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
 		return
 	}
 	if n, err := d.DB.PromptFailQueued(ctx, s.ID); err == nil && n > 0 {
-		_ = d.DB.AuditAppend(ctx, "prompt.failed", s.ID, "", 0, fmt.Sprintf("%d queued prompt(s) failed: session ended", n))
+		d.audit(ctx, "prompt.failed", s.ID, "", 0, fmt.Sprintf("%d queued prompt(s) failed: session ended", n))
 	}
 	if err := d.DB.SessionMarkEnded(ctx, s.ID, time.Now()); err != nil {
 		d.Log.Warn("persist session end", slog.String("session", s.ID), slog.Any("err", err))
 	}
-	_ = d.DB.AuditAppend(ctx, "session.end", s.ID, "", 0, "ended")
+	d.audit(ctx, "session.end", s.ID, "", 0, "ended")
 }
 
 // Run starts intake + idle detector + (if running interactively) waits for

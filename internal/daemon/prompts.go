@@ -40,7 +40,7 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 		return err
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
-	_ = d.DB.AuditAppend(ctx, "prompt.queued", s.ID, text, chatID, "id="+p.ID)
+	d.audit(ctx, "prompt.queued", s.ID, text, chatID, "id="+p.ID)
 	sendMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position),
@@ -73,7 +73,7 @@ func (d *Daemon) dispatchNextPrompt(ctx context.Context, api telegram.API, s *Se
 	d.threadMu.Lock()
 	d.busySessions[s.ID] = true
 	d.threadMu.Unlock()
-	_ = d.DB.AuditAppend(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID)
+	d.audit(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID)
 	return nil
 }
 
@@ -164,7 +164,7 @@ func (d *Daemon) handleCancelPromptCommand(ctx context.Context, api telegram.API
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Cancel failed: " + err.Error()})
 		return
 	}
-	_ = d.DB.AuditAppend(ctx, "prompt.cancelled", "", "", chatID, "id="+id)
+	d.audit(ctx, "prompt.cancelled", "", "", chatID, "id="+id)
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Cancelled prompt " + id + "."})
 }
 
@@ -184,7 +184,7 @@ func (d *Daemon) handleMovePromptCommand(ctx context.Context, api telegram.API, 
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Move failed: " + err.Error()})
 		return
 	}
-	_ = d.DB.AuditAppend(ctx, "prompt.moved", p.SessionID, "", chatID, fmt.Sprintf("id=%s pos=%d", p.ID, p.Position))
+	d.audit(ctx, "prompt.moved", p.SessionID, "", chatID, fmt.Sprintf("id=%s pos=%d", p.ID, p.Position))
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("Moved %s to position %d.", p.ID, p.Position)})
 }
 
@@ -203,7 +203,7 @@ func (d *Daemon) handleFlushQueueCommand(ctx context.Context, api telegram.API, 
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Flush failed: " + err.Error()})
 		return
 	}
-	_ = d.DB.AuditAppend(ctx, "prompt.flush", sessionID, "", chatID, fmt.Sprintf("%d prompt(s)", n))
+	d.audit(ctx, "prompt.flush", sessionID, "", chatID, fmt.Sprintf("%d prompt(s)", n))
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("Cancelled %d queued prompt(s).", n)})
 }
 
@@ -234,7 +234,7 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 			answerCallback(ctx, api, q.ID, "Cancel failed")
 			return nil
 		}
-		_ = d.DB.AuditAppend(ctx, "prompt.cancelled", "", "", q.From.ID, "id="+id)
+		d.audit(ctx, "prompt.cancelled", "", "", q.From.ID, "id="+id)
 		answerCallback(ctx, api, q.ID, "Cancelled")
 		return nil
 	case "prompt_up", "prompt_down":
@@ -263,7 +263,7 @@ func (d *Daemon) applyPromptEdit(ctx context.Context, api telegram.API, chatID i
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Edit failed: " + err.Error()})
 		return
 	}
-	_ = d.DB.AuditAppend(ctx, "prompt.edited", p.SessionID, text, chatID, "id="+id)
+	d.audit(ctx, "prompt.edited", p.SessionID, text, chatID, "id="+id)
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Edited prompt " + id + "."})
 }
 

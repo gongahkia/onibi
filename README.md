@@ -40,6 +40,7 @@ available, offers service install, offers detected agent hooks, and ends with
 ## Use
 
 ```sh
+onibi version
 onibi doctor
 onibi config list
 onibi adapters

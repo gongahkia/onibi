@@ -57,7 +57,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 
 	// audit: request raised
-	_ = d.DB.AuditAppend(ctx, "approval.request", ev.Session, ev.InputJSON, 0,
+	d.audit(ctx, "approval.request", ev.Session, ev.InputJSON, 0,
 		fmt.Sprintf("tool=%s id=%s", ev.Tool, approvalID))
 
 	// wait for decision

@@ -373,7 +373,7 @@ func (d *Daemon) setSnooze(ctx context.Context, scope string, dur time.Duration)
 	if err := d.DB.KVSet(ctx, snoozeKey(scope), []byte(value), expire); err != nil {
 		return err
 	}
-	_ = d.DB.AuditAppend(ctx, "notify.snooze", "", scope+" "+value, 0, scope)
+	d.audit(ctx, "notify.snooze", "", scope+" "+value, 0, scope)
 	return nil
 }
 
@@ -384,7 +384,7 @@ func (d *Daemon) clearSnooze(ctx context.Context, scope string) error {
 	if err := d.DB.KVDel(ctx, snoozeKey(scope)); err != nil {
 		return err
 	}
-	_ = d.DB.AuditAppend(ctx, "notify.unsnooze", "", scope, 0, scope)
+	d.audit(ctx, "notify.unsnooze", "", scope, 0, scope)
 	return nil
 }
 
