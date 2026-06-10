@@ -410,17 +410,22 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [x] `scripts/manual-e2e-pair.md` — step-by-step manual end-to-end procedure (requires real BotFather bot; ~3 min)
 - [ ] **MANUAL**: Run `scripts/manual-e2e-pair.md` against a real BotFather bot. Owner permanently stored, re-run without `--rotate-owner` fails, `rotate-token` refuses different-bot token, expired pair link rejected. (Requires user — cannot be automated.)
 
-### Phase 2 — PTY host + Claude adapter + text renderer (5–7d)
+### Phase 2 — PTY host + Claude adapter + text renderer (5–7d) — **CODE DONE 2026-06-10; awaiting user manual e2e**
 
-- [ ] `internal/pty/host.go` — spawn process under PTY, read loop into ring buffer
-- [ ] `internal/daemon/registry.go` — session registry; lifecycle hooks
-- [ ] `internal/render/text.go` — last-N-lines, fenced code block, strip ANSI
-- [ ] `internal/adapters/claude/install.go` — write Stop/PreToolUse hook into `~/.claude/settings.json` (guarded block)
-- [ ] `clients/onibi-notify/main.go` — tiny Go binary, writes JSON to Unix socket, exits 0 silently if socket missing
-- [ ] `internal/intake/server.go` — Unix-socket listener, JSON event handler
-- [ ] `internal/daemon/turn_complete.go` — PTY-idle detector (no output for 3s after activity)
-- [ ] `internal/cli/run.go` — `onibi run` starts daemon; `onibi run claude -- <args>` spawns Claude under PTY
-- [ ] Test: start Claude session, run a prompt, get text-tail notification on turn complete.
+- [x] `internal/pty/host.go` + `_test.go` — `creack/pty` wrapper: SpawnOptions (name/args/env/cwd/rows/cols/replace-env), bidirectional Master, Wait/Pipe/Write/Close; tested with /bin/echo, /bin/cat, error paths
+- [x] `internal/daemon/buffer.go` + `_test.go` — concurrent ring buffer; tested below-cap, wrap, multi-wrap, reset, 20-goroutine concurrent writes + readers
+- [x] `internal/daemon/registry.go` + `_test.go` — Session (Touch/SinceActivity/MarkEnded) + Registry (Add/Get/Remove/List/sorted-by-start) + `NewID` (8-byte hex); 50-goroutine concurrent add test, 1000-id uniqueness test
+- [x] `internal/render/text.go` + `_test.go` — `TextTail` (fenced code block, MaxLines/MaxChars/Lang options), `StripANSI` (CSI + OSC + character-set sequences + bare \\r), UTF-8-safe head-truncation marker; tested ANSI strip, OSC, cursor moves, empty, fencing, max-lines, lang hint
+- [x] `internal/adapters/claude/install.go` + `_test.go` — `Install`/`Uninstall`/`VerifyHash` against `~/.claude/settings.json`; idempotent guarded-block merge that preserves user-managed Stop entries; sha256 recorded in `hooks` table; tamper-detection test passes
+- [x] `clients/onibi-notify/main.go` — fail-open contract: ONIBI_SOCK + ONIBI_SESSION_ID from env; flags `--type`, `--status`, `--cmd`, `--elapsed-ms`, `--text`, `--tail-stdin`, `--approval-id`, `--tool`; exits 0 silently on every error path
+- [x] `internal/intake/event.go` — JSON wire schema (Event struct) for agent_done, agent_awaiting, agent_message, cmd_done, session_exited, approval_request
+- [x] `internal/intake/server.go` + peercred_darwin.go + peercred_linux.go + client.go + `_test.go` — Unix socket 0600 perms (umask-resistant, post-bind chmod), `DisallowUnknownFields` JSON decode, peer-cred verification (`Xucred` on macOS, `Ucred` on Linux via `golang.org/x/sys/unix`), 5s deadline; tested: roundtrip, send-fails-open, malformed-rejected, empty-type-rejected
+- [x] `internal/daemon/turn_complete.go` — `IdleDetector` with per-session "fired" dedup map; clears on next Touch so subsequent active periods refire; configurable threshold (default 3s) + interval (default 500ms)
+- [x] `internal/daemon/daemon.go` — orchestrator: `SpawnAgent` sets ONIBI_SOCK + ONIBI_SESSION_ID env, reads PTY into ring buffer + mirrors to user's tty; `handleEvent` dispatches intake events; once-per-active-period dedup so hook + idle-fallback don't double-fire; SIGINT/SIGTERM clean shutdown
+- [x] `internal/cli/run.go` — `onibi run [agent [args...]]`: loads paths/db/secrets/owner/bot/daemon; spawns agent under PTY with `golang.org/x/term` raw-mode stdin pass-through + SIGWINCH resize via `creack/pty.InheritSize`; daemon-only mode when no args
+- [x] `internal/cli/hooks.go` — `onibi install-hooks --agent claude`: resolves `onibi-notify` path via ONIBI_NOTIFY_BIN env / sibling-of-onibi / PATH lookup; phase 8 will add codex/opencode/goose
+- [x] `scripts/manual-e2e-claude-run.md` — step-by-step procedure (~5 min): `make install` → `onibi install-hooks --agent claude` → `onibi run claude` → prompt → Telegram message
+- [ ] **MANUAL**: Run `scripts/manual-e2e-claude-run.md`. Start Claude session under `onibi run claude`, type a prompt, verify Telegram message arrives on turn complete (primary hook path) and idle-fallback works if hook is removed. (Requires user — cannot be automated.)
 
 ### Phase 3 — Blocking approval protocol + audit log (5–7d)
 
@@ -684,10 +689,10 @@ Reference repos:
 
 ## 14. Current focus
 
-**Phase 2 — PTY host + Claude adapter + text renderer.** Status: ready to start once manual e2e of Phase 1 passes.
+**Phase 3 — Blocking approval protocol + audit log.** Status: ready to start once manual e2e of Phases 1 + 2 pass.
 
-Phase 1 code completed 2026-06-10: secrets store (Keychain/dotenv), redacting slog handler, SQLite store with v1 schema, RFC 6238 TOTP (opt-in), owner middleware (atomic + constant-time), pair-once flow with 5-min single-use deeplink token, interactive setup wizard with mandatory Telegram 2FA acknowledgment, `get-chat-id` fallback, `rotate-token` with bot_id identity check, terminal QR renderer ported from tgterm patterns. `go vet` clean, `go test -race ./...` green (12 unit tests including concurrent pair-race, expired-token rejection, perms enforcement, RFC 6238 vectors, redaction across log paths). `make build` produces working `bin/onibi` + `bin/onibi-notify`. `onibi setup --print-checklist`, `onibi setup --help`, `onibi --help` all work.
+Phase 2 code completed 2026-06-10: PTY host (creack/pty wrapper with raw-mode stdin forwarding + SIGWINCH resize), per-session concurrent ring buffer, text renderer with ANSI strip + UTF-8-safe head truncation + fenced code blocks, intake Unix socket (0600 + peer-cred check via x/sys/unix `Xucred`/`Ucred`), JSON event wire schema, fail-open `onibi-notify` client, session registry, idle-fallback detector with per-session dedup, daemon orchestrator with once-per-active-period guard so hook + idle don't double-fire, Claude Stop-hook installer with idempotent guarded-block JSON merge + sha256 tamper registry, `onibi run [agent [args...]]` + `onibi install-hooks --agent claude`. `go vet` clean, `go test -race ./...` green (~45 unit tests across 10 packages including ring-buffer concurrency, PTY echo, ANSI strip, OSC sequences, socket-malformed rejection, peer-cred enforcement, hook idempotency, hook tamper detection). `make build` produces working `bin/onibi` (11 MB) + `bin/onibi-notify` (2.6 MB).
 
-Pending before Phase 2: user runs `scripts/manual-e2e-pair.md` against a real BotFather bot to confirm the pair flow end-to-end. Owner check, rotation, 2FA acknowledgment, perms, Keychain persistence all need real-Telegram verification.
+Pending before Phase 3: user runs `scripts/manual-e2e-claude-run.md` (~5 min, requires Phase 1 + Claude CLI). Should confirm the Stop hook fires, Telegram receives the text-tail message on turn complete, idle-fallback works when hook is missing, and dedup prevents double-fires.
 
-Next action when Phase 2 starts: implement `internal/pty/host.go` (creack/pty spawn + read loop + ring buffer), `internal/daemon/registry.go` (session lifecycle), `internal/render/text.go` (last-N-lines fenced code block + ANSI strip), `internal/adapters/claude/install.go` (write Stop hook to `~/.claude/settings.json` with guarded block + sha256 to hooks table), `internal/intake/server.go` (Unix-socket listener with 0600 perms + peer-cred check), `internal/daemon/turn_complete.go` (PTY-idle detector), and the real `clients/onibi-notify` implementation. Phase 2 deliverable: `onibi run claude -- <args>` spawns Claude under a PTY; turn-complete signal sends a text-tail Telegram message to the owner.
+Next action when Phase 3 starts: implement `internal/approval/queue.go` (SQLite-backed state machine: pending → approved/denied/edited/expired/cancelled with atomic transitions), `internal/approval/expiry.go` (5-min sweeper), `internal/approval/scrub.go` (regex-based secret-redaction of tool inputs before render), `internal/telegram/keyboards.go` ([Approve][Deny][Edit] inline keyboard), `internal/telegram/router.go` (callback query dispatcher with owner middleware), `internal/adapters/claude/pretooluse.go` (blocking handler returning updatedInput/deny/allow via exit codes + JSON output), `internal/store/audit.go` (append-only audit log). Phase 3 deliverable: Claude attempts a tool call → blocks → Telegram message with keyboard → tap Approve → tool runs; tap Deny → tool blocked; daemon restart mid-approval restores pending state from SQLite.

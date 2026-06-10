@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 
+	cpty "github.com/creack/pty"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
@@ -96,6 +102,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "spawned %s (session %s)\n", agent, s.ID)
 
+		// raw mode on the user's stdin so keystrokes pass through to the
+		// agent unprocessed; restore on exit. SIGWINCH → resize the child
+		// PTY to match the user's terminal.
+		restore, err := enterRawMode(s.Host.Master)
+		if err == nil {
+			defer restore()
+		}
+		// forward stdin → PTY (so the user can interact with the agent)
+		go func() { _, _ = io.Copy(s.Host.Master, os.Stdin) }()
+
 		// when agent exits, the read loop marks the session ended which
 		// triggers daemon.Run to exit
 		go func() {
@@ -107,4 +123,40 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return d.Run(ctx)
+}
+
+// enterRawMode puts the user's terminal into raw mode and starts a
+// SIGWINCH handler that resizes the child PTY to match the user's window.
+// Returns a restore function. No-op + nil error when stdin isn't a TTY.
+func enterRawMode(master *os.File) (func(), error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return func() {}, nil
+	}
+	old, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
+	}
+	// initial resize to match
+	_ = cpty.InheritSize(os.Stdin, master)
+
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-winch:
+				_ = cpty.InheritSize(os.Stdin, master)
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+		signal.Stop(winch)
+		_ = term.Restore(fd, old)
+	}, nil
 }
