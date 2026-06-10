@@ -7,9 +7,10 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/adapters/claude"
+	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
@@ -264,16 +265,24 @@ func (r *runner) checkHooks() {
 			r.add("hooks", Fail, err.Error())
 			return
 		}
-		switch agent {
-		case "claude":
-			if err := claude.VerifyHash(r.ctx, r.db); err != nil {
-				r.add("hook claude", Fail, err.Error())
+		if strings.HasPrefix(agent, "shell:") {
+			name := strings.TrimPrefix(agent, "shell:")
+			if err := adapters.VerifyShell(r.ctx, r.db, name); err != nil {
+				r.add("hook "+agent, Fail, err.Error())
 			} else {
-				r.add("hook claude", Pass, path)
+				r.add("hook "+agent, Pass, path)
 			}
-		default:
-			r.add("hook "+agent, Warn, "no verifier implemented for "+path)
+			continue
 		}
+		if a, ok := adapters.Get(agent); ok {
+			if err := a.Verify(r.ctx, r.db); err != nil {
+				r.add("hook "+agent, Fail, err.Error())
+			} else {
+				r.add("hook "+agent, Pass, path)
+			}
+			continue
+		}
+		r.add("hook "+agent, Warn, "no verifier implemented for "+path)
 	}
 	if err := rows.Err(); err != nil {
 		r.add("hooks", Fail, err.Error())

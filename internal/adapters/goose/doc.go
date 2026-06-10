@@ -1,2 +1,2 @@
-// Package goose implements the Goose adapter. Phase 8.
+// Package goose implements the Goose adapter.
 package goose

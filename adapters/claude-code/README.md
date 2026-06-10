@@ -1,7 +1,7 @@
 # Claude Code hook templates
 
 Source-of-truth templates installed by `onibi install-hooks --agent claude`
-(phase 8) into `~/.claude/settings.json` as a guarded block.
+into `~/.claude/settings.json` as a guarded block.
 
 Events used:
 

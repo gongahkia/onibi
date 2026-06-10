@@ -3,11 +3,14 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -287,10 +290,22 @@ func (d *Daemon) waitForAllSessionsToExit(ctx context.Context) {
 func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 	switch ev.Type {
 	case intake.TypeAgentDone, intake.TypeAgentAwaiting:
-		return d.notifyTurnComplete(ctx, ev.Session, ev.Type, ev.Text)
+		s := d.sessionForEvent(ev)
+		d.appendEventOutput(s, ev)
+		if s == nil {
+			return nil
+		}
+		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
+	case intake.TypeAgentMessage:
+		s := d.sessionForEvent(ev)
+		d.appendEventOutput(s, ev)
+		return nil
+	case intake.TypeCmdDone:
+		return d.notifyCmdDone(ctx, ev)
 	case intake.TypeSessionExited:
-		s, err := d.Registry.Get(ev.Session)
-		if err == nil {
+		s := d.sessionForEvent(ev)
+		if s != nil {
+			d.appendEventOutput(s, ev)
 			s.MarkEnded()
 		}
 		return nil
@@ -299,6 +314,97 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 		d.Log.Info("intake: unhandled event type", slog.String("type", ev.Type))
 		return nil
 	}
+}
+
+func (d *Daemon) sessionForEvent(ev intake.Event) *Session {
+	id := ev.Session
+	if id == "" {
+		id = externalSessionID(ev)
+	}
+	if id == "" {
+		return nil
+	}
+	if s, err := d.Registry.Get(id); err == nil {
+		return s
+	}
+	agent := ev.Agent
+	if agent == "" {
+		agent = "external"
+	}
+	name := agent
+	if ev.ProviderSessionID != "" {
+		name += "-" + shortID(ev.ProviderSessionID)
+	}
+	s := NewSession(id, name, agent, nil, BufferSize)
+	_ = d.Registry.Add(s)
+	return s
+}
+
+func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {
+	if s == nil || s.Buf == nil {
+		return
+	}
+	var b strings.Builder
+	if ev.EventName != "" {
+		fmt.Fprintf(&b, "[%s] %s\n", ev.Agent, ev.EventName)
+	}
+	if ev.Tool != "" {
+		fmt.Fprintf(&b, "tool: %s\n", ev.Tool)
+	}
+	if ev.Text != "" {
+		b.WriteString(ev.Text)
+		if !strings.HasSuffix(ev.Text, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if ev.Tail != "" {
+		b.WriteString(ev.Tail)
+		if !strings.HasSuffix(ev.Tail, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if b.Len() == 0 && ev.RawJSON != "" {
+		raw := ev.RawJSON
+		if len(raw) > 2048 {
+			raw = raw[:2048] + "..."
+		}
+		b.WriteString(raw)
+		b.WriteByte('\n')
+	}
+	if b.Len() > 0 {
+		_, _ = s.Buf.Write([]byte(b.String()))
+		s.Touch()
+	}
+}
+
+func (d *Daemon) notifyCmdDone(ctx context.Context, ev intake.Event) error {
+	if d.Bot == nil || d.Owner == nil {
+		return nil
+	}
+	cmd := strings.TrimSpace(ev.Cmd)
+	if cmd == "" {
+		cmd = "(unknown command)"
+	}
+	body := fmt.Sprintf("[shell] command done rc=%d elapsed=%s\n```shell\n%s\n```",
+		ev.Status, time.Duration(ev.Elapsed)*time.Millisecond, cmd)
+	_, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{ChatID: d.Owner.ID(), Text: body})
+	return err
+}
+
+func externalSessionID(ev intake.Event) string {
+	key := ev.Agent + "|" + ev.ProviderSessionID + "|" + ev.CWD + "|" + fmt.Sprint(ev.PID)
+	if strings.Trim(key, "|") == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return "ext" + hex.EncodeToString(sum[:6])
+}
+
+func shortID(s string) string {
+	if len(s) <= 6 {
+		return s
+	}
+	return s[:6]
 }
 
 // onIdle is the fallback turn-complete fired by the idle detector when no

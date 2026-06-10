@@ -1,8 +1,17 @@
-# Codex CLI hook templates
+# Codex CLI adapter
 
-Templates installed by `onibi install-hooks --agent codex` (phase 8).
+Installed by:
 
-**Known limitation:** Codex hooks reliably fire for `Bash` tool calls but
-not for `apply_patch` or most MCP tool calls as of 2026. Documented in
-[Codex CLI Hooks Guide](https://codex.danielvaughan.com/2026/04/15/codex-cli-hooks-complete-guide-events-policy-patterns/).
-Not fixable from our side.
+```sh
+onibi install-hooks --agent codex
+```
+
+Writes `~/.codex/hooks.json` or `$ONIBI_CODEX_HOOKS`.
+
+Events:
+
+- `PreToolUse` -> blocking Telegram approval.
+- `SessionStart`, `PostToolUse` -> provider-event intake.
+- `Stop` -> turn-complete notification.
+
+Current Codex docs support matching `Bash`, `apply_patch`, and MCP tool names.

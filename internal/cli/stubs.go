@@ -6,8 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errNotImplemented is returned by stub subcommands until their phase lands.
-var errNotImplemented = errors.New("not implemented yet — see TODO-10-JUN.md phase plan")
+// errNotImplemented is returned by unfinished subcommands.
+var errNotImplemented = errors.New("not implemented yet")
 
 func runCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -63,12 +63,14 @@ func doctorCmd() *cobra.Command {
 func installHooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install-hooks",
-		Short: "Install agent and/or shell hooks (phase 2: claude; phase 8: codex/opencode/goose/shells)",
+		Short: "Install agent and/or shell hooks",
 		RunE:  runInstallHooks,
 	}
-	cmd.Flags().String("agent", "", "agent name (claude — others land in phase 8)")
-	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish — phase 8)")
-	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell (phase 8)")
+	cmd.Flags().String("agent", "", "agent name (claude, codex, opencode, goose, gemini, copilot, pi, amp)")
+	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish)")
+	cmd.Flags().Bool("all", false, "install every supported agent adapter")
+	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell")
+	cmd.Flags().Bool("uninstall", false, "remove Onibi-managed hooks for the selected agent/shell")
 	return cmd
 }
 

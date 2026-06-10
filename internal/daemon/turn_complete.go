@@ -18,8 +18,7 @@ const IdleThreshold = 3 * time.Second
 // Design note: this is the FALLBACK path for turn-complete detection.
 // The PRIMARY path is the agent's Stop hook → onibi-notify → intake →
 // daemon. The fallback fires later (longer threshold) so it only kicks in
-// when the agent has no hook installed (Phase 8 will reduce reliance on
-// this for hooked agents).
+// when an installed agent hook does not fire.
 type IdleDetector struct {
 	Registry  *Registry
 	Threshold time.Duration

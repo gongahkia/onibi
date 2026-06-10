@@ -10,7 +10,9 @@ inbound network, no accounts.
 [![CI](https://github.com/gongahkia/onibi/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/onibi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> **Status:** v2 development in progress (Phase 0 — repo reset complete).
+> **Status:** v2 development in progress. Setup, daemon, Claude approvals,
+> multi-agent hook installers, service install, and doctor are implemented;
+> see `TODO-10-JUN.md` for remaining phase work.
 > See `TODO-10-JUN.md` for the single source of truth on plan, phases,
 > security model, and decisions. Prior v1 (Swift, archived under
 > `docs/archive/v0-README.md`) and v1.5 (Rust+Tauri+PWA, archived under
@@ -62,7 +64,7 @@ Single Go binary. Subcommands:
 
 - `onibi setup` — one-time pair flow
 - `onibi run` — start the daemon (called by LaunchAgent / systemd)
-- `onibi install-hooks --agent <name>` — write hook block to agent settings
+- `onibi install-hooks --agent <name>` — write hook block/plugin to agent settings
 - `onibi install-service` — install LaunchAgent (macOS) or systemd user unit
 - `onibi doctor` — health + integrity check
 - `onibi rotate-token` — replace bot token via @BotFather /revoke
@@ -74,6 +76,11 @@ The same binary spawned without subcommand prints help.
 A second tiny binary `onibi-notify` is invoked by agent and shell hooks; it
 writes a JSON event to the daemon's local Unix-domain socket and fails open
 when the daemon is down.
+
+Current first-class adapters: Claude, Codex, OpenCode, Goose, Gemini,
+GitHub Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
+Blocking approvals are used where the provider supports them; Goose and shell
+hooks are event/notification bridges.
 
 ## License
 

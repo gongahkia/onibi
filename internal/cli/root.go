@@ -1,7 +1,4 @@
 // Package cli wires cobra subcommands.
-//
-// Phase 0: stubs only. Phase 1 implements run/setup/get-chat-id/rotate-token.
-// Phase 8 adds install-hooks/install-service/sessions/log.
 package cli
 
 import (
@@ -13,7 +10,7 @@ func Root() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "onibi",
 		Short:         "Telegram-controlled coding-agent host",
-		Long:          "Onibi hosts coding agents (Claude Code, Codex, OpenCode, Goose) under PTYs and routes approval prompts and turn signals to a Telegram bot for one-handed control from your phone.",
+		Long:          "Onibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes approval prompts, shell events, and turn signals to a Telegram bot for one-handed control from your phone.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

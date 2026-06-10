@@ -118,9 +118,9 @@ onibi/
 │   ├── approval/                  # blocking protocol; allow/deny/edit semantics
 │   ├── adapters/
 │   │   ├── claude/                # Stop + PreToolUse handlers
-│   │   ├── codex/                 # PreToolUse (Bash-only)
+│   │   ├── codex/                 # SessionStart/PreToolUse/PostToolUse/Stop bridge
 │   │   ├── opencode/              # permission.replied + tool.execute.before
-│   │   ├── goose/                 # (phase 7)
+│   │   ├── goose/                 # lifecycle event bridge
 │   │   ├── shell/                 # zsh precmd/preexec, bash, fish (opt-in)
 │   │   └── registry.go            # discovery, hook install/uninstall, capability matrix
 │   ├── telegram/
@@ -423,7 +423,7 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [x] `internal/daemon/turn_complete.go` — `IdleDetector` with per-session "fired" dedup map; clears on next Touch so subsequent active periods refire; configurable threshold (default 3s) + interval (default 500ms)
 - [x] `internal/daemon/daemon.go` — orchestrator: `SpawnAgent` sets ONIBI_SOCK + ONIBI_SESSION_ID env, reads PTY into ring buffer + mirrors to user's tty; `handleEvent` dispatches intake events; once-per-active-period dedup so hook + idle-fallback don't double-fire; SIGINT/SIGTERM clean shutdown
 - [x] `internal/cli/run.go` — `onibi run [agent [args...]]`: loads paths/db/secrets/owner/bot/daemon; spawns agent under PTY with `golang.org/x/term` raw-mode stdin pass-through + SIGWINCH resize via `creack/pty.InheritSize`; daemon-only mode when no args
-- [x] `internal/cli/hooks.go` — `onibi install-hooks --agent claude`: resolves `onibi-notify` path via ONIBI_NOTIFY_BIN env / sibling-of-onibi / PATH lookup; phase 8 will add codex/opencode/goose
+- [x] `internal/cli/hooks.go` — `onibi install-hooks --agent <name>` and `--shell <name>` resolve `onibi-notify` via ONIBI_NOTIFY_BIN env / sibling-of-onibi / PATH lookup; adapter registry covers claude/codex/opencode/goose/gemini/copilot/pi/amp plus shell hooks
 - [x] `scripts/manual-e2e-claude-run.md` — step-by-step procedure (~5 min): `make install` → `onibi install-hooks --agent claude` → `onibi run claude` → prompt → Telegram message
 - [ ] **MANUAL**: Run `scripts/manual-e2e-claude-run.md`. Start Claude session under `onibi run claude`, type a prompt, verify Telegram message arrives on turn complete (primary hook path) and idle-fallback works if hook is removed. (Requires user — cannot be automated.)
 
@@ -479,14 +479,16 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [ ] Bracketed-paste mitigation: known issue with multi-line + extended-keys; verify-and-retry loop after dispatch (capture-pane, check, resend Enter if needed)
 - [ ] Coexists with PTY backend; per-session "transport: pty | tmux"
 
-### Phase 8 — More adapters (5–7d)
+### Phase 8 — More adapters (5–7d) — **CODE DONE 2026-06-10; awaiting live provider e2e**
 
-- [ ] Codex CLI adapter (PreToolUse for Bash only — apply_patch and MCP tools not interceptable; document this limitation)
-- [ ] OpenCode adapter (`tool.execute.before` + `permission.replied`)
-- [ ] Goose adapter
-- [ ] Shell hooks: zsh `precmd`/`preexec` (opt-in), bash `PROMPT_COMMAND`, fish `fish_postexec`
-- [ ] `onibi install-hooks --agent <name>` and `--shell <name>` idempotent installers
-- [ ] Capability matrix in docs
+- [x] Codex CLI adapter (SessionStart, PreToolUse, PostToolUse, Stop)
+- [x] OpenCode adapter (`tool.execute.before` + lifecycle bridge)
+- [x] Goose adapter
+- [x] Gemini, Copilot, Pi, Amp adapters
+- [x] Shell hooks: zsh `precmd`/`preexec` (opt-in), bash `PROMPT_COMMAND`, fish `fish_postexec`
+- [x] `onibi install-hooks --agent <name>` and `--shell <name>` idempotent installers
+- [x] Capability matrix in docs
+- [ ] **MANUAL**: live e2e against installed Codex/OpenCode/Goose/Gemini/Copilot/Pi/Amp CLIs; provider hook APIs can drift.
 
 ### Phase 9 — LaunchAgent + systemd + signed distribution (5–7d)
 
@@ -667,7 +669,7 @@ Libraries:
 
 Protocols / docs:
 - [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) — Stop, PreToolUse, Notification events; `updatedInput` field; CLI v2.1.165 (Jun 2026) supports 24+ lifecycle events
-- [Codex CLI hooks](https://codex.danielvaughan.com/2026/04/15/codex-cli-hooks-complete-guide-events-policy-patterns/) — PreToolUse/PostToolUse, Bash-only reliably; apply_patch + MCP gap is upstream
+- [OpenAI Codex hooks](https://developers.openai.com/codex/hooks) — Codex hook events and blocking approval output
 - [OpenCode plugin API](https://opencode.ai/docs/tools/) — 25+ lifecycle events incl. `permission.replied`, `tool.execute.before`
 - [Telegram Bot API](https://core.telegram.org/bots/api) — sendMessage, sendPhoto, callback_query, deep linking, `setMyCommands`
 - [Telegram Bot FAQ — rate limits](https://core.telegram.org/bots/faq) — 30 msgs/sec global, ~1 msg/sec per chat, 4096-char per text message

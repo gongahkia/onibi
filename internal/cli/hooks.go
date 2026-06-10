@@ -1,31 +1,28 @@
 package cli
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/onibi/internal/adapters/claude"
+	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 // runInstallHooks implements `onibi install-hooks --agent <name>`.
-// Phase 2: Claude only. Phase 8 expands.
 func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
-	if agent == "" {
-		return errors.New("--agent required (claude is currently the only supported agent)")
-	}
-
-	notifyBin, err := locateNotifyBinary()
-	if err != nil {
-		return err
-	}
+	sh, _ := cmd.Flags().GetString("shell")
+	all, _ := cmd.Flags().GetBool("all")
+	interactive, _ := cmd.Flags().GetBool("interactive")
+	uninstall, _ := cmd.Flags().GetBool("uninstall")
 
 	paths, err := config.DefaultPaths()
 	if err != nil {
@@ -40,18 +37,107 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	}
 	defer db.Close()
 
-	switch agent {
-	case "claude":
-		if err := claude.Install(cmd.Context(), db, notifyBin); err != nil {
+	notifyBin := ""
+	if !uninstall {
+		notifyBin, err = locateNotifyBinary()
+		if err != nil {
 			return err
 		}
-		path, _ := claude.SettingsPath()
-		fmt.Fprintf(cmd.OutOrStdout(), "Installed Claude Stop hook into %s\n", path)
-		fmt.Fprintf(cmd.OutOrStdout(), "Hook calls: %s --type agent_done\n", notifyBin)
-		return nil
-	default:
-		return fmt.Errorf("agent %q not supported yet (phase 8 adds codex, opencode, goose)", agent)
 	}
+
+	if sh != "" {
+		if uninstall {
+			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
+			return nil
+		}
+		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh); err != nil {
+			return err
+		}
+		info := adapters.ShellStatus(cmd.Context(), db, sh)
+		fmt.Fprintf(cmd.OutOrStdout(), "Installed %s shell hook into %s\n", sh, info.InstallPath)
+		return nil
+	}
+
+	if interactive {
+		return runInteractiveHooks(cmd, db, notifyBin, uninstall)
+	}
+
+	if all {
+		for _, name := range adapters.Names() {
+			if err := installOneAgent(cmd, db, notifyBin, name, uninstall); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if agent == "" {
+		return errors.New("--agent, --shell, --all, or --interactive required")
+	}
+	return installOneAgent(cmd, db, notifyBin, agent, uninstall)
+}
+
+func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, uninstall bool) error {
+	a, ok := adapters.Get(name)
+	if !ok {
+		return adapters.Unsupported(name)
+	}
+	if uninstall {
+		if err := a.Uninstall(cmd.Context(), db); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s hooks\n", a.Name)
+		return nil
+	}
+	if err := a.Install(cmd.Context(), db, notifyBin); err != nil {
+		return err
+	}
+	info := a.Status(cmd.Context(), db)
+	fmt.Fprintf(cmd.OutOrStdout(), "Installed %s hooks into %s\n", a.Name, info.InstallPath)
+	return nil
+}
+
+func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool) error {
+	br := bufio.NewReader(cmd.InOrStdin())
+	for _, name := range adapters.Names() {
+		if _, err := exec.LookPath(name); err != nil && name != "copilot" {
+			continue
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s hooks? [Y/n] ", action(uninstall), name)
+		line, _ := br.ReadString('\n')
+		if strings.EqualFold(strings.TrimSpace(line), "n") {
+			continue
+		}
+		if err := installOneAgent(cmd, db, notifyBin, name, uninstall); err != nil {
+			return err
+		}
+	}
+	for _, sh := range adapters.ShellNames() {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s shell hook? [y/N] ", action(uninstall), sh)
+		line, _ := br.ReadString('\n')
+		if !strings.EqualFold(strings.TrimSpace(line), "y") {
+			continue
+		}
+		if uninstall {
+			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
+		} else if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func action(uninstall bool) string {
+	if uninstall {
+		return "Uninstall"
+	}
+	return "Install"
 }
 
 // locateNotifyBinary finds onibi-notify next to the onibi binary (the most
