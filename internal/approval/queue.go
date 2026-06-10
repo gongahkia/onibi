@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ type DecisionResult struct {
 type Queue struct {
 	db  *store.DB
 	ttl time.Duration
+	Log *slog.Logger // optional; if nil, audit-append failures are swallowed
 
 	mu      sync.Mutex
 	waiters map[string]chan Decision // approval id → single-shot delivery channel
@@ -222,8 +224,10 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 	if editedJSON != "" {
 		payload = editedJSON
 	}
-	_ = q.db.AuditAppend(ctx, "approval.decided", a.SessionID, payload, decidedBy,
-		fmt.Sprintf("id=%s verdict=%s", a.ID, verdict))
+	if err := q.db.AuditAppend(ctx, "approval.decided", a.SessionID, payload, decidedBy,
+		fmt.Sprintf("id=%s verdict=%s", a.ID, verdict)); err != nil && q.Log != nil {
+		q.Log.Warn("audit append", slog.String("action", "approval.decided"), slog.Any("err", err))
+	}
 	delivered := q.deliver(a.ID, d)
 	return DecisionResult{Decision: d, Delivered: delivered}, nil
 }

@@ -130,6 +130,7 @@ func New(opts Options) *Daemon {
 		}
 	}
 	d.Queue = approval.New(opts.DB, ttl)
+	d.Queue.Log = opts.Log
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
 
 	// intake server: fire-and-forget + approval RPC
