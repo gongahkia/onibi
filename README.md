@@ -76,14 +76,14 @@ Approval-blocking adapters:
 - Qoder CLI - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
 - GitHub Copilot CLI - lifecycle events, blocking pre-tool approval, edited argument forwarding.
 - Goose - lifecycle events, blocking pre-tool approval, edited input forwarding, and resume metadata.
+- Cursor and OMP - lifecycle events and allow/deny blocking hooks without edited-input forwarding.
 - Pi - native extension events, blocking tool-call approval, and edited input forwarding.
 
-Mirror, protocol, resume-only, or observe-only adapters:
+Mirror, protocol, or resume-only adapters:
 
 - Hermes - ACP permission approval plus GUI resume/reattach from provider session metadata.
 - Gemini - resume metadata when provider session IDs are available.
-- Aider - terminal mirror plus history-based restore.
-- Cursor and OMP - terminal mirror, heuristic detection, and allow/deny blocking hooks without edited-input forwarding.
+- Aider - terminal mirror plus `--restore-chat-history` stale-session fallback.
 
 Platforms:
 

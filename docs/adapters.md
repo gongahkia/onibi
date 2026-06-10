@@ -7,17 +7,17 @@ Adapters let Onibi sit between a local agent and a tool action. Claude Code rema
 | Agent | Minimum version | Approval intercept | Native events | Native resume | Terminal mirror | Hook surface |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Claude Code | 2.0.10 | Yes | Yes | Yes | Yes | HTTP `PreToolUse` or ACP |
-| Codex CLI | Launch-tested current | Bash only | Lifecycle + Bash | `codex resume <id>` when session ID captured | Yes | `~/.codex/hooks.json` shell hook |
+| Codex CLI | Launch-tested current | Bash only | Lifecycle + Bash | `codex resume <id>` when captured; `codex resume --last` fallback | Yes | `~/.codex/hooks.json` shell hook |
 | OpenCode | No minimum | Yes | Yes | Yes | Yes | `~/.config/opencode/plugins/onibi-provider-events.js` |
 | Qoder CLI | No minimum | Yes | Yes | Yes | Yes | `~/.qoder/settings.json` command hooks |
 | GitHub Copilot CLI | No minimum | Yes | Yes | No | Yes | `~/.copilot/hooks/onibi-provider-events.json` |
 | Goose | No minimum | Yes | Yes | Yes | Yes | `~/.agents/plugins/onibi/hooks/hooks.json` |
 | Gemini CLI | No minimum | No | No | Yes | Yes | Resume-only metadata |
 | Hermes | No minimum | Yes | Yes | Yes | Yes | ACP `hermes acp` |
-| Aider | No minimum | No | No | History restore | Yes | Shell session only |
-| Cursor agent | No minimum | Allow/deny only | Yes | Pending | Yes | Cursor CLI hooks |
+| Aider | No minimum | No | No | `--restore-chat-history` fallback | Yes | Shell session only |
+| Cursor agent | No minimum | Allow/deny only | Yes | No | Yes | Cursor CLI hooks |
 | Pi | No minimum | Yes | Yes | Pending | Yes | `~/.pi/agent/extensions/onibi-provider-events.ts` |
-| OMP | No minimum | Allow/deny only | Yes | Pending | Yes | OMP native extension |
+| OMP | No minimum | Allow/deny only | Yes | No | Yes | OMP native extension |
 
 Legend: "terminal mirror" means Onibi can host the agent in a PTY session and stream output to the desktop and mobile surfaces. "Native events" means the provider emits session/tool lifecycle payloads into `/v1/adapters/:agent/event` or ACP session updates. "Approval intercept" means the agent blocks on Onibi before executing a tool call.
 
@@ -130,6 +130,7 @@ Supported features:
 
 - Launch from Onibi as a PTY session.
 - Terminal mirror and run visibility.
+- Stale Onibi sessions relaunch Aider with `--restore-chat-history`.
 - Provider-native resume metadata can use Gemini checkpoint IDs when events or user metadata provide one.
 
 Known limitations:
@@ -198,7 +199,7 @@ Sample interaction:
 
 ```text
 $ cursor-agent
-Onibi hosts the session; approval gating is not active.
+Cursor proposes a shell/MCP/read-file action, Onibi blocks the hook, and the returned permission allows or denies it.
 ```
 
 ## Goose
@@ -308,7 +309,7 @@ Install:
 onibi adapter install omp
 ```
 
-Hook surface: native OMP extension invoking `onibi _hook omp`.
+Hook surface: native OMP extension that posts directly to the local Onibi daemon.
 
 Supported features:
 

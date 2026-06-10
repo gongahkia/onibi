@@ -1117,6 +1117,7 @@ impl OrchestrationState {
         }
 
         let restart = provider_restart_metadata(&session)
+            .or_else(|| native_resume_fallback_metadata(&session))
             .or_else(|| session.restart.clone())
             .ok_or_else(|| anyhow!("session has no restart metadata: {}", session.id))?;
         let restart = normalize_restart_metadata(session.agent.as_deref(), restart);
@@ -1923,6 +1924,47 @@ fn provider_restart_metadata(session: &SessionInfo) -> Option<SessionRestartMeta
     })
 }
 
+fn native_resume_fallback_metadata(session: &SessionInfo) -> Option<SessionRestartMetadata> {
+    let (command, args) = match session.agent.as_deref()? {
+        "codex" => ("codex", vec!["resume".to_string(), "--last".to_string()]),
+        "aider" => ("aider", vec!["--restore-chat-history".to_string()]),
+        _ => return None,
+    };
+    Some(SessionRestartMetadata {
+        command: command.to_string(),
+        args,
+        cwd: session
+            .cwd
+            .clone()
+            .or_else(|| session.restart.as_ref()?.cwd.clone()),
+        env: session
+            .restart
+            .as_ref()
+            .map(|restart| restart.env.clone())
+            .unwrap_or_default(),
+        shell_mode: session
+            .restart
+            .as_ref()
+            .map(|restart| restart.shell_mode)
+            .unwrap_or_default(),
+        safe_mode: session
+            .restart
+            .as_ref()
+            .is_some_and(|restart| restart.safe_mode),
+        trust_mode: session
+            .restart
+            .as_ref()
+            .map(|restart| restart.trust_mode)
+            .unwrap_or_default(),
+        remote: session.remote.clone().or_else(|| {
+            session
+                .restart
+                .as_ref()
+                .and_then(|restart| restart.remote.clone())
+        }),
+    })
+}
+
 #[derive(Debug)]
 enum OutputMatcher {
     Literal(String),
@@ -2636,6 +2678,51 @@ mod tests {
             session.restart.as_ref().unwrap().args,
             vec!["--model".to_string(), "gpt-5".to_string()]
         );
+    }
+
+    #[test]
+    fn native_resume_fallbacks_cover_codex_and_aider() {
+        let mut codex = test_session("session-1", AgentStatus::Done, Some("codex"));
+        codex.cwd = Some("/repo".to_string());
+        codex.restart = Some(SessionRestartMetadata {
+            command: "codex".to_string(),
+            args: vec!["--model".to_string(), "gpt-5".to_string()],
+            cwd: Some("/repo".to_string()),
+            env: vec![("A".to_string(), "B".to_string())],
+            shell_mode: ShellMode::Auto,
+            safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
+            remote: None,
+        });
+
+        let codex_restart = native_resume_fallback_metadata(&codex).unwrap();
+        assert_eq!(codex_restart.command, "codex");
+        assert_eq!(
+            codex_restart.args,
+            vec!["resume".to_string(), "--last".to_string()]
+        );
+        assert_eq!(codex_restart.cwd.as_deref(), Some("/repo"));
+        assert_eq!(codex_restart.env, vec![("A".to_string(), "B".to_string())]);
+
+        let mut aider = test_session("session-2", AgentStatus::Done, Some("aider"));
+        aider.restart = Some(SessionRestartMetadata {
+            command: "aider".to_string(),
+            args: vec![],
+            cwd: Some("/repo".to_string()),
+            env: vec![],
+            shell_mode: ShellMode::Auto,
+            safe_mode: false,
+            trust_mode: TrustMode::ApprovalRequired,
+            remote: None,
+        });
+
+        let aider_restart = native_resume_fallback_metadata(&aider).unwrap();
+        assert_eq!(aider_restart.command, "aider");
+        assert_eq!(
+            aider_restart.args,
+            vec!["--restore-chat-history".to_string()]
+        );
+        assert_eq!(aider_restart.cwd.as_deref(), Some("/repo"));
     }
 
     #[tokio::test]

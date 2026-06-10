@@ -1,3 +1,3 @@
 # Aider Adapter
 
-Phase-03 registers Aider as a stub adapter. No hooks are installed.
+Aider has no native hook installer. Stale Onibi Aider sessions relaunch with `aider --restore-chat-history`.

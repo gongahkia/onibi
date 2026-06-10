@@ -18,7 +18,7 @@ pub fn info() -> AdapterInfo {
     match hooks_path() {
         Ok(path) => status_at(&path).unwrap_or_else(|error| AdapterInfo {
             name: AGENT,
-            support: "event-bridge",
+            support: "native-blocking",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -28,7 +28,7 @@ pub fn info() -> AdapterInfo {
         }),
         Err(error) => AdapterInfo {
             name: AGENT,
-            support: "event-bridge",
+            support: "native-blocking",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -100,7 +100,7 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
     if !path.exists() {
         return Ok(AdapterInfo {
             name: AGENT,
-            support: "event-bridge",
+            support: "native-blocking",
             installed: false,
             installed_version: None,
             bundled_version: Some(INTEGRATION_VERSION),
@@ -114,7 +114,7 @@ fn status_at(path: &Path) -> Result<AdapterInfo> {
     let installed = installed_version.is_some() || onibi_handlers(&settings).next().is_some();
     Ok(AdapterInfo {
         name: AGENT,
-        support: "event-bridge",
+        support: "native-blocking",
         installed,
         installed_version: installed_version.clone(),
         bundled_version: Some(INTEGRATION_VERSION),
@@ -183,7 +183,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn install_merges_cursor_observe_hooks() {
+    fn install_merges_cursor_blocking_hooks() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("hooks.json");
         write_json(
@@ -224,7 +224,7 @@ mod tests {
         );
         let status = status_at(&path).unwrap();
         assert!(status.installed);
-        assert_eq!(status.support, "event-bridge");
+        assert_eq!(status.support, "native-blocking");
         assert_eq!(
             status.installed_version.as_deref(),
             Some(INTEGRATION_VERSION)
