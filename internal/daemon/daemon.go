@@ -2,15 +2,21 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
+
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
@@ -39,9 +45,17 @@ type Daemon struct {
 	Registry *Registry
 	Intake   *intake.Server
 	Idle     *IdleDetector
+	Queue    *approval.Queue
+	Sweeper  *approval.Sweeper
+	Router   *telegram.Router
 
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once
+
+	// pendingEdit tracks "the user just tapped Edit" so the next text
+	// reply they send is treated as the edited JSON payload.
+	editMu       sync.Mutex
+	pendingEdits map[int64]string // owner chat id → approval id awaiting edit
 }
 
 // Options bundles construction inputs.
@@ -51,30 +65,58 @@ type Options struct {
 	Secrets *secrets.Store
 	Owner   *auth.Owner
 	Bot     *telegram.Client
+	Router  *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
 	Log     *slog.Logger
 }
 
-// New constructs a daemon, wiring intake + registry + idle detector.
+// New constructs a daemon, wiring intake + registry + idle detector +
+// approval queue + telegram router.
 func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
 	d := &Daemon{
-		Paths:    opts.Paths,
-		DB:       opts.DB,
-		Secrets:  opts.Secrets,
-		Owner:    opts.Owner,
-		Bot:      opts.Bot,
-		Log:      opts.Log,
-		Registry: NewRegistry(),
-		notified: map[string]bool{},
+		Paths:        opts.Paths,
+		DB:           opts.DB,
+		Secrets:      opts.Secrets,
+		Owner:        opts.Owner,
+		Bot:          opts.Bot,
+		Log:          opts.Log,
+		Registry:     NewRegistry(),
+		notified:     map[string]bool{},
+		pendingEdits: map[int64]string{},
 	}
+
+	// approval queue + expiry sweeper
+	ttl := approval.DefaultTTL
+	if v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid"); ok && v == "1" {
+		ttl = approval.ParanoidTTL
+	}
+	d.Queue = approval.New(opts.DB, ttl)
+	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log}
+
+	// intake server: fire-and-forget + approval RPC
 	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
+	d.Intake.SetApprovalHandler(d.handleApprovalRequest)
+
 	d.Idle = &IdleDetector{
 		Registry:  d.Registry,
 		Threshold: IdleThreshold,
 		OnIdle:    d.onIdle,
 	}
+
+	// telegram router: owner-chokepoint + callback + reply dispatch.
+	// Caller may pre-build the router so they can wire router.Dispatch
+	// as the bot's DefaultHandler (recommended); otherwise we build one
+	// here that won't be reachable from the bot.
+	if opts.Router != nil {
+		d.Router = opts.Router
+	} else {
+		d.Router = &telegram.Router{Owner: opts.Owner, Log: opts.Log}
+	}
+	d.Router.OnCB = d.onCallback
+	d.Router.OnReply = d.onReply
+	d.Router.OnText = d.onText
 	return d
 }
 
@@ -163,6 +205,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		d.Idle.Run(ctx)
+	}()
+
+	// approval expiry sweeper — marks pending approvals as expired after
+	// TTL, notifying any blocked hook so Claude unblocks promptly
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.Sweeper.Run(ctx)
+	}()
+
+	// telegram long-poll loop — Router applied to every inbound update via
+	// the client's DefaultHandler (set up before bot construction below)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.Bot.Start(ctx)
 	}()
 
 	// wait for any session children to exit, then exit when registry empty
