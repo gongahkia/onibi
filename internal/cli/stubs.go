@@ -10,11 +10,14 @@ import (
 var errNotImplemented = errors.New("not implemented yet — see TODO-10-JUN.md phase plan")
 
 func runCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "run",
-		Short: "Start the daemon (phase 2)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+	cmd := &cobra.Command{
+		Use:   "run [agent [args...]]",
+		Short: "Start the daemon (with an optional agent spawn)",
+		RunE:  runRun,
 	}
+	cmd.Flags().String("name", "", "session label (defaults to agent name)")
+	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")
+	return cmd
 }
 
 func setupCmd() *cobra.Command {
@@ -58,12 +61,12 @@ func doctorCmd() *cobra.Command {
 func installHooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install-hooks",
-		Short: "Install agent and/or shell hooks (phase 8)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Install agent and/or shell hooks (phase 2: claude; phase 8: codex/opencode/goose/shells)",
+		RunE:  runInstallHooks,
 	}
-	cmd.Flags().String("agent", "", "agent name (claude, codex, opencode, goose)")
-	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish)")
-	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell")
+	cmd.Flags().String("agent", "", "agent name (claude — others land in phase 8)")
+	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish — phase 8)")
+	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell (phase 8)")
 	return cmd
 }
 
