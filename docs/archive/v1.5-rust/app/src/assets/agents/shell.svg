@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title>Shell placeholder icon</title>
-  <rect width="64" height="64" rx="14" fill="#11181c"/>
-  <path d="m17 24 9 8-9 8" fill="none" stroke="#2fb7a5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M31 42h17" stroke="#f2c14e" stroke-width="6" stroke-linecap="round"/>
-</svg>

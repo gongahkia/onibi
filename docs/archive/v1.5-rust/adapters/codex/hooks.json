@@ -1,9 +1,0 @@
-{
-  "hooks": [
-    {
-      "event": "tool",
-      "tool": "Bash",
-      "command": ["onibi", "_hook", "codex"]
-    }
-  ]
-}

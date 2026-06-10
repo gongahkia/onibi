@@ -89,7 +89,7 @@ func TestShellInstallVerifyUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := InstallShell(context.Background(), db, notify, "zsh"); err != nil {
+	if err := InstallShell(context.Background(), db, notify, "zsh", 5000); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyShell(context.Background(), db, "zsh"); err != nil {

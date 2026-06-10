@@ -111,7 +111,7 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 			fmt.Fprintln(w, "remove hooks\tall supported agents and shells")
 		} else {
 			if agent != "" {
-			fmt.Fprintf(w, "remove hook\tagent:%s\n", agent)
+				fmt.Fprintf(w, "remove hook\tagent:%s\n", agent)
 			}
 			if sh != "" {
 				fmt.Fprintf(w, "remove hook\tshell:%s\n", sh)

@@ -44,12 +44,12 @@ type Daemon struct {
 	Bot     telegram.API
 	Log     *slog.Logger
 
-	Registry *Registry
-	Intake   *intake.Server
-	Idle     *IdleDetector
-	Queue    *approval.Queue
-	Sweeper  *approval.Sweeper
-	Router   *telegram.Router
+	Registry   *Registry
+	Intake     *intake.Server
+	Idle       *IdleDetector
+	Queue      *approval.Queue
+	Sweeper    *approval.Sweeper
+	Router     *telegram.Router
 	BufferSize int
 
 	mu       sync.Mutex

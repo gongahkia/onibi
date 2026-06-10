@@ -43,11 +43,11 @@ type Config struct {
 }
 
 type Daemon struct {
-	ApprovalTimeout      Duration `yaml:"approval_timeout" json:"approval_timeout"`
+	ApprovalTimeout       Duration `yaml:"approval_timeout" json:"approval_timeout"`
 	ApprovalSweepInterval Duration `yaml:"approval_sweep_interval" json:"approval_sweep_interval"`
-	TurnIdleThreshold    Duration `yaml:"turn_idle_threshold" json:"turn_idle_threshold"`
-	TurnIdleInterval     Duration `yaml:"turn_idle_interval" json:"turn_idle_interval"`
-	PTYBufferBytes       int      `yaml:"pty_buffer_bytes" json:"pty_buffer_bytes"`
+	TurnIdleThreshold     Duration `yaml:"turn_idle_threshold" json:"turn_idle_threshold"`
+	TurnIdleInterval      Duration `yaml:"turn_idle_interval" json:"turn_idle_interval"`
+	PTYBufferBytes        int      `yaml:"pty_buffer_bytes" json:"pty_buffer_bytes"`
 }
 
 type Shell struct {
@@ -71,11 +71,11 @@ type KeyInfo struct {
 func Default() Config {
 	return Config{
 		Daemon: Daemon{
-			ApprovalTimeout:      Duration(5 * time.Minute),
+			ApprovalTimeout:       Duration(5 * time.Minute),
 			ApprovalSweepInterval: Duration(15 * time.Second),
-			TurnIdleThreshold:    Duration(3 * time.Second),
-			TurnIdleInterval:     Duration(500 * time.Millisecond),
-			PTYBufferBytes:       64 * 1024,
+			TurnIdleThreshold:     Duration(3 * time.Second),
+			TurnIdleInterval:      Duration(500 * time.Millisecond),
+			PTYBufferBytes:        64 * 1024,
 		},
 		Shell: Shell{
 			MinDuration: Duration(5 * time.Second),
@@ -261,11 +261,11 @@ type rawConfig struct {
 }
 
 type rawDaemon struct {
-	ApprovalTimeout      *Duration `yaml:"approval_timeout"`
+	ApprovalTimeout       *Duration `yaml:"approval_timeout"`
 	ApprovalSweepInterval *Duration `yaml:"approval_sweep_interval"`
-	TurnIdleThreshold    *Duration `yaml:"turn_idle_threshold"`
-	TurnIdleInterval     *Duration `yaml:"turn_idle_interval"`
-	PTYBufferBytes       *int      `yaml:"pty_buffer_bytes"`
+	TurnIdleThreshold     *Duration `yaml:"turn_idle_threshold"`
+	TurnIdleInterval      *Duration `yaml:"turn_idle_interval"`
+	PTYBufferBytes        *int      `yaml:"pty_buffer_bytes"`
 }
 
 type rawShell struct {

@@ -41,6 +41,7 @@ available, offers service install, offers detected agent hooks, and ends with
 
 ```sh
 onibi doctor
+onibi config list
 onibi adapters
 onibi run claude
 ```
@@ -60,6 +61,30 @@ Telegram commands:
 
 Supported adapters: Claude Code, Codex, OpenCode, Goose, Gemini, GitHub
 Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
+
+## Configure
+
+```sh
+onibi config path
+onibi config show
+onibi config list
+onibi config set daemon.approval_timeout 2m
+onibi config set shell.min_duration 10s
+onibi config validate
+```
+
+`onibi config init` writes `config.yaml` under the Onibi state dir.
+
+## Uninstall
+
+```sh
+onibi uninstall --dry-run
+onibi uninstall
+onibi uninstall --state --yes
+```
+
+Default uninstall removes the service and all Onibi-managed hooks while keeping
+state. `--state --yes` also removes local state and stored Onibi secrets.
 
 ## Security
 

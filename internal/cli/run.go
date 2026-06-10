@@ -94,19 +94,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	d := daemon.New(daemon.Options{
-		Paths:        paths,
-		DB:           db,
-		Secrets:      sec,
-		Owner:        owner,
-		Bot:          bot,
-		Router:       router,
-		Log:          logger,
-		ExitWhenIdle: len(args) > 0,
-		ApprovalTTL:  approvalTTL,
+		Paths:                 paths,
+		DB:                    db,
+		Secrets:               sec,
+		Owner:                 owner,
+		Bot:                   bot,
+		Router:                router,
+		Log:                   logger,
+		ExitWhenIdle:          len(args) > 0,
+		ApprovalTTL:           approvalTTL,
 		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
-		IdleThreshold: cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval: cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize: cfg.Daemon.PTYBufferBytes,
+		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:            cfg.Daemon.PTYBufferBytes,
 	})
 
 	// optional agent spawn

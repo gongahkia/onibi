@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	Support = "event-bridge"
-	begin   = "# >>> onibi managed shell hook"
-	end     = "# <<< onibi managed shell hook"
+	Support      = "event-bridge"
+	begin        = "# >>> onibi managed shell hook"
+	end          = "# <<< onibi managed shell hook"
 	defaultMinMS = 5000
 )
 
