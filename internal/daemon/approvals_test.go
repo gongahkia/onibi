@@ -2,9 +2,6 @@ package daemon
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,28 +124,17 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/sendMessage") {
-			t.Fatalf("unexpected path %s", r.URL.Path)
-		}
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":321,"date":1,"chat":{"id":100,"type":"private"},"text":"ok"}}`)
-	}))
-	t.Cleanup(srv.Close)
-
-	bot, err := telegram.New(context.Background(), telegram.Options{Token: "xxx", DefaultHandler: nil})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = bot
-	d.Bot = &telegram.Client{Bot: bot.Bot}
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
 
 	if err := d.RestorePendingApprovals(ctx); err != nil {
 		t.Fatal(err)
 	}
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	gotBody := sent[0].Text
 	if !strings.Contains(gotBody, "Re-sent after daemon restart") {
 		t.Fatalf("body = %s", gotBody)
 	}
@@ -156,7 +142,7 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ChatID != 100 || a.MsgID != 321 {
+	if a.ChatID != 100 || a.MsgID != 1 {
 		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
 	}
 }

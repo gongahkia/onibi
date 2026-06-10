@@ -53,6 +53,8 @@ type Daemon struct {
 	// reply they send is treated as the edited JSON payload.
 	editMu       sync.Mutex
 	pendingEdits map[int64]string // owner chat id → approval id awaiting edit
+
+	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 }
 
 // Options bundles construction inputs.
@@ -64,6 +66,7 @@ type Options struct {
 	Bot     telegram.API
 	Router  *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
 	Log     *slog.Logger
+	ExitWhenIdle bool
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -82,6 +85,7 @@ func New(opts Options) *Daemon {
 		Registry:     NewRegistry(),
 		notified:     map[string]bool{},
 		pendingEdits: map[int64]string{},
+		ExitWhenIdle: opts.ExitWhenIdle,
 	}
 
 	// approval queue + expiry sweeper
@@ -224,13 +228,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.Bot.Start(ctx)
 	}()
 
-	// wait for any session children to exit, then exit when registry empty
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.waitForAllSessionsToExit(ctx)
-		cancel()
-	}()
+	if d.ExitWhenIdle {
+		// wait for hosted session children to exit in interactive agent-run mode
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.waitForAllSessionsToExit(ctx)
+			cancel()
+		}()
+	}
 
 	wg.Wait()
 	return nil

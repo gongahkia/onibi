@@ -51,11 +51,13 @@ func rotateTokenCmd() *cobra.Command {
 }
 
 func doctorCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Run setup + integrity checks (phase 10)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Run setup + integrity checks",
+		RunE:  runDoctor,
 	}
+	cmd.Flags().Bool("offline", false, "skip live Telegram network checks")
+	return cmd
 }
 
 func installHooksCmd() *cobra.Command {
@@ -73,16 +75,16 @@ func installHooksCmd() *cobra.Command {
 func installServiceCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install-service",
-		Short: "Install LaunchAgent (macOS) or systemd user unit (Linux) (phase 9)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Install and start LaunchAgent (macOS) or systemd user unit (Linux)",
+		RunE:  runInstallService,
 	}
 }
 
 func uninstallServiceCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall-service",
-		Short: "Remove LaunchAgent / systemd user unit (phase 9)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Stop and remove LaunchAgent / systemd user unit",
+		RunE:  runUninstallService,
 	}
 }
 

@@ -75,13 +75,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	d := daemon.New(daemon.Options{
-		Paths:   paths,
-		DB:      db,
-		Secrets: sec,
-		Owner:   owner,
-		Bot:     bot,
-		Router:  router,
-		Log:     logger,
+		Paths:        paths,
+		DB:           db,
+		Secrets:      sec,
+		Owner:        owner,
+		Bot:          bot,
+		Router:       router,
+		Log:          logger,
+		ExitWhenIdle: len(args) > 0,
 	})
 	if bufSize > 0 {
 		// per-session buffer size override is wired by SpawnAgent path; the
