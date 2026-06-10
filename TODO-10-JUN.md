@@ -392,22 +392,23 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [x] `.gitignore` rewritten for Go + explicit secret exclusions (.env, *.token, *.totp, *.sqlite)
 - [x] `go vet ./...`, `make build`, `./bin/onibi --help`, `./bin/onibi version`, `go test ./...` all green
 
-### Phase 1 — Telegram outbound + secrets + pair-once setup wizard (7–10d)
+### Phase 1 — Telegram outbound + secrets + pair-once setup wizard (7–10d) — **CODE DONE 2026-06-10; awaiting user manual e2e**
 
-- [ ] `internal/secrets/keychain.go` — wrap `github.com/99designs/keyring`; macOS Keychain primary, `.env` fallback with 0600 + state dir 0700
-- [ ] `internal/secrets/redact.go` — `slog.Handler` middleware that redacts token from any log record; unit-tested with token-in-string, token-in-fmt, token-in-error
-- [ ] `internal/telegram/client.go` — wrap `go-telegram/bot`; dedicated `*http.Client` with TLS 1.2+ floor, 35s timeout, no proxy, no `InsecureSkipVerify`
-- [ ] `internal/telegram/client.go` — long-poll, sendMessage, sendPhoto, editMessageReplyMarkup, answerCallbackQuery, setWebhook with empty URL (defensive)
-- [ ] `internal/auth/owner.go` — `MustBeOwner` middleware chokepoint; drops non-owner updates; counts (debug-log only)
-- [ ] `internal/auth/totp.go` — RFC 6238, ±1 window verify (opt-in only; default disabled)
-- [ ] `internal/store/sqlite.go` — open DB at state dir, run migrations (KV, owner, pairing_tokens, approvals, audit, hooks)
-- [ ] `internal/setup/pairing.go` — generate 32-byte payload, base64url encode, store with `consumed=0, expires_at=now+5min`; constant-time compare on consume; atomic UPDATE
-- [ ] `internal/setup/wizard.go` — interactive wizard per §6.1 (Step A: token paste + Keychain store, Step B: print deeplink + QR, Step C: 2FA acknowledgment gate)
-- [ ] `internal/cli/setup.go` — `onibi setup`, `--rotate-owner`, `--enable-totp`, `--paranoid`, `--print-checklist`, `--token-stdin`
-- [ ] `internal/cli/getchatid.go` — `onibi get-chat-id` (fallback for users who can't use deeplinks)
-- [ ] `internal/cli/rotate.go` — `onibi rotate-token` (walks user through @BotFather /revoke, paste new, Keychain replace, owner re-confirmation)
-- [ ] `onibi setup` end-to-end flow works against a real BotFather bot: owner permanently stored, no recurring auth prompts, 2FA acknowledgment recorded
-- [ ] Tests: pair payload single-use enforced, expired payload rejected, constant-time compare unit-tested, non-owner updates dropped, token redaction confirmed across all log levels
+- [x] `internal/secrets/secrets.go` — wraps `github.com/99designs/keyring`; macOS Keychain (`KeychainAccessibleWhenUnlocked`) primary, `.env` fallback with 0600 + state dir 0700; explicit warning at startup when degraded to dotenv
+- [x] `internal/logging/redact.go` + `internal/logging/redact_test.go` — `slog.Handler` middleware that redacts loaded secrets from message + string attrs + error attrs; unit-tested across all paths; ignores secrets <12 chars to avoid false positives
+- [x] `internal/telegram/client.go` — wraps `go-telegram/bot`; dedicated `*http.Client` with TLS 1.2+ floor, 35s timeout, refuses HTTP_PROXY for api.telegram.org by default, no `InsecureSkipVerify`; defensive `DeleteWebhook(DropPendingUpdates: true)` on startup; `getMe` populates `Self`
+- [x] sendMessage available via embedded `*tgbot.Bot`; sendPhoto/editMessageReplyMarkup/answerCallbackQuery exposed the same way (no need to re-wrap — `go-telegram/bot` covers them). Owner-check middleware deferred to Phase 3 when callback routing lands.
+- [x] `internal/auth/owner.go` + `_test.go` — atomic int64 owner; `MustBeOwner` is lock-free + constant-time; `LoadOwner`/`SetOwner`/`IsOwnerSet` storage helpers
+- [x] `internal/auth/totp.go` + `_test.go` — RFC 6238, ±1 window verify with branch-free compare; RFC 6238 Appendix B test vectors pass; opt-in only (`--enable-totp` / `--paranoid`)
+- [x] `internal/store/sqlite.go` + `_test.go` — `modernc.org/sqlite` (pure-Go); WAL + foreign_keys + busy_timeout pragmas; schema v1 covers: kv, pairing_tokens, approvals, audit, hooks, sessions; 0600 perms enforced; concurrent pair-race test proves "exactly one consumer wins"
+- [x] `internal/setup/pairing.go` + `_test.go` — 32 random bytes → base64url → 43-char token; `PutPairingToken(ttl=5min)`; `Consume` is atomic `UPDATE ... WHERE token=? AND consumed=0 AND expires_at > ?` — single-use enforced; unknown / consumed / expired all return `ErrPairExpired` so caller can't distinguish (no info leak)
+- [x] `internal/setup/qr.go` — half-block ASCII QR renderer ported from tgterm/bot.c:129-156 (uses `skip2/go-qrcode` for matrix)
+- [x] `internal/setup/wizard.go` + `getchatid.go` + `rotate.go` + `suggest.go` — interactive wizard per §6.1: token paste, getMe, store token in Keychain, persist `bot_id`, mint pairing token, print deeplink + QR, long-poll handler with constant-time token compare (`subtle.ConstantTimeCompare`), atomic Consume, set owner, optional TOTP, mandatory Telegram 2FA acknowledgment gate (must type `enabled` or `skip`); username suggestion is `onibi_<8hex>_bot` to mitigate T6
+- [x] `internal/cli/setup.go` + wired stubs — `onibi setup` flags: `--rotate-owner`, `--enable-totp`, `--paranoid`, `--print-checklist`, `--token-stdin`; `onibi get-chat-id` fallback; `onibi rotate-token` with bot_id identity check
+- [x] `internal/config/paths.go` — platform-aware state/socket/db/env paths; `EnsureDirs` creates with 0700 and refuses loose perms; `EnvFilePerms` enforces 0600
+- [x] Constant-time compare unit-tested (pair-payload via `subtle.ConstantTimeCompare`); single-use enforced (concurrent test: exactly 1 winner from 20 goroutines); expired payload rejected; non-owner check tested; token redaction verified across message, string attr, and error attr
+- [x] `scripts/manual-e2e-pair.md` — step-by-step manual end-to-end procedure (requires real BotFather bot; ~3 min)
+- [ ] **MANUAL**: Run `scripts/manual-e2e-pair.md` against a real BotFather bot. Owner permanently stored, re-run without `--rotate-owner` fails, `rotate-token` refuses different-bot token, expired pair link rejected. (Requires user — cannot be automated.)
 
 ### Phase 2 — PTY host + Claude adapter + text renderer (5–7d)
 
@@ -683,8 +684,10 @@ Reference repos:
 
 ## 14. Current focus
 
-**Phase 1 — Telegram outbound + secrets + pair-once setup wizard.** Status: ready to start.
+**Phase 2 — PTY host + Claude adapter + text renderer.** Status: ready to start once manual e2e of Phase 1 passes.
 
-Phase 0 completed 2026-06-10: v1.5 Rust/TS surface archived under `docs/archive/v1.5-rust/`; `tgterm/` patterns extracted to `docs/tgterm-patterns.md` then deleted; Go module initialized; deps locked at versions captured in `go.mod` + `go.sum`; scaffold compiles; `make build` produces working `bin/onibi` + `bin/onibi-notify` (notify is a fail-open stub); `go vet`, `go test`, `staticcheck`-compatible.
+Phase 1 code completed 2026-06-10: secrets store (Keychain/dotenv), redacting slog handler, SQLite store with v1 schema, RFC 6238 TOTP (opt-in), owner middleware (atomic + constant-time), pair-once flow with 5-min single-use deeplink token, interactive setup wizard with mandatory Telegram 2FA acknowledgment, `get-chat-id` fallback, `rotate-token` with bot_id identity check, terminal QR renderer ported from tgterm patterns. `go vet` clean, `go test -race ./...` green (12 unit tests including concurrent pair-race, expired-token rejection, perms enforcement, RFC 6238 vectors, redaction across log paths). `make build` produces working `bin/onibi` + `bin/onibi-notify`. `onibi setup --print-checklist`, `onibi setup --help`, `onibi --help` all work.
 
-Next action: implement `internal/secrets/keychain.go` first (token storage is the prerequisite for everything else — see §7.3), then `internal/store/sqlite.go` (KV + pairing_tokens table per docs/tgterm-patterns.md §3), then `internal/setup/pairing.go` (single-use 5-min-TTL token, constant-time compare), then `internal/setup/wizard.go` (interactive flow per §6.1). The deliverable for Phase 1 is: a user can run `onibi setup`, paste a BotFather token, tap the printed deeplink on their phone, and have the daemon record them as the permanent owner. No recurring auth thereafter (TOTP stays opt-in).
+Pending before Phase 2: user runs `scripts/manual-e2e-pair.md` against a real BotFather bot to confirm the pair flow end-to-end. Owner check, rotation, 2FA acknowledgment, perms, Keychain persistence all need real-Telegram verification.
+
+Next action when Phase 2 starts: implement `internal/pty/host.go` (creack/pty spawn + read loop + ring buffer), `internal/daemon/registry.go` (session lifecycle), `internal/render/text.go` (last-N-lines fenced code block + ANSI strip), `internal/adapters/claude/install.go` (write Stop hook to `~/.claude/settings.json` with guarded block + sha256 to hooks table), `internal/intake/server.go` (Unix-socket listener with 0600 perms + peer-cred check), `internal/daemon/turn_complete.go` (PTY-idle detector), and the real `clients/onibi-notify` implementation. Phase 2 deliverable: `onibi run claude -- <args>` spawns Claude under a PTY; turn-complete signal sends a text-tail Telegram message to the owner.

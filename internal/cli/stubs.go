@@ -20,8 +20,8 @@ func runCmd() *cobra.Command {
 func setupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Pair this machine with a Telegram bot (phase 1)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		Short: "Pair this machine with a Telegram bot",
+		RunE:  runSetup,
 	}
 	cmd.Flags().Bool("rotate-owner", false, "regenerate owner and require re-pair")
 	cmd.Flags().Bool("enable-totp", false, "enable opt-in TOTP gate for destructive commands")
@@ -35,7 +35,7 @@ func getChatIDCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get-chat-id",
 		Short: "Print your chat id (fallback for users who can't use deeplinks)",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		RunE:  runGetChatID,
 	}
 }
 
@@ -43,7 +43,7 @@ func rotateTokenCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rotate-token",
 		Short: "Walk through @BotFather /revoke flow and replace the token in Keychain",
-		RunE:  func(*cobra.Command, []string) error { return errNotImplemented },
+		RunE:  runRotateToken,
 	}
 }
 
