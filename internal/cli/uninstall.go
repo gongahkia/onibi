@@ -107,13 +107,15 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 		fmt.Fprintln(w, "remove service\tLaunchAgent/systemd user unit")
 	}
 	if hooksFlag {
-		switch {
-		case allHooks:
+		if allHooks {
 			fmt.Fprintln(w, "remove hooks\tall supported agents and shells")
-		case agent != "":
+		} else {
+			if agent != "" {
 			fmt.Fprintf(w, "remove hook\tagent:%s\n", agent)
-		case sh != "":
-			fmt.Fprintf(w, "remove hook\tshell:%s\n", sh)
+			}
+			if sh != "" {
+				fmt.Fprintf(w, "remove hook\tshell:%s\n", sh)
+			}
 		}
 	}
 	if stateFlag {
@@ -148,7 +150,9 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 		return nil
 	}
 	if agent != "" {
-		return uninstallAgentHook(ctx, cmd, db, agent)
+		if err := uninstallAgentHook(ctx, cmd, db, agent); err != nil {
+			return err
+		}
 	}
 	if sh != "" {
 		if err := adapters.UninstallShell(ctx, db, sh); err != nil {
