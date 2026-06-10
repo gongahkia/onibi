@@ -15,15 +15,23 @@ import (
 	"time"
 )
 
-// Handler processes a validated event. Implementations should be cheap
-// (dispatch to a worker queue if heavy). Returning an error logs the event
-// but does not surface to the hook (fail-open contract).
+// Handler processes a validated fire-and-forget event. Implementations
+// should be cheap (dispatch to a worker queue if heavy). Returning an error
+// logs the event but does not surface to the hook (fail-open contract).
 type Handler func(context.Context, Event) error
+
+// ApprovalHandler processes an approval_request event in RPC mode: returns
+// the Response the server should write back to the still-open client conn.
+// Implementations may block for up to the approval TTL waiting for a
+// decision. Return error to indicate transient failure (the server will
+// write a Cancelled response so the hook unblocks).
+type ApprovalHandler func(context.Context, Event) (Response, error)
 
 // Server listens on a Unix domain socket for JSON events from hooks.
 type Server struct {
 	socketPath string
 	handler    Handler
+	approval   ApprovalHandler
 	logger     *slog.Logger
 	ln         net.Listener
 }
@@ -36,6 +44,12 @@ func New(socketPath string, handler Handler, logger *slog.Logger) *Server {
 	}
 	return &Server{socketPath: socketPath, handler: handler, logger: logger}
 }
+
+// SetApprovalHandler installs the RPC-mode handler used for approval_request
+// events. Without one, approval_request payloads are rejected with a
+// cancelled response (matches fail-open spirit on the daemon side: the
+// agent's tool call is blocked but the hook unblocks promptly).
+func (s *Server) SetApprovalHandler(h ApprovalHandler) { s.approval = h }
 
 // Serve binds the socket and serves until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context) error {
@@ -81,7 +95,6 @@ func (s *Server) SocketPath() string { return s.socketPath }
 
 func (s *Server) handle(ctx context.Context, c net.Conn) {
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 
 	// peer-credential check: the connecting process must run as the same
 	// uid as us. Refuses cross-user intake on shared hosts (rare for a
@@ -90,6 +103,9 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.logger.Warn("intake peer rejected", slog.Any("err", err))
 		return
 	}
+
+	// short deadline for the first read — payloads are JSON one-liners
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 
 	dec := json.NewDecoder(bufio.NewReader(c))
 	dec.DisallowUnknownFields()
@@ -108,9 +124,49 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	if ev.TS == 0 {
 		ev.TS = time.Now().Unix()
 	}
+
+	// approval_request is RPC: hold the conn open while the daemon waits
+	// for a Telegram decision. Disable the read deadline; set a long write
+	// deadline for when we eventually send the response.
+	if ev.Type == TypeApprovalRequest {
+		s.handleApproval(ctx, c, ev)
+		return
+	}
+
+	// fire-and-forget event
 	if err := s.handler(ctx, ev); err != nil {
 		s.logger.Warn("intake handler", slog.String("type", ev.Type), slog.Any("err", err))
 	}
+}
+
+func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
+	if s.approval == nil {
+		_ = writeResponse(c, Response{Decision: "cancelled", Reason: "daemon has no approval handler"})
+		return
+	}
+	// clear deadlines while we wait for the user (up to approval TTL —
+	// daemon's approval queue enforces a hard 5-min ceiling so the conn
+	// won't leak)
+	_ = c.SetReadDeadline(time.Time{})
+
+	resp, err := s.approval(ctx, ev)
+	if err != nil {
+		s.logger.Warn("approval handler error", slog.Any("err", err))
+		resp = Response{Decision: "cancelled", Reason: "approval handler error"}
+	}
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if werr := writeResponse(c, resp); werr != nil {
+		s.logger.Warn("approval write response", slog.Any("err", werr))
+	}
+}
+
+func writeResponse(c net.Conn, r Response) error {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = c.Write(append(b, '\n'))
+	return err
 }
 
 // verifyPeerUID uses platform-specific APIs to read the connecting peer's
