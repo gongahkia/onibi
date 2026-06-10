@@ -41,6 +41,20 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
+	cfg, cfgMeta, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	if bufSize > 0 {
+		cfg.Daemon.PTYBufferBytes = bufSize
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+	}
+	approvalTTL := cfg.Daemon.ApprovalTimeout.Std()
+	if !cfgMeta.Explicit["daemon.approval_timeout"] {
+		approvalTTL = 0
+	}
 
 	db, err := store.Open(paths.DBFile)
 	if err != nil {
@@ -88,13 +102,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Router:       router,
 		Log:          logger,
 		ExitWhenIdle: len(args) > 0,
+		ApprovalTTL:  approvalTTL,
+		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
+		IdleThreshold: cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval: cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize: cfg.Daemon.PTYBufferBytes,
 	})
-	if bufSize > 0 {
-		// per-session buffer size override is wired by SpawnAgent path; the
-		// constant in daemon.go covers the default. (Real override would
-		// thread through SpawnAgent; deferred to Phase 6 multi-session.)
-		_ = bufSize
-	}
 
 	// optional agent spawn
 	if len(args) > 0 {

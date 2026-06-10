@@ -75,8 +75,8 @@ func Get(name string) (Adapter, bool) {
 	return a, ok
 }
 
-func InstallShell(ctx context.Context, db *store.DB, notifyBin, name string) error {
-	return shell.Install(ctx, db, notifyBin, strings.ToLower(strings.TrimSpace(name)))
+func InstallShell(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {
+	return shell.Install(ctx, db, notifyBin, strings.ToLower(strings.TrimSpace(name)), minMS)
 }
 
 func UninstallShell(ctx context.Context, db *store.DB, name string) error {

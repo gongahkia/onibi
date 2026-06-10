@@ -16,18 +16,19 @@ const (
 	Support = "event-bridge"
 	begin   = "# >>> onibi managed shell hook"
 	end     = "# <<< onibi managed shell hook"
+	defaultMinMS = 5000
 )
 
 func Supported() []string { return []string{"zsh", "bash", "fish"} }
 
-func Install(ctx context.Context, db *store.DB, notifyBin, name string) error {
+func Install(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {
 	if !filepath.IsAbs(notifyBin) {
 		return errors.New("notifyBin must be absolute")
 	}
 	if _, err := os.Stat(notifyBin); err != nil {
 		return fmt.Errorf("notify binary missing: %w", err)
 	}
-	path, block, err := target(name, notifyBin)
+	path, block, err := target(name, notifyBin, minMS)
 	if err != nil {
 		return err
 	}
@@ -42,7 +43,7 @@ func Install(ctx context.Context, db *store.DB, notifyBin, name string) error {
 }
 
 func Uninstall(ctx context.Context, db *store.DB, name string) error {
-	path, _, err := target(name, "/bin/true")
+	path, _, err := target(name, "/bin/true", defaultMinMS)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func Uninstall(ctx context.Context, db *store.DB, name string) error {
 }
 
 func Status(ctx context.Context, db *store.DB, name string) common.Info {
-	path, block, err := target(name, "/bin/true")
+	path, block, err := target(name, "/bin/true", defaultMinMS)
 	agent := "shell:" + name
 	if err != nil {
 		return common.Info{Name: agent, Support: Support, BundledVersion: common.IntegrationVersion, Message: err.Error()}
@@ -89,7 +90,7 @@ func Status(ctx context.Context, db *store.DB, name string) common.Info {
 }
 
 func VerifyHash(ctx context.Context, db *store.DB, name string) error {
-	path, block, err := target(name, "/bin/true")
+	path, block, err := target(name, "/bin/true", defaultMinMS)
 	if err != nil {
 		return err
 	}
@@ -105,7 +106,7 @@ func VerifyHash(ctx context.Context, db *store.DB, name string) error {
 }
 
 func Adopt(ctx context.Context, db *store.DB, name string) error {
-	path, block, err := target(name, "/bin/true")
+	path, block, err := target(name, "/bin/true", defaultMinMS)
 	if err != nil {
 		return err
 	}
@@ -120,18 +121,21 @@ func Adopt(ctx context.Context, db *store.DB, name string) error {
 	return common.Record(ctx, db, "shell:"+name, path, []byte(got))
 }
 
-func target(name, notifyBin string) (string, string, error) {
+func target(name, notifyBin string, minMS int64) (string, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", "", err
 	}
+	if minMS < 0 {
+		minMS = defaultMinMS
+	}
 	switch name {
 	case "zsh":
-		return filepath.Join(home, ".zshrc"), zshBlock(notifyBin), nil
+		return filepath.Join(home, ".zshrc"), zshBlock(notifyBin, minMS), nil
 	case "bash":
-		return filepath.Join(home, ".bashrc"), bashBlock(notifyBin), nil
+		return filepath.Join(home, ".bashrc"), bashBlock(notifyBin, minMS), nil
 	case "fish":
-		return filepath.Join(home, ".config", "fish", "conf.d", "onibi.fish"), fishBlock(notifyBin), nil
+		return filepath.Join(home, ".config", "fish", "conf.d", "onibi.fish"), fishBlock(notifyBin, minMS), nil
 	default:
 		return "", "", fmt.Errorf("unsupported shell %q", name)
 	}
@@ -202,7 +206,7 @@ func installedVersion(src string) string {
 	return ""
 }
 
-func zshBlock(notifyBin string) string {
+func zshBlock(notifyBin string, minMS int64) string {
 	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
@@ -213,7 +217,7 @@ _onibi_precmd() {
   local now="${EPOCHREALTIME:-$SECONDS}"
   local elapsed_ms="$(awk "BEGIN { printf \"%%d\", (($now) - (${__onibi_start})) * 1000 }" 2>/dev/null)"
   [[ -z "$elapsed_ms" ]] && elapsed_ms=0
-  local min_ms="${ONIBI_SHELL_MIN_MS:-5000}"
+  local min_ms="${ONIBI_SHELL_MIN_MS:-%d}"
   (( elapsed_ms >= min_ms )) && %s --status "$st" --cmd "$__onibi_cmd" --elapsed-ms "$elapsed_ms"
   unset __onibi_cmd __onibi_start
 }
@@ -221,10 +225,10 @@ autoload -Uz add-zsh-hook
 add-zsh-hook preexec _onibi_preexec
 add-zsh-hook precmd _onibi_precmd
 %s
-`, begin, common.IntegrationVersion, cmd, end)
+`, begin, common.IntegrationVersion, minMS, cmd, end)
 }
 
-func bashBlock(notifyBin string) string {
+func bashBlock(notifyBin string, minMS int64) string {
 	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
@@ -234,17 +238,17 @@ __onibi_precmd() {
   [[ -z "${__onibi_cmd:-}" || -z "${__onibi_start:-}" ]] && return
   local now="$(date +%%s%%3N)"
   local elapsed_ms="$((now - __onibi_start))"
-  local min_ms="${ONIBI_SHELL_MIN_MS:-5000}"
+  local min_ms="${ONIBI_SHELL_MIN_MS:-%d}"
   [[ "$elapsed_ms" -ge "$min_ms" ]] && %s --status "$st" --cmd "$__onibi_cmd" --elapsed-ms "$elapsed_ms"
   unset __onibi_cmd __onibi_start
 }
 trap '__onibi_preexec' DEBUG
 PROMPT_COMMAND="__onibi_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 %s
-`, begin, common.IntegrationVersion, cmd, end)
+`, begin, common.IntegrationVersion, minMS, cmd, end)
 }
 
-func fishBlock(notifyBin string) string {
+func fishBlock(notifyBin string, minMS int64) string {
 	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
@@ -257,7 +261,7 @@ function __onibi_postexec --on-event fish_postexec
   test -z "$__onibi_cmd"; and return
   set -l now (date +%%s%%3N)
   set -l elapsed_ms (math "$now - $__onibi_start")
-  set -l min_ms (set -q ONIBI_SHELL_MIN_MS; and echo $ONIBI_SHELL_MIN_MS; or echo 5000)
+  set -l min_ms (set -q ONIBI_SHELL_MIN_MS; and echo $ONIBI_SHELL_MIN_MS; or echo %d)
   if test "$elapsed_ms" -ge "$min_ms"
     %s --status "$st" --cmd "$__onibi_cmd" --elapsed-ms "$elapsed_ms"
   end
@@ -265,5 +269,5 @@ function __onibi_postexec --on-event fish_postexec
   set -e __onibi_start
 end
 %s
-`, begin, common.IntegrationVersion, cmd, end)
+`, begin, common.IntegrationVersion, minMS, cmd, end)
 }

@@ -31,6 +31,11 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	shellMinMS := cfg.Shell.MinDuration.Std().Milliseconds()
 	db, err := store.Open(paths.DBFile)
 	if err != nil {
 		return err
@@ -53,7 +58,7 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
 			return nil
 		}
-		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh); err != nil {
+		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
 			return err
 		}
 		info := adapters.ShellStatus(cmd.Context(), db, sh)
@@ -62,7 +67,7 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	}
 
 	if interactive {
-		return runInteractiveHooks(cmd, db, notifyBin, uninstall)
+		return runInteractiveHooks(cmd, db, notifyBin, uninstall, shellMinMS)
 	}
 
 	if all {
@@ -100,7 +105,7 @@ func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, u
 	return nil
 }
 
-func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool) error {
+func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64) error {
 	br := bufio.NewReader(cmd.InOrStdin())
 	for _, name := range adapters.Names() {
 		if _, err := exec.LookPath(name); err != nil && name != "copilot" {
@@ -126,7 +131,7 @@ func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uni
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
-		} else if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh); err != nil {
+		} else if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
 			return err
 		}
 	}

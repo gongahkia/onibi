@@ -50,6 +50,7 @@ type Daemon struct {
 	Queue    *approval.Queue
 	Sweeper  *approval.Sweeper
 	Router   *telegram.Router
+	BufferSize int
 
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once
@@ -75,14 +76,19 @@ type Daemon struct {
 
 // Options bundles construction inputs.
 type Options struct {
-	Paths        config.Paths
-	DB           *store.DB
-	Secrets      *secrets.Store
-	Owner        *auth.Owner
-	Bot          telegram.API
-	Router       *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
-	Log          *slog.Logger
-	ExitWhenIdle bool
+	Paths                 config.Paths
+	DB                    *store.DB
+	Secrets               *secrets.Store
+	Owner                 *auth.Owner
+	Bot                   telegram.API
+	Router                *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
+	Log                   *slog.Logger
+	ExitWhenIdle          bool
+	ApprovalTTL           time.Duration
+	ApprovalSweepInterval time.Duration
+	IdleThreshold         time.Duration
+	IdleInterval          time.Duration
+	BufferSize            int
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -109,15 +115,19 @@ func New(opts Options) *Daemon {
 		pendingEdits:       map[int64]string{},
 		pendingPromptEdits: map[int64]string{},
 		ExitWhenIdle:       opts.ExitWhenIdle,
+		BufferSize:         opts.BufferSize,
 	}
 
 	// approval queue + expiry sweeper
-	ttl := approval.DefaultTTL
-	if v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid"); ok && v == "1" {
+	ttl := opts.ApprovalTTL
+	if ttl <= 0 {
+		ttl = approval.DefaultTTL
+	}
+	if opts.ApprovalTTL <= 0 && v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid"); ok && v == "1" {
 		ttl = approval.ParanoidTTL
 	}
 	d.Queue = approval.New(opts.DB, ttl)
-	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log}
+	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
 
 	// intake server: fire-and-forget + approval RPC
 	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
@@ -125,7 +135,8 @@ func New(opts Options) *Daemon {
 
 	d.Idle = &IdleDetector{
 		Registry:  d.Registry,
-		Threshold: IdleThreshold,
+		Threshold: opts.IdleThreshold,
+		Interval:  opts.IdleInterval,
 		OnIdle:    d.onIdle,
 	}
 
@@ -167,7 +178,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args [
 	if err != nil {
 		return nil, err
 	}
-	s := NewSession(id, name, agent, host, BufferSize)
+	bufSize := d.bufferSize()
+	s := NewSession(id, name, agent, host, bufSize)
 	s.Cmd = commandLine(bin, args)
 	if err := d.Registry.Add(s); err != nil {
 		_ = host.Close()
@@ -178,6 +190,13 @@ func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args [
 	go d.readLoop(s)
 	go d.waitHost(s)
 	return s, nil
+}
+
+func (d *Daemon) bufferSize() int {
+	if d == nil || d.BufferSize <= 0 {
+		return BufferSize
+	}
+	return d.BufferSize
 }
 
 // readLoop copies the PTY output through the ring buffer and stdout (so the

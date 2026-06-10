@@ -17,6 +17,7 @@ type Paths struct {
 	DBFile   string // onibi.sqlite
 	EnvFile  string // .env (fallback when no keystore)
 	LogDir   string // rotated log files
+	Config   string // config.yaml
 }
 
 // DefaultPaths returns the canonical paths for the current OS and user.
@@ -51,6 +52,7 @@ func DefaultPaths() (Paths, error) {
 		DBFile:   filepath.Join(state, "onibi.sqlite"),
 		EnvFile:  filepath.Join(state, ".env"),
 		LogDir:   filepath.Join(state, "logs"),
+		Config:   filepath.Join(state, "config.yaml"),
 	}, nil
 }
 
