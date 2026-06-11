@@ -8,15 +8,6 @@
 
   Web Notes
 
-  - Codex PreToolUse is a guardrail, not a complete boundary; it
-    intercepts Bash/apply_patch/MCP, but not all shell or non-shell
-    tools. Document adapter limits exactly. (developers.openai.com
-    (https://developers.openai.com/codex/hooks))
-
-  - Codex hook discovery via hooks.json/config.toml and plugin hooks
-    matches the adapter direction. (developers.openai.com
-    (https://developers.openai.com/codex/hooks))
-
   - Telegram long polling cannot work while webhook is set;
     deleteWebhook/getWebhookInfo checks are correctly on-theme, but
     alerting is unfinished. (core.telegram.org
