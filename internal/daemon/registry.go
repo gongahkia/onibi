@@ -14,12 +14,12 @@ import (
 // PTY output for rendering; LastActivity is touched on every output read so
 // the idle detector can fire turn-complete events.
 type Session struct {
-	ID    string // stable opaque id (also passed to hooks via ONIBI_SESSION_ID)
-	Name  string // human-readable label (CLI --name or auto from agent)
-	Agent string // adapter name (claude, codex, ...)
-	Cmd   string
-	Host  *pty.Host
-	Buf   *RingBuffer
+	ID         string // stable opaque id (also passed to hooks via ONIBI_SESSION_ID)
+	Name       string // human-readable label (CLI --name or auto from agent)
+	Agent      string // adapter name (claude, codex, ...)
+	Cmd        string
+	Host       *pty.Host
+	Buf        *RingBuffer
 	Transport  string
 	TmuxTarget string
 
