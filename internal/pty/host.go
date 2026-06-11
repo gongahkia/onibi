@@ -24,6 +24,10 @@ type Host struct {
 	Cmd    *exec.Cmd
 	Master *os.File // bidirectional PTY (read child output, write to child)
 
+	WriteFunc func([]byte) (int, error)
+	CloseFunc func() error
+	WaitFunc  func() error
+
 	mu     sync.Mutex
 	closed bool
 }
@@ -70,8 +74,15 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	return &Host{Cmd: cmd, Master: master}, nil
 }
 
+func NewVirtualHost(write func([]byte) (int, error), close func() error, wait func() error) *Host {
+	return &Host{WriteFunc: write, CloseFunc: close, WaitFunc: wait}
+}
+
 // Wait blocks until the child exits and returns its error (nil on rc=0).
 func (h *Host) Wait() error {
+	if h.WaitFunc != nil {
+		return h.WaitFunc()
+	}
 	if h.Cmd == nil {
 		return errors.New("pty: not started")
 	}
@@ -88,6 +99,9 @@ func (h *Host) Pipe(w io.Writer) (int64, error) {
 // Write sends bytes to the child's stdin (the PTY master end). Used by the
 // Telegram reply path to inject text.
 func (h *Host) Write(p []byte) (int, error) {
+	if h.WriteFunc != nil {
+		return h.WriteFunc(p)
+	}
 	return h.Master.Write(p)
 }
 
@@ -101,5 +115,8 @@ func (h *Host) Close() error {
 		return nil
 	}
 	h.closed = true
+	if h.CloseFunc != nil {
+		return h.CloseFunc()
+	}
 	return h.Master.Close()
 }

@@ -474,10 +474,10 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 7 — Tmux attach backend (3–5d)
 
-- [ ] `internal/tmux/attach.go` — `--attach-tmux <session>` mode
-- [ ] `tmux list-panes -a -F …` for discovery; `send-keys -l` for injection; `capture-pane -p -S -50` for output
+- [x] `internal/tmux/attach.go` — `--attach-tmux <session>` mode
+- [x] `tmux list-panes -a -F …` for discovery; `send-keys -l` for injection; `capture-pane -p -S -50` for output
 - [ ] Bracketed-paste mitigation: known issue with multi-line + extended-keys; verify-and-retry loop after dispatch (capture-pane, check, resend Enter if needed)
-- [ ] Coexists with PTY backend; per-session "transport: pty | tmux"
+- [x] Coexists with PTY backend; per-session "transport: pty | tmux"
 
 ### Phase 8 — More adapters (5–7d) — **CODE DONE 2026-06-10; awaiting live provider e2e**
 
@@ -697,6 +697,6 @@ Reference repos:
 
 **v2 hardening + release gates.** Status: core daemon, approvals, edit-before-approve, Telegram controls, services, adapters, prompt queue, setup, doctor, logging, and docs are code-complete for unit-tested paths.
 
-Remaining code/product gates: tmux attach backend, sleep/wake recovery, getUpdates race detector, live provider e2e for all adapters, release signing/notarization/checksum/Homebrew/Linux installer validation, clean Mac install test, screencast, and launch writing.
+Remaining code/product gates: tmux bracketed-paste verify/retry, sleep/wake recovery, getUpdates race detector, live provider e2e for all adapters, release signing/notarization/checksum/Homebrew/Linux installer validation, clean Mac install test, screencast, and launch writing.
 
 Current verification baseline: `go test ./...` passes locally. Manual e2e scripts under `scripts/` still gate claims about real Telegram, real provider CLIs, and signed release installation.

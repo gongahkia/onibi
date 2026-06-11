@@ -4,8 +4,6 @@
      runtime, signed checksums, Homebrew tap, Linux installer, clean Mac
      test remain. TODO-10-JUN.md:491, TODO-10-JUN.md:501
 
-  2. Tmux backend is still TODO. TODO-10-JUN.md:475
-
   Polish
 
   - Quote Claude hook commands; current string concat can break paths

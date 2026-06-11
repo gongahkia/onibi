@@ -15,6 +15,7 @@ func runCmd() *cobra.Command {
 	}
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")
+	cmd.Flags().String("attach-tmux", "", "attach an existing tmux target instead of spawning an agent")
 	return cmd
 }
 

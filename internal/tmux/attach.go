@@ -1,0 +1,135 @@
+package tmux
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
+)
+
+type Runner interface {
+	Run(context.Context, string, ...string) ([]byte, error)
+}
+
+type execRunner struct{}
+
+func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
+}
+
+type Controller struct {
+	Runner Runner
+	Bin    string
+}
+
+type Pane struct {
+	ID      string
+	Session string
+	Window  string
+	Command string
+	Title   string
+}
+
+func New() *Controller { return &Controller{Runner: execRunner{}, Bin: "tmux"} }
+
+func NewWithRunner(r Runner) *Controller { return &Controller{Runner: r, Bin: "tmux"} }
+
+func (c *Controller) ListPanes(ctx context.Context) ([]Pane, error) {
+	out, err := c.run(ctx, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_name}\t#{pane_current_command}\t#{pane_title}")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	panes := make([]Pane, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		for len(parts) < 5 {
+			parts = append(parts, "")
+		}
+		panes = append(panes, Pane{
+			ID:      parts[0],
+			Session: parts[1],
+			Window:  parts[2],
+			Command: parts[3],
+			Title:   parts[4],
+		})
+	}
+	return panes, nil
+}
+
+func (c *Controller) Capture(ctx context.Context, target string, lines int) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", errors.New("tmux target required")
+	}
+	if lines <= 0 {
+		lines = 50
+	}
+	out, err := c.run(ctx, "capture-pane", "-p", "-t", target, "-S", "-"+strconv.Itoa(lines))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(out), "\r\n"), nil
+}
+
+func (c *Controller) SendText(ctx context.Context, target, text string, enter bool) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", "--", text); err != nil {
+		return err
+	}
+	if enter {
+		_, err := c.run(ctx, "send-keys", "-t", target, "Enter")
+		return err
+	}
+	return nil
+}
+
+func (c *Controller) SendKey(ctx context.Context, target, key string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	if strings.TrimSpace(key) == "" {
+		return errors.New("tmux key required")
+	}
+	_, err := c.run(ctx, "send-keys", "-t", target, key)
+	return err
+}
+
+func (c *Controller) KillPane(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	_, err := c.run(ctx, "kill-pane", "-t", target)
+	return err
+}
+
+func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
+	if c == nil {
+		return nil, errors.New("tmux controller nil")
+	}
+	r := c.Runner
+	if r == nil {
+		r = execRunner{}
+	}
+	bin := c.Bin
+	if bin == "" {
+		bin = "tmux"
+	}
+	out, err := r.Run(ctx, bin, args...)
+	if err != nil {
+		out = bytes.TrimSpace(out)
+		if len(out) > 0 {
+			return nil, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, out)
+		}
+		return nil, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+	}
+	return out, nil
+}

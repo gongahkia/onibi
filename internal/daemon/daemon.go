@@ -246,7 +246,11 @@ func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, "pty", "", s.StartedAt()); err != nil {
+	transport := s.Transport
+	if transport == "" {
+		transport = "pty"
+	}
+	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, transport, s.TmuxTarget, s.StartedAt()); err != nil {
 		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
 	}
 	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))

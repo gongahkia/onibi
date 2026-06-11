@@ -20,6 +20,8 @@ type Session struct {
 	Cmd   string
 	Host  *pty.Host
 	Buf   *RingBuffer
+	Transport  string
+	TmuxTarget string
 
 	mu           sync.Mutex
 	started      time.Time
@@ -36,6 +38,7 @@ func NewSession(id, name, agent string, host *pty.Host, bufSize int) *Session {
 		Agent:        agent,
 		Host:         host,
 		Buf:          NewRingBuffer(bufSize),
+		Transport:    "pty",
 		started:      now,
 		lastActivity: now,
 	}

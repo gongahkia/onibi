@@ -30,6 +30,7 @@ import (
 func runRun(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	bufSize, _ := cmd.Flags().GetInt("buffer")
+	attachTmux, _ := cmd.Flags().GetString("attach-tmux")
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -113,8 +114,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 		BufferSize:            cfg.Daemon.PTYBufferBytes,
 	})
 
-	// optional agent spawn
-	if len(args) > 0 {
+	if attachTmux != "" {
+		if len(args) > 0 {
+			return errors.New("--attach-tmux cannot be combined with agent args")
+		}
+		s, err := d.AttachTmux(ctx, name, attachTmux)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "attached tmux target %s (session %s)\n", attachTmux, s.ID)
+	} else if len(args) > 0 {
 		agent := args[0]
 		rest := args[1:]
 		bin, err := exec.LookPath(agent)
