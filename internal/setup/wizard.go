@@ -17,6 +17,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/brand"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -252,6 +253,8 @@ func promptToken(fromStdin bool, io IO) (string, error) {
 		return b, nil
 	}
 	suggested := suggestUsername()
+	fmt.Fprintln(io.Out, brand.ANSIForWriter(io.Out))
+	fmt.Fprintln(io.Out, "")
 	fmt.Fprintln(io.Out, "Onibi setup — pair once, then linked.")
 	fmt.Fprintln(io.Out, "")
 	fmt.Fprintln(io.Out, "1) On your phone, open Telegram → @BotFather → /newbot.")

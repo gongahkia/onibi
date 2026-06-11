@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"github.com/gongahkia/onibi/internal/brand"
 	"github.com/spf13/cobra"
 )
 
@@ -10,7 +11,7 @@ func Root() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "onibi",
 		Short:         "Telegram-controlled coding-agent host",
-		Long:          "Onibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes approval prompts, shell events, and turn signals to a Telegram bot for one-handed control from your phone.",
+		Long:          brand.ANSI() + "\n\nOnibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes approval prompts, shell events, and turn signals to a Telegram bot for one-handed control from your phone.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
