@@ -445,13 +445,13 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 
 ### Phase 4 — Edit-before-approve (2–3d)
 
-- [ ] On `[Edit]` callback: edit message to "Reply to this message with new JSON args"
-- [ ] Reply handler parses JSON, validates against tool input schema (per-adapter), returns as `updatedInput`
-- [ ] Malformed JSON → reply "Invalid JSON: <err>. Try again or tap Approve/Deny."
-- [ ] Schema mismatch → reply "Doesn't match tool schema: <err>."
-- [ ] In `--paranoid` mode: require TOTP code in the reply (`<JSON>\n<6-digit>`)
-- [ ] Edited payload also written to audit log with original-vs-edited diff hash
-- [ ] Test: edit `rm -rf tests/legacy` → `mv tests/legacy tests/legacy.bak` → Claude receives updated input.
+- [x] On `[Edit]` callback: prompt owner to reply with new JSON args
+- [x] Reply handler parses JSON, validates against tool input schema (per-adapter), returns as `updatedInput`
+- [x] Malformed JSON → reply "Invalid JSON: <err>. Try again or tap Approve/Deny."
+- [x] Schema mismatch → reply with schema error and keeps edit pending
+- [x] In `--paranoid` mode: require TOTP code in the reply (`<JSON>\n<6-digit>`)
+- [x] Edited payload also written to audit log with original-vs-edited diff hash
+- [x] Unit test: edit `rm -rf tests/legacy`-class Bash input → safer command → adapter receives updated input. Live Claude e2e remains manual.
 
 ### Phase 5 — Auto-switch renderer (PNG path) (5–7d)
 
@@ -513,8 +513,8 @@ Solo full-time, ~12 weeks budget, ~6–8 weeks expected.
 - [x] Long-output chunking (Telegram 4096-char per text message; switch to `sendDocument` for >5 messages worth)
 - [ ] Sleep/wake recovery — long-poll auto-resumes; queue replay for missed events; resync owner_id check after wake
 - [ ] `getUpdates` race detector (warns owner if 10 consecutive empty polls despite expected traffic)
-- [ ] Defensive `deleteWebhook` on every startup + alert if pre-existing webhook found
-- [ ] Bot identity check: `getMe` on startup, compare `id` against stored value, refuse to start if mismatched
+- [x] Defensive `deleteWebhook` on every startup + alert if pre-existing webhook found
+- [x] Bot identity check: `getMe` on startup, compare `id` against stored value, refuse to start if mismatched
 - [x] `onibi doctor` complete per §6.4; mode-aware `auto|preflight|installed|ci`
 - [x] `onibi log` (last N audit events from SQLite); `onibi log --export <file>`
 - [x] `/snooze 30m`, `/snooze claude`, `/unsnooze`
@@ -536,7 +536,7 @@ Listed for explicit visibility — don't expand scope of phases unless agreed.
 - [ ] `onibi setup --import-bot <token>` for users who already have a bot
 - [ ] Recovery mode: if `mybot.sqlite` deleted, `onibi setup --rotate` regenerates everything but re-uses the same Telegram bot (only TOTP + owner rotate)
 - [ ] Tray-icon-less status indicator: `onibi status` prints a one-line summary; users alias to their shell prompt if they want
-- [ ] Telegram `setMyCommands` so `/sessions`, `/status`, `/snooze`, `/new`, `/help` show up in Telegram's command suggestions UI
+- [x] Telegram `setMyCommands` so `/sessions`, `/status`, `/snooze`, `/new`, `/help` show up in Telegram's command suggestions UI
 - [ ] Send a one-time welcome message on first pair with a 30-second tour
 
 ### 9.2 Multi-machine
@@ -695,10 +695,8 @@ Reference repos:
 
 ## 14. Current focus
 
-**Phase 3 — Blocking approval protocol + audit log.** Status: ready to start once manual e2e of Phases 1 + 2 pass.
+**v2 hardening + release gates.** Status: core daemon, approvals, edit-before-approve, Telegram controls, services, adapters, prompt queue, setup, doctor, logging, and docs are code-complete for unit-tested paths.
 
-Phase 2 code completed 2026-06-10: PTY host (creack/pty wrapper with raw-mode stdin forwarding + SIGWINCH resize), per-session concurrent ring buffer, text renderer with ANSI strip + UTF-8-safe head truncation + fenced code blocks, intake Unix socket (0600 + peer-cred check via x/sys/unix `Xucred`/`Ucred`), JSON event wire schema, fail-open `onibi-notify` client, session registry, idle-fallback detector with per-session dedup, daemon orchestrator with once-per-active-period guard so hook + idle don't double-fire, Claude Stop-hook installer with idempotent guarded-block JSON merge + sha256 tamper registry, `onibi run [agent [args...]]` + `onibi install-hooks --agent claude`. `go vet` clean, `go test -race ./...` green (~45 unit tests across 10 packages including ring-buffer concurrency, PTY echo, ANSI strip, OSC sequences, socket-malformed rejection, peer-cred enforcement, hook idempotency, hook tamper detection). `make build` produces working `bin/onibi` (11 MB) + `bin/onibi-notify` (2.6 MB).
+Remaining code/product gates: tmux attach backend, sleep/wake recovery, getUpdates race detector, live provider e2e for all adapters, release signing/notarization/checksum/Homebrew/Linux installer validation, clean Mac install test, screencast, and launch writing.
 
-Pending before Phase 3: user runs `scripts/manual-e2e-claude-run.md` (~5 min, requires Phase 1 + Claude CLI). Should confirm the Stop hook fires, Telegram receives the text-tail message on turn complete, idle-fallback works when hook is missing, and dedup prevents double-fires.
-
-Next action when Phase 3 starts: implement `internal/approval/queue.go` (SQLite-backed state machine: pending → approved/denied/edited/expired/cancelled with atomic transitions), `internal/approval/expiry.go` (5-min sweeper), `internal/approval/scrub.go` (regex-based secret-redaction of tool inputs before render), `internal/telegram/keyboards.go` ([Approve][Deny][Edit] inline keyboard), `internal/telegram/router.go` (callback query dispatcher with owner middleware), `internal/adapters/claude/pretooluse.go` (blocking handler returning updatedInput/deny/allow via exit codes + JSON output), `internal/store/audit.go` (append-only audit log). Phase 3 deliverable: Claude attempts a tool call → blocks → Telegram message with keyboard → tap Approve → tool runs; tap Deny → tool blocked; daemon restart mid-approval restores pending state from SQLite.
+Current verification baseline: `go test ./...` passes locally. Manual e2e scripts under `scripts/` still gate claims about real Telegram, real provider CLIs, and signed release installation.

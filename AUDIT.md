@@ -1,15 +1,10 @@
  Fix First
 
-  1. TODO is stale/inconsistent: §14 still says Phase 3 “ready to
-     start”, while later code exists; setMyCommands is checked in Phase
-     10 but unchecked in polish. TODO-10-JUN.md:522, TODO-10-JUN.md:539,
-     TODO-10-JUN.md:696
-
-  2. Release path is not done: live provider e2e, Apple cert, hardened
+  1. Release path is not done: live provider e2e, Apple cert, hardened
      runtime, signed checksums, Homebrew tap, Linux installer, clean Mac
      test remain. TODO-10-JUN.md:491, TODO-10-JUN.md:501
 
-  3. Tmux backend is still TODO. TODO-10-JUN.md:475
+  2. Tmux backend is still TODO. TODO-10-JUN.md:475
 
   Polish
 
