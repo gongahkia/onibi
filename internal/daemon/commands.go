@@ -23,11 +23,13 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	}
 	switch cmd {
 	case "/sessions":
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: d.sessionsText()})
+		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "sessions", "Active sessions", d.sessionsText())
 	case "/status":
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: d.statusText(ctx)})
+		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "status", "Onibi status", d.statusText(ctx))
 	case "/help":
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpText()})
+	case "/secure":
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
 	case "/text":
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModeText)
 	case "/screenshot":
@@ -39,8 +41,16 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	case "/queue":
 		d.handleQueueCommand(ctx, api, m.Chat.ID, arg)
 	case "/prompt":
+		if d.encryptedModeEnabled() {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return true
+		}
 		d.handlePromptCommand(ctx, api, m.Chat.ID, arg)
 	case "/editprompt":
+		if d.encryptedModeEnabled() {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return true
+		}
 		d.handleEditPromptCommand(ctx, api, m.Chat.ID, arg)
 	case "/cancelprompt":
 		d.handleCancelPromptCommand(ctx, api, m.Chat.ID, arg)
@@ -55,6 +65,10 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	case "/kill":
 		d.handleKillCommand(ctx, api, m.Chat.ID, arg)
 	case "/rename":
+		if d.encryptedModeEnabled() && strings.TrimSpace(arg) != "" {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return true
+		}
 		d.handleRenameCommand(ctx, api, m.Chat.ID, arg)
 	case "/menu":
 		d.handleMenuCommand(ctx, api, m.Chat.ID)
@@ -173,6 +187,7 @@ func helpText() string {
 		"Onibi commands:",
 		"/sessions - list active sessions",
 		"/status - show daemon status",
+		"/secure - open encrypted controls",
 		"/target <id|name> - set default session",
 		"/new <agent> [args...] - start an agent session",
 		"/queue [id|name] - list queued prompts",
@@ -199,10 +214,10 @@ func (d *Daemon) handleTargetCommand(ctx context.Context, api telegram.API, chat
 	if strings.TrimSpace(arg) == "" {
 		id := d.defaultTarget(ctx, chatID)
 		if id == "" {
-			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: d.sessionsText() + "\nNo default target set."})
+			_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", d.sessionsText()+"\nNo default target set.")
 			return
 		}
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Default target: " + id})
+		_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", "Default target: "+id)
 		return
 	}
 	s, msg := d.resolveSessionTarget(arg)
@@ -211,7 +226,7 @@ func (d *Daemon) handleTargetCommand(ctx context.Context, api telegram.API, chat
 		return
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Default target set to " + s.Name + " (" + s.ID + ")."})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", "Default target set to "+s.Name+" ("+s.ID+").")
 }
 
 func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, id string) error {
@@ -227,7 +242,7 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 	if text := d.popPendingInject(chatID); text != "" {
 		return d.injectTelegramText(ctx, api, chatID, s.ID, text)
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Default target set to " + s.Name + " (" + s.ID + ")."})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", "Default target set to "+s.Name+" ("+s.ID+").")
 	return nil
 }
 
@@ -255,6 +270,15 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	if api == nil {
+		return
+	}
+	if d.encryptedModeEnabled() {
+		sent, err := d.sendEncryptedText(ctx, api, chatID, "new", "Started session", fmt.Sprintf("Started %s (%s). Default target set.", s.Name, s.ID))
+		if err == nil {
+			d.bindMessage(sent, s.ID)
+		} else {
+			d.sendSecureRequired(ctx, api, chatID)
+		}
 		return
 	}
 	sent, err := api.SendMessage(ctx, &tgbot.SendMessageParams{
@@ -437,7 +461,7 @@ func (d *Daemon) handleLogCommand(ctx context.Context, api telegram.API, chatID 
 			break
 		}
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: strings.TrimRight(b.String(), "\n")})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "audit", "Recent audit", strings.TrimRight(b.String(), "\n"))
 }
 
 func (d *Daemon) setRenderOverride(sessionID string, mode render.Mode) {

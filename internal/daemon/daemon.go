@@ -556,6 +556,18 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if render.ResolveMode(buf, d.renderOverride(s.ID)) == render.ModePNG {
 		img, pngErr := render.RenderPNG(buf, render.PNGOptions{})
 		if pngErr == nil {
+			if d.encryptedModeEnabled() {
+				sent, sendErr := d.sendEncryptedImage(ctx, d.Bot, d.Owner.ID(), header, img, "onibi-"+s.ID+".png")
+				if sendErr == nil {
+					d.bindMessage(sent, s.ID)
+					d.markSessionReady(ctx, d.Bot, s)
+					return nil
+				}
+				d.Log.Warn("send encrypted turn-complete screenshot", slog.Any("err", sendErr))
+				d.sendSecureRequired(ctx, d.Bot, d.Owner.ID())
+				d.markSessionReady(ctx, d.Bot, s)
+				return nil
+			}
 			sent, sendErr := d.Bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
 				ChatID:  d.Owner.ID(),
 				Caption: trimCaption(header),

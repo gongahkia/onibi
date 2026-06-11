@@ -41,6 +41,10 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	d.audit(ctx, "prompt.queued", s.ID, text, chatID, "id="+p.ID)
+	if d.encryptedModeEnabled() {
+		_, _ = d.sendEncryptedText(ctx, api, chatID, "prompt", "Prompt queued", fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position))
+		return d.dispatchNextPrompt(ctx, api, s)
+	}
 	sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position),
@@ -96,7 +100,7 @@ func (d *Daemon) writePromptToSession(ctx context.Context, api telegram.API, cha
 	if promptID != "" {
 		detail = "Sent prompt " + promptID + " to " + s.Name + " (" + s.ID + ")."
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: detail})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", "Prompt sent", detail)
 	return nil
 }
 
@@ -133,7 +137,7 @@ func (d *Daemon) handleQueueCommand(ctx context.Context, api telegram.API, chatI
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Prompt queue empty."})
 		return
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: promptListText(rows)})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "queue", "Prompt queue", promptListText(rows))
 }
 
 func (d *Daemon) handlePromptCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -224,6 +228,11 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 		answerCallback(ctx, api, q.ID, "Queued at front")
 		return d.dispatchNextPrompt(ctx, api, s)
 	case "prompt_edit":
+		if d.encryptedModeEnabled() {
+			answerCallback(ctx, api, q.ID, "Use secure controls")
+			d.sendSecureRequired(ctx, api, q.From.ID)
+			return nil
+		}
 		d.editMu.Lock()
 		d.pendingPromptEdits[q.From.ID] = id
 		d.editMu.Unlock()
@@ -265,7 +274,7 @@ func (d *Daemon) applyPromptEdit(ctx context.Context, api telegram.API, chatID i
 		return
 	}
 	d.audit(ctx, "prompt.edited", p.SessionID, text, chatID, "id="+id)
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Edited prompt " + id + "."})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", "Prompt edited", "Edited prompt "+id+".")
 }
 
 func (d *Daemon) handlePendingPromptEdit(ctx context.Context, api telegram.API, m *models.Message) bool {
@@ -277,6 +286,10 @@ func (d *Daemon) handlePendingPromptEdit(ctx context.Context, api telegram.API, 
 	d.editMu.Unlock()
 	if !ok {
 		return false
+	}
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
+		return true
 	}
 	text := strings.TrimSpace(m.Text)
 	if strings.EqualFold(text, "cancel") {

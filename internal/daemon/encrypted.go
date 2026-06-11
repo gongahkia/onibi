@@ -49,6 +49,17 @@ func (d *Daemon) sendEncryptedText(ctx context.Context, api telegram.API, chatID
 	}, "onibi-"+kind+".enc")
 }
 
+func (d *Daemon) sendMaybeEncryptedText(ctx context.Context, api telegram.API, chatID int64, kind, title, body string) (*models.Message, error) {
+	if !d.encryptedModeEnabled() {
+		return sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: body})
+	}
+	sent, err := d.sendEncryptedText(ctx, api, chatID, kind, title, body)
+	if err != nil {
+		d.sendSecureRequired(ctx, api, chatID)
+	}
+	return sent, err
+}
+
 func (d *Daemon) sendEncryptedImage(ctx context.Context, api telegram.API, chatID int64, title string, data []byte, filename string) (*models.Message, error) {
 	if filename == "" {
 		filename = "onibi.png"

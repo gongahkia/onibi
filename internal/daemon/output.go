@@ -24,6 +24,16 @@ func (d *Daemon) sendSessionPreview(ctx context.Context, api telegram.API, chatI
 	if render.ResolveMode(buf, d.renderOverride(s.ID)) == render.ModePNG {
 		img, err := render.RenderPNG(buf, render.PNGOptions{})
 		if err == nil {
+			if d.encryptedModeEnabled() {
+				sent, sendErr := d.sendEncryptedImage(ctx, api, chatID, header, img, "onibi-"+s.ID+".png")
+				if sendErr == nil {
+					d.bindMessage(sent, s.ID)
+				}
+				if sendErr != nil {
+					d.sendSecureRequired(ctx, api, chatID)
+				}
+				return
+			}
 			sent, sendErr := api.SendPhoto(ctx, &tgbot.SendPhotoParams{
 				ChatID:  chatID,
 				Caption: trimCaption(header),
@@ -46,6 +56,9 @@ func (d *Daemon) sendSessionPreview(ctx context.Context, api telegram.API, chatI
 func (d *Daemon) sendTextOutput(ctx context.Context, api telegram.API, chatID int64, header, body, filename string) (*models.Message, error) {
 	if api == nil {
 		return nil, nil
+	}
+	if d.encryptedModeEnabled() {
+		return d.sendEncryptedText(ctx, api, chatID, "output", header, body)
 	}
 	chunks := telegram.SplitForTelegram(body, telegram.SafeTextLimit)
 	if len(chunks) <= maxTextChunks {
