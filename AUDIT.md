@@ -1,27 +1,24 @@
  Fix First
 
-  1. setup --rotate-owner skips current-owner confirmation, despite TODO
-     requiring it. internal/setup/wizard.go:79, TODO-10-JUN.md:324
-
-  2. Edit-before-approve is partial: JSON syntax check exists, but no
+  1. Edit-before-approve is partial: JSON syntax check exists, but no
      per-tool schema validation, no paranoid TOTP, no original-vs-edited
      diff hash. internal/daemon/approvals.go:236, internal/approval/
      queue.go:227
 
-  3. Telegram hardening remains: startup deletes webhook, but does not
+  2. Telegram hardening remains: startup deletes webhook, but does not
      alert if one existed; getUpdates 409 is treated as OK. internal/
      telegram/client.go:94, internal/telegram/probe.go:61
 
-  4. TODO is stale/inconsistent: §14 still says Phase 3 “ready to
+  3. TODO is stale/inconsistent: §14 still says Phase 3 “ready to
      start”, while later code exists; setMyCommands is checked in Phase
      10 but unchecked in polish. TODO-10-JUN.md:522, TODO-10-JUN.md:539,
      TODO-10-JUN.md:696
 
-  5. Release path is not done: live provider e2e, Apple cert, hardened
+  4. Release path is not done: live provider e2e, Apple cert, hardened
      runtime, signed checksums, Homebrew tap, Linux installer, clean Mac
      test remain. TODO-10-JUN.md:491, TODO-10-JUN.md:501
 
-  6. Tmux backend is still TODO. TODO-10-JUN.md:475
+  5. Tmux backend is still TODO. TODO-10-JUN.md:475
 
   Polish
 

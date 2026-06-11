@@ -3,7 +3,9 @@ package setup
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +30,13 @@ type pairClient interface {
 var ErrOwnerAlreadyPaired = errors.New("owner already paired")
 
 var newPairClient = func(ctx context.Context, token string, handler telegram.HandlerFunc) (pairClient, error) {
+	return telegram.New(ctx, telegram.Options{
+		Token:      token,
+		APIHandler: handler,
+	})
+}
+
+var newRotateConfirmClient = func(ctx context.Context, token string, handler telegram.HandlerFunc) (telegram.API, error) {
 	return telegram.New(ctx, telegram.Options{
 		Token:      token,
 		APIHandler: handler,
@@ -77,7 +86,11 @@ func Run(ctx context.Context, db *store.DB, sec *secrets.Store, flags Flags, io 
 	}
 
 	// owner sanity check up front
-	if !flags.RotateOwner {
+	if flags.RotateOwner {
+		if err := confirmOwnerRotation(ctx, db, sec, flags.PairTimeout, io); err != nil {
+			return 0, err
+		}
+	} else {
 		exists, err := auth.IsOwnerSet(ctx, db)
 		if err != nil {
 			return 0, fmt.Errorf("check owner: %w", err)
@@ -138,6 +151,77 @@ func Run(ctx context.Context, db *store.DB, sec *secrets.Store, flags Flags, io 
 	fmt.Fprintln(io.Out, "  onibi install-hooks --interactive")
 	fmt.Fprintln(io.Out, "  onibi doctor")
 	return chatID, nil
+}
+
+func confirmOwnerRotation(ctx context.Context, db *store.DB, sec *secrets.Store, timeout time.Duration, io IO) error {
+	owner, err := auth.LoadOwner(ctx, db)
+	if errors.Is(err, auth.ErrOwnerNotSet) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	token, ok, err := sec.Get(secrets.KeyBotToken)
+	if err != nil {
+		return err
+	}
+	if !ok || strings.TrimSpace(token) == "" {
+		return errors.New("cannot confirm owner rotation: no current bot token stored")
+	}
+	code, err := rotateConfirmCode()
+	if err != nil {
+		return err
+	}
+	confirmCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := make(chan struct{}, 1)
+	handler := func(ctx context.Context, api telegram.API, update *models.Update) {
+		if update.Message == nil || update.Message.From == nil {
+			return
+		}
+		if !owner.MustBeOwner(update.Message.From.ID) {
+			return
+		}
+		if strings.TrimSpace(update.Message.Text) != "/confirm-rotate "+code {
+			return
+		}
+		_, _ = api.SendMessage(ctx, &tgbot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Owner rotation confirmed. Continue setup on the machine.",
+		})
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+	}
+	cli, err := newRotateConfirmClient(confirmCtx, token, handler)
+	if err != nil {
+		return fmt.Errorf("start rotate confirmation: %w", err)
+	}
+	_, err = cli.SendMessage(confirmCtx, &tgbot.SendMessageParams{
+		ChatID: owner.ID(),
+		Text: "Setup is rotating owner. Current owner will lose access.\n" +
+			"Confirm with:\n/confirm-rotate " + code,
+	})
+	if err != nil {
+		return fmt.Errorf("send rotate confirmation: %w", err)
+	}
+	fmt.Fprintf(io.Out, "Waiting for current owner to confirm rotation in Telegram (up to %s)...\n", trimDur(time.Until(deadlineOf(confirmCtx))))
+	go cli.Start(confirmCtx)
+	select {
+	case <-done:
+		return nil
+	case <-confirmCtx.Done():
+		return fmt.Errorf("owner rotation confirmation timed out: %w", confirmCtx.Err())
+	}
+}
+
+func rotateConfirmCode() (string, error) {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func welcomeText() string {
