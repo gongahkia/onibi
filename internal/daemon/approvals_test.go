@@ -12,6 +12,7 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -27,7 +28,14 @@ func newApprovalDaemon(t *testing.T) *Daemon {
 	if err := auth.SetOwner(context.Background(), db, owner, 100); err != nil {
 		t.Fatal(err)
 	}
-	return New(Options{DB: db, Owner: owner})
+	sec, err := secrets.Open(secrets.Options{
+		EnvFallbackPath: filepath.Join(t.TempDir(), ".env"),
+		PreferDotenv:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(Options{DB: db, Secrets: sec, Owner: owner})
 }
 
 func TestReplyEditDecidesApproval(t *testing.T) {
@@ -207,5 +215,29 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	}
 	if len(mock.Edited()) != 1 {
 		t.Fatalf("edits = %d", len(mock.Edited()))
+	}
+}
+
+func TestParanoidCapsExplicitApprovalTTL(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "d.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.KVSetString(context.Background(), "paranoid", "1"); err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, ApprovalTTL: 5 * time.Minute})
+	id, _, err := d.Queue.Request(context.Background(), "s", "claude", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := d.Queue.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := a.ExpiresAt.Sub(a.CreatedAt)
+	if got != approval.ParanoidTTL {
+		t.Fatalf("ttl = %s", got)
 	}
 }

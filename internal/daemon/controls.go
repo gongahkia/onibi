@@ -21,6 +21,13 @@ func (d *Daemon) handlePeekCommand(ctx context.Context, api telegram.API, chatID
 }
 
 func (d *Daemon) handleInterruptCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	var authMsg string
+	var ok bool
+	arg, authMsg, ok = d.requireTOTP(ctx, arg)
+	if !ok {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: authMsg})
+		return
+	}
 	s, msg := d.resolveSessionTarget(arg)
 	if msg != "" {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: msg})
@@ -42,6 +49,13 @@ func (d *Daemon) handleInterruptCommand(ctx context.Context, api telegram.API, c
 }
 
 func (d *Daemon) handleKillCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	var authMsg string
+	var ok bool
+	arg, authMsg, ok = d.requireTOTP(ctx, arg)
+	if !ok {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: authMsg})
+		return
+	}
 	s, msg := d.resolveSessionTarget(arg)
 	if msg != "" {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: msg})
@@ -107,9 +121,19 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		answerCallback(ctx, api, q.ID, "Sending preview")
 		d.sendSessionPreview(ctx, api, q.From.ID, s)
 	case "interrupt":
+		if enabled, msg := d.totpEnabled(ctx); enabled {
+			answerCallback(ctx, api, q.ID, "TOTP required")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
+			return nil
+		}
 		d.handleInterruptCommand(ctx, api, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Interrupted")
 	case "kill":
+		if enabled, msg := d.totpEnabled(ctx); enabled {
+			answerCallback(ctx, api, q.ID, "TOTP required")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
+			return nil
+		}
 		d.handleKillCommand(ctx, api, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Killed")
 	}

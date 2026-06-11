@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -9,8 +10,10 @@ import (
 
 	"github.com/go-telegram/bot/models"
 
+	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/render"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
 
@@ -267,6 +270,85 @@ func TestInterruptAndKillSession(t *testing.T) {
 	d.handleKillCommand(context.Background(), mock, 100, s.ID)
 	if !s.Ended() {
 		t.Fatal("session not ended")
+	}
+}
+
+func TestKillRequiresTOTPWhenEnabled(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := auth.NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Secrets.Set(secrets.KeyTOTPSecret, auth.EncodeHex(secret)); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleKillCommand(context.Background(), mock, 100, s.ID)
+	if s.Ended() {
+		t.Fatal("session ended without TOTP")
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "TOTP required") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	code := fmt.Sprintf("%06d", auth.Code(secret, time.Now().Unix()))
+	d.handleKillCommand(context.Background(), mock, 100, s.ID+" "+code)
+	if !s.Ended() {
+		t.Fatal("session not ended with valid TOTP")
+	}
+}
+
+func TestParanoidWithoutTOTPSecretFailsClosed(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.KVSetString(context.Background(), "paranoid", "1"); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleKillCommand(context.Background(), mock, 100, s.ID)
+	if s.Ended() {
+		t.Fatal("session ended with paranoid mode missing TOTP")
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "TOTP unavailable") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestSessionActionCallbackRequiresTOTPWhenEnabled(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := auth.NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Secrets.Set(secrets.KeyTOTPSecret, auth.EncodeHex(secret)); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.handleSessionActionCallback(context.Background(), mock, &models.CallbackQuery{
+		ID:   "cb",
+		From: models.User{ID: 100},
+		Data: "kill:" + s.ID,
+	}, "kill", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s.Ended() {
+		t.Fatal("session ended from callback without TOTP")
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "TOTP required") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if answers := mock.Answered(); len(answers) != 1 || answers[0].Text != "TOTP required" {
+		t.Fatalf("answers = %#v", answers)
 	}
 }
 

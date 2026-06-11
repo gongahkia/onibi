@@ -123,9 +123,9 @@ func New(opts Options) *Daemon {
 	if ttl <= 0 {
 		ttl = approval.DefaultTTL
 	}
-	if opts.ApprovalTTL <= 0 && opts.DB != nil {
+	if opts.DB != nil {
 		v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid")
-		if ok && v == "1" {
+		if ok && v == "1" && ttl > approval.ParanoidTTL {
 			ttl = approval.ParanoidTTL
 		}
 	}
