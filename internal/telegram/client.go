@@ -24,10 +24,11 @@ var AllowedUpdateTypes = []string{"message", "callback_query"}
 // dedicated http.Client with TLS 1.2 floor, no env proxy honored for
 // api.telegram.org, defensive deleteWebhook on Init, getMe identity check.
 type Client struct {
-	Bot     *tgbot.Bot
-	self    *models.User
-	allowed []string
-	limiter *RateLimiter
+	Bot               *tgbot.Bot
+	self              *models.User
+	allowed           []string
+	limiter           *RateLimiter
+	clearedWebhookURL string
 }
 
 // Options configures Client construction.
@@ -91,6 +92,14 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	}
 	c.self = me
 
+	info, err := b.GetWebhookInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("telegram getWebhookInfo: %w", err)
+	}
+	if info != nil {
+		c.clearedWebhookURL = info.URL
+	}
+
 	// defensive deleteWebhook so an attacker who flipped to webhook mode
 	// loses the side channel. Drop pending updates too — they may be
 	// poisoned by attacker traffic.
@@ -127,6 +136,8 @@ func (c *Client) Start(ctx context.Context) { c.Bot.Start(ctx) }
 
 // Self returns the getMe identity cached during New.
 func (c *Client) Self() *models.User { return c.self }
+
+func (c *Client) ClearedWebhookURL() string { return c.clearedWebhookURL }
 
 // SendMessage delegates to the real bot.
 func (c *Client) SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error) {

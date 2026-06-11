@@ -472,5 +472,7 @@ func (r *runner) checkTelegram() {
 	}
 	if res.GetUpdatesOK {
 		r.add("telegram getUpdates", Pass, res.GetUpdatesDetail)
+	} else if res.GetUpdatesDetail != "" {
+		r.add("telegram getUpdates", Warn, res.GetUpdatesDetail)
 	}
 }

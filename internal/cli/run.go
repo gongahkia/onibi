@@ -92,6 +92,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	} else if ok && want != "" && want != fmt.Sprintf("%d", bot.Self().ID) {
 		return fmt.Errorf("bot identity mismatch: stored %s got %d; run `onibi rotate-token`", want, bot.Self().ID)
 	}
+	if bot.ClearedWebhookURL() != "" {
+		logger.Warn("removed pre-existing telegram webhook")
+		_, _ = bot.Send(ctx, owner.ID(), "Security notice: a pre-existing Telegram webhook was removed at startup. If this was unexpected, run `onibi rotate-token`.")
+	}
 
 	d := daemon.New(daemon.Options{
 		Paths:                 paths,

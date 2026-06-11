@@ -57,10 +57,9 @@ func ProbeToken(ctx context.Context, token string, allowEnvProxy bool) (*ProbeRe
 		"allowed_updates": AllowedUpdateTypes,
 	}, &updates)
 	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "409") || strings.Contains(strings.ToLower(msg), "conflict") {
-			res.GetUpdatesOK = true
-			res.GetUpdatesDetail = "reachable; another getUpdates poller is active"
+		if detail, ok := getUpdatesConflictDetail(err); ok {
+			res.GetUpdatesOK = false
+			res.GetUpdatesDetail = detail
 			return res, nil
 		}
 		return res, err
@@ -68,6 +67,20 @@ func ProbeToken(ctx context.Context, token string, allowEnvProxy bool) (*ProbeRe
 	res.GetUpdatesOK = true
 	res.GetUpdatesDetail = "ok"
 	return res, nil
+}
+
+func getUpdatesConflictDetail(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "409") && !strings.Contains(msg, "conflict") {
+		return "", false
+	}
+	if strings.Contains(msg, "webhook") {
+		return "conflict: webhook is active; deleteWebhook must succeed before polling", true
+	}
+	return "conflict: another getUpdates poller is active", true
 }
 
 func rawBotCall(ctx context.Context, hc *http.Client, token, method string, params any, out any) error {
