@@ -6,11 +6,11 @@ import "sync"
 // PTY output for tail rendering. Safe for concurrent Write + Snapshot.
 // Older bytes are silently overwritten when capacity is exceeded.
 type RingBuffer struct {
-	mu       sync.Mutex
-	buf      []byte
-	cap      int
-	wpos     int  // next write position
-	full     bool // true once we've wrapped at least once
+	mu   sync.Mutex
+	buf  []byte
+	cap  int
+	wpos int  // next write position
+	full bool // true once we've wrapped at least once
 }
 
 // NewRingBuffer returns a buffer of size bytes. Must be > 0.
