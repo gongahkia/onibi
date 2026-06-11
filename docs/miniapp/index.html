@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Onibi</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{color-scheme:light dark;--bg:#f6f7f9;--fg:#111827;--muted:#5b6573;--line:#d6dbe3;--panel:#fff;--ok:#0f766e;--danger:#b91c1c;--warn:#b45309}
+    @media (prefers-color-scheme:dark){:root{--bg:#111418;--fg:#eceff3;--muted:#a5adba;--line:#343a46;--panel:#181d24}}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
+    main{max-width:760px;margin:0 auto;padding:16px}
+    .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    h1{font-size:18px;line-height:1.2;margin:0}
+    .pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 8px;white-space:nowrap}
+    pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0;max-height:58vh;overflow:auto}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    button{appearance:none;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px 12px;font-weight:600;min-height:42px}
+    button.primary{background:var(--ok);border-color:var(--ok);color:white}
+    button.danger{background:var(--danger);border-color:var(--danger);color:white}
+    button.warn{background:var(--warn);border-color:var(--warn);color:white}
+    button:disabled{opacity:.5}
+    textarea{width:100%;min-height:170px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+    .muted{color:var(--muted)}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+<main>
+  <div class="bar">
+    <h1>Onibi</h1>
+    <span id="state" class="pill">loading</span>
+  </div>
+  <p id="notice" class="muted"></p>
+  <pre id="body"></pre>
+  <section id="editBox" class="hidden">
+    <textarea id="editText" spellcheck="false"></textarea>
+  </section>
+  <div class="row">
+    <button id="approve" class="primary" disabled>Approve</button>
+    <button id="deny" class="danger" disabled>Deny</button>
+    <button id="edit" disabled>Edit</button>
+    <button id="sendEdit" class="primary hidden">Send edit</button>
+  </div>
+</main>
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+const state = document.getElementById("state");
+const notice = document.getElementById("notice");
+const body = document.getElementById("body");
+const approve = document.getElementById("approve");
+const deny = document.getElementById("deny");
+const edit = document.getElementById("edit");
+const sendEdit = document.getElementById("sendEdit");
+const editBox = document.getElementById("editBox");
+const editText = document.getElementById("editText");
+let current = null;
+let confirmArmed = false;
+
+function b64urlToBytes(s){
+  s = (s || "").replace(/-/g,"+").replace(/_/g,"/");
+  while(s.length % 4) s += "=";
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToText(b){ return new TextDecoder().decode(b); }
+function utf8(s){ return new TextEncoder().encode(s); }
+function hashParams(){ return new URLSearchParams(location.hash.replace(/^#/,"")); }
+function setState(s){ state.textContent = s; }
+function setNotice(s){ notice.textContent = s || ""; }
+function storage(){
+  const ss = tg && tg.SecureStorage;
+  if(ss && ss.getItem && ss.setItem){
+    return {
+      secure:true,
+      get:k=>new Promise((res,rej)=>ss.getItem(k,(e,v)=>e?rej(e):res(v))),
+      set:(k,v)=>new Promise((res,rej)=>ss.setItem(k,v,(e,ok)=>e?rej(e):res(ok)))
+    };
+  }
+  return {
+    secure:false,
+    get:k=>Promise.resolve(localStorage.getItem(k)),
+    set:(k,v)=>{localStorage.setItem(k,v);return Promise.resolve(true);}
+  };
+}
+async function importSeed(seed){
+  if(b64urlToBytes(seed).length !== 32) throw new Error("bad seed length");
+  await storage().set("onibi_seed", seed);
+}
+async function decryptToken(seed, token){
+  const raw = JSON.parse(bytesToText(b64urlToBytes(token)));
+  if(raw.v !== 1) throw new Error("unsupported envelope");
+  if(raw.exp && Date.now()/1000 >= raw.exp) throw new Error("expired");
+  const keymat = await crypto.subtle.importKey("raw", b64urlToBytes(seed), "HKDF", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({
+    name:"HKDF",
+    hash:"SHA-256",
+    salt:utf8("onibi-envelope-v1"),
+    info:utf8("telegram-mini-app")
+  }, keymat, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  const aad = utf8(`v=1;kind=${raw.kind};exp=${raw.exp}`);
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64urlToBytes(raw.nonce), additionalData:aad}, key, b64urlToBytes(raw.ct));
+  return JSON.parse(bytesToText(new Uint8Array(pt)));
+}
+function send(action){
+  if(!current) return;
+  if(!tg || !tg.sendData){
+    setNotice("Telegram bridge unavailable.");
+    return;
+  }
+  const payload = {v:1, action, id:current.id};
+  if(action === "edit") payload.updated_input = editText.value;
+  tg.sendData(JSON.stringify(payload));
+  tg.close();
+}
+function armActions(){
+  approve.disabled = deny.disabled = edit.disabled = false;
+  approve.onclick = () => {
+    if(current.risk === "high" && !confirmArmed){
+      confirmArmed = true;
+      approve.textContent = "Confirm approve";
+      approve.className = "warn";
+      return;
+    }
+    send(current.risk === "high" ? "confirm_approve" : "approve");
+  };
+  deny.onclick = () => send("deny");
+  edit.onclick = () => {
+    editBox.classList.remove("hidden");
+    sendEdit.classList.remove("hidden");
+    editText.focus();
+  };
+  sendEdit.onclick = () => send("edit");
+}
+async function main(){
+  if(tg){ tg.ready(); tg.expand(); }
+  const sp = hashParams();
+  const st = storage();
+  if(!st.secure) setNotice("SecureStorage unavailable; seed is stored in local browser storage.");
+  const seedParam = sp.get("seed");
+  if(seedParam){
+    await importSeed(seedParam);
+    setState("seed stored");
+    body.textContent = "Seed imported.";
+    return;
+  }
+  const token = sp.get("onibi");
+  if(!token){
+    setState("idle");
+    body.textContent = "No approval payload.";
+    return;
+  }
+  const seed = await st.get("onibi_seed");
+  if(!seed){
+    setState("seed missing");
+    body.textContent = "Seed not found.";
+    return;
+  }
+  current = await decryptToken(seed, token);
+  setState(current.risk === "high" ? "high risk" : "ready");
+  body.textContent = current.body || "";
+  editText.value = "";
+  armActions();
+}
+main().catch(err => {
+  setState("error");
+  body.textContent = err && err.message ? err.message : String(err);
+});
+</script>
+</body>
+</html>

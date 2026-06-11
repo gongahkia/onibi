@@ -20,6 +20,8 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 | T12 | token paste capture | clipboard/shoulder-surf token leak | `--token-stdin`, no argv token, immediate log scrubbing |
 | T13 | token committed to a repo | public bot takeover | `.gitignore`, pre-commit template, keychain storage by default |
 | T14 | SMS OTP interception | Telegram account takeover | setup recommends email recovery for Telegram 2-step verification |
+| T15 | Telegram cloud inspection | Telegram can store bot chat contents | optional encrypted approval payloads send ciphertext and decrypt in the Mini App |
+| T16 | Mini App host compromise | hosted JS can exfiltrate the decrypt seed | keep the Mini App static, review `docs/miniapp/index.html`, and host it from an account you control |
 
 ## Enforcements
 
@@ -36,12 +38,16 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 - Unix socket/state paths are permission-checked by `onibi doctor`.
 - Telegram send calls are rate-limited below Telegram's documented soft limits.
 - Hook installers record SHA-256 hashes; `onibi doctor` reports mismatches.
+- Optional encrypted approval mode uses AES-GCM envelopes with a setup QR seed stored by Telegram Mini App SecureStorage when available.
+- High-risk approvals require a second confirm action; approval/request, high-risk approval, and prompt-injection volume spikes send owner warnings.
+- `onibi mcp` exposes local stdio MCP tools through the same Onibi Unix socket and peer-UID checks as hooks.
 
 ## Non-Defenses
 
 - Same-user local malware. If the user account is owned, Onibi is owned.
 - Full compromise of the owner Telegram account. Optional TOTP narrows some destructive paths, but normal prompt injection and approvals still trust the owner chat.
-- Telegram cloud confidentiality. Telegram can see bot messages.
+- Telegram cloud confidentiality when encrypted mode is off, or for metadata such as bot identity, timing, message length, and approval id when encrypted mode is on.
+- Mini App host integrity. Static hosting reduces moving parts, but served JavaScript can read the local decrypt seed.
 - Apple notarization or GitHub release infrastructure compromise.
 - Hosted agent API insider attacks.
 

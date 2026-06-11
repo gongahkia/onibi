@@ -27,11 +27,14 @@ type Handler func(context.Context, Event) error
 // write a Cancelled response so the hook unblocks).
 type ApprovalHandler func(context.Context, Event) (Response, error)
 
+type RPCHandler func(context.Context, Event) (Response, error)
+
 // Server listens on a Unix domain socket for JSON events from hooks.
 type Server struct {
 	socketPath string
 	handler    Handler
 	approval   ApprovalHandler
+	rpc        RPCHandler
 	logger     *slog.Logger
 	ln         net.Listener
 }
@@ -50,6 +53,8 @@ func New(socketPath string, handler Handler, logger *slog.Logger) *Server {
 // cancelled response (matches fail-open spirit on the daemon side: the
 // agent's tool call is blocked but the hook unblocks promptly).
 func (s *Server) SetApprovalHandler(h ApprovalHandler) { s.approval = h }
+
+func (s *Server) SetRPCHandler(h RPCHandler) { s.rpc = h }
 
 // Serve binds the socket and serves until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context) error {
@@ -132,10 +137,31 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.handleApproval(ctx, c, ev)
 		return
 	}
+	if isRPCType(ev.Type) {
+		s.handleRPC(ctx, c, ev)
+		return
+	}
 
 	// fire-and-forget event
 	if err := s.handler(ctx, ev); err != nil {
 		s.logger.Warn("intake handler", slog.String("type", ev.Type), slog.Any("err", err))
+	}
+}
+
+func (s *Server) handleRPC(ctx context.Context, c net.Conn, ev Event) {
+	if s.rpc == nil {
+		_ = writeResponse(c, Response{Reason: "daemon has no rpc handler"})
+		return
+	}
+	_ = c.SetReadDeadline(time.Time{})
+	resp, err := s.rpc(ctx, ev)
+	if err != nil {
+		s.logger.Warn("rpc handler error", slog.String("type", ev.Type), slog.Any("err", err))
+		resp = Response{Reason: err.Error()}
+	}
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if werr := writeResponse(c, resp); werr != nil {
+		s.logger.Warn("rpc write response", slog.Any("err", werr))
 	}
 }
 
@@ -158,6 +184,10 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 	if werr := writeResponse(c, resp); werr != nil {
 		s.logger.Warn("approval write response", slog.Any("err", werr))
 	}
+}
+
+func isRPCType(typ string) bool {
+	return typ == TypeSessionInput || typ == TypeSessionPeek
 }
 
 func writeResponse(c net.Conn, r Response) error {

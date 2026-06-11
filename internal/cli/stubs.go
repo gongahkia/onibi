@@ -48,6 +48,9 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().Bool("print-checklist", false, "print setup security checklist and exit")
 	cmd.Flags().Bool("token-stdin", false, "read bot token from stdin (avoids argv leak)")
 	cmd.Flags().Bool("complete", false, "after pairing, offer service install, hook install, and doctor")
+	cmd.Flags().Bool("enable-encrypted-mode", false, "configure Telegram-blind encrypted approval payloads")
+	cmd.Flags().String("encrypted-mode", "ask", "encrypted approval mode (off, ask, on)")
+	cmd.Flags().String("mini-app-url", "", "hosted Mini App URL for encrypted approvals")
 	return cmd
 }
 
@@ -150,6 +153,14 @@ func tailLogCmd() *cobra.Command {
 	cmd.Flags().Int("n", 80, "number of lines to print")
 	cmd.Flags().Bool("follow", false, "continue printing appended lines")
 	return cmd
+}
+
+func mcpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Run the Onibi MCP server on stdio",
+		RunE:  runMCP,
+	}
 }
 
 func versionCmd() *cobra.Command {

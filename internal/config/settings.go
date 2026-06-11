@@ -39,8 +39,9 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
-	Daemon Daemon `yaml:"daemon" json:"daemon"`
-	Shell  Shell  `yaml:"shell" json:"shell"`
+	Daemon   Daemon   `yaml:"daemon" json:"daemon"`
+	Shell    Shell    `yaml:"shell" json:"shell"`
+	Telegram Telegram `yaml:"telegram" json:"telegram"`
 }
 
 type Daemon struct {
@@ -53,6 +54,11 @@ type Daemon struct {
 
 type Shell struct {
 	MinDuration Duration `yaml:"min_duration" json:"min_duration"`
+}
+
+type Telegram struct {
+	EncryptedMode string `yaml:"encrypted_mode" json:"encrypted_mode"`
+	MiniAppURL    string `yaml:"mini_app_url" json:"mini_app_url"`
 }
 
 type LoadMeta struct {
@@ -80,6 +86,10 @@ func Default() Config {
 		},
 		Shell: Shell{
 			MinDuration: Duration(5 * time.Second),
+		},
+		Telegram: Telegram{
+			EncryptedMode: "off",
+			MiniAppURL:    "https://gongahkia.github.io/onibi/miniapp/",
 		},
 	}
 }
@@ -160,6 +170,14 @@ func (c Config) Validate() error {
 	if c.Daemon.PTYBufferBytes < 4096 || c.Daemon.PTYBufferBytes > 10*1024*1024 {
 		return fmt.Errorf("daemon.pty_buffer_bytes must be between 4096 and 10485760")
 	}
+	switch c.Telegram.EncryptedMode {
+	case "off", "ask", "on":
+	default:
+		return fmt.Errorf("telegram.encrypted_mode must be one of off, ask, on")
+	}
+	if c.Telegram.MiniAppURL != "" && !strings.HasPrefix(c.Telegram.MiniAppURL, "https://") {
+		return fmt.Errorf("telegram.mini_app_url must use https")
+	}
 	return nil
 }
 
@@ -238,6 +256,10 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Shell.MinDuration = Duration(d)
+	case "telegram.encrypted_mode":
+		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(value))
+	case "telegram.mini_app_url":
+		cfg.Telegram.MiniAppURL = strings.TrimSpace(value)
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -258,6 +280,10 @@ func Get(cfg Config, key string) (string, error) {
 		return strconv.Itoa(cfg.Daemon.PTYBufferBytes), nil
 	case "shell.min_duration":
 		return cfg.Shell.MinDuration.String(), nil
+	case "telegram.encrypted_mode":
+		return cfg.Telegram.EncryptedMode, nil
+	case "telegram.mini_app_url":
+		return cfg.Telegram.MiniAppURL, nil
 	default:
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
@@ -272,14 +298,17 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.turn_idle_interval", def.Daemon.TurnIdleInterval.String(), cfg.Daemon.TurnIdleInterval.String(), meta.Explicit["daemon.turn_idle_interval"], "fallback idle poll cadence"},
 		{"daemon.pty_buffer_bytes", strconv.Itoa(def.Daemon.PTYBufferBytes), strconv.Itoa(cfg.Daemon.PTYBufferBytes), meta.Explicit["daemon.pty_buffer_bytes"], "bytes retained for /peek text rendering"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
+		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},
+		{"telegram.mini_app_url", def.Telegram.MiniAppURL, cfg.Telegram.MiniAppURL, meta.Explicit["telegram.mini_app_url"], "hosted Mini App URL for encrypted approvals"},
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 	return rows
 }
 
 type rawConfig struct {
-	Daemon rawDaemon `yaml:"daemon"`
-	Shell  rawShell  `yaml:"shell"`
+	Daemon   rawDaemon   `yaml:"daemon"`
+	Shell    rawShell    `yaml:"shell"`
+	Telegram rawTelegram `yaml:"telegram"`
 }
 
 type rawDaemon struct {
@@ -292,6 +321,11 @@ type rawDaemon struct {
 
 type rawShell struct {
 	MinDuration *Duration `yaml:"min_duration"`
+}
+
+type rawTelegram struct {
+	EncryptedMode *string `yaml:"encrypted_mode"`
+	MiniAppURL    *string `yaml:"mini_app_url"`
 }
 
 func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
@@ -318,5 +352,13 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Shell.MinDuration != nil {
 		cfg.Shell.MinDuration = *raw.Shell.MinDuration
 		meta.Explicit["shell.min_duration"] = true
+	}
+	if raw.Telegram.EncryptedMode != nil {
+		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(*raw.Telegram.EncryptedMode))
+		meta.Explicit["telegram.encrypted_mode"] = true
+	}
+	if raw.Telegram.MiniAppURL != nil {
+		cfg.Telegram.MiniAppURL = strings.TrimSpace(*raw.Telegram.MiniAppURL)
+		meta.Explicit["telegram.mini_app_url"] = true
 	}
 }

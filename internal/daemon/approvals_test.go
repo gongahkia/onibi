@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -245,7 +247,7 @@ func TestApprovalMessageArmsRaceWarning(t *testing.T) {
 	}
 	mock := telegram.NewMock(nil)
 	d.Bot = mock
-	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"ls"}`, "s", false); err != nil {
+	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"ls"}`, "s", false, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if !mock.AwaitingOwnerInteraction() {
@@ -259,6 +261,91 @@ func TestApprovalMessageArmsRaceWarning(t *testing.T) {
 	}
 	if !strings.Contains(sent[1].Text, "Possible token race") {
 		t.Fatalf("warning = %q", sent[1].Text)
+	}
+}
+
+func TestEncryptedApprovalMessageHidesPayload(t *testing.T) {
+	d := newApprovalDaemon(t)
+	seed, err := envelope.GenerateSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.EncryptedMode = "on"
+	d.EnvelopeSeed = seed
+	d.MiniAppURL = "https://example.com/onibi/"
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"echo secret"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"echo secret"}`, "s", false, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	if strings.Contains(sent[0].Text, "echo secret") {
+		t.Fatalf("telegram text leaked payload: %q", sent[0].Text)
+	}
+	kb, ok := sent[0].ReplyMarkup.(*models.ReplyKeyboardMarkup)
+	if !ok {
+		t.Fatalf("reply markup = %T", sent[0].ReplyMarkup)
+	}
+	u, err := url.Parse(kb.Keyboard[0][0].WebApp.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := url.ParseQuery(u.Fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := envelope.Decrypt(seed, q.Get("onibi"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain.Body, "echo secret") {
+		t.Fatalf("plain body = %q", plain.Body)
+	}
+}
+
+func TestHighRiskApproveRequiresConfirm(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	ctx := context.Background()
+	id, ch, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm -rf /tmp/x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := &models.CallbackQuery{
+		ID:      "cb1",
+		From:    models.User{ID: 100},
+		Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 1, Chat: models.Chat{ID: 100}}},
+	}
+	if err := d.onCallback(ctx, mock, q, "approve", id); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case dec := <-ch:
+		t.Fatalf("unexpected decision: %#v", dec)
+	default:
+	}
+	if len(mock.Edited()) != 1 {
+		t.Fatalf("edits = %d", len(mock.Edited()))
+	}
+	if err := d.onCallback(ctx, mock, q, "confirm_approve", id); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case dec := <-ch:
+		if dec.Verdict != approval.VerdictApprove {
+			t.Fatalf("verdict = %s", dec.Verdict)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for decision")
 	}
 }
 

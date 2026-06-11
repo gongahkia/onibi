@@ -77,6 +77,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if !ok {
 		return errors.New("no bot token stored — run `onibi setup` first")
 	}
+	envelopeSeed, _, err := sec.Get(secrets.KeyEnvelopeSeed)
+	if err != nil {
+		return err
+	}
 	logging.SetSecrets(token)
 
 	owner, err := auth.LoadOwner(ctx, db)
@@ -127,6 +131,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
 		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:            cfg.Daemon.PTYBufferBytes,
+		EncryptedMode:         cfg.Telegram.EncryptedMode,
+		MiniAppURL:            cfg.Telegram.MiniAppURL,
+		EnvelopeSeed:          envelopeSeed,
 	})
 
 	if attachTmux != "" {

@@ -30,15 +30,13 @@ func Send(socketPath string, ev Event) error {
 	return err
 }
 
-// Request writes ev (must be an approval_request) and blocks reading a
-// Response. Caller supplies an overall timeout (typically the approval TTL
-// + a few seconds slack). Returns the daemon's decision or an error.
+// Request writes an RPC-mode event and blocks reading a Response.
 func Request(socketPath string, ev Event, timeout time.Duration) (Response, error) {
 	if socketPath == "" {
 		return Response{}, errors.New("intake: empty socket path")
 	}
-	if ev.Type != TypeApprovalRequest {
-		return Response{}, errors.New("intake: Request only valid for approval_request")
+	if ev.Type != TypeApprovalRequest && !isRPCType(ev.Type) {
+		return Response{}, errors.New("intake: Request only valid for RPC event types")
 	}
 	c, err := net.DialTimeout("unix", socketPath, 1*time.Second)
 	if err != nil {

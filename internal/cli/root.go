@@ -31,6 +31,7 @@ func Root() *cobra.Command {
 		sessionsCmd(),
 		logCmd(),
 		tailLogCmd(),
+		mcpCmd(),
 		versionCmd(),
 	)
 

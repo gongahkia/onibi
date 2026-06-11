@@ -52,6 +52,11 @@ type Daemon struct {
 	Router     *telegram.Router
 	BufferSize int
 
+	EncryptedMode string
+	MiniAppURL    string
+	EnvelopeSeed  string
+	anomaly       *anomalyTracker
+
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once
 	started  time.Time
@@ -89,6 +94,9 @@ type Options struct {
 	IdleThreshold         time.Duration
 	IdleInterval          time.Duration
 	BufferSize            int
+	EncryptedMode         string
+	MiniAppURL            string
+	EnvelopeSeed          string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -116,6 +124,10 @@ func New(opts Options) *Daemon {
 		pendingPromptEdits: map[int64]string{},
 		ExitWhenIdle:       opts.ExitWhenIdle,
 		BufferSize:         opts.BufferSize,
+		EncryptedMode:      opts.EncryptedMode,
+		MiniAppURL:         opts.MiniAppURL,
+		EnvelopeSeed:       opts.EnvelopeSeed,
+		anomaly:            newAnomalyTracker(),
 	}
 
 	// approval queue + expiry sweeper
@@ -136,6 +148,7 @@ func New(opts Options) *Daemon {
 	// intake server: fire-and-forget + approval RPC
 	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
 	d.Intake.SetApprovalHandler(d.handleApprovalRequest)
+	d.Intake.SetRPCHandler(d.handleRPCRequest)
 
 	d.Idle = &IdleDetector{
 		Registry:  d.Registry,

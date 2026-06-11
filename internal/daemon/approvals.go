@@ -14,6 +14,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -46,7 +47,15 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}
 
-	sent, sendErr := d.sendApprovalMessage(ctx, approvalID, ev.Tool, ev.InputJSON, sessLabel, false)
+	a, getErr := d.Queue.Get(ctx, approvalID)
+	if getErr != nil {
+		return intake.Response{Decision: "cancelled", Reason: getErr.Error()}, nil
+	}
+	d.noteAnomaly(ctx, "approval.request")
+	if isHighRiskApproval(a) {
+		d.noteAnomaly(ctx, "approval.high_risk")
+	}
+	sent, sendErr := d.sendApprovalMessage(ctx, approvalID, ev.Tool, ev.InputJSON, sessLabel, false, a.ExpiresAt)
 	if sendErr != nil {
 		// Telegram unreachable — cancel the approval so the hook unblocks
 		_ = d.Queue.Cancel(context.Background(), approvalID, "telegram send failed: "+sendErr.Error())
@@ -88,7 +97,7 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 		if s, err := d.Registry.Get(a.SessionID); err == nil {
 			sessLabel = s.Name + " (" + s.ID + ")"
 		}
-		sent, err := d.sendApprovalMessage(ctx, a.ID, a.Tool, a.InputJSON, sessLabel, true)
+		sent, err := d.sendApprovalMessage(ctx, a.ID, a.Tool, a.InputJSON, sessLabel, true, a.ExpiresAt)
 		if err != nil {
 			d.Log.Warn("restore approval message", slog.String("id", a.ID), slog.Any("err", err))
 			continue
@@ -100,10 +109,28 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 	return nil
 }
 
-func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
+func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool, expires time.Time) (*models.Message, error) {
 	if d.Bot == nil {
 		return nil, errors.New("telegram bot unavailable")
 	}
+	switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
+	case "on":
+		return d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored, expires)
+	case "ask":
+		sent, err := d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored)
+		if err != nil {
+			return nil, err
+		}
+		if _, encErr := d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored, expires); encErr != nil {
+			d.Log.Warn("send encrypted approval copy", slog.String("id", id), slog.Any("err", encErr))
+		}
+		return sent, nil
+	default:
+		return d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored)
+	}
+}
+
+func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
 	msg := renderApprovalMessage(tool, inputJSON, sessLabel)
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
@@ -113,6 +140,43 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 		Text:        msg,
 		ParseMode:   models.ParseModeHTML,
 		ReplyMarkup: telegram.ApprovalKeyboard(id),
+	})
+	if err == nil && sent != nil {
+		telegram.MarkAwaitingOwnerInteraction(d.Bot, sent.Chat.ID)
+		if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
+			d.bindMessage(sent, a.SessionID)
+		}
+	}
+	return sent, err
+}
+
+func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool, expires time.Time) (*models.Message, error) {
+	if strings.TrimSpace(d.EnvelopeSeed) == "" {
+		return nil, errors.New("encrypted mode enabled without envelope seed; run `onibi setup --enable-encrypted-mode`")
+	}
+	body, risk := renderApprovalPlainText(tool, inputJSON, sessLabel)
+	if restored {
+		body += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
+	}
+	token, err := envelope.Encrypt(d.EnvelopeSeed, envelope.Plain{
+		Kind:  "approval",
+		ID:    id,
+		Title: "Approval request",
+		Risk:  risk.Level,
+		Body:  body,
+	}, expires)
+	if err != nil {
+		return nil, err
+	}
+	url, err := envelope.BuildMiniAppURL(d.MiniAppURL, token)
+	if err != nil {
+		return nil, err
+	}
+	msg := fmt.Sprintf("Encrypted approval request %s.\nOpen the Mini App to decrypt and decide.\nExpires: %s", id, expires.Format(time.RFC3339))
+	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID:      d.Owner.ID(),
+		Text:        msg,
+		ReplyMarkup: telegram.EncryptedApprovalKeyboard(url),
 	})
 	if err == nil && sent != nil {
 		telegram.MarkAwaitingOwnerInteraction(d.Bot, sent.Chat.ID)
@@ -179,6 +243,21 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 
 	switch verb {
 	case "approve":
+		if isHighRiskApproval(a) {
+			if q.Message.Message != nil {
+				_, _ = api.EditMessageReplyMarkup(ctx, &tgbot.EditMessageReplyMarkupParams{
+					ChatID:      q.Message.Message.Chat.ID,
+					MessageID:   q.Message.Message.ID,
+					ReplyMarkup: telegram.ConfirmApprovalKeyboard(id),
+				})
+			}
+			answerCallback(ctx, api, q.ID, "Confirm high-risk approval")
+			return nil
+		}
+		res, err := d.Queue.DecideWithResult(ctx, id, approval.VerdictApprove, "", "", q.From.ID)
+		return d.finishCallbackDecision(ctx, api, q, a, res, err, "Approved")
+
+	case "confirm_approve":
 		res, err := d.Queue.DecideWithResult(ctx, id, approval.VerdictApprove, "", "", q.From.ID)
 		return d.finishCallbackDecision(ctx, api, q, a, res, err, "Approved")
 
@@ -347,6 +426,9 @@ func splitEditTOTP(txt string) (string, string, bool) {
 }
 
 func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message) error {
+	if m.WebAppData != nil {
+		return d.onWebAppData(ctx, api, m)
+	}
 	if !strings.HasPrefix(strings.TrimSpace(m.Text), "/") && d.handlePendingPromptEdit(ctx, api, m) {
 		return nil
 	}
@@ -363,16 +445,7 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 // renderApprovalMessage formats the Telegram message body for an approval
 // request. Scrubs secrets from rendered tool inputs.
 func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
-	scrubbed := approval.Scrub(inputJSON)
-	risk := approval.ClassifyRisk(tool, inputJSON)
-	// pretty-print the input JSON for readability
-	var pretty []byte
-	var anyObj any
-	if err := json.Unmarshal([]byte(scrubbed), &anyObj); err == nil {
-		pretty, _ = json.MarshalIndent(anyObj, "", "  ")
-	} else {
-		pretty = []byte(scrubbed)
-	}
+	pretty, risk := approvalRenderParts(tool, inputJSON)
 	return fmt.Sprintf(
 		"Approval request\n"+
 			"Session: %s\n"+
@@ -381,7 +454,33 @@ func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
 		telegram.EscapeHTML(sessLabel),
 		telegram.EscapeHTML(tool),
 		telegram.EscapeHTML(riskText(risk)),
-		telegram.HTMLPre(string(pretty)))
+		telegram.HTMLPre(pretty))
+}
+
+func renderApprovalPlainText(tool, inputJSON, sessLabel string) (string, approval.Risk) {
+	pretty, risk := approvalRenderParts(tool, inputJSON)
+	return fmt.Sprintf(
+		"Approval request\n"+
+			"Session: %s\n"+
+			"Tool: %s\n"+
+			"Risk: %s\n\n%s",
+		sessLabel,
+		tool,
+		riskText(risk),
+		pretty), risk
+}
+
+func approvalRenderParts(tool, inputJSON string) (string, approval.Risk) {
+	scrubbed := approval.Scrub(inputJSON)
+	risk := approval.ClassifyRisk(tool, inputJSON)
+	var pretty []byte
+	var anyObj any
+	if err := json.Unmarshal([]byte(scrubbed), &anyObj); err == nil {
+		pretty, _ = json.MarshalIndent(anyObj, "", "  ")
+	} else {
+		pretty = []byte(scrubbed)
+	}
+	return string(pretty), risk
 }
 
 func riskText(r approval.Risk) string {

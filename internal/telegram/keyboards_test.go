@@ -29,6 +29,7 @@ func TestParseCallback(t *testing.T) {
 		id   string
 	}{
 		{"approve:abc123", "approve", "abc123"},
+		{"confirm:abc123", "confirm_approve", "abc123"},
 		{"deny:def456", "deny", "def456"},
 		{"edit:ghi789", "edit", "ghi789"},
 		{"target:s1", "target", "s1"},

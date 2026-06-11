@@ -55,6 +55,26 @@ onibi install-service
 
 Then send `/status` in Telegram. If it still fails, stop and restart the user service.
 
+## Encrypted Approval Mode
+
+Run:
+
+```sh
+onibi setup --enable-encrypted-mode
+onibi config get telegram.encrypted_mode
+onibi config get telegram.mini_app_url
+```
+
+If the Mini App says `seed missing`, scan the setup QR again. If Telegram opens
+the app but actions do not return to the bot, verify the approval was opened
+from the one-time keyboard button, not a normal browser.
+
+## MCP
+
+Use `onibi mcp` as a stdio server command in the MCP client config. The daemon
+must already be running for session_input, session_peek, notify, and
+approval_request; session_list can read the local DB without a live daemon.
+
 ## Hook Drift
 
 If `onibi adapters` or `onibi doctor` reports hook drift:

@@ -8,6 +8,8 @@ const (
 	TypeCmdDone         = "cmd_done"         // shell command finished (zsh precmd hook)
 	TypeSessionExited   = "session_exited"   // host process exited
 	TypeApprovalRequest = "approval_request" // Phase 3: tool-call blocked
+	TypeSessionInput    = "session_input"    // RPC: write text into a live session
+	TypeSessionPeek     = "session_peek"     // RPC: return recent session output
 )
 
 // Event is the wire-level JSON schema written by hooks and onibi-notify.
@@ -29,8 +31,10 @@ type Event struct {
 	Elapsed int64  `json:"elapsed_ms,omitempty"`
 
 	// agent_*
-	Text string `json:"text,omitempty"` // optional human-readable detail
-	Tail string `json:"tail,omitempty"` // optional output tail provided by hook
+	Text  string `json:"text,omitempty"`  // optional human-readable detail
+	Tail  string `json:"tail,omitempty"`  // optional output tail provided by hook
+	Enter bool   `json:"enter,omitempty"` // session_input: append newline
+	Limit int    `json:"limit,omitempty"` // session_peek: tail bytes
 
 	// approval_request (Phase 3 — schema reserved now)
 	ApprovalID string `json:"approval_id,omitempty"`

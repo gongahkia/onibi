@@ -12,6 +12,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/setup"
@@ -26,6 +27,9 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	printChecklist, _ := cmd.Flags().GetBool("print-checklist")
 	tokenStdin, _ := cmd.Flags().GetBool("token-stdin")
 	complete, _ := cmd.Flags().GetBool("complete")
+	enableEncrypted, _ := cmd.Flags().GetBool("enable-encrypted-mode")
+	encryptedMode, _ := cmd.Flags().GetString("encrypted-mode")
+	miniAppURL, _ := cmd.Flags().GetString("mini-app-url")
 
 	if printChecklist {
 		printSetupChecklist(cmd.OutOrStdout())
@@ -68,14 +72,75 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	if _, err := setup.Run(ctx, db, sec, flags, io); err != nil {
+		if enableEncrypted && errors.Is(err, setup.ErrOwnerAlreadyPaired) {
+			if err := runSetupEncrypted(cmd, paths, sec, encryptedMode, miniAppURL); err != nil {
+				return err
+			}
+			if complete {
+				return runSetupComplete(cmd, paths, db)
+			}
+			return nil
+		}
 		if complete && errors.Is(err, setup.ErrOwnerAlreadyPaired) {
 			return runSetupComplete(cmd, paths, db)
 		}
 		return err
 	}
+	if enableEncrypted {
+		if err := runSetupEncrypted(cmd, paths, sec, encryptedMode, miniAppURL); err != nil {
+			return err
+		}
+	}
 	if complete {
 		return runSetupComplete(cmd, paths, db)
 	}
+	return nil
+}
+
+func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Store, mode, miniAppURL string) error {
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(mode) == "" {
+		mode = "ask"
+	}
+	if err := config.Set(&cfg, "telegram.encrypted_mode", mode); err != nil {
+		return err
+	}
+	if strings.TrimSpace(miniAppURL) != "" {
+		if err := config.Set(&cfg, "telegram.mini_app_url", miniAppURL); err != nil {
+			return err
+		}
+	}
+	seed, ok, err := sec.Get(secrets.KeyEnvelopeSeed)
+	if err != nil {
+		return err
+	}
+	if !ok || strings.TrimSpace(seed) == "" {
+		seed, err = envelope.GenerateSeed()
+		if err != nil {
+			return err
+		}
+		if err := sec.Set(secrets.KeyEnvelopeSeed, seed); err != nil {
+			return err
+		}
+	}
+	if err := config.Save(paths.Config, cfg); err != nil {
+		return err
+	}
+	seedURL, err := envelope.BuildSeedURL(cfg.Telegram.MiniAppURL, seed)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "")
+	fmt.Fprintf(cmd.OutOrStdout(), "Encrypted approval mode set to %s.\n", cfg.Telegram.EncryptedMode)
+	fmt.Fprintln(cmd.OutOrStdout(), "Scan this QR in Telegram to store the Mini App decrypt seed:")
+	if err := setup.PrintQR(cmd.OutOrStdout(), seedURL); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "(QR failed: %v)\n", err)
+		fmt.Fprintf(cmd.OutOrStdout(), "Open this URL in Telegram: %s\n", seedURL)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Security note: Telegram sees ciphertext, but the Mini App host can serve JS. Keep the host static and audited.")
 	return nil
 }
 

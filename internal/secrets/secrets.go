@@ -24,9 +24,10 @@ const (
 // KeyBotToken and friends are the canonical KV keys used inside the
 // chosen backend.
 const (
-	KeyBotToken    = "bot_token"
-	KeyTOTPSecret  = "totp_secret_hex"
-	keyringService = "sh.onibi.daemon"
+	KeyBotToken     = "bot_token"
+	KeyTOTPSecret   = "totp_secret_hex"
+	KeyEnvelopeSeed = "envelope_seed_b64"
+	keyringService  = "sh.onibi.daemon"
 )
 
 // Store hides whether a secret lives in the OS keystore or a .env file.

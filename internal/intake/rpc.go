@@ -15,4 +15,6 @@ type Response struct {
 	// DecidedBy is the Telegram chat id of the deciding user, for the
 	// hook's audit/error message.
 	DecidedBy int64 `json:"decided_by,omitempty"`
+	// Text is used by non-approval request/response calls.
+	Text string `json:"text,omitempty"`
 }

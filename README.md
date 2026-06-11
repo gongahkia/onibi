@@ -46,6 +46,7 @@ onibi config list
 onibi adapters
 onibi run claude
 onibi wrap lazygit
+onibi mcp
 ```
 
 Telegram commands:
@@ -66,6 +67,10 @@ Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
 `onibi wrap <command>` can host any local TUI/CLI under the same PTY preview
 and Telegram text-in controls.
 
+MCP-capable agents can run `onibi mcp` as a local stdio MCP server. It exposes
+notify, approval_request, session_list, session_input, and session_peek tools
+over the local Onibi daemon socket.
+
 ## Configure
 
 ```sh
@@ -74,10 +79,15 @@ onibi config show
 onibi config list
 onibi config set daemon.approval_timeout 2m
 onibi config set shell.min_duration 10s
+onibi setup --enable-encrypted-mode
+onibi config set telegram.encrypted_mode ask
 onibi config validate
 ```
 
 `onibi config init` writes `config.yaml` under the Onibi state dir.
+`telegram.encrypted_mode` is `off`, `ask`, or `on`. Encrypted mode sends
+approval payload ciphertext through Telegram and decrypts it in the static Mini
+App at `telegram.mini_app_url`.
 
 ## Uninstall
 

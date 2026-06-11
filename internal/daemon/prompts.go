@@ -90,6 +90,7 @@ func (d *Daemon) writePromptToSession(ctx context.Context, api telegram.API, cha
 		return fmt.Errorf("write PTY: %w", err)
 	}
 	s.Touch()
+	d.noteAnomaly(ctx, "telegram.inject")
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	detail := "Sent to " + s.Name + " (" + s.ID + ")."
 	if promptID != "" {

@@ -10,6 +10,7 @@ import (
 // ids are 16 hex chars so verb:id stays well under.
 const (
 	CBApprove      = "approve:"
+	CBConfirm      = "confirm:"
 	CBDeny         = "deny:"
 	CBEdit         = "edit:"
 	CBTarget       = "target:"
@@ -40,6 +41,30 @@ func ApprovalKeyboard(approvalID string) *models.InlineKeyboardMarkup {
 				{Text: "Edit", CallbackData: CBEdit + approvalID},
 			},
 		},
+	}
+}
+
+func ConfirmApprovalKeyboard(approvalID string) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "Confirm approve", CallbackData: CBConfirm + approvalID},
+			},
+			{
+				{Text: "Deny", CallbackData: CBDeny + approvalID},
+				{Text: "Edit", CallbackData: CBEdit + approvalID},
+			},
+		},
+	}
+}
+
+func EncryptedApprovalKeyboard(url string) *models.ReplyKeyboardMarkup {
+	return &models.ReplyKeyboardMarkup{
+		Keyboard: [][]models.KeyboardButton{
+			{{Text: "Open encrypted approval", WebApp: &models.WebAppInfo{URL: url}}},
+		},
+		ResizeKeyboard:  true,
+		OneTimeKeyboard: true,
 	}
 }
 
@@ -108,6 +133,8 @@ func ParseCallback(data string) (verb, id string) {
 	switch {
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
+	case strings.HasPrefix(data, CBConfirm):
+		return "confirm_approve", strings.TrimPrefix(data, CBConfirm)
 	case strings.HasPrefix(data, CBDeny):
 		return "deny", strings.TrimPrefix(data, CBDeny)
 	case strings.HasPrefix(data, CBEdit):
