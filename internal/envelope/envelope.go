@@ -39,6 +39,9 @@ type Plain struct {
 	Title   string `json:"title,omitempty"`
 	Risk    string `json:"risk,omitempty"`
 	Body    string `json:"body"`
+	MIME    string `json:"mime,omitempty"`
+	DataB64 string `json:"data_b64,omitempty"`
+	File    string `json:"file,omitempty"`
 }
 
 func GenerateSeed() (string, error) {
@@ -144,6 +147,10 @@ func Decrypt(seedB64, token string, now time.Time) (Plain, error) {
 }
 
 func BuildMiniAppURL(base, token string) (string, error) {
+	return buildURL(base, "onibi", token)
+}
+
+func BuildOpenURL(base string) (string, error) {
 	base = strings.TrimSpace(base)
 	if base == "" {
 		return "", errors.New("mini app URL required")
@@ -155,11 +162,18 @@ func BuildMiniAppURL(base, token string) (string, error) {
 	if u.Scheme != "https" {
 		return "", errors.New("mini app URL must use https")
 	}
-	u.Fragment = "onibi=" + url.QueryEscape(token)
 	return u.String(), nil
 }
 
+func BuildActionURL(base, token string) (string, error) {
+	return buildURL(base, "action", token)
+}
+
 func BuildSeedURL(base, seed string) (string, error) {
+	return buildURL(base, "seed", seed)
+}
+
+func buildURL(base, key, value string) (string, error) {
 	base = strings.TrimSpace(base)
 	if base == "" {
 		return "", errors.New("mini app URL required")
@@ -171,7 +185,7 @@ func BuildSeedURL(base, seed string) (string, error) {
 	if u.Scheme != "https" {
 		return "", errors.New("mini app URL must use https")
 	}
-	u.Fragment = "seed=" + url.QueryEscape(seed)
+	u.Fragment = key + "=" + url.QueryEscape(value)
 	return u.String(), nil
 }
 

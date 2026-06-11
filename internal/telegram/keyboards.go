@@ -59,9 +59,21 @@ func ConfirmApprovalKeyboard(approvalID string) *models.InlineKeyboardMarkup {
 }
 
 func EncryptedApprovalKeyboard(url string) *models.ReplyKeyboardMarkup {
+	return EncryptedWebAppKeyboard("Open encrypted approval", url)
+}
+
+func EncryptedItemKeyboard(url string) *models.ReplyKeyboardMarkup {
+	return EncryptedWebAppKeyboard("Open encrypted item", url)
+}
+
+func SecureComposerKeyboard(url string) *models.ReplyKeyboardMarkup {
+	return EncryptedWebAppKeyboard("Open secure controls", url)
+}
+
+func EncryptedWebAppKeyboard(label, url string) *models.ReplyKeyboardMarkup {
 	return &models.ReplyKeyboardMarkup{
 		Keyboard: [][]models.KeyboardButton{
-			{{Text: "Open encrypted approval", WebApp: &models.WebAppInfo{URL: url}}},
+			{{Text: label, WebApp: &models.WebAppInfo{URL: url}}},
 		},
 		ResizeKeyboard:  true,
 		OneTimeKeyboard: true,
