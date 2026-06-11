@@ -6,9 +6,6 @@
 
   Polish
 
-  - Make docs/security match implementation; current docs imply stronger
-    TOTP/paranoid/edit guarantees than code enforces.
-
   - Add a release smoke target: snapshot artifact, checksum, local
     install, doctor.
 
