@@ -82,3 +82,13 @@ func TestSetValidates(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestApprovalTimeoutHardMax(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "daemon.approval_timeout", "6m"); err == nil {
+		t.Fatal("expected approval timeout max error")
+	}
+	if err := Set(&cfg, "daemon.approval_timeout", "5m"); err != nil {
+		t.Fatal(err)
+	}
+}
