@@ -22,5 +22,4 @@
   - Multi-machine routing with labels.
   - Offline voice input via local Whisper.
   - Per-tool risk classifier for rm, force-push, secret-looking args.
-  - Local observability: --debug, rotating logs, tail-log, audit export.
   - Supply-chain: SBOM, signed checksums, reproducible build job.

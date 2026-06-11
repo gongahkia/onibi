@@ -29,6 +29,7 @@ func Root() *cobra.Command {
 		adaptersCmd(),
 		sessionsCmd(),
 		logCmd(),
+		tailLogCmd(),
 		versionCmd(),
 	)
 

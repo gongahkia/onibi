@@ -16,6 +16,8 @@ func runCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")
 	cmd.Flags().String("attach-tmux", "", "attach an existing tmux target instead of spawning an agent")
+	cmd.Flags().Bool("debug", false, "enable debug logs")
+	cmd.Flags().String("log-file", "", "daemon log file (default: state log dir/onibi.log)")
 	return cmd
 }
 
@@ -121,6 +123,17 @@ func logCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("n", 50, "number of entries to print")
 	cmd.Flags().String("export", "", "export full log to file (csv|json by extension)")
+	return cmd
+}
+
+func tailLogCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tail-log",
+		Short: "Print daemon log tail",
+		RunE:  runTailLog,
+	}
+	cmd.Flags().Int("n", 80, "number of lines to print")
+	cmd.Flags().Bool("follow", false, "continue printing appended lines")
 	return cmd
 }
 

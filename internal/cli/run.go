@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	cpty "github.com/creack/pty"
@@ -31,6 +32,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	bufSize, _ := cmd.Flags().GetInt("buffer")
 	attachTmux, _ := cmd.Flags().GetString("attach-tmux")
+	debug, _ := cmd.Flags().GetBool("debug")
+	logFilePath, _ := cmd.Flags().GetString("log-file")
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -81,7 +84,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger := logging.New(cmd.ErrOrStderr(), slog.LevelInfo)
+	if logFilePath == "" {
+		logFilePath = filepath.Join(paths.LogDir, "onibi.log")
+	}
+	logFile, err := logging.OpenRotating(logFilePath, logging.DefaultMaxBytes, logging.DefaultBackups)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	logger := logging.New(io.MultiWriter(cmd.ErrOrStderr(), logFile), level)
 
 	router := &telegram.Router{Owner: owner, Log: logger}
 	bot, err := telegram.New(ctx, telegram.Options{Token: token, APIHandler: router.Dispatch})
