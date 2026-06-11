@@ -22,7 +22,7 @@ This doc captures what to reproduce and what to deliberately deviate from. File:
 **Go port:** `internal/auth/totp.go` using `crypto/rand`, `crypto/hmac`, `crypto/sha1`, `encoding/base32`, `encoding/hex`. Stored via `internal/secrets/keychain.go` (NOT SQLite — Keychain is hardware-backed). QR rendered via `github.com/skip2/go-qrcode` to terminal stdout.
 
 **Deviation:**
-- **TOTP is opt-in, not required.** tgterm gates every command on TOTP after timeout. We pair-once (§6.1 of TODO) and only gate destructive commands when `--enable-totp` set.
+- **TOTP is opt-in, not required.** tgterm gates every command on TOTP after timeout. We pair once with a deeplink token and only gate destructive commands when `--enable-totp` is set.
 - Secret in Keychain, not SQLite KV. Survives DB deletion. Requires user-session unlock.
 - Use a per-install random `issuer` (e.g. `onibi@<hostname>`) so multiple Onibi installs don't clash in the authenticator app.
 
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_ex_key ON KeyValue(expire);
 - If unset: the first chat to message the bot becomes owner. Persisted forever.
 - If set and message is from a different `from.id`: dropped + logged.
 
-**Why we deviate:** This pattern has a race condition (threat T5 in §7.1 of TODO). If an attacker discovers the bot's username (BotFather creates discoverable bots; usernames can be enumerated or guessed) and messages first, they become owner. Acceptable for tgterm's solo-developer use. Not acceptable for distribution.
+**Why we deviate:** This pattern has a first-message owner race. If an attacker discovers the bot's username (BotFather creates discoverable bots; usernames can be enumerated or guessed) and messages first, they become owner. Acceptable for tgterm's solo-developer use. Not acceptable for distribution.
 
 **Go replacement:** `internal/setup/pairing.go` with a single-use deeplink-token flow:
 
@@ -144,7 +144,7 @@ CREATE TABLE pairing_tokens (
 
 **Go port:** `bot.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: ..., Photo: ..., ReplyMarkup: ...})`. `EditMessageMedia` for in-place updates.
 
-**Our use:** approval messages get `[Approve][Deny][Edit]` keyboard; turn-complete messages get `[Continue][Interrupt][Peek]` keyboard. Refresh-screenshot pattern carried over for `/peek <session>` command (see §9.5 of TODO).
+**Our use:** approval messages get `[Approve][Deny][Edit]` keyboard; turn-complete messages get `[Continue][Interrupt][Peek]` keyboard. Refresh-screenshot pattern carried over for `/peek <session>`.
 
 ---
 
@@ -206,7 +206,7 @@ No `InsecureSkipVerify`. Default cert roots. No pinning (Telegram rotates certs)
 
 **Go port — what we change:**
 - **Never** accept token as CLI positional or `--token=<token>` arg (process argv is readable by other processes via `ps`). Allowed sources: macOS Keychain (default), `.env` file (fallback), `--token-stdin` (paste via pipe).
-- `getMe` on startup, compare `bot_id` against persisted value in KV. If mismatch: refuse to start (token swap attack signal — see §7.6 of TODO).
+- `getMe` on startup, compare `bot_id` against persisted value in KV. If mismatch: refuse to start as a token-swap signal.
 - Token redacted from every log message via a `slog.Handler` middleware that scans records for the token string.
 - Rotation: `onibi rotate-token` walks user through @BotFather `/revoke`, paste new, Keychain replace.
 

@@ -14,7 +14,7 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-// HTTPTimeout covers the 30s long-poll + slack. See TODO §7.3.
+// HTTPTimeout covers the 30s long-poll + slack.
 const HTTPTimeout = 35 * time.Second
 
 const (

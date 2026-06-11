@@ -82,8 +82,8 @@ type Decision struct {
 	DecidedAt    int64           `json:"decided_at,omitempty"` // unix sec
 }
 
-// DefaultTTL is the hard upper bound on approval lifetime (TODO §1
-// hard rule + §7.3 enforcement: stale-approval hijack mitigation).
+// DefaultTTL is the hard upper bound on approval lifetime; stale approvals
+// are expired to prevent late-decision hijack.
 const DefaultTTL = 5 * time.Minute
 
 // ParanoidTTL is the shorter TTL applied when paranoid-mode is set.

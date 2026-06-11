@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 CREATE INDEX IF NOT EXISTS idx_kv_expire ON kv(expire);
 
--- single-use deeplink pairing tokens (TODO §7.3, replaces tgterm
--- first-message-becomes-owner race, threat T5)
+-- single-use deeplink pairing tokens; replaces tgterm
+-- first-message-becomes-owner race
 CREATE TABLE IF NOT EXISTS pairing_tokens (
   token      TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE INDEX IF NOT EXISTS idx_approvals_state ON approvals(state, expires_at);
 CREATE INDEX IF NOT EXISTS idx_approvals_msg ON approvals(chat_id, msg_id);
 
--- audit log of every decision and injection (TODO §7.3)
+-- audit log of every decision and injection
 CREATE TABLE IF NOT EXISTS audit (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   ts              INTEGER NOT NULL,
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 
--- installed hook script registry for tamper detection (TODO §7.3, threat T9)
+-- installed hook script registry for tamper detection
 CREATE TABLE IF NOT EXISTS hooks (
   agent       TEXT NOT NULL,
   path        TEXT NOT NULL,

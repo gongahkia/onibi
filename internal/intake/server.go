@@ -103,7 +103,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 
 	// peer-credential check: the connecting process must run as the same
 	// uid as us. Refuses cross-user intake on shared hosts (rare for a
-	// laptop but cheap defense in depth — TODO §7.3, threat T11).
+	// laptop but cheap defense in depth).
 	if err := verifyPeerUID(c); err != nil {
 		s.logger.Warn("intake peer rejected", slog.Any("err", err))
 		return
