@@ -1,7 +1,11 @@
 package telegram
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -23,4 +27,27 @@ func TestGetUpdatesConflictDetailOtherPoller(t *testing.T) {
 	if detail != "conflict: another getUpdates poller is active" {
 		t.Fatalf("detail = %q", detail)
 	}
+}
+
+func TestRawBotCallRedactsTokenFromTransportError(t *testing.T) {
+	token := "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	hc := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Post %q failed", req.URL.String())
+	})}
+	err := rawBotCall(context.Background(), hc, token, "getMe", nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("token leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[REDACTED]") {
+		t.Fatalf("redaction missing: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

@@ -6,10 +6,6 @@
 
   Polish
 
-  - Add bot token redaction around raw Telegram HTTP errors. [Inference]
-    rawBotCall builds token-bearing URLs and returns raw transport
-    errors. internal/telegram/probe.go:73
-
   Web Notes
 
   - Codex PreToolUse is a guardrail, not a complete boundary; it

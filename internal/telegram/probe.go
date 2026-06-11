@@ -91,12 +91,12 @@ func rawBotCall(ctx context.Context, hc *http.Client, token, method string, para
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://api.telegram.org/bot"+token+"/"+method, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return redactBotTokenError(token, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		return redactBotTokenError(token, err)
 	}
 	defer resp.Body.Close()
 	var wire struct {
@@ -109,10 +109,24 @@ func rawBotCall(ctx context.Context, hc *http.Client, token, method string, para
 		return err
 	}
 	if !wire.OK {
-		return fmt.Errorf("telegram %s failed (%d): %s", method, wire.ErrorCode, wire.Description)
+		return fmt.Errorf("telegram %s failed (%d): %s", method, wire.ErrorCode, redactBotToken(token, wire.Description))
 	}
 	if out != nil {
 		return json.Unmarshal(wire.Result, out)
 	}
 	return nil
+}
+
+func redactBotTokenError(token string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s", redactBotToken(token, err.Error()))
+}
+
+func redactBotToken(token, s string) string {
+	if token == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, token, "[REDACTED]")
 }
