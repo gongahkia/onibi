@@ -14,4 +14,4 @@ local Unix socket. If the daemon is down the hook exits 0 silently — never
 blocks the user's session.
 
 Hashes recorded in the SQLite `hooks` table on install; `onibi doctor`
-verifies (threat T9 in TODO §7.1).
+verifies hook integrity.
