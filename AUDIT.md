@@ -6,9 +6,6 @@
 
   Polish
 
-  - Quote Claude hook commands; current string concat can break paths
-    with spaces. internal/adapters/claude/install.go:186
-
   - Bump golang.org/x/sys/x/term; govulncheck found no reachable vuln,
     but x/sys has a module-level Windows vuln fixed after current
     version.

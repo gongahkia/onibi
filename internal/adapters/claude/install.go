@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
@@ -183,7 +184,7 @@ func buildStopHook(notifyBin string) map[string]any {
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": notifyBin + " --type agent_done",
+				"command": shellQuote(notifyBin) + " --type agent_done",
 				"timeout": 5,
 			},
 		},
@@ -205,11 +206,18 @@ func buildPreToolUseHook(notifyBin string) map[string]any {
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": notifyBin + " --type approval_request --wait",
+				"command": shellQuote(notifyBin) + " --type approval_request --wait",
 				"timeout": 360,
 			},
 		},
 	}
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // mergeEventHook adds our entry to settings.hooks.<eventName>, replacing

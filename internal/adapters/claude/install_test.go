@@ -73,6 +73,14 @@ func TestInstallCreatesSettings(t *testing.T) {
 	}
 }
 
+func TestHookCommandsQuoteNotifyPath(t *testing.T) {
+	hook := buildPreToolUseHook("/tmp/onibi dir/onibi-notify")
+	cmd := hook["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if cmd != "'/tmp/onibi dir/onibi-notify' --type approval_request --wait" {
+		t.Fatalf("cmd = %q", cmd)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && indexOf(s, sub) >= 0
 }
