@@ -236,6 +236,32 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 	}
 }
 
+func TestApprovalMessageArmsRaceWarning(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"ls"}`, "s", false); err != nil {
+		t.Fatal(err)
+	}
+	if !mock.AwaitingOwnerInteraction() {
+		t.Fatal("awaiting interaction not armed")
+	}
+	mock.RecordEmptyPolls(ctx, 10)
+	mock.RecordEmptyPolls(ctx, 10)
+	sent := mock.Sent()
+	if len(sent) != 2 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	if !strings.Contains(sent[1].Text, "Possible token race") {
+		t.Fatalf("warning = %q", sent[1].Text)
+	}
+}
+
 func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)

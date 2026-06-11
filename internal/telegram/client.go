@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	tgbot "github.com/go-telegram/bot"
@@ -15,6 +16,14 @@ import (
 
 // HTTPTimeout covers the 30s long-poll + slack. See TODO §7.3.
 const HTTPTimeout = 35 * time.Second
+
+const (
+	longPollTimeout             = 30 * time.Second
+	maxPollBackoff              = 5 * time.Second
+	ownerRaceEmptyPollThreshold = 10
+	ownerInteractionWindow      = 5 * time.Minute
+	ownerRaceWarningText        = "Possible token race: another poller may be consuming Telegram updates. Run onibi doctor; if it reports another poller, run onibi rotate-token."
+)
 
 // AllowedUpdateTypes restricts the parsing surface to the update kinds we
 // actually handle. Matches tgterm's allowed_updates.
@@ -26,10 +35,20 @@ var AllowedUpdateTypes = []string{"message", "callback_query"}
 type Client struct {
 	Bot               *tgbot.Bot
 	self              *models.User
+	token             string
+	hc                *http.Client
 	allowed           []string
 	limiter           *RateLimiter
 	clearedWebhookURL string
+	poll              getUpdatesFunc
+	sleep             sleepFunc
+	warningSender     func(context.Context, int64, string) error
+	await             ownerInteractionTracker
 }
+
+type getUpdatesFunc func(context.Context, int64, time.Duration, []string) ([]*models.Update, error)
+
+type sleepFunc func(context.Context, time.Duration) bool
 
 // Options configures Client construction.
 type Options struct {
@@ -80,7 +99,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("telegram new: %w", err)
 	}
 
-	c = &Client{Bot: b, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter()}
+	c = &Client{Bot: b, token: opts.Token, hc: hc, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter()}
 
 	// getMe — populates Self and validates the token in one call
 	me, err := b.GetMe(ctx)
@@ -131,8 +150,8 @@ func (c *Client) Send(ctx context.Context, chatID int64, text string) (*models.M
 	})
 }
 
-// Start enters the long-polling loop until ctx is cancelled.
-func (c *Client) Start(ctx context.Context) { c.Bot.Start(ctx) }
+// Start enters the owned long-polling loop until ctx is cancelled.
+func (c *Client) Start(ctx context.Context) { c.pollLoop(ctx) }
 
 // Self returns the getMe identity cached during New.
 func (c *Client) Self() *models.User { return c.self }
@@ -182,4 +201,187 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, params *tgbot.AnswerCa
 // SetMyCommands delegates to the real bot.
 func (c *Client) SetMyCommands(ctx context.Context, params *tgbot.SetMyCommandsParams) (bool, error) {
 	return c.Bot.SetMyCommands(ctx, params)
+}
+
+func (c *Client) pollLoop(ctx context.Context) {
+	if c == nil || c.Bot == nil {
+		return
+	}
+	poll := c.poll
+	if poll == nil {
+		poll = c.fetchUpdates
+	}
+	var offset int64
+	var backoff time.Duration
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if backoff > 0 && !c.sleepContext(ctx, backoff) {
+			return
+		}
+		updates, err := poll(ctx, offset, longPollTimeout, c.allowed)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			backoff = nextPollBackoff(backoff)
+			continue
+		}
+		backoff = 0
+		if len(updates) == 0 {
+			c.noteEmptyPoll(ctx)
+			continue
+		}
+		c.await.NoteInbound()
+		maxID := offset - 1
+		for _, update := range updates {
+			if update == nil {
+				continue
+			}
+			if update.ID > maxID {
+				maxID = update.ID
+			}
+			c.Bot.ProcessUpdate(ctx, update)
+		}
+		if maxID >= offset {
+			offset = maxID + 1
+		}
+	}
+}
+
+func (c *Client) fetchUpdates(ctx context.Context, offset int64, timeout time.Duration, allowed []string) ([]*models.Update, error) {
+	var updates []*models.Update
+	err := rawBotCall(ctx, c.hc, c.token, "getUpdates", map[string]any{
+		"offset":          offset,
+		"limit":           100,
+		"timeout":         int(timeout.Seconds()),
+		"allowed_updates": allowed,
+	}, &updates)
+	return updates, err
+}
+
+func nextPollBackoff(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 100 * time.Millisecond
+	}
+	d *= 2
+	if d > maxPollBackoff {
+		return maxPollBackoff
+	}
+	return d
+}
+
+func (c *Client) sleepContext(ctx context.Context, d time.Duration) bool {
+	if c.sleep != nil {
+		return c.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func (c *Client) noteEmptyPoll(ctx context.Context) {
+	chatID, warn := c.await.NoteEmptyPoll()
+	if !warn {
+		return
+	}
+	_ = c.sendRaceWarning(ctx, chatID)
+}
+
+func (c *Client) sendRaceWarning(ctx context.Context, chatID int64) error {
+	if c.warningSender != nil {
+		return c.warningSender(ctx, chatID, ownerRaceWarningText)
+	}
+	_, err := c.Send(ctx, chatID, ownerRaceWarningText)
+	return err
+}
+
+// AwaitOwnerInteraction arms the empty-poll race warning after an outbound
+// message that expects an owner reply or callback.
+func (c *Client) AwaitOwnerInteraction(chatID int64, window time.Duration) {
+	c.await.Mark(chatID, window)
+}
+
+type ownerInteractionTracker struct {
+	mu         sync.Mutex
+	chatID     int64
+	expires    time.Time
+	emptyPolls int
+	warned     bool
+	now        func() time.Time
+}
+
+func (t *ownerInteractionTracker) Mark(chatID int64, window time.Duration) {
+	if chatID == 0 {
+		return
+	}
+	if window <= 0 {
+		window = ownerInteractionWindow
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.chatID = chatID
+	t.expires = t.clock().Add(window)
+	t.emptyPolls = 0
+	t.warned = false
+}
+
+func (t *ownerInteractionTracker) NoteInbound() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.chatID = 0
+	t.expires = time.Time{}
+	t.emptyPolls = 0
+	t.warned = false
+}
+
+func (t *ownerInteractionTracker) NoteEmptyPoll() (int64, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.chatID == 0 {
+		return 0, false
+	}
+	if !t.expires.IsZero() && !t.clock().Before(t.expires) {
+		t.chatID = 0
+		t.expires = time.Time{}
+		t.emptyPolls = 0
+		t.warned = false
+		return 0, false
+	}
+	t.emptyPolls++
+	if t.emptyPolls >= ownerRaceEmptyPollThreshold && !t.warned {
+		t.warned = true
+		return t.chatID, true
+	}
+	return 0, false
+}
+
+func (t *ownerInteractionTracker) Awaiting() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.chatID != 0 && (t.expires.IsZero() || t.clock().Before(t.expires))
+}
+
+func (t *ownerInteractionTracker) clock() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
+}
+
+type ownerInteractionAPI interface {
+	AwaitOwnerInteraction(int64, time.Duration)
+}
+
+// MarkAwaitingOwnerInteraction arms race detection for APIs that support it.
+func MarkAwaitingOwnerInteraction(api API, chatID int64) {
+	if watcher, ok := api.(ownerInteractionAPI); ok {
+		watcher.AwaitOwnerInteraction(chatID, ownerInteractionWindow)
+	}
 }

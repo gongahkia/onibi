@@ -22,6 +22,7 @@ type Mock struct {
 	Edits        []tgbot.EditMessageReplyMarkupParams
 	Answers      []tgbot.AnswerCallbackQueryParams
 	Commands     []tgbot.SetMyCommandsParams
+	await        ownerInteractionTracker
 }
 
 // NewMock returns a Mock with a stable bot identity.
@@ -124,8 +125,32 @@ func (m *Mock) SetMyCommands(_ context.Context, params *tgbot.SetMyCommandsParam
 	return true, nil
 }
 
+// AwaitOwnerInteraction records that an owner reply/callback is expected.
+func (m *Mock) AwaitOwnerInteraction(chatID int64, window time.Duration) {
+	m.await.Mark(chatID, window)
+}
+
+// AwaitingOwnerInteraction reports whether the mock race detector is armed.
+func (m *Mock) AwaitingOwnerInteraction() bool {
+	return m.await.Awaiting()
+}
+
+// RecordEmptyPolls drives the mock race detector for daemon tests.
+func (m *Mock) RecordEmptyPolls(ctx context.Context, n int) {
+	for i := 0; i < n; i++ {
+		chatID, warn := m.await.NoteEmptyPoll()
+		if warn {
+			_, _ = m.SendMessage(ctx, &tgbot.SendMessageParams{
+				ChatID: chatID,
+				Text:   ownerRaceWarningText,
+			})
+		}
+	}
+}
+
 // Dispatch injects an update into the mock handler.
 func (m *Mock) Dispatch(ctx context.Context, update *models.Update) {
+	m.await.NoteInbound()
 	if m.handler != nil {
 		m.handler(ctx, m, update)
 	}

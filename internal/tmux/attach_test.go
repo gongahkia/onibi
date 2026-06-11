@@ -8,14 +8,25 @@ import (
 )
 
 type fakeRunner struct {
-	calls [][]string
-	out   []byte
-	err   error
+	calls   [][]string
+	out     []byte
+	err     error
+	results []fakeResult
+}
+
+type fakeResult struct {
+	out []byte
+	err error
 }
 
 func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
 	call := append([]string{name}, args...)
 	f.calls = append(f.calls, call)
+	if len(f.results) > 0 {
+		res := f.results[0]
+		f.results = f.results[1:]
+		return res.out, res.err
+	}
 	return f.out, f.err
 }
 
@@ -27,6 +38,68 @@ func TestSendTextUsesLiteralThenEnter(t *testing.T) {
 	}
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "%1", "-l", "--", "hello"},
+		{"tmux", "send-keys", "-t", "%1", "Enter"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestSendTextMultilineVerifiesCaptureSuccess(t *testing.T) {
+	r := &fakeRunner{results: []fakeResult{
+		{},
+		{},
+		{out: []byte("one\nfinal line\n")},
+	}}
+	c := NewWithRunner(r)
+	if err := c.SendText(context.Background(), "%1", "one\nfinal line", true); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\nfinal line"},
+		{"tmux", "send-keys", "-t", "%1", "Enter"},
+		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestSendTextMultilineIgnoresCaptureError(t *testing.T) {
+	r := &fakeRunner{results: []fakeResult{
+		{},
+		{},
+		{err: errors.New("capture failed")},
+	}}
+	c := NewWithRunner(r)
+	if err := c.SendText(context.Background(), "%1", "one\ntwo", true); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\ntwo"},
+		{"tmux", "send-keys", "-t", "%1", "Enter"},
+		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestSendTextMultilineRetriesWhenFinalLineMissing(t *testing.T) {
+	r := &fakeRunner{results: []fakeResult{
+		{},
+		{},
+		{out: []byte("one\n")},
+		{},
+	}}
+	c := NewWithRunner(r)
+	if err := c.SendText(context.Background(), "%1", "one\ntwo", true); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\ntwo"},
+		{"tmux", "send-keys", "-t", "%1", "Enter"},
+		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
 		{"tmux", "send-keys", "-t", "%1", "Enter"},
 	}
 	if !reflect.DeepEqual(r.calls, want) {

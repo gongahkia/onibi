@@ -86,10 +86,44 @@ func (c *Controller) SendText(ctx context.Context, target, text string, enter bo
 		return err
 	}
 	if enter {
-		_, err := c.run(ctx, "send-keys", "-t", target, "Enter")
-		return err
+		if _, err := c.run(ctx, "send-keys", "-t", target, "Enter"); err != nil {
+			return err
+		}
+		return c.verifyMultilineSend(ctx, target, text)
 	}
 	return nil
+}
+
+func (c *Controller) verifyMultilineSend(ctx context.Context, target, text string) error {
+	if !strings.ContainsAny(text, "\r\n") {
+		return nil
+	}
+	want := finalNonEmptyLine(text)
+	if want == "" {
+		return nil
+	}
+	captured, err := c.Capture(ctx, target, 50)
+	if err != nil {
+		return nil
+	}
+	if strings.Contains(captured, want) {
+		return nil
+	}
+	_, err = c.run(ctx, "send-keys", "-t", target, "Enter")
+	return err
+}
+
+func finalNonEmptyLine(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func (c *Controller) SendKey(ctx context.Context, target, key string) error {

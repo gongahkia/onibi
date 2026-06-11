@@ -20,7 +20,7 @@ onibi setup --rotate-owner
 onibi doctor
 ```
 
-This invalidates the stored owner and pairs the current machine to a new Telegram chat.
+This requires current owner confirmation, then pairs the new owner.
 
 ## Stale Webhook
 
@@ -86,4 +86,3 @@ onibi doctor --mode installed
 ```
 
 macOS writes `~/Library/LaunchAgents/sh.onibi.daemon.plist`. Linux writes `~/.config/systemd/user/onibi.service`.
-

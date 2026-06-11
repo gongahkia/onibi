@@ -6,6 +6,14 @@ Apple signing secrets are unavailable.
 
 ## Local Snapshot
 
+Install local release prerequisites first:
+
+```sh
+brew install goreleaser syft
+```
+
+CI already installs `syft` before GoReleaser snapshot/release jobs.
+
 ```sh
 go test -race -count=1 ./...
 go vet ./...

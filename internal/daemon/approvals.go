@@ -115,6 +115,7 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 		ReplyMarkup: telegram.ApprovalKeyboard(id),
 	})
 	if err == nil && sent != nil {
+		telegram.MarkAwaitingOwnerInteraction(d.Bot, sent.Chat.ID)
 		if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
 			d.bindMessage(sent, a.SessionID)
 		}
@@ -200,7 +201,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		if q.Message.Message != nil {
 			params.ReplyParameters = &models.ReplyParameters{MessageID: q.Message.Message.ID}
 		}
-		sendMessage(ctx, api, params)
+		sendAwaitingMessage(ctx, api, params)
 		return nil
 
 	default:
@@ -454,4 +455,14 @@ func sendMessage(ctx context.Context, api telegram.API, params *tgbot.SendMessag
 		return
 	}
 	_, _ = api.SendMessage(ctx, params)
+}
+
+func sendAwaitingMessage(ctx context.Context, api telegram.API, params *tgbot.SendMessageParams) {
+	if api == nil {
+		return
+	}
+	sent, err := api.SendMessage(ctx, params)
+	if err == nil && sent != nil {
+		telegram.MarkAwaitingOwnerInteraction(api, sent.Chat.ID)
+	}
 }

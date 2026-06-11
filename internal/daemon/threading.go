@@ -129,7 +129,7 @@ func (d *Daemon) sendTargetPicker(ctx context.Context, api telegram.API, chatID 
 			Label: s.Name + " " + s.Agent + " " + s.ID,
 		})
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{
+	sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        text,
 		ReplyMarkup: telegram.SessionTargetKeyboard(targets),

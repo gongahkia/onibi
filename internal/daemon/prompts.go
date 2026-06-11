@@ -41,7 +41,7 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	d.audit(ctx, "prompt.queued", s.ID, text, chatID, "id="+p.ID)
-	sendMessage(ctx, api, &tgbot.SendMessageParams{
+	sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position),
 		ReplyMarkup: telegram.PromptKeyboard(p.ID),
@@ -227,7 +227,7 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 		d.pendingPromptEdits[q.From.ID] = id
 		d.editMu.Unlock()
 		answerCallback(ctx, api, q.ID, "Send replacement text")
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Reply with replacement prompt text for " + id + ". Reply 'cancel' to abort."})
+		sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Reply with replacement prompt text for " + id + ". Reply 'cancel' to abort."})
 		return nil
 	case "prompt_cancel":
 		if _, err := d.DB.PromptSetState(ctx, id, store.PromptCancelled); err != nil {
