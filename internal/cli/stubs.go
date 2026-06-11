@@ -49,7 +49,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().Bool("token-stdin", false, "read bot token from stdin (avoids argv leak)")
 	cmd.Flags().Bool("complete", false, "after pairing, offer service install, hook install, and doctor")
 	cmd.Flags().Bool("enable-encrypted-mode", false, "configure Telegram-blind encrypted approval payloads")
-	cmd.Flags().String("encrypted-mode", "ask", "encrypted approval mode (off, ask, on)")
+	cmd.Flags().String("encrypted-mode", "on", "encrypted approval mode (off, ask, on)")
 	cmd.Flags().String("mini-app-url", "", "hosted Mini App URL for encrypted approvals")
 	return cmd
 }

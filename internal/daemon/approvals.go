@@ -114,17 +114,8 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 		return nil, errors.New("telegram bot unavailable")
 	}
 	switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
-	case "on":
+	case "on", "ask":
 		return d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored, expires)
-	case "ask":
-		sent, err := d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored)
-		if err != nil {
-			return nil, err
-		}
-		if _, encErr := d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored, expires); encErr != nil {
-			d.Log.Warn("send encrypted approval copy", slog.String("id", id), slog.Any("err", encErr))
-		}
-		return sent, nil
 	default:
 		return d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored)
 	}
@@ -302,7 +293,15 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		if d.handlePendingPromptEdit(ctx, api, m) {
 			return nil
 		}
+		if d.encryptedModeEnabled() {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return nil
+		}
 		return d.injectTelegramText(ctx, api, m.Chat.ID, d.sessionIDForReply(m), m.Text)
+	}
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
+		return nil
 	}
 
 	txt := strings.TrimSpace(m.Text)
@@ -437,6 +436,10 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 	}
 	if cmd, _, ok := parseTelegramCommand(m.Text); ok {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown command: " + cmd})
+		return nil
+	}
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
 		return nil
 	}
 	return d.injectTelegramText(ctx, api, m.Chat.ID, "", m.Text)

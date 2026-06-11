@@ -80,14 +80,14 @@ onibi config list
 onibi config set daemon.approval_timeout 2m
 onibi config set shell.min_duration 10s
 onibi setup --enable-encrypted-mode
-onibi config set telegram.encrypted_mode ask
+onibi config set telegram.encrypted_mode on
 onibi config validate
 ```
 
 `onibi config init` writes `config.yaml` under the Onibi state dir.
-`telegram.encrypted_mode` is `off`, `ask`, or `on`. Encrypted mode sends
-approval payload ciphertext through Telegram and decrypts it in the static Mini
-App at `telegram.mini_app_url`.
+`telegram.encrypted_mode` is `off`, `ask`, or `on`. `on` encrypts approvals,
+session previews/output, prompt acks, logs/status/session lists, and Mini App
+actions; use `/secure` for prompt entry so Telegram stores ciphertext.
 
 ## Uninstall
 

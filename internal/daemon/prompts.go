@@ -42,7 +42,9 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	d.audit(ctx, "prompt.queued", s.ID, text, chatID, "id="+p.ID)
 	if d.encryptedModeEnabled() {
-		_, _ = d.sendEncryptedText(ctx, api, chatID, "prompt", "Prompt queued", fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position))
+		if _, err := d.sendEncryptedText(ctx, api, chatID, "prompt", "Prompt queued", fmt.Sprintf("Queued prompt %s for %s (%s), position %d.", p.ID, s.Name, s.ID, p.Position)); err != nil {
+			d.sendSecureRequired(ctx, api, chatID)
+		}
 		return d.dispatchNextPrompt(ctx, api, s)
 	}
 	sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{

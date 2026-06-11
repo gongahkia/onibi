@@ -68,6 +68,8 @@ onibi config get telegram.mini_app_url
 If the Mini App says `seed missing`, scan the setup QR again. If Telegram opens
 the app but actions do not return to the bot, verify the approval was opened
 from the one-time keyboard button, not a normal browser.
+If it says `SecureStorage unavailable`, update Telegram or use a Telegram client
+that supports Mini App SecureStorage; Onibi does not fall back to browser storage.
 
 ## MCP
 

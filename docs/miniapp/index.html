@@ -22,6 +22,9 @@
     button.warn{background:var(--warn);border-color:var(--warn);color:white}
     button:disabled{opacity:.5}
     textarea{width:100%;min-height:170px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+    select,input[type=file]{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;min-height:42px}
+    img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+    section{margin:12px 0}
     .muted{color:var(--muted)}
     .hidden{display:none}
   </style>
@@ -34,6 +37,23 @@
   </div>
   <p id="notice" class="muted"></p>
   <pre id="body"></pre>
+  <img id="itemImage" class="hidden" alt="">
+  <section id="importBox" class="hidden">
+    <textarea id="importText" spellcheck="false" placeholder="Paste .enc ciphertext"></textarea>
+    <div class="row">
+      <input id="importFile" type="file" accept=".enc,text/plain">
+      <button id="decryptImport" class="primary">Decrypt</button>
+    </div>
+  </section>
+  <section id="secureBox" class="hidden">
+    <select id="sessionSelect"></select>
+    <textarea id="promptText" spellcheck="true" placeholder="Prompt"></textarea>
+    <div class="row">
+      <button id="sendPrompt" class="primary">Send prompt</button>
+      <button id="interruptSession">Interrupt</button>
+      <button id="killSession" class="danger">Kill</button>
+    </div>
+  </section>
   <section id="editBox" class="hidden">
     <textarea id="editText" spellcheck="false"></textarea>
   </section>
@@ -49,6 +69,17 @@ const tg = window.Telegram && window.Telegram.WebApp;
 const state = document.getElementById("state");
 const notice = document.getElementById("notice");
 const body = document.getElementById("body");
+const itemImage = document.getElementById("itemImage");
+const importBox = document.getElementById("importBox");
+const importText = document.getElementById("importText");
+const importFile = document.getElementById("importFile");
+const decryptImport = document.getElementById("decryptImport");
+const secureBox = document.getElementById("secureBox");
+const sessionSelect = document.getElementById("sessionSelect");
+const promptText = document.getElementById("promptText");
+const sendPrompt = document.getElementById("sendPrompt");
+const interruptSession = document.getElementById("interruptSession");
+const killSession = document.getElementById("killSession");
 const approve = document.getElementById("approve");
 const deny = document.getElementById("deny");
 const edit = document.getElementById("edit");
@@ -66,6 +97,11 @@ function b64urlToBytes(s){
   for(let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+function bytesToB64url(b){
+  let bin = "";
+  for(const x of b) bin += String.fromCharCode(x);
+  return btoa(bin).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
 function bytesToText(b){ return new TextDecoder().decode(b); }
 function utf8(s){ return new TextEncoder().encode(s); }
 function hashParams(){ return new URLSearchParams(location.hash.replace(/^#/,"")); }
@@ -80,41 +116,71 @@ function storage(){
       set:(k,v)=>new Promise((res,rej)=>ss.setItem(k,v,(e,ok)=>e?rej(e):res(ok)))
     };
   }
-  return {
-    secure:false,
-    get:k=>Promise.resolve(localStorage.getItem(k)),
-    set:(k,v)=>{localStorage.setItem(k,v);return Promise.resolve(true);}
-  };
+  throw new Error("SecureStorage unavailable. Open inside a current Telegram client.");
 }
 async function importSeed(seed){
   if(b64urlToBytes(seed).length !== 32) throw new Error("bad seed length");
   await storage().set("onibi_seed", seed);
 }
-async function decryptToken(seed, token){
-  const raw = JSON.parse(bytesToText(b64urlToBytes(token)));
-  if(raw.v !== 1) throw new Error("unsupported envelope");
-  if(raw.exp && Date.now()/1000 >= raw.exp) throw new Error("expired");
+async function deriveKey(seed, usages){
   const keymat = await crypto.subtle.importKey("raw", b64urlToBytes(seed), "HKDF", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey({
+  return crypto.subtle.deriveKey({
     name:"HKDF",
     hash:"SHA-256",
     salt:utf8("onibi-envelope-v1"),
     info:utf8("telegram-mini-app")
-  }, keymat, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  }, keymat, {name:"AES-GCM", length:256}, false, usages);
+}
+async function decryptToken(seed, token){
+  const raw = JSON.parse(bytesToText(b64urlToBytes(token.trim())));
+  if(raw.v !== 1) throw new Error("unsupported envelope");
+  if(raw.exp && Date.now()/1000 >= raw.exp) throw new Error("expired");
+  const key = await deriveKey(seed, ["decrypt"]);
   const aad = utf8(`v=1;kind=${raw.kind};exp=${raw.exp}`);
   const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64urlToBytes(raw.nonce), additionalData:aad}, key, b64urlToBytes(raw.ct));
   return JSON.parse(bytesToText(new Uint8Array(pt)));
 }
-function send(action){
+async function encryptPlain(seed, kind, plain, ttlSeconds){
+  const exp = Math.floor(Date.now()/1000) + ttlSeconds;
+  plain.v = 1;
+  plain.kind = kind;
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(seed, ["encrypt"]);
+  const aad = utf8(`v=1;kind=${kind};exp=${exp}`);
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv:nonce, additionalData:aad}, key, utf8(JSON.stringify(plain)));
+  return bytesToB64url(utf8(JSON.stringify({
+    v:1,
+    kind,
+    exp,
+    nonce:bytesToB64url(nonce),
+    ct:bytesToB64url(new Uint8Array(ct))
+  })));
+}
+async function send(action, extra){
   if(!current) return;
   if(!tg || !tg.sendData){
     setNotice("Telegram bridge unavailable.");
     return;
   }
-  const payload = {v:1, action, id:current.id};
+  const seed = await storage().get("onibi_seed");
+  if(!seed) throw new Error("seed missing");
+  const payload = Object.assign({v:1, action, id:current.id || ""}, extra || {});
   if(action === "edit") payload.updated_input = editText.value;
-  tg.sendData(JSON.stringify(payload));
+  const token = await encryptPlain(seed, "action", {kind:"action", body:JSON.stringify(payload)}, 300);
+  tg.sendData(JSON.stringify({v:1, envelope:token}));
   tg.close();
+}
+function resetViews(){
+  importBox.classList.add("hidden");
+  secureBox.classList.add("hidden");
+  editBox.classList.add("hidden");
+  sendEdit.classList.add("hidden");
+  itemImage.classList.add("hidden");
+  itemImage.removeAttribute("src");
+  approve.disabled = deny.disabled = edit.disabled = true;
+  approve.textContent = "Approve";
+  approve.className = "primary";
+  confirmArmed = false;
 }
 function armActions(){
   approve.disabled = deny.disabled = edit.disabled = false;
@@ -125,21 +191,64 @@ function armActions(){
       approve.className = "warn";
       return;
     }
-    send(current.risk === "high" ? "confirm_approve" : "approve");
+    send(current.risk === "high" ? "confirm_approve" : "approve").catch(showError);
   };
-  deny.onclick = () => send("deny");
+  deny.onclick = () => send("deny").catch(showError);
   edit.onclick = () => {
     editBox.classList.remove("hidden");
     sendEdit.classList.remove("hidden");
     editText.focus();
   };
-  sendEdit.onclick = () => send("edit");
+  sendEdit.onclick = () => send("edit").catch(showError);
+}
+function renderSecure(){
+  let ctx = {sessions:[]};
+  try{ ctx = JSON.parse(current.body || "{}"); }catch(_){}
+  sessionSelect.innerHTML = "";
+  for(const s of ctx.sessions || []){
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.label || s.id;
+    sessionSelect.appendChild(opt);
+  }
+  secureBox.classList.remove("hidden");
+  body.textContent = sessionSelect.options.length ? "Encrypted controls ready." : "No active sessions.";
+  const selected = () => sessionSelect.value || "";
+  sendPrompt.onclick = () => send("prompt", {session:selected(), text:promptText.value}).catch(showError);
+  interruptSession.onclick = () => send("interrupt", {session:selected()}).catch(showError);
+  killSession.onclick = () => send("kill", {session:selected()}).catch(showError);
+}
+function renderCurrent(){
+  resetViews();
+  setState(current.risk === "high" ? "high risk" : "ready");
+  body.textContent = current.body || "";
+  editText.value = "";
+  if(current.mime && current.mime.startsWith("image/") && current.data_b64){
+    itemImage.src = `data:${current.mime};base64,${current.data_b64}`;
+    itemImage.classList.remove("hidden");
+  }
+  if(current.kind === "approval") armActions();
+  if(current.kind === "secure") renderSecure();
+}
+async function loadToken(token){
+  const seed = await storage().get("onibi_seed");
+  if(!seed) throw new Error("seed missing");
+  current = await decryptToken(seed, token);
+  renderCurrent();
+}
+function showImport(){
+  resetViews();
+  importBox.classList.remove("hidden");
+  setState("idle");
+  body.textContent = "Paste or import an Onibi ciphertext.";
+}
+function showError(err){
+  setState("error");
+  body.textContent = err && err.message ? err.message : String(err);
 }
 async function main(){
   if(tg){ tg.ready(); tg.expand(); }
   const sp = hashParams();
-  const st = storage();
-  if(!st.secure) setNotice("SecureStorage unavailable; seed is stored in local browser storage.");
   const seedParam = sp.get("seed");
   if(seedParam){
     await importSeed(seedParam);
@@ -149,25 +258,20 @@ async function main(){
   }
   const token = sp.get("onibi");
   if(!token){
-    setState("idle");
-    body.textContent = "No approval payload.";
+    showImport();
     return;
   }
-  const seed = await st.get("onibi_seed");
-  if(!seed){
-    setState("seed missing");
-    body.textContent = "Seed not found.";
-    return;
-  }
-  current = await decryptToken(seed, token);
-  setState(current.risk === "high" ? "high risk" : "ready");
-  body.textContent = current.body || "";
-  editText.value = "";
-  armActions();
+  await loadToken(token);
 }
+decryptImport.onclick = () => loadToken(importText.value).catch(showError);
+importFile.onchange = async () => {
+  const f = importFile.files && importFile.files[0];
+  if(!f) return;
+  importText.value = await f.text();
+  loadToken(importText.value).catch(showError);
+};
 main().catch(err => {
-  setState("error");
-  body.textContent = err && err.message ? err.message : String(err);
+  showError(err);
 });
 </script>
 </body>

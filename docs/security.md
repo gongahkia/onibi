@@ -38,7 +38,8 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 - Unix socket/state paths are permission-checked by `onibi doctor`.
 - Telegram send calls are rate-limited below Telegram's documented soft limits.
 - Hook installers record SHA-256 hashes; `onibi doctor` reports mismatches.
-- Optional encrypted approval mode uses AES-GCM envelopes with a setup QR seed stored by Telegram Mini App SecureStorage when available.
+- Optional encrypted Telegram mode uses AES-GCM envelopes with a setup QR seed stored by Telegram Mini App SecureStorage. If SecureStorage is unavailable, the Mini App fails closed.
+- `telegram.encrypted_mode=on` encrypts approvals, session previews/output, prompt acknowledgements, logs/status/session lists, and Mini App actions. `ask` uses the encrypted path without sending a plaintext approval copy.
 - High-risk approvals require a second confirm action; approval/request, high-risk approval, and prompt-injection volume spikes send owner warnings.
 - `onibi mcp` exposes local stdio MCP tools through the same Onibi Unix socket and peer-UID checks as hooks.
 
@@ -47,6 +48,7 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 - Same-user local malware. If the user account is owned, Onibi is owned.
 - Full compromise of the owner Telegram account. Optional TOTP narrows some destructive paths, but normal prompt injection and approvals still trust the owner chat.
 - Telegram cloud confidentiality when encrypted mode is off, or for metadata such as bot identity, timing, message length, and approval id when encrypted mode is on.
+- Prompts typed directly into Telegram are already stored by Telegram; use `/secure` in encrypted mode.
 - Mini App host integrity. Static hosting reduces moving parts, but served JavaScript can read the local decrypt seed.
 - Apple notarization or GitHub release infrastructure compromise.
 - Hosted agent API insider attacks.

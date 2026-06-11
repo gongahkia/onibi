@@ -103,7 +103,7 @@ func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Stor
 		return err
 	}
 	if strings.TrimSpace(mode) == "" {
-		mode = "ask"
+		mode = "on"
 	}
 	if err := config.Set(&cfg, "telegram.encrypted_mode", mode); err != nil {
 		return err
@@ -134,7 +134,7 @@ func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Stor
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "")
-	fmt.Fprintf(cmd.OutOrStdout(), "Encrypted approval mode set to %s.\n", cfg.Telegram.EncryptedMode)
+	fmt.Fprintf(cmd.OutOrStdout(), "Encrypted Telegram mode set to %s.\n", cfg.Telegram.EncryptedMode)
 	fmt.Fprintln(cmd.OutOrStdout(), "Scan this QR in Telegram to store the Mini App decrypt seed:")
 	if err := setup.PrintQR(cmd.OutOrStdout(), seedURL); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "(QR failed: %v)\n", err)

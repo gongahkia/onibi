@@ -45,7 +45,7 @@ func (d *Daemon) handleInterruptCommand(ctx context.Context, api telegram.API, c
 	delete(d.busySessions, s.ID)
 	d.threadMu.Unlock()
 	d.audit(ctx, "session.interrupt", s.ID, "", chatID, "ctrl-c")
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Interrupted " + s.Name + " (" + s.ID + ")."})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session interrupted", "Interrupted "+s.Name+" ("+s.ID+").")
 }
 
 func (d *Daemon) handleKillCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -66,7 +66,7 @@ func (d *Daemon) handleKillCommand(ctx context.Context, api telegram.API, chatID
 	}
 	d.markSessionEnded(ctx, s)
 	d.audit(ctx, "session.kill", s.ID, "", chatID, "telegram")
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Killed " + s.Name + " (" + s.ID + ")."})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session killed", "Killed "+s.Name+" ("+s.ID+").")
 }
 
 func (d *Daemon) handleRenameCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -90,10 +90,14 @@ func (d *Daemon) handleRenameCommand(ctx context.Context, api telegram.API, chat
 		_ = d.DB.SessionRename(ctx, s.ID, name)
 		d.audit(ctx, "session.rename", s.ID, "", chatID, "name="+name)
 	}
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("Renamed %s to %s.", s.ID, name)})
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session renamed", fmt.Sprintf("Renamed %s to %s.", s.ID, name))
 }
 
 func (d *Daemon) handleMenuCommand(ctx context.Context, api telegram.API, chatID int64) {
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, chatID)
+		return
+	}
 	live := d.liveSessions()
 	if len(live) == 0 {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions."})
