@@ -1,4 +1,4 @@
-.PHONY: build install test vet staticcheck tidy run clean release-dry release-smoke
+.PHONY: build install test vet staticcheck tidy run clean release-dry release-smoke reproducible-build
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -44,3 +44,6 @@ release-smoke:
 	@command -v goreleaser >/dev/null 2>&1 || (echo "goreleaser not installed: brew install goreleaser" && exit 1)
 	goreleaser release --snapshot --clean
 	scripts/release-smoke.sh dist
+
+reproducible-build:
+	scripts/reproducible-build.sh

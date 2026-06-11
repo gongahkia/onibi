@@ -20,4 +20,3 @@
   - MCP adapter as the broadest agent surface.
   - Multi-machine routing with labels.
   - Offline voice input via local Whisper.
-  - Supply-chain: SBOM, signed checksums, reproducible build job.

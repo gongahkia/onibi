@@ -27,6 +27,8 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           test -n "$MACOS_SIGN_P12"
           test -n "$MACOS_SIGN_PASSWORD"
@@ -34,12 +36,24 @@ jobs:
           test -n "$MACOS_NOTARY_KEY_ID"
           test -n "$MACOS_NOTARY_KEY"
           test -n "$HOMEBREW_TAP_TOKEN"
-      - uses: goreleaser/goreleaser-action@v6
+          test -n "$GPG_PRIVATE_KEY"
+          test -n "$GPG_PASSPHRASE"
+      - name: install syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      - name: import gpg key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
         with:
-          version: latest
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           # Public tags require Apple signing/notarization and tap publish secrets.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}

@@ -10,6 +10,8 @@ builds:
     binary: onibi
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - darwin
       - linux
@@ -27,6 +29,8 @@ builds:
     binary: onibi-notify
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - darwin
       - linux
@@ -57,6 +61,22 @@ archives:
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - artifacts: checksum
+    cmd: gpg
+    args:
+      - "--batch"
+      - "--yes"
+      - "-u"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
 
 notarize:
   macos:
