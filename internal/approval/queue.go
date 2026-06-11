@@ -3,6 +3,7 @@ package approval
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -224,8 +225,13 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 	if editedJSON != "" {
 		payload = editedJSON
 	}
+	detail := fmt.Sprintf("id=%s verdict=%s", a.ID, verdict)
+	if verdict == VerdictEdit && editedJSON != "" {
+		detail += fmt.Sprintf(" original_sha256=%s edited_sha256=%s diff_sha256=%s",
+			sha256Hex(a.InputJSON), sha256Hex(editedJSON), sha256Hex(a.InputJSON+"\x00"+editedJSON))
+	}
 	if err := q.db.AuditAppend(ctx, "approval.decided", a.SessionID, payload, decidedBy,
-		fmt.Sprintf("id=%s verdict=%s", a.ID, verdict)); err != nil && q.Log != nil {
+		detail); err != nil && q.Log != nil {
 		q.Log.Warn("audit append", slog.String("action", "approval.decided"), slog.Any("err", err))
 	}
 	delivered := q.deliver(a.ID, d)
@@ -353,4 +359,9 @@ func userVerdict(v Verdict) bool {
 	default:
 		return false
 	}
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }

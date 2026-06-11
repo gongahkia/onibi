@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,6 +92,78 @@ func TestReplyInvalidJSONKeepsEditPending(t *testing.T) {
 	a, _ := d.Queue.Get(ctx, id)
 	if a.State != approval.StatePending {
 		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestReplyInvalidToolSchemaKeepsEditPending(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.pendingEdits[100] = id
+
+	err = d.onReply(ctx, nil, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: `{"command":"echo ok","env":{"X":"1"}}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.pendingEdits[100]; got != id {
+		t.Fatalf("pending edit = %q", got)
+	}
+	a, _ := d.Queue.Get(ctx, id)
+	if a.State != approval.StatePending {
+		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestParanoidReplyEditRequiresTOTP(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	secret, err := auth.NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Secrets.Set(secrets.KeyTOTPSecret, auth.EncodeHex(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.KVSetString(ctx, "paranoid", "1"); err != nil {
+		t.Fatal(err)
+	}
+	id, ch, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.pendingEdits[100] = id
+	mock := telegram.NewMock(nil)
+	if err := d.onReply(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: `{"command":"echo ok"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.pendingEdits[100]; got != id {
+		t.Fatalf("pending edit = %q", got)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Paranoid mode requires") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	code := fmt.Sprintf("%06d", auth.Code(secret, time.Now().Unix()))
+	if err := d.onReply(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "{\"command\":\"echo ok\"}\n" + code,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dec := <-ch
+	if dec.Verdict != approval.VerdictEdit {
+		t.Fatalf("verdict = %s", dec.Verdict)
 	}
 }
 

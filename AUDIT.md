@@ -1,24 +1,19 @@
  Fix First
 
-  1. Edit-before-approve is partial: JSON syntax check exists, but no
-     per-tool schema validation, no paranoid TOTP, no original-vs-edited
-     diff hash. internal/daemon/approvals.go:236, internal/approval/
-     queue.go:227
-
-  2. Telegram hardening remains: startup deletes webhook, but does not
+  1. Telegram hardening remains: startup deletes webhook, but does not
      alert if one existed; getUpdates 409 is treated as OK. internal/
      telegram/client.go:94, internal/telegram/probe.go:61
 
-  3. TODO is stale/inconsistent: §14 still says Phase 3 “ready to
+  2. TODO is stale/inconsistent: §14 still says Phase 3 “ready to
      start”, while later code exists; setMyCommands is checked in Phase
      10 but unchecked in polish. TODO-10-JUN.md:522, TODO-10-JUN.md:539,
      TODO-10-JUN.md:696
 
-  4. Release path is not done: live provider e2e, Apple cert, hardened
+  3. Release path is not done: live provider e2e, Apple cert, hardened
      runtime, signed checksums, Homebrew tap, Linux installer, clean Mac
      test remain. TODO-10-JUN.md:491, TODO-10-JUN.md:501
 
-  5. Tmux backend is still TODO. TODO-10-JUN.md:475
+  4. Tmux backend is still TODO. TODO-10-JUN.md:475
 
   Polish
 

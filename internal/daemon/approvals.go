@@ -13,6 +13,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -233,9 +234,18 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		return nil
 	}
 
+	editJSON, authErr := d.prepareApprovalEdit(ctx, txt)
+	if authErr != "" {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: authErr})
+		d.editMu.Lock()
+		d.pendingEdits[m.From.ID] = approvalID
+		d.editMu.Unlock()
+		return nil
+	}
+
 	// validate JSON
 	var anyObj any
-	if err := json.Unmarshal([]byte(txt), &anyObj); err != nil {
+	if err := json.Unmarshal([]byte(editJSON), &anyObj); err != nil {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{
 			ChatID: m.Chat.ID,
 			Text:   "Invalid JSON: " + err.Error() + "\nReply again with valid JSON, or 'cancel' to abort.",
@@ -252,7 +262,17 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown approval."})
 		return nil
 	}
-	res, err := d.Queue.DecideWithResult(ctx, approvalID, approval.VerdictEdit, txt, "", m.From.ID)
+	if err := approval.ValidateEditedInput(a.Tool, a.InputJSON, editJSON); err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
+			ChatID: m.Chat.ID,
+			Text:   "Invalid edited input: " + err.Error() + "\nReply again with valid JSON, or 'cancel' to abort.",
+		})
+		d.editMu.Lock()
+		d.pendingEdits[m.From.ID] = approvalID
+		d.editMu.Unlock()
+		return nil
+	}
+	res, err := d.Queue.DecideWithResult(ctx, approvalID, approval.VerdictEdit, editJSON, "", m.From.ID)
 	if errors.Is(err, approval.ErrExpired) {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Approval expired."})
 		if !res.Delivered {
@@ -278,6 +298,51 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		Text:   "Edited input accepted; tool will run with your version.",
 	})
 	return nil
+}
+
+func (d *Daemon) prepareApprovalEdit(ctx context.Context, txt string) (string, string) {
+	paranoid, err := d.paranoidMode(ctx)
+	if err != nil {
+		return "", "TOTP unavailable: " + err.Error()
+	}
+	if !paranoid {
+		return txt, ""
+	}
+	body, code, ok := splitEditTOTP(txt)
+	if !ok {
+		return "", "Paranoid mode requires edited JSON followed by a 6-digit TOTP code."
+	}
+	secret, enabled, err := d.totpSecret(ctx)
+	if err != nil {
+		return "", "TOTP unavailable: " + err.Error()
+	}
+	if !enabled {
+		return "", "TOTP unavailable: paranoid mode is set but TOTP is not configured"
+	}
+	valid, err := auth.Verify(secret, code)
+	if err != nil || !valid {
+		return "", "Invalid TOTP code."
+	}
+	return body, ""
+}
+
+func splitEditTOTP(txt string) (string, string, bool) {
+	lines := strings.Split(strings.TrimRight(txt, "\r\n\t "), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) < 2 {
+		return "", "", false
+	}
+	code := strings.TrimSpace(lines[len(lines)-1])
+	if !isTOTPCode(code) {
+		return "", "", false
+	}
+	body := strings.TrimSpace(strings.Join(lines[:len(lines)-1], "\n"))
+	if body == "" {
+		return "", "", false
+	}
+	return body, code, true
 }
 
 func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message) error {

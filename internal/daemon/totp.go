@@ -36,13 +36,9 @@ func (d *Daemon) requireTOTP(ctx context.Context, arg string) (string, string, b
 }
 
 func (d *Daemon) totpSecret(ctx context.Context) ([]byte, bool, error) {
-	paranoid := false
-	if d.DB != nil {
-		v, ok, err := d.DB.KVGetString(ctx, "paranoid")
-		if err != nil {
-			return nil, false, err
-		}
-		paranoid = ok && v == "1"
+	paranoid, err := d.paranoidMode(ctx)
+	if err != nil {
+		return nil, false, err
 	}
 	if d.Secrets == nil {
 		if paranoid {
@@ -76,6 +72,17 @@ func (d *Daemon) totpEnabled(ctx context.Context) (bool, string) {
 		return true, "TOTP required: use /interrupt <id> <code> or /kill <id> <code>."
 	}
 	return false, ""
+}
+
+func (d *Daemon) paranoidMode(ctx context.Context) (bool, error) {
+	if d.DB == nil {
+		return false, nil
+	}
+	v, ok, err := d.DB.KVGetString(ctx, "paranoid")
+	if err != nil {
+		return false, err
+	}
+	return ok && v == "1", nil
 }
 
 func isTOTPCode(s string) bool {

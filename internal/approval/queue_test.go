@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,7 +55,8 @@ func TestRequestAndDecideApprove(t *testing.T) {
 }
 
 func TestDecideEditedCarriesPayload(t *testing.T) {
-	q := New(openDB(t), DefaultTTL)
+	db := openDB(t)
+	q := New(db, DefaultTTL)
 	ctx := context.Background()
 	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", `{"command":"rm -rf /tmp/data"}`)
 	edited := `{"command":"mv /tmp/data /tmp/data.bak"}`
@@ -67,6 +69,15 @@ func TestDecideEditedCarriesPayload(t *testing.T) {
 	}
 	if string(d.UpdatedInput) != edited {
 		t.Fatalf("updated_input = %q", string(d.UpdatedInput))
+	}
+	audit, err := db.AuditRecent(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || !strings.Contains(audit[0].Detail, "original_sha256=") ||
+		!strings.Contains(audit[0].Detail, "edited_sha256=") ||
+		!strings.Contains(audit[0].Detail, "diff_sha256=") {
+		t.Fatalf("audit = %#v", audit)
 	}
 }
 
