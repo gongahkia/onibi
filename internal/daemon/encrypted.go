@@ -37,10 +37,6 @@ func (d *Daemon) encryptedModeEnabled() bool {
 	return mode == "on" || mode == "ask"
 }
 
-func (d *Daemon) encryptedModeStrict() bool {
-	return strings.EqualFold(strings.TrimSpace(d.EncryptedMode), "on")
-}
-
 func (d *Daemon) sendEncryptedText(ctx context.Context, api telegram.API, chatID int64, kind, title, body string) (*models.Message, error) {
 	return d.sendEncryptedPlain(ctx, api, chatID, envelope.Plain{
 		Kind:  kind,

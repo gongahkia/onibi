@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/auth"
@@ -153,7 +154,7 @@ func TestRotateOwnerRequiresCurrentOwnerConfirmation(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	sent := confirmMock.Sent()
+	sent := waitSent(t, ctx, confirmMock, 1)
 	if len(sent) != 1 {
 		t.Fatalf("confirm sent = %#v", sent)
 	}
@@ -206,6 +207,23 @@ func (r *oneByteReader) Read(p []byte) (int, error) {
 		p = p[:1]
 	}
 	return r.r.Read(p)
+}
+
+func waitSent(t *testing.T, ctx context.Context, mock *telegram.Mock, n int) []tgbot.SendMessageParams {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		sent := mock.Sent()
+		if len(sent) >= n {
+			return sent
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
 }
 
 func latestPairToken(t *testing.T, db *store.DB) string {
