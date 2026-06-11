@@ -21,5 +21,4 @@
   - MCP adapter as the broadest agent surface.
   - Multi-machine routing with labels.
   - Offline voice input via local Whisper.
-  - Per-tool risk classifier for rm, force-push, secret-looking args.
   - Supply-chain: SBOM, signed checksums, reproducible build job.

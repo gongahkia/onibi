@@ -363,6 +363,7 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 // request. Scrubs secrets from rendered tool inputs.
 func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
 	scrubbed := approval.Scrub(inputJSON)
+	risk := approval.ClassifyRisk(tool, inputJSON)
 	// pretty-print the input JSON for readability
 	var pretty []byte
 	var anyObj any
@@ -374,8 +375,19 @@ func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
 	return fmt.Sprintf(
 		"Approval request\n"+
 			"Session: %s\n"+
-			"Tool: %s\n%s",
-		telegram.EscapeHTML(sessLabel), telegram.EscapeHTML(tool), telegram.HTMLPre(string(pretty)))
+			"Tool: %s\n"+
+			"Risk: %s\n%s",
+		telegram.EscapeHTML(sessLabel),
+		telegram.EscapeHTML(tool),
+		telegram.EscapeHTML(riskText(risk)),
+		telegram.HTMLPre(string(pretty)))
+}
+
+func riskText(r approval.Risk) string {
+	if len(r.Reasons) == 0 {
+		return r.Level
+	}
+	return r.Level + " - " + strings.Join(r.Reasons, ", ")
 }
 
 func (d *Daemon) finishCallbackDecision(ctx context.Context, api telegram.API, q *models.CallbackQuery, a *approval.Approval, res approval.DecisionResult, err error, okText string) error {

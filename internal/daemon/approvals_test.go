@@ -69,6 +69,13 @@ func TestReplyEditDecidesApproval(t *testing.T) {
 	}
 }
 
+func TestRenderApprovalMessageShowsRisk(t *testing.T) {
+	got := renderApprovalMessage("Bash", `{"command":"rm -rf /tmp/x"}`, "s")
+	if !strings.Contains(got, "Risk: high - recursive delete") {
+		t.Fatalf("message = %s", got)
+	}
+}
+
 func TestReplyInvalidJSONKeepsEditPending(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()
