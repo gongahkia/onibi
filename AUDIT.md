@@ -6,10 +6,6 @@
 
   Polish
 
-  - Bump golang.org/x/sys/x/term; govulncheck found no reachable vuln,
-    but x/sys has a module-level Windows vuln fixed after current
-    version.
-
   - Make docs/security match implementation; current docs imply stronger
     TOTP/paranoid/edit guarantees than code enforces.
 
