@@ -8,12 +8,6 @@
 
   Web Notes
 
-  - Telegram long polling cannot work while webhook is set;
-    deleteWebhook/getWebhookInfo checks are correctly on-theme, but
-    alerting is unfinished. (core.telegram.org
-    (https://core.telegram.org/bots/api)) (core.telegram.org
-    (https://core.telegram.org/bots/api))
-
   - macOS distribution still needs real signing/notarization validation;
     Apple and GoReleaser docs back keeping this as a launch gate.
     (developer.apple.com
