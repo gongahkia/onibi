@@ -17,6 +17,7 @@ func Root() *cobra.Command {
 
 	root.AddCommand(
 		runCmd(),
+		wrapCmd(),
 		setupCmd(),
 		getChatIDCmd(),
 		rotateTokenCmd(),

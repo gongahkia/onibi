@@ -13,12 +13,27 @@ func runCmd() *cobra.Command {
 		Short: "Start the daemon (with an optional agent spawn)",
 		RunE:  runRun,
 	}
+	addRunFlags(cmd)
+	return cmd
+}
+
+func wrapCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "wrap <command> [args...]",
+		Short: "Wrap any local TUI/CLI under Onibi PTY control",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runRun,
+	}
+	addRunFlags(cmd)
+	return cmd
+}
+
+func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")
 	cmd.Flags().String("attach-tmux", "", "attach an existing tmux target instead of spawning an agent")
 	cmd.Flags().Bool("debug", false, "enable debug logs")
 	cmd.Flags().String("log-file", "", "daemon log file (default: state log dir/onibi.log)")
-	return cmd
 }
 
 func setupCmd() *cobra.Command {

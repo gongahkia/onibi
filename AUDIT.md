@@ -17,7 +17,6 @@
 
   Expansion Aligned
 
-  - Generic “wrap any TUI over PTY” mode.
   - MCP adapter as the broadest agent surface.
   - Multi-machine routing with labels.
   - Offline voice input via local Whisper.

@@ -45,6 +45,7 @@ onibi doctor
 onibi config list
 onibi adapters
 onibi run claude
+onibi wrap lazygit
 ```
 
 Telegram commands:
@@ -62,6 +63,8 @@ Telegram commands:
 
 Supported adapters: Claude Code, Codex, OpenCode, Goose, Gemini, GitHub
 Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
+`onibi wrap <command>` can host any local TUI/CLI under the same PTY preview
+and Telegram text-in controls.
 
 ## Configure
 
