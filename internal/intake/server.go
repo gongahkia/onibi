@@ -61,6 +61,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o700); err != nil {
 		return fmt.Errorf("intake mkdir: %w", err)
 	}
+	if SocketActive(s.socketPath, 200*time.Millisecond) {
+		return fmt.Errorf("intake socket already in use: %s", s.socketPath)
+	}
 	// remove stale socket left by an unclean exit
 	_ = os.Remove(s.socketPath)
 
@@ -97,6 +100,21 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // SocketPath returns the path the server is bound to.
 func (s *Server) SocketPath() string { return s.socketPath }
+
+func SocketActive(socketPath string, timeout time.Duration) bool {
+	if socketPath == "" {
+		return false
+	}
+	if timeout <= 0 {
+		timeout = 200 * time.Millisecond
+	}
+	c, err := net.DialTimeout("unix", socketPath, timeout)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
 
 func (s *Server) handle(ctx context.Context, c net.Conn) {
 	defer c.Close()

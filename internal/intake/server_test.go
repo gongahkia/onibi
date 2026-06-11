@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -57,6 +58,29 @@ func TestSendFailsOpenIfNoServer(t *testing.T) {
 	err := Send(t.TempDir()+"/nope.sock", Event{Type: TypeAgentDone})
 	if err == nil {
 		t.Fatal("expected error so caller can exit 0")
+	}
+}
+
+func TestServeRefusesActiveSocket(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "onibi.sock")
+	srv := New(sock, func(context.Context, Event) error { return nil }, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.Serve(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if SocketActive(sock, 200*time.Millisecond) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !SocketActive(sock, 200*time.Millisecond) {
+		t.Fatal("first server did not bind")
+	}
+	err := New(sock, func(context.Context, Event) error { return nil }, nil).Serve(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected active socket error, got %v", err)
 	}
 }
 

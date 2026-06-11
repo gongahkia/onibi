@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	cpty "github.com/creack/pty"
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ import (
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -44,6 +46,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	if err := paths.EnsureDirs(); err != nil {
 		return err
+	}
+	if intake.SocketActive(paths.Socket, 200*time.Millisecond) {
+		return fmt.Errorf("onibi daemon already running on %s; use /new <agent> from Telegram or stop the existing daemon before starting another", paths.Socket)
 	}
 	cfg, cfgMeta, err := config.Load(paths)
 	if err != nil {

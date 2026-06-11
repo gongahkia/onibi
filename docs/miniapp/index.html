@@ -3,30 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Onibi</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    :root{color-scheme:light dark;--bg:#f6f7f9;--fg:#111827;--muted:#5b6573;--line:#d6dbe3;--panel:#fff;--ok:#0f766e;--danger:#b91c1c;--warn:#b45309}
-    @media (prefers-color-scheme:dark){:root{--bg:#111418;--fg:#eceff3;--muted:#a5adba;--line:#343a46;--panel:#181d24}}
+    :root{color-scheme:light dark;--bg:var(--tg-theme-bg-color,#f4f6fb);--fg:var(--tg-theme-text-color,#111827);--muted:var(--tg-theme-hint-color,#667085);--line:#d7dee8;--panel:var(--tg-theme-secondary-bg-color,#fff);--panel2:#f8fafc;--ok:var(--tg-theme-button-color,#28766d);--ok2:#225e58;--danger:#b84a4a;--danger2:#9f3b3b;--warn:#b7791f;--focus:#2f6bd7;--shadow:0 12px 30px rgba(15,23,42,.08)}
+    @media (prefers-color-scheme:dark){:root{--bg:var(--tg-theme-bg-color,#101318);--fg:var(--tg-theme-text-color,#eef2f7);--muted:var(--tg-theme-hint-color,#9aa4b2);--line:#2c3542;--panel:var(--tg-theme-secondary-bg-color,#171c24);--panel2:#111720;--ok:#3b8f84;--ok2:#2f766d;--danger:#c15c5c;--danger2:#a84c4c;--warn:#c68a2c;--focus:#6ea2ff;--shadow:0 16px 34px rgba(0,0,0,.28)}}
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
-    main{max-width:760px;margin:0 auto;padding:16px}
-    .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    h1{font-size:18px;line-height:1.2;margin:0}
-    .pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 8px;white-space:nowrap}
-    pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0;max-height:58vh;overflow:auto}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    button{appearance:none;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px 12px;font-weight:600;min-height:42px}
+    body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
+    main{max-width:760px;margin:0 auto;padding:18px}
+    .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+    h1{display:flex;align-items:center;gap:9px;font-size:22px;line-height:1.1;margin:0;font-weight:800}
+    h1:before{content:"";width:10px;height:10px;border-radius:999px;background:var(--ok);box-shadow:0 0 0 4px rgba(40,118,109,.14)}
+    .pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:5px 10px;white-space:nowrap;background:var(--panel)}
+    #notice{margin:0 0 10px;color:var(--muted)}
+    pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:0 0 12px;max-height:54vh;min-height:72px;overflow:auto;box-shadow:var(--shadow)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button{appearance:none;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px 14px;font-weight:700;min-height:44px;box-shadow:0 1px 2px rgba(15,23,42,.06);transition:background .15s,border-color .15s,transform .12s,opacity .15s}
+    button:hover:not(:disabled){transform:translateY(-1px)}
+    button:active:not(:disabled){transform:translateY(0)}
+    button:focus-visible,textarea:focus,select:focus,input[type=file]:focus{outline:2px solid var(--focus);outline-offset:2px}
     button.primary{background:var(--ok);border-color:var(--ok);color:white}
+    button.primary:hover:not(:disabled){background:var(--ok2);border-color:var(--ok2)}
     button.danger{background:var(--danger);border-color:var(--danger);color:white}
+    button.danger:hover:not(:disabled){background:var(--danger2);border-color:var(--danger2)}
     button.warn{background:var(--warn);border-color:var(--warn);color:white}
-    button:disabled{opacity:.5}
-    textarea{width:100%;min-height:170px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
-    select,input[type=file]{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;min-height:42px}
-    img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
-    section{margin:12px 0}
+    button:disabled{opacity:.48;box-shadow:none}
+    textarea{width:100%;min-height:180px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:13px 14px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:var(--shadow)}
+    textarea::placeholder{color:var(--muted)}
+    select,input[type=file]{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);padding:10px;min-height:44px}
+    input[type=file]{flex:1 1 220px;background:var(--panel2)}
+    input[type=file]::file-selector-button{margin-right:10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--fg);padding:7px 10px;font-weight:650}
+    img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:var(--shadow)}
+    section{display:grid;gap:12px;margin:12px 0 16px}
     .muted{color:var(--muted)}
-    .hidden{display:none}
+    .hidden{display:none!important}
+    @media (max-width:520px){main{padding:14px}h1{font-size:20px}.bar{margin-bottom:12px}button{flex:1 1 auto}#decryptImport{width:100%}textarea{min-height:150px}}
   </style>
 </head>
 <body>
