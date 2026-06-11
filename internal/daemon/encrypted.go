@@ -51,7 +51,10 @@ func (d *Daemon) sendEncryptedText(ctx context.Context, api telegram.API, chatID
 
 func (d *Daemon) sendMaybeEncryptedText(ctx context.Context, api telegram.API, chatID int64, kind, title, body string) (*models.Message, error) {
 	if !d.encryptedModeEnabled() {
-		return sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: body})
+		if api == nil {
+			return nil, nil
+		}
+		return api.SendMessage(ctx, &tgbot.SendMessageParams{ChatID: chatID, Text: body})
 	}
 	sent, err := d.sendEncryptedText(ctx, api, chatID, kind, title, body)
 	if err != nil {
