@@ -6,9 +6,6 @@
 
   Polish
 
-  - Add a release smoke target: snapshot artifact, checksum, local
-    install, doctor.
-
   - Add bot token redaction around raw Telegram HTTP errors. [Inference]
     rawBotCall builds token-bearing URLs and returns raw transport
     errors. internal/telegram/probe.go:73

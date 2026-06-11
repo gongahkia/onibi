@@ -19,20 +19,36 @@ if ((${#artifacts[@]} == 0)); then
   exit 1
 fi
 
+if [[ ! -s "$dist/checksums.txt" ]]; then
+  echo "missing $dist/checksums.txt" >&2
+  exit 1
+fi
+if command -v shasum >/dev/null 2>&1; then
+  (cd "$dist" && shasum -a 256 -c checksums.txt)
+elif command -v sha256sum >/dev/null 2>&1; then
+  (cd "$dist" && sha256sum -c checksums.txt)
+else
+  echo "no checksum verifier found (need shasum or sha256sum)" >&2
+  exit 1
+fi
+
 for tarball in "${artifacts[@]}"; do
   work="$tmp/$(basename "$tarball" .tar.gz)"
   mkdir -p "$work"
   tar -xzf "$tarball" -C "$work"
   home="$work/home"
   runtime="$work/run"
-  mkdir -p "$home" "$runtime"
+  install_dir="$work/install"
+  mkdir -p "$home" "$runtime" "$install_dir"
   test -x "$work/onibi"
   test -x "$work/onibi-notify"
+  install -m 0755 "$work/onibi" "$install_dir/onibi"
+  install -m 0755 "$work/onibi-notify" "$install_dir/onibi-notify"
   case "$(basename "$tarball")" in
     *"_${host_os}_${host_label}.tar.gz")
-      "$work/onibi" version
+      "$install_dir/onibi" version
       HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_RUNTIME_DIR="$runtime" \
-        "$work/onibi" doctor --mode preflight --offline
+        "$install_dir/onibi" doctor --mode preflight --offline
       ;;
   esac
 done
