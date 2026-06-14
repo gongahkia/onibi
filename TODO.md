@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T22 `docs/mcp.md` with client examples (P1/S)](#t22-docsmcpmd-with-client-examples-p1s)
   - [T23 `docs/encrypted-mode.md` (P0/S)](#t23-docsencrypted-modemd-p0s)
   - [T24 Shell-hook conflict troubleshooting (P1/S)](#t24-shell-hook-conflict-troubleshooting-p1s)
   - [T25 Real `docs/index.html` landing (P1/M)](#t25-real-docsindexhtml-landing-p1m)
@@ -215,7 +214,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T22 | `docs/mcp.md` with client examples | P1 | S | — |
 | T23 | `docs/encrypted-mode.md` | P0 | S | — |
 | T24 | Shell-hook conflict troubleshooting | P1 | S | — |
 | T25 | Real `docs/index.html` landing | P1 | M | — |
@@ -466,30 +464,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ## 8. Sprint 4 — engineering hardening
 
 ## 9. Sprint 5 — docs depth
-
-### T22 `docs/mcp.md` with client examples (P1/S)
-
-#### Content outline
-
-1. What is MCP, what onibi exposes, why a user would care.
-2. `claude_desktop_config.json` snippet:
-
-   ```json
-   {
-     "mcpServers": {
-       "onibi": {
-         "command": "/Users/you/.local/bin/onibi",
-         "args": ["mcp"]
-       }
-     }
-   }
-   ```
-
-3. Per-tool docs: name, JSON schema (inputs and outputs), example call, daemon-required boolean.
-4. Auth model: peer-UID only; you cannot reach the daemon from outside the OS user.
-5. Troubleshooting: "daemon down" responses, expected error shapes.
-
----
 
 ### T23 `docs/encrypted-mode.md` (P0/S)
 
