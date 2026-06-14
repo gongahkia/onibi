@@ -38,6 +38,12 @@ func TestRenderPNGSupports256ColorSGR(t *testing.T) {
 	}
 }
 
+func TestRenderPNGClampsCursorAfterBottomLinefeed(t *testing.T) {
+	if _, err := RenderPNG([]byte("\x1b[24;1H\nX"), PNGOptions{Rows: 24, Cols: 80, Scale: 1}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDetectMode(t *testing.T) {
 	if got := DetectMode([]byte("npm test\nok\n")); got != ModeText {
 		t.Fatalf("plain mode = %s", got)
