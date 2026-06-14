@@ -110,7 +110,7 @@ func TestApprovalTimeoutHardMax(t *testing.T) {
 
 func TestShellDefaultRejectsUnsupportedPath(t *testing.T) {
 	cfg := Default()
-	if err := Set(&cfg, "shell.default", "/usr/bin/pwsh"); err == nil {
+	if err := Set(&cfg, "shell.default", "/usr/bin/elvish"); err == nil {
 		t.Fatal("expected unsupported shell path error")
 	}
 }

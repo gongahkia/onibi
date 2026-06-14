@@ -34,6 +34,8 @@ func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("attach-tmux", "", "attach an existing tmux target instead of spawning an agent")
 	cmd.Flags().Bool("debug", false, "enable debug logs")
 	cmd.Flags().String("log-file", "", "daemon log file (default: state log dir/onibi.log)")
+	cmd.Flags().String("argv0", "", "internal argv[0] override")
+	_ = cmd.Flags().MarkHidden("argv0")
 }
 
 func setupCmd() *cobra.Command {

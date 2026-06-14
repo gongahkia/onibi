@@ -44,6 +44,35 @@ func TestSpawnNonexistentBinary(t *testing.T) {
 	}
 }
 
+func TestSpawnArgv0Override(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h, err := Spawn(ctx, SpawnOptions{
+		Name:  "/bin/sh",
+		Argv0: "-sh",
+		Args:  []string{"-c", "printf %s \"$0\""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = h.Close() })
+
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, h.Master)
+		close(done)
+	}()
+	if err := h.Wait(); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	_ = h.Close()
+	<-done
+	if !bytes.Contains(buf.Bytes(), []byte("-sh")) {
+		t.Fatalf("expected argv0 override, got %q", buf.String())
+	}
+}
+
 func TestSpawnEmptyName(t *testing.T) {
 	_, err := Spawn(context.Background(), SpawnOptions{Name: ""})
 	if err == nil {

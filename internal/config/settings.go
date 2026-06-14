@@ -198,19 +198,23 @@ func validateShellDefault(v string) error {
 			return fmt.Errorf("shell.default path must be absolute")
 		}
 		if !validShellName(filepath.Base(v)) {
-			return fmt.Errorf("shell.default path must end in zsh, bash, fish, or sh")
+			return fmt.Errorf("shell.default path must end in a supported shell name")
 		}
 		return nil
 	}
 	if v == "auto" || validShellName(v) {
 		return nil
 	}
-	return fmt.Errorf("shell.default must be auto, zsh, bash, fish, sh, or an absolute path")
+	return fmt.Errorf("shell.default must be auto, zsh, bash, fish, sh, nu, pwsh, powershell, ksh, ksh93, mksh, oksh, tcsh, csh, dash, ash, busybox, or an absolute path")
 }
 
 func validShellName(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "zsh", "bash", "fish", "sh":
+	case "zsh", "bash", "fish", "sh",
+		"nu", "nushell", "pwsh", "powershell",
+		"ksh", "ksh93", "mksh", "oksh",
+		"tcsh", "csh",
+		"dash", "ash", "busybox", "busybox-sh":
 		return true
 	default:
 		return false
@@ -345,7 +349,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.turn_idle_threshold", def.Daemon.TurnIdleThreshold.String(), cfg.Daemon.TurnIdleThreshold.String(), meta.Explicit["daemon.turn_idle_threshold"], "fallback silence window before turn-complete"},
 		{"daemon.turn_idle_interval", def.Daemon.TurnIdleInterval.String(), cfg.Daemon.TurnIdleInterval.String(), meta.Explicit["daemon.turn_idle_interval"], "fallback idle poll cadence"},
 		{"daemon.pty_buffer_bytes", strconv.Itoa(def.Daemon.PTYBufferBytes), strconv.Itoa(cfg.Daemon.PTYBufferBytes), meta.Explicit["daemon.pty_buffer_bytes"], "bytes retained for /peek text rendering"},
-		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, zsh, bash, fish, sh, or path"},
+		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},

@@ -34,13 +34,13 @@ type Host struct {
 
 // SpawnOptions configures Spawn.
 type SpawnOptions struct {
-	Name string   // executable name (e.g. "claude")
-	Args []string // CLI args
-	Argv0 string  // optional argv[0] override for login-shell emulation
-	Env  []string // KEY=VALUE env entries (in addition to os.Environ unless ReplaceEnv)
-	Dir  string   // optional cwd
-	Rows uint16
-	Cols uint16
+	Name  string   // executable name (e.g. "claude")
+	Args  []string // CLI args
+	Argv0 string   // optional argv[0] override for login-shell emulation
+	Env   []string // KEY=VALUE env entries (in addition to os.Environ unless ReplaceEnv)
+	Dir   string   // optional cwd
+	Rows  uint16
+	Cols  uint16
 	// ReplaceEnv discards os.Environ and uses Env exclusively.
 	ReplaceEnv bool
 }

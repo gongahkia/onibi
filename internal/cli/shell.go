@@ -18,12 +18,19 @@ type shellLaunch struct {
 	Name    string
 	Command string
 	Args    []string
+	Argv0   string
+}
+
+type shellSpec struct {
+	Name   string
+	Binary string
 }
 
 func shellCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "shell [shell]",
 		Short: "Start your configured shell under Onibi PTY control",
+		Long:  "Start your configured shell under Onibi PTY control.\n\nSupported shells: " + supportedShellList() + ".",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runShell,
 	}
@@ -67,6 +74,11 @@ func runShell(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	if launch.Argv0 != "" {
+		if err := cmd.Flags().Set("argv0", launch.Argv0); err != nil {
+			return err
+		}
+	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "using %s shell: %s %s\n", launch.Name, launch.Command, strings.Join(launch.Args, " "))
 	return runRun(cmd, append([]string{launch.Command}, launch.Args...))
 }
@@ -94,58 +106,136 @@ func shellLaunchFor(candidate string, login bool, lookPath func(string) (string,
 	if candidate == "" {
 		return shellLaunch{}, errors.New("shell required")
 	}
-	name := strings.ToLower(filepath.Base(candidate))
-	if !supportedShell(name) {
-		return shellLaunch{}, fmt.Errorf("unsupported shell %q; use zsh, bash, fish, sh, or an absolute path to one of them", candidate)
+	base := strings.ToLower(filepath.Base(candidate))
+	spec, ok := shellSpecFor(base)
+	if !ok {
+		return shellLaunch{}, fmt.Errorf("unsupported shell %q; use %s, or an absolute path to one of them", candidate, supportedShellList())
 	}
 	if strings.Contains(candidate, "/") && !filepath.IsAbs(candidate) {
 		return shellLaunch{}, fmt.Errorf("shell path must be absolute: %s", candidate)
 	}
 	command := candidate
 	if !strings.Contains(candidate, "/") {
-		path, err := lookPath(candidate)
+		path, err := lookPath(spec.Binary)
 		if err != nil {
 			return shellLaunch{}, err
 		}
 		command = path
 	}
-	return shellLaunch{Name: name, Command: command, Args: shellStartupArgs(name, login)}, nil
+	args, argv0 := shellStartup(spec.Name, login)
+	return shellLaunch{Name: spec.Name, Command: command, Args: args, Argv0: argv0}, nil
 }
 
 func supportedShell(name string) bool {
-	switch name {
-	case "zsh", "bash", "fish", "sh":
-		return true
+	_, ok := shellSpecFor(name)
+	return ok
+}
+
+func shellSpecFor(name string) (shellSpec, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "zsh":
+		return shellSpec{Name: "zsh", Binary: "zsh"}, true
+	case "bash":
+		return shellSpec{Name: "bash", Binary: "bash"}, true
+	case "fish":
+		return shellSpec{Name: "fish", Binary: "fish"}, true
+	case "sh":
+		return shellSpec{Name: "sh", Binary: "sh"}, true
+	case "nu", "nushell":
+		return shellSpec{Name: "nu", Binary: "nu"}, true
+	case "pwsh":
+		return shellSpec{Name: "pwsh", Binary: "pwsh"}, true
+	case "powershell":
+		return shellSpec{Name: "powershell", Binary: "powershell"}, true
+	case "ksh":
+		return shellSpec{Name: "ksh", Binary: "ksh"}, true
+	case "ksh93":
+		return shellSpec{Name: "ksh93", Binary: "ksh93"}, true
+	case "mksh":
+		return shellSpec{Name: "mksh", Binary: "mksh"}, true
+	case "oksh":
+		return shellSpec{Name: "oksh", Binary: "oksh"}, true
+	case "tcsh":
+		return shellSpec{Name: "tcsh", Binary: "tcsh"}, true
+	case "csh":
+		return shellSpec{Name: "csh", Binary: "csh"}, true
+	case "dash":
+		return shellSpec{Name: "dash", Binary: "dash"}, true
+	case "ash":
+		return shellSpec{Name: "ash", Binary: "ash"}, true
+	case "busybox", "busybox-sh":
+		return shellSpec{Name: "busybox", Binary: "busybox"}, true
 	default:
-		return false
+		return shellSpec{}, false
 	}
 }
 
 func autoShellCandidates() []string {
 	if runtime.GOOS == "darwin" {
-		return []string{"zsh", "bash", "fish", "sh"}
+		return []string{"zsh", "bash", "fish", "nu", "pwsh", "ksh", "mksh", "tcsh", "csh", "dash", "ash", "busybox", "sh"}
 	}
-	return []string{"bash", "zsh", "fish", "sh"}
+	return []string{"bash", "zsh", "fish", "nu", "pwsh", "ksh", "mksh", "oksh", "tcsh", "csh", "dash", "ash", "busybox", "sh"}
 }
 
-func shellStartupArgs(name string, login bool) []string {
+func shellStartup(name string, login bool) ([]string, string) {
 	switch name {
 	case "zsh":
 		if login {
-			return []string{"-il"}
+			return []string{"-il"}, ""
 		}
-		return []string{"-i"}
+		return []string{"-i"}, ""
 	case "bash":
 		if login {
-			return []string{"--login", "-i"}
+			return []string{"--login", "-i"}, ""
 		}
-		return []string{"-i"}
+		return []string{"-i"}, ""
 	case "fish":
 		if login {
-			return []string{"--login", "--interactive"}
+			return []string{"--login", "--interactive"}, ""
 		}
-		return []string{"--interactive"}
+		return []string{"--interactive"}, ""
+	case "nu":
+		if login {
+			return []string{"--login"}, ""
+		}
+		return nil, ""
+	case "pwsh", "powershell":
+		return []string{"-NoLogo"}, ""
+	case "ksh", "ksh93", "mksh", "oksh":
+		if login {
+			return []string{"-l", "-i"}, ""
+		}
+		return []string{"-i"}, ""
+	case "tcsh":
+		if login {
+			return []string{"-l", "-i"}, ""
+		}
+		return []string{"-i"}, ""
+	case "csh":
+		if login {
+			return []string{"-i"}, "-csh"
+		}
+		return []string{"-i"}, ""
+	case "dash", "ash", "sh":
+		if login {
+			return []string{"-i"}, "-" + name
+		}
+		return []string{"-i"}, ""
+	case "busybox":
+		if login {
+			return []string{"-i"}, "-sh"
+		}
+		return []string{"-i"}, "sh"
 	default:
-		return []string{"-i"}
+		return []string{"-i"}, ""
 	}
+}
+
+func shellStartupArgs(name string, login bool) []string {
+	args, _ := shellStartup(name, login)
+	return args
+}
+
+func supportedShellList() string {
+	return "zsh, bash, fish, sh, nu, pwsh, powershell, ksh, ksh93, mksh, oksh, tcsh, csh, dash, ash, busybox"
 }

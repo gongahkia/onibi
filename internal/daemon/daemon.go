@@ -176,6 +176,16 @@ func New(opts Options) *Daemon {
 // the registry, and starts the output-reader goroutine. envExtra is added
 // to the child environment (ONIBI_SOCK + ONIBI_SESSION_ID are always added).
 func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args []string, envExtra []string) (*Session, error) {
+	return d.spawnAgent(ctx, name, agent, bin, args, envExtra, "")
+}
+
+// SpawnAgentWithArgv0 is SpawnAgent with an argv[0] override. This is used
+// for shells whose login mode is selected by a leading '-' in argv[0].
+func (d *Daemon) SpawnAgentWithArgv0(ctx context.Context, name, agent, bin string, args []string, envExtra []string, argv0 string) (*Session, error) {
+	return d.spawnAgent(ctx, name, agent, bin, args, envExtra, argv0)
+}
+
+func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args []string, envExtra []string, argv0 string) (*Session, error) {
 	id := NewID()
 	if name == "" {
 		name = agent
@@ -188,16 +198,21 @@ func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args [
 	)
 
 	host, err := pty.Spawn(ctx, pty.SpawnOptions{
-		Name: bin,
-		Args: args,
-		Env:  env,
+		Name:  bin,
+		Args:  args,
+		Argv0: argv0,
+		Env:   env,
 	})
 	if err != nil {
 		return nil, err
 	}
 	bufSize := d.bufferSize()
 	s := NewSession(id, name, agent, host, bufSize)
-	s.Cmd = commandLine(bin, args)
+	if argv0 != "" {
+		s.Cmd = commandLine(argv0, args)
+	} else {
+		s.Cmd = commandLine(bin, args)
+	}
 	if err := d.Registry.Add(s); err != nil {
 		_ = host.Close()
 		return nil, err

@@ -36,6 +36,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	attachTmux, _ := cmd.Flags().GetString("attach-tmux")
 	debug, _ := cmd.Flags().GetBool("debug")
 	logFilePath, _ := cmd.Flags().GetString("log-file")
+	argv0, _ := cmd.Flags().GetString("argv0")
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -157,7 +158,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("agent %q not found in PATH: %w", agent, err)
 		}
-		s, err := d.SpawnAgent(ctx, name, agent, bin, rest, nil)
+		var s *daemon.Session
+		if argv0 != "" {
+			s, err = d.SpawnAgentWithArgv0(ctx, name, agent, bin, rest, nil, argv0)
+		} else {
+			s, err = d.SpawnAgent(ctx, name, agent, bin, rest, nil)
+		}
 		if err != nil {
 			return err
 		}

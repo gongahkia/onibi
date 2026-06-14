@@ -96,7 +96,7 @@ CLI:
 - `onibi doctor`
 - `onibi adapters`
 - `onibi run <agent>`
-- `onibi shell [zsh|bash|fish|sh]`
+- `onibi shell [shell]`
 - `onibi wrap <command>`
 - `onibi config list`
 - `onibi log`
@@ -148,11 +148,16 @@ Wrap a local tool:
 
 ```bash
 onibi shell
+onibi shell nu
+onibi shell pwsh
+onibi shell tcsh
 onibi config set shell.default zsh
 onibi shell --no-login
 onibi wrap vim
 onibi wrap lazygit
 ```
+
+Supported shells for `onibi shell`: zsh, bash, fish, sh, nu, pwsh, powershell, ksh, ksh93, mksh, oksh, tcsh, csh, dash, ash, busybox/busybox-sh. `shell.default=auto` prefers `$SHELL`, then installed shells on PATH.
 
 Enable encrypted Telegram controls:
 
