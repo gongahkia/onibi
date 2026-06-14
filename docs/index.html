@@ -4,10 +4,159 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="./favicon.ico" sizes="any">
-  <meta http-equiv="refresh" content="0; url=./miniapp/">
   <title>Onibi</title>
+  <style>
+    :root{color-scheme:light;--bg:#f4f7f6;--ink:#18202a;--muted:#59636f;--line:#cfd7dd;--panel:#fff;--teal:#1f766f;--teal2:#155b56;--red:#a6403d;--gold:#b98524;--code:#101820}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
+    a{color:var(--teal);text-decoration:none}
+    a:hover{text-decoration:underline}
+    header{position:sticky;top:0;z-index:2;background:rgba(244,247,246,.93);border-bottom:1px solid var(--line);backdrop-filter:saturate(140%) blur(12px)}
+    .nav{max-width:1120px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--ink)}
+    .brand img{width:34px;height:34px;object-fit:contain}
+    .navlinks{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:14px}
+    .hero{min-height:68vh;display:grid;align-items:center;overflow:hidden;background-image:linear-gradient(90deg,rgba(244,247,246,.97) 0%,rgba(244,247,246,.88) 48%,rgba(244,247,246,.4) 100%),url("./miniapp/onibi-v2-logo.png");background-position:center,right 10% center;background-size:cover,min(46vw,520px);background-repeat:no-repeat;border-bottom:1px solid var(--line)}
+    .hero-inner{max-width:1120px;width:100%;min-width:0;margin:0 auto;padding:68px 20px 56px}
+    h1{font-size:clamp(52px,9vw,110px);line-height:.9;margin:0 0 18px;font-weight:900}
+    .lede{max-width:680px;font-size:clamp(20px,3vw,32px);line-height:1.18;margin:0 0 24px;color:#26313b;font-weight:750}
+    .sub{max-width:650px;color:var(--muted);margin:0 0 26px}
+    .install{display:flex;width:100%;max-width:650px;min-width:0;align-items:center;background:var(--code);color:#f8fafc;border:1px solid #2d3744;border-radius:8px;padding:13px 15px;font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+    .button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border-radius:8px;border:1px solid var(--teal);background:var(--teal);color:white;font-weight:750}
+    .button.secondary{background:transparent;color:var(--teal2);border-color:var(--line)}
+    main{max-width:1120px;margin:0 auto;padding:30px 20px 56px}
+    .feature-map{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:-54px 0 34px}
+    .feature-map a,.doc-link{display:block;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;box-shadow:0 10px 28px rgba(24,32,42,.08)}
+    .feature-map strong,.doc-link strong{display:block;color:var(--ink);margin-bottom:4px}
+    .feature-map span,.doc-link span{display:block;color:var(--muted);font-size:14px}
+    section{padding:28px 0;border-top:1px solid var(--line)}
+    h2{font-size:26px;line-height:1.15;margin:0 0 12px}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+    .list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+    .list li{padding-left:18px;position:relative}
+    .list li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;border-radius:50%;background:var(--gold)}
+    .docs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .mini{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid var(--line);border-radius:8px;background:#eef6f4;padding:18px;margin-top:18px}
+    .mini p{margin:0;color:var(--muted)}
+    footer{border-top:1px solid var(--line);padding:24px 20px;color:var(--muted);text-align:center}
+    @media (max-width:820px){.hero{min-height:64vh;background-position:center,right -80px center;background-size:cover,360px}.feature-map,.docs,.split{grid-template-columns:1fr}.feature-map{margin:-32px 0 28px}.nav{align-items:flex-start}.navlinks{justify-content:flex-end}.mini{align-items:flex-start;flex-direction:column}}
+    @media (max-width:520px){body{font-size:15px}.nav{padding:10px 14px}.navlinks{gap:10px;font-size:13px}.hero{background-position:center,right -126px center;background-size:cover,300px}.hero-inner{padding:52px 14px 44px}.install{font-size:12px;width:100%}main{padding:24px 14px 44px}.actions .button{width:100%}}
+  </style>
 </head>
 <body>
-  <a href="./miniapp/">Onibi Mini App</a>
+  <header>
+    <nav class="nav" aria-label="Primary">
+      <a class="brand" href="./"><img src="./miniapp/onibi-v2-logo.png" alt="">Onibi</a>
+      <div class="navlinks">
+        <a href="#features">Features</a>
+        <a href="#docs">Docs</a>
+        <a href="./miniapp/">Mini App</a>
+        <a href="https://github.com/gongahkia/onibi/blob/main/README.md">GitHub README</a>
+      </div>
+    </nav>
+  </header>
+
+  <section class="hero" aria-labelledby="title">
+    <div class="hero-inner">
+      <h1 id="title">Onibi</h1>
+      <p class="lede">Telegram-controlled coding-agent host for local terminals.</p>
+      <p class="sub">Run coding agents under local PTYs, approve tool calls from Telegram, queue prompts, inspect tails and screenshots, and keep transport outbound-only.</p>
+      <code class="install">git clone https://github.com/gongahkia/onibi
+cd onibi
+make install
+onibi up</code>
+      <div class="actions">
+        <a class="button" href="./getting-started.md">Get Started</a>
+        <a class="button secondary" href="./miniapp/">Open /miniapp/</a>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <nav id="features" class="feature-map" aria-label="Feature anchors">
+      <a href="#approvals"><strong>Approvals</strong><span>Owner-only Telegram decisions for agent tool calls.</span></a>
+      <a href="#sessions"><strong>Sessions</strong><span>Local PTY hosting for agents and arbitrary CLI/TUI commands.</span></a>
+      <a href="#encrypted"><strong>Encrypted Mode</strong><span>Mini App controls for ciphertext prompt and approval bodies.</span></a>
+      <a href="#local"><strong>Local First</strong><span>No webhooks, no tunnels, no hosted Onibi account.</span></a>
+    </nav>
+
+    <section id="approvals">
+      <div class="split">
+        <div>
+          <h2>Control agent work from Telegram</h2>
+          <p>Onibi routes approval requests, turn-complete signals, prompt queues, PTY tails, and PNG previews to the owner chat.</p>
+        </div>
+        <ul class="list">
+          <li>Approve, deny, or edit tool-call inputs.</li>
+          <li>Queue prompts while a session is busy.</li>
+          <li>Target live sessions from Telegram commands or Mini App controls.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="sessions">
+      <div class="split">
+        <div>
+          <h2>Host real local terminals</h2>
+          <p>Run supported coding agents or wrap any local CLI/TUI while Onibi keeps state, audit records, and session routing local.</p>
+        </div>
+        <ul class="list">
+          <li>Claude Code, Codex, OpenCode, Goose, Gemini, Copilot CLI, Pi, and Amp adapters.</li>
+          <li>Opt-in shell command-done hooks for zsh, bash, and fish.</li>
+          <li>Local stdio MCP server for MCP-capable agents.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="encrypted">
+      <div class="split">
+        <div>
+          <h2>Choose plaintext or encrypted Telegram mode</h2>
+          <p>Plain mode keeps reply-based Telegram UX. Encrypted mode sends AES-GCM envelopes through Telegram and decrypts inside the Mini App.</p>
+        </div>
+        <ul class="list">
+          <li><code>/secure</code> opens encrypted prompt, interrupt, kill, and approval controls.</li>
+          <li>Self-host the static Mini App from an HTTPS origin you control.</li>
+          <li>Review the full model in the encrypted-mode and security docs.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="local">
+      <div class="split">
+        <div>
+          <h2>Outbound-only, single-user daemon</h2>
+          <p>The daemon uses outbound HTTPS to Telegram, local Unix sockets with same-UID checks, OS secret storage, and SQLite state in the user profile.</p>
+        </div>
+        <ul class="list">
+          <li>No inbound HTTP listener, webhook receiver, tunnel, account system, or SaaS control plane.</li>
+          <li>Pair-once owner setup with token rotation, doctor checks, and hook drift detection.</li>
+          <li>Built as a single Go binary for macOS and Linux.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="docs">
+      <h2>Documentation</h2>
+      <div class="docs">
+        <a class="doc-link" href="https://github.com/gongahkia/onibi/blob/main/README.md"><strong>README on GitHub</strong><span>Project overview, commands, and release notes.</span></a>
+        <a class="doc-link" href="./getting-started.md"><strong>Getting Started</strong><span>Install, BotFather, pairing, first approval.</span></a>
+        <a class="doc-link" href="./architecture.md"><strong>Architecture</strong><span>Components, lifecycle, storage, and daemon loops.</span></a>
+        <a class="doc-link" href="./mcp.md"><strong>MCP</strong><span>Stdio server config, tools, and auth model.</span></a>
+        <a class="doc-link" href="./encrypted-mode.md"><strong>Encrypted Mode</strong><span>Envelope details, Mini App setup, UX tradeoffs.</span></a>
+        <a class="doc-link" href="./troubleshooting.md"><strong>Troubleshooting</strong><span>Token, owner, service, hook, and shell fixes.</span></a>
+      </div>
+      <div class="mini">
+        <p>The Telegram Mini App lives at <strong>/miniapp/</strong> and handles encrypted Onibi controls.</p>
+        <a class="button" href="./miniapp/">Open Mini App</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Apache-2.0. Local daemon, Telegram transport, owner-controlled sessions.
+  </footer>
 </body>
 </html>

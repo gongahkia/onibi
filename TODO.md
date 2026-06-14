@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T25 Real `docs/index.html` landing (P1/M)](#t25-real-docsindexhtml-landing-p1m)
 - [10. Out of scope — do NOT do](#10-out-of-scope--do-not-do)
 - [11. Useful commands (cheat sheet)](#11-useful-commands-cheat-sheet)
 - [12. Glossary](#12-glossary)
@@ -212,7 +211,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T25 | Real `docs/index.html` landing | P1 | M | — |
 
 ---
 
@@ -460,19 +458,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ## 8. Sprint 4 — engineering hardening
 
 ## 9. Sprint 5 — docs depth
-
-### T25 Real `docs/index.html` landing (P1/M)
-
-Replace the 6-line redirect with a single-page landing:
-
-- Hero: name, one-line pitch, install command.
-- Brief feature list with anchors.
-- Link to README on GitHub, getting-started, architecture, mcp, encrypted-mode.
-- Link out to the Mini App route at `/miniapp/`.
-
-Use plain HTML/CSS; no JS framework. Match the v2 logo at `internal/brand/onibi-v2-logo.png`.
-
----
 
 ## 10. Out of scope — do NOT do
 
