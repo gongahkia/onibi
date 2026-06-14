@@ -18,7 +18,6 @@
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
-  - [T08 Print plaintext deeplink first, QR second (P1/S)](#t08-print-plaintext-deeplink-first-qr-second-p1s)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
   - [T09 Wire `/start` post-pairing (P0/S)](#t09-wire-start-post-pairing-p0s)
   - [T10 Regenerate README command table from `helpText()` with a test (P0/S)](#t10-regenerate-readme-command-table-from-helptext-with-a-test-p0s)
@@ -231,7 +230,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T08 | Print plaintext deeplink first, QR second | P1 | S | — |
 | T09 | Wire `/start` post-pairing | P0 | S | — |
 | T10 | Regenerate README command table from `helpText()` with a test | P0 | S | — |
 | T11 | Encrypted-mode parity docs + README callout | P0 | S | — |
@@ -585,50 +583,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 
 - Reusing `cmd.Flags().Set("complete", "true")` works only if `runSetup` reads `complete` from `cmd.Flags()`, which it does (`internal/cli/setup.go:29`). If you'd rather not couple, refactor `runSetup` to accept an options struct.
 - Don't reset the user's preferences (`encrypted-mode`, etc.). `onibi up` only handles the always-on path.
-
----
-
-### T08 Print plaintext deeplink first, QR second (P1/S)
-
-#### Motivation
-
-`internal/setup/wizard.go:347-353` prints the QR before the link. Terminals without correct Unicode block-glyph rendering show garbled output. The plaintext link works everywhere — many users will copy it locally rather than scan from another device.
-
-#### Files
-
-- `internal/setup/wizard.go:346-355`.
-- Same pattern in `internal/cli/setup.go:138-142` for the encrypted-mode seed QR.
-
-#### Implementation
-
-Swap order; explicitly label both:
-
-```go
-deepLink := DeepLink(cli.Self().Username, pairTok)
-fmt.Fprintln(io.Out, "")
-fmt.Fprintln(io.Out, "2) Open this link on the device that will be the owner:")
-fmt.Fprintf(io.Out, "   %s\n", deepLink)
-fmt.Fprintln(io.Out, "")
-fmt.Fprintln(io.Out, "   Or scan this QR from another device:")
-if err := PrintQR(io.Out, deepLink); err != nil {
-    fmt.Fprintf(io.Err, "   (QR render failed: %v — use the link above)\n", err)
-}
-fmt.Fprintln(io.Out, "")
-fmt.Fprintf(io.Out, "Waiting for you to tap Start (up to %s)...\n", trimDur(time.Until(deadlineOf(ctx))))
-```
-
-#### Validation
-
-**Tests** (`internal/setup/wizard_test.go`): adjust the existing assertion that checks output contains the deeplink — ensure it still passes. Add `TestPromptDisplaysLinkBeforeQR` if helpful.
-
-**Manual e2e**:
-
-1. `onibi setup` in a small terminal (e.g., 80x24). Confirm the deeplink line is above the QR.
-2. Run in a terminal without Unicode block glyphs (older `xterm`, `Terminal.app` with a non-glyph font). Confirm the link is still readable above the broken QR.
-
-#### Gotchas
-
-- `PrintQR` writes directly to `io.Out`. No clean way to suppress it from the test side; pass an `io.Discard` IO if needed.
 
 ---
 

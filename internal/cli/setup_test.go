@@ -12,6 +12,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -73,6 +74,24 @@ func TestSetupCompleteContinuesWhenUserConfirmsMissingNotify(t *testing.T) {
 	}
 }
 
+func TestSetupEncryptedPrintsURLBeforeQR(t *testing.T) {
+	paths, _ := setupCompleteFixture(t)
+	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, out, _ := setupCompleteCmd("")
+	if err := runSetupEncrypted(cmd, paths, sec, "on", "https://example.com/mini"); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	urlIdx := strings.Index(got, "Open this URL in Telegram")
+	qrIdx := strings.Index(got, "Or scan this QR")
+	if urlIdx < 0 || qrIdx < 0 || urlIdx > qrIdx {
+		t.Fatalf("output order wrong:\n%s", got)
+	}
+}
+
 func setupCompleteFixture(t *testing.T) (config.Paths, *store.DB) {
 	t.Helper()
 	dir := t.TempDir()
@@ -82,6 +101,7 @@ func setupCompleteFixture(t *testing.T) (config.Paths, *store.DB) {
 		DBFile:   filepath.Join(dir, "state", "onibi.sqlite"),
 		EnvFile:  filepath.Join(dir, "state", ".env"),
 		LogDir:   filepath.Join(dir, "state", "logs"),
+		Config:   filepath.Join(dir, "state", "config.yaml"),
 	}
 	if err := paths.EnsureDirs(); err != nil {
 		t.Fatal(err)

@@ -92,6 +92,61 @@ func TestRunPairsOwnerWithMockTelegram(t *testing.T) {
 	}
 }
 
+func TestPairOnceDisplaysLinkBeforeQR(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	oldFactory := newPairClient
+	mockCh := make(chan *telegram.Mock, 1)
+	newPairClient = func(_ context.Context, _ string, h telegram.HandlerFunc) (pairClient, error) {
+		mock := telegram.NewMock(&models.User{ID: 123, Username: "onibi_test_bot", IsBot: true})
+		mock.SetHandler(h)
+		mockCh <- mock
+		return mock, nil
+	}
+	t.Cleanup(func() { newPairClient = oldFactory })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out := &bytes.Buffer{}
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := pairOnce(ctx, db, "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", IO{
+			In:  strings.NewReader(""),
+			Out: out,
+			Err: &bytes.Buffer{},
+		})
+		errCh <- err
+	}()
+	var mock *telegram.Mock
+	select {
+	case mock = <-mockCh:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	token := latestPairToken(t, db)
+	mock.Dispatch(ctx, &models.Update{Message: &models.Message{
+		From: &models.User{ID: 777},
+		Chat: models.Chat{ID: 777, Type: "private"},
+		Text: "/start " + PairPrefix + token,
+	}})
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	got := out.String()
+	linkIdx := strings.Index(got, "https://t.me/onibi_test_bot?start=pair_")
+	qrIdx := strings.Index(got, "Or scan this QR")
+	if linkIdx < 0 || qrIdx < 0 || linkIdx > qrIdx {
+		t.Fatalf("output order wrong:\n%s", got)
+	}
+}
+
 func TestRotateOwnerRequiresCurrentOwnerConfirmation(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
 	if err != nil {

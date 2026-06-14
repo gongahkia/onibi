@@ -363,11 +363,12 @@ func pairOnce(ctx context.Context, db *store.DB, token string, io IO) (int64, er
 
 	deepLink := DeepLink(cli.Self().Username, pairTok)
 	fmt.Fprintln(io.Out, "")
-	fmt.Fprintln(io.Out, "2) Tap this link on your phone (or scan the QR below):")
-	fmt.Fprintf(io.Out, "   %s\n\n", deepLink)
+	fmt.Fprintln(io.Out, "2) Open this link on the device that will be the owner:")
+	fmt.Fprintf(io.Out, "   %s\n", deepLink)
+	fmt.Fprintln(io.Out, "")
+	fmt.Fprintln(io.Out, "   Or scan this QR from another device:")
 	if err := PrintQR(io.Out, deepLink); err != nil {
-		// non-fatal: link still works
-		fmt.Fprintf(io.Err, "(QR render failed: %v — use the link above)\n", err)
+		fmt.Fprintf(io.Err, "   (QR render failed: %v - use the link above)\n", err)
 	}
 	fmt.Fprintln(io.Out, "")
 	fmt.Fprintf(io.Out, "Waiting for you to tap Start (up to %s)...\n", trimDur(time.Until(deadlineOf(ctx))))

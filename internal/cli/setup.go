@@ -143,10 +143,13 @@ func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Stor
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "")
 	fmt.Fprintf(cmd.OutOrStdout(), "Encrypted Telegram mode set to %s.\n", cfg.Telegram.EncryptedMode)
-	fmt.Fprintln(cmd.OutOrStdout(), "Scan this QR in Telegram to store the Mini App decrypt seed:")
+	fmt.Fprintln(cmd.OutOrStdout(), "Open this URL in Telegram to store the Mini App decrypt seed:")
+	fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", seedURL)
+	fmt.Fprintln(cmd.OutOrStdout(), "")
+	fmt.Fprintln(cmd.OutOrStdout(), "Or scan this QR in Telegram:")
 	if err := setup.PrintQR(cmd.OutOrStdout(), seedURL); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "(QR failed: %v)\n", err)
-		fmt.Fprintf(cmd.OutOrStdout(), "Open this URL in Telegram: %s\n", seedURL)
+		fmt.Fprintln(cmd.OutOrStdout(), "Use the URL above.")
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Security note: Telegram sees ciphertext, but the Mini App host can serve JS. Keep the host static and audited.")
 	return nil
