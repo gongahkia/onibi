@@ -22,7 +22,6 @@
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
   - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
   - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
-  - [T17 Prune legacy logo assets (P1/S)](#t17-prune-legacy-logo-assets-p1s)
   - [T18 Cross-platform peer-cred test in CI matrix (P2/M)](#t18-cross-platform-peer-cred-test-in-ci-matrix-p2m)
   - [T19 Structured `log --json` (P2/L)](#t19-structured-log---json-p2l)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
@@ -226,7 +225,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T07 | `onibi up` convenience command | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
-| T17 | Prune legacy logo assets | P1 | S | — |
 | T18 | Cross-platform peer-cred test in CI matrix | P2 | M | — |
 | T19 | Structured `log --json` | P2 | L | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
@@ -667,52 +665,6 @@ Hook block markers in `internal/adapters/shell/install.go` look like `# >>> onib
 
 - This breaks adapter-internal API. Update all 8 agent adapters + 3 shell adapters in one commit.
 - The DB schema likely needs a new column. Use the migration pattern in `internal/store/sqlite.go` (`addColumnIfMissing`-style, see line 178-192).
-
----
-
-### T17 Prune legacy logo assets (P1/S)
-
-#### Motivation
-
-`asset/logo/onibi-logo.png` (~2.4MB) and `asset/logo/onibi-v1-logo.png` (~7.2MB) ship in tree but are never embedded (`grep -rn "onibi-logo.png\|onibi-v1-logo.png" .` should return only `asset/logo/` itself). Only `internal/brand/onibi-v2-logo.png` is `//go:embed`-ed. Repo bloat ~10MB.
-
-#### Files
-
-- `asset/logo/onibi-logo.png` — delete.
-- `asset/logo/onibi-v1-logo.png` — delete.
-- `asset/logo/onibi.jpg` — verify usage with `grep -rn "onibi.jpg"`. Delete if unused.
-- README: check if `asset/logo/onibi-logo.png` is the README header (`README.md:4` references `./asset/logo/onibi-logo.png` — **this is in use**).
-
-**Wait**: `README.md:4` uses `onibi-logo.png` as the visual header. **Do not delete `onibi-logo.png` until the README is updated** to reference `internal/brand/onibi-v2-logo.png` or a small derivative.
-
-#### Approach
-
-Two paths. Pick **B**.
-
-**A**: Keep `onibi-logo.png` (it's the README header), delete only `onibi-v1-logo.png`.
-
-**B (preferred)**: Generate a small (~50KB) `asset/logo/onibi.png` from the v2 logo for README use; replace v1, v2-big, and v1-big with the one canonical. Update README reference.
-
-#### Implementation
-
-```bash
-# given imagemagick installed
-magick internal/brand/onibi-v2-logo.png -resize 1024x asset/logo/onibi.png
-git rm asset/logo/onibi-logo.png asset/logo/onibi-v1-logo.png asset/logo/onibi.jpg
-# update README:4 to use ./asset/logo/onibi.png
-```
-
-(If imagemagick isn't on the contributor's machine, skip the regen and just update README to point to `internal/brand/onibi-v2-logo.png` directly.)
-
-#### Validation
-
-- `du -sh asset/logo/` shows ~390KB (down from ~10MB).
-- README renders correctly on GitHub.
-
-#### Gotchas
-
-- Don't `git rm` the v2 logo by accident; it's in `internal/brand/`, not `asset/logo/`.
-- Check for any docs page or `docs/index.html` that references the same paths.
 
 ---
 

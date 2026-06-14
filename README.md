@@ -1,7 +1,7 @@
 # Onibi
 
 <p align="center">
-  <img src="./asset/logo/onibi-logo.png" width="50%" alt="Onibi">
+  <img src="./asset/logo/onibi.png" width="50%" alt="Onibi">
 </p>
 
 <p align="center">
