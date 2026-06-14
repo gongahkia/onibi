@@ -440,10 +440,15 @@ func (r *runner) checkTOTP() {
 	}
 	if r.db != nil {
 		v, ok, _ := r.db.KVGetString(r.ctx, "tg_2fa_ack")
-		if ok {
-			r.add("telegram 2fa ack", Pass, v)
-		} else {
+		switch {
+		case !ok:
 			r.add("telegram 2fa ack", Warn, "not acknowledged")
+		case v == "enabled":
+			r.add("telegram 2fa ack", Pass, v)
+		case v == "timeout":
+			r.add("telegram 2fa ack", Warn, "timeout (timed out during setup)")
+		default:
+			r.add("telegram 2fa ack", Warn, v)
 		}
 	}
 }

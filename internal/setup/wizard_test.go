@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"context"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -245,6 +246,79 @@ func TestPromptTokenStdinRejectsBadShape(t *testing.T) {
 	}
 }
 
+func TestAcknowledge2FATimeout(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	defer pw.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	err = acknowledge2FA(ctx, db, IO{
+		In:  pr,
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert2FAAck(t, db, "timeout")
+}
+
+func TestAcknowledge2FAEnabled(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	err = acknowledge2FA(context.Background(), db, IO{
+		In:  strings.NewReader("enabled\n"),
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert2FAAck(t, db, "enabled")
+}
+
+func TestAcknowledge2FASkip(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	err = acknowledge2FA(context.Background(), db, IO{
+		In:  strings.NewReader("skip\n"),
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert2FAAck(t, db, "skipped")
+}
+
+func TestAcknowledge2FARetriesOnBadInput(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "setup.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	err = acknowledge2FA(context.Background(), db, IO{
+		In:  strings.NewReader("foo\nskip\n"),
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert2FAAck(t, db, "skipped")
+}
+
 type oneByteReader struct {
 	r *strings.Reader
 }
@@ -281,4 +355,15 @@ func latestPairToken(t *testing.T, db *store.DB) string {
 		t.Fatal(err)
 	}
 	return token
+}
+
+func assert2FAAck(t *testing.T, db *store.DB, want string) {
+	t.Helper()
+	got, ok, err := db.KVGetString(context.Background(), "tg_2fa_ack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || got != want {
+		t.Fatalf("tg_2fa_ack = %q ok=%v, want %q", got, ok, want)
+	}
 }

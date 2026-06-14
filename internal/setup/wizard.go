@@ -46,6 +46,7 @@ var newRotateConfirmClient = func(ctx context.Context, token string, handler tel
 }
 
 var botTokenShape = regexp.MustCompile(`^[0-9]{5,12}:[A-Za-z0-9_-]{30,}$`)
+var acknowledge2FATimeout = 60 * time.Second
 
 // Flags configures wizard behavior.
 type Flags struct {
@@ -412,12 +413,29 @@ func acknowledge2FA(ctx context.Context, db *store.DB, io IO) error {
 	fmt.Fprintln(io.Out, "  Telegram → Settings → Privacy and Security → Two-Step Verification")
 	fmt.Fprintln(io.Out, "  Use an EMAIL recovery address, not SMS (SIM-swap risk).")
 	fmt.Fprintln(io.Out, "")
-	fmt.Fprint(io.Out, "Type 'enabled' if you've turned it on, or 'skip' to acknowledge later: ")
+	fmt.Fprint(io.Out, "Type 'enabled' if you've turned it on, or 'skip' to acknowledge later (60s timeout, default skip): ")
+	ackCtx, cancel := context.WithTimeout(ctx, acknowledge2FATimeout)
+	defer cancel()
 	br := bufio.NewReader(io.In)
 	for {
-		line, err := br.ReadString('\n')
-		if err != nil && err != io2EOF() {
-			return err
+		type result struct {
+			line string
+			err  error
+		}
+		ch := make(chan result, 1)
+		go func() {
+			line, err := br.ReadString('\n')
+			ch <- result{line: line, err: err}
+		}()
+		var line string
+		var err error
+		select {
+		case <-ackCtx.Done():
+			fmt.Fprintln(io.Out, "\n(no input - recording 'timeout'; re-run setup to re-prompt)")
+			return db.KVSetString(context.WithoutCancel(ctx), "tg_2fa_ack", "timeout")
+		case r := <-ch:
+			line = r.line
+			err = r.err
 		}
 		switch strings.TrimSpace(strings.ToLower(line)) {
 		case "enabled":
@@ -425,6 +443,13 @@ func acknowledge2FA(ctx context.Context, db *store.DB, io IO) error {
 		case "skip":
 			return db.KVSetString(ctx, "tg_2fa_ack", "skipped")
 		default:
+			if err != nil && err != io2EOF() {
+				return err
+			}
+			if err == io2EOF() {
+				fmt.Fprintln(io.Out, "\n(no valid input - recording 'timeout'; re-run setup to re-prompt)")
+				return db.KVSetString(ctx, "tg_2fa_ack", "timeout")
+			}
 			fmt.Fprint(io.Out, "Please type 'enabled' or 'skip': ")
 		}
 	}

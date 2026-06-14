@@ -151,6 +151,35 @@ func TestDoctorPreflightWarnsMissingOwner(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsTelegram2FATimeout(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVSetString(context.Background(), "tg_2fa_ack", "timeout"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	found := false
+	for _, c := range report.Checks {
+		if c.Name != "telegram 2fa ack" {
+			continue
+		}
+		found = true
+		if c.Status != Warn || !strings.Contains(c.Detail, "timed out during setup") {
+			t.Fatalf("check = %#v", c)
+		}
+	}
+	if !found {
+		t.Fatalf("missing telegram 2fa ack: %#v", report.Checks)
+	}
+}
+
 func TestFixAdoptsMissingHookHash(t *testing.T) {
 	paths := doctorPaths(t)
 	if err := paths.EnsureDirs(); err != nil {

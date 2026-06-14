@@ -17,7 +17,6 @@
   - [T01 Persist pending UI state to SQLite (P0/M)](#t01-persist-pending-ui-state-to-sqlite-p0m)
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
-  - [T05 Timeout the 2FA-ack loop (P0/S)](#t05-timeout-the-2fa-ack-loop-p0s)
   - [T06 Hard-fail with clear remediation when `onibi-notify` is missing (P0/S)](#t06-hard-fail-with-clear-remediation-when-onibi-notify-is-missing-p0s)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
   - [T08 Print plaintext deeplink first, QR second (P1/S)](#t08-print-plaintext-deeplink-first-qr-second-p1s)
@@ -232,7 +231,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T05 | Timeout the 2FA-ack loop | P0 | S | — |
 | T06 | Hard-fail with clear remediation when `onibi-notify` missing | P0 | S | — |
 | T07 | `onibi up` convenience command | P1 | M | T06 |
 | T08 | Print plaintext deeplink first, QR second | P1 | S | — |
@@ -494,86 +492,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ---
 
 ## 6. Sprint 2 — onboarding cliff
-
-### T05 Timeout the 2FA-ack loop (P0/S)
-
-#### Motivation
-
-`internal/setup/wizard.go:392-414` `acknowledge2FA` is a blocking `for` loop with no timeout. If stdin is piped from a script that doesn't send `enabled` or `skip`, the wizard hangs forever. This breaks scripted installs, container setups, and any non-interactive automation.
-
-#### Files
-
-- `internal/setup/wizard.go:392-414` — `acknowledge2FA`.
-
-#### Implementation
-
-Add a 60-second wall:
-
-```go
-func acknowledge2FA(ctx context.Context, db *store.DB, io IO) error {
-    fmt.Fprintln(io.Out, "")
-    fmt.Fprintln(io.Out, "Strongly recommended: enable Telegram 2-step verification.")
-    fmt.Fprintln(io.Out, "  Telegram → Settings → Privacy and Security → Two-Step Verification")
-    fmt.Fprintln(io.Out, "  Use an EMAIL recovery address, not SMS (SIM-swap risk).")
-    fmt.Fprintln(io.Out, "")
-    fmt.Fprint(io.Out, "Type 'enabled' if you've turned it on, or 'skip' to acknowledge later (60s timeout, default skip): ")
-
-    ackCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-    defer cancel()
-
-    type result struct {
-        line string
-        err  error
-    }
-    ch := make(chan result, 1)
-    go func() {
-        br := bufio.NewReader(io.In)
-        for {
-            line, err := br.ReadString('\n')
-            if err != nil && err != io2EOF() {
-                ch <- result{line: "", err: err}
-                return
-            }
-            switch strings.TrimSpace(strings.ToLower(line)) {
-            case "enabled", "skip":
-                ch <- result{line: strings.TrimSpace(strings.ToLower(line))}
-                return
-            default:
-                fmt.Fprint(io.Out, "Please type 'enabled' or 'skip': ")
-            }
-        }
-    }()
-    select {
-    case <-ackCtx.Done():
-        fmt.Fprintln(io.Out, "\n(no input — recording 'timeout'; re-run setup to re-prompt)")
-        return db.KVSetString(ctx, "tg_2fa_ack", "timeout")
-    case r := <-ch:
-        if r.err != nil { return r.err }
-        return db.KVSetString(ctx, "tg_2fa_ack", r.line)
-    }
-}
-```
-
-Update `internal/doctor/doctor.go` (search for the `tg_2fa_ack` check — verify by `grep -n tg_2fa_ack internal/doctor`):
-
-- Treat `"timeout"` the same as `"skipped"` for status purposes (warn, not fail), but include the literal "(timed out during setup)" in the doctor message so the user understands why.
-
-#### Validation
-
-**Tests** (`internal/setup/wizard_test.go`):
-
-- `TestAcknowledge2FATimeout`: pass a stdin that hangs (e.g., `iotest.ErrReader(io.EOF)` after a delay or just a pipe that never closes); use a context with `1*time.Millisecond` timeout to make the test fast. Assert `tg_2fa_ack = "timeout"`.
-- `TestAcknowledge2FAEnabled` / `TestAcknowledge2FASkip`: drive with appropriate strings, assert KV value.
-- `TestAcknowledge2FARetriesOnBadInput`: send `foo\n` then `skip\n`, assert `tg_2fa_ack = "skipped"`.
-
-#### Gotchas
-
-- The goroutine reading stdin will leak after timeout. That's acceptable for CLI exit (process dies), but if `setup` is called in-process by `setup --complete` and continues, the goroutine could read the next stdin line. Mitigation: make the function take ownership of stdin (`bufio.NewReader` once at the outer scope) — but in the current shape, `setup --complete` calls `setup.Run` then `runSetupComplete` which builds its own `bufio.NewReader(cmd.InOrStdin())`, so the leaked goroutine *will* steal the next line.
-  - **Fix**: parameterize the timeout to 0 = no timeout for compositional callers, and use 60s when called directly via `onibi setup` (no `--complete`). Or accept the leak and document it: the goroutine reading after timeout will only consume one extra line, which is rare for piped scripts.
-  - Pragmatic: just document the trade-off in a comment and ship. Don't over-engineer.
-- The default on timeout is `skip`, not `enabled` — never silently assert security posture the user didn't confirm.
-
----
 
 ### T06 Hard-fail with clear remediation when `onibi-notify` is missing (P0/S)
 
