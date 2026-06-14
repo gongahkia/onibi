@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T23 `docs/encrypted-mode.md` (P0/S)](#t23-docsencrypted-modemd-p0s)
   - [T24 Shell-hook conflict troubleshooting (P1/S)](#t24-shell-hook-conflict-troubleshooting-p1s)
   - [T25 Real `docs/index.html` landing (P1/M)](#t25-real-docsindexhtml-landing-p1m)
 - [10. Out of scope — do NOT do](#10-out-of-scope--do-not-do)
@@ -214,7 +213,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T23 | `docs/encrypted-mode.md` | P0 | S | — |
 | T24 | Shell-hook conflict troubleshooting | P1 | S | — |
 | T25 | Real `docs/index.html` landing | P1 | M | — |
 
@@ -464,22 +462,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ## 8. Sprint 4 — engineering hardening
 
 ## 9. Sprint 5 — docs depth
-
-### T23 `docs/encrypted-mode.md` (P0/S)
-
-#### Content outline
-
-1. Threat model when Telegram is untrusted (e.g., regulatory environment, journalism, sensitive code review).
-2. Encryption details: HKDF-SHA256 → AES-256-GCM, per-message random nonce, seed in Telegram SecureStorage on the device + on disk in the daemon.
-3. Mini App self-hosting: serve `docs/miniapp/index.html` from any static host; pass `--mini-app-url` to setup.
-4. UX consequences:
-   - `/prompt`, `/send`, `/editprompt`, `/rename <id> <name>` refuse plaintext.
-   - `/secure` opens the Mini App for encrypted input.
-   - Reply-to-message and `//<text>` are blocked in encrypted mode.
-5. Key rotation: regenerate seed via `onibi setup --enable-encrypted-mode` (re-pair Mini App).
-6. Not-defended: anyone with the seed on the device can decrypt; if Telegram is compromised at the rendering layer (rendering Mini App HTML), they could intercept plaintext post-decrypt.
-
----
 
 ### T24 Shell-hook conflict troubleshooting (P1/S)
 
