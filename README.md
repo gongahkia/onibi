@@ -106,20 +106,31 @@ CLI:
 
 Telegram:
 
-- `/new <agent>`
-- `/sessions`
-- `/status`
-- `/secure`
-- `/prompt <text>`
-- `/send <text>` (use `/send /help`, or `//help`, for agent slash commands)
-- `/queue`
-- `/peek`
-- `/target <id|name>`
-- `/interrupt`
-- `/kill`
-- `/snooze`
-- `/log`
-- `/help`
+<!-- BEGIN-TELEGRAM-COMMANDS -->
+- `/sessions` - list active sessions
+- `/status` - show daemon status
+- `/secure` - open encrypted controls
+- `/target <id|name>` - set default session
+- `/new <agent> [args...]` - start an agent session
+- `/queue [id|name]` - list queued prompts
+- `/prompt <text>` - queue a prompt
+- `/send <text>` - send text, including leading /
+- `/editprompt <id> <text>` - edit a queued prompt
+- `/cancelprompt <id>` - cancel a queued prompt
+- `/moveprompt <id> <position>` - reorder queued prompts
+- `/flushqueue [id|name]` - cancel queued prompts
+- `/peek <id|name>` - send session preview
+- `/interrupt <id|name>` - send Ctrl-C
+- `/kill <id|name>` - terminate session
+- `/rename <id|name> <name>` - rename session
+- `/menu` - show session actions
+- `/snooze [duration|agent [duration]]` - pause non-approval notifications
+- `/unsnooze [agent]` - resume notifications
+- `/log [n]` - show recent audit entries
+- `/text <id|name>` - force text output
+- `/screenshot <id|name>` - force screenshots
+- `/help` - show this help
+<!-- END-TELEGRAM-COMMANDS -->
 
 Supported adapters: Claude Code, Codex, OpenCode, Goose, Gemini, GitHub Copilot CLI, Pi, Amp, plus opt-in zsh/bash/fish command-done hooks.
 

@@ -1,4 +1,4 @@
-.PHONY: build install test vet staticcheck tidy run clean release-dry release-smoke reproducible-build
+.PHONY: build install test vet staticcheck tidy run clean gen-readme gen-readme-check release-dry release-smoke reproducible-build
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -35,6 +35,12 @@ run: build
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+gen-readme:
+	go run ./cmd/gen-readme
+
+gen-readme-check:
+	go run ./cmd/gen-readme --check
 
 release-dry:
 	@command -v goreleaser >/dev/null 2>&1 || (echo "goreleaser not installed: brew install goreleaser" && exit 1)

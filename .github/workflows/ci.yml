@@ -42,6 +42,18 @@ jobs:
       - name: run staticcheck
         run: staticcheck ./...
 
+  readme:
+    name: readme up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: check generated README blocks
+        run: make gen-readme-check
+
   vulncheck:
     name: govulncheck
     runs-on: ubuntu-latest

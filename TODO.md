@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T10 Regenerate README command table from `helpText()` with a test (P0/S)](#t10-regenerate-readme-command-table-from-helptext-with-a-test-p0s)
   - [T11 Encrypted-mode parity docs + README callout (P0/S)](#t11-encrypted-mode-parity-docs--readme-callout-p0s)
   - [T12 Auto-clear stale default target (P1/S)](#t12-auto-clear-stale-default-target-p1s)
   - [T13 TOTP grace window (P1/S)](#t13-totp-grace-window-p1s)
@@ -183,7 +182,7 @@ These are *load-bearing* design constraints. If a change you make breaks one of 
 - **The KV store already exists.** `internal/store/sqlite.go:198-244` exposes `KVSet(ctx, key, value, expire)` with unix-second TTL, `KVSetString`, `KVGet`, `KVGetString`, `KVDel`. Use this for any new persistence — do **not** add a new table unless schema demands one.
 - **Owner check is chokepointed.** `internal/telegram/router.go` `Dispatch` is the single place owner ID is validated. Don't add a second dispatch path.
 - **All audit-worthy events should call `d.audit(ctx, action, sessionID, payload, chatID, detail)`** — `internal/daemon/audit.go`.
-- **`/help` text is the single source of truth for Telegram commands** — `internal/daemon/commands.go:191-218` `helpText()`. README must be derived from this, not the other way around (see T10).
+- **`/help` text is the single source of truth for Telegram commands** — `internal/daemon/commands.go:191-218` `helpText()`. README command docs are generated from this.
 - **Adapter hook hashes** are stored at install time via `common.Record()` and verified by `common.VerifyRecorded()`. The doctor `checkHooks()` iterates these.
 
 ---
@@ -229,11 +228,10 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T10 | Regenerate README command table from `helpText()` with a test | P0 | S | — |
 | T11 | Encrypted-mode parity docs + README callout | P0 | S | — |
 | T12 | Auto-clear stale default target | P1 | S | — |
 | T13 | TOTP grace window | P1 | S | — |
-| T14 | In-bot per-command help — `/help <cmd>` | P1 | M | T10 |
+| T14 | In-bot per-command help — `/help <cmd>` | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
 | T17 | Prune legacy logo assets | P1 | S | — |
@@ -586,140 +584,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 
 ## 7. Sprint 3 — Telegram steady-state UX
 
-### T10 Regenerate README command table from `helpText()` with a test (P0/S)
-
-#### Motivation
-
-`README.md:107-122` lists 14 Telegram commands. `internal/daemon/commands.go:191-218` `helpText()` lists 23. The drift hides `/text`, `/screenshot`, `/menu`, `/editprompt`, `/cancelprompt`, `/moveprompt`, `/flushqueue`, `/rename`, `/unsnooze` from the README. New users only discover them via `/help`.
-
-#### Files
-
-- `README.md:107-122` — the Telegram commands list.
-- `internal/daemon/commands.go:191-218` — `helpText()`.
-- `internal/daemon/commands_test.go` — already tests something; add the README assertion.
-
-#### Implementation
-
-Two options. Pick **option B** unless it's painful — drift will recur with option A.
-
-**Option A (manual)**: Update README to mirror `helpText()`. Add a test that fails if they diverge:
-
-```go
-// internal/daemon/commands_test.go
-func TestHelpTextMatchesReadme(t *testing.T) {
-    readme, err := os.ReadFile("../../README.md")
-    if err != nil { t.Fatal(err) }
-    for _, line := range strings.Split(helpText(), "\n") {
-        if !strings.HasPrefix(line, "/") { continue }
-        cmd := strings.Fields(line)[0]
-        if !strings.Contains(string(readme), cmd) {
-            t.Errorf("README missing Telegram command: %s", cmd)
-        }
-    }
-}
-```
-
-**Option B (generated)**: Use a `<!-- BEGIN-TELEGRAM-COMMANDS -->` ... `<!-- END-TELEGRAM-COMMANDS -->` marker in README. Write a tiny `cmd/gen-readme/main.go` that opens `README.md`, regenerates the block from `helpText()`, and writes it back. Add `make gen-readme` and a CI check `go run ./cmd/gen-readme --check` that fails if the block is stale.
-
-```go
-// cmd/gen-readme/main.go
-package main
-
-import (
-    "flag"
-    "fmt"
-    "os"
-    "strings"
-
-    "github.com/gongahkia/onibi/internal/daemon"
-)
-
-const beginMark = "<!-- BEGIN-TELEGRAM-COMMANDS -->"
-const endMark   = "<!-- END-TELEGRAM-COMMANDS -->"
-
-func main() {
-    check := flag.Bool("check", false, "fail if README is out of date")
-    flag.Parse()
-
-    in, err := os.ReadFile("README.md")
-    if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
-
-    body := string(in)
-    iBegin := strings.Index(body, beginMark)
-    iEnd := strings.Index(body, endMark)
-    if iBegin < 0 || iEnd < 0 || iEnd < iBegin {
-        fmt.Fprintln(os.Stderr, "README missing BEGIN/END markers")
-        os.Exit(2)
-    }
-
-    generated := strings.Builder{}
-    generated.WriteString(beginMark + "\n")
-    for _, line := range strings.Split(daemon.HelpTextForReadme(), "\n") {
-        if !strings.HasPrefix(line, "/") { continue }
-        generated.WriteString("- `" + line + "`\n")
-    }
-    generated.WriteString(endMark)
-
-    next := body[:iBegin] + generated.String() + body[iEnd+len(endMark):]
-    if *check {
-        if next != body {
-            fmt.Fprintln(os.Stderr, "README is stale: run `make gen-readme`")
-            os.Exit(1)
-        }
-        return
-    }
-    if err := os.WriteFile("README.md", []byte(next), 0o644); err != nil {
-        fmt.Fprintln(os.Stderr, err); os.Exit(2)
-    }
-}
-```
-
-You'd need to export `helpText` as `HelpTextForReadme` in `internal/daemon/commands.go` (it's currently package-private). Acceptable since this is for the same module.
-
-Add to `Makefile`:
-
-```
-gen-readme:
-	go run ./cmd/gen-readme
-
-gen-readme-check:
-	go run ./cmd/gen-readme --check
-```
-
-Add a CI job in `.github/workflows/ci.yml`:
-
-```yaml
-  readme:
-    name: readme up-to-date
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: stable }
-      - run: make gen-readme-check
-```
-
-Edit `README.md`, replace lines 107-122 with:
-
-```
-<!-- BEGIN-TELEGRAM-COMMANDS -->
-<!-- END-TELEGRAM-COMMANDS -->
-```
-
-Then run `make gen-readme` once to populate.
-
-#### Validation
-
-- `make gen-readme-check` returns 0.
-- After adding a new `/command` to `helpText()`, `make gen-readme-check` fails until you re-run `make gen-readme`.
-
-#### Gotchas
-
-- Exporting `helpText()` widens the public API of a non-public package; that's fine since the consumer is internal-only (`cmd/gen-readme/`).
-- The generated bullet list may look ugly next to surrounding README sections. Adjust the generator's bullet format to match house style.
-
----
-
 ### T11 Encrypted-mode parity docs + README callout (P0/S)
 
 #### Motivation
@@ -923,7 +787,7 @@ User-visible: append "(60s grace)" to the success message so the user knows.
 
 `/help` dumps a 24-line list of commands and their one-liners. Owners on phone reading on small screens can't scroll back easily. `/help <cmd>` should give detailed usage for one command.
 
-Depends on T10 (generated source-of-truth for command metadata).
+Build on the generated README command metadata path.
 
 #### Files
 
@@ -997,7 +861,7 @@ case "/help":
     return true
 ```
 
-Wire this into the T10 README generator: each command in the table can include `Short` and a link out to `docs/telegram-commands.md` per-command anchors.
+Wire this into the README generator: each command in the table can include `Short` and a link out to `docs/telegram-commands.md` per-command anchors.
 
 #### Validation
 
