@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T24 Shell-hook conflict troubleshooting (P1/S)](#t24-shell-hook-conflict-troubleshooting-p1s)
   - [T25 Real `docs/index.html` landing (P1/M)](#t25-real-docsindexhtml-landing-p1m)
 - [10. Out of scope — do NOT do](#10-out-of-scope--do-not-do)
 - [11. Useful commands (cheat sheet)](#11-useful-commands-cheat-sheet)
@@ -213,7 +212,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T24 | Shell-hook conflict troubleshooting | P1 | S | — |
 | T25 | Real `docs/index.html` landing | P1 | M | — |
 
 ---
@@ -462,17 +460,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ## 8. Sprint 4 — engineering hardening
 
 ## 9. Sprint 5 — docs depth
-
-### T24 Shell-hook conflict troubleshooting (P1/S)
-
-Append to `docs/troubleshooting.md`:
-
-- **Starship**: no conflict; both use `precmd`.
-- **oh-my-zsh**: append `source ~/.zshrc` may overwrite; Onibi appends after init, so generally safe. If symptoms: empty `cmd_done` events.
-- **fish conf.d**: Onibi replaces `~/.config/fish/conf.d/onibi.fish` wholesale. Don't edit in place.
-- **bash + nix-shell**: nix-shell may reset `PROMPT_COMMAND`; Onibi uses `preexec`/`precmd` hooks (or DEBUG trap on bash). Test by sourcing `~/.bashrc` after `nix-shell --pure`.
-
----
 
 ### T25 Real `docs/index.html` landing (P1/M)
 

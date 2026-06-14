@@ -89,6 +89,22 @@ onibi install-hooks --interactive
 
 `doctor --fix` adopts recognized current Onibi hooks with missing hashes and reinstalls outdated managed hooks. Tampered hooks require manual review.
 
+## Shell Hook Conflicts
+
+Shell hooks are opt-in and emit `cmd_done` only after commands exceed the configured minimum duration. If events are missing, first run a command longer than the threshold, then check:
+
+```sh
+onibi adapters
+onibi doctor
+```
+
+Common conflict points:
+
+- Starship: Onibi does not replace the prompt; zsh uses `add-zsh-hook` for `preexec` and `precmd`. Keep both init blocks loaded, and reinstall Onibi hooks after prompt/framework setup if `cmd_done` events disappear.
+- oh-my-zsh: load oh-my-zsh and plugins before the Onibi managed block. If a later plugin resets zsh hooks, move the managed block to the end by running `onibi install-hooks --shell zsh`.
+- fish `conf.d`: Onibi owns `~/.config/fish/conf.d/onibi.fish` and rewrites it on install. Do not edit that file in place; put custom fish config in a separate `*.fish` file.
+- bash plus `nix-shell --pure`: pure shells clear most environment variables, and Nix `shellHook` can change interactive state. If Bash notifications vanish inside Nix, source `~/.bashrc` after entering the shell or add the Onibi install/source step after the Nix shell setup.
+
 ## Keychain Fallback
 
 If doctor reports `.env fallback`, the token is in the state dir instead of the OS keychain. Keep the file `0600`, install keychain support if needed, then rotate the token:
