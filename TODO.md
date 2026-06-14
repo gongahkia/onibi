@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T12 Auto-clear stale default target (P1/S)](#t12-auto-clear-stale-default-target-p1s)
   - [T13 TOTP grace window (P1/S)](#t13-totp-grace-window-p1s)
   - [T14 In-bot per-command help — `/help <cmd>` (P1/M)](#t14-in-bot-per-command-help--help-cmd-p1m)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
@@ -227,7 +226,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T12 | Auto-clear stale default target | P1 | S | — |
 | T13 | TOTP grace window | P1 | S | — |
 | T14 | In-bot per-command help — `/help <cmd>` | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
@@ -581,78 +579,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ---
 
 ## 7. Sprint 3 — Telegram steady-state UX
-
-### T12 Auto-clear stale default target (P1/S)
-
-#### Motivation
-
-`internal/daemon/threading.go:36-69` stores per-chat default-target in KV `target:<chatID>`. When a session ends, `internal/daemon/daemon.go:287-301` `markSessionEnded` doesn't clear targets pointing to it. Owner runs `/target` (no args) and sees "No active PTY session" if there are no other sessions, or "Default target: <stale id>" otherwise. Later `/prompt` against the stale default yields "No active PTY session" via `resolveInjectTarget` (`threading.go:75-94`), which already clears stale via `clearDefaultTarget` — but only on read, not on session end.
-
-Better: clear on session end so `/target` shows the current state immediately.
-
-#### Files
-
-- `internal/daemon/daemon.go:287-301` — `markSessionEnded`.
-- `internal/daemon/threading.go:36-73` — `setDefaultTarget`/`clearDefaultTarget`.
-- `internal/store/sqlite.go` — may need `KVDeletePrefix` or scan-and-delete helper.
-
-#### Implementation
-
-Two sub-steps:
-
-1. Add a way to find all `target:*` keys pointing to a specific session ID. The KV table is small; a full scan is acceptable.
-
-   ```go
-   // internal/store/sqlite.go
-   func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {
-       rows, err := d.sql.QueryContext(ctx, `SELECT key FROM kv WHERE key LIKE ?`, prefix+"%")
-       if err != nil { return nil, err }
-       defer rows.Close()
-       var keys []string
-       for rows.Next() {
-           var k string
-           if err := rows.Scan(&k); err != nil { return nil, err }
-           keys = append(keys, k)
-       }
-       return keys, rows.Err()
-   }
-   ```
-
-2. In `markSessionEnded`, after the prompt-fail step and before the `audit`:
-
-   ```go
-   keys, _ := d.DB.KVKeysWithPrefix(ctx, "target:")
-   for _, k := range keys {
-       v, ok, _ := d.DB.KVGetString(ctx, k)
-       if ok && v == s.ID {
-           _ = d.DB.KVDel(ctx, k)
-       }
-   }
-   // also drop from the in-memory cache
-   d.threadMu.Lock()
-   for chatID, sid := range d.defaultTargets {
-       if sid == s.ID { delete(d.defaultTargets, chatID) }
-   }
-   d.threadMu.Unlock()
-   ```
-
-#### Validation
-
-**Tests** (`internal/daemon/threading_test.go` — may not exist; or add to `daemon_test.go`):
-
-- `TestStaleDefaultTargetClearedOnSessionEnd`: spawn a session, `setDefaultTarget(ctx, chatID, sess.ID)`, end session, assert `defaultTarget(ctx, chatID)` returns `""`.
-
-**Manual e2e**:
-
-1. `/new claude` → owner is auto-targeted to it.
-2. `/kill` the session.
-3. `/target` → expect "No default target" or "No active PTY session", not the stale id.
-
-#### Gotchas
-
-- The KV scan is `O(targets)`. For a single-user install this is trivially small. Don't optimize prematurely.
-
----
 
 ### T13 TOTP grace window (P1/S)
 

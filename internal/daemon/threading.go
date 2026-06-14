@@ -51,6 +51,32 @@ func (d *Daemon) clearDefaultTarget(ctx context.Context, chatID int64) {
 	}
 }
 
+func (d *Daemon) clearDefaultTargetsForSession(ctx context.Context, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	d.threadMu.Lock()
+	for chatID, sid := range d.defaultTargets {
+		if sid == sessionID {
+			delete(d.defaultTargets, chatID)
+		}
+	}
+	d.threadMu.Unlock()
+	if d.DB == nil {
+		return
+	}
+	keys, err := d.DB.KVKeysWithPrefix(ctx, "target:")
+	if err != nil {
+		return
+	}
+	for _, key := range keys {
+		sid, ok, err := d.DB.KVGetString(ctx, key)
+		if err == nil && ok && sid == sessionID {
+			_ = d.DB.KVDel(ctx, key)
+		}
+	}
+}
+
 func (d *Daemon) defaultTarget(ctx context.Context, chatID int64) string {
 	d.threadMu.RLock()
 	id := d.defaultTargets[chatID]

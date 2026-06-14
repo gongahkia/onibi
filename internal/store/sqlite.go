@@ -243,6 +243,24 @@ func (d *DB) KVDel(ctx context.Context, key string) error {
 	return err
 }
 
+// KVKeysWithPrefix returns keys that start with prefix.
+func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT key FROM kv WHERE key LIKE ?`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
 // ----------------------------------------------------------------------------
 // Pairing tokens
 // ----------------------------------------------------------------------------

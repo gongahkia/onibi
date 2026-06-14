@@ -288,6 +288,7 @@ func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
 	if s == nil || !s.MarkEnded() {
 		return
 	}
+	d.clearDefaultTargetsForSession(ctx, s.ID)
 	if d.DB == nil {
 		return
 	}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +42,28 @@ func TestKVExpire(t *testing.T) {
 	_, ok, err := db.KVGet(ctx, "stale")
 	if err != nil || ok {
 		t.Fatalf("expected expired-miss, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestKVKeysWithPrefix(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	for k, v := range map[string]string{
+		"target:1": "a",
+		"target:2": "b",
+		"other:1":  "c",
+	} {
+		if err := db.KVSetString(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys, err := db.KVKeysWithPrefix(ctx, "target:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"target:1", "target:2"}) {
+		t.Fatalf("keys = %#v", keys)
 	}
 }
 
