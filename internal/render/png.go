@@ -129,6 +129,12 @@ func replay(v *vt100.VT100, buf []byte) {
 }
 
 func process(v *vt100.VT100, raw []byte) {
+	clampCursor(v)
+	defer func() {
+		if recover() != nil {
+			clampCursor(v)
+		}
+	}()
 	cmd, err := vt100.Decode(bufio.NewReader(bytes.NewReader(raw)))
 	if err != nil {
 		return
@@ -139,6 +145,22 @@ func process(v *vt100.VT100, raw []byte) {
 			return
 		}
 		return
+	}
+	clampCursor(v)
+}
+
+func clampCursor(v *vt100.VT100) {
+	if v.Cursor.Y < 0 {
+		v.Cursor.Y = 0
+	}
+	if v.Cursor.Y >= v.Height {
+		v.Cursor.Y = v.Height - 1
+	}
+	if v.Cursor.X < 0 {
+		v.Cursor.X = 0
+	}
+	if v.Cursor.X >= v.Width {
+		v.Cursor.X = v.Width - 1
 	}
 }
 
