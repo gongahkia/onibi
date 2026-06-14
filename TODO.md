@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T20 `docs/getting-started.md` (P0/S)](#t20-docsgetting-startedmd-p0s)
   - [T21 `docs/architecture.md` (P0/S)](#t21-docsarchitecturemd-p0s)
   - [T22 `docs/mcp.md` with client examples (P1/S)](#t22-docsmcpmd-with-client-examples-p1s)
   - [T23 `docs/encrypted-mode.md` (P0/S)](#t23-docsencrypted-modemd-p0s)
@@ -217,12 +216,11 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
 | T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
 | T23 | `docs/encrypted-mode.md` | P0 | S | — |
 | T24 | Shell-hook conflict troubleshooting | P1 | S | — |
-| T25 | Real `docs/index.html` landing | P1 | M | T20, T21 |
+| T25 | Real `docs/index.html` landing | P1 | M | T21 |
 
 ---
 
@@ -471,30 +469,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 
 ## 9. Sprint 5 — docs depth
 
-### T20 `docs/getting-started.md` (P0/S)
-
-#### Motivation
-
-`docs/demo-checklist.md` is a 90-second demo recipe, not a tutorial. New users need a walk-through.
-
-#### Content outline
-
-1. **Prerequisites**: Telegram account with 2-step verification, Go 1.26+ or pre-built binary.
-2. **Install** (`brew install --cask gongahkia/onibi/onibi` once tap is published; meanwhile `make install`).
-3. **Create your bot**: BotFather flow with screenshots/copy-pasteable commands.
-4. **Pair**: `onibi setup --complete` (or `onibi up` after T07). Annotate what each prompt does.
-5. **First approval**: install Claude Code adapter, run `onibi run claude`, ask Claude to run a shell command, approve from phone.
-6. **Common next steps**: switch to encrypted mode, install service for background, configure shell hooks.
-7. **What if something goes wrong**: pointer to `docs/troubleshooting.md`.
-
-Target length: ~600 lines, with code blocks copy-pasteable.
-
-#### Validation
-
-- A reviewer follows the doc on a fresh macOS install. Notes any step that required external knowledge.
-
----
-
 ### T21 `docs/architecture.md` (P0/S)
 
 #### Content outline
@@ -566,7 +540,7 @@ Append to `docs/troubleshooting.md`:
 
 ### T25 Real `docs/index.html` landing (P1/M)
 
-Depends on T20, T21.
+Depends on T21.
 
 Replace the 6-line redirect with a single-page landing:
 

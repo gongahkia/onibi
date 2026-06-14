@@ -87,7 +87,7 @@ onibi doctor --fix
 onibi install-hooks --interactive
 ```
 
-`doctor --fix` only adopts recognized current Onibi hooks with missing hashes. Tampered or outdated hooks require reinstall.
+`doctor --fix` adopts recognized current Onibi hooks with missing hashes and reinstalls outdated managed hooks. Tampered hooks require manual review.
 
 ## Keychain Fallback
 
