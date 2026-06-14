@@ -151,7 +151,7 @@ func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Stor
 		fmt.Fprintf(cmd.ErrOrStderr(), "(QR failed: %v)\n", err)
 		fmt.Fprintln(cmd.OutOrStdout(), "Use the URL above.")
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Security note: Telegram sees ciphertext, but the Mini App host can serve JS. Keep the host static and audited.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Security note: Telegram sees ciphertext, but the Mini App host can serve JS. Keep the host static and audited. Plaintext entry will refuse in encrypted mode; use /secure or switch to encrypted_mode=off.")
 	return nil
 }
 

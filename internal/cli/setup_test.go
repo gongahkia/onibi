@@ -90,6 +90,9 @@ func TestSetupEncryptedPrintsURLBeforeQR(t *testing.T) {
 	if urlIdx < 0 || qrIdx < 0 || urlIdx > qrIdx {
 		t.Fatalf("output order wrong:\n%s", got)
 	}
+	if !strings.Contains(got, "Plaintext entry will refuse in encrypted mode") {
+		t.Fatalf("missing plaintext refusal note:\n%s", got)
+	}
 }
 
 func setupCompleteFixture(t *testing.T) (config.Paths, *store.DB) {

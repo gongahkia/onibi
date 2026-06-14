@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T11 Encrypted-mode parity docs + README callout (P0/S)](#t11-encrypted-mode-parity-docs--readme-callout-p0s)
   - [T12 Auto-clear stale default target (P1/S)](#t12-auto-clear-stale-default-target-p1s)
   - [T13 TOTP grace window (P1/S)](#t13-totp-grace-window-p1s)
   - [T14 In-bot per-command help — `/help <cmd>` (P1/M)](#t14-in-bot-per-command-help--help-cmd-p1m)
@@ -228,7 +227,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T11 | Encrypted-mode parity docs + README callout | P0 | S | — |
 | T12 | Auto-clear stale default target | P1 | S | — |
 | T13 | TOTP grace window | P1 | S | — |
 | T14 | In-bot per-command help — `/help <cmd>` | P1 | M | — |
@@ -240,7 +238,7 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
 | T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
-| T23 | `docs/encrypted-mode.md` | P0 | S | T11 |
+| T23 | `docs/encrypted-mode.md` | P0 | S | — |
 | T24 | Shell-hook conflict troubleshooting | P1 | S | — |
 | T25 | Real `docs/index.html` landing | P1 | M | T20, T21 |
 
@@ -583,60 +581,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ---
 
 ## 7. Sprint 3 — Telegram steady-state UX
-
-### T11 Encrypted-mode parity docs + README callout (P0/S)
-
-#### Motivation
-
-Per maintainer: encrypted-mode and plaintext-mode are **equal-parity preferences**. Today the README mentions encrypted mode only in passing (`README.md:84-86`, `:243-251`). New users don't know:
-
-- That `telegram.encrypted_mode=on` will refuse `/prompt`, `/send`, `/editprompt`, `/rename <id> <name>` in plaintext and force them through `/secure` Mini App.
-- That this is a security/UX trade-off, not a deprecation of plaintext.
-- That switching is via `onibi config set telegram.encrypted_mode {off,ask,on}`.
-
-#### Files
-
-- `README.md` — add a "Mode" section right after "What Onibi Does".
-- New: `docs/encrypted-mode.md` (covered separately in T23, but cross-link from here).
-
-#### Implementation
-
-Add to `README.md` after the "What Onibi Does" section (~line 89):
-
-```markdown
-## Modes
-
-Onibi supports two equal-parity Telegram modes. Pick the one that fits your trust model.
-
-| Mode | When to use | Trade-off |
-|---|---|---|
-| `telegram.encrypted_mode=off` (default) | You trust Telegram-the-service with prompt and approval bodies, or you can't host the Mini App. | Approvals, prompts, and previews travel as Telegram-readable plaintext. Simpler UX (reply-to-message just works). |
-| `telegram.encrypted_mode=on` | You want Telegram blind to message bodies. You can self-host or trust a static Mini App page. | Every body travels as AES-GCM ciphertext under an HKDF-derived key. `/prompt`, `/send`, `/editprompt`, `/rename <id> <name>` refuse plaintext input and route through `/secure` Mini App. |
-
-Switch at any time:
-
-```bash
-onibi config set telegram.encrypted_mode on   # or off, or ask
-```
-
-Or during setup:
-
-```bash
-onibi setup --enable-encrypted-mode --encrypted-mode on
-```
-
-See [`docs/encrypted-mode.md`](./docs/encrypted-mode.md) for the full security model.
-```
-
-Also amend `onibi config set telegram.encrypted_mode on` printed output in `internal/cli/setup.go:137` (the `runSetupEncrypted` "Security note") to mention:
-
-> "Plaintext entry will refuse in encrypted mode — use /secure or switch to encrypted_mode=off."
-
-#### Validation
-
-Manual: read the rendered README. Pair with T23.
-
----
 
 ### T12 Auto-clear stale default target (P1/S)
 
@@ -1185,8 +1129,6 @@ Depends on T15 (tests stabilize the schema).
 ---
 
 ### T23 `docs/encrypted-mode.md` (P0/S)
-
-Depends on T11.
 
 #### Content outline
 

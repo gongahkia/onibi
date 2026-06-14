@@ -22,6 +22,7 @@ Status: v2 development. Core daemon, setup, approvals, prompt queue, Telegram co
 
 - [Quick Start](#quick-start)
 - [What Onibi Does](#what-onibi-does)
+- [Modes](#modes)
 - [Command Surface](#command-surface)
 - [Examples](#examples)
 - [How It Works](#how-it-works)
@@ -87,6 +88,29 @@ onibi setup --complete
 - Audits approvals, prompt injection, session input, and risk/anomaly events in the local SQLite state DB.
 
 Onibi is not a hosted coding platform, remote desktop system, cloud IDE, or multi-user access gateway. It assumes the local OS user account is trusted.
+
+## Modes
+
+Onibi supports two equal-parity Telegram modes. Pick the one that fits your trust model.
+
+| Mode | When to use | Trade-off |
+|---|---|---|
+| `telegram.encrypted_mode=off` (default) | You trust Telegram-the-service with prompt and approval bodies, or you cannot host the Mini App. | Approvals, prompts, and previews travel as Telegram-readable plaintext. Reply-to-message UX works directly. |
+| `telegram.encrypted_mode=on` | You want Telegram blind to message bodies and can self-host or trust a static Mini App page. | Bodies travel as AES-GCM ciphertext. `/prompt`, `/send`, `/editprompt`, and `/rename <id> <name>` refuse plaintext input and route through `/secure`. |
+
+Switch at any time:
+
+```bash
+onibi config set telegram.encrypted_mode on   # or off, or ask
+```
+
+Or during setup:
+
+```bash
+onibi setup --enable-encrypted-mode --encrypted-mode on
+```
+
+See [`docs/encrypted-mode.md`](./docs/encrypted-mode.md) for the full security model.
 
 ## Command Surface
 
