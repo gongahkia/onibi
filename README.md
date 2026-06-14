@@ -61,6 +61,7 @@ onibi run claude
 Or host any local TUI/CLI:
 
 ```bash
+onibi shell
 onibi wrap lazygit
 ```
 
@@ -95,6 +96,7 @@ CLI:
 - `onibi doctor`
 - `onibi adapters`
 - `onibi run <agent>`
+- `onibi shell [zsh|bash|fish|sh]`
 - `onibi wrap <command>`
 - `onibi config list`
 - `onibi log`
@@ -145,6 +147,9 @@ onibi run codex -- --model gpt-5-codex
 Wrap a local tool:
 
 ```bash
+onibi shell
+onibi config set shell.default zsh
+onibi shell --no-login
 onibi wrap vim
 onibi wrap lazygit
 ```

@@ -54,6 +54,8 @@ type Daemon struct {
 
 type Shell struct {
 	MinDuration Duration `yaml:"min_duration" json:"min_duration"`
+	Default     string   `yaml:"default" json:"default"`
+	Login       bool     `yaml:"login" json:"login"`
 }
 
 type Telegram struct {
@@ -86,6 +88,8 @@ func Default() Config {
 		},
 		Shell: Shell{
 			MinDuration: Duration(5 * time.Second),
+			Default:     "auto",
+			Login:       true,
 		},
 		Telegram: Telegram{
 			EncryptedMode: "off",
@@ -170,6 +174,9 @@ func (c Config) Validate() error {
 	if c.Daemon.PTYBufferBytes < 4096 || c.Daemon.PTYBufferBytes > 10*1024*1024 {
 		return fmt.Errorf("daemon.pty_buffer_bytes must be between 4096 and 10485760")
 	}
+	if err := validateShellDefault(c.Shell.Default); err != nil {
+		return err
+	}
 	switch c.Telegram.EncryptedMode {
 	case "off", "ask", "on":
 	default:
@@ -179,6 +186,35 @@ func (c Config) Validate() error {
 		return fmt.Errorf("telegram.mini_app_url must use https")
 	}
 	return nil
+}
+
+func validateShellDefault(v string) error {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return fmt.Errorf("shell.default required")
+	}
+	if strings.Contains(v, "/") {
+		if !filepath.IsAbs(v) {
+			return fmt.Errorf("shell.default path must be absolute")
+		}
+		if !validShellName(filepath.Base(v)) {
+			return fmt.Errorf("shell.default path must end in zsh, bash, fish, or sh")
+		}
+		return nil
+	}
+	if v == "auto" || validShellName(v) {
+		return nil
+	}
+	return fmt.Errorf("shell.default must be auto, zsh, bash, fish, sh, or an absolute path")
+}
+
+func validShellName(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "zsh", "bash", "fish", "sh":
+		return true
+	default:
+		return false
+	}
 }
 
 func ParseDuration(s string) (time.Duration, error) {
@@ -256,6 +292,14 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Shell.MinDuration = Duration(d)
+	case "shell.default":
+		cfg.Shell.Default = strings.TrimSpace(value)
+	case "shell.login":
+		v, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("shell.login must be boolean")
+		}
+		cfg.Shell.Login = v
 	case "telegram.encrypted_mode":
 		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(value))
 	case "telegram.mini_app_url":
@@ -280,6 +324,10 @@ func Get(cfg Config, key string) (string, error) {
 		return strconv.Itoa(cfg.Daemon.PTYBufferBytes), nil
 	case "shell.min_duration":
 		return cfg.Shell.MinDuration.String(), nil
+	case "shell.default":
+		return cfg.Shell.Default, nil
+	case "shell.login":
+		return strconv.FormatBool(cfg.Shell.Login), nil
 	case "telegram.encrypted_mode":
 		return cfg.Telegram.EncryptedMode, nil
 	case "telegram.mini_app_url":
@@ -297,6 +345,8 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.turn_idle_threshold", def.Daemon.TurnIdleThreshold.String(), cfg.Daemon.TurnIdleThreshold.String(), meta.Explicit["daemon.turn_idle_threshold"], "fallback silence window before turn-complete"},
 		{"daemon.turn_idle_interval", def.Daemon.TurnIdleInterval.String(), cfg.Daemon.TurnIdleInterval.String(), meta.Explicit["daemon.turn_idle_interval"], "fallback idle poll cadence"},
 		{"daemon.pty_buffer_bytes", strconv.Itoa(def.Daemon.PTYBufferBytes), strconv.Itoa(cfg.Daemon.PTYBufferBytes), meta.Explicit["daemon.pty_buffer_bytes"], "bytes retained for /peek text rendering"},
+		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, zsh, bash, fish, sh, or path"},
+		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},
 		{"telegram.mini_app_url", def.Telegram.MiniAppURL, cfg.Telegram.MiniAppURL, meta.Explicit["telegram.mini_app_url"], "hosted Mini App URL for encrypted approvals"},
@@ -321,6 +371,8 @@ type rawDaemon struct {
 
 type rawShell struct {
 	MinDuration *Duration `yaml:"min_duration"`
+	Default     *string   `yaml:"default"`
+	Login       *bool     `yaml:"login"`
 }
 
 type rawTelegram struct {
@@ -352,6 +404,14 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Shell.MinDuration != nil {
 		cfg.Shell.MinDuration = *raw.Shell.MinDuration
 		meta.Explicit["shell.min_duration"] = true
+	}
+	if raw.Shell.Default != nil {
+		cfg.Shell.Default = strings.TrimSpace(*raw.Shell.Default)
+		meta.Explicit["shell.default"] = true
+	}
+	if raw.Shell.Login != nil {
+		cfg.Shell.Login = *raw.Shell.Login
+		meta.Explicit["shell.login"] = true
 	}
 	if raw.Telegram.EncryptedMode != nil {
 		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(*raw.Telegram.EncryptedMode))

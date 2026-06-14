@@ -30,7 +30,7 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	paths := testPaths(t)
-	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n")
+	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\n")
 	if err := os.WriteFile(paths.Config, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -52,6 +52,9 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	}
 	if cfg.Shell.MinDuration.Std() != 12*time.Second {
 		t.Fatalf("shell min duration = %s", cfg.Shell.MinDuration)
+	}
+	if cfg.Shell.Default != "zsh" || cfg.Shell.Login {
+		t.Fatalf("shell config = %#v", cfg.Shell)
 	}
 }
 
@@ -81,6 +84,18 @@ func TestSetValidates(t *testing.T) {
 	if got != "131072" {
 		t.Fatalf("got %s", got)
 	}
+	if err := Set(&cfg, "shell.default", "fish"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "shell.login", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "shell.default"); got != "fish" {
+		t.Fatalf("shell.default = %s", got)
+	}
+	if got, _ := Get(cfg, "shell.login"); got != "false" {
+		t.Fatalf("shell.login = %s", got)
+	}
 }
 
 func TestApprovalTimeoutHardMax(t *testing.T) {
@@ -90,5 +105,12 @@ func TestApprovalTimeoutHardMax(t *testing.T) {
 	}
 	if err := Set(&cfg, "daemon.approval_timeout", "5m"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestShellDefaultRejectsUnsupportedPath(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "shell.default", "/usr/bin/pwsh"); err == nil {
+		t.Fatal("expected unsupported shell path error")
 	}
 }
