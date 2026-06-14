@@ -17,7 +17,6 @@
   - [T01 Persist pending UI state to SQLite (P0/M)](#t01-persist-pending-ui-state-to-sqlite-p0m)
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
-  - [T04 BotFather token shape pre-validation (P0/S)](#t04-botfather-token-shape-pre-validation-p0s)
   - [T05 Timeout the 2FA-ack loop (P0/S)](#t05-timeout-the-2fa-ack-loop-p0s)
   - [T06 Hard-fail with clear remediation when `onibi-notify` is missing (P0/S)](#t06-hard-fail-with-clear-remediation-when-onibi-notify-is-missing-p0s)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
@@ -233,7 +232,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T04 | BotFather token shape pre-validation | P0 | S | — |
 | T05 | Timeout the 2FA-ack loop | P0 | S | — |
 | T06 | Hard-fail with clear remediation when `onibi-notify` missing | P0 | S | — |
 | T07 | `onibi up` convenience command | P1 | M | T06 |
@@ -496,64 +494,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ---
 
 ## 6. Sprint 2 — onboarding cliff
-
-### T04 BotFather token shape pre-validation (P0/S)
-
-#### Motivation
-
-`internal/setup/wizard.go:244-276` `promptToken` accepts any non-empty string and immediately tries `getMe` via `telegram.New`. A typo in the pasted token costs a network round-trip and yields a generic API error. Add a shape check first.
-
-Telegram bot tokens have the format `<bot_id>:<35-char-base64-ish>`, e.g., `1234567890:AAFt...`. Specifically: digits (5–11), colon, then 35 characters from `[A-Za-z0-9_-]`. (Source: Telegram docs, BotFather sample tokens.)
-
-#### Files
-
-- `internal/setup/wizard.go:244-276` — `promptToken`.
-- New: a small validator helper, either inline or in `internal/setup/token.go`.
-
-#### Implementation
-
-```go
-// internal/setup/wizard.go (or new internal/setup/token.go)
-
-var botTokenShape = regexp.MustCompile(`^[0-9]{5,12}:[A-Za-z0-9_-]{30,}$`)
-
-// validateTokenShape returns nil if the token looks plausible. It does NOT
-// call getMe; that happens next in pairOnce.
-func validateTokenShape(token string) error {
-    if !botTokenShape.MatchString(token) {
-        return errors.New("token doesn't look like a BotFather token (expected digits:35-char-string)")
-    }
-    return nil
-}
-```
-
-In `promptToken`, after `token := strings.TrimSpace(line)` and the empty check:
-
-```go
-if err := validateTokenShape(token); err != nil {
-    return "", err
-}
-```
-
-Also add a one-line hint after the paste prompt:
-
-```
-fmt.Fprintln(io.Out, "   Format: 1234567890:AA... (digits, colon, 35+ chars)")
-```
-
-#### Validation
-
-**Tests** (`internal/setup/wizard_test.go` — already exists):
-
-- `TestValidateTokenShape`: table-driven with valid + invalid examples (empty, just digits, no colon, short tail, special chars).
-- `TestPromptTokenRejectsBadShape`: drive `promptToken` via `io.Reader`/`io.Writer` with a malformed token, assert it returns an error before any network call.
-
-#### Gotchas
-
-- Don't be over-strict; BotFather has used 35-char tails historically but the upper bound is undocumented. `[A-Za-z0-9_-]{30,}` is a forgiving lower bound.
-- `--token-stdin` mode (`internal/setup/wizard.go:245-253`) also calls `promptToken`. Make sure the shape check runs in both paths.
-
----
 
 ### T05 Timeout the 2FA-ack loop (P0/S)
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +44,8 @@ var newRotateConfirmClient = func(ctx context.Context, token string, handler tel
 		APIHandler: handler,
 	})
 }
+
+var botTokenShape = regexp.MustCompile(`^[0-9]{5,12}:[A-Za-z0-9_-]{30,}$`)
 
 // Flags configures wizard behavior.
 type Flags struct {
@@ -250,6 +253,9 @@ func promptToken(fromStdin bool, io IO) (string, error) {
 		if b == "" {
 			return "", errors.New("empty token on stdin")
 		}
+		if err := validateTokenShape(b); err != nil {
+			return "", err
+		}
 		return b, nil
 	}
 	suggested := suggestUsername()
@@ -261,6 +267,7 @@ func promptToken(fromStdin bool, io IO) (string, error) {
 	fmt.Fprintln(io.Out, "   Pick a display name and an unguessable username.")
 	fmt.Fprintf(io.Out, "   Suggested username: %s\n", suggested)
 	fmt.Fprintln(io.Out, "   Copy the token BotFather returns (looks like 1234567890:AA...).")
+	fmt.Fprintln(io.Out, "   Format: 1234567890:AA... (digits, colon, 35+ chars)")
 	fmt.Fprintln(io.Out, "")
 	fmt.Fprint(io.Out, "Paste token here: ")
 	br := bufio.NewReader(io.In)
@@ -272,7 +279,17 @@ func promptToken(fromStdin bool, io IO) (string, error) {
 	if token == "" {
 		return "", errors.New("empty token")
 	}
+	if err := validateTokenShape(token); err != nil {
+		return "", err
+	}
 	return token, nil
+}
+
+func validateTokenShape(token string) error {
+	if !botTokenShape.MatchString(token) {
+		return errors.New("token doesn't look like a BotFather token (expected digits:35-char-string)")
+	}
+	return nil
 }
 
 // pairOnce sets up a Telegram client, mints the pairing token, prints the

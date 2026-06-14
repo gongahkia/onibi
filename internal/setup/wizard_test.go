@@ -198,6 +198,53 @@ func TestRotateOwnerRequiresCurrentOwnerConfirmation(t *testing.T) {
 	}
 }
 
+func TestValidateTokenShape(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+		ok    bool
+	}{
+		{"valid35", "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", true},
+		{"validLong", "123456789012:AAAA_BBBB-CCCCDDDD11112222333344445555", true},
+		{"empty", "", false},
+		{"digitsOnly", "123456789", false},
+		{"noColon", "123456789AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false},
+		{"shortTail", "123456789:AAAA", false},
+		{"specialChars", "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!", false},
+		{"shortID", "1234:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTokenShape(tt.token)
+			if (err == nil) != tt.ok {
+				t.Fatalf("validateTokenShape(%q) err=%v ok=%v", tt.token, err, tt.ok)
+			}
+		})
+	}
+}
+
+func TestPromptTokenRejectsBadShape(t *testing.T) {
+	_, err := promptToken(false, IO{
+		In:  strings.NewReader("not-a-token\n"),
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "BotFather token") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPromptTokenStdinRejectsBadShape(t *testing.T) {
+	_, err := promptToken(true, IO{
+		In:  strings.NewReader("not-a-token\n"),
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "BotFather token") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 type oneByteReader struct {
 	r *strings.Reader
 }
