@@ -22,7 +22,6 @@
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
   - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
   - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
-  - [T18 Cross-platform peer-cred test in CI matrix (P2/M)](#t18-cross-platform-peer-cred-test-in-ci-matrix-p2m)
   - [T19 Structured `log --json` (P2/L)](#t19-structured-log---json-p2l)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
   - [T20 `docs/getting-started.md` (P0/S)](#t20-docsgetting-startedmd-p0s)
@@ -225,7 +224,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T07 | `onibi up` convenience command | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
-| T18 | Cross-platform peer-cred test in CI matrix | P2 | M | — |
 | T19 | Structured `log --json` | P2 | L | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
@@ -665,66 +663,6 @@ Hook block markers in `internal/adapters/shell/install.go` look like `# >>> onib
 
 - This breaks adapter-internal API. Update all 8 agent adapters + 3 shell adapters in one commit.
 - The DB schema likely needs a new column. Use the migration pattern in `internal/store/sqlite.go` (`addColumnIfMissing`-style, see line 178-192).
-
----
-
-### T18 Cross-platform peer-cred test in CI matrix (P2/M)
-
-#### Motivation
-
-`internal/intake/peercred_darwin.go` and `peercred_linux.go` implement same-UID peer-cred checks on the Unix socket. Test coverage for cross-UID rejection is unclear; CI matrix runs on both `ubuntu-latest` and `macos-latest` (`.github/workflows/ci.yml:18-19`) but tests don't appear to exercise rejection.
-
-#### Files
-
-- `internal/intake/server.go` — peer-cred enforcement.
-- `internal/intake/server_test.go` — current tests.
-- New test entries.
-
-#### Approach
-
-Same-UID test is straightforward and already (probably) exists. Cross-UID test requires either privilege escalation or careful socket impersonation. Two options:
-
-1. **Mock the peer-cred function**: add a package-private `peerCredFn` variable that defaults to the OS implementation but can be overridden in tests to simulate a different UID. Test that the server rejects when the mock returns a different UID.
-2. **Real cross-UID**: use a sudo-needing test that creates a second user. Skip on CI; require manual `sudo -E go test`.
-
-Pick **option 1**. Real cross-UID belongs in a manual e2e doc (`scripts/manual-e2e-peercred.md`).
-
-#### Implementation
-
-1. Refactor `peerCred(conn)` to be assigned as a package-private function variable:
-
-   ```go
-   // peercred_linux.go
-   var peerCred = peerCredLinux
-   func peerCredLinux(conn *net.UnixConn) (int, error) { … }
-   ```
-
-2. In the test:
-
-   ```go
-   func TestServerRejectsOtherUID(t *testing.T) {
-       orig := peerCred
-       peerCred = func(conn *net.UnixConn) (int, error) { return os.Getuid() + 1, nil }
-       defer func() { peerCred = orig }()
-
-       srv, sockPath := startTestServer(t)
-       defer srv.Stop()
-
-       _, err := intake.Send(sockPath, intake.Event{Type: intake.TypeAgentDone})
-       if err == nil { t.Fatal("expected rejection, got success") }
-   }
-   ```
-
-3. Add `os: macos-latest` to the matrix already in CI; the test should pass on both.
-
-#### Validation
-
-`go test -race -count=1 ./internal/intake/...` passes on both ubuntu-latest and macos-latest.
-
-#### Gotchas
-
-- macOS uses `LOCAL_PEERPID`/`LOCAL_PEEREPID` via `getsockopt`; Linux uses `SO_PEERCRED`. The mock approach sidesteps OS-specific quirks.
-- Don't break the existing same-UID happy-path test.
 
 ---
 

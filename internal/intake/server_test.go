@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -50,6 +51,62 @@ func TestServeAndReceive(t *testing.T) {
 	}
 	if ev.TS == 0 {
 		t.Fatal("expected server to fill TS")
+	}
+}
+
+func TestServeRejectsOtherUID(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "onibi.sock")
+
+	var calls atomic.Int32
+	srv := New(sock, func(context.Context, Event) error {
+		calls.Add(1)
+		return nil
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	readPeerUIDMu.RLock()
+	orig := readPeerUIDFunc
+	readPeerUIDMu.RUnlock()
+	defer func() {
+		cancel()
+		readPeerUIDMu.Lock()
+		readPeerUIDFunc = orig
+		readPeerUIDMu.Unlock()
+	}()
+
+	go func() { _ = srv.Serve(ctx) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if SocketActive(sock, 200*time.Millisecond) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !SocketActive(sock, 200*time.Millisecond) {
+		t.Fatal("server did not bind")
+	}
+
+	checked := make(chan struct{}, 1)
+	readPeerUIDMu.Lock()
+	readPeerUIDFunc = func(int) (uint32, error) {
+		select {
+		case checked <- struct{}{}:
+		default:
+		}
+		return uint32(syscall.Geteuid() + 1), nil
+	}
+	readPeerUIDMu.Unlock()
+
+	_ = Send(sock, Event{Type: TypeAgentDone, Session: "s1"})
+	select {
+	case <-checked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer uid check was not called")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Fatalf("expected peer rejection before handler, got %d calls", calls.Load())
 	}
 }
 

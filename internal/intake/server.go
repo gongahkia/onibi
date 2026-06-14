@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -28,6 +29,9 @@ type Handler func(context.Context, Event) error
 type ApprovalHandler func(context.Context, Event) (Response, error)
 
 type RPCHandler func(context.Context, Event) (Response, error)
+
+var readPeerUIDMu sync.RWMutex
+var readPeerUIDFunc = readPeerUID
 
 // Server listens on a Unix domain socket for JSON events from hooks.
 type Server struct {
@@ -231,7 +235,10 @@ func verifyPeerUID(c net.Conn) error {
 	var peerUID uint32
 	var inner error
 	err = raw.Control(func(fd uintptr) {
-		peerUID, inner = readPeerUID(int(fd))
+		readPeerUIDMu.RLock()
+		fn := readPeerUIDFunc
+		readPeerUIDMu.RUnlock()
+		peerUID, inner = fn(int(fd))
 	})
 	if err != nil {
 		return err
