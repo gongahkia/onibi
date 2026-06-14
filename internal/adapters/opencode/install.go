@@ -75,7 +75,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 		return info
 	}
 	info.InstalledVersion = common.VersionPtr(version)
-	info.Outdated = version != "" && version != common.IntegrationVersion
+	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "OpenCode plugin installed", "onibi install-hooks --agent opencode")
 	return info
 }

@@ -20,7 +20,6 @@
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
-  - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
   - [T20 `docs/getting-started.md` (P0/S)](#t20-docsgetting-startedmd-p0s)
   - [T21 `docs/architecture.md` (P0/S)](#t21-docsarchitecturemd-p0s)
@@ -220,7 +219,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
 | T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
@@ -569,51 +567,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ## 7. Sprint 3 — Telegram steady-state UX
 
 ## 8. Sprint 4 — engineering hardening
-
-### T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)
-
-#### Motivation
-
-Hook block markers in `internal/adapters/shell/install.go` look like `# >>> onibi managed shell hook` / `# <<< onibi managed shell hook` and a content hash. If a new release ships an improved hook body, every existing user's `doctor` will FAIL on hook tamper detection. Today the remediation is `onibi install-hooks --uninstall && onibi install-hooks`. We should auto-migrate on `doctor --fix`.
-
-#### Files
-
-- `internal/adapters/shell/install.go` — block markers + content.
-- `internal/adapters/common/` — hash record/verify.
-- `internal/doctor/fix.go` — `--fix` actions.
-
-#### Approach
-
-1. Add a content-version int (e.g., `# onibi-shell-hook v=2`) to the block header.
-2. At install time, record `(name, content_hash, version)` in the DB's `hooks` table.
-3. At `Verify()` time, distinguish three outcomes:
-   - **PASS**: content hash matches recorded hash.
-   - **OUTDATED**: hash differs but the new content's version matches a known-good newer version (the adapter knows the canonical body for vN+1). Status = WARN.
-   - **TAMPERED**: hash differs and content doesn't match any known version.
-4. In `doctor --fix`, if a hook is OUTDATED, re-install the new version automatically. If TAMPERED, refuse and tell the user to `install-hooks --uninstall` first (user may have edited the block manually).
-
-#### Implementation outline
-
-1. Add a `Version` field to `common.HookRecord` (read its source first; if it doesn't exist, add it).
-2. In each adapter's `Install()`, set the version constant.
-3. In `Verify()`, return a richer status struct `(ok bool, outdated bool, err error)`.
-4. In `doctor.go`'s `checkHooks`, map `outdated` to a new `StatusOutdated` (or reuse Warn).
-5. In `doctor/fix.go`, on `--fix`, call `adapter.Install(forceReinstall=true)` when `outdated`.
-
-#### Validation
-
-**Tests**:
-
-- `TestVerifyDetectsOutdatedHook`: install with version=1, simulate registry bumping to version=2, assert `Verify` returns outdated=true.
-- `TestDoctorFixUpgradesOutdated`: same setup; assert `--fix` reinstalls and `Verify` then returns ok.
-- `TestDoctorFixRefusesTampered`: tamper manually, assert `--fix` does not overwrite and reports a clear message.
-
-#### Gotchas
-
-- This breaks adapter-internal API. Update all 8 agent adapters + 3 shell adapters in one commit.
-- The DB schema likely needs a new column. Use the migration pattern in `internal/store/sqlite.go` (`addColumnIfMissing`-style, see line 178-192).
-
----
 
 ## 9. Sprint 5 — docs depth
 

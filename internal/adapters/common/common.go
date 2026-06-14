@@ -40,6 +40,14 @@ type Info struct {
 	Next             string
 }
 
+type HookRecord struct {
+	Agent       string
+	Path        string
+	SHA256      string
+	Version     string
+	InstalledAt int64
+}
+
 func VersionPtr(v string) *string {
 	if v == "" {
 		return nil
@@ -119,9 +127,9 @@ func WriteFile(path string, body []byte, mode os.FileMode) error {
 func Record(ctx context.Context, db *store.DB, agent, path string, body []byte) error {
 	sum := sha256.Sum256(body)
 	_, err := db.SQL().ExecContext(ctx,
-		`INSERT INTO hooks(agent, path, sha256, installed_at) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(agent, path) DO UPDATE SET sha256=excluded.sha256, installed_at=excluded.installed_at`,
-		agent, path, hex.EncodeToString(sum[:]), time.Now().Unix())
+		`INSERT INTO hooks(agent, path, sha256, version, installed_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(agent, path) DO UPDATE SET sha256=excluded.sha256, version=excluded.version, installed_at=excluded.installed_at`,
+		agent, path, hex.EncodeToString(sum[:]), IntegrationVersion, time.Now().Unix())
 	return err
 }
 
@@ -169,11 +177,6 @@ func ApplyManagedStatus(ctx context.Context, db *store.DB, info *Info, agent, pa
 	}
 	info.HashRecorded = recorded
 	info.Tampered = tampered
-	if info.Outdated {
-		info.Message = "managed, outdated; run " + next
-		info.Next = next
-		return
-	}
 	if !recorded {
 		info.Adoptable = true
 		info.Message = "managed, hash missing; run " + next + " to adopt"
@@ -182,6 +185,11 @@ func ApplyManagedStatus(ctx context.Context, db *store.DB, info *Info, agent, pa
 	}
 	if tampered {
 		info.Message = "managed, tampered; review " + path + " then run " + next
+		info.Next = next
+		return
+	}
+	if info.Outdated {
+		info.Message = "managed, outdated; run " + next
 		info.Next = next
 		return
 	}

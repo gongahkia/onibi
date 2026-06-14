@@ -57,6 +57,9 @@ func claudeStatus(ctx context.Context, db *store.DB) common.Info {
 		info.Message = err.Error()
 		return info
 	}
+	version := claude.InstalledVersion(path)
+	info.InstalledVersion = common.VersionPtr(version)
+	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, "claude", path, body, "Claude hooks installed", "onibi install-hooks --agent claude")
 	return info
 }

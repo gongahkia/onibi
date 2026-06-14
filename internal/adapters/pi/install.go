@@ -100,7 +100,7 @@ func statusFile(ctx context.Context, db *store.DB, path string) common.Info {
 		return info
 	}
 	info.InstalledVersion = common.VersionPtr(version)
-	info.Outdated = version != "" && version != common.IntegrationVersion
+	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Pi extension installed", "onibi install-hooks --agent pi")
 	return info
 }

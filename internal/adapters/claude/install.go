@@ -129,6 +129,23 @@ func ManagedBody(path string) ([]byte, error) {
 	return managedBody(stop, pre), nil
 }
 
+func InstalledVersion(path string) string {
+	existing, err := readJSON(path)
+	if err != nil {
+		return ""
+	}
+	for _, event := range []string{"Stop", "PreToolUse"} {
+		hook := extractEventHook(existing, event)
+		if hook == nil {
+			continue
+		}
+		if s, _ := hook[common.VersionField].(string); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 func managedBody(stop, pre map[string]any) []byte {
 	combined := struct {
 		Stop, PreToolUse map[string]any
@@ -179,8 +196,9 @@ func writeJSON(path string, m map[string]any) error {
 // Tagged with guardKey so we can locate the entry on re-install or remove.
 func buildStopHook(notifyBin string) map[string]any {
 	return map[string]any{
-		guardKey:  true,
-		"matcher": "",
+		guardKey:            true,
+		common.VersionField: common.IntegrationVersion,
+		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
@@ -201,8 +219,9 @@ func buildStopHook(notifyBin string) map[string]any {
 // so 360 (6min) gives slack for round-trip.
 func buildPreToolUseHook(notifyBin string) map[string]any {
 	return map[string]any{
-		guardKey:  true,
-		"matcher": "",
+		guardKey:            true,
+		common.VersionField: common.IntegrationVersion,
+		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",

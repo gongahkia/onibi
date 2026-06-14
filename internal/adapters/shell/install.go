@@ -84,7 +84,9 @@ func Status(ctx context.Context, db *store.DB, name string) common.Info {
 		}
 		return info
 	}
-	info.InstalledVersion = common.VersionPtr(installedVersion(src))
+	version := installedVersion(src)
+	info.InstalledVersion = common.VersionPtr(version)
+	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, agent, path, []byte(extractBlock(src, block)), name+" hook installed", "onibi install-hooks --shell "+name)
 	return info
 }

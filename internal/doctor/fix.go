@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
@@ -150,9 +154,38 @@ func (f *fixer) fixHookHashes() {
 		return
 	}
 	defer db.Close()
+	notifyBin := f.opts.NotifyBin
+	notify := func() (string, bool) {
+		if notifyBin != "" {
+			return notifyBin, true
+		}
+		var err error
+		notifyBin, err = locateNotifyBinary()
+		if err != nil {
+			f.err("locate onibi-notify", err)
+			return "", false
+		}
+		return notifyBin, true
+	}
 	for _, name := range adapters.Names() {
 		a, _ := adapters.Get(name)
 		info := a.Status(f.ctx, db)
+		if info.Tampered {
+			f.err("refuse "+name+" hook", fmt.Errorf("managed hook tampered; uninstall and reinstall manually"))
+			continue
+		}
+		if info.Outdated {
+			bin, ok := notify()
+			if !ok {
+				continue
+			}
+			if err := a.Install(f.ctx, db, bin); err != nil {
+				f.err("reinstall "+name+" hook", err)
+			} else {
+				f.add("reinstalled " + name + " hook")
+			}
+			continue
+		}
 		if info.Adoptable && !info.Tampered && a.Adopt != nil {
 			if err := a.Adopt(f.ctx, db); err != nil {
 				f.err("adopt "+name+" hook", err)
@@ -161,8 +194,28 @@ func (f *fixer) fixHookHashes() {
 			}
 		}
 	}
+	shellMinMS := int64(5000)
+	if cfg, _, err := config.Load(f.opts.Paths); err == nil {
+		shellMinMS = cfg.Shell.MinDuration.Std().Milliseconds()
+	}
 	for _, name := range adapters.ShellNames() {
 		info := adapters.ShellStatus(f.ctx, db, name)
+		if info.Tampered {
+			f.err("refuse shell "+name+" hook", fmt.Errorf("managed hook tampered; uninstall and reinstall manually"))
+			continue
+		}
+		if info.Outdated {
+			bin, ok := notify()
+			if !ok {
+				continue
+			}
+			if err := adapters.InstallShell(f.ctx, db, bin, name, shellMinMS); err != nil {
+				f.err("reinstall shell "+name+" hook", err)
+			} else {
+				f.add("reinstalled shell " + name + " hook")
+			}
+			continue
+		}
 		if info.Adoptable && !info.Tampered {
 			if err := adapters.AdoptShell(f.ctx, db, name); err != nil {
 				f.err("adopt shell "+name+" hook", err)
@@ -171,4 +224,23 @@ func (f *fixer) fixHookHashes() {
 			}
 		}
 	}
+}
+
+func locateNotifyBinary() (string, error) {
+	if env := strings.TrimSpace(os.Getenv("ONIBI_NOTIFY_BIN")); env != "" {
+		if filepath.IsAbs(env) {
+			return env, nil
+		}
+		return filepath.Abs(env)
+	}
+	if self, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(self), "onibi-notify")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	if p, err := exec.LookPath("onibi-notify"); err == nil {
+		return filepath.Abs(p)
+	}
+	return "", fmt.Errorf("onibi-notify binary not found")
 }

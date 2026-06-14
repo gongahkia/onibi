@@ -95,7 +95,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	}
 	version := installedVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
-	info.Outdated = version != "" && version != common.IntegrationVersion
+	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Goose lifecycle hooks installed", "onibi install-hooks --agent goose")
 	return info
 }

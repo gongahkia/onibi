@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS hooks (
   agent       TEXT NOT NULL,
   path        TEXT NOT NULL,
   sha256      TEXT NOT NULL,
+  version     TEXT,
   installed_at INTEGER NOT NULL,
   PRIMARY KEY (agent, path)
 );
@@ -153,6 +154,9 @@ func (d *DB) migrate() error {
 		return fmt.Errorf("apply schema v1: %w", err)
 	}
 	if err := d.ensureColumn(ctx, "sessions", "cmd", "TEXT"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "hooks", "version", "TEXT"); err != nil {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")

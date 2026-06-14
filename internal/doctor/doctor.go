@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
@@ -59,6 +60,7 @@ type Options struct {
 	Service      *service.Manager
 	PreferDotenv bool
 	Mode         string
+	NotifyBin    string
 }
 
 // Run performs local integrity checks and optional live Telegram checks.
@@ -136,6 +138,8 @@ func nextAction(name, detail string, st Status) (string, bool) {
 		return "onibi doctor --fix", true
 	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "tampered"):
 		return "review hook file, then run onibi install-hooks --interactive", false
+	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "outdated"):
+		return "onibi doctor --fix", true
 	case strings.HasPrefix(name, "hook "):
 		return "onibi install-hooks --interactive", false
 	case name == "totp":
@@ -366,19 +370,11 @@ func (r *runner) checkHooks() {
 		seen[agent] = true
 		if strings.HasPrefix(agent, "shell:") {
 			name := strings.TrimPrefix(agent, "shell:")
-			if err := adapters.VerifyShell(r.ctx, r.db, name); err != nil {
-				r.add("hook "+agent, Fail, err.Error())
-			} else {
-				r.add("hook "+agent, Pass, path)
-			}
+			r.addRecordedHookStatus(agent, path, adapters.ShellStatus(r.ctx, r.db, name))
 			continue
 		}
 		if a, ok := adapters.Get(agent); ok {
-			if err := a.Verify(r.ctx, r.db); err != nil {
-				r.add("hook "+agent, Fail, err.Error())
-			} else {
-				r.add("hook "+agent, Pass, path)
-			}
+			r.addRecordedHookStatus(agent, path, a.Status(r.ctx, r.db))
 			continue
 		}
 		r.add("hook "+agent, Warn, "no verifier implemented for "+path)
@@ -421,6 +417,28 @@ func (r *runner) checkHooks() {
 	}
 	if rows, err := r.db.PromptList(r.ctx, "", false, 1000); err == nil {
 		r.add("prompt queue", Pass, fmt.Sprintf("%d queued", len(rows)))
+	}
+}
+
+func (r *runner) addRecordedHookStatus(agent, path string, info common.Info) {
+	detail := info.Message
+	if detail == "" {
+		detail = path
+	}
+	switch {
+	case !info.Installed || !info.Managed:
+		r.add("hook "+agent, Fail, detail)
+	case info.Tampered:
+		r.add("hook "+agent, Fail, detail)
+	case !info.HashRecorded:
+		r.add("hook "+agent, Fail, detail)
+	case info.Outdated:
+		r.add("hook "+agent, Warn, detail)
+	default:
+		if info.InstallPath != "" {
+			detail = info.InstallPath
+		}
+		r.add("hook "+agent, Pass, detail)
 	}
 }
 
