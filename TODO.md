@@ -17,7 +17,6 @@
   - [T01 Persist pending UI state to SQLite (P0/M)](#t01-persist-pending-ui-state-to-sqlite-p0m)
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
-  - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
@@ -218,7 +217,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T07 | `onibi up` convenience command | P1 | M | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
 | T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
@@ -466,103 +464,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ---
 
 ## 6. Sprint 2 — onboarding cliff
-
-### T07 `onibi up` convenience command (P1/M)
-
-#### Motivation
-
-The current happy-path is `onibi setup --complete` for first-time, `onibi run claude` or `onibi install-service` for steady-state. New users don't know which to run. Add one command that does the right thing.
-
-#### Files
-
-- `internal/cli/root.go` — register new command.
-- `internal/cli/stubs.go` — add factory.
-- New: `internal/cli/up.go`.
-- `internal/auth/owner.go` — `IsOwnerSet` (existing) tells us if paired.
-
-#### Implementation
-
-```go
-// internal/cli/up.go
-package cli
-
-import (
-    "context"
-    "fmt"
-    "github.com/spf13/cobra"
-
-    "github.com/gongahkia/onibi/internal/auth"
-    "github.com/gongahkia/onibi/internal/config"
-    "github.com/gongahkia/onibi/internal/doctor"
-    "github.com/gongahkia/onibi/internal/store"
-)
-
-func upCmd() *cobra.Command {
-    return &cobra.Command{
-        Use:   "up",
-        Short: "Bring Onibi up: setup if unpaired, otherwise service + doctor",
-        RunE:  runUp,
-    }
-}
-
-func runUp(cmd *cobra.Command, _ []string) error {
-    paths, err := config.DefaultPaths()
-    if err != nil { return err }
-    if err := paths.EnsureDirs(); err != nil { return err }
-    db, err := store.Open(paths.DBFile)
-    if err != nil { return err }
-    defer db.Close()
-
-    ownerSet, err := auth.IsOwnerSet(cmd.Context(), db)
-    if err != nil { return err }
-    if !ownerSet {
-        fmt.Fprintln(cmd.OutOrStdout(), "Not paired yet — running setup --complete.")
-        // delegate
-        cmd.Flags().Set("complete", "true")
-        return runSetup(cmd, nil)
-    }
-    fmt.Fprintln(cmd.OutOrStdout(), "Already paired — installing service and running doctor.")
-    if err := runInstallService(cmd, nil); err != nil { return err }
-    report := doctor.Run(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
-    for _, c := range report.Checks {
-        fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
-    }
-    if report.Failed() {
-        return fmt.Errorf("doctor failed: see output above")
-    }
-    return nil
-}
-```
-
-Register in `root.go`:
-
-```go
-root.AddCommand(upCmd())
-```
-
-Add factory to `stubs.go` (alongside the other `*Cmd` functions).
-
-Update README quick-start: change the lead-in to `onibi up` instead of `onibi setup --complete`. Mention `onibi setup --complete` as the explicit alternative.
-
-#### Validation
-
-**Tests** (`internal/cli/up_test.go`, new):
-
-- `TestUpRunsSetupWhenUnpaired`: empty DB + mock setup → runSetup is invoked.
-- `TestUpInstallsServiceWhenPaired`: pre-populate owner, mock service manager → install path runs.
-
-**Manual e2e**:
-
-1. Fresh state dir: `rm -rf ~/Library/Application\ Support/onibi/` (macOS) or `rm -rf ~/.local/share/onibi/` (Linux).
-2. `onibi up` → drops into setup-complete flow.
-3. After pairing, re-run `onibi up` → installs service + runs doctor.
-
-#### Gotchas
-
-- Reusing `cmd.Flags().Set("complete", "true")` works only if `runSetup` reads `complete` from `cmd.Flags()`, which it does (`internal/cli/setup.go:29`). If you'd rather not couple, refactor `runSetup` to accept an options struct.
-- Don't reset the user's preferences (`encrypted-mode`, etc.). `onibi up` only handles the always-on path.
-
----
 
 ## 7. Sprint 3 — Telegram steady-state UX
 

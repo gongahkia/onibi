@@ -42,7 +42,7 @@ Install from source:
 git clone https://github.com/gongahkia/onibi
 cd onibi
 make install
-onibi setup --complete
+onibi up
 ```
 
 Check local health:
@@ -70,10 +70,10 @@ Release install path after the Homebrew tap is published:
 
 ```bash
 brew install --cask gongahkia/onibi/onibi
-onibi setup --complete
+onibi up
 ```
 
-`setup --complete` pairs your Telegram bot, stores the token in Keychain when available, offers service install, offers detected agent hooks, and ends with `onibi doctor`.
+`onibi up` runs `setup --complete` when the machine is not paired yet. After pairing, it installs the background service and runs `onibi doctor`. Use `onibi setup --complete` directly when you want the explicit setup flow.
 
 ## What Onibi Does
 
@@ -117,6 +117,7 @@ See [`docs/encrypted-mode.md`](./docs/encrypted-mode.md) for the full security m
 CLI:
 
 - `onibi setup --complete`
+- `onibi up`
 - `onibi doctor`
 - `onibi adapters`
 - `onibi run <agent>`
@@ -257,7 +258,8 @@ flowchart TD
 The normal mode is a user-level daemon with a local Unix socket and Telegram outbound traffic:
 
 ```bash
-onibi setup --complete
+onibi up
+# explicit alternative: onibi setup --complete
 onibi install-service
 onibi doctor
 ```
