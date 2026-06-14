@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/png"
 	"testing"
 
@@ -37,6 +38,24 @@ func TestRenderPNGSupports256ColorSGR(t *testing.T) {
 	}
 	if countRed(img) == 0 {
 		t.Fatal("expected red glyph pixels")
+	}
+}
+
+func TestRenderPNGDrawsActiveBorder(t *testing.T) {
+	out, err := RenderPNG([]byte("ok"), PNGOptions{Rows: 2, Cols: 4, Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := img.Bounds()
+	if !sameColor(img.At(b.Min.X, b.Min.Y), activeBorder) {
+		t.Fatalf("top-left border = %#v", img.At(b.Min.X, b.Min.Y))
+	}
+	if !sameColor(img.At(b.Max.X-1, b.Max.Y-1), activeBorder) {
+		t.Fatalf("bottom-right border = %#v", img.At(b.Max.X-1, b.Max.Y-1))
 	}
 }
 
@@ -97,6 +116,11 @@ func countRed(img image.Image) int {
 		}
 	}
 	return n
+}
+
+func sameColor(got color.Color, want color.RGBA) bool {
+	r, g, b, a := got.RGBA()
+	return uint8(r>>8) == want.R && uint8(g>>8) == want.G && uint8(b>>8) == want.B && uint8(a>>8) == want.A
 }
 
 func rowText(v *vt100.VT100, y int) string {

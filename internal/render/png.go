@@ -297,7 +297,24 @@ func drawTerminal(v *vt100.VT100) *image.RGBA {
 			d.DrawString(string(r))
 		}
 	}
+	drawActiveBorder(img)
 	return img
+}
+
+func drawActiveBorder(img *image.RGBA) {
+	b := img.Bounds()
+	drawBox(img, b, 2, activeBorder)
+	drawBox(img, b.Inset(4), 1, activeBorderInner)
+}
+
+func drawBox(img *image.RGBA, b image.Rectangle, width int, c color.RGBA) {
+	if width <= 0 || b.Empty() {
+		return
+	}
+	draw.Draw(img, image.Rect(b.Min.X, b.Min.Y, b.Max.X, b.Min.Y+width), &image.Uniform{C: c}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(b.Min.X, b.Max.Y-width, b.Max.X, b.Max.Y), &image.Uniform{C: c}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(b.Min.X, b.Min.Y, b.Min.X+width, b.Max.Y), &image.Uniform{C: c}, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(b.Max.X-width, b.Min.Y, b.Max.X, b.Max.Y), &image.Uniform{C: c}, image.Point{}, draw.Src)
 }
 
 func scaleNearest(src *image.RGBA, scale int) *image.RGBA {
@@ -314,9 +331,11 @@ func scaleNearest(src *image.RGBA, scale int) *image.RGBA {
 }
 
 var (
-	defaultFG = color.RGBA{R: 230, G: 230, B: 230, A: 255}
-	defaultBG = color.RGBA{R: 12, G: 14, B: 18, A: 255}
-	ansi16    = []color.RGBA{
+	defaultFG         = color.RGBA{R: 230, G: 230, B: 230, A: 255}
+	defaultBG         = color.RGBA{R: 12, G: 14, B: 18, A: 255}
+	activeBorder      = color.RGBA{R: 156, G: 255, B: 184, A: 255}
+	activeBorderInner = color.RGBA{R: 50, G: 110, B: 74, A: 255}
+	ansi16            = []color.RGBA{
 		{R: 0, G: 0, B: 0, A: 255},
 		{R: 205, G: 49, B: 49, A: 255},
 		{R: 13, G: 188, B: 121, A: 255},
