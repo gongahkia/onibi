@@ -5,19 +5,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gongahkia/onibi/internal/daemon"
 )
 
 func TestReadmeTelegramCommandsMatchHelpText(t *testing.T) {
 	root := filepath.Join("..", "..")
-	commands, err := readHelpCommands(filepath.Join(root, "internal", "daemon", "commands.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := generatedBlock(commands)
+	block := generatedBlock(daemon.TelegramCommandLinesForReadme())
 	if !strings.Contains(string(readme), block) {
 		t.Fatal("README Telegram command block is stale")
 	}

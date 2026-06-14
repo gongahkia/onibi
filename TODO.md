@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T14 In-bot per-command help — `/help <cmd>` (P1/M)](#t14-in-bot-per-command-help--help-cmd-p1m)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
   - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
   - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
@@ -225,7 +224,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T14 | In-bot per-command help — `/help <cmd>` | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
 | T17 | Prune legacy logo assets | P1 | S | — |
@@ -577,103 +575,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ---
 
 ## 7. Sprint 3 — Telegram steady-state UX
-
-### T14 In-bot per-command help — `/help <cmd>` (P1/M)
-
-#### Motivation
-
-`/help` dumps a 24-line list of commands and their one-liners. Owners on phone reading on small screens can't scroll back easily. `/help <cmd>` should give detailed usage for one command.
-
-Build on the generated README command metadata path.
-
-#### Files
-
-- `internal/daemon/commands.go:191-218` — `helpText()`.
-- Eventually: a slice of `Command{Name, Short, Detail, Args, Examples}` to render help text.
-
-#### Implementation
-
-Refactor `helpText()` to read from a slice:
-
-```go
-type telegramCommand struct {
-    Name     string  // e.g. "/prompt"
-    Short    string  // one-line summary, used in /help
-    Detail   string  // multi-line detail, used in /help <name>
-    Args     string  // e.g. "<text>"
-    Examples []string
-}
-
-var telegramCommands = []telegramCommand{
-    {Name: "/sessions", Short: "list active sessions"},
-    {Name: "/status", Short: "show daemon status"},
-    // …
-    {Name: "/prompt", Args: "<text>",
-        Short: "queue a prompt",
-        Detail: "Queues a prompt to the default target session. If no default is set and multiple sessions are live, you'll see a target picker. The prompt is dispatched after the next agent_done signal.",
-        Examples: []string{"/prompt write tests for the new field"},
-    },
-    // …
-}
-
-func helpText() string {
-    var b strings.Builder
-    b.WriteString("Onibi commands:\n")
-    for _, c := range telegramCommands {
-        b.WriteString(c.Name)
-        if c.Args != "" { b.WriteString(" " + c.Args) }
-        b.WriteString(" - " + c.Short + "\n")
-    }
-    return strings.TrimRight(b.String(), "\n")
-}
-
-func helpDetail(name string) string {
-    for _, c := range telegramCommands {
-        if c.Name == name {
-            out := c.Name
-            if c.Args != "" { out += " " + c.Args }
-            out += "\n\n" + c.Detail
-            if len(c.Examples) > 0 {
-                out += "\n\nExamples:\n"
-                for _, e := range c.Examples { out += "  " + e + "\n" }
-            }
-            return out
-        }
-    }
-    return "No such command. Try /help"
-}
-```
-
-Then in `handleTextCommand`:
-
-```go
-case "/help":
-    if strings.TrimSpace(arg) == "" {
-        sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpText()})
-    } else {
-        name := strings.TrimSpace(arg)
-        if !strings.HasPrefix(name, "/") { name = "/" + name }
-        sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpDetail(name)})
-    }
-    return true
-```
-
-Wire this into the README generator: each command in the table can include `Short` and a link out to `docs/telegram-commands.md` per-command anchors.
-
-#### Validation
-
-**Tests** (`internal/daemon/commands_test.go`):
-
-- `TestHelpDetailKnown`: assert `helpDetail("/prompt")` contains "default target session".
-- `TestHelpDetailUnknown`: assert `helpDetail("/foo")` contains "No such command".
-
-**Manual**: `/help prompt` or `/help /prompt` in the bot.
-
-#### Gotchas
-
-- Don't break the existing `/help` (no arg) behavior; some tests likely assert on the body.
-
----
 
 ## 8. Sprint 4 — engineering hardening
 

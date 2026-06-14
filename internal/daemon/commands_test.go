@@ -62,6 +62,42 @@ func TestStartCommandIgnoresPairPayload(t *testing.T) {
 	}
 }
 
+func TestHelpDetailKnown(t *testing.T) {
+	got := helpDetail("/prompt")
+	if !strings.Contains(got, "/prompt <text>") || !strings.Contains(got, "default target session") {
+		t.Fatalf("detail = %q", got)
+	}
+}
+
+func TestHelpDetailKnownWithoutSlash(t *testing.T) {
+	got := helpDetail("prompt")
+	if !strings.Contains(got, "/prompt <text>") || !strings.Contains(got, "default target session") {
+		t.Fatalf("detail = %q", got)
+	}
+}
+
+func TestHelpDetailUnknown(t *testing.T) {
+	if got := helpDetail("/foo"); !strings.Contains(got, "No such command") {
+		t.Fatalf("detail = %q", got)
+	}
+}
+
+func TestHelpCommandWithArg(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/help prompt",
+	}) {
+		t.Fatal("command not handled")
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/prompt <text>") || !strings.Contains(sent[0].Text, "default target session") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
 func TestRenderOverrideAmbiguousWithoutTarget(t *testing.T) {
 	d := newApprovalDaemon(t)
 	_ = d.Registry.Add(NewSession("a", "one", "claude", nil, 1024))

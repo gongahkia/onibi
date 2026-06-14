@@ -29,7 +29,11 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	case "/status":
 		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "status", "Onibi status", d.statusText(ctx))
 	case "/help":
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpText()})
+		if strings.TrimSpace(arg) == "" {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpText()})
+		} else {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpDetail(arg)})
+		}
 	case "/secure":
 		d.sendSecureRequired(ctx, api, m.Chat.ID)
 	case "/text":
@@ -196,32 +200,92 @@ func (d *Daemon) statusText(ctx context.Context) string {
 }
 
 func helpText() string {
-	return strings.Join([]string{
-		"Onibi commands:",
-		"/sessions - list active sessions",
-		"/status - show daemon status",
-		"/secure - open encrypted controls",
-		"/target <id|name> - set default session",
-		"/new <agent> [args...] - start an agent session",
-		"/queue [id|name] - list queued prompts",
-		"/prompt <text> - queue a prompt",
-		"/send <text> - send text, including leading /",
-		"/editprompt <id> <text> - edit a queued prompt",
-		"/cancelprompt <id> - cancel a queued prompt",
-		"/moveprompt <id> <position> - reorder queued prompts",
-		"/flushqueue [id|name] - cancel queued prompts",
-		"/peek <id|name> - send session preview",
-		"/interrupt <id|name> - send Ctrl-C",
-		"/kill <id|name> - terminate session",
-		"/rename <id|name> <name> - rename session",
-		"/menu - show session actions",
-		"/snooze [duration|agent [duration]] - pause non-approval notifications",
-		"/unsnooze [agent] - resume notifications",
-		"/log [n] - show recent audit entries",
-		"/text <id|name> - force text output",
-		"/screenshot <id|name> - force screenshots",
-		"/help - show this help",
-	}, "\n")
+	return "Onibi commands:\n" + strings.Join(TelegramCommandLinesForReadme(), "\n")
+}
+
+type telegramCommand struct {
+	Name     string
+	Args     string
+	Short    string
+	Detail   string
+	Examples []string
+}
+
+var telegramCommands = []telegramCommand{
+	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent and shell sessions, including session ids, names, agent type, age, and command."},
+	{Name: "/status", Short: "show daemon status", Detail: "Shows daemon uptime, active session count, pending approval count, queued prompt count, and current sessions."},
+	{Name: "/secure", Short: "open encrypted controls", Detail: "Opens the encrypted Mini App controls. Use this for prompt entry and approval decisions when encrypted mode is on."},
+	{Name: "/target", Args: "<id|name>", Short: "set default session", Detail: "Sets the default session for this chat. Without an argument, shows the current default target.", Examples: []string{"/target claude", "/target abc123"}},
+	{Name: "/new", Args: "<agent> [args...]", Short: "start an agent session", Detail: "Starts a new local agent session and routes future prompts to it.", Examples: []string{"/new claude", "/new codex -- --model gpt-5-codex"}},
+	{Name: "/queue", Args: "[id|name]", Short: "list queued prompts", Detail: "Lists queued prompts for a session, or all sessions when no target is supplied."},
+	{Name: "/prompt", Args: "<text>", Short: "queue a prompt", Detail: "Queues a prompt to the default target session. If no default is set and multiple sessions are live, a target picker is shown. The prompt is dispatched after the next agent_done signal.", Examples: []string{"/prompt write tests for the new field"}},
+	{Name: "/send", Args: "<text>", Short: "send text, including leading /", Detail: "Sends text directly to the target session. Use this when the text itself starts with a slash.", Examples: []string{"/send /help", "//help"}},
+	{Name: "/editprompt", Args: "<id> <text>", Short: "edit a queued prompt", Detail: "Replaces the text of a queued prompt. Sent or cancelled prompts cannot be edited."},
+	{Name: "/cancelprompt", Args: "<id>", Short: "cancel a queued prompt", Detail: "Cancels a queued prompt by id."},
+	{Name: "/moveprompt", Args: "<id> <position>", Short: "reorder queued prompts", Detail: "Moves a queued prompt to a new queue position."},
+	{Name: "/flushqueue", Args: "[id|name]", Short: "cancel queued prompts", Detail: "Cancels queued prompts for a session, or all queued prompts when no target is supplied."},
+	{Name: "/peek", Args: "<id|name>", Short: "send session preview", Detail: "Sends a current preview of the target session output using the configured render mode."},
+	{Name: "/interrupt", Args: "<id|name>", Short: "send Ctrl-C", Detail: "Sends Ctrl-C to the target session and marks it idle. TOTP is required when configured."},
+	{Name: "/kill", Args: "<id|name>", Short: "terminate session", Detail: "Terminates the target session and marks it ended. TOTP is required when configured."},
+	{Name: "/rename", Args: "<id|name> <name>", Short: "rename session", Detail: "Renames a live session. In encrypted mode, plaintext rename with a new name is refused; use /secure."},
+	{Name: "/menu", Short: "show session actions", Detail: "Shows inline action buttons for live sessions."},
+	{Name: "/snooze", Args: "[duration|agent [duration]]", Short: "pause non-approval notifications", Detail: "Pauses non-approval notifications globally or for one agent. Approvals still notify.", Examples: []string{"/snooze 1h", "/snooze claude 30m"}},
+	{Name: "/unsnooze", Args: "[agent]", Short: "resume notifications", Detail: "Resumes snoozed notifications globally or for one agent."},
+	{Name: "/log", Args: "[n]", Short: "show recent audit entries", Detail: "Shows recent local audit entries. n defaults to the daemon's configured limit."},
+	{Name: "/text", Args: "<id|name>", Short: "force text output", Detail: "Forces future previews for the target session to use text output."},
+	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output."},
+	{Name: "/help", Short: "show this help", Detail: "Shows the command list. Use /help <command> for detailed help.", Examples: []string{"/help prompt", "/help /kill"}},
+}
+
+func TelegramCommandLinesForReadme() []string {
+	lines := make([]string, 0, len(telegramCommands))
+	for _, c := range telegramCommands {
+		lines = append(lines, c.line())
+	}
+	return lines
+}
+
+func helpDetail(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return helpText()
+	}
+	if !strings.HasPrefix(name, "/") {
+		name = "/" + name
+	}
+	for _, c := range telegramCommands {
+		if c.Name != name {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString(c.usage())
+		b.WriteString("\n\n")
+		if c.Detail != "" {
+			b.WriteString(c.Detail)
+		} else {
+			b.WriteString(c.Short)
+		}
+		if len(c.Examples) > 0 {
+			b.WriteString("\n\nExamples:")
+			for _, e := range c.Examples {
+				b.WriteString("\n  ")
+				b.WriteString(e)
+			}
+		}
+		return b.String()
+	}
+	return "No such command. Try /help"
+}
+
+func (c telegramCommand) usage() string {
+	if c.Args == "" {
+		return c.Name
+	}
+	return c.Name + " " + c.Args
+}
+
+func (c telegramCommand) line() string {
+	return c.usage() + " - " + c.Short
 }
 
 func (d *Daemon) handleSendCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
