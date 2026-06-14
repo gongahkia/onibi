@@ -10,13 +10,13 @@ import (
 
 // AuditEntry is the typed read shape; writes use AuditAppend.
 type AuditEntry struct {
-	ID            int64
-	TS            time.Time
-	Action        string
-	SessionID     string
-	PayloadHash   string
-	DecidedByChat int64
-	Detail        string
+	ID            int64     `json:"id"`
+	TS            time.Time `json:"ts"`
+	Action        string    `json:"action"`
+	SessionID     string    `json:"session_id"`
+	PayloadHash   string    `json:"payload_hash"`
+	DecidedByChat int64     `json:"decided_by_chat"`
+	Detail        string    `json:"detail"`
 }
 
 // AuditAppend writes a single audit row. Never blocks user-facing flow;

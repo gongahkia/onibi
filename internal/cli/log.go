@@ -16,6 +16,7 @@ import (
 func runLog(cmd *cobra.Command, _ []string) error {
 	n, _ := cmd.Flags().GetInt("n")
 	exportPath, _ := cmd.Flags().GetString("export")
+	jsonOut, _ := cmd.Flags().GetBool("json")
 	db, err := openDefaultDB()
 	if err != nil {
 		return err
@@ -33,7 +34,19 @@ func runLog(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if len(entries) == 0 {
+		if jsonOut {
+			return nil
+		}
 		cmd.Println("audit log empty")
+		return nil
+	}
+	if jsonOut {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		for _, e := range entries {
+			if err := enc.Encode(e); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

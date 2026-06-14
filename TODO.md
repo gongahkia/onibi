@@ -22,7 +22,6 @@
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
   - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
   - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
-  - [T19 Structured `log --json` (P2/L)](#t19-structured-log---json-p2l)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
   - [T20 `docs/getting-started.md` (P0/S)](#t20-docsgetting-startedmd-p0s)
   - [T21 `docs/architecture.md` (P0/S)](#t21-docsarchitecturemd-p0s)
@@ -224,7 +223,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T07 | `onibi up` convenience command | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
-| T19 | Structured `log --json` | P2 | L | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
 | T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
@@ -663,44 +661,6 @@ Hook block markers in `internal/adapters/shell/install.go` look like `# >>> onib
 
 - This breaks adapter-internal API. Update all 8 agent adapters + 3 shell adapters in one commit.
 - The DB schema likely needs a new column. Use the migration pattern in `internal/store/sqlite.go` (`addColumnIfMissing`-style, see line 178-192).
-
----
-
-### T19 Structured `log --json` (P2/L)
-
-#### Motivation
-
-`onibi log` prints free-form audit text. For users piping into `jq` or external SIEMs, structured output is more useful. The schema already exists in SQLite (`audit_log(ts, action, session_id, payload, decided_by_chat_id, detail)`); just emit it.
-
-#### Files
-
-- `internal/cli/log.go` — `runLog`.
-- `internal/store/audit.go` — audit query.
-
-#### Implementation
-
-Add a `--json` flag:
-
-```go
-cmd.Flags().Bool("json", false, "emit one audit entry per line as JSON")
-```
-
-In `runLog`, when `--json`:
-
-```go
-enc := json.NewEncoder(cmd.OutOrStdout())
-for _, e := range entries {
-    _ = enc.Encode(e)
-}
-```
-
-Make sure `store.AuditEntry` has json tags on every field.
-
-For `--export`, the current behavior writes csv/json by extension; verify that path is unaffected.
-
-#### Validation
-
-`onibi log --json --n 5 | jq '.action'` returns 5 action strings.
 
 ---
 
