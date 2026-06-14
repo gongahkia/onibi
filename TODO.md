@@ -20,7 +20,6 @@
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
-  - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
   - [T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)](#t16-versioned-shell-hook-blocks--auto-reinstall-on-doctor---fix-p1m)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
   - [T20 `docs/getting-started.md` (P0/S)](#t20-docsgetting-startedmd-p0s)
@@ -221,7 +220,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
 | T20 | `docs/getting-started.md` | P0 | S | — |
 | T21 | `docs/architecture.md` | P0 | S | — |
@@ -571,53 +569,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ## 7. Sprint 3 — Telegram steady-state UX
 
 ## 8. Sprint 4 — engineering hardening
-
-### T15 MCP server test coverage (P1/M)
-
-#### Motivation
-
-`internal/mcpserver/` has one test (`internal/cli/mcp_stdio_test.go`). The MCP server is the external contract surface for any MCP-capable agent (Claude SDK, Codex MCP, Cursor MCP). 5 tools, each with a JSON schema, error semantics, and daemon-required vs daemon-optional invariants.
-
-#### Files
-
-- `internal/mcpserver/server.go` — implementation.
-- `internal/mcpserver/server_test.go` — new file.
-
-#### Approach
-
-Use the mcp-go library's testing helpers if available; otherwise drive the stdio transport via `bytes.Buffer` for input and capture output.
-
-Each test should:
-
-1. Boot a daemon with a mock bot and a temp socket.
-2. Start the MCP server pointing at that socket.
-3. Call each tool through the MCP protocol.
-4. Assert on the response shape and side effects.
-
-Test list:
-
-- `TestNotifyToolDelivers`: call `onibi_notify` with `{session,text}`; assert intake server received the event; assert response `{ok: true}`.
-- `TestNotifyToolDaemonDown`: stop intake server; assert response `{ok: false}`.
-- `TestApprovalRequestTimeout`: call `onibi_approval_request` with `timeout_seconds=1`; don't decide; assert response `{decision: "cancelled"}` after timeout.
-- `TestApprovalRequestApprove`: call tool; in parallel, decide via `Queue.DecideWithResult`; assert response `{decision: "approve"}`.
-- `TestApprovalRequestInvalidJSON`: call with malformed `input_json`; assert validation error.
-- `TestSessionListReadsDB`: pre-populate sessions table; call `onibi_session_list`; assert all sessions returned.
-- `TestSessionListWithoutDaemon`: stop daemon but keep DB; call tool; assert it still works (it should — `session_list` reads the DB directly per audit).
-- `TestSessionInputDispatches`: spawn a session, call `onibi_session_input`; assert PTY received text.
-- `TestSessionPeekReturnsTail`: write to PTY ring buffer, call `onibi_session_peek`; assert response contains tail.
-
-Use `testify` only if already in `go.sum`; otherwise use stdlib testing.
-
-#### Validation
-
-`go test -race -count=1 ./internal/mcpserver/...` passes with all new tests.
-
-#### Gotchas
-
-- The MCP server uses jsonschema tags for input/output (per audit). Test that schema generation matches expected JSON-Schema for each tool — there may be an existing `t.Run("schema", ...)` pattern in mcp-go test helpers.
-- Owner-uid check via socket peer-cred is hard to test cross-platform. Skip in CI (`testing.Short()`); cover in T18.
-
----
 
 ### T16 Versioned shell hook blocks + auto-reinstall on `doctor --fix` (P1/M)
 
