@@ -36,6 +36,7 @@ type Host struct {
 type SpawnOptions struct {
 	Name string   // executable name (e.g. "claude")
 	Args []string // CLI args
+	Argv0 string  // optional argv[0] override for login-shell emulation
 	Env  []string // KEY=VALUE env entries (in addition to os.Environ unless ReplaceEnv)
 	Dir  string   // optional cwd
 	Rows uint16
@@ -58,6 +59,9 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, opts.Name, opts.Args...)
+	if opts.Argv0 != "" {
+		cmd.Args[0] = opts.Argv0
+	}
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
 	}
