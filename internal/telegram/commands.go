@@ -15,6 +15,7 @@ func BotCommands() []models.BotCommand {
 		{Command: "new", Description: "start an agent session"},
 		{Command: "queue", Description: "show queued prompts"},
 		{Command: "prompt", Description: "queue a prompt"},
+		{Command: "send", Description: "send text to session"},
 		{Command: "editprompt", Description: "edit a queued prompt"},
 		{Command: "cancelprompt", Description: "cancel a queued prompt"},
 		{Command: "moveprompt", Description: "reorder queued prompts"},

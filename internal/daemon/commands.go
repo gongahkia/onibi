@@ -46,6 +46,12 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 			return true
 		}
 		d.handlePromptCommand(ctx, api, m.Chat.ID, arg)
+	case "/send":
+		if d.encryptedModeEnabled() {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return true
+		}
+		d.handleSendCommand(ctx, api, m.Chat.ID, arg)
 	case "/editprompt":
 		if d.encryptedModeEnabled() {
 			d.sendSecureRequired(ctx, api, m.Chat.ID)
@@ -192,6 +198,7 @@ func helpText() string {
 		"/new <agent> [args...] - start an agent session",
 		"/queue [id|name] - list queued prompts",
 		"/prompt <text> - queue a prompt",
+		"/send <text> - send text, including leading /",
 		"/editprompt <id> <text> - edit a queued prompt",
 		"/cancelprompt <id> - cancel a queued prompt",
 		"/moveprompt <id> <position> - reorder queued prompts",
@@ -208,6 +215,14 @@ func helpText() string {
 		"/screenshot <id|name> - force screenshots",
 		"/help - show this help",
 	}, "\n")
+}
+
+func (d *Daemon) handleSendCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	if strings.TrimSpace(arg) == "" {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /send <text>"})
+		return
+	}
+	_ = d.injectTelegramText(ctx, api, chatID, "", arg)
 }
 
 func (d *Daemon) handleTargetCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {

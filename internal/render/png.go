@@ -114,7 +114,7 @@ func replay(v *vt100.VT100, buf []byte) {
 			}
 		}
 		if b < 0x20 || b == 0x7f {
-			process(v, buf[i:i+1])
+			processControl(v, b)
 			i++
 			continue
 		}
@@ -123,16 +123,16 @@ func replay(v *vt100.VT100, buf []byte) {
 			i++
 			continue
 		}
-		process(v, buf[i:i+n])
+		putRune(v, r)
 		i += n
 	}
 }
 
 func process(v *vt100.VT100, raw []byte) {
-	clampCursor(v)
+	normalizeCursor(v)
 	defer func() {
 		if recover() != nil {
-			clampCursor(v)
+			normalizeCursor(v)
 		}
 	}()
 	cmd, err := vt100.Decode(bufio.NewReader(bytes.NewReader(raw)))
@@ -146,21 +146,116 @@ func process(v *vt100.VT100, raw []byte) {
 		}
 		return
 	}
-	clampCursor(v)
+	normalizeCursor(v)
 }
 
-func clampCursor(v *vt100.VT100) {
+func processControl(v *vt100.VT100, b byte) {
+	switch b {
+	case '\b':
+		backspace(v)
+	case '\t':
+		tab(v)
+	case '\n', '\v', '\f':
+		linefeed(v)
+	case '\r':
+		carriageReturn(v)
+	}
+}
+
+func putRune(v *vt100.VT100, r rune) {
+	normalizeCursor(v)
+	v.Content[v.Cursor.Y][v.Cursor.X] = r
+	v.Format[v.Cursor.Y][v.Cursor.X] = v.Cursor.F
+	advance(v)
+}
+
+func advance(v *vt100.VT100) {
+	v.Cursor.X++
+	if v.Cursor.X >= v.Width {
+		v.Cursor.X = 0
+		v.Cursor.Y++
+	}
+	normalizeCursor(v)
+}
+
+func linefeed(v *vt100.VT100) {
+	v.Cursor.Y++
+	v.Cursor.X = 0
+	normalizeCursor(v)
+}
+
+func carriageReturn(v *vt100.VT100) {
+	v.Cursor.X = 0
+	normalizeCursor(v)
+}
+
+func backspace(v *vt100.VT100) {
+	v.Cursor.X--
+	if v.Cursor.X < 0 {
+		if v.Cursor.Y <= 0 {
+			v.Cursor.Y = 0
+			v.Cursor.X = 0
+		} else {
+			v.Cursor.Y--
+			v.Cursor.X = v.Width - 1
+		}
+	}
+}
+
+func tab(v *vt100.VT100) {
+	next := ((v.Cursor.X / 8) + 1) * 8
+	for v.Cursor.X < next {
+		putRune(v, ' ')
+		if v.Cursor.X == 0 {
+			break
+		}
+	}
+}
+
+func normalizeCursor(v *vt100.VT100) {
 	if v.Cursor.Y < 0 {
 		v.Cursor.Y = 0
 	}
 	if v.Cursor.Y >= v.Height {
+		scrollUp(v, v.Cursor.Y-v.Height+1)
 		v.Cursor.Y = v.Height - 1
 	}
 	if v.Cursor.X < 0 {
 		v.Cursor.X = 0
 	}
 	if v.Cursor.X >= v.Width {
-		v.Cursor.X = v.Width - 1
+		v.Cursor.Y += v.Cursor.X / v.Width
+		v.Cursor.X %= v.Width
+		if v.Cursor.Y >= v.Height {
+			scrollUp(v, v.Cursor.Y-v.Height+1)
+			v.Cursor.Y = v.Height - 1
+		}
+	}
+}
+
+func scrollUp(v *vt100.VT100, n int) {
+	if n <= 0 {
+		return
+	}
+	if n >= v.Height {
+		for y := 0; y < v.Height; y++ {
+			clearLine(v, y)
+		}
+		return
+	}
+	for y := 0; y < v.Height-n; y++ {
+		copy(v.Content[y], v.Content[y+n])
+		copy(v.Format[y], v.Format[y+n])
+	}
+	for y := v.Height - n; y < v.Height; y++ {
+		clearLine(v, y)
+	}
+}
+
+func clearLine(v *vt100.VT100, y int) {
+	for x := 0; x < v.Width; x++ {
+		v.Content[y][x] = ' '
+		v.Format[y][x] = vt100.Format{}
 	}
 }
 

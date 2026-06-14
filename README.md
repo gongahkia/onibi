@@ -111,6 +111,7 @@ Telegram:
 - `/status`
 - `/secure`
 - `/prompt <text>`
+- `/send <text>` (use `/send /help`, or `//help`, for agent slash commands)
 - `/queue`
 - `/peek`
 - `/target <id|name>`

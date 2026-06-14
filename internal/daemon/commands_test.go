@@ -128,6 +128,44 @@ func TestFreeTextInjectsOnlyLiveSession(t *testing.T) {
 	}
 }
 
+func TestDoubleSlashInjectsSlashCommand(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onText(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "//help",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "/help\n" {
+		t.Fatalf("injected = %q", got)
+	}
+}
+
+func TestSendCommandInjectsSlashText(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onText(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/send /model opus",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "/model opus\n" {
+		t.Fatalf("injected = %q", got)
+	}
+}
+
 func TestReplyRoutesByThreadedMessage(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r, s := pipeSession(t, "abc123", "claude")

@@ -428,7 +428,16 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 	if m.WebAppData != nil {
 		return d.onWebAppData(ctx, api, m)
 	}
-	if !strings.HasPrefix(strings.TrimSpace(m.Text), "/") && d.handlePendingPromptEdit(ctx, api, m) {
+	text := strings.TrimRight(m.Text, "\r\n")
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "//") {
+		if d.encryptedModeEnabled() {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			return nil
+		}
+		return d.injectTelegramText(ctx, api, m.Chat.ID, "", strings.TrimPrefix(trimmed, "/"))
+	}
+	if !strings.HasPrefix(trimmed, "/") && d.handlePendingPromptEdit(ctx, api, m) {
 		return nil
 	}
 	if d.handleTextCommand(ctx, api, m) {

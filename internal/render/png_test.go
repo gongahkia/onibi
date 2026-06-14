@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/png"
 	"testing"
+
+	"github.com/jaguilar/vt100"
 )
 
 func TestRenderPNGDecodesAndIsNonBlank(t *testing.T) {
@@ -39,8 +41,21 @@ func TestRenderPNGSupports256ColorSGR(t *testing.T) {
 }
 
 func TestRenderPNGClampsCursorAfterBottomLinefeed(t *testing.T) {
+	term := vt100.NewVT100(24, 80)
+	replay(term, []byte("\x1b[24;1H\nX"))
+	if term.Content[23][0] != 'X' {
+		t.Fatalf("bottom row = %q", string(term.Content[23][:1]))
+	}
 	if _, err := RenderPNG([]byte("\x1b[24;1H\nX"), PNGOptions{Rows: 24, Cols: 80, Scale: 1}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReplayScrollsPlainOutput(t *testing.T) {
+	term := vt100.NewVT100(3, 12)
+	replay(term, []byte("one\ntwo\nthree\nfour"))
+	if rowText(term, 0)[:3] != "two" || rowText(term, 1)[:5] != "three" || rowText(term, 2)[:4] != "four" {
+		t.Fatalf("rows = %q | %q | %q", rowText(term, 0), rowText(term, 1), rowText(term, 2))
 	}
 }
 
@@ -82,4 +97,8 @@ func countRed(img image.Image) int {
 		}
 	}
 	return n
+}
+
+func rowText(v *vt100.VT100, y int) string {
+	return string(v.Content[y])
 }
