@@ -22,6 +22,8 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		return false
 	}
 	switch cmd {
+	case "/start":
+		d.handleStartCommand(ctx, api, m.Chat.ID, arg)
 	case "/sessions":
 		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "sessions", "Active sessions", d.sessionsText())
 	case "/status":
@@ -101,6 +103,11 @@ func parseTelegramCommand(text string) (string, string, bool) {
 	}
 	arg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), fields[0]))
 	return strings.ToLower(cmd), arg, true
+}
+
+func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
+	text := "Onibi is paired and listening.\n\n" + helpText()
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
 }
 
 func (d *Daemon) handleRenderOverride(ctx context.Context, api telegram.API, chatID int64, target string, mode render.Mode) {

@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T09 Wire `/start` post-pairing (P0/S)](#t09-wire-start-post-pairing-p0s)
   - [T10 Regenerate README command table from `helpText()` with a test (P0/S)](#t10-regenerate-readme-command-table-from-helptext-with-a-test-p0s)
   - [T11 Encrypted-mode parity docs + README callout (P0/S)](#t11-encrypted-mode-parity-docs--readme-callout-p0s)
   - [T12 Auto-clear stale default target (P1/S)](#t12-auto-clear-stale-default-target-p1s)
@@ -230,7 +229,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T09 | Wire `/start` post-pairing | P0 | S | — |
 | T10 | Regenerate README command table from `helpText()` with a test | P0 | S | — |
 | T11 | Encrypted-mode parity docs + README callout | P0 | S | — |
 | T12 | Auto-clear stale default target | P1 | S | — |
@@ -587,57 +585,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ---
 
 ## 7. Sprint 3 — Telegram steady-state UX
-
-### T09 Wire `/start` post-pairing (P0/S)
-
-#### Motivation
-
-Telegram clients show a `[Start]` button on first contact with the bot, which sends `/start`. During pairing (`internal/setup/wizard.go:297-335`) the wizard consumes `/start pair_<token>` to complete pairing. After pairing, `/start` (without payload) has no handler in `internal/daemon/commands.go:18-90` (`handleTextCommand` switch); the default branch (line 87) returns `false` and `onText` (`approvals.go:446-448`) sends "Unknown command: /start" — hostile to a returning owner who reopens the bot fresh on a new phone or who hits `[Restart]` after blocking.
-
-#### Files
-
-- `internal/daemon/commands.go:18-90` — `handleTextCommand` switch.
-- `internal/daemon/commands.go:191-218` — `helpText` (no change needed; `/help` already shown).
-
-#### Implementation
-
-Add a case:
-
-```go
-case "/start":
-    d.handleStartCommand(ctx, api, m.Chat.ID, arg)
-```
-
-And implement `handleStartCommand` in the same file:
-
-```go
-func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
-    // Ignore "/start pair_<token>" — that's the setup-time pairing intake;
-    // here we're post-pair, and the wizard has its own bot client. If a stale
-    // pair payload arrives, just show help.
-    text := "Onibi is paired and listening.\n\n" + helpText()
-    sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
-}
-```
-
-#### Validation
-
-**Tests** (`internal/daemon/commands_test.go` — already exists):
-
-- `TestStartCommandShowsHelp`: dispatch a `/start` from the paired owner, assert outgoing message contains "Onibi is paired and listening" and at least one command from `helpText()`.
-- `TestStartCommandIgnoresPairPayload`: dispatch `/start pair_abc123`, same assertion. (Confirms we don't try to re-pair.)
-
-**Manual e2e**:
-
-1. With a paired bot, in Telegram tap the bot, then `[Restart]` (or send `/start`).
-2. Expect: full help text.
-
-#### Gotchas
-
-- This is owner-only (router enforces owner check before reaching this handler). Don't add owner-id assumptions here.
-- Don't accidentally re-trigger pairing.
-
----
 
 ### T10 Regenerate README command table from `helpText()` with a test (P0/S)
 

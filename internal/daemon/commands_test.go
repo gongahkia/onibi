@@ -36,6 +36,32 @@ func TestRenderOverrideExplicitTarget(t *testing.T) {
 	}
 }
 
+func TestStartCommandShowsHelp(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	msg := &models.Message{From: &models.User{ID: 100}, Chat: models.Chat{ID: 100}, Text: "/start"}
+	if !d.handleTextCommand(context.Background(), mock, msg) {
+		t.Fatal("command not handled")
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/sessions") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestStartCommandIgnoresPairPayload(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	msg := &models.Message{From: &models.User{ID: 100}, Chat: models.Chat{ID: 100}, Text: "/start pair_abc123"}
+	if !d.handleTextCommand(context.Background(), mock, msg) {
+		t.Fatal("command not handled")
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/sessions") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
 func TestRenderOverrideAmbiguousWithoutTarget(t *testing.T) {
 	d := newApprovalDaemon(t)
 	_ = d.Registry.Add(NewSession("a", "one", "claude", nil, 1024))
