@@ -21,7 +21,7 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	}
 	s, err := d.resolveInjectTarget(ctx, chatID, sessionID)
 	if errors.Is(err, errAmbiguousTarget) {
-		d.queuePendingInject(chatID, text)
+		d.queuePendingInject(ctx, chatID, text)
 		d.sendTargetPicker(ctx, api, chatID, "Pick target session.")
 		return nil
 	}
@@ -235,9 +235,7 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 			d.sendSecureRequired(ctx, api, q.From.ID)
 			return nil
 		}
-		d.editMu.Lock()
-		d.pendingPromptEdits[q.From.ID] = id
-		d.editMu.Unlock()
+		d.setPending(ctx, pendingKindPromptEdit, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Send replacement text")
 		sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Reply with replacement prompt text for " + id + ". Reply 'cancel' to abort."})
 		return nil
@@ -280,12 +278,7 @@ func (d *Daemon) applyPromptEdit(ctx context.Context, api telegram.API, chatID i
 }
 
 func (d *Daemon) handlePendingPromptEdit(ctx context.Context, api telegram.API, m *models.Message) bool {
-	d.editMu.Lock()
-	id, ok := d.pendingPromptEdits[m.From.ID]
-	if ok {
-		delete(d.pendingPromptEdits, m.From.ID)
-	}
-	d.editMu.Unlock()
+	id, ok := d.takePending(ctx, pendingKindPromptEdit, m.From.ID)
 	if !ok {
 		return false
 	}

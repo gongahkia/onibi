@@ -247,6 +247,12 @@ func (d *DB) KVDel(ctx context.Context, key string) error {
 	return err
 }
 
+// KVPurgeExpired deletes rows whose expire is set and elapsed.
+func (d *DB) KVPurgeExpired(ctx context.Context) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM kv WHERE expire > 0 AND expire < ?`, time.Now().Unix())
+	return err
+}
+
 // KVKeysWithPrefix returns keys that start with prefix.
 func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT key FROM kv WHERE key LIKE ?`, prefix+"%")

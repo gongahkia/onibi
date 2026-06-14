@@ -45,6 +45,31 @@ func TestKVExpire(t *testing.T) {
 	}
 }
 
+func TestKVPurgeExpiredRemovesRows(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	past := time.Now().Add(-time.Hour).Unix()
+	if err := db.KVSet(ctx, "pending:inject:1", []byte("old"), past); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVSetString(ctx, "pending:inject:2", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVPurgeExpired(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM kv WHERE key = 'pending:inject:1'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expired rows = %d", n)
+	}
+	if _, ok, err := db.KVGetString(ctx, "pending:inject:2"); err != nil || !ok {
+		t.Fatalf("live key ok=%v err=%v", ok, err)
+	}
+}
+
 func TestKVKeysWithPrefix(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()

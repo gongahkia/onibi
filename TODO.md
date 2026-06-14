@@ -14,7 +14,6 @@
 - [3. Conventions and house style](#3-conventions-and-house-style)
 - [4. Ticket index](#4-ticket-index)
 - [5. Sprint 1 — durability and footguns](#5-sprint-1--durability-and-footguns)
-  - [T01 Persist pending UI state to SQLite (P0/M)](#t01-persist-pending-ui-state-to-sqlite-p0m)
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
@@ -134,9 +133,9 @@ These are *load-bearing* design constraints. If a change you make breaks one of 
 | Setup | `internal/setup/wizard.go` | Token paste, getMe, pair-once, 2FA gate |
 | Setup | `internal/setup/pairing.go`, `qr.go`, `rotate.go` | Pairing token, QR render, rotate flow |
 | Daemon | `internal/daemon/daemon.go` | `Daemon` struct, `New`, `Run`, lifecycle |
-| Daemon | `internal/daemon/approvals.go` | Approval RPC, callbacks, edit flow, **in-memory `pendingEdits`** |
-| Daemon | `internal/daemon/prompts.go` | Prompt queue, dispatch, **in-memory `pendingPromptEdits`** |
-| Daemon | `internal/daemon/threading.go` | Default target, **in-memory `pendingInjects`**, target picker |
+| Daemon | `internal/daemon/approvals.go` | Approval RPC, callbacks, edit flow |
+| Daemon | `internal/daemon/prompts.go` | Prompt queue, dispatch, pending prompt edit routing |
+| Daemon | `internal/daemon/threading.go`, `pending.go` | Default target, KV-backed pending inject/edit state, target picker |
 | Daemon | `internal/daemon/commands.go` | All `/command` handlers + `helpText()` (single source of `/help` truth) |
 | Daemon | `internal/daemon/encrypted.go`, `webapp.go` | Encrypted message build + Mini App data ingest |
 | Daemon | `internal/daemon/controls.go` | `/peek` `/interrupt` `/kill` `/rename` `/menu` |
@@ -194,7 +193,7 @@ These are *load-bearing* design constraints. If a change you make breaks one of 
 - `go test -race -count=1 ./...` must pass.
 - `staticcheck ./...` must pass (CI runs it).
 - `govulncheck ./...` must pass.
-- Race-condition territory (anything touching `daemon.threadMu`, `daemon.editMu`, `daemon.mu`) — write a `t.Run` parallel subtest if behavior is concurrent.
+- Race-condition territory (anything touching `daemon.threadMu`, `daemon.mu`, or KV-backed pending state) — write a `t.Run` parallel subtest if behavior is concurrent.
 - Telegram tests use `internal/telegram/mock.go`. Prefer that to a real bot.
 
 ### Commit messages
@@ -209,144 +208,11 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 
 | # | Title | Priority | Effort | Depends on |
 |---|---|---|---|---|
-| T01 | Persist pending UI state to SQLite | P0 | M | — |
-| T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
+| T03 | Edit-in-place approval message on daemon restart | P0 | M | — |
 
 ---
 
 ## 5. Sprint 1 — durability and footguns
-
-### T01 Persist pending UI state to SQLite (P0/M)
-
-**Confirmed bug** (per maintainer). Three in-memory maps in `internal/daemon/daemon.go:73-77` are lost on daemon restart, breaking owner-side UX mid-flow.
-
-#### Motivation
-
-The owner has three "parked" half-completed actions that live only in memory:
-
-1. **Pending approval edit** — owner tapped `[Edit]` on an approval keyboard. Next text reply will be parsed as edited tool-input JSON. (`pendingEdits map[int64]string` — chat_id → approval_id.)
-2. **Pending prompt edit** — owner tapped `[Edit]` on a queued prompt. Next text reply will replace the prompt body. (`pendingPromptEdits map[int64]string` — chat_id → prompt_id.)
-3. **Pending text inject with ambiguous target** — owner sent text, multiple sessions are live, target picker was shown. (`pendingInjects map[int64]string` — chat_id → text.)
-
-If `launchd`/`systemd` restarts the daemon (or it crashes), the owner's next reply silently misroutes: their JSON edit is injected to a session as plain text, or their replacement prompt becomes a brand-new prompt, or their parked text is just gone.
-
-#### Files
-
-- `internal/daemon/daemon.go:73-77` — struct fields `pendingEdits`, `pendingPromptEdits` (and `editMu sync.Mutex`).
-- `internal/daemon/daemon.go:120-124` — initialization of the maps in `New()`.
-- `internal/daemon/daemon.go:67-70` — `pendingInjects map[int64]string` (under `threadMu`).
-- `internal/daemon/approvals.go:262-264, 286-291, 319-321, 333-335, 349-351` — every reader/writer of `pendingEdits`.
-- `internal/daemon/prompts.go:238-240, 283-288` — readers/writers of `pendingPromptEdits`.
-- `internal/daemon/threading.go:109-121` — readers/writers of `pendingInjects` via `queuePendingInject()` / `popPendingInject()`.
-- `internal/store/sqlite.go:198-244` — KV API to use.
-
-#### Approach
-
-Use the existing KV store. **Do not introduce a new table.** TTL = 10 minutes (longer than approval TTL, short enough that abandoned parks expire). Schema is a single composite key per record:
-
-```
-key:   pending:<kind>:<chat_id>
-value: payload (raw string; semantics depend on kind)
-TTL:   now + 10*60 (unix-seconds via KVSet expire arg)
-```
-
-Kinds:
-
-- `pending:approval_edit:<chat_id>` → `value = approval_id` (UUID-ish string)
-- `pending:prompt_edit:<chat_id>` → `value = prompt_id`
-- `pending:inject:<chat_id>` → `value = the raw text the owner sent`
-
-#### Implementation outline
-
-1. Add a small helper file `internal/daemon/pending.go` with:
-
-   ```go
-   const pendingTTL = 10 * time.Minute
-
-   func pendingKey(kind string, chatID int64) string {
-       return "pending:" + kind + ":" + strconv.FormatInt(chatID, 10)
-   }
-
-   func (d *Daemon) setPending(ctx context.Context, kind string, chatID int64, value string) {
-       if d.DB == nil { return }
-       _ = d.DB.KVSet(ctx, pendingKey(kind, chatID), []byte(value), time.Now().Add(pendingTTL).Unix())
-   }
-
-   func (d *Daemon) takePending(ctx context.Context, kind string, chatID int64) (string, bool) {
-       if d.DB == nil { return "", false }
-       v, ok, err := d.DB.KVGet(ctx, pendingKey(kind, chatID))
-       if err != nil || !ok { return "", false }
-       _ = d.DB.KVDel(ctx, pendingKey(kind, chatID))
-       return string(v), true
-   }
-
-   func (d *Daemon) peekPending(ctx context.Context, kind string, chatID int64) (string, bool) {
-       if d.DB == nil { return "", false }
-       v, ok, err := d.DB.KVGet(ctx, pendingKey(kind, chatID))
-       if err != nil || !ok { return "", false }
-       return string(v), true
-   }
-   ```
-
-2. Replace every read/write of the three in-memory maps with these helpers. Keep `editMu` only to serialize Telegram callback-vs-reply ordering for the same chat — but the source of truth becomes SQLite.
-
-   Specifically:
-
-   - `internal/daemon/approvals.go:262-264` (callback `case "edit"`): replace `d.pendingEdits[q.From.ID] = id` with `d.setPending(ctx, "approval_edit", q.From.ID, id)`.
-   - `internal/daemon/approvals.go:286-291`, `:319-321`, `:333-335`, `:349-351` (`onReply` path): replace map read/delete with `d.takePending(ctx, "approval_edit", m.From.ID)`. Re-park on validation failure with `d.setPending(...)`.
-   - `internal/daemon/prompts.go:238-240` (`prompt_edit` callback): use `d.setPending(ctx, "prompt_edit", q.From.ID, id)`.
-   - `internal/daemon/prompts.go:283-288` (`handlePendingPromptEdit`): use `d.takePending(ctx, "prompt_edit", m.From.ID)`.
-   - `internal/daemon/threading.go:109-121` (`queuePendingInject` / `popPendingInject`): use `d.setPending(ctx, "inject", chatID, text)` / `d.takePending(ctx, "inject", chatID)`.
-
-3. Delete the in-memory maps from the struct. Delete their initialization in `New()`.
-
-4. Verify `editMu` is still needed; if it only protected map mutation, delete it. (Likely it is no longer needed since SQLite is single-writer-serialized.)
-
-5. **Cleanup of stale rows on boot.** The KV store auto-expires on read, but a daemon that runs for weeks accumulates dead rows that no one ever reads. Add a one-shot cleanup at startup in `daemon.Run()`:
-
-   ```go
-   // best-effort sweep of expired pending rows on boot
-   _ = d.DB.KVPurgeExpired(ctx)   // new helper, see below
-   ```
-
-   And add to `internal/store/sqlite.go` (after `KVDel`):
-
-   ```go
-   // KVPurgeExpired deletes all rows whose expire is set and elapsed.
-   func (d *DB) KVPurgeExpired(ctx context.Context) error {
-       _, err := d.sql.ExecContext(ctx,
-           `DELETE FROM kv WHERE expire > 0 AND expire < ?`, time.Now().Unix())
-       return err
-   }
-   ```
-
-#### Validation
-
-**Tests** (add to `internal/daemon/approvals_test.go` and a new `prompts_test.go` case):
-
-- `TestApprovalEditSurvivesRestart`: simulate Edit callback → "restart" by constructing a new `Daemon` against the same `DB` → owner replies with edited JSON → assert `VerdictEdit` decision lands.
-- `TestPromptEditSurvivesRestart`: same shape for prompt edit.
-- `TestPendingInjectSurvivesRestart`: same shape for ambiguous-target text inject; after restart owner selects target via callback → text dispatched.
-- `TestPendingTTLExpires`: set a pending row with `pendingTTL=1*time.Second` (parameterize via package var for tests), wait 2s, assert `takePending` returns `false`.
-- `TestKVPurgeExpiredRemovesRows`: insert expired rows, run purge, assert `sql.QueryRow` finds none.
-
-**Manual e2e** (`scripts/manual-e2e-pending-persistence.md`, new file):
-
-1. Start daemon: `onibi run claude`.
-2. From Telegram: trigger an approval (any Claude tool call that hits PreToolUse).
-3. Tap `[Edit]`. Bot replies "Reply with edited JSON for approval <id>".
-4. SIGTERM the daemon. Restart it: `onibi run claude`.
-5. Reply in Telegram with valid edited JSON.
-6. **Expect**: the edit is accepted as `VerdictEdit`; agent receives edited tool input.
-
-#### Gotchas
-
-- `pendingEdits` callsites also re-park on JSON validation failure (`approvals.go:333-335, 349-351`). Make sure the re-park goes through `setPending` so subsequent retries within the 10-min window still work.
-- `pendingInjects` is currently held under `threadMu.Lock()` not `editMu`. After migration, `threadMu` is no longer needed for that field; check if it's still needed for the rest of `threadMu`'s use (`busySessions`, `messageSessions`, `defaultTargets` still need it — leave `threadMu` for those).
-- The KV store has a single `kv` table; verify schema in `internal/store/sqlite.go` migrations. The composite-key approach (`pending:approval_edit:1234`) is cheap and avoids schema work.
-- 10-min TTL is a choice. If a user takes longer than 10 min to type a JSON edit, they get a "Unknown approval" path. Acceptable since approval TTL is 5 min anyway.
-
----
 
 ### T03 Edit-in-place approval message on daemon restart (P0/M)
 

@@ -259,9 +259,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 
 	case "edit":
 		// park: next text reply from the owner becomes the edited JSON
-		d.editMu.Lock()
-		d.pendingEdits[q.From.ID] = id
-		d.editMu.Unlock()
+		d.setPending(ctx, pendingKindApprovalEdit, q.From.ID, id)
 		// prompt the user
 		answerCallback(ctx, api, q.ID, "Send edited JSON")
 		params := &tgbot.SendMessageParams{
@@ -283,12 +281,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 // messages. If we have a pending edit for this user, parse the JSON and
 // decide the approval as edited.
 func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Message) error {
-	d.editMu.Lock()
-	approvalID, ok := d.pendingEdits[m.From.ID]
-	if ok {
-		delete(d.pendingEdits, m.From.ID)
-	}
-	d.editMu.Unlock()
+	approvalID, ok := d.takePending(ctx, pendingKindApprovalEdit, m.From.ID)
 	if !ok {
 		if d.handlePendingPromptEdit(ctx, api, m) {
 			return nil
@@ -316,9 +309,7 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	editJSON, authErr, authNote := d.prepareApprovalEdit(ctx, m.Chat.ID, txt)
 	if authErr != "" {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: authErr})
-		d.editMu.Lock()
-		d.pendingEdits[m.From.ID] = approvalID
-		d.editMu.Unlock()
+		d.setPending(ctx, pendingKindApprovalEdit, m.From.ID, approvalID)
 		return nil
 	}
 
@@ -330,9 +321,7 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 			Text:   "Invalid JSON: " + err.Error() + "\nReply again with valid JSON, or 'cancel' to abort.",
 		})
 		// re-park: still awaiting an edit
-		d.editMu.Lock()
-		d.pendingEdits[m.From.ID] = approvalID
-		d.editMu.Unlock()
+		d.setPending(ctx, pendingKindApprovalEdit, m.From.ID, approvalID)
 		return nil
 	}
 
@@ -346,9 +335,7 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 			ChatID: m.Chat.ID,
 			Text:   "Invalid edited input: " + err.Error() + "\nReply again with valid JSON, or 'cancel' to abort.",
 		})
-		d.editMu.Lock()
-		d.pendingEdits[m.From.ID] = approvalID
-		d.editMu.Unlock()
+		d.setPending(ctx, pendingKindApprovalEdit, m.From.ID, approvalID)
 		return nil
 	}
 	res, err := d.Queue.DecideWithResult(ctx, approvalID, approval.VerdictEdit, editJSON, "", m.From.ID)

@@ -67,14 +67,7 @@ type Daemon struct {
 	threadMu        sync.RWMutex
 	messageSessions map[messageKey]string
 	defaultTargets  map[int64]string
-	pendingInjects  map[int64]string
 	busySessions    map[string]bool
-
-	// pendingEdit tracks "the user just tapped Edit" so the next text
-	// reply they send is treated as the edited JSON payload.
-	editMu             sync.Mutex
-	pendingEdits       map[int64]string // owner chat id → approval id awaiting edit
-	pendingPromptEdits map[int64]string // owner chat id → prompt id awaiting edit
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 }
@@ -106,28 +99,25 @@ func New(opts Options) *Daemon {
 		opts.Log = slog.Default()
 	}
 	d := &Daemon{
-		Paths:              opts.Paths,
-		DB:                 opts.DB,
-		Secrets:            opts.Secrets,
-		Owner:              opts.Owner,
-		Bot:                opts.Bot,
-		Log:                opts.Log,
-		Registry:           NewRegistry(),
-		notified:           map[string]bool{},
-		started:            time.Now(),
-		renderOverrides:    map[string]render.Mode{},
-		messageSessions:    map[messageKey]string{},
-		defaultTargets:     map[int64]string{},
-		pendingInjects:     map[int64]string{},
-		busySessions:       map[string]bool{},
-		pendingEdits:       map[int64]string{},
-		pendingPromptEdits: map[int64]string{},
-		ExitWhenIdle:       opts.ExitWhenIdle,
-		BufferSize:         opts.BufferSize,
-		EncryptedMode:      opts.EncryptedMode,
-		MiniAppURL:         opts.MiniAppURL,
-		EnvelopeSeed:       opts.EnvelopeSeed,
-		anomaly:            newAnomalyTracker(),
+		Paths:           opts.Paths,
+		DB:              opts.DB,
+		Secrets:         opts.Secrets,
+		Owner:           opts.Owner,
+		Bot:             opts.Bot,
+		Log:             opts.Log,
+		Registry:        NewRegistry(),
+		notified:        map[string]bool{},
+		started:         time.Now(),
+		renderOverrides: map[string]render.Mode{},
+		messageSessions: map[messageKey]string{},
+		defaultTargets:  map[int64]string{},
+		busySessions:    map[string]bool{},
+		ExitWhenIdle:    opts.ExitWhenIdle,
+		BufferSize:      opts.BufferSize,
+		EncryptedMode:   opts.EncryptedMode,
+		MiniAppURL:      opts.MiniAppURL,
+		EnvelopeSeed:    opts.EnvelopeSeed,
+		anomaly:         newAnomalyTracker(),
 	}
 
 	// approval queue + expiry sweeper
@@ -316,6 +306,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		cancel()
 	}()
 
+	if d.DB != nil {
+		_ = d.DB.KVPurgeExpired(ctx)
+	}
 	if err := d.RestorePendingApprovals(ctx); err != nil {
 		d.Log.Warn("restore pending approvals", slog.Any("err", err))
 	}

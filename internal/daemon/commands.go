@@ -325,7 +325,7 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	answerCallback(ctx, api, q.ID, "Target set")
-	if text := d.popPendingInject(chatID); text != "" {
+	if text := d.popPendingInject(ctx, chatID); text != "" {
 		return d.injectTelegramText(ctx, api, chatID, s.ID, text)
 	}
 	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", "Default target set to "+s.Name+" ("+s.ID+").")

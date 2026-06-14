@@ -48,7 +48,7 @@ func TestReplyEditDecidesApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.pendingEdits[100] = id
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id)
 
 	err = d.onReply(ctx, nil, &models.Message{
 		From: &models.User{ID: 100},
@@ -71,6 +71,34 @@ func TestReplyEditDecidesApproval(t *testing.T) {
 	}
 }
 
+func TestApprovalEditSurvivesRestart(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id)
+	restarted := New(Options{DB: d.DB, Secrets: d.Secrets, Owner: d.Owner})
+	if err := restarted.onReply(ctx, nil, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: `{"command":"echo ok"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := restarted.Queue.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateEdited {
+		t.Fatalf("state = %s", a.State)
+	}
+	if string(a.EditedJSON) != `{"command":"echo ok"}` {
+		t.Fatalf("edited = %s", a.EditedJSON)
+	}
+}
+
 func TestRenderApprovalMessageShowsRisk(t *testing.T) {
 	got := renderApprovalMessage("Bash", `{"command":"rm -rf /tmp/x"}`, "s")
 	if !strings.Contains(got, "Risk: high - recursive delete") {
@@ -85,7 +113,7 @@ func TestReplyInvalidJSONKeepsEditPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.pendingEdits[100] = id
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id)
 
 	err = d.onReply(ctx, nil, &models.Message{
 		From: &models.User{ID: 100},
@@ -95,7 +123,7 @@ func TestReplyInvalidJSONKeepsEditPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := d.pendingEdits[100]; got != id {
+	if got, ok := d.peekPending(ctx, pendingKindApprovalEdit, 100); !ok || got != id {
 		t.Fatalf("pending edit = %q", got)
 	}
 	a, _ := d.Queue.Get(ctx, id)
@@ -111,7 +139,7 @@ func TestReplyInvalidToolSchemaKeepsEditPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.pendingEdits[100] = id
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id)
 
 	err = d.onReply(ctx, nil, &models.Message{
 		From: &models.User{ID: 100},
@@ -121,7 +149,7 @@ func TestReplyInvalidToolSchemaKeepsEditPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := d.pendingEdits[100]; got != id {
+	if got, ok := d.peekPending(ctx, pendingKindApprovalEdit, 100); !ok || got != id {
 		t.Fatalf("pending edit = %q", got)
 	}
 	a, _ := d.Queue.Get(ctx, id)
@@ -147,7 +175,7 @@ func TestParanoidReplyEditRequiresTOTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.pendingEdits[100] = id
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id)
 	mock := telegram.NewMock(nil)
 	if err := d.onReply(ctx, mock, &models.Message{
 		From: &models.User{ID: 100},
@@ -156,7 +184,7 @@ func TestParanoidReplyEditRequiresTOTP(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := d.pendingEdits[100]; got != id {
+	if got, ok := d.peekPending(ctx, pendingKindApprovalEdit, 100); !ok || got != id {
 		t.Fatalf("pending edit = %q", got)
 	}
 	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Paranoid mode requires") {
@@ -178,7 +206,7 @@ func TestParanoidReplyEditRequiresTOTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.pendingEdits[100] = id2
+	d.setPending(ctx, pendingKindApprovalEdit, 100, id2)
 	if err := d.onReply(ctx, mock, &models.Message{
 		From: &models.User{ID: 100},
 		Chat: models.Chat{ID: 100},

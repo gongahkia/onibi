@@ -132,17 +132,12 @@ func (d *Daemon) injectTelegramText(ctx context.Context, api telegram.API, chatI
 	return d.enqueuePromptText(ctx, api, chatID, sessionID, text)
 }
 
-func (d *Daemon) queuePendingInject(chatID int64, text string) {
-	d.threadMu.Lock()
-	d.pendingInjects[chatID] = text
-	d.threadMu.Unlock()
+func (d *Daemon) queuePendingInject(ctx context.Context, chatID int64, text string) {
+	d.setPending(ctx, pendingKindInject, chatID, text)
 }
 
-func (d *Daemon) popPendingInject(chatID int64) string {
-	d.threadMu.Lock()
-	defer d.threadMu.Unlock()
-	text := d.pendingInjects[chatID]
-	delete(d.pendingInjects, chatID)
+func (d *Daemon) popPendingInject(ctx context.Context, chatID int64) string {
+	text, _ := d.takePending(ctx, pendingKindInject, chatID)
 	return text
 }
 
