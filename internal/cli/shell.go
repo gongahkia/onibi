@@ -126,11 +126,6 @@ func shellLaunchFor(candidate string, login bool, lookPath func(string) (string,
 	return shellLaunch{Name: spec.Name, Command: command, Args: args, Argv0: argv0}, nil
 }
 
-func supportedShell(name string) bool {
-	_, ok := shellSpecFor(name)
-	return ok
-}
-
 func shellSpecFor(name string) (shellSpec, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "zsh":
@@ -229,11 +224,6 @@ func shellStartup(name string, login bool) ([]string, string) {
 	default:
 		return []string{"-i"}, ""
 	}
-}
-
-func shellStartupArgs(name string, login bool) []string {
-	args, _ := shellStartup(name, login)
-	return args
 }
 
 func supportedShellList() string {
