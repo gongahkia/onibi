@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
@@ -18,6 +20,12 @@ import (
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 )
+
+var doctorRun = doctor.Run
+var inputIsTerminal = func(in any) bool {
+	f, ok := in.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
 
 // runSetup implements `onibi setup`.
 func runSetup(cmd *cobra.Command, _ []string) error {
@@ -159,7 +167,9 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 	if askYesNo(cmd, br, "Auto-detect and install agent/shell hooks? [Y/n] ", true) {
 		notifyBin, err := locateNotifyBinary()
 		if err != nil {
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+err.Error())
+			if err := handleMissingNotifyBinary(cmd, br, err); err != nil {
+				return err
+			}
 		} else {
 			cfg, _, err := config.Load(paths)
 			if err != nil {
@@ -171,7 +181,7 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nDoctor summary:")
-	report := doctor.Run(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
+	report := doctorRun(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
 	for _, c := range report.Checks {
 		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
 	}
@@ -179,6 +189,19 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 		return fmt.Errorf("setup complete but doctor failed")
 	}
 	return nil
+}
+
+func handleMissingNotifyBinary(cmd *cobra.Command, br *bufio.Reader, cause error) error {
+	fmt.Fprintln(cmd.ErrOrStderr(), "")
+	fmt.Fprintln(cmd.ErrOrStderr(), "onibi-notify not found. Remediation:")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  1) make install")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  2) export ONIBI_NOTIFY_BIN=/abs/path/to/onibi-notify")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  3) onibi adapters")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  4) onibi install-hooks --interactive")
+	if inputIsTerminal(cmd.InOrStdin()) && askYesNo(cmd, br, "Continue without hooks? [y/N] ", false) {
+		return nil
+	}
+	return fmt.Errorf("hooks step aborted: onibi-notify missing: %w", cause)
 }
 
 func askYesNo(cmd *cobra.Command, br *bufio.Reader, prompt string, def bool) bool {

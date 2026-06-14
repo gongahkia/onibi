@@ -17,7 +17,6 @@
   - [T01 Persist pending UI state to SQLite (P0/M)](#t01-persist-pending-ui-state-to-sqlite-p0m)
   - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
-  - [T06 Hard-fail with clear remediation when `onibi-notify` is missing (P0/S)](#t06-hard-fail-with-clear-remediation-when-onibi-notify-is-missing-p0s)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
   - [T08 Print plaintext deeplink first, QR second (P1/S)](#t08-print-plaintext-deeplink-first-qr-second-p1s)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
@@ -231,8 +230,7 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T06 | Hard-fail with clear remediation when `onibi-notify` missing | P0 | S | — |
-| T07 | `onibi up` convenience command | P1 | M | T06 |
+| T07 | `onibi up` convenience command | P1 | M | — |
 | T08 | Print plaintext deeplink first, QR second | P1 | S | — |
 | T09 | Wire `/start` post-pairing | P0 | S | — |
 | T10 | Regenerate README command table from `helpText()` with a test | P0 | S | — |
@@ -492,67 +490,6 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 ---
 
 ## 6. Sprint 2 — onboarding cliff
-
-### T06 Hard-fail with clear remediation when `onibi-notify` is missing (P0/S)
-
-#### Motivation
-
-`internal/cli/setup.go:159-172` (the `setup --complete` hooks step): if `locateNotifyBinary()` returns an error, the warning is printed and the entire hooks step is silently skipped. The user is left with no hooks installed and no clear path forward — they need to read code to discover `$ONIBI_NOTIFY_BIN` exists.
-
-#### Files
-
-- `internal/cli/setup.go:159-172`.
-- `internal/cli/hooks.go` — `locateNotifyBinary()`.
-
-#### Implementation
-
-Replace the silent-skip warning with an actionable failure-mode block. Two paths:
-
-- **Interactive setup** (`setup --complete`): print remediation and offer to continue without hooks. User confirms `[y/N]`. Default N (do not continue).
-- **Non-interactive setup** (stdin piped, e.g. CI/script): return a non-zero exit.
-
-```go
-if askYesNo(cmd, br, "Auto-detect and install agent/shell hooks? [Y/n] ", true) {
-    notifyBin, err := locateNotifyBinary()
-    if err != nil {
-        fmt.Fprintln(cmd.ErrOrStderr(), "")
-        fmt.Fprintln(cmd.ErrOrStderr(), "onibi-notify not found. Remediation:")
-        fmt.Fprintln(cmd.ErrOrStderr(), "  1) make install         (builds + installs both binaries)")
-        fmt.Fprintln(cmd.ErrOrStderr(), "  2) export ONIBI_NOTIFY_BIN=/abs/path/to/onibi-notify")
-        fmt.Fprintln(cmd.ErrOrStderr(), "  3) onibi adapters       (confirms detection, listed as installed=no)")
-        fmt.Fprintln(cmd.ErrOrStderr(), "  4) onibi install-hooks --interactive")
-        if isatty(cmd.InOrStdin()) && askYesNo(cmd, br, "Continue without hooks? [y/N] ", false) {
-            // user accepted: continue without hooks
-        } else {
-            return fmt.Errorf("hooks step aborted: onibi-notify missing")
-        }
-    } else {
-        // existing path: runInteractiveHooks(...)
-    }
-}
-```
-
-`isatty(io.Reader)` doesn't exist in stdlib; use `golang.org/x/term.IsTerminal(int(f.Fd()))` if `cmd.InOrStdin()` is `*os.File`, else default to false (non-interactive).
-
-#### Validation
-
-**Tests** (`internal/cli/setup_test.go` — may not exist; create it):
-
-- `TestSetupCompleteAbortsWhenNotifyMissingAndNonInteractive`: arrange `locateNotifyBinary` to error (via build tag or interface injection); pipe stdin from `strings.NewReader("")`; assert exit error.
-- `TestSetupCompleteContinuesWhenUserConfirms`: pipe `"y\n"` to `askYesNo`; assert no error and doctor step still runs.
-
-**Manual e2e**:
-
-1. `mv $(which onibi-notify) /tmp/`
-2. `onibi setup --complete`
-3. Expect: setup pairs, prompts service install, then prints "onibi-notify not found" + remediation, then prompts "Continue without hooks?"
-
-#### Gotchas
-
-- `locateNotifyBinary()` has multiple fallbacks per the audit (`$ONIBI_NOTIFY_BIN` → same-dir → PATH → dev build). All must fail for this path to trigger. Read the function to confirm the env-var check is first.
-- This is `setup --complete` only. The basic `onibi setup` doesn't touch hooks. Don't add the check upstream.
-
----
 
 ### T07 `onibi up` convenience command (P1/M)
 

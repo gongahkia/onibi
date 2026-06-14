@@ -149,7 +149,9 @@ func action(uninstall bool) string {
 // common install layout), falling back to PATH lookup, then to a same-dir
 // dev build. We need an absolute path because hook scripts run in arbitrary
 // cwd.
-func locateNotifyBinary() (string, error) {
+var locateNotifyBinary = locateNotifyBinaryImpl
+
+func locateNotifyBinaryImpl() (string, error) {
 	if env := os.Getenv("ONIBI_NOTIFY_BIN"); env != "" {
 		if filepath.IsAbs(env) {
 			return env, nil
