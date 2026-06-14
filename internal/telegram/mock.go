@@ -19,9 +19,11 @@ type Mock struct {
 	SentMessages []tgbot.SendMessageParams
 	SentPhotos   []tgbot.SendPhotoParams
 	SentDocs     []tgbot.SendDocumentParams
+	TextEdits    []tgbot.EditMessageTextParams
 	Edits        []tgbot.EditMessageReplyMarkupParams
 	Answers      []tgbot.AnswerCallbackQueryParams
 	Commands     []tgbot.SetMyCommandsParams
+	EditTextErr  error
 	await        ownerInteractionTracker
 }
 
@@ -90,6 +92,31 @@ func (m *Mock) SendDocument(_ context.Context, params *tgbot.SendDocumentParams)
 		Date:    int(time.Now().Unix()),
 		Chat:    models.Chat{ID: chatID, Type: "private"},
 		Caption: params.Caption,
+	}, nil
+}
+
+// SetEditMessageTextError makes EditMessageText return err after recording.
+func (m *Mock) SetEditMessageTextError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.EditTextErr = err
+}
+
+// EditMessageText records params and returns a synthetic message.
+func (m *Mock) EditMessageText(_ context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *params
+	m.TextEdits = append(m.TextEdits, cp)
+	if m.EditTextErr != nil {
+		return nil, m.EditTextErr
+	}
+	chatID, _ := params.ChatID.(int64)
+	return &models.Message{
+		ID:   params.MessageID,
+		Date: int(time.Now().Unix()),
+		Chat: models.Chat{ID: chatID, Type: "private"},
+		Text: params.Text,
 	}, nil
 }
 
@@ -180,6 +207,15 @@ func (m *Mock) Documents() []tgbot.SendDocumentParams {
 	defer m.mu.Unlock()
 	out := make([]tgbot.SendDocumentParams, len(m.SentDocs))
 	copy(out, m.SentDocs)
+	return out
+}
+
+// EditedText returns a snapshot of edit-message-text calls.
+func (m *Mock) EditedText() []tgbot.EditMessageTextParams {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]tgbot.EditMessageTextParams, len(m.TextEdits))
+	copy(out, m.TextEdits)
 	return out
 }
 

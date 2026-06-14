@@ -14,7 +14,6 @@
 - [3. Conventions and house style](#3-conventions-and-house-style)
 - [4. Ticket index](#4-ticket-index)
 - [5. Sprint 1 — durability and footguns](#5-sprint-1--durability-and-footguns)
-  - [T03 Edit-in-place approval message on daemon restart (P0/M)](#t03-edit-in-place-approval-message-on-daemon-restart-p0m)
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
@@ -208,114 +207,12 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 
 | # | Title | Priority | Effort | Depends on |
 |---|---|---|---|---|
-| T03 | Edit-in-place approval message on daemon restart | P0 | M | — |
+
+No active tickets remain.
 
 ---
 
 ## 5. Sprint 1 — durability and footguns
-
-### T03 Edit-in-place approval message on daemon restart (P0/M)
-
-#### Motivation
-
-`internal/daemon/approvals.go:84-110` `RestorePendingApprovals` re-sends pending approval messages on daemon restart. The owner now sees a duplicate: the original message (orphaned, no longer wired to a waiter) and the new one. The footer "Re-sent after daemon restart. The original hook may have already proceeded." (`approvals.go:127`) helps but the dup is noisy.
-
-Fix: edit the *original* Telegram message in place (text + keyboard) instead of sending a new one. Fall back to a new message only if the original is gone (`editMessageText` returns `message to edit not found`).
-
-#### Files
-
-- `internal/daemon/approvals.go:84-110` — `RestorePendingApprovals`.
-- `internal/daemon/approvals.go:534-543` — `editDecisionKeyboard` (model for how to edit a message; you'll write a similar `editApprovalMessage`).
-- `internal/approval/queue.go` (path inferred — see `internal/approval/`) — `Approval` struct has `ChatID int64` and `MsgID int64` per `approvals.go:528-529`.
-
-#### Approach
-
-When restoring a pending approval:
-
-1. If `a.ChatID != 0 && a.MsgID != 0`: call `Bot.EditMessageText` with the freshly rendered body + an updated keyboard. The keyboard should be a fresh `ApprovalKeyboard(a.ID)` (the buttons still work — the callback handler in `onCallback` re-reads state from DB on every press).
-2. If the edit fails because the message is gone (Telegram error code 400 `message to edit not found`), fall back to a new `SendMessage`.
-3. Always re-record the (chatID, msgID) via `Queue.SetMessage` (already done in current code).
-4. Add a one-line "Re-sent" footer **only** in the fallback path. In the edit-in-place path, the keyboard plus the original timestamp are enough.
-
-#### Implementation outline
-
-```go
-// internal/daemon/approvals.go
-func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
-    if d.Queue == nil || d.Bot == nil || d.Owner == nil {
-        return nil
-    }
-    pending, err := d.Queue.Pending(ctx)
-    if err != nil { return err }
-    for _, a := range pending {
-        sessLabel := a.SessionID
-        if s, err := d.Registry.Get(a.SessionID); err == nil {
-            sessLabel = s.Name + " (" + s.ID + ")"
-        }
-        if a.ChatID != 0 && a.MsgID != 0 {
-            if d.tryEditApprovalInPlace(ctx, a, sessLabel) {
-                continue
-            }
-        }
-        // fall back: send a new message with the "re-sent" footer
-        sent, err := d.sendApprovalMessage(ctx, a.ID, a.Tool, a.InputJSON, sessLabel, true, a.ExpiresAt)
-        if err != nil {
-            d.Log.Warn("restore approval message", slog.String("id", a.ID), slog.Any("err", err))
-            continue
-        }
-        if sent != nil {
-            _ = d.Queue.SetMessage(ctx, a.ID, sent.Chat.ID, int64(sent.ID))
-        }
-    }
-    return nil
-}
-
-func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approval, sessLabel string) bool {
-    // skip encrypted-mode restorations for now — those use Mini App URLs
-    // that include the original ciphertext payload; editing the body would
-    // re-encrypt and may break the URL. Send a fresh message instead.
-    switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
-    case "on", "ask":
-        return false
-    }
-    body := renderApprovalMessage(a.Tool, a.InputJSON, sessLabel)
-    _, err := d.Bot.EditMessageText(ctx, &tgbot.EditMessageTextParams{
-        ChatID:      a.ChatID,
-        MessageID:   int(a.MsgID),
-        Text:        body,
-        ParseMode:   models.ParseModeHTML,
-        ReplyMarkup: telegram.ApprovalKeyboard(a.ID),
-    })
-    if err != nil {
-        d.Log.Info("restore approval edit-in-place failed, will resend",
-            slog.String("id", a.ID), slog.Any("err", err))
-        return false
-    }
-    return true
-}
-```
-
-#### Validation
-
-**Tests** (`internal/daemon/approvals_test.go`):
-
-- `TestRestorePendingApprovalsEditsInPlace`: build a daemon with `telegram.mock`, request an approval, capture `(chatID, msgID)`, simulate restart (new `Daemon` against same DB and a new mock bot), assert `EditMessageText` was called with the same `MessageID` and that no new `SendMessage` happened.
-- `TestRestorePendingApprovalsFallsBackOnEditError`: mock bot returns `400 message to edit not found` for `EditMessageText`. Assert `SendMessage` is called as fallback.
-- `TestRestorePendingApprovalsEncryptedSkipsEditInPlace`: with `EncryptedMode="on"`, assert fallback path is always used (because Mini App URL needs a fresh ciphertext).
-
-**Manual e2e**:
-
-1. Trigger an approval. Note the message in the chat.
-2. SIGTERM the daemon.
-3. Restart. The same message should update; no new message arrives.
-
-#### Gotchas
-
-- Telegram `editMessageText` requires `parse_mode` to match the original or it may error on entity offset mismatches. Use `ParseMode: models.ParseModeHTML` — same as `sendPlainApprovalMessage` (`approvals.go:132`).
-- If the original message was sent in encrypted mode and we now restart in plaintext mode (or vice versa), editing in place may be confusing. The guard above skips edit-in-place for encrypted mode entirely; consider also skipping if `d.EncryptedMode` changed since `a` was created (you can detect this by trying to render and inspecting — but the simpler rule is "encrypted → never edit in place").
-- Don't accidentally re-trigger `Queue.SetMessage` with the same (chatID, msgID) — that's a no-op but adds log noise.
-
----
 
 ## 6. Sprint 2 — onboarding cliff
 

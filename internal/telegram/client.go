@@ -188,6 +188,11 @@ func (c *Client) SendDocument(ctx context.Context, params *tgbot.SendDocumentPar
 	return c.Bot.SendDocument(ctx, params)
 }
 
+// EditMessageText delegates to the real bot.
+func (c *Client) EditMessageText(ctx context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error) {
+	return c.Bot.EditMessageText(ctx, params)
+}
+
 // EditMessageReplyMarkup delegates to the real bot.
 func (c *Client) EditMessageReplyMarkup(ctx context.Context, params *tgbot.EditMessageReplyMarkupParams) (*models.Message, error) {
 	return c.Bot.EditMessageReplyMarkup(ctx, params)

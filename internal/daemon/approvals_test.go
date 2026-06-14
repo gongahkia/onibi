@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -282,6 +283,109 @@ func TestRestorePendingApprovalsRerenders(t *testing.T) {
 	}
 	if a.ChatID != 100 || a.MsgID != 1 {
 		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
+	}
+}
+
+func TestRestorePendingApprovalsEditsInPlace(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	restarted := New(Options{DB: d.DB, Secrets: d.Secrets, Owner: d.Owner, Bot: mock})
+	if err := restarted.RestorePendingApprovals(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if sent := mock.Sent(); len(sent) != 0 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	edits := mock.EditedText()
+	if len(edits) != 1 {
+		t.Fatalf("text edits = %d", len(edits))
+	}
+	if edits[0].MessageID != 77 || edits[0].ChatID != int64(100) {
+		t.Fatalf("edit target = chat %#v msg %d", edits[0].ChatID, edits[0].MessageID)
+	}
+	if strings.Contains(edits[0].Text, "Re-sent after daemon restart") {
+		t.Fatalf("edit body = %s", edits[0].Text)
+	}
+	if edits[0].ParseMode != models.ParseModeHTML || edits[0].ReplyMarkup == nil {
+		t.Fatalf("edit params = %#v", edits[0])
+	}
+}
+
+func TestRestorePendingApprovalsFallsBackOnEditError(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	mock.SetEditMessageTextError(errors.New("Bad Request: message to edit not found"))
+	restarted := New(Options{DB: d.DB, Secrets: d.Secrets, Owner: d.Owner, Bot: mock})
+	if err := restarted.RestorePendingApprovals(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if edits := mock.EditedText(); len(edits) != 1 {
+		t.Fatalf("text edits = %d", len(edits))
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	if !strings.Contains(sent[0].Text, "Re-sent after daemon restart") {
+		t.Fatalf("fallback body = %s", sent[0].Text)
+	}
+	a, err := restarted.Queue.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.MsgID != 1 || a.ChatID != 100 {
+		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
+	}
+}
+
+func TestRestorePendingApprovalsEncryptedSkipsEditInPlace(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"echo secret"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := envelope.GenerateSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	restarted := New(Options{
+		DB:            d.DB,
+		Secrets:       d.Secrets,
+		Owner:         d.Owner,
+		Bot:           mock,
+		EncryptedMode: "on",
+		EnvelopeSeed:  seed,
+		MiniAppURL:    "https://example.com/onibi/",
+	})
+	if err := restarted.RestorePendingApprovals(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if edits := mock.EditedText(); len(edits) != 0 {
+		t.Fatalf("text edits = %d", len(edits))
+	}
+	if sent := mock.Sent(); len(sent) != 1 {
+		t.Fatalf("sent = %d", len(sent))
 	}
 }
 

@@ -15,6 +15,7 @@ type API interface {
 	SendMessage(context.Context, *tgbot.SendMessageParams) (*models.Message, error)
 	SendPhoto(context.Context, *tgbot.SendPhotoParams) (*models.Message, error)
 	SendDocument(context.Context, *tgbot.SendDocumentParams) (*models.Message, error)
+	EditMessageText(context.Context, *tgbot.EditMessageTextParams) (*models.Message, error)
 	EditMessageReplyMarkup(context.Context, *tgbot.EditMessageReplyMarkupParams) (*models.Message, error)
 	AnswerCallbackQuery(context.Context, *tgbot.AnswerCallbackQueryParams) (bool, error)
 	SetMyCommands(context.Context, *tgbot.SetMyCommandsParams) (bool, error)

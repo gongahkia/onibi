@@ -97,6 +97,16 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 		if s, err := d.Registry.Get(a.SessionID); err == nil {
 			sessLabel = s.Name + " (" + s.ID + ")"
 		}
+		if a.ChatID != 0 && a.MsgID != 0 {
+			edited, fallback := d.tryEditApprovalInPlace(ctx, a, sessLabel)
+			if edited {
+				_ = d.Queue.SetMessage(ctx, a.ID, a.ChatID, a.MsgID)
+				continue
+			}
+			if !fallback {
+				continue
+			}
+		}
 		sent, err := d.sendApprovalMessage(ctx, a.ID, a.Tool, a.InputJSON, sessLabel, true, a.ExpiresAt)
 		if err != nil {
 			d.Log.Warn("restore approval message", slog.String("id", a.ID), slog.Any("err", err))
@@ -107,6 +117,32 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approval, sessLabel string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
+	case "on", "ask":
+		return false, true
+	}
+	body := renderApprovalMessage(a.Tool, a.InputJSON, sessLabel)
+	_, err := d.Bot.EditMessageText(ctx, &tgbot.EditMessageTextParams{
+		ChatID:      a.ChatID,
+		MessageID:   int(a.MsgID),
+		Text:        body,
+		ParseMode:   models.ParseModeHTML,
+		ReplyMarkup: telegram.ApprovalKeyboard(a.ID),
+	})
+	if err != nil {
+		d.Log.Info("restore approval edit-in-place failed", slog.String("id", a.ID), slog.Any("err", err))
+		return false, shouldFallbackApprovalEdit(err)
+	}
+	telegram.MarkAwaitingOwnerInteraction(d.Bot, a.ChatID)
+	d.bindMessage(&models.Message{ID: int(a.MsgID), Chat: models.Chat{ID: a.ChatID}}, a.SessionID)
+	return true, false
+}
+
+func shouldFallbackApprovalEdit(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "message to edit not found")
 }
 
 func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool, expires time.Time) (*models.Message, error) {
