@@ -20,7 +20,6 @@
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
 - [9. Sprint 5 — docs depth](#9-sprint-5--docs-depth)
-  - [T21 `docs/architecture.md` (P0/S)](#t21-docsarchitecturemd-p0s)
   - [T22 `docs/mcp.md` with client examples (P1/S)](#t22-docsmcpmd-with-client-examples-p1s)
   - [T23 `docs/encrypted-mode.md` (P0/S)](#t23-docsencrypted-modemd-p0s)
   - [T24 Shell-hook conflict troubleshooting (P1/S)](#t24-shell-hook-conflict-troubleshooting-p1s)
@@ -216,11 +215,10 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 |---|---|---|---|---|
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
-| T21 | `docs/architecture.md` | P0 | S | — |
-| T22 | `docs/mcp.md` with client examples | P1 | S | T15 |
+| T22 | `docs/mcp.md` with client examples | P1 | S | — |
 | T23 | `docs/encrypted-mode.md` | P0 | S | — |
 | T24 | Shell-hook conflict troubleshooting | P1 | S | — |
-| T25 | Real `docs/index.html` landing | P1 | M | T21 |
+| T25 | Real `docs/index.html` landing | P1 | M | — |
 
 ---
 
@@ -469,25 +467,7 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 
 ## 9. Sprint 5 — docs depth
 
-### T21 `docs/architecture.md` (P0/S)
-
-#### Content outline
-
-1. Component diagram (use the one in section 1 of this TODO).
-2. Intake JSON schema (copy from `internal/intake/event.go`, with one example per event type).
-3. Approval state machine: pending → {approved, denied, edited, expired, cancelled}. Diagram. Mention TTL.
-4. Encrypted message envelope (`internal/envelope/envelope.go` — read for the JSON shape).
-5. Daemon goroutine inventory (intake, idle detector, sweeper, bot long-poll, optional exit-on-idle).
-6. Sessions and PTY: how `creack/pty` is used, ring buffer semantics, PNG render path.
-7. Storage: SQLite tables and their purposes (approvals, prompts, sessions, audit_log, kv, pairing_tokens, hooks).
-
-Target length: ~400 lines.
-
----
-
 ### T22 `docs/mcp.md` with client examples (P1/S)
-
-Depends on T15 (tests stabilize the schema).
 
 #### Content outline
 
@@ -539,8 +519,6 @@ Append to `docs/troubleshooting.md`:
 ---
 
 ### T25 Real `docs/index.html` landing (P1/M)
-
-Depends on T21.
 
 Replace the 6-line redirect with a single-page landing:
 

@@ -312,6 +312,7 @@ Public release tags require Apple signing, notarization, Homebrew tap, GPG, and 
 ## Documentation
 
 - [`docs/getting-started.md`](./docs/getting-started.md): fresh install, BotFather, pairing, first approval, and next steps.
+- [`docs/architecture.md`](./docs/architecture.md): component map, intake schema, approval lifecycle, encryption envelope, daemon loops, sessions, and storage.
 - [`docs/security.md`](./docs/security.md): threat model, defenses, non-defenses, setup checklist, and encrypted mode notes.
 - [`docs/troubleshooting.md`](./docs/troubleshooting.md): lost token, owner rotation, stale webhook, no updates, sleep/wake, service, and hook drift.
 - [`docs/release.md`](./docs/release.md): release, signing, notarization, Homebrew, and clean-Mac validation checklist.
