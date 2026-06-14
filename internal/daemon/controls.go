@@ -22,8 +22,9 @@ func (d *Daemon) handlePeekCommand(ctx context.Context, api telegram.API, chatID
 
 func (d *Daemon) handleInterruptCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
 	var authMsg string
+	var authNote string
 	var ok bool
-	arg, authMsg, ok = d.requireTOTP(ctx, arg)
+	arg, authMsg, authNote, ok = d.requireTOTP(ctx, chatID, arg)
 	if !ok {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: authMsg})
 		return
@@ -45,13 +46,14 @@ func (d *Daemon) handleInterruptCommand(ctx context.Context, api telegram.API, c
 	delete(d.busySessions, s.ID)
 	d.threadMu.Unlock()
 	d.audit(ctx, "session.interrupt", s.ID, "", chatID, "ctrl-c")
-	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session interrupted", "Interrupted "+s.Name+" ("+s.ID+").")
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session interrupted", withTOTPNote("Interrupted "+s.Name+" ("+s.ID+").", authNote))
 }
 
 func (d *Daemon) handleKillCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
 	var authMsg string
+	var authNote string
 	var ok bool
-	arg, authMsg, ok = d.requireTOTP(ctx, arg)
+	arg, authMsg, authNote, ok = d.requireTOTP(ctx, chatID, arg)
 	if !ok {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: authMsg})
 		return
@@ -66,7 +68,7 @@ func (d *Daemon) handleKillCommand(ctx context.Context, api telegram.API, chatID
 	}
 	d.markSessionEnded(ctx, s)
 	d.audit(ctx, "session.kill", s.ID, "", chatID, "telegram")
-	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session killed", "Killed "+s.Name+" ("+s.ID+").")
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "session", "Session killed", withTOTPNote("Killed "+s.Name+" ("+s.ID+").", authNote))
 }
 
 func (d *Daemon) handleRenameCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -125,7 +127,7 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		answerCallback(ctx, api, q.ID, "Sending preview")
 		d.sendSessionPreview(ctx, api, q.From.ID, s)
 	case "interrupt":
-		if enabled, msg := d.totpEnabled(ctx); enabled {
+		if enabled, msg := d.totpEnabled(ctx, q.From.ID); enabled {
 			answerCallback(ctx, api, q.ID, "TOTP required")
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
 			return nil
@@ -133,7 +135,7 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		d.handleInterruptCommand(ctx, api, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Interrupted")
 	case "kill":
-		if enabled, msg := d.totpEnabled(ctx); enabled {
+		if enabled, msg := d.totpEnabled(ctx, q.From.ID); enabled {
 			answerCallback(ctx, api, q.ID, "TOTP required")
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
 			return nil

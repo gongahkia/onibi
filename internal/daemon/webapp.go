@@ -86,7 +86,7 @@ func (d *Daemon) onWebAppData(ctx context.Context, api telegram.API, m *models.M
 		res, err := d.Queue.DecideWithResult(ctx, a.ID, approval.VerdictDeny, "", "denied by owner via encrypted Mini App", m.From.ID)
 		return d.finishWebAppDecision(ctx, api, m.Chat.ID, a, res, err, "Denied.")
 	case "edit":
-		editJSON, authErr := d.prepareApprovalEdit(ctx, dec.UpdatedInput)
+		editJSON, authErr, authNote := d.prepareApprovalEdit(ctx, m.Chat.ID, dec.UpdatedInput)
 		if authErr != "" {
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: authErr})
 			return nil
@@ -96,7 +96,7 @@ func (d *Daemon) onWebAppData(ctx context.Context, api telegram.API, m *models.M
 			return nil
 		}
 		res, err := d.Queue.DecideWithResult(ctx, a.ID, approval.VerdictEdit, editJSON, "", m.From.ID)
-		return d.finishWebAppDecision(ctx, api, m.Chat.ID, a, res, err, "Edited input accepted.")
+		return d.finishWebAppDecision(ctx, api, m.Chat.ID, a, res, err, withTOTPNote("Edited input accepted.", authNote))
 	default:
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown Mini App action."})
 		return nil

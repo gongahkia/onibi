@@ -3,36 +3,46 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/secrets"
 )
 
-func (d *Daemon) requireTOTP(ctx context.Context, arg string) (string, string, bool) {
+const totpGraceWindow = 60 * time.Second
+
+var totpNow = time.Now
+
+func (d *Daemon) requireTOTP(ctx context.Context, chatID int64, arg string) (string, string, string, bool) {
 	secret, enabled, err := d.totpSecret(ctx)
 	if err != nil {
-		return arg, "TOTP unavailable: " + err.Error(), false
+		return arg, "TOTP unavailable: " + err.Error(), "", false
 	}
 	if !enabled {
-		return arg, "", true
+		return arg, "", "", true
+	}
+	if d.withinTOTPGrace(ctx, chatID) {
+		return arg, "", "(within TOTP grace)", true
 	}
 	fields := strings.Fields(arg)
 	if len(fields) == 0 {
-		return arg, "TOTP required: append a 6-digit code.", false
+		return arg, "TOTP required: append a 6-digit code.", "", false
 	}
 	code := fields[len(fields)-1]
 	if !isTOTPCode(code) {
-		return arg, "TOTP required: append a 6-digit code.", false
+		return arg, "TOTP required: append a 6-digit code.", "", false
 	}
 	ok, err := auth.Verify(secret, code)
 	if err != nil {
-		return arg, "Invalid TOTP code.", false
+		return arg, "Invalid TOTP code.", "", false
 	}
 	if !ok {
-		return arg, "Invalid TOTP code.", false
+		return arg, "Invalid TOTP code.", "", false
 	}
-	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(arg), code)), "", true
+	d.recordTOTPSuccess(ctx, chatID)
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(arg), code)), "", "(60s grace)", true
 }
 
 func (d *Daemon) totpSecret(ctx context.Context) ([]byte, bool, error) {
@@ -63,15 +73,52 @@ func (d *Daemon) totpSecret(ctx context.Context) ([]byte, bool, error) {
 	return secret, true, nil
 }
 
-func (d *Daemon) totpEnabled(ctx context.Context) (bool, string) {
+func (d *Daemon) totpEnabled(ctx context.Context, chatID int64) (bool, string) {
 	_, enabled, err := d.totpSecret(ctx)
 	if err != nil {
 		return true, "TOTP unavailable: " + err.Error()
+	}
+	if enabled && d.withinTOTPGrace(ctx, chatID) {
+		return false, ""
 	}
 	if enabled {
 		return true, "TOTP required: use /interrupt <id> <code> or /kill <id> <code>."
 	}
 	return false, ""
+}
+
+func (d *Daemon) recordTOTPSuccess(ctx context.Context, chatID int64) {
+	if d.DB == nil {
+		return
+	}
+	_ = d.DB.KVSetString(ctx, totpLastKey(chatID), strconv.FormatInt(totpNow().Unix(), 10))
+}
+
+func (d *Daemon) withinTOTPGrace(ctx context.Context, chatID int64) bool {
+	if d.DB == nil {
+		return false
+	}
+	v, ok, err := d.DB.KVGetString(ctx, totpLastKey(chatID))
+	if err != nil || !ok {
+		return false
+	}
+	ts, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return false
+	}
+	age := totpNow().Sub(time.Unix(ts, 0))
+	return age >= 0 && age < totpGraceWindow
+}
+
+func totpLastKey(chatID int64) string {
+	return "totp:last:" + strconv.FormatInt(chatID, 10)
+}
+
+func withTOTPNote(text, note string) string {
+	if note == "" {
+		return text
+	}
+	return text + " " + note
 }
 
 func (d *Daemon) paranoidMode(ctx context.Context) (bool, error) {

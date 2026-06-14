@@ -19,7 +19,6 @@
 - [6. Sprint 2 — onboarding cliff](#6-sprint-2--onboarding-cliff)
   - [T07 `onibi up` convenience command (P1/M)](#t07-onibi-up-convenience-command-p1m)
 - [7. Sprint 3 — Telegram steady-state UX](#7-sprint-3--telegram-steady-state-ux)
-  - [T13 TOTP grace window (P1/S)](#t13-totp-grace-window-p1s)
   - [T14 In-bot per-command help — `/help <cmd>` (P1/M)](#t14-in-bot-per-command-help--help-cmd-p1m)
 - [8. Sprint 4 — engineering hardening](#8-sprint-4--engineering-hardening)
   - [T15 MCP server test coverage (P1/M)](#t15-mcp-server-test-coverage-p1m)
@@ -226,7 +225,6 @@ Sprints are independent; tickets within a sprint are roughly ordered by dependen
 | T01 | Persist pending UI state to SQLite | P0 | M | — |
 | T03 | Edit-in-place approval message on daemon restart | P0 | M | T01 (optional) |
 | T07 | `onibi up` convenience command | P1 | M | — |
-| T13 | TOTP grace window | P1 | S | — |
 | T14 | In-bot per-command help — `/help <cmd>` | P1 | M | — |
 | T15 | MCP server test coverage | P1 | M | — |
 | T16 | Versioned shell hook blocks + auto-reinstall on `doctor --fix` | P1 | M | — |
@@ -579,77 +577,6 @@ Update README quick-start: change the lead-in to `onibi up` instead of `onibi se
 ---
 
 ## 7. Sprint 3 — Telegram steady-state UX
-
-### T13 TOTP grace window (P1/S)
-
-#### Motivation
-
-`internal/daemon/totp.go` and `internal/daemon/controls.go` gate `/interrupt`, `/kill`, and approval-edit-in-paranoid-mode on TOTP. Every destructive action requires a fresh 6-digit code. If an owner is debugging a hot session, this is friction-rich. A short grace window after successful TOTP keeps the security property of "code required for destructive actions" while reducing repeated entry.
-
-#### Files
-
-- `internal/daemon/totp.go` — TOTP verification.
-- `internal/daemon/controls.go:23-49` — `handleInterruptCommand` (TOTP gate).
-- `internal/daemon/controls.go:51-70` — `handleKillCommand` (TOTP gate).
-- `internal/daemon/approvals.go:382-406` — `prepareApprovalEdit` (TOTP gate for paranoid mode).
-
-#### Implementation
-
-Store the last successful TOTP timestamp in KV per chat_id:
-
-```
-key:   totp:last:<chat_id>
-value: unix-seconds (string)
-TTL:   none — read inspects age explicitly
-```
-
-Add helpers in `internal/daemon/totp.go`:
-
-```go
-const totpGraceWindow = 60 * time.Second
-
-func (d *Daemon) recordTOTPSuccess(ctx context.Context, chatID int64) {
-    if d.DB == nil { return }
-    _ = d.DB.KVSetString(ctx, fmt.Sprintf("totp:last:%d", chatID),
-        strconv.FormatInt(time.Now().Unix(), 10))
-}
-
-func (d *Daemon) withinTOTPGrace(ctx context.Context, chatID int64) bool {
-    if d.DB == nil { return false }
-    v, ok, err := d.DB.KVGetString(ctx, fmt.Sprintf("totp:last:%d", chatID))
-    if err != nil || !ok { return false }
-    ts, err := strconv.ParseInt(v, 10, 64)
-    if err != nil { return false }
-    return time.Now().Unix()-ts < int64(totpGraceWindow.Seconds())
-}
-```
-
-In each gated handler, check `withinTOTPGrace` first; only require TOTP if outside the window. On successful TOTP verify, call `recordTOTPSuccess`.
-
-User-visible: append "(60s grace)" to the success message so the user knows.
-
-#### Validation
-
-**Tests** (`internal/daemon/totp_test.go` — may not exist; add):
-
-- `TestTOTPGraceWithinWindow`: record success at `t=0`, query within 30s, assert grace allows action without TOTP.
-- `TestTOTPGraceExpired`: record success at `t=0`, query at 70s (mocked clock), assert grace expired.
-- `TestTOTPGraceIsPerChat`: chat A records success; chat B not. Chat B still required to enter TOTP.
-
-**Manual e2e**:
-
-1. Configure paranoid mode (`onibi setup --paranoid`).
-2. `/interrupt <session>` — prompts for TOTP. Enter code.
-3. Within 60s, `/kill <other-session>` — should proceed without TOTP prompt; message includes "(within TOTP grace)".
-4. Wait 70s. `/kill` — TOTP required again.
-
-#### Gotchas
-
-- Grace is per-chat, not per-action. That matches user-facing semantics (each Telegram session belongs to one chat).
-- Resetting the timer on every successful TOTP entry is fine. Don't try to be clever.
-- TOTP codes are 30-second windows; the grace must be at least that, ideally more (60s is the sweet spot).
-
----
 
 ### T14 In-bot per-command help — `/help <cmd>` (P1/M)
 

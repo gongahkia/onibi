@@ -174,6 +174,25 @@ func TestParanoidReplyEditRequiresTOTP(t *testing.T) {
 	if dec.Verdict != approval.VerdictEdit {
 		t.Fatalf("verdict = %s", dec.Verdict)
 	}
+	id2, ch2, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm y"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.pendingEdits[100] = id2
+	if err := d.onReply(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: `{"command":"echo grace"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dec = <-ch2
+	if dec.Verdict != approval.VerdictEdit {
+		t.Fatalf("grace verdict = %s", dec.Verdict)
+	}
+	if sent := mock.Sent(); !strings.Contains(sent[len(sent)-1].Text, "(within TOTP grace)") {
+		t.Fatalf("sent = %#v", sent)
+	}
 }
 
 func TestCallbackExpiredMarksExpired(t *testing.T) {

@@ -363,6 +363,44 @@ func TestKillRequiresTOTPWhenEnabled(t *testing.T) {
 	if !s.Ended() {
 		t.Fatal("session not ended with valid TOTP")
 	}
+	if sent := mock.Sent(); len(sent) != 2 || !strings.Contains(sent[1].Text, "(60s grace)") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestKillUsesTOTPGraceAfterSuccess(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s1 := pipeSession(t, "abc123", "one")
+	_, s2 := pipeSession(t, "def456", "two")
+	if err := d.Registry.Add(s1); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Registry.Add(s2); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := auth.NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Secrets.Set(secrets.KeyTOTPSecret, auth.EncodeHex(secret)); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Truncate(time.Second)
+	withTOTPNow(t, base)
+	mock := telegram.NewMock(nil)
+	code := fmt.Sprintf("%06d", auth.Code(secret, base.Unix()))
+	d.handleKillCommand(context.Background(), mock, 100, s1.ID+" "+code)
+	if !s1.Ended() {
+		t.Fatal("first session not ended")
+	}
+	withTOTPNow(t, base.Add(30*time.Second))
+	d.handleKillCommand(context.Background(), mock, 100, s2.ID)
+	if !s2.Ended() {
+		t.Fatal("second session not ended within grace")
+	}
+	if sent := mock.Sent(); len(sent) != 2 || !strings.Contains(sent[1].Text, "(within TOTP grace)") {
+		t.Fatalf("sent = %#v", sent)
+	}
 }
 
 func TestParanoidWithoutTOTPSecretFailsClosed(t *testing.T) {

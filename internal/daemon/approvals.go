@@ -313,7 +313,7 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		return nil
 	}
 
-	editJSON, authErr := d.prepareApprovalEdit(ctx, txt)
+	editJSON, authErr, authNote := d.prepareApprovalEdit(ctx, m.Chat.ID, txt)
 	if authErr != "" {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: authErr})
 		d.editMu.Lock()
@@ -374,35 +374,39 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	}
 	sendMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID: m.Chat.ID,
-		Text:   "Edited input accepted; tool will run with your version.",
+		Text:   withTOTPNote("Edited input accepted; tool will run with your version.", authNote),
 	})
 	return nil
 }
 
-func (d *Daemon) prepareApprovalEdit(ctx context.Context, txt string) (string, string) {
+func (d *Daemon) prepareApprovalEdit(ctx context.Context, chatID int64, txt string) (string, string, string) {
 	paranoid, err := d.paranoidMode(ctx)
 	if err != nil {
-		return "", "TOTP unavailable: " + err.Error()
+		return "", "TOTP unavailable: " + err.Error(), ""
 	}
 	if !paranoid {
-		return txt, ""
+		return txt, "", ""
+	}
+	if d.withinTOTPGrace(ctx, chatID) {
+		return txt, "", "(within TOTP grace)"
 	}
 	body, code, ok := splitEditTOTP(txt)
 	if !ok {
-		return "", "Paranoid mode requires edited JSON followed by a 6-digit TOTP code."
+		return "", "Paranoid mode requires edited JSON followed by a 6-digit TOTP code.", ""
 	}
 	secret, enabled, err := d.totpSecret(ctx)
 	if err != nil {
-		return "", "TOTP unavailable: " + err.Error()
+		return "", "TOTP unavailable: " + err.Error(), ""
 	}
 	if !enabled {
-		return "", "TOTP unavailable: paranoid mode is set but TOTP is not configured"
+		return "", "TOTP unavailable: paranoid mode is set but TOTP is not configured", ""
 	}
 	valid, err := auth.Verify(secret, code)
 	if err != nil || !valid {
-		return "", "Invalid TOTP code."
+		return "", "Invalid TOTP code.", ""
 	}
-	return body, ""
+	d.recordTOTPSuccess(ctx, chatID)
+	return body, "", "(60s grace)"
 }
 
 func splitEditTOTP(txt string) (string, string, bool) {
