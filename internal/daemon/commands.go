@@ -398,7 +398,25 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
 	fields := strings.Fields(arg)
 	if len(fields) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new <agent|shell|tmux> [args...]"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> [args...]"})
+		return
+	}
+	mode := "headless"
+	for len(fields) > 0 {
+		switch fields[0] {
+		case "--headless", "headless":
+			mode = "headless"
+			fields = fields[1:]
+		case "--visible", "visible":
+			mode = "visible"
+			fields = fields[1:]
+		default:
+			goto parsedMode
+		}
+	}
+parsedMode:
+	if len(fields) == 0 {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> [args...]"})
 		return
 	}
 	agent := strings.ToLower(fields[0])
@@ -416,17 +434,25 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("%s not found in PATH.", bin)})
 		return
 	}
-	s, err := d.SpawnAgent(ctx, spawnAgent, spawnAgent, path, spawnArgs, nil)
+	s, err := d.StartTmuxSession(ctx, spawnAgent, spawnAgent, path, spawnArgs, "")
 	if err != nil {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Start failed: " + err.Error()})
 		return
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
+	detail := fmt.Sprintf("Started %s (%s) headless. Default target set.", s.Name, s.ID)
+	if mode == "visible" {
+		if msg, err := d.ShowSession(ctx, s.ID); err == nil {
+			detail = fmt.Sprintf("Started %s (%s) visible. %s Default target set.", s.Name, s.ID, msg)
+		} else {
+			detail = fmt.Sprintf("Started %s (%s) headless. Show failed: %s", s.Name, s.ID, err.Error())
+		}
+	}
 	if api == nil {
 		return
 	}
 	if d.encryptedModeEnabled() {
-		sent, err := d.sendEncryptedText(ctx, api, chatID, "new", "Started session", fmt.Sprintf("Started %s (%s). Default target set.", s.Name, s.ID))
+		sent, err := d.sendEncryptedText(ctx, api, chatID, "new", "Started session", detail)
 		if err == nil {
 			d.bindMessage(sent, s.ID)
 		} else {
@@ -436,11 +462,39 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 	}
 	sent, err := api.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: chatID,
-		Text:   fmt.Sprintf("Started %s (%s). Default target set.", s.Name, s.ID),
+		Text:   detail,
 	})
 	if err == nil {
 		d.bindMessage(sent, s.ID)
 	}
+}
+
+func (d *Daemon) handleShowCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	s, msg := d.resolveSessionTarget(arg)
+	if msg != "" {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: msg})
+		return
+	}
+	d.setDefaultTarget(ctx, chatID, s.ID)
+	text, err := d.ShowSession(ctx, s.ID)
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Show failed: " + err.Error()})
+		return
+	}
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
+}
+
+func (d *Daemon) handleHideCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	s, msg := d.resolveSessionTarget(arg)
+	if msg != "" {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: msg})
+		return
+	}
+	sendMessage(ctx, api, &tgbot.SendMessageParams{
+		ChatID:      chatID,
+		Text:        "Hide " + s.Name + " (" + s.ID + ")?",
+		ReplyMarkup: telegram.HideChoiceKeyboard(s.ID),
+	})
 }
 
 func (d *Daemon) handleNewTmuxCommand(ctx context.Context, api telegram.API, chatID int64, args []string) {
