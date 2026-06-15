@@ -132,6 +132,36 @@ func TestNewTmuxCommandAttachesTarget(t *testing.T) {
 	}
 }
 
+func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+	t.Setenv("SHELL", "/bin/sh")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new --headless shell",
+	}) {
+		t.Fatal("command not handled")
+	}
+	live := d.liveSessions()
+	if len(live) != 1 || live[0].Transport != "tmux" || !strings.HasPrefix(live[0].TmuxTarget, "onibi-") {
+		t.Fatalf("live = %#v", live)
+	}
+	if got := d.defaultTarget(ctx, 100); got != live[0].ID {
+		t.Fatalf("default target = %q want %q", got, live[0].ID)
+	}
+	if !containsCallPrefix(r.Calls(), []string{"tmux", "new-session", "-d", "-s"}) {
+		t.Fatalf("missing new-session: %#v", r.Calls())
+	}
+}
+
 func TestTmuxPromptsSendImmediately(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r := &daemonTmuxRunner{}
@@ -185,6 +215,18 @@ func TestTmuxPromptsSendImmediately(t *testing.T) {
 func containsCall(calls [][]string, want []string) bool {
 	for _, call := range calls {
 		if reflect.DeepEqual(call, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCallPrefix(calls [][]string, want []string) bool {
+	for _, call := range calls {
+		if len(call) < len(want) {
+			continue
+		}
+		if reflect.DeepEqual(call[:len(want)], want) {
 			return true
 		}
 	}

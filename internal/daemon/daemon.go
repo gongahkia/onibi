@@ -52,11 +52,11 @@ type Daemon struct {
 	Router     *telegram.Router
 	BufferSize int
 
-	EncryptedMode string
-	MiniAppURL    string
-	EnvelopeSeed  string
+	EncryptedMode   string
+	MiniAppURL      string
+	EnvelopeSeed    string
 	TerminalDefault string
-	anomaly       *anomalyTracker
+	anomaly         *anomalyTracker
 
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once

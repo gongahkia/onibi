@@ -28,6 +28,40 @@ func wrapCmd() *cobra.Command {
 	return cmd
 }
 
+func newSessionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "new [--headless|--visible] <agent|shell> [args...]",
+		Short: "Create a tmux-backed Onibi session",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runNewSession,
+	}
+	cmd.Flags().Bool("headless", false, "start without opening a terminal window")
+	cmd.Flags().Bool("visible", false, "start and open a terminal window")
+	cmd.Flags().String("name", "", "session label")
+	return cmd
+}
+
+func showCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <id|name>",
+		Short: "Open a visible terminal for a tmux-backed session",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runShowSession,
+	}
+}
+
+func hideCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hide <id|name>",
+		Short: "Detach visible clients or end a tmux-backed session",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runHideSession,
+	}
+	cmd.Flags().Bool("headless", false, "detach terminal clients and continue headless")
+	cmd.Flags().Bool("end", false, "end the session")
+	return cmd
+}
+
 func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")

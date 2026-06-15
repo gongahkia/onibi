@@ -134,6 +134,24 @@ func TestCapturePreservesEscapeSequences(t *testing.T) {
 	}
 }
 
+func TestStartSessionBuildsTmuxCommand(t *testing.T) {
+	r := &fakeRunner{}
+	c := NewWithRunner(r)
+	if err := c.StartSession(context.Background(), "onibi-abc", StartOptions{
+		WindowName: "codex",
+		CWD:        "/tmp/repo",
+		Env:        []string{"ONIBI_SESSION_ID=abc"},
+		Command:    "/bin/echo",
+		Args:       []string{"hello world"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tmux", "new-session", "-d", "-s", "onibi-abc", "-n", "codex", "-c", "/tmp/repo", "-e", "ONIBI_SESSION_ID=abc", "sh", "-lc", "exec '/bin/echo' 'hello world'"}
+	if !reflect.DeepEqual(r.calls[0], want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestListPanesParsesRows(t *testing.T) {
 	r := &fakeRunner{out: []byte("%1\ts\tw\tclaude\ttitle\n")}
 	c := NewWithRunner(r)

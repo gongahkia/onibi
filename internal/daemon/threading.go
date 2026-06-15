@@ -123,10 +123,20 @@ func (d *Daemon) sessionByID(id string) (*Session, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, ErrUnknownSession
 	}
+	var nameMatches []*Session
 	for _, s := range d.liveSessions() {
 		if s.ID == id || strings.HasPrefix(s.ID, id) {
 			return s, nil
 		}
+		if s.Name == id {
+			nameMatches = append(nameMatches, s)
+		}
+	}
+	if len(nameMatches) == 1 {
+		return nameMatches[0], nil
+	}
+	if len(nameMatches) > 1 {
+		return nil, errAmbiguousTarget
 	}
 	return nil, ErrUnknownSession
 }

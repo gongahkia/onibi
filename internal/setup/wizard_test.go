@@ -87,7 +87,7 @@ func TestRunPairsOwnerWithMockTelegram(t *testing.T) {
 		t.Fatalf("owner = %q ok=%v", owner, ok)
 	}
 	sent := mock.Sent()
-	if len(sent) < 2 || !strings.Contains(sent[0].Text, "Paired") || !strings.Contains(sent[1].Text, "/new tmux &lt;target&gt;") {
+	if len(sent) < 2 || !strings.Contains(sent[0].Text, "Paired") || !strings.Contains(sent[1].Text, "/new --visible shell") {
 		t.Fatalf("sent = %#v", sent)
 	}
 }

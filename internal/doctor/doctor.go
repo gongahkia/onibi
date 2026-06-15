@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,7 @@ func (r *runner) run() {
 	r.checkOwner()
 	r.checkSocket()
 	r.checkService()
+	r.checkSessionRuntime()
 	r.checkHooks()
 	r.checkTOTP()
 	if !r.opts.Offline {
@@ -132,6 +134,10 @@ func nextAction(name, detail string, st Status) (string, bool) {
 		return "onibi install-service or onibi run", false
 	case name == "service":
 		return "onibi install-service", true
+	case name == "tmux":
+		return "brew install tmux", false
+	case name == "terminal launcher":
+		return "set terminal.default=none or install Ghostty", false
 	case name == "hooks":
 		return "onibi install-hooks --interactive", false
 	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "hash missing"):
@@ -346,6 +352,47 @@ func (r *runner) checkService() {
 		return
 	}
 	r.add("service", Pass, st.Path)
+}
+
+func (r *runner) checkSessionRuntime() {
+	if path, err := exec.LookPath("tmux"); err == nil {
+		r.add("tmux", Pass, path)
+	} else {
+		r.add("tmux", Fail, "required for headless/visible session switching")
+	}
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("terminal launcher", Warn, err.Error())
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Terminal.Default)) {
+	case "none":
+		r.add("terminal launcher", Warn, "disabled; /show will print tmux attach command")
+	case "terminal":
+		if _, err := exec.LookPath("osascript"); err == nil {
+			r.add("terminal launcher", Pass, "Terminal.app via osascript")
+		} else {
+			r.add("terminal launcher", Warn, "osascript not found")
+		}
+	case "ghostty":
+		if _, err := exec.LookPath("ghostty"); err == nil {
+			r.add("terminal launcher", Pass, "Ghostty")
+		} else if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
+			r.add("terminal launcher", Pass, "Ghostty.app")
+		} else {
+			r.add("terminal launcher", Warn, "Ghostty not found")
+		}
+	default:
+		if _, err := exec.LookPath("ghostty"); err == nil {
+			r.add("terminal launcher", Pass, "auto: Ghostty")
+		} else if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
+			r.add("terminal launcher", Pass, "auto: Ghostty.app")
+		} else if _, err := exec.LookPath("osascript"); err == nil {
+			r.add("terminal launcher", Pass, "auto: Terminal.app")
+		} else {
+			r.add("terminal launcher", Warn, "auto fallback will print tmux attach command")
+		}
+	}
 }
 
 func (r *runner) checkHooks() {

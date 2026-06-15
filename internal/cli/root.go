@@ -19,6 +19,9 @@ func Root() *cobra.Command {
 	root.AddCommand(
 		runCmd(),
 		wrapCmd(),
+		newSessionCmd(),
+		showCmd(),
+		hideCmd(),
 		upCmd(),
 		shellCmd(),
 		setupCmd(),

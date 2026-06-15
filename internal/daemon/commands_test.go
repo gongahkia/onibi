@@ -140,7 +140,7 @@ func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 	mock := telegram.NewMock(nil)
 	d.handleMenuCommand(context.Background(), mock, 100)
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/new shell") || !strings.Contains(sent[0].Text, "/new claude") || !strings.Contains(sent[0].Text, "/new tmux &lt;target&gt;") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "No active sessions") || sent[0].ReplyMarkup == nil {
 		t.Fatalf("sent = %#v", sent)
 	}
 }
