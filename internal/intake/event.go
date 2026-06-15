@@ -18,6 +18,7 @@ const (
 type Event struct {
 	Type    string `json:"type"`              // one of the Type* constants
 	Session string `json:"session,omitempty"` // session id (from ONIBI_SESSION_ID env)
+	Managed bool   `json:"managed,omitempty"` // true when session id came from Onibi env/explicit override
 	Agent   string `json:"agent,omitempty"`   // emitting adapter/provider
 	PID     int    `json:"pid,omitempty"`     // emitting process id (fallback identity)
 	CWD     string `json:"cwd,omitempty"`     // provider working directory

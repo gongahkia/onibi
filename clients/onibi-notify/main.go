@@ -85,10 +85,14 @@ func main() {
 		evType = typeForEvent(firstNonEmpty(*eventName, parsed.EventName))
 	}
 
+	sessionID := os.Getenv("ONIBI_SESSION_ID")
+	managed := strings.TrimSpace(sessionID) != "" || strings.TrimSpace(*session) != ""
+
 	// fire-and-forget event
 	ev := intake.Event{
 		Type:              evType,
-		Session:           firstNonEmpty(*session, os.Getenv("ONIBI_SESSION_ID"), parsed.SessionID),
+		Session:           firstNonEmpty(*session, sessionID, parsed.SessionID),
+		Managed:           managed,
 		Agent:             firstNonEmpty(*agent, parsed.Agent),
 		PID:               os.Getppid(),
 		CWD:               parsed.CWD,
@@ -124,9 +128,11 @@ func runWait(sock, typ, agent, format, response string) {
 		format = agent
 	}
 
+	sessionID := os.Getenv("ONIBI_SESSION_ID")
 	ev := intake.Event{
 		Type:              intake.TypeApprovalRequest,
-		Session:           firstNonEmpty(os.Getenv("ONIBI_SESSION_ID"), parsed.SessionID),
+		Session:           firstNonEmpty(sessionID, parsed.SessionID),
+		Managed:           strings.TrimSpace(sessionID) != "",
 		Agent:             agent,
 		PID:               os.Getppid(),
 		CWD:               parsed.CWD,

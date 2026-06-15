@@ -409,24 +409,31 @@ func (d *Daemon) waitForAllSessionsToExit(ctx context.Context) {
 func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 	switch ev.Type {
 	case intake.TypeAgentDone, intake.TypeAgentAwaiting:
-		s := d.sessionForEvent(ev)
-		d.appendEventOutput(s, ev)
+		s, reason := d.sessionForEvent(ev)
 		if s == nil {
+			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
 			return nil
 		}
+		d.appendEventOutput(s, ev)
 		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
 	case intake.TypeAgentMessage:
-		s := d.sessionForEvent(ev)
+		s, reason := d.sessionForEvent(ev)
+		if s == nil {
+			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
+			return nil
+		}
 		d.appendEventOutput(s, ev)
 		return nil
 	case intake.TypeCmdDone:
 		return d.notifyCmdDone(ctx, ev)
 	case intake.TypeSessionExited:
-		s := d.sessionForEvent(ev)
-		if s != nil {
-			d.appendEventOutput(s, ev)
-			d.markSessionEnded(ctx, s)
+		s, reason := d.sessionForEvent(ev)
+		if s == nil {
+			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
+			return nil
 		}
+		d.appendEventOutput(s, ev)
+		d.markSessionEnded(ctx, s)
 		return nil
 	default:
 		// unknown / future types — ignore but log so we notice
@@ -435,30 +442,40 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 	}
 }
 
-func (d *Daemon) sessionForEvent(ev intake.Event) *Session {
-	id := ev.Session
+func (d *Daemon) sessionForEvent(ev intake.Event) (*Session, string) {
+	id := strings.TrimSpace(ev.Session)
 	if id == "" {
-		id = externalSessionID(ev)
+		return nil, "missing Onibi session id"
 	}
-	if id == "" {
-		return nil
+	if !ev.Managed {
+		return nil, "unmanaged provider hook"
 	}
 	if s, err := d.Registry.Get(id); err == nil {
-		return s
+		return s, ""
 	}
-	agent := ev.Agent
-	if agent == "" {
-		agent = "external"
+	return nil, "unknown Onibi session id"
+}
+
+func (d *Daemon) auditIgnoredHook(ctx context.Context, action string, ev intake.Event, reason string) {
+	if reason == "" {
+		reason = "unknown"
 	}
-	name := agent
-	if ev.ProviderSessionID != "" {
-		name += "-" + shortID(ev.ProviderSessionID)
+	payload := firstNonEmpty(ev.InputJSON, ev.RawJSON, ev.Text, ev.Tail)
+	d.audit(ctx, action, ev.Session, payload, 0,
+		fmt.Sprintf("type=%s agent=%s managed=%t provider=%s cwd=%s pid=%d reason=%s",
+			ev.Type, ev.Agent, ev.Managed, ev.ProviderSessionID, ev.CWD, ev.PID, reason))
+	if d.Log != nil {
+		d.Log.Warn("hook ignored",
+			slog.String("action", action),
+			slog.String("type", ev.Type),
+			slog.String("session", ev.Session),
+			slog.String("agent", ev.Agent),
+			slog.Bool("managed", ev.Managed),
+			slog.String("provider_session", ev.ProviderSessionID),
+			slog.String("cwd", ev.CWD),
+			slog.Int("pid", ev.PID),
+			slog.String("reason", reason))
 	}
-	s := NewSession(id, name, agent, nil, BufferSize)
-	s.Cmd = ev.Cmd
-	_ = d.Registry.Add(s)
-	d.persistSessionStart(context.Background(), s, ev.CWD)
-	return s
 }
 
 func commandLine(bin string, args []string) string {
