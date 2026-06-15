@@ -54,3 +54,16 @@ func TestProviderResponses(t *testing.T) {
 		t.Fatalf("cancelled should fail open: code=%d out=%q stderr=%q", code, out, errOut)
 	}
 }
+
+func TestManagedSession(t *testing.T) {
+	if id, ok := managedSession(""); ok || id != "" {
+		t.Fatalf("empty managed session = %q %v", id, ok)
+	}
+	t.Setenv("ONIBI_SESSION_ID", "env-session")
+	if id, ok := managedSession(""); !ok || id != "env-session" {
+		t.Fatalf("env managed session = %q %v", id, ok)
+	}
+	if id, ok := managedSession("flag-session"); !ok || id != "flag-session" {
+		t.Fatalf("override managed session = %q %v", id, ok)
+	}
+}
