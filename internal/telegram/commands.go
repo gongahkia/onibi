@@ -22,7 +22,7 @@ var commandSpecs = []CommandSpec{
 	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent and shell sessions, including session ids, names, agent type, age, state, command, and default target marker.", Category: "sessions"},
 	{Name: "/menu", Short: "show session actions", Detail: "Shows inline action buttons for status, sessions, queue, secure controls, and live session actions.", Category: "sessions"},
 	{Name: "/target", Args: "<id|name>", Short: "set default session", Detail: "Sets the default session for this chat. Without an argument, shows the current default target.", Category: "sessions", Examples: []string{"/target claude", "/target abc123"}},
-	{Name: "/new", Args: "<agent> [args...]", Short: "start an agent session", Detail: "Starts a new local agent session and routes future prompts to it.", Category: "sessions", Examples: []string{"/new claude", "/new codex -- --model gpt-5-codex"}},
+	{Name: "/new", Args: "<agent|shell> [args...]", Short: "start an agent or shell session", Detail: "Starts a new local agent or interactive shell session and routes future prompts to it.", Category: "sessions", Examples: []string{"/new shell", "/new claude", "/new codex -- --model gpt-5-codex"}},
 	{Name: "/peek", Args: "<id|name>", Short: "send session preview", Detail: "Sends a current preview of the target session output using the configured render mode.", Category: "controls"},
 	{Name: "/text", Args: "<id|name>", Short: "force text output", Detail: "Forces future previews for the target session to use text output.", Category: "controls"},
 	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output.", Category: "controls"},

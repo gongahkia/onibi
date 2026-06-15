@@ -140,7 +140,7 @@ func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 	mock := telegram.NewMock(nil)
 	d.handleMenuCommand(context.Background(), mock, 100)
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "onibi shell") || !strings.Contains(sent[0].Text, "/new <agent>") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/new shell") || !strings.Contains(sent[0].Text, "/new claude") {
 		t.Fatalf("sent = %#v", sent)
 	}
 }
@@ -320,6 +320,13 @@ func TestSendCommandInjectsSlashText(t *testing.T) {
 	}
 	if got := readPipe(t, r); got != "/model opus\n" {
 		t.Fatalf("injected = %q", got)
+	}
+}
+
+func TestAgentCommandShell(t *testing.T) {
+	bin, agent, args, ok := agentCommand("shell", []string{"zsh", "-c", "echo hi"})
+	if !ok || bin != "zsh" || agent != "shell" || strings.Join(args, " ") != "-i -c echo hi" {
+		t.Fatalf("bin=%q agent=%q args=%#v ok=%v", bin, agent, args, ok)
 	}
 }
 

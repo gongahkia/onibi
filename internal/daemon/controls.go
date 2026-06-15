@@ -103,7 +103,7 @@ func (d *Daemon) handleMenuCommand(ctx context.Context, api telegram.API, chatID
 	}
 	live := d.liveSessions()
 	if len(live) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions.\nNext: run onibi shell/onibi run <agent> on the laptop, or send /new <agent> here."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions.\nNext: send /new shell or /new claude."})
 		return
 	}
 	targets := make([]telegram.SessionTarget, 0, len(live))

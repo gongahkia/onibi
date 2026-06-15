@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -110,7 +112,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nNext:\n1. Start a session from the laptop: onibi shell or onibi run claude\n2. Or start one here: /new claude\n3. Then use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
+	text := "Onibi is paired and listening.\n\nNext:\n1. Start a session: /new shell or /new claude\n2. Then use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
 }
 
@@ -169,7 +171,7 @@ func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	if len(live) == 0 {
 		d.clearStaleDefaultTarget(ctx, chatID)
-		return "No active sessions.\nNext: run onibi shell/onibi run <agent> on the laptop, or send /new <agent> here."
+		return "No active sessions.\nNext: send /new shell or /new claude."
 	}
 	defaultID := d.activeDefaultTarget(ctx, chatID)
 	var b strings.Builder
@@ -328,13 +330,13 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
 	fields := strings.Fields(arg)
 	if len(fields) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new <agent> [args...]"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new <agent|shell> [args...]"})
 		return
 	}
 	agent := strings.ToLower(fields[0])
-	bin, ok := agentBinary(agent)
+	bin, spawnAgent, spawnArgs, ok := agentCommand(agent, fields[1:])
 	if !ok {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Unsupported agent. Use: " + strings.Join(supportedAgentNames(), ", ")})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Unsupported target. Use shell or: " + strings.Join(supportedAgentNames(), ", ")})
 		return
 	}
 	path, err := exec.LookPath(bin)
@@ -342,7 +344,7 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("%s not found in PATH.", bin)})
 		return
 	}
-	s, err := d.SpawnAgent(ctx, agent, agent, path, fields[1:], nil)
+	s, err := d.SpawnAgent(ctx, spawnAgent, spawnAgent, path, spawnArgs, nil)
 	if err != nil {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Start failed: " + err.Error()})
 		return
@@ -369,6 +371,20 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 	}
 }
 
+func agentCommand(agent string, args []string) (string, string, []string, bool) {
+	if agent == "shell" {
+		shell := defaultInteractiveShell()
+		if len(args) > 0 {
+			shell = args[0]
+			args = args[1:]
+		}
+		bin, shellArgs, ok := shellCommand(shell, args)
+		return bin, "shell", shellArgs, ok
+	}
+	bin, ok := agentBinary(agent)
+	return bin, agent, args, ok
+}
+
 func agentBinary(agent string) (string, bool) {
 	defaults := map[string]string{
 		"amp":      "amp",
@@ -389,6 +405,35 @@ func agentBinary(agent string) (string, bool) {
 		return v, true
 	}
 	return bin, true
+}
+
+func defaultInteractiveShell() string {
+	if sh := strings.TrimSpace(os.Getenv("SHELL")); sh != "" {
+		return filepath.Base(sh)
+	}
+	if runtime.GOOS == "darwin" {
+		return "zsh"
+	}
+	return "bash"
+}
+
+func shellCommand(shell string, extra []string) (string, []string, bool) {
+	shell = strings.ToLower(strings.TrimSpace(filepath.Base(shell)))
+	var args []string
+	switch shell {
+	case "zsh":
+		args = []string{"-i"}
+	case "bash":
+		args = []string{"-i"}
+	case "fish":
+		args = []string{"--interactive"}
+	case "sh", "dash", "ash":
+		args = []string{"-i"}
+	case "nu", "pwsh", "powershell", "ksh", "ksh93", "mksh", "oksh", "tcsh", "csh":
+	default:
+		return "", nil, false
+	}
+	return shell, append(args, extra...), true
 }
 
 func supportedAgentNames() []string {
