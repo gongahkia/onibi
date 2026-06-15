@@ -122,7 +122,11 @@ func (f *fixer) fixService() {
 	if err != nil {
 		return
 	}
-	token, ok, _ := sec.Get(secrets.KeyBotToken)
+	token, ok, err := getSecret(f.ctx, sec, secrets.KeyBotToken)
+	if err != nil {
+		f.err("get bot token", err)
+		return
+	}
 	if !ok || token == "" {
 		return
 	}
