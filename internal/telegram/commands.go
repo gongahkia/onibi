@@ -28,6 +28,7 @@ var commandSpecs = []CommandSpec{
 	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output.", Category: "controls"},
 	{Name: "/interrupt", Args: "<id|name>", Short: "send Ctrl-C", Detail: "Sends Ctrl-C to the target session and marks it idle. TOTP is required when configured.", Category: "controls"},
 	{Name: "/enter", Args: "[id|name]", Short: "send Enter", Detail: "Sends a bare Enter/newline to the target session, useful for TUI confirmation prompts.", Category: "controls", Examples: []string{"/enter", "/enter codex"}},
+	{Name: "/esc", Args: "[id|name]", Short: "send Escape", Detail: "Sends Escape to the target session, useful for closing TUI dialogs.", Category: "controls", Examples: []string{"/esc", "/esc codex"}},
 	{Name: "/kill", Args: "<id|name>", Short: "terminate session", Detail: "Terminates the target session and marks it ended. TOTP is required when configured.", Category: "controls"},
 	{Name: "/rename", Args: "<id|name> <name>", Short: "rename session", Detail: "Renames a live session. In encrypted mode, plaintext rename with a new name is refused; use /secure.", Category: "controls"},
 	{Name: "/queue", Args: "[id|name]", Short: "list queued prompts", Detail: "Lists queued prompts for a session, or all sessions when no target is supplied.", Category: "prompts"},
