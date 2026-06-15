@@ -67,15 +67,27 @@ func main() {
 	if *typ == "" && !*wait {
 		os.Exit(0)
 	}
+
+	sessionID, managed := managedSession(*session)
+	if *wait {
+		if !managed {
+			os.Exit(0)
+		}
+		sock := resolveSocket()
+		if sock == "" {
+			os.Exit(0)
+		}
+		runWait(sock, *typ, *agent, *format, *response, sessionID)
+		return
+	}
+
+	if !managed {
+		os.Exit(0)
+	}
 	sock := resolveSocket()
 	if sock == "" {
 		// daemon not active — silently no-op so we don't block hooks
 		os.Exit(0)
-	}
-
-	if *wait {
-		runWait(sock, *typ, *agent, *format, *response)
-		return
 	}
 
 	raw := readHookStdin()
@@ -84,9 +96,6 @@ func main() {
 	if evType == "" {
 		evType = typeForEvent(firstNonEmpty(*eventName, parsed.EventName))
 	}
-
-	sessionID := os.Getenv("ONIBI_SESSION_ID")
-	managed := strings.TrimSpace(sessionID) != "" || strings.TrimSpace(*session) != ""
 
 	// fire-and-forget event
 	ev := intake.Event{
@@ -113,7 +122,7 @@ func main() {
 
 // runWait handles RPC mode. Provider PreToolUse/BeforeTool hooks supply JSON
 // on stdin. We normalize it, ask the daemon, then emit provider output.
-func runWait(sock, typ, agent, format, response string) {
+func runWait(sock, typ, agent, format, response, sessionID string) {
 	if typ != "approval_request" {
 		// unsupported RPC type — fail open
 		os.Exit(0)
@@ -128,7 +137,6 @@ func runWait(sock, typ, agent, format, response string) {
 		format = agent
 	}
 
-	sessionID := os.Getenv("ONIBI_SESSION_ID")
 	ev := intake.Event{
 		Type:              intake.TypeApprovalRequest,
 		Session:           firstNonEmpty(sessionID, parsed.SessionID),
@@ -166,6 +174,11 @@ func runWait(sock, typ, agent, format, response string) {
 		_, _ = os.Stderr.WriteString(stderr)
 	}
 	os.Exit(code)
+}
+
+func managedSession(override string) (string, bool) {
+	id := firstNonEmpty(override, os.Getenv("ONIBI_SESSION_ID"))
+	return id, strings.TrimSpace(id) != ""
 }
 
 func resolveSocket() string {
