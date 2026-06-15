@@ -357,17 +357,37 @@ func (r *runner) checkHooks() {
 		r.add("hooks", Fail, err.Error())
 		return
 	}
-	defer rows.Close()
-	n := 0
+	var records []struct {
+		agent string
+		path  string
+	}
 	seen := map[string]bool{}
 	for rows.Next() {
-		n++
 		var agent, path string
 		if err := rows.Scan(&agent, &path); err != nil {
+			_ = rows.Close()
 			r.add("hooks", Fail, err.Error())
 			return
 		}
+		records = append(records, struct {
+			agent string
+			path  string
+		}{agent: agent, path: path})
 		seen[agent] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		r.add("hooks", Fail, err.Error())
+		return
+	}
+	if err := rows.Close(); err != nil {
+		r.add("hooks", Fail, err.Error())
+		return
+	}
+	n := 0
+	for _, rec := range records {
+		n++
+		agent, path := rec.agent, rec.path
 		if strings.HasPrefix(agent, "shell:") {
 			name := strings.TrimPrefix(agent, "shell:")
 			r.addRecordedHookStatus(agent, path, adapters.ShellStatus(r.ctx, r.db, name))
@@ -378,10 +398,6 @@ func (r *runner) checkHooks() {
 			continue
 		}
 		r.add("hook "+agent, Warn, "no verifier implemented for "+path)
-	}
-	if err := rows.Err(); err != nil {
-		r.add("hooks", Fail, err.Error())
-		return
 	}
 	for _, name := range adapters.Names() {
 		if seen[name] {

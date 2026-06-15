@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
@@ -261,6 +262,47 @@ func TestDoctorFixUpgradesOutdatedHook(t *testing.T) {
 	info = a.Status(context.Background(), db)
 	if info.Outdated || info.Tampered {
 		t.Fatalf("hook not upgraded: %+v actions=%v", info, fixes.Actions)
+	}
+}
+
+func TestDoctorRecordedHooksDoNotBlockVerifierQueries(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	isolateHookPaths(t, t.TempDir())
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notify := filepath.Join(t.TempDir(), "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := adapters.Get("codex")
+	if err := a.Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	report := Run(ctx, Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("doctor exhausted context: %v checks=%#v", err, report.Checks)
+	}
+	found := false
+	for _, c := range report.Checks {
+		if c.Name != "hook codex" {
+			continue
+		}
+		found = true
+		if c.Status != Pass {
+			t.Fatalf("hook codex = %#v", c)
+		}
+	}
+	if !found {
+		t.Fatalf("missing hook codex check: %#v", report.Checks)
 	}
 }
 
