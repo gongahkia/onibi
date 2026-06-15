@@ -306,16 +306,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		cancel()
 	}()
 
-	if d.DB != nil {
-		_ = d.DB.KVPurgeExpired(ctx)
-	}
-	if err := d.RestorePendingApprovals(ctx); err != nil {
-		d.Log.Warn("restore pending approvals", slog.Any("err", err))
-	}
-	if err := telegram.RegisterCommands(ctx, d.Bot); err != nil {
-		d.Log.Warn("register telegram commands", slog.Any("err", err))
-	}
-
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -324,6 +314,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		if err := d.Intake.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("intake server", slog.Any("err", err))
 		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runStartupMaintenance(ctx)
 	}()
 
 	wg.Add(1)
@@ -360,6 +356,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	wg.Wait()
 	return nil
+}
+
+func (d *Daemon) runStartupMaintenance(ctx context.Context) {
+	if d.DB != nil {
+		if err := d.DB.KVPurgeExpired(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Warn("purge expired kv", slog.Any("err", err))
+		}
+	}
+	if err := d.RestorePendingApprovals(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		d.Log.Warn("restore pending approvals", slog.Any("err", err))
+	}
+	if err := telegram.RegisterCommands(ctx, d.Bot); err != nil && !errors.Is(err, context.Canceled) {
+		d.Log.Warn("register telegram commands", slog.Any("err", err))
+	}
 }
 
 // waitForAllSessionsToExit polls registry; when all hosts have exited and
