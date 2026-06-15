@@ -60,7 +60,7 @@ func TestSendTextMultilineVerifiesCaptureSuccess(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\nfinal line"},
 		{"tmux", "send-keys", "-t", "%1", "Enter"},
-		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
+		{"tmux", "capture-pane", "-p", "-e", "-t", "%1", "-S", "-50"},
 	}
 	if !reflect.DeepEqual(r.calls, want) {
 		t.Fatalf("calls = %#v", r.calls)
@@ -80,7 +80,7 @@ func TestSendTextMultilineIgnoresCaptureError(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\ntwo"},
 		{"tmux", "send-keys", "-t", "%1", "Enter"},
-		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
+		{"tmux", "capture-pane", "-p", "-e", "-t", "%1", "-S", "-50"},
 	}
 	if !reflect.DeepEqual(r.calls, want) {
 		t.Fatalf("calls = %#v", r.calls)
@@ -101,7 +101,7 @@ func TestSendTextMultilineRetriesWhenFinalLineMissing(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "%1", "-l", "--", "one\ntwo"},
 		{"tmux", "send-keys", "-t", "%1", "Enter"},
-		{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-50"},
+		{"tmux", "capture-pane", "-p", "-e", "-t", "%1", "-S", "-50"},
 		{"tmux", "send-keys", "-t", "%1", "Enter"},
 	}
 	if !reflect.DeepEqual(r.calls, want) {
@@ -115,6 +115,22 @@ func TestCaptureWrapsTmuxError(t *testing.T) {
 	_, err := c.Capture(context.Background(), "%missing", 50)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestCapturePreservesEscapeSequences(t *testing.T) {
+	r := &fakeRunner{out: []byte("\x1b[31mred\x1b[0m\n")}
+	c := NewWithRunner(r)
+	got, err := c.Capture(context.Background(), "%1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "\x1b[31mred\x1b[0m" {
+		t.Fatalf("capture = %q", got)
+	}
+	want := [][]string{{"tmux", "capture-pane", "-p", "-e", "-t", "%1", "-S", "-50"}}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
 	}
 }
 

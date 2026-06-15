@@ -4,6 +4,9 @@ import (
 	"html"
 	"strings"
 	"unicode/utf8"
+
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 )
 
 const SafeTextLimit = 3500
@@ -22,6 +25,54 @@ func HTMLCode(label, body string) string {
 		return HTMLPre(body)
 	}
 	return html.EscapeString(label) + "\n" + HTMLPre(body)
+}
+
+func NormalizeSendMessageParams(params *tgbot.SendMessageParams) *tgbot.SendMessageParams {
+	if params == nil {
+		return nil
+	}
+	cp := *params
+	if cp.ParseMode == "" && len(cp.Entities) == 0 && cp.Text != "" {
+		cp.Text = html.EscapeString(cp.Text)
+		cp.ParseMode = models.ParseModeHTML
+	}
+	return &cp
+}
+
+func NormalizeSendPhotoParams(params *tgbot.SendPhotoParams) *tgbot.SendPhotoParams {
+	if params == nil {
+		return nil
+	}
+	cp := *params
+	if cp.ParseMode == "" && len(cp.CaptionEntities) == 0 && cp.Caption != "" {
+		cp.Caption = html.EscapeString(cp.Caption)
+		cp.ParseMode = models.ParseModeHTML
+	}
+	return &cp
+}
+
+func NormalizeSendDocumentParams(params *tgbot.SendDocumentParams) *tgbot.SendDocumentParams {
+	if params == nil {
+		return nil
+	}
+	cp := *params
+	if cp.ParseMode == "" && len(cp.CaptionEntities) == 0 && cp.Caption != "" {
+		cp.Caption = html.EscapeString(cp.Caption)
+		cp.ParseMode = models.ParseModeHTML
+	}
+	return &cp
+}
+
+func NormalizeEditMessageTextParams(params *tgbot.EditMessageTextParams) *tgbot.EditMessageTextParams {
+	if params == nil {
+		return nil
+	}
+	cp := *params
+	if cp.ParseMode == "" && len(cp.Entities) == 0 && cp.Text != "" {
+		cp.Text = html.EscapeString(cp.Text)
+		cp.ParseMode = models.ParseModeHTML
+	}
+	return &cp
 }
 
 func SplitForTelegram(s string, limit int) []string {

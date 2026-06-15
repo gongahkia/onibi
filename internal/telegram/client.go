@@ -160,6 +160,7 @@ func (c *Client) ClearedWebhookURL() string { return c.clearedWebhookURL }
 
 // SendMessage delegates to the real bot.
 func (c *Client) SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error) {
+	params = NormalizeSendMessageParams(params)
 	if c.limiter != nil {
 		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
 			return nil, err
@@ -170,6 +171,7 @@ func (c *Client) SendMessage(ctx context.Context, params *tgbot.SendMessageParam
 
 // SendPhoto delegates to the real bot after rate limiting.
 func (c *Client) SendPhoto(ctx context.Context, params *tgbot.SendPhotoParams) (*models.Message, error) {
+	params = NormalizeSendPhotoParams(params)
 	if c.limiter != nil {
 		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
 			return nil, err
@@ -180,6 +182,7 @@ func (c *Client) SendPhoto(ctx context.Context, params *tgbot.SendPhotoParams) (
 
 // SendDocument delegates to the real bot after rate limiting.
 func (c *Client) SendDocument(ctx context.Context, params *tgbot.SendDocumentParams) (*models.Message, error) {
+	params = NormalizeSendDocumentParams(params)
 	if c.limiter != nil {
 		if err := c.limiter.Wait(ctx, chatIDKey(params.ChatID)); err != nil {
 			return nil, err
@@ -190,6 +193,7 @@ func (c *Client) SendDocument(ctx context.Context, params *tgbot.SendDocumentPar
 
 // EditMessageText delegates to the real bot.
 func (c *Client) EditMessageText(ctx context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error) {
+	params = NormalizeEditMessageTextParams(params)
 	return c.Bot.EditMessageText(ctx, params)
 }
 

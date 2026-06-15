@@ -93,7 +93,7 @@ func TestHelpCommandWithArg(t *testing.T) {
 		t.Fatal("command not handled")
 	}
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/prompt <text>") || !strings.Contains(sent[0].Text, "default target session") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/prompt &lt;text&gt;") || !strings.Contains(sent[0].Text, "default target session") {
 		t.Fatalf("sent = %#v", sent)
 	}
 }
@@ -140,7 +140,7 @@ func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 	mock := telegram.NewMock(nil)
 	d.handleMenuCommand(context.Background(), mock, 100)
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/new shell") || !strings.Contains(sent[0].Text, "/new claude") || !strings.Contains(sent[0].Text, "/new tmux <target>") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/new shell") || !strings.Contains(sent[0].Text, "/new claude") || !strings.Contains(sent[0].Text, "/new tmux &lt;target&gt;") {
 		t.Fatalf("sent = %#v", sent)
 	}
 }

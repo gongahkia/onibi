@@ -48,6 +48,7 @@ func (m *Mock) Self() *models.User { return m.self }
 func (m *Mock) SendMessage(_ context.Context, params *tgbot.SendMessageParams) (*models.Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	params = NormalizeSendMessageParams(params)
 	cp := *params
 	m.SentMessages = append(m.SentMessages, cp)
 	id := m.nextID
@@ -65,6 +66,7 @@ func (m *Mock) SendMessage(_ context.Context, params *tgbot.SendMessageParams) (
 func (m *Mock) SendPhoto(_ context.Context, params *tgbot.SendPhotoParams) (*models.Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	params = NormalizeSendPhotoParams(params)
 	cp := *params
 	m.SentPhotos = append(m.SentPhotos, cp)
 	id := m.nextID
@@ -82,6 +84,7 @@ func (m *Mock) SendPhoto(_ context.Context, params *tgbot.SendPhotoParams) (*mod
 func (m *Mock) SendDocument(_ context.Context, params *tgbot.SendDocumentParams) (*models.Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	params = NormalizeSendDocumentParams(params)
 	cp := *params
 	m.SentDocs = append(m.SentDocs, cp)
 	id := m.nextID
@@ -106,6 +109,7 @@ func (m *Mock) SetEditMessageTextError(err error) {
 func (m *Mock) EditMessageText(_ context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	params = NormalizeEditMessageTextParams(params)
 	cp := *params
 	m.TextEdits = append(m.TextEdits, cp)
 	if m.EditTextErr != nil {
