@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -34,9 +36,43 @@ type Pane struct {
 	Title   string
 }
 
-func New() *Controller { return &Controller{Runner: execRunner{}, Bin: "tmux"} }
+func New() *Controller { return &Controller{Runner: execRunner{}, Bin: DefaultBin()} }
 
 func NewWithRunner(r Runner) *Controller { return &Controller{Runner: r, Bin: "tmux"} }
+
+func DefaultBin() string {
+	if v := strings.TrimSpace(os.Getenv("ONIBI_TMUX_BIN")); v != "" {
+		return v
+	}
+	if path, err := exec.LookPath("tmux"); err == nil {
+		return path
+	}
+	candidates := []string{
+		"/opt/homebrew/bin/tmux",
+		"/usr/local/bin/tmux",
+		"/opt/local/bin/tmux",
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, ".nix-profile/bin/tmux"),
+			filepath.Join(home, ".local/bin/tmux"),
+		)
+	}
+	for _, path := range candidates {
+		if isExecutable(path) {
+			return path
+		}
+	}
+	return "tmux"
+}
+
+func isExecutable(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return false
+	}
+	return st.Mode()&0111 != 0
+}
 
 func (c *Controller) ListPanes(ctx context.Context) ([]Pane, error) {
 	out, err := c.run(ctx, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_name}\t#{pane_current_command}\t#{pane_title}")
@@ -159,6 +195,9 @@ func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
 	}
 	out, err := r.Run(ctx, bin, args...)
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("tmux executable not found (%s); set ONIBI_TMUX_BIN or install tmux in /opt/homebrew/bin or /usr/local/bin: %w", bin, err)
+		}
 		out = bytes.TrimSpace(out)
 		if len(out) > 0 {
 			return nil, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, out)

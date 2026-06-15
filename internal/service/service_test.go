@@ -58,7 +58,7 @@ func TestInstallLaunchdWritesPlistAndBootstraps(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(b)
-	for _, want := range []string{Label, "/usr/local/bin/onibi", "<string>run</string>", "RunAtLoad", "KeepAlive", "Interactive"} {
+	for _, want := range []string{Label, "/usr/local/bin/onibi", "<string>run</string>", "RunAtLoad", "KeepAlive", "Interactive", "EnvironmentVariables", "/opt/homebrew/bin"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("plist missing %q:\n%s", want, body)
 		}

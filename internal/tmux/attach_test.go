@@ -3,7 +3,9 @@ package tmux
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -125,5 +127,21 @@ func TestListPanesParsesRows(t *testing.T) {
 	}
 	if len(panes) != 1 || panes[0].ID != "%1" || panes[0].Command != "claude" {
 		t.Fatalf("panes = %#v", panes)
+	}
+}
+
+func TestDefaultBinUsesEnvOverride(t *testing.T) {
+	t.Setenv("ONIBI_TMUX_BIN", "/tmp/onibi-tmux")
+	if got := DefaultBin(); got != "/tmp/onibi-tmux" {
+		t.Fatalf("DefaultBin = %q", got)
+	}
+}
+
+func TestRunHintsWhenTmuxMissing(t *testing.T) {
+	r := &fakeRunner{err: exec.ErrNotFound}
+	c := NewWithRunner(r)
+	_, err := c.Capture(context.Background(), "%1", 50)
+	if err == nil || !strings.Contains(err.Error(), "set ONIBI_TMUX_BIN") {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -64,12 +65,15 @@ func (m *Manager) launchdPlist() string {
 	stdout := filepath.Join(m.Paths.LogDir, "onibi.out.log")
 	stderr := filepath.Join(m.Paths.LogDir, "onibi.err.log")
 	val := map[string]any{
-		"Label":             Label,
-		"ProgramArguments":  []string{m.Executable, "run"},
-		"RunAtLoad":         true,
-		"KeepAlive":         true,
-		"ProcessType":       "Interactive",
-		"WorkingDirectory":  m.Paths.StateDir,
+		"Label":            Label,
+		"ProgramArguments": []string{m.Executable, "run"},
+		"RunAtLoad":        true,
+		"KeepAlive":        true,
+		"ProcessType":      "Interactive",
+		"WorkingDirectory": m.Paths.StateDir,
+		"EnvironmentVariables": map[string]string{
+			"PATH": launchdPATH(),
+		},
 		"StandardOutPath":   stdout,
 		"StandardErrorPath": stderr,
 	}
@@ -84,7 +88,7 @@ func (m *Manager) launchdPlist() string {
 
 func writePlistDict(b *bytes.Buffer, vals map[string]any) {
 	b.WriteString("<dict>\n")
-	keys := []string{"Label", "ProgramArguments", "RunAtLoad", "KeepAlive", "ProcessType", "WorkingDirectory", "StandardOutPath", "StandardErrorPath"}
+	keys := []string{"Label", "ProgramArguments", "RunAtLoad", "KeepAlive", "ProcessType", "WorkingDirectory", "EnvironmentVariables", "StandardOutPath", "StandardErrorPath"}
 	for _, k := range keys {
 		v, ok := vals[k]
 		if !ok {
@@ -112,7 +116,45 @@ func writePlistValue(b *bytes.Buffer, v any, indent string) {
 			fmt.Fprintf(b, "%s  <string>%s</string>\n", indent, xmlEscape(s))
 		}
 		fmt.Fprintf(b, "%s</array>\n", indent)
+	case map[string]string:
+		fmt.Fprintf(b, "%s<dict>\n", indent)
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(b, "%s  <key>%s</key>\n", indent, xmlEscape(k))
+			fmt.Fprintf(b, "%s  <string>%s</string>\n", indent, xmlEscape(x[k]))
+		}
+		fmt.Fprintf(b, "%s</dict>\n", indent)
 	}
+}
+
+func launchdPATH() string {
+	parts := []string{
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+		"/opt/local/bin",
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+	}
+	if env := strings.TrimSpace(os.Getenv("PATH")); env != "" {
+		parts = append(strings.Split(env, ":"), parts...)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return strings.Join(out, ":")
 }
 
 func xmlEscape(s string) string {
