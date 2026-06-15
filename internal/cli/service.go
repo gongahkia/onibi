@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/service"
 )
 
@@ -21,6 +23,9 @@ func runInstallService(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path, _ := m.ServicePath()
+	if !waitForSocket(ctx, m.Paths.Socket, 5*time.Second) {
+		return fmt.Errorf("installed %s, but daemon socket did not become ready within 5s; run `onibi doctor --mode installed`", path)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Installed and started %s\n", path)
 	return nil
 }
@@ -49,4 +54,21 @@ func serviceManager() (*service.Manager, error) {
 		return nil, err
 	}
 	return service.NewManager(paths, "")
+}
+
+func waitForSocket(ctx context.Context, socket string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if intake.SocketActive(socket, 200*time.Millisecond) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

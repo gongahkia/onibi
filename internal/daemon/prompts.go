@@ -65,22 +65,27 @@ func (d *Daemon) dispatchNextPrompt(ctx context.Context, api telegram.API, s *Se
 	if busy {
 		return nil
 	}
-	p, ok, err := d.DB.PromptNext(ctx, s.ID)
-	if err != nil || !ok {
-		return err
+	for {
+		p, ok, err := d.DB.PromptNext(ctx, s.ID)
+		if err != nil || !ok {
+			return err
+		}
+		if err := d.writePromptToSession(ctx, api, p.ChatID, s, p.Text, p.ID); err != nil {
+			_, _ = d.DB.PromptSetState(ctx, p.ID, store.PromptFailed)
+			return err
+		}
+		if _, err := d.DB.PromptSetState(ctx, p.ID, store.PromptSent); err != nil {
+			return err
+		}
+		d.audit(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID)
+		if s.Transport == "tmux" {
+			continue
+		}
+		d.threadMu.Lock()
+		d.busySessions[s.ID] = true
+		d.threadMu.Unlock()
+		return nil
 	}
-	if err := d.writePromptToSession(ctx, api, p.ChatID, s, p.Text, p.ID); err != nil {
-		_, _ = d.DB.PromptSetState(ctx, p.ID, store.PromptFailed)
-		return err
-	}
-	if _, err := d.DB.PromptSetState(ctx, p.ID, store.PromptSent); err != nil {
-		return err
-	}
-	d.threadMu.Lock()
-	d.busySessions[s.ID] = true
-	d.threadMu.Unlock()
-	d.audit(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID)
-	return nil
 }
 
 func (d *Daemon) writePromptToSession(ctx context.Context, api telegram.API, chatID int64, s *Session, text, promptID string) error {
