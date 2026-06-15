@@ -122,6 +122,29 @@ func TestStatusIncludesContext(t *testing.T) {
 	}
 }
 
+func TestStatusClearsStaleDefaultTarget(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	d.setDefaultTarget(ctx, 100, "deadbeef")
+	got := d.statusText(ctx, 100)
+	if strings.Contains(got, "stale") || !strings.Contains(got, "default_target=none") {
+		t.Fatalf("status = %s", got)
+	}
+	if id := d.defaultTarget(ctx, 100); id != "" {
+		t.Fatalf("default target not cleared: %q", id)
+	}
+}
+
+func TestMenuNoSessionsShowsNextStep(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.handleMenuCommand(context.Background(), mock, 100)
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "onibi shell") || !strings.Contains(sent[0].Text, "/new <agent>") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
 func TestMenuShowsGlobalAndSessionButtons(t *testing.T) {
 	d := newApprovalDaemon(t)
 	if err := d.Registry.Add(NewSession("abc123456", "claude", "claude", nil, 1024)); err != nil {
