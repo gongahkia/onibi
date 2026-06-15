@@ -460,7 +460,7 @@ func (d *Daemon) auditIgnoredHook(ctx context.Context, action string, ev intake.
 	if reason == "" {
 		reason = "unknown"
 	}
-	payload := firstNonEmpty(ev.InputJSON, ev.RawJSON, ev.Text, ev.Tail)
+	payload := ignoredHookPayload(ev)
 	d.audit(ctx, action, ev.Session, payload, 0,
 		fmt.Sprintf("type=%s agent=%s managed=%t provider=%s cwd=%s pid=%d reason=%s",
 			ev.Type, ev.Agent, ev.Managed, ev.ProviderSessionID, ev.CWD, ev.PID, reason))
@@ -476,6 +476,15 @@ func (d *Daemon) auditIgnoredHook(ctx context.Context, action string, ev intake.
 			slog.Int("pid", ev.PID),
 			slog.String("reason", reason))
 	}
+}
+
+func ignoredHookPayload(ev intake.Event) string {
+	for _, s := range []string{ev.InputJSON, ev.RawJSON, ev.Text, ev.Tail} {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func commandLine(bin string, args []string) string {

@@ -30,17 +30,16 @@ import (
 //  5. returns the intake.Response (the server writes it back to the
 //     blocked hook, which formats Claude's expected JSON and exits)
 func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
-	if ev.Session == "" {
-		if s := d.sessionForEvent(ev); s != nil {
-			ev.Session = s.ID
-			d.appendEventOutput(s, ev)
-		}
+	s, reason := d.sessionForEvent(ev)
+	if s == nil {
+		d.auditIgnoredHook(ctx, "approval.ignored", ev, reason)
+		return intake.Response{Decision: "cancelled", Reason: "unmanaged or unknown Onibi session"}, nil
 	}
+	ev.Session = s.ID
+	d.appendEventOutput(s, ev)
+
 	// fall back to session label if known (for nicer message header)
-	sessLabel := ev.Session
-	if s, err := d.Registry.Get(ev.Session); err == nil {
-		sessLabel = s.Name + " (" + s.ID + ")"
-	}
+	sessLabel := s.Name + " (" + s.ID + ")"
 
 	approvalID, ch, err := d.Queue.Request(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON)
 	if err != nil {
