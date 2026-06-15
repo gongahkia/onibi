@@ -48,4 +48,9 @@ func TestProviderResponses(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"decision":"deny"`) {
 		t.Fatalf("bad gemini expired: code=%d out=%s", code, out)
 	}
+
+	out, errOut, code = providerResponse("codex", intake.Response{Decision: "cancelled", Reason: "unmanaged external hook"})
+	if code != 0 || out != "" || errOut != "" {
+		t.Fatalf("cancelled should fail open: code=%d out=%q stderr=%q", code, out, errOut)
+	}
 }

@@ -505,6 +505,9 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	mock := telegram.NewMock(nil)
 	d.Bot = mock
 	mock.SetHandler(d.Router.Dispatch)
+	if err := d.Registry.Add(NewSession("s", "codex", "codex", nil, 1024)); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -514,6 +517,7 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 		resp, err := d.handleApprovalRequest(ctx, intake.Event{
 			Type:      intake.TypeApprovalRequest,
 			Session:   "s",
+			Managed:   true,
 			Tool:      "Bash",
 			InputJSON: `{"command":"echo ok"}`,
 		})
@@ -559,6 +563,71 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	}
 	if len(mock.Edited()) != 1 {
 		t.Fatalf("edits = %d", len(mock.Edited()))
+	}
+}
+
+func TestApprovalRequestIgnoresUnmanagedExternalHook(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	resp, err := d.handleApprovalRequest(context.Background(), intake.Event{
+		Type:              intake.TypeApprovalRequest,
+		Session:           "019eca70-2277-7ed1-9ecb-6444045e6462",
+		Managed:           false,
+		Agent:             "codex",
+		ProviderSessionID: "019eca70-2277-7ed1-9ecb-6444045e6462",
+		CWD:               "/tmp/hot-cross-buns-2",
+		Tool:              "Bash",
+		InputJSON:         `{"command":"sed -n '1,20p' README.md"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "cancelled" {
+		t.Fatalf("decision = %q", resp.Decision)
+	}
+	if len(mock.Sent()) != 0 {
+		t.Fatalf("sent = %#v", mock.Sent())
+	}
+	if rows, err := d.Queue.Pending(context.Background()); err != nil || len(rows) != 0 {
+		t.Fatalf("pending = %d err=%v", len(rows), err)
+	}
+	entries, err := d.DB.AuditRecent(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Action != "approval.ignored" || !strings.Contains(entries[0].Detail, "unmanaged provider hook") {
+		t.Fatalf("audit = %#v", entries)
+	}
+}
+
+func TestAgentDoneIgnoresUnmanagedExternalHook(t *testing.T) {
+	d := newApprovalDaemon(t)
+	d.Bot = telegram.NewMock(nil)
+	err := d.handleEvent(context.Background(), intake.Event{
+		Type:              intake.TypeAgentDone,
+		Session:           "019eca70-2277-7ed1-9ecb-6444045e6462",
+		Managed:           false,
+		Agent:             "codex",
+		ProviderSessionID: "019eca70-2277-7ed1-9ecb-6444045e6462",
+		CWD:               "/tmp/hot-cross-buns-2",
+		Text:              "Stop",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Registry.List(); len(got) != 0 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	if sent := d.Bot.(*telegram.Mock).Sent(); len(sent) != 0 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	entries, err := d.DB.AuditRecent(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Action != "hook.ignored" || !strings.Contains(entries[0].Detail, "unmanaged provider hook") {
+		t.Fatalf("audit = %#v", entries)
 	}
 }
 
