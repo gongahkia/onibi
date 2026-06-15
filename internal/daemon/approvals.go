@@ -239,13 +239,34 @@ func (d *Daemon) respondAndAnnotate(
 // Deny terminate the approval directly. Edit parks the approval awaiting a
 // reply-text from the user containing the new JSON.
 func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, verb, id string) error {
+	switch verb {
+	case "noop":
+		answerCallback(ctx, api, q.ID, "Already decided")
+		return nil
+	case "menu_status":
+		answerCallback(ctx, api, q.ID, "Sending status")
+		_, _ = d.sendMaybeEncryptedText(ctx, api, q.From.ID, "status", "Onibi status", d.statusText(ctx, q.From.ID))
+		return nil
+	case "menu_sessions":
+		answerCallback(ctx, api, q.ID, "Sending sessions")
+		_, _ = d.sendMaybeEncryptedText(ctx, api, q.From.ID, "sessions", "Active sessions", d.sessionsText(ctx, q.From.ID))
+		return nil
+	case "menu_queue":
+		answerCallback(ctx, api, q.ID, "Sending queue")
+		d.handleQueueCommand(ctx, api, q.From.ID, "")
+		return nil
+	case "menu_secure":
+		answerCallback(ctx, api, q.ID, "Opening secure controls")
+		d.sendSecureRequired(ctx, api, q.From.ID)
+		return nil
+	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
 	}
 	switch verb {
 	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
 		return d.handlePromptCallback(ctx, api, q, verb, id)
-	case "peek", "interrupt", "kill":
+	case "peek", "text", "screenshot", "interrupt", "kill":
 		return d.handleSessionActionCallback(ctx, api, q, verb, id)
 	}
 	a, err := d.Queue.Get(ctx, id)

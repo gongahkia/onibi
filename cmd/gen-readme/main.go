@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gongahkia/onibi/internal/daemon"
+	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 const (
@@ -29,7 +29,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "README missing BEGIN/END markers")
 		os.Exit(2)
 	}
-	generated := generatedBlock(daemon.TelegramCommandLinesForReadme())
+	generated := generatedBlock(telegram.CommandLinesForReadme())
 	next := body[:iBegin] + generated + body[iEnd+len(endMark):]
 	if *check {
 		if next != body {

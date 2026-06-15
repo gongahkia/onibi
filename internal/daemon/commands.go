@@ -25,14 +25,14 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	case "/start":
 		d.handleStartCommand(ctx, api, m.Chat.ID, arg)
 	case "/sessions":
-		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "sessions", "Active sessions", d.sessionsText())
+		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "sessions", "Active sessions", d.sessionsText(ctx, m.Chat.ID))
 	case "/status":
-		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "status", "Onibi status", d.statusText(ctx))
+		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "status", "Onibi status", d.statusText(ctx, m.Chat.ID))
 	case "/help":
 		if strings.TrimSpace(arg) == "" {
-			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpText()})
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: telegram.HelpText()})
 		} else {
-			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: helpDetail(arg)})
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: telegram.HelpDetail(arg)})
 		}
 	case "/secure":
 		d.sendSecureRequired(ctx, api, m.Chat.ID)
@@ -110,7 +110,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\n" + helpText()
+	text := "Onibi is paired and listening.\n\nNext:\n/new <agent> - start a session\n/sessions - list sessions\n/menu - phone controls\n/help - command list"
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
 }
 
@@ -165,11 +165,12 @@ func (d *Daemon) liveSessions() []*Session {
 	return out
 }
 
-func (d *Daemon) sessionsText() string {
+func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	if len(live) == 0 {
-		return "No active sessions."
+		return "No active sessions.\nNext: /new <agent>"
 	}
+	defaultID := d.defaultTarget(ctx, chatID)
 	var b strings.Builder
 	b.WriteString("Active sessions:\n")
 	for _, s := range live {
@@ -177,12 +178,21 @@ func (d *Daemon) sessionsText() string {
 		if cmd == "" {
 			cmd = s.Agent
 		}
-		fmt.Fprintf(&b, "%s  %s  %s  age=%s  cmd=%s\n", s.ID, s.Name, s.Agent, time.Since(s.StartedAt()).Truncate(time.Second), cmd)
+		mark := " "
+		if s.ID == defaultID {
+			mark = "*"
+		}
+		fmt.Fprintf(&b, "%s %s  %s  %s  state=%s  age=%s  cmd=%s\n", mark, shortID(s.ID), s.Name, s.Agent, d.sessionState(s), time.Since(s.StartedAt()).Truncate(time.Second), cmd)
+	}
+	if defaultID == "" {
+		b.WriteString("\n* = default target (none set)")
+	} else {
+		b.WriteString("\n* = default target")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (d *Daemon) statusText(ctx context.Context) string {
+func (d *Daemon) statusText(ctx context.Context, chatID int64) string {
 	pending := "unknown"
 	if d.Queue != nil {
 		if p, err := d.Queue.Pending(ctx); err == nil {
@@ -195,97 +205,61 @@ func (d *Daemon) statusText(ctx context.Context) string {
 			queued = fmt.Sprintf("%d", len(p))
 		}
 	}
-	return fmt.Sprintf("Onibi status\nuptime=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
-		time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), pending, queued, d.sessionsText())
+	return fmt.Sprintf("Onibi status\nuptime=%s\nencrypted_mode=%s\ndefault_target=%s\nsnooze=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
+		time.Since(d.started).Truncate(time.Second), d.encryptedModeLabel(), d.defaultTargetLabel(ctx, chatID), d.snoozeStatus(ctx), len(d.liveSessions()), pending, queued, d.sessionsText(ctx, chatID))
 }
 
-func helpText() string {
-	return "Onibi commands:\n" + strings.Join(TelegramCommandLinesForReadme(), "\n")
-}
-
-type telegramCommand struct {
-	Name     string
-	Args     string
-	Short    string
-	Detail   string
-	Examples []string
-}
-
-var telegramCommands = []telegramCommand{
-	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent and shell sessions, including session ids, names, agent type, age, and command."},
-	{Name: "/status", Short: "show daemon status", Detail: "Shows daemon uptime, active session count, pending approval count, queued prompt count, and current sessions."},
-	{Name: "/secure", Short: "open encrypted controls", Detail: "Opens the encrypted Mini App controls. Use this for prompt entry and approval decisions when encrypted mode is on."},
-	{Name: "/target", Args: "<id|name>", Short: "set default session", Detail: "Sets the default session for this chat. Without an argument, shows the current default target.", Examples: []string{"/target claude", "/target abc123"}},
-	{Name: "/new", Args: "<agent> [args...]", Short: "start an agent session", Detail: "Starts a new local agent session and routes future prompts to it.", Examples: []string{"/new claude", "/new codex -- --model gpt-5-codex"}},
-	{Name: "/queue", Args: "[id|name]", Short: "list queued prompts", Detail: "Lists queued prompts for a session, or all sessions when no target is supplied."},
-	{Name: "/prompt", Args: "<text>", Short: "queue a prompt", Detail: "Queues a prompt to the default target session. If no default is set and multiple sessions are live, a target picker is shown. The prompt is dispatched after the next agent_done signal.", Examples: []string{"/prompt write tests for the new field"}},
-	{Name: "/send", Args: "<text>", Short: "send text, including leading /", Detail: "Sends text directly to the target session. Use this when the text itself starts with a slash.", Examples: []string{"/send /help", "//help"}},
-	{Name: "/editprompt", Args: "<id> <text>", Short: "edit a queued prompt", Detail: "Replaces the text of a queued prompt. Sent or cancelled prompts cannot be edited."},
-	{Name: "/cancelprompt", Args: "<id>", Short: "cancel a queued prompt", Detail: "Cancels a queued prompt by id."},
-	{Name: "/moveprompt", Args: "<id> <position>", Short: "reorder queued prompts", Detail: "Moves a queued prompt to a new queue position."},
-	{Name: "/flushqueue", Args: "[id|name]", Short: "cancel queued prompts", Detail: "Cancels queued prompts for a session, or all queued prompts when no target is supplied."},
-	{Name: "/peek", Args: "<id|name>", Short: "send session preview", Detail: "Sends a current preview of the target session output using the configured render mode."},
-	{Name: "/interrupt", Args: "<id|name>", Short: "send Ctrl-C", Detail: "Sends Ctrl-C to the target session and marks it idle. TOTP is required when configured."},
-	{Name: "/kill", Args: "<id|name>", Short: "terminate session", Detail: "Terminates the target session and marks it ended. TOTP is required when configured."},
-	{Name: "/rename", Args: "<id|name> <name>", Short: "rename session", Detail: "Renames a live session. In encrypted mode, plaintext rename with a new name is refused; use /secure."},
-	{Name: "/menu", Short: "show session actions", Detail: "Shows inline action buttons for live sessions."},
-	{Name: "/snooze", Args: "[duration|agent [duration]]", Short: "pause non-approval notifications", Detail: "Pauses non-approval notifications globally or for one agent. Approvals still notify.", Examples: []string{"/snooze 1h", "/snooze claude 30m"}},
-	{Name: "/unsnooze", Args: "[agent]", Short: "resume notifications", Detail: "Resumes snoozed notifications globally or for one agent."},
-	{Name: "/log", Args: "[n]", Short: "show recent audit entries", Detail: "Shows recent local audit entries. n defaults to the daemon's configured limit."},
-	{Name: "/text", Args: "<id|name>", Short: "force text output", Detail: "Forces future previews for the target session to use text output."},
-	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output."},
-	{Name: "/help", Short: "show this help", Detail: "Shows the command list. Use /help <command> for detailed help.", Examples: []string{"/help prompt", "/help /kill"}},
-}
-
-func TelegramCommandLinesForReadme() []string {
-	lines := make([]string, 0, len(telegramCommands))
-	for _, c := range telegramCommands {
-		lines = append(lines, c.line())
+func (d *Daemon) sessionState(s *Session) string {
+	if s == nil {
+		return "unknown"
 	}
-	return lines
+	if s.Ended() {
+		return "ended"
+	}
+	d.threadMu.RLock()
+	busy := d.busySessions[s.ID]
+	d.threadMu.RUnlock()
+	if busy {
+		return "busy"
+	}
+	return "idle"
 }
 
-func helpDetail(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return helpText()
+func (d *Daemon) encryptedModeLabel() string {
+	mode := strings.ToLower(strings.TrimSpace(d.EncryptedMode))
+	if mode == "" {
+		return "off"
 	}
-	if !strings.HasPrefix(name, "/") {
-		name = "/" + name
+	return mode
+}
+
+func (d *Daemon) defaultTargetLabel(ctx context.Context, chatID int64) string {
+	id := d.defaultTarget(ctx, chatID)
+	if id == "" {
+		return "none"
 	}
-	for _, c := range telegramCommands {
-		if c.Name != name {
-			continue
+	if s, err := d.sessionByID(id); err == nil {
+		return s.Name + " (" + shortID(s.ID) + ")"
+	}
+	return "stale " + shortID(id)
+}
+
+func (d *Daemon) snoozeStatus(ctx context.Context) string {
+	if d.DB == nil {
+		return "unknown"
+	}
+	scopes := append([]string{"global", "shell"}, supportedAgentNames()...)
+	var active []string
+	for _, scope := range scopes {
+		v, ok, err := d.DB.KVGetString(ctx, snoozeKey(scope))
+		if err == nil && ok {
+			active = append(active, scope+"="+v)
 		}
-		var b strings.Builder
-		b.WriteString(c.usage())
-		b.WriteString("\n\n")
-		if c.Detail != "" {
-			b.WriteString(c.Detail)
-		} else {
-			b.WriteString(c.Short)
-		}
-		if len(c.Examples) > 0 {
-			b.WriteString("\n\nExamples:")
-			for _, e := range c.Examples {
-				b.WriteString("\n  ")
-				b.WriteString(e)
-			}
-		}
-		return b.String()
 	}
-	return "No such command. Try /help"
-}
-
-func (c telegramCommand) usage() string {
-	if c.Args == "" {
-		return c.Name
+	if len(active) == 0 {
+		return "none"
 	}
-	return c.Name + " " + c.Args
-}
-
-func (c telegramCommand) line() string {
-	return c.usage() + " - " + c.Short
+	return strings.Join(active, ", ")
 }
 
 func (d *Daemon) handleSendCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -300,7 +274,7 @@ func (d *Daemon) handleTargetCommand(ctx context.Context, api telegram.API, chat
 	if strings.TrimSpace(arg) == "" {
 		id := d.defaultTarget(ctx, chatID)
 		if id == "" {
-			_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", d.sessionsText()+"\nNo default target set.")
+			_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", d.sessionsText(ctx, chatID)+"\nNo default target set.")
 			return
 		}
 		_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "target", "Target", "Default target: "+id)

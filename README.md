@@ -132,11 +132,17 @@ CLI:
 Telegram:
 
 <!-- BEGIN-TELEGRAM-COMMANDS -->
-- `/sessions` - list active sessions
 - `/status` - show daemon status
-- `/secure` - open encrypted controls
+- `/sessions` - list active sessions
+- `/menu` - show session actions
 - `/target <id|name>` - set default session
 - `/new <agent> [args...]` - start an agent session
+- `/peek <id|name>` - send session preview
+- `/text <id|name>` - force text output
+- `/screenshot <id|name>` - force screenshots
+- `/interrupt <id|name>` - send Ctrl-C
+- `/kill <id|name>` - terminate session
+- `/rename <id|name> <name>` - rename session
 - `/queue [id|name]` - list queued prompts
 - `/prompt <text>` - queue a prompt
 - `/send <text>` - send text, including leading /
@@ -144,16 +150,10 @@ Telegram:
 - `/cancelprompt <id>` - cancel a queued prompt
 - `/moveprompt <id> <position>` - reorder queued prompts
 - `/flushqueue [id|name]` - cancel queued prompts
-- `/peek <id|name>` - send session preview
-- `/interrupt <id|name>` - send Ctrl-C
-- `/kill <id|name>` - terminate session
-- `/rename <id|name> <name>` - rename session
-- `/menu` - show session actions
+- `/secure` - open encrypted controls
 - `/snooze [duration|agent [duration]]` - pause non-approval notifications
 - `/unsnooze [agent]` - resume notifications
 - `/log [n]` - show recent audit entries
-- `/text <id|name>` - force text output
-- `/screenshot <id|name>` - force screenshots
 - `/help` - show this help
 <!-- END-TELEGRAM-COMMANDS -->
 

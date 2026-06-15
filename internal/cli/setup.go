@@ -109,7 +109,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 }
 
 func ownerAlreadyPairedHelp(paths config.Paths) error {
-	return fmt.Errorf(`Onibi is already paired.
+	return fmt.Errorf(`already paired with Onibi.
 
 State:
   db     %s

@@ -63,21 +63,21 @@ func TestStartCommandIgnoresPairPayload(t *testing.T) {
 }
 
 func TestHelpDetailKnown(t *testing.T) {
-	got := helpDetail("/prompt")
+	got := telegram.HelpDetail("/prompt")
 	if !strings.Contains(got, "/prompt <text>") || !strings.Contains(got, "default target session") {
 		t.Fatalf("detail = %q", got)
 	}
 }
 
 func TestHelpDetailKnownWithoutSlash(t *testing.T) {
-	got := helpDetail("prompt")
+	got := telegram.HelpDetail("prompt")
 	if !strings.Contains(got, "/prompt <text>") || !strings.Contains(got, "default target session") {
 		t.Fatalf("detail = %q", got)
 	}
 }
 
 func TestHelpDetailUnknown(t *testing.T) {
-	if got := helpDetail("/foo"); !strings.Contains(got, "No such command") {
+	if got := telegram.HelpDetail("/foo"); !strings.Contains(got, "No such command") {
 		t.Fatalf("detail = %q", got)
 	}
 }
@@ -95,6 +95,78 @@ func TestHelpCommandWithArg(t *testing.T) {
 	sent := mock.Sent()
 	if len(sent) != 1 || !strings.Contains(sent[0].Text, "/prompt <text>") || !strings.Contains(sent[0].Text, "default target session") {
 		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestStatusIncludesContext(t *testing.T) {
+	d := newApprovalDaemon(t)
+	d.EncryptedMode = "ask"
+	s := NewSession("abc123456", "claude", "claude", nil, 1024)
+	s.Cmd = "claude"
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	d.setDefaultTarget(ctx, 100, s.ID)
+	d.threadMu.Lock()
+	d.busySessions[s.ID] = true
+	d.threadMu.Unlock()
+	if err := d.DB.KVSetString(ctx, snoozeKey("global"), "indefinite"); err != nil {
+		t.Fatal(err)
+	}
+	got := d.statusText(ctx, 100)
+	for _, want := range []string{"encrypted_mode=ask", "default_target=claude (abc123)", "snooze=global=indefinite", "* abc123", "state=busy"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("status missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestMenuShowsGlobalAndSessionButtons(t *testing.T) {
+	d := newApprovalDaemon(t)
+	if err := d.Registry.Add(NewSession("abc123456", "claude", "claude", nil, 1024)); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleMenuCommand(context.Background(), mock, 100)
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	markup, ok := sent[0].ReplyMarkup.(*models.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("reply markup = %#v", sent[0].ReplyMarkup)
+	}
+	got := fmt.Sprint(markup.InlineKeyboard)
+	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "Text", "Shot"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("menu missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestMenuStatusCallbackAnswersAndSendsStatus(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "menu_status", ""); err != nil {
+		t.Fatal(err)
+	}
+	if answers := mock.Answered(); len(answers) != 1 || answers[0].Text != "Sending status" {
+		t.Fatalf("answers = %#v", answers)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi status") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestNoopCallbackAnswersAlreadyDecided(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "noop", ""); err != nil {
+		t.Fatal(err)
+	}
+	if answers := mock.Answered(); len(answers) != 1 || answers[0].Text != "Already decided" {
+		t.Fatalf("answers = %#v", answers)
 	}
 }
 
@@ -486,6 +558,28 @@ func TestSessionActionCallbackRequiresTOTPWhenEnabled(t *testing.T) {
 		t.Fatalf("sent = %#v", sent)
 	}
 	if answers := mock.Answered(); len(answers) != 1 || answers[0].Text != "TOTP required" {
+		t.Fatalf("answers = %#v", answers)
+	}
+}
+
+func TestSessionActionCallbackSetsRenderMode(t *testing.T) {
+	d := newApprovalDaemon(t)
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.handleSessionActionCallback(context.Background(), mock, &models.CallbackQuery{
+		ID:   "cb",
+		From: models.User{ID: 100},
+		Data: "text:" + s.ID,
+	}, "text", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.renderOverride(s.ID); got != render.ModeText {
+		t.Fatalf("render mode = %s", got)
+	}
+	if answers := mock.Answered(); len(answers) != 1 || answers[0].Text != "Text output" {
 		t.Fatalf("answers = %#v", answers)
 	}
 }

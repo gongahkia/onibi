@@ -120,6 +120,9 @@ func (d *Daemon) resolveInjectTarget(ctx context.Context, chatID int64, explicit
 }
 
 func (d *Daemon) sessionByID(id string) (*Session, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, ErrUnknownSession
+	}
 	for _, s := range d.liveSessions() {
 		if s.ID == id || strings.HasPrefix(s.ID, id) {
 			return s, nil

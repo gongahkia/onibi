@@ -8,6 +8,7 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
+	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
 
@@ -122,26 +123,53 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		s, err := d.sessionByID(id)
 		if err != nil {
 			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
 			return nil
 		}
 		answerCallback(ctx, api, q.ID, "Sending preview")
 		d.sendSessionPreview(ctx, api, q.From.ID, s)
+	case "text":
+		if _, err := d.sessionByID(id); err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Text output")
+		d.handleRenderOverride(ctx, api, q.From.ID, id, render.ModeText)
+	case "screenshot":
+		if _, err := d.sessionByID(id); err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Screenshot output")
+		d.handleRenderOverride(ctx, api, q.From.ID, id, render.ModePNG)
 	case "interrupt":
+		if _, err := d.sessionByID(id); err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
 		if enabled, msg := d.totpEnabled(ctx, q.From.ID); enabled {
 			answerCallback(ctx, api, q.ID, "TOTP required")
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
 			return nil
 		}
-		d.handleInterruptCommand(ctx, api, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Interrupted")
+		d.handleInterruptCommand(ctx, api, q.From.ID, id)
 	case "kill":
+		if _, err := d.sessionByID(id); err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
 		if enabled, msg := d.totpEnabled(ctx, q.From.ID); enabled {
 			answerCallback(ctx, api, q.ID, "TOTP required")
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
 			return nil
 		}
-		d.handleKillCommand(ctx, api, q.From.ID, id)
 		answerCallback(ctx, api, q.ID, "Killed")
+		d.handleKillCommand(ctx, api, q.From.ID, id)
 	}
 	return nil
 }

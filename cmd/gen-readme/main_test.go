@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gongahkia/onibi/internal/daemon"
+	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 func TestReadmeTelegramCommandsMatchHelpText(t *testing.T) {
@@ -15,7 +15,7 @@ func TestReadmeTelegramCommandsMatchHelpText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := generatedBlock(daemon.TelegramCommandLinesForReadme())
+	block := generatedBlock(telegram.CommandLinesForReadme())
 	if !strings.Contains(string(readme), block) {
 		t.Fatal("README Telegram command block is stale")
 	}

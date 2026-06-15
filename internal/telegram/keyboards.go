@@ -20,8 +20,14 @@ const (
 	CBPromptUp     = "pup:"
 	CBPromptDown   = "pdown:"
 	CBPeek         = "peek:"
+	CBText         = "text:"
+	CBScreenshot   = "shot:"
 	CBInterrupt    = "int:"
 	CBKill         = "kill:"
+	CBMenuStatus   = "mstatus"
+	CBMenuSessions = "msessions"
+	CBMenuQueue    = "mqueue"
+	CBMenuSecure   = "msecure"
 )
 
 type SessionTarget struct {
@@ -123,7 +129,13 @@ func PromptKeyboard(id string) *models.InlineKeyboardMarkup {
 }
 
 func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
-	rows := make([][]models.InlineKeyboardButton, 0, len(targets)*2)
+	rows := make([][]models.InlineKeyboardButton, 0, len(targets)*3+1)
+	rows = append(rows, []models.InlineKeyboardButton{
+		{Text: "Status", CallbackData: CBMenuStatus},
+		{Text: "Sessions", CallbackData: CBMenuSessions},
+		{Text: "Queue", CallbackData: CBMenuQueue},
+		{Text: "Secure", CallbackData: CBMenuSecure},
+	})
 	for _, t := range targets {
 		label := t.Label
 		if label == "" {
@@ -132,6 +144,10 @@ func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
 		rows = append(rows, []models.InlineKeyboardButton{{Text: trimButton(label), CallbackData: CBTarget + t.ID}})
 		rows = append(rows, []models.InlineKeyboardButton{
 			{Text: "Peek", CallbackData: CBPeek + t.ID},
+			{Text: "Text", CallbackData: CBText + t.ID},
+			{Text: "Shot", CallbackData: CBScreenshot + t.ID},
+		})
+		rows = append(rows, []models.InlineKeyboardButton{
 			{Text: "Interrupt", CallbackData: CBInterrupt + t.ID},
 			{Text: "Kill", CallbackData: CBKill + t.ID},
 		})
@@ -143,6 +159,16 @@ func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
 // Returns ("", "") for unknown verbs so callers can ignore.
 func ParseCallback(data string) (verb, id string) {
 	switch {
+	case data == "noop":
+		return "noop", ""
+	case data == CBMenuStatus:
+		return "menu_status", ""
+	case data == CBMenuSessions:
+		return "menu_sessions", ""
+	case data == CBMenuQueue:
+		return "menu_queue", ""
+	case data == CBMenuSecure:
+		return "menu_secure", ""
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
 	case strings.HasPrefix(data, CBConfirm):
@@ -165,6 +191,10 @@ func ParseCallback(data string) (verb, id string) {
 		return "prompt_down", strings.TrimPrefix(data, CBPromptDown)
 	case strings.HasPrefix(data, CBPeek):
 		return "peek", strings.TrimPrefix(data, CBPeek)
+	case strings.HasPrefix(data, CBText):
+		return "text", strings.TrimPrefix(data, CBText)
+	case strings.HasPrefix(data, CBScreenshot):
+		return "screenshot", strings.TrimPrefix(data, CBScreenshot)
 	case strings.HasPrefix(data, CBInterrupt):
 		return "interrupt", strings.TrimPrefix(data, CBInterrupt)
 	case strings.HasPrefix(data, CBKill):
