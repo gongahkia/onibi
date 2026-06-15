@@ -103,7 +103,7 @@ func (d *Daemon) handleMenuCommand(ctx context.Context, api telegram.API, chatID
 	}
 	live := d.liveSessions()
 	if len(live) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions.\nNext: /new shell, /new claude, or open tmux on the laptop and send /new tmux <target>."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions. Start one:", ReplyMarkup: telegram.OnboardingKeyboard()})
 		return
 	}
 	targets := make([]telegram.SessionTarget, 0, len(live))
@@ -144,6 +144,43 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		}
 		answerCallback(ctx, api, q.ID, "Screenshot output")
 		d.handleRenderOverride(ctx, api, q.From.ID, id, render.ModePNG)
+	case "show":
+		if _, err := d.sessionByID(id); err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Opening terminal")
+		d.handleShowCommand(ctx, api, q.From.ID, id)
+	case "hide":
+		s, err := d.sessionByID(id)
+		if err != nil {
+			answerCallback(ctx, api, q.ID, "Session unavailable")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Choose hide mode")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
+			ChatID:      q.From.ID,
+			Text:        "Hide " + s.Name + " (" + s.ID + ")?",
+			ReplyMarkup: telegram.HideChoiceKeyboard(s.ID),
+		})
+	case "hide_headless":
+		answerCallback(ctx, api, q.ID, "Detaching")
+		msg, err := d.HideSession(ctx, id, "headless")
+		if err != nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Hide failed: " + err.Error()})
+			return nil
+		}
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
+	case "hide_end":
+		answerCallback(ctx, api, q.ID, "Ending")
+		msg, err := d.HideSession(ctx, id, "end")
+		if err != nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "End failed: " + err.Error()})
+			return nil
+		}
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: msg})
 	case "interrupt":
 		if _, err := d.sessionByID(id); err != nil {
 			answerCallback(ctx, api, q.ID, "Session unavailable")

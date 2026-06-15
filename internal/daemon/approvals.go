@@ -258,6 +258,14 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		answerCallback(ctx, api, q.ID, "Opening secure controls")
 		d.sendSecureRequired(ctx, api, q.From.ID)
 		return nil
+	case "menu_new_headless":
+		answerCallback(ctx, api, q.ID, "Headless session")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/new --headless shell\n/new --headless codex\n/new --headless claude"})
+		return nil
+	case "menu_new_visible":
+		answerCallback(ctx, api, q.ID, "Visible session")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/new --visible shell\n/new --visible codex\n/new --visible claude"})
+		return nil
 	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
@@ -265,7 +273,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 	switch verb {
 	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
 		return d.handlePromptCallback(ctx, api, q, verb, id)
-	case "peek", "text", "screenshot", "interrupt", "kill":
+	case "peek", "text", "screenshot", "show", "hide", "hide_headless", "hide_end", "interrupt", "kill":
 		return d.handleSessionActionCallback(ctx, api, q, verb, id)
 	}
 	a, err := d.Queue.Get(ctx, id)
