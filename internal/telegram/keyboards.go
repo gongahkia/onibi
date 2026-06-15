@@ -22,12 +22,18 @@ const (
 	CBPeek         = "peek:"
 	CBText         = "text:"
 	CBScreenshot   = "shot:"
+	CBShow         = "show:"
+	CBHide         = "hide:"
+	CBHideHeadless = "hideh:"
+	CBHideEnd      = "hidee:"
 	CBInterrupt    = "int:"
 	CBKill         = "kill:"
 	CBMenuStatus   = "mstatus"
 	CBMenuSessions = "msessions"
 	CBMenuQueue    = "mqueue"
 	CBMenuSecure   = "msecure"
+	CBMenuNewHeadless = "mnewh"
+	CBMenuNewVisible  = "mnewv"
 )
 
 type SessionTarget struct {
@@ -84,6 +90,19 @@ func EncryptedWebAppKeyboard(label, url string) *models.ReplyKeyboardMarkup {
 		ResizeKeyboard:  true,
 		OneTimeKeyboard: true,
 	}
+}
+
+func OnboardingKeyboard() *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{
+			{Text: "New Headless", CallbackData: CBMenuNewHeadless},
+			{Text: "New Visible", CallbackData: CBMenuNewVisible},
+		},
+		{
+			{Text: "Sessions", CallbackData: CBMenuSessions},
+			{Text: "Queue", CallbackData: CBMenuQueue},
+		},
+	}}
 }
 
 // DecidedKeyboard replaces the approval keyboard after a decision lands,
@@ -148,11 +167,24 @@ func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
 			{Text: "Shot", CallbackData: CBScreenshot + t.ID},
 		})
 		rows = append(rows, []models.InlineKeyboardButton{
+			{Text: "Show", CallbackData: CBShow + t.ID},
+			{Text: "Hide", CallbackData: CBHide + t.ID},
+		})
+		rows = append(rows, []models.InlineKeyboardButton{
 			{Text: "Interrupt", CallbackData: CBInterrupt + t.ID},
 			{Text: "Kill", CallbackData: CBKill + t.ID},
 		})
 	}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func HideChoiceKeyboard(id string) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{
+			{Text: "Continue headless", CallbackData: CBHideHeadless + id},
+			{Text: "End session", CallbackData: CBHideEnd + id},
+		},
+	}}
 }
 
 // ParseCallback splits a callback_data string into (verb, approvalID).
@@ -169,6 +201,10 @@ func ParseCallback(data string) (verb, id string) {
 		return "menu_queue", ""
 	case data == CBMenuSecure:
 		return "menu_secure", ""
+	case data == CBMenuNewHeadless:
+		return "menu_new_headless", ""
+	case data == CBMenuNewVisible:
+		return "menu_new_visible", ""
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
 	case strings.HasPrefix(data, CBConfirm):
@@ -195,6 +231,14 @@ func ParseCallback(data string) (verb, id string) {
 		return "text", strings.TrimPrefix(data, CBText)
 	case strings.HasPrefix(data, CBScreenshot):
 		return "screenshot", strings.TrimPrefix(data, CBScreenshot)
+	case strings.HasPrefix(data, CBShow):
+		return "show", strings.TrimPrefix(data, CBShow)
+	case strings.HasPrefix(data, CBHide):
+		return "hide", strings.TrimPrefix(data, CBHide)
+	case strings.HasPrefix(data, CBHideHeadless):
+		return "hide_headless", strings.TrimPrefix(data, CBHideHeadless)
+	case strings.HasPrefix(data, CBHideEnd):
+		return "hide_end", strings.TrimPrefix(data, CBHideEnd)
 	case strings.HasPrefix(data, CBInterrupt):
 		return "interrupt", strings.TrimPrefix(data, CBInterrupt)
 	case strings.HasPrefix(data, CBKill):
