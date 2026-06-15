@@ -72,6 +72,36 @@ func TestAttachTmuxRegistersSessionAndWrites(t *testing.T) {
 	}
 }
 
+func TestTmuxHostMapsControlKeys(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, err := d.AttachTmux(ctx, "main", "%1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []byte{'\n', 0x1b, 3} {
+		if _, err := s.Host.Write([]byte{b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := r.Calls()
+	if !containsCall(calls, []string{"tmux", "send-keys", "-t", "%1", "Enter"}) {
+		t.Fatalf("missing Enter: %#v", calls)
+	}
+	if !containsCall(calls, []string{"tmux", "send-keys", "-t", "%1", "Escape"}) {
+		t.Fatalf("missing Escape: %#v", calls)
+	}
+	if !containsCall(calls, []string{"tmux", "send-keys", "-t", "%1", "C-c"}) {
+		t.Fatalf("missing C-c: %#v", calls)
+	}
+}
+
 func TestNewTmuxCommandAttachesTarget(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r := &daemonTmuxRunner{}

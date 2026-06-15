@@ -28,8 +28,15 @@ func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session,
 		name = "tmux:" + target
 	}
 	host := pty.NewVirtualHost(func(p []byte) (int, error) {
-		if len(p) == 1 && p[0] == 3 {
-			return 1, ctrl.SendKey(context.Background(), target, "C-c")
+		if len(p) == 1 {
+			switch p[0] {
+			case 3:
+				return 1, ctrl.SendKey(context.Background(), target, "C-c")
+			case '\n', '\r':
+				return 1, ctrl.SendKey(context.Background(), target, "Enter")
+			case 0x1b:
+				return 1, ctrl.SendKey(context.Background(), target, "Escape")
+			}
 		}
 		text := string(p)
 		enter := strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
