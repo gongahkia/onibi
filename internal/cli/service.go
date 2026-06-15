@@ -12,6 +12,8 @@ import (
 	"github.com/gongahkia/onibi/internal/service"
 )
 
+const serviceSocketReadyTimeout = 30 * time.Second
+
 func runInstallService(cmd *cobra.Command, _ []string) error {
 	m, err := serviceManager()
 	if err != nil {
@@ -23,8 +25,8 @@ func runInstallService(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path, _ := m.ServicePath()
-	if !waitForSocket(ctx, m.Paths.Socket, 5*time.Second) {
-		return fmt.Errorf("installed %s, but daemon socket did not become ready within 5s; run `onibi doctor --mode installed`", path)
+	if !waitForSocket(ctx, m.Paths.Socket, serviceSocketReadyTimeout) {
+		return fmt.Errorf("installed %s, but daemon socket did not become ready within %s; run `onibi doctor --mode installed`", path, serviceSocketReadyTimeout)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Installed and started %s\n", path)
 	return nil

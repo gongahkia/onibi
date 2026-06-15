@@ -101,3 +101,62 @@ func TestNewTmuxCommandAttachesTarget(t *testing.T) {
 		t.Fatalf("default target = %q want %q", got, live[0].ID)
 	}
 }
+
+func TestTmuxPromptsSendImmediately(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, err := d.AttachTmux(ctx, "tmux:%1", "%1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.setDefaultTarget(ctx, 100, s.ID)
+	mock := telegram.NewMock(nil)
+	for _, text := range []string{"clear", "ls"} {
+		if err := d.onText(ctx, mock, &models.Message{
+			From: &models.User{ID: 100},
+			Chat: models.Chat{ID: 100},
+			Text: text,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := r.Calls()
+	wantClear := []string{"tmux", "send-keys", "-t", "%1", "-l", "--", "clear"}
+	wantLS := []string{"tmux", "send-keys", "-t", "%1", "-l", "--", "ls"}
+	if !containsCall(calls, wantClear) || !containsCall(calls, wantLS) {
+		t.Fatalf("calls = %#v", calls)
+	}
+	queued, err := d.DB.PromptList(ctx, s.ID, false, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 0 {
+		t.Fatalf("queued = %#v", queued)
+	}
+	for _, msg := range mock.Sent() {
+		if strings.Contains(msg.Text, "Queued prompt") {
+			t.Fatalf("unexpected queue message: %#v", mock.Sent())
+		}
+	}
+	d.threadMu.RLock()
+	busy := d.busySessions[s.ID]
+	d.threadMu.RUnlock()
+	if busy {
+		t.Fatal("tmux session marked busy")
+	}
+}
+
+func containsCall(calls [][]string, want []string) bool {
+	for _, call := range calls {
+		if reflect.DeepEqual(call, want) {
+			return true
+		}
+	}
+	return false
+}

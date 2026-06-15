@@ -32,6 +32,13 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	if err != nil {
 		return err
 	}
+	if s.Transport == "tmux" {
+		if err := d.writePromptToSession(ctx, api, chatID, s, text, ""); err != nil {
+			return err
+		}
+		d.audit(ctx, "prompt.sent", s.ID, text, chatID, "transport=tmux")
+		return nil
+	}
 	if d.DB == nil {
 		return d.writePromptToSession(ctx, api, chatID, s, text, "")
 	}
