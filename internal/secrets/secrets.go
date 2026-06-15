@@ -2,12 +2,14 @@ package secrets
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/99designs/keyring"
 )
@@ -115,6 +117,31 @@ func (s *Store) Get(key string) (string, bool, error) {
 		return "", false, err
 	}
 	return string(it.Data), true, nil
+}
+
+// GetWithTimeout retrieves key, bounding OS keystore calls that can block.
+func (s *Store) GetWithTimeout(ctx context.Context, key string, timeout time.Duration) (string, bool, error) {
+	if s.backend == BackendDotenv || timeout <= 0 {
+		return s.Get(key)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	type result struct {
+		value string
+		ok    bool
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		value, ok, err := s.Get(key)
+		ch <- result{value: value, ok: ok, err: err}
+	}()
+	select {
+	case res := <-ch:
+		return res.value, res.ok, res.err
+	case <-ctx.Done():
+		return "", false, fmt.Errorf("secret %s lookup timeout: %w", key, ctx.Err())
+	}
 }
 
 // Delete removes key (no-op if missing).

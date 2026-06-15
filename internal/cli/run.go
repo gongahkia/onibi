@@ -76,14 +76,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	token, ok, err := sec.Get(secrets.KeyBotToken)
+	token, ok, err := sec.GetWithTimeout(ctx, secrets.KeyBotToken, 30*time.Second)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return errors.New("no bot token stored — run `onibi setup` first")
 	}
-	envelopeSeed, _, err := sec.Get(secrets.KeyEnvelopeSeed)
+	envelopeSeed, _, err := sec.GetWithTimeout(ctx, secrets.KeyEnvelopeSeed, 30*time.Second)
 	if err != nil {
 		return err
 	}

@@ -256,7 +256,7 @@ func (r *runner) checkToken() {
 	if r.sec == nil {
 		return
 	}
-	token, ok, err := getSecret(r.ctx, r.sec, secrets.KeyBotToken)
+	token, ok, err := r.sec.GetWithTimeout(r.ctx, secrets.KeyBotToken, secretLookupTimeout)
 	if err != nil {
 		r.add("bot token", Fail, err.Error())
 		return
@@ -462,7 +462,7 @@ func (r *runner) checkTOTP() {
 	if r.sec == nil {
 		return
 	}
-	_, ok, err := getSecret(r.ctx, r.sec, secrets.KeyTOTPSecret)
+	_, ok, err := r.sec.GetWithTimeout(r.ctx, secrets.KeyTOTPSecret, secretLookupTimeout)
 	if err != nil {
 		r.add("totp", Fail, err.Error())
 		return
@@ -488,31 +488,6 @@ func (r *runner) checkTOTP() {
 }
 
 const secretLookupTimeout = 30 * time.Second
-
-type secretResult struct {
-	value string
-	ok    bool
-	err   error
-}
-
-func getSecret(ctx context.Context, sec *secrets.Store, key string) (string, bool, error) {
-	if sec.Backend() == secrets.BackendDotenv {
-		return sec.Get(key)
-	}
-	ctx, cancel := context.WithTimeout(ctx, secretLookupTimeout)
-	defer cancel()
-	ch := make(chan secretResult, 1)
-	go func() {
-		value, ok, err := sec.Get(key)
-		ch <- secretResult{value: value, ok: ok, err: err}
-	}()
-	select {
-	case res := <-ch:
-		return res.value, res.ok, res.err
-	case <-ctx.Done():
-		return "", false, fmt.Errorf("secret %s lookup timeout: %w", key, ctx.Err())
-	}
-}
 
 func (r *runner) checkTelegram() {
 	if r.token == "" {
