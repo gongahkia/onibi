@@ -141,6 +141,7 @@ Telegram:
 - `/text <id|name>` - force text output
 - `/screenshot <id|name>` - force screenshots
 - `/interrupt <id|name>` - send Ctrl-C
+- `/enter [id|name]` - send Enter
 - `/kill <id|name>` - terminate session
 - `/rename <id|name> <name>` - rename session
 - `/queue [id|name]` - list queued prompts

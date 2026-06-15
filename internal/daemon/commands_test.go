@@ -323,6 +323,25 @@ func TestSendCommandInjectsSlashText(t *testing.T) {
 	}
 }
 
+func TestEnterCommandInjectsNewline(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r, s := pipeSession(t, "abc123", "codex")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onText(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/enter abc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "\n" {
+		t.Fatalf("injected = %q", got)
+	}
+}
+
 func TestAgentCommandShell(t *testing.T) {
 	bin, agent, args, ok := agentCommand("shell", []string{"zsh", "-c", "echo hi"})
 	if !ok || bin != "zsh" || agent != "shell" || strings.Join(args, " ") != "-i -c echo hi" {
