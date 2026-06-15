@@ -3,9 +3,13 @@ package daemon
 import (
 	"context"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/go-telegram/bot/models"
+
+	"github.com/gongahkia/onibi/internal/telegram"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
@@ -65,5 +69,35 @@ func TestAttachTmuxRegistersSessionAndWrites(t *testing.T) {
 	calls := r.Calls()
 	if len(calls) < 2 || !reflect.DeepEqual(calls[1], want) {
 		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestNewTmuxCommandAttachesTarget(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new tmux %1",
+	}) {
+		t.Fatal("command not handled")
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Attached tmux %1") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	live := d.liveSessions()
+	if len(live) != 1 || live[0].Transport != "tmux" || live[0].TmuxTarget != "%1" {
+		t.Fatalf("live = %#v", live)
+	}
+	if got := d.defaultTarget(ctx, 100); got != live[0].ID {
+		t.Fatalf("default target = %q want %q", got, live[0].ID)
 	}
 }

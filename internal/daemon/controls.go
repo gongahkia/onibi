@@ -103,7 +103,7 @@ func (d *Daemon) handleMenuCommand(ctx context.Context, api telegram.API, chatID
 	}
 	live := d.liveSessions()
 	if len(live) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions.\nNext: send /new shell or /new claude."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions.\nNext: /new shell, /new claude, or open tmux on the laptop and send /new tmux <target>."})
 		return
 	}
 	targets := make([]telegram.SessionTarget, 0, len(live))

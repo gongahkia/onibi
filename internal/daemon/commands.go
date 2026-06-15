@@ -112,7 +112,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nNext:\n1. Start a session: /new shell or /new claude\n2. Then use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
+	text := "Onibi is paired and listening.\n\nNext:\n1. Headless session: /new shell or /new claude\n2. Visible laptop session: open tmux, then /new tmux <target>\n3. Use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
 }
 
@@ -171,7 +171,7 @@ func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	if len(live) == 0 {
 		d.clearStaleDefaultTarget(ctx, chatID)
-		return "No active sessions.\nNext: send /new shell or /new claude."
+		return "No active sessions.\nNext: /new shell, /new claude, or open tmux on the laptop and send /new tmux <target>."
 	}
 	defaultID := d.activeDefaultTarget(ctx, chatID)
 	var b strings.Builder
@@ -330,13 +330,17 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
 	fields := strings.Fields(arg)
 	if len(fields) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new <agent|shell> [args...]"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new <agent|shell|tmux> [args...]"})
 		return
 	}
 	agent := strings.ToLower(fields[0])
+	if agent == "tmux" {
+		d.handleNewTmuxCommand(ctx, api, chatID, fields[1:])
+		return
+	}
 	bin, spawnAgent, spawnArgs, ok := agentCommand(agent, fields[1:])
 	if !ok {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Unsupported target. Use shell or: " + strings.Join(supportedAgentNames(), ", ")})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Unsupported target. Use shell, tmux, or: " + strings.Join(supportedAgentNames(), ", ")})
 		return
 	}
 	path, err := exec.LookPath(bin)
@@ -366,6 +370,24 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 		ChatID: chatID,
 		Text:   fmt.Sprintf("Started %s (%s). Default target set.", s.Name, s.ID),
 	})
+	if err == nil {
+		d.bindMessage(sent, s.ID)
+	}
+}
+
+func (d *Daemon) handleNewTmuxCommand(ctx context.Context, api telegram.API, chatID int64, args []string) {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new tmux <target>\nExample: /new tmux onibi or /new tmux %1"})
+		return
+	}
+	target := strings.TrimSpace(strings.Join(args, " "))
+	s, err := d.AttachTmux(ctx, "tmux:"+target, target)
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Attach failed: " + err.Error()})
+		return
+	}
+	d.setDefaultTarget(ctx, chatID, s.ID)
+	sent, err := d.sendMaybeEncryptedText(ctx, api, chatID, "new", "Attached tmux", fmt.Sprintf("Attached tmux %s as %s (%s). Default target set.", target, s.Name, s.ID))
 	if err == nil {
 		d.bindMessage(sent, s.ID)
 	}

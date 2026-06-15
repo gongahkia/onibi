@@ -19,10 +19,10 @@ type CommandSpec struct {
 
 var commandSpecs = []CommandSpec{
 	{Name: "/status", Short: "show daemon status", Detail: "Shows daemon uptime, encrypted mode, default target, active session count, pending approval count, queued prompt count, snooze state, and current sessions.", Category: "sessions"},
-	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent and shell sessions, including session ids, names, agent type, age, state, command, and default target marker.", Category: "sessions"},
+	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent, shell, and tmux sessions, including session ids, names, agent type, age, state, command, and default target marker.", Category: "sessions"},
 	{Name: "/menu", Short: "show session actions", Detail: "Shows inline action buttons for status, sessions, queue, secure controls, and live session actions.", Category: "sessions"},
 	{Name: "/target", Args: "<id|name>", Short: "set default session", Detail: "Sets the default session for this chat. Without an argument, shows the current default target.", Category: "sessions", Examples: []string{"/target claude", "/target abc123"}},
-	{Name: "/new", Args: "<agent|shell> [args...]", Short: "start an agent or shell session", Detail: "Starts a new local agent or interactive shell session and routes future prompts to it.", Category: "sessions", Examples: []string{"/new shell", "/new claude", "/new codex -- --model gpt-5-codex"}},
+	{Name: "/new", Args: "<agent|shell|tmux> [args...]", Short: "start an agent, shell, or tmux session", Detail: "Starts a headless local agent or shell session, or attaches to a visible laptop tmux target, then routes future prompts to it.", Category: "sessions", Examples: []string{"/new shell", "/new claude", "/new tmux onibi", "/new tmux %1", "/new codex -- --model gpt-5-codex"}},
 	{Name: "/peek", Args: "<id|name>", Short: "send session preview", Detail: "Sends a current preview of the target session output using the configured render mode.", Category: "controls"},
 	{Name: "/text", Args: "<id|name>", Short: "force text output", Detail: "Forces future previews for the target session to use text output.", Category: "controls"},
 	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output.", Category: "controls"},
