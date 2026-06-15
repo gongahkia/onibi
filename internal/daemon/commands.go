@@ -127,6 +127,10 @@ func (d *Daemon) handleRenderOverride(ctx context.Context, api telegram.API, cha
 		return
 	}
 	d.setRenderOverride(s.ID, mode)
+	if mode == render.ModePNG {
+		d.sendSessionPreview(ctx, api, chatID, s)
+		return
+	}
 	sendMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID: chatID,
 		Text:   fmt.Sprintf("%s output forced for %s (%s).", mode, s.Name, s.ID),

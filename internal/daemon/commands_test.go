@@ -31,8 +31,8 @@ func TestRenderOverrideExplicitTarget(t *testing.T) {
 	if got := d.renderOverride("abc123"); got != render.ModePNG {
 		t.Fatalf("override = %s", got)
 	}
-	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "png") {
-		t.Fatalf("sent = %#v", sent)
+	if len(mock.Photos()) != 1 {
+		t.Fatalf("photos = %d messages = %d", len(mock.Photos()), len(mock.Sent()))
 	}
 }
 

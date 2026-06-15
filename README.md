@@ -139,7 +139,7 @@ Telegram:
 - `/new <agent|shell|tmux> [args...]` - start an agent, shell, or tmux session
 - `/peek <id|name>` - send session preview
 - `/text <id|name>` - force text output
-- `/screenshot <id|name>` - force screenshots
+- `/screenshot <id|name>` - send screenshot
 - `/interrupt <id|name>` - send Ctrl-C
 - `/enter [id|name]` - send Enter
 - `/esc [id|name]` - send Escape

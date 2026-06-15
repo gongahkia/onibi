@@ -25,7 +25,7 @@ var commandSpecs = []CommandSpec{
 	{Name: "/new", Args: "<agent|shell|tmux> [args...]", Short: "start an agent, shell, or tmux session", Detail: "Starts a headless local agent or shell session, or attaches to a visible laptop tmux target, then routes future prompts to it.", Category: "sessions", Examples: []string{"/new shell", "/new claude", "/new tmux onibi", "/new tmux %1", "/new codex -- --model gpt-5-codex"}},
 	{Name: "/peek", Args: "<id|name>", Short: "send session preview", Detail: "Sends a current preview of the target session output using the configured render mode.", Category: "controls"},
 	{Name: "/text", Args: "<id|name>", Short: "force text output", Detail: "Forces future previews for the target session to use text output.", Category: "controls"},
-	{Name: "/screenshot", Args: "<id|name>", Short: "force screenshots", Detail: "Forces future previews for the target session to use screenshot output.", Category: "controls"},
+	{Name: "/screenshot", Args: "<id|name>", Short: "send screenshot", Detail: "Forces future previews for the target session to use screenshot output and sends the current preview immediately.", Category: "controls"},
 	{Name: "/interrupt", Args: "<id|name>", Short: "send Ctrl-C", Detail: "Sends Ctrl-C to the target session and marks it idle. TOTP is required when configured.", Category: "controls"},
 	{Name: "/enter", Args: "[id|name]", Short: "send Enter", Detail: "Sends a bare Enter/newline to the target session, useful for TUI confirmation prompts.", Category: "controls", Examples: []string{"/enter", "/enter codex"}},
 	{Name: "/esc", Args: "[id|name]", Short: "send Escape", Detail: "Sends Escape to the target session, useful for closing TUI dialogs.", Category: "controls", Examples: []string{"/esc", "/esc codex"}},
