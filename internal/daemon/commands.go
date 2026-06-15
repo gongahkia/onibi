@@ -78,6 +78,8 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleInterruptCommand(ctx, api, m.Chat.ID, arg)
 	case "/enter":
 		d.handleEnterCommand(ctx, api, m.Chat.ID, arg)
+	case "/esc":
+		d.handleEscCommand(ctx, api, m.Chat.ID, arg)
 	case "/kill":
 		d.handleKillCommand(ctx, api, m.Chat.ID, arg)
 	case "/rename":
@@ -294,9 +296,17 @@ func (d *Daemon) handleSendCommand(ctx context.Context, api telegram.API, chatID
 }
 
 func (d *Daemon) handleEnterCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	d.handlePTYByteCommand(ctx, api, chatID, arg, "\n", "Enter", "/enter", "telegram.enter")
+}
+
+func (d *Daemon) handleEscCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	d.handlePTYByteCommand(ctx, api, chatID, arg, "\x1b", "Esc", "/esc", "telegram.esc")
+}
+
+func (d *Daemon) handlePTYByteCommand(ctx context.Context, api telegram.API, chatID int64, arg, payload, label, usage, anomaly string) {
 	s, err := d.resolveInjectTarget(ctx, chatID, strings.TrimSpace(arg))
 	if errors.Is(err, errAmbiguousTarget) {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Multiple active sessions. Use /enter <id|name>."})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Multiple active sessions. Use " + usage + " <id|name>."})
 		return
 	}
 	if errors.Is(err, ErrUnknownSession) {
@@ -304,21 +314,21 @@ func (d *Daemon) handleEnterCommand(ctx context.Context, api telegram.API, chatI
 		return
 	}
 	if err != nil {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Enter failed: " + err.Error()})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: label + " failed: " + err.Error()})
 		return
 	}
 	if s.Host == nil {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Session has no writable PTY."})
 		return
 	}
-	if _, err := s.Host.Write([]byte("\n")); err != nil {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Enter failed: " + err.Error()})
+	if _, err := s.Host.Write([]byte(payload)); err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: label + " failed: " + err.Error()})
 		return
 	}
 	s.Touch()
-	d.noteAnomaly(ctx, "telegram.enter")
+	d.noteAnomaly(ctx, anomaly)
 	d.setDefaultTarget(ctx, chatID, s.ID)
-	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", "Enter sent", "Sent Enter to "+s.Name+" ("+s.ID+").")
+	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", label+" sent", "Sent "+label+" to "+s.Name+" ("+s.ID+").")
 }
 
 func (d *Daemon) handleTargetCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
