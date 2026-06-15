@@ -46,6 +46,10 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleTargetCommand(ctx, api, m.Chat.ID, arg)
 	case "/new":
 		d.handleNewCommand(ctx, api, m.Chat.ID, arg)
+	case "/show":
+		d.handleShowCommand(ctx, api, m.Chat.ID, arg)
+	case "/hide":
+		d.handleHideCommand(ctx, api, m.Chat.ID, arg)
 	case "/queue":
 		d.handleQueueCommand(ctx, api, m.Chat.ID, arg)
 	case "/prompt":
@@ -116,8 +120,8 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nNext:\n1. Headless session: /new shell or /new claude\n2. Visible laptop session: open tmux, then /new tmux <target>\n3. Use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
+	text := "Onibi is paired and listening.\n\nChoose how to start:\nHeadless: runs on the laptop without opening a terminal window.\nVisible: opens a laptop terminal attached to the same session.\n\nCommands:\n/new --headless shell\n/new --visible shell\n/sessions"
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text, ReplyMarkup: telegram.OnboardingKeyboard()})
 }
 
 func (d *Daemon) handleRenderOverride(ctx context.Context, api telegram.API, chatID int64, target string, mode render.Mode) {
@@ -193,7 +197,7 @@ func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 		if s.ID == defaultID {
 			mark = "*"
 		}
-		fmt.Fprintf(&b, "%s %s  %s  %s  state=%s  age=%s  cmd=%s\n", mark, shortID(s.ID), s.Name, s.Agent, d.sessionState(s), time.Since(s.StartedAt()).Truncate(time.Second), cmd)
+		fmt.Fprintf(&b, "%s %s  %s  %s  mode=%s  state=%s  age=%s  cmd=%s\n", mark, shortID(s.ID), s.Name, s.Agent, d.sessionMode(ctx, s), d.sessionState(s), time.Since(s.StartedAt()).Truncate(time.Second), cmd)
 	}
 	if defaultID == "" {
 		b.WriteString("\n* = default target (none set)")
@@ -234,6 +238,26 @@ func (d *Daemon) sessionState(s *Session) string {
 		return "busy"
 	}
 	return "idle"
+}
+
+func (d *Daemon) sessionMode(ctx context.Context, s *Session) string {
+	if s == nil {
+		return "unknown"
+	}
+	if s.Ended() {
+		return "ended"
+	}
+	if s.Transport != "tmux" || s.TmuxTarget == "" {
+		return "legacy pty"
+	}
+	n, err := newTmuxController().AttachCount(ctx, s.TmuxTarget)
+	if err != nil || n == 0 {
+		return "headless"
+	}
+	if n == 1 {
+		return "visible"
+	}
+	return fmt.Sprintf("visible x%d", n)
 }
 
 func (d *Daemon) encryptedModeLabel() string {
