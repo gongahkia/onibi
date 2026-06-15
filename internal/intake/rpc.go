@@ -17,4 +17,8 @@ type Response struct {
 	DecidedBy int64 `json:"decided_by,omitempty"`
 	// Text is used by non-approval request/response calls.
 	Text string `json:"text,omitempty"`
+	// SessionID is used by session lifecycle RPC calls.
+	SessionID string `json:"session_id,omitempty"`
+	// Mode is used by session lifecycle RPC calls.
+	Mode string `json:"mode,omitempty"`
 }
