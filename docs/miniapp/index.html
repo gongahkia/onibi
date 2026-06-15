@@ -35,6 +35,8 @@
     input[type=file]{flex:1 1 220px;background:var(--panel2)}
     input[type=file]::file-selector-button{margin-right:10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--fg);padding:7px 10px;font-weight:650}
     img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:var(--shadow)}
+    body.paired pre{border-color:#8fd1ad;background:linear-gradient(180deg,rgba(143,209,173,.18),var(--panel));box-shadow:0 0 0 3px rgba(143,209,173,.24),var(--shadow)}
+    body.paired .pill{border-color:#8fd1ad;background:rgba(143,209,173,.18);color:var(--fg)}
     section{display:grid;gap:12px;margin:12px 0 16px}
     .muted{color:var(--muted)}
     .hidden{display:none!important}
@@ -183,6 +185,7 @@ async function send(action, extra){
   tg.close();
 }
 function resetViews(){
+  document.body.classList.remove("paired");
   importBox.classList.add("hidden");
   secureBox.classList.add("hidden");
   editBox.classList.add("hidden");
@@ -264,8 +267,9 @@ async function main(){
   const seedParam = sp.get("seed");
   if(seedParam){
     await importSeed(seedParam);
+    document.body.classList.add("paired");
     setState("seed stored");
-    body.textContent = "Seed imported.";
+    body.textContent = "Seed imported.\n\nThis Telegram device can now decrypt Onibi items.";
     return;
   }
   const token = sp.get("onibi");

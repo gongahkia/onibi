@@ -110,7 +110,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nNext:\n/new <agent> - start a session\n/sessions - list sessions\n/menu - phone controls\n/help - command list"
+	text := "Onibi is paired and listening.\n\nNext:\n1. Start a session from the laptop: onibi shell or onibi run claude\n2. Or start one here: /new claude\n3. Then use /menu for phone controls.\n\nSetup checks:\n/status - daemon state\n/sessions - active sessions\n/help - command list"
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text})
 }
 
@@ -168,9 +168,10 @@ func (d *Daemon) liveSessions() []*Session {
 func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	if len(live) == 0 {
-		return "No active sessions.\nNext: /new <agent>"
+		d.clearStaleDefaultTarget(ctx, chatID)
+		return "No active sessions.\nNext: run onibi shell/onibi run <agent> on the laptop, or send /new <agent> here."
 	}
-	defaultID := d.defaultTarget(ctx, chatID)
+	defaultID := d.activeDefaultTarget(ctx, chatID)
 	var b strings.Builder
 	b.WriteString("Active sessions:\n")
 	for _, s := range live {
@@ -234,14 +235,32 @@ func (d *Daemon) encryptedModeLabel() string {
 }
 
 func (d *Daemon) defaultTargetLabel(ctx context.Context, chatID int64) string {
-	id := d.defaultTarget(ctx, chatID)
+	id := d.activeDefaultTarget(ctx, chatID)
 	if id == "" {
 		return "none"
 	}
 	if s, err := d.sessionByID(id); err == nil {
 		return s.Name + " (" + shortID(s.ID) + ")"
 	}
-	return "stale " + shortID(id)
+	return "none"
+}
+
+func (d *Daemon) activeDefaultTarget(ctx context.Context, chatID int64) string {
+	id := d.defaultTarget(ctx, chatID)
+	if id == "" {
+		return ""
+	}
+	if _, err := d.sessionByID(id); err == nil {
+		return id
+	}
+	d.clearDefaultTarget(ctx, chatID)
+	return ""
+}
+
+func (d *Daemon) clearStaleDefaultTarget(ctx context.Context, chatID int64) {
+	if d.defaultTarget(ctx, chatID) != "" {
+		d.clearDefaultTarget(ctx, chatID)
+	}
 }
 
 func (d *Daemon) snoozeStatus(ctx context.Context) string {
