@@ -42,6 +42,7 @@ type Config struct {
 	Daemon   Daemon   `yaml:"daemon" json:"daemon"`
 	Shell    Shell    `yaml:"shell" json:"shell"`
 	Telegram Telegram `yaml:"telegram" json:"telegram"`
+	Terminal Terminal `yaml:"terminal" json:"terminal"`
 }
 
 type Daemon struct {
@@ -61,6 +62,10 @@ type Shell struct {
 type Telegram struct {
 	EncryptedMode string `yaml:"encrypted_mode" json:"encrypted_mode"`
 	MiniAppURL    string `yaml:"mini_app_url" json:"mini_app_url"`
+}
+
+type Terminal struct {
+	Default string `yaml:"default" json:"default"`
 }
 
 type LoadMeta struct {
@@ -94,6 +99,9 @@ func Default() Config {
 		Telegram: Telegram{
 			EncryptedMode: "off",
 			MiniAppURL:    "https://gongahkia.github.io/onibi/miniapp/",
+		},
+		Terminal: Terminal{
+			Default: "auto",
 		},
 	}
 }
@@ -184,6 +192,11 @@ func (c Config) Validate() error {
 	}
 	if c.Telegram.MiniAppURL != "" && !strings.HasPrefix(c.Telegram.MiniAppURL, "https://") {
 		return fmt.Errorf("telegram.mini_app_url must use https")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
+	case "auto", "ghostty", "terminal", "none":
+	default:
+		return fmt.Errorf("terminal.default must be one of auto, ghostty, terminal, none")
 	}
 	return nil
 }
@@ -308,6 +321,8 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(value))
 	case "telegram.mini_app_url":
 		cfg.Telegram.MiniAppURL = strings.TrimSpace(value)
+	case "terminal.default":
+		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(value))
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -336,6 +351,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Telegram.EncryptedMode, nil
 	case "telegram.mini_app_url":
 		return cfg.Telegram.MiniAppURL, nil
+	case "terminal.default":
+		return cfg.Terminal.Default, nil
 	default:
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
@@ -352,6 +369,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
+		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, terminal, or none"},
 		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},
 		{"telegram.mini_app_url", def.Telegram.MiniAppURL, cfg.Telegram.MiniAppURL, meta.Explicit["telegram.mini_app_url"], "hosted Mini App URL for encrypted approvals"},
 	}
@@ -363,6 +381,7 @@ type rawConfig struct {
 	Daemon   rawDaemon   `yaml:"daemon"`
 	Shell    rawShell    `yaml:"shell"`
 	Telegram rawTelegram `yaml:"telegram"`
+	Terminal rawTerminal `yaml:"terminal"`
 }
 
 type rawDaemon struct {
@@ -382,6 +401,10 @@ type rawShell struct {
 type rawTelegram struct {
 	EncryptedMode *string `yaml:"encrypted_mode"`
 	MiniAppURL    *string `yaml:"mini_app_url"`
+}
+
+type rawTerminal struct {
+	Default *string `yaml:"default"`
 }
 
 func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
@@ -424,5 +447,9 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Telegram.MiniAppURL != nil {
 		cfg.Telegram.MiniAppURL = strings.TrimSpace(*raw.Telegram.MiniAppURL)
 		meta.Explicit["telegram.mini_app_url"] = true
+	}
+	if raw.Terminal.Default != nil {
+		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
+		meta.Explicit["terminal.default"] = true
 	}
 }

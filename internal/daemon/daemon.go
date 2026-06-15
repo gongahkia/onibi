@@ -55,6 +55,7 @@ type Daemon struct {
 	EncryptedMode string
 	MiniAppURL    string
 	EnvelopeSeed  string
+	TerminalDefault string
 	anomaly       *anomalyTracker
 
 	mu       sync.Mutex
@@ -90,6 +91,7 @@ type Options struct {
 	EncryptedMode         string
 	MiniAppURL            string
 	EnvelopeSeed          string
+	TerminalDefault       string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -117,6 +119,7 @@ func New(opts Options) *Daemon {
 		EncryptedMode:   opts.EncryptedMode,
 		MiniAppURL:      opts.MiniAppURL,
 		EnvelopeSeed:    opts.EnvelopeSeed,
+		TerminalDefault: opts.TerminalDefault,
 		anomaly:         newAnomalyTracker(),
 	}
 

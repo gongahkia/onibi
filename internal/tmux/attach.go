@@ -36,6 +36,14 @@ type Pane struct {
 	Title   string
 }
 
+type StartOptions struct {
+	WindowName string
+	CWD        string
+	Env        []string
+	Command    string
+	Args       []string
+}
+
 func New() *Controller { return &Controller{Runner: execRunner{}, Bin: DefaultBin()} }
 
 func NewWithRunner(r Runner) *Controller { return &Controller{Runner: r, Bin: "tmux"} }
@@ -114,6 +122,65 @@ func (c *Controller) Capture(ctx context.Context, target string, lines int) (str
 	return strings.TrimRight(string(out), "\r\n"), nil
 }
 
+func (c *Controller) StartSession(ctx context.Context, target string, opts StartOptions) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	if strings.TrimSpace(opts.Command) == "" {
+		return errors.New("tmux command required")
+	}
+	args := []string{"new-session", "-d", "-s", target}
+	if strings.TrimSpace(opts.WindowName) != "" {
+		args = append(args, "-n", opts.WindowName)
+	}
+	if strings.TrimSpace(opts.CWD) != "" {
+		args = append(args, "-c", opts.CWD)
+	}
+	for _, env := range opts.Env {
+		if strings.TrimSpace(env) != "" {
+			args = append(args, "-e", env)
+		}
+	}
+	args = append(args, "sh", "-lc", "exec "+shellJoin(append([]string{opts.Command}, opts.Args...)...))
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+func (c *Controller) AttachCount(ctx context.Context, target string) (int, error) {
+	if strings.TrimSpace(target) == "" {
+		return 0, errors.New("tmux target required")
+	}
+	out, err := c.run(ctx, "display-message", "-p", "-t", target, "#{session_attached}")
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func (c *Controller) DetachClients(ctx context.Context, target string) error {
+	n, err := c.AttachCount(ctx, target)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil
+	}
+	_, err = c.run(ctx, "detach-client", "-s", target)
+	return err
+}
+
+func (c *Controller) KillSession(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	_, err := c.run(ctx, "kill-session", "-t", target)
+	return err
+}
+
 func (c *Controller) SendText(ctx context.Context, target, text string, enter bool) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("tmux target required")
@@ -128,6 +195,21 @@ func (c *Controller) SendText(ctx context.Context, target, text string, enter bo
 		return c.verifyMultilineSend(ctx, target, text)
 	}
 	return nil
+}
+
+func shellJoin(parts ...string) string {
+	quoted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		quoted = append(quoted, shellQuote(part))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func (c *Controller) verifyMultilineSend(ctx context.Context, target, text string) error {

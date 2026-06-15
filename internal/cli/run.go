@@ -140,6 +140,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		EncryptedMode:         cfg.Telegram.EncryptedMode,
 		MiniAppURL:            cfg.Telegram.MiniAppURL,
 		EnvelopeSeed:          envelopeSeed,
+		TerminalDefault:       cfg.Terminal.Default,
 	})
 
 	if attachTmux != "" {
