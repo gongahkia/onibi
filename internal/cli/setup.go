@@ -92,6 +92,9 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		if complete && errors.Is(err, setup.ErrOwnerAlreadyPaired) {
 			return runSetupComplete(cmd, paths, db)
 		}
+		if errors.Is(err, setup.ErrOwnerAlreadyPaired) {
+			return ownerAlreadyPairedHelp(paths)
+		}
 		return err
 	}
 	if enableEncrypted {
@@ -103,6 +106,19 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		return runSetupComplete(cmd, paths, db)
 	}
 	return nil
+}
+
+func ownerAlreadyPairedHelp(paths config.Paths) error {
+	return fmt.Errorf(`Onibi is already paired.
+
+State:
+  db     %s
+  owner  already recorded
+
+Next:
+  onibi setup --complete       finish service/hooks/doctor setup
+  onibi rotate-token           keep owner; replace bot token
+  onibi setup --rotate-owner   replace owner and pair again`, paths.DBFile)
 }
 
 func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Store, mode, miniAppURL string) error {
