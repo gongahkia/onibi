@@ -267,6 +267,35 @@ func TestNewCommandUsesProjectAlias(t *testing.T) {
 	}
 }
 
+func TestNewCommandAcceptsSmartDashOptions(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+	t.Setenv("SHELL", "/bin/sh")
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), dir); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new —headless —project repo shell",
+	}) {
+		t.Fatal("command not handled")
+	}
+	if live := d.liveSessions(); len(live) != 1 {
+		t.Fatalf("live = %#v sent=%#v", live, mock.Sent())
+	}
+	if !containsTmuxCWD(r.Calls(), dir) {
+		t.Fatalf("missing cwd %q: %#v", dir, r.Calls())
+	}
+}
+
 func TestTmuxPromptsQueueUntilReady(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r := &daemonTmuxRunner{}

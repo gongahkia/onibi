@@ -582,6 +582,18 @@ func (d *Daemon) handleProjectCommand(ctx context.Context, api telegram.API, cha
 }
 
 func normalizeOptionToken(s string) string {
+	runes := []rune(s)
+	if len(runes) > 0 && isSmartDash(runes[0]) {
+		i := 0
+		for i < len(runes) && isSmartDash(runes[i]) {
+			i++
+		}
+		return "--" + normalizeDashes(string(runes[i:]))
+	}
+	return normalizeDashes(s)
+}
+
+func normalizeDashes(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
 		case '‐', '‑', '‒', '–', '—', '―', '−':
@@ -590,6 +602,15 @@ func normalizeOptionToken(s string) string {
 			return r
 		}
 	}, s)
+}
+
+func isSmartDash(r rune) bool {
+	switch r {
+	case '‐', '‑', '‒', '–', '—', '―', '−':
+		return true
+	default:
+		return false
+	}
 }
 
 func (d *Daemon) resolveNewSessionCWD(ctx context.Context, project, cwd string) (string, error) {
