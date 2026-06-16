@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/csv"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
