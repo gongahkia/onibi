@@ -16,6 +16,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/render"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
 
@@ -223,8 +224,8 @@ func (d *Daemon) statusText(ctx context.Context, chatID int64) string {
 			queued = fmt.Sprintf("%d", len(p))
 		}
 	}
-	return fmt.Sprintf("Onibi status\nuptime=%s\nencrypted_mode=%s\ndefault_target=%s\nsnooze=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
-		time.Since(d.started).Truncate(time.Second), d.encryptedModeLabel(), d.defaultTargetLabel(ctx, chatID), d.snoozeStatus(ctx), len(d.liveSessions()), pending, queued, d.sessionsText(ctx, chatID))
+	return fmt.Sprintf("Onibi status\nuptime=%s\nencrypted_mode=%s\ndefault_target=%s\ntelegram_poller=%s\nsnooze=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
+		time.Since(d.started).Truncate(time.Second), d.encryptedModeLabel(), d.defaultTargetLabel(ctx, chatID), d.telegramPollerStatus(ctx), d.snoozeStatus(ctx), len(d.liveSessions()), pending, queued, d.sessionsText(ctx, chatID))
 }
 
 func (d *Daemon) sessionState(s *Session) string {
@@ -269,6 +270,20 @@ func (d *Daemon) encryptedModeLabel() string {
 		return "off"
 	}
 	return mode
+}
+
+func (d *Daemon) telegramPollerStatus(ctx context.Context) string {
+	if d.DB == nil {
+		return "unknown"
+	}
+	detail, ok, err := d.DB.KVGetString(ctx, store.TelegramPollerConflictKey)
+	if err != nil {
+		return "unknown"
+	}
+	if ok && strings.TrimSpace(detail) != "" {
+		return "degraded: " + detail
+	}
+	return "ok"
 }
 
 func (d *Daemon) defaultTargetLabel(ctx context.Context, chatID int64) string {

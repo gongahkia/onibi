@@ -20,6 +20,7 @@ const HTTPTimeout = 35 * time.Second
 const (
 	longPollTimeout             = 30 * time.Second
 	maxPollBackoff              = 5 * time.Second
+	maxPollConflictBackoff      = 30 * time.Second
 	ownerRaceEmptyPollThreshold = 10
 	ownerInteractionWindow      = 5 * time.Minute
 	ownerRaceWarningText        = "Possible token race: another poller may be consuming Telegram updates. Run onibi doctor; if it reports another poller, run onibi rotate-token."
@@ -44,11 +45,19 @@ type Client struct {
 	sleep             sleepFunc
 	warningSender     func(context.Context, int64, string) error
 	await             ownerInteractionTracker
+	offsetStore       OffsetStore
 }
 
 type getUpdatesFunc func(context.Context, int64, time.Duration, []string) ([]*models.Update, error)
 
 type sleepFunc func(context.Context, time.Duration) bool
+
+type OffsetStore interface {
+	TelegramOffset(context.Context) (int64, bool, error)
+	SetTelegramOffset(context.Context, int64) error
+	SetTelegramPollerConflict(context.Context, string) error
+	ClearTelegramPollerConflict(context.Context) error
+}
 
 // Options configures Client construction.
 type Options struct {
@@ -60,9 +69,10 @@ type Options struct {
 	// DefaultHandler runs for any update that no registered handler
 	// matches. Optional; useful for the pair-wizard wait loop.
 	DefaultHandler tgbot.HandlerFunc
-	// APIHandler is the daemon/test handler path. If set, it takes
-	// precedence over DefaultHandler.
+		// APIHandler is the daemon/test handler path. If set, it takes
+		// precedence over DefaultHandler.
 	APIHandler HandlerFunc
+	OffsetStore OffsetStore
 }
 
 // New constructs a Client. Calls getMe to populate Self, and proactively
@@ -99,7 +109,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("telegram new: %w", err)
 	}
 
-	c = &Client{Bot: b, token: opts.Token, hc: hc, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter()}
+	c = &Client{Bot: b, token: opts.Token, hc: hc, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter(), offsetStore: opts.OffsetStore}
 
 	// getMe — populates Self and validates the token in one call
 	me, err := b.GetMe(ctx)
@@ -221,6 +231,11 @@ func (c *Client) pollLoop(ctx context.Context) {
 		poll = c.fetchUpdates
 	}
 	var offset int64
+	if c.offsetStore != nil {
+		if saved, ok, err := c.offsetStore.TelegramOffset(ctx); err == nil && ok && saved > 0 {
+			offset = saved
+		}
+	}
 	var backoff time.Duration
 	for {
 		if ctx.Err() != nil {
@@ -229,15 +244,21 @@ func (c *Client) pollLoop(ctx context.Context) {
 		if backoff > 0 && !c.sleepContext(ctx, backoff) {
 			return
 		}
-		updates, err := poll(ctx, offset, longPollTimeout, c.allowed)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
+			updates, err := poll(ctx, offset, longPollTimeout, c.allowed)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				if detail, ok := getUpdatesConflictDetail(err); ok {
+					c.setPollerConflict(ctx, detail)
+					backoff = maxPollConflictBackoff
+					continue
+				}
+				backoff = nextPollBackoff(backoff)
+				continue
 			}
-			backoff = nextPollBackoff(backoff)
-			continue
-		}
-		backoff = 0
+			c.clearPollerConflict(ctx)
+			backoff = 0
 		if len(updates) == 0 {
 			c.noteEmptyPoll(ctx)
 			continue
@@ -253,11 +274,12 @@ func (c *Client) pollLoop(ctx context.Context) {
 			}
 			c.Bot.ProcessUpdate(ctx, update)
 		}
-		if maxID >= offset {
-			offset = maxID + 1
+			if maxID >= offset {
+				offset = maxID + 1
+				c.storeOffset(ctx, offset)
+			}
 		}
 	}
-}
 
 func (c *Client) fetchUpdates(ctx context.Context, offset int64, timeout time.Duration, allowed []string) ([]*models.Update, error) {
 	var updates []*models.Update
@@ -309,6 +331,24 @@ func (c *Client) sendRaceWarning(ctx context.Context, chatID int64) error {
 	}
 	_, err := c.Send(ctx, chatID, ownerRaceWarningText)
 	return err
+}
+
+func (c *Client) storeOffset(ctx context.Context, offset int64) {
+	if c.offsetStore != nil {
+		_ = c.offsetStore.SetTelegramOffset(ctx, offset)
+	}
+}
+
+func (c *Client) setPollerConflict(ctx context.Context, detail string) {
+	if c.offsetStore != nil {
+		_ = c.offsetStore.SetTelegramPollerConflict(ctx, detail)
+	}
+}
+
+func (c *Client) clearPollerConflict(ctx context.Context) {
+	if c.offsetStore != nil {
+		_ = c.offsetStore.ClearTelegramPollerConflict(ctx)
+	}
 }
 
 // AwaitOwnerInteraction arms the empty-poll race warning after an outbound

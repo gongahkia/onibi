@@ -152,10 +152,12 @@ func nextAction(name, detail string, st Status) (string, bool) {
 		return "onibi setup --enable-totp", false
 	case name == "telegram 2fa ack":
 		return "enable Telegram 2-step verification, then rerun setup when rotating owner", false
-	case name == "telegram reachability":
-		return "see docs/troubleshooting.md#no-telegram-updates", false
-	case name == "telegram webhook":
-		return "restart onibi; startup deletes webhooks, then run onibi doctor", false
+		case name == "telegram reachability":
+			return "see docs/troubleshooting.md#no-telegram-updates", false
+		case name == "telegram getUpdates" && strings.Contains(detail, "another getUpdates poller"):
+			return "stop the other poller or run onibi rotate-token", false
+		case name == "telegram webhook":
+			return "restart onibi; startup deletes webhooks, then run onibi doctor", false
 	case name == "bot identity":
 		return "onibi rotate-token", false
 	case name == "doctor mode":
@@ -561,6 +563,10 @@ func (r *runner) checkTelegram() {
 	if res.GetUpdatesOK {
 		r.add("telegram getUpdates", Pass, res.GetUpdatesDetail)
 	} else if res.GetUpdatesDetail != "" {
-		r.add("telegram getUpdates", Warn, res.GetUpdatesDetail)
+		status := Warn
+		if strings.Contains(res.GetUpdatesDetail, "another getUpdates poller") {
+			status = Fail
+		}
+		r.add("telegram getUpdates", status, res.GetUpdatesDetail)
 	}
 }

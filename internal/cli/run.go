@@ -109,7 +109,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	logger := logging.New(io.MultiWriter(cmd.ErrOrStderr(), logFile), level)
 
 	router := &telegram.Router{Owner: owner, Log: logger}
-	bot, err := telegram.New(ctx, telegram.Options{Token: token, APIHandler: router.Dispatch})
+	bot, err := telegram.New(ctx, telegram.Options{Token: token, APIHandler: router.Dispatch, OffsetStore: db})
 	if err != nil {
 		return err
 	}

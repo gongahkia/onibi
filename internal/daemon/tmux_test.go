@@ -146,7 +146,7 @@ func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
 	if !d.handleTextCommand(ctx, mock, &models.Message{
 		From: &models.User{ID: 100},
 		Chat: models.Chat{ID: 100},
-		Text: "/new --headless shell",
+			Text: "/new --headless --cwd " + t.TempDir() + " shell",
 	}) {
 		t.Fatal("command not handled")
 	}
@@ -162,7 +162,7 @@ func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
 	}
 }
 
-func TestTmuxPromptsSendImmediately(t *testing.T) {
+func TestTmuxPromptsQueueUntilReady(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r := &daemonTmuxRunner{}
 	old := newTmuxController
@@ -189,26 +189,25 @@ func TestTmuxPromptsSendImmediately(t *testing.T) {
 	calls := r.Calls()
 	wantClear := []string{"tmux", "send-keys", "-t", "%1", "-l", "--", "clear"}
 	wantLS := []string{"tmux", "send-keys", "-t", "%1", "-l", "--", "ls"}
-	if !containsCall(calls, wantClear) || !containsCall(calls, wantLS) {
+	if !containsCall(calls, wantClear) || containsCall(calls, wantLS) {
 		t.Fatalf("calls = %#v", calls)
 	}
-	queued, err := d.DB.PromptList(ctx, s.ID, false, 10)
+	queued, err := d.DB.PromptList(ctx, s.ID, true, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queued) != 0 {
+	if len(queued) != 2 || queued[0].State != "sent" || queued[1].State != "queued" {
 		t.Fatalf("queued = %#v", queued)
-	}
-	for _, msg := range mock.Sent() {
-		if strings.Contains(msg.Text, "Queued prompt") {
-			t.Fatalf("unexpected queue message: %#v", mock.Sent())
-		}
 	}
 	d.threadMu.RLock()
 	busy := d.busySessions[s.ID]
 	d.threadMu.RUnlock()
-	if busy {
-		t.Fatal("tmux session marked busy")
+	if !busy {
+		t.Fatal("tmux session not marked busy")
+	}
+	d.markSessionReady(ctx, mock, s)
+	if !containsCall(r.Calls(), wantLS) {
+		t.Fatalf("second prompt not dispatched: %#v", r.Calls())
 	}
 }
 
