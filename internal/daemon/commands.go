@@ -440,7 +440,7 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 	cwd := ""
 	project := ""
 	for len(fields) > 0 {
-		switch fields[0] {
+		switch normalizeOptionToken(fields[0]) {
 		case "--headless", "headless":
 			mode = "headless"
 			fields = fields[1:]
@@ -579,6 +579,17 @@ func (d *Daemon) handleProjectCommand(ctx context.Context, api telegram.API, cha
 	default:
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /project list | /project add <alias> <path> | /project forget <alias>"})
 	}
+}
+
+func normalizeOptionToken(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '‐', '‑', '‒', '–', '—', '―', '−':
+			return '-'
+		default:
+			return r
+		}
+	}, s)
 }
 
 func (d *Daemon) resolveNewSessionCWD(ctx context.Context, project, cwd string) (string, error) {
