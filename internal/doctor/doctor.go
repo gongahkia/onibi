@@ -139,7 +139,7 @@ func nextAction(name, detail string, st Status) (string, bool) {
 	case name == "tmux":
 		return "brew install tmux", false
 	case name == "terminal launcher":
-		return "set terminal.default=none or install Ghostty", false
+		return "set terminal.default=none or install Ghostty/iTerm2", false
 	case name == "hooks":
 		return "onibi install-hooks --interactive", false
 	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "hash missing"):
@@ -378,6 +378,14 @@ func (r *runner) checkSessionRuntime() {
 		} else {
 			r.add("terminal launcher", Warn, "osascript not found")
 		}
+	case "iterm", "iterm2":
+		if _, err := exec.LookPath("osascript"); err != nil {
+			r.add("terminal launcher", Warn, "osascript not found")
+		} else if macAppExists("iTerm.app", "iTerm2.app") {
+			r.add("terminal launcher", Pass, "iTerm2 via osascript")
+		} else {
+			r.add("terminal launcher", Warn, "iTerm2 not found")
+		}
 	case "ghostty":
 		if _, err := exec.LookPath("ghostty"); err == nil {
 			r.add("terminal launcher", Pass, "Ghostty")
@@ -391,6 +399,8 @@ func (r *runner) checkSessionRuntime() {
 			r.add("terminal launcher", Pass, "auto: Ghostty")
 		} else if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
 			r.add("terminal launcher", Pass, "auto: Ghostty.app")
+		} else if _, err := exec.LookPath("osascript"); err == nil && macAppExists("iTerm.app", "iTerm2.app") {
+			r.add("terminal launcher", Pass, "auto: iTerm2")
 		} else if _, err := exec.LookPath("osascript"); err == nil {
 			r.add("terminal launcher", Pass, "auto: Terminal.app")
 		} else {

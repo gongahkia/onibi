@@ -14,6 +14,7 @@ var runTerminalCommand = func(ctx context.Context, name string, args ...string) 
 }
 
 var lookTerminalPath = exec.LookPath
+var findMacApp = macAppExists
 
 func (d *Daemon) launchVisibleTerminal(ctx context.Context, target string) (string, error) {
 	return launchTerminal(ctx, d.TerminalDefault, target)
@@ -30,6 +31,9 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 		if launchGhostty(ctx, target) == nil {
 			return "Opened Ghostty for " + target + ".", nil
 		}
+		if launchITerm2(ctx, target) == nil {
+			return "Opened iTerm2 for " + target + ".", nil
+		}
 		if launchTerminalApp(ctx, target) == nil {
 			return "Opened Terminal.app for " + target + ".", nil
 		}
@@ -39,6 +43,11 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 			return "Ghostty launch failed. Run: " + attach, err
 		}
 		return "Opened Ghostty for " + target + ".", nil
+	case "iterm", "iterm2":
+		if err := launchITerm2(ctx, target); err != nil {
+			return "iTerm2 launch failed. Run: " + attach, err
+		}
+		return "Opened iTerm2 for " + target + ".", nil
 	case "terminal":
 		if err := launchTerminalApp(ctx, target); err != nil {
 			return "Terminal.app launch failed. Run: " + attach, err
@@ -81,13 +90,48 @@ func launchGhosttyFresh(ctx context.Context, target string) error {
 	return runTerminalCommand(ctx, "open", "-Fna", "Ghostty.app", "--args", "-e", "tmux", "attach-session", "-t", target)
 }
 
+func launchITerm2(ctx context.Context, target string) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("iTerm2 auto-launch is macOS-only")
+	}
+	if _, err := lookTerminalPath("osascript"); err != nil {
+		return err
+	}
+	if !findMacApp("iTerm.app", "iTerm2.app") {
+		return errors.New("iTerm2 not found")
+	}
+	script := `tell application "iTerm2"` + "\n" +
+		`create window with default profile command ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
+		`activate` + "\n" +
+		`end tell`
+	return runTerminalCommand(ctx, "osascript", "-e", script)
+}
+
 func launchTerminalApp(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("Terminal.app is macOS-only")
 	}
+	if _, err := lookTerminalPath("osascript"); err != nil {
+		return err
+	}
 	script := `tell application "Terminal" to do script ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
 		`tell application "Terminal" to activate`
 	return runTerminalCommand(ctx, "osascript", "-e", script)
+}
+
+func macAppExists(names ...string) bool {
+	roots := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, home+"/Applications")
+	}
+	for _, root := range roots {
+		for _, name := range names {
+			if _, err := os.Stat(root + "/" + name); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func appleScriptQuote(s string) string {

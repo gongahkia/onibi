@@ -194,9 +194,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("telegram.mini_app_url must use https")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
-	case "auto", "ghostty", "terminal", "none":
+	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
 	default:
-		return fmt.Errorf("terminal.default must be one of auto, ghostty, terminal, none")
+		return fmt.Errorf("terminal.default must be one of auto, ghostty, iterm2, terminal, none")
 	}
 	return nil
 }
@@ -369,7 +369,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
-		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, terminal, or none"},
+		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
 		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},
 		{"telegram.mini_app_url", def.Telegram.MiniAppURL, cfg.Telegram.MiniAppURL, meta.Explicit["telegram.mini_app_url"], "hosted Mini App URL for encrypted approvals"},
 	}
