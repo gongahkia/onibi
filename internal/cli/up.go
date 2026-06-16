@@ -57,9 +57,10 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	if err := installServiceRun(cmd, nil); err != nil {
 		return err
 	}
+	style := styleFor(cmd)
 	report := doctorRun(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
 	for _, c := range report.Checks {
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", style.status(c.Status), c.Name, c.Detail)
 	}
 	if report.Failed() {
 		return fmt.Errorf("doctor failed: see output above")

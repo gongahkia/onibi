@@ -2,9 +2,7 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"os/exec"
-	"text/tabwriter"
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/adapters/common"
@@ -50,19 +48,27 @@ func runAdapters(cmd *cobra.Command, _ []string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(rows)
 	}
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSUPPORT\tDETECTED\tINSTALLED\tVERSION\tPATH\tSTATUS")
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "NAME", "SUPPORT", "DETECTED", "INSTALLED", "VERSION", "PATH", "STATUS")}
 	for _, r := range rows {
 		ver := r.InstalledVersion
 		if ver == "" {
 			ver = "-"
 		}
 		if r.Outdated {
-			ver += " (outdated)"
+			ver = style.yellow(ver + " (outdated)")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%t\t%t\t%s\t%s\t%s\n", r.Name, r.Support, r.Detected, r.Installed, ver, r.Path, r.Message)
+		table = append(table, []string{
+			r.Name,
+			r.Support,
+			style.bool(r.Detected),
+			style.installed(r.Installed),
+			ver,
+			r.Path,
+			adapterMessage(style, r),
+		})
 	}
-	return w.Flush()
+	return renderTable(cmd.OutOrStdout(), table)
 }
 
 func statusFromInfo(info common.Info, detected bool) adapterStatus {
@@ -109,4 +115,20 @@ func agentDetected(name string) bool {
 func shellDetected(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
+}
+
+func adapterMessage(style cliStyle, r adapterStatus) string {
+	if r.Tampered {
+		return style.red(r.Message)
+	}
+	if r.Installed && !r.Outdated {
+		return style.green(r.Message)
+	}
+	if r.Installed && r.Outdated {
+		return style.yellow(r.Message)
+	}
+	if r.Next != "" {
+		return style.yellow(r.Message)
+	}
+	return style.dim(r.Message)
 }

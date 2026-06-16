@@ -200,9 +200,10 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nDoctor summary:")
+	style := styleFor(cmd)
 	report := doctorRun(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
 	for _, c := range report.Checks {
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", c.Status, c.Name, c.Detail)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", style.status(c.Status), c.Name, c.Detail)
 	}
 	if report.Failed() {
 		return fmt.Errorf("setup complete but doctor failed")
