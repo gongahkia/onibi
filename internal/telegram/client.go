@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -20,7 +21,6 @@ const HTTPTimeout = 35 * time.Second
 const (
 	longPollTimeout             = 30 * time.Second
 	maxPollBackoff              = 5 * time.Second
-	maxPollConflictBackoff      = 30 * time.Second
 	ownerRaceEmptyPollThreshold = 10
 	ownerInteractionWindow      = 5 * time.Minute
 	ownerRaceWarningText        = "Possible token race: another poller may be consuming Telegram updates. Run onibi doctor; if it reports another poller, run onibi rotate-token."
@@ -44,6 +44,8 @@ type Client struct {
 	poll              getUpdatesFunc
 	sleep             sleepFunc
 	warningSender     func(context.Context, int64, string) error
+	pollerConflict    func(context.Context, string)
+	log               *slog.Logger
 	await             ownerInteractionTracker
 	offsetStore       OffsetStore
 }
@@ -73,6 +75,9 @@ type Options struct {
 	// precedence over DefaultHandler.
 	APIHandler  HandlerFunc
 	OffsetStore OffsetStore
+	Log         *slog.Logger
+	// PollerConflict is called once when getUpdates reports a hard conflict.
+	PollerConflict func(context.Context, string)
 }
 
 // New constructs a Client. Calls getMe to populate Self, and proactively
@@ -109,7 +114,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("telegram new: %w", err)
 	}
 
-	c = &Client{Bot: b, token: opts.Token, hc: hc, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter(), offsetStore: opts.OffsetStore}
+	c = &Client{Bot: b, token: opts.Token, hc: hc, allowed: AllowedUpdateTypes, limiter: DefaultRateLimiter(), offsetStore: opts.OffsetStore, log: opts.Log, pollerConflict: opts.PollerConflict}
 
 	// getMe — populates Self and validates the token in one call
 	me, err := b.GetMe(ctx)
@@ -251,8 +256,8 @@ func (c *Client) pollLoop(ctx context.Context) {
 			}
 			if detail, ok := getUpdatesConflictDetail(err); ok {
 				c.setPollerConflict(ctx, detail)
-				backoff = maxPollConflictBackoff
-				continue
+				c.notifyPollerConflict(ctx, detail)
+				return
 			}
 			backoff = nextPollBackoff(backoff)
 			continue
@@ -342,6 +347,17 @@ func (c *Client) storeOffset(ctx context.Context, offset int64) {
 func (c *Client) setPollerConflict(ctx context.Context, detail string) {
 	if c.offsetStore != nil {
 		_ = c.offsetStore.SetTelegramPollerConflict(ctx, detail)
+	}
+}
+
+func (c *Client) notifyPollerConflict(ctx context.Context, detail string) {
+	if c.log != nil {
+		c.log.Error("telegram poller conflict",
+			slog.String("detail", detail),
+			slog.String("recovery", "stop the other onibi daemon or run onibi rotate-token"))
+	}
+	if c.pollerConflict != nil {
+		c.pollerConflict(ctx, detail)
 	}
 }
 

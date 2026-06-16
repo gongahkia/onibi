@@ -21,7 +21,8 @@ const (
 	CBPromptDown      = "pdown:"
 	CBPeek            = "peek:"
 	CBText            = "text:"
-	CBScreenshot      = "shot:"
+	CBRender          = "render:"
+	CBLegacyShot      = "shot:"
 	CBShow            = "show:"
 	CBHide            = "hide:"
 	CBHideHeadless    = "hideh:"
@@ -164,7 +165,7 @@ func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
 		rows = append(rows, []models.InlineKeyboardButton{
 			{Text: "Peek", CallbackData: CBPeek + t.ID},
 			{Text: "Text", CallbackData: CBText + t.ID},
-			{Text: "Shot", CallbackData: CBScreenshot + t.ID},
+			{Text: "Render", CallbackData: CBRender + t.ID},
 		})
 		rows = append(rows, []models.InlineKeyboardButton{
 			{Text: "Show", CallbackData: CBShow + t.ID},
@@ -229,8 +230,10 @@ func ParseCallback(data string) (verb, id string) {
 		return "peek", strings.TrimPrefix(data, CBPeek)
 	case strings.HasPrefix(data, CBText):
 		return "text", strings.TrimPrefix(data, CBText)
-	case strings.HasPrefix(data, CBScreenshot):
-		return "screenshot", strings.TrimPrefix(data, CBScreenshot)
+	case strings.HasPrefix(data, CBRender):
+		return "render", strings.TrimPrefix(data, CBRender)
+	case strings.HasPrefix(data, CBLegacyShot):
+		return "render", strings.TrimPrefix(data, CBLegacyShot)
 	case strings.HasPrefix(data, CBShow):
 		return "show", strings.TrimPrefix(data, CBShow)
 	case strings.HasPrefix(data, CBHide):

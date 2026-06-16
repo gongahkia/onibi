@@ -612,7 +612,7 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 					d.markSessionReady(ctx, d.Bot, s)
 					return nil
 				}
-				d.Log.Warn("send encrypted turn-complete screenshot", slog.Any("err", sendErr))
+				d.Log.Warn("send encrypted turn-complete render", slog.Any("err", sendErr))
 				d.sendSecureRequired(ctx, d.Bot, d.Owner.ID())
 				d.markSessionReady(ctx, d.Bot, s)
 				return nil
@@ -630,9 +630,9 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 				d.markSessionReady(ctx, d.Bot, s)
 				return nil
 			}
-			d.Log.Warn("send turn-complete screenshot", slog.Any("err", sendErr))
+			d.Log.Warn("send turn-complete render", slog.Any("err", sendErr))
 		} else {
-			d.Log.Warn("render screenshot", slog.Any("err", pngErr))
+			d.Log.Warn("render terminal preview", slog.Any("err", pngErr))
 		}
 	}
 	tail := render.TextTailBody(buf, render.Options{Lang: ""})

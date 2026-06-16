@@ -182,27 +182,32 @@ func TestPollLoopPersistsOffset(t *testing.T) {
 	}
 }
 
-func TestPollLoopRecordsConflictAndBacksOff(t *testing.T) {
+func TestPollLoopRecordsConflictAndStops(t *testing.T) {
 	c := newPollTestClient(t, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 	store := &testOffsetStore{}
 	c.offsetStore = store
-	var sleeps []time.Duration
-	c.sleep = func(_ context.Context, d time.Duration) bool {
-		sleeps = append(sleeps, d)
-		cancel()
-		return false
-	}
+	calls := 0
+	conflicts := 0
 	c.poll = func(context.Context, int64, time.Duration, []string) ([]*models.Update, error) {
+		calls++
 		return nil, errors.New("telegram getUpdates failed (409): Conflict: terminated by other getUpdates request")
+	}
+	c.pollerConflict = func(_ context.Context, detail string) {
+		conflicts++
+		if !strings.Contains(detail, "another getUpdates poller") {
+			t.Fatalf("detail = %q", detail)
+		}
 	}
 	c.Start(ctx)
 	if !strings.Contains(store.conflict, "another getUpdates poller") {
 		t.Fatalf("conflict = %q", store.conflict)
 	}
-	if len(sleeps) != 1 || sleeps[0] != maxPollConflictBackoff {
-		t.Fatalf("sleeps = %#v", sleeps)
+	if calls != 1 {
+		t.Fatalf("calls = %d", calls)
+	}
+	if conflicts != 1 {
+		t.Fatalf("conflicts = %d", conflicts)
 	}
 }
 

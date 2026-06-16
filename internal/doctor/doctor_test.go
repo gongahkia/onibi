@@ -10,12 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-telegram/bot/models"
+
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 type okRunner struct{}
@@ -179,6 +182,97 @@ func TestDoctorWarnsTelegram2FATimeout(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("missing telegram 2fa ack: %#v", report.Checks)
+	}
+}
+
+func TestDoctorPersistsTelegramPollerConflict(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SetOwner(context.Background(), db, &auth.Owner{}, 100); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sec.Set(secrets.KeyBotToken, "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err != nil {
+		t.Fatal(err)
+	}
+	old := telegramProbeToken
+	telegramProbeToken = func(context.Context, string, bool) (*telegram.ProbeResult, error) {
+		return &telegram.ProbeResult{
+			Self:             &models.User{ID: 123, Username: "onibi_test_bot"},
+			GetUpdatesDetail: "conflict: another getUpdates poller is active",
+		}, nil
+	}
+	t.Cleanup(func() { telegramProbeToken = old })
+
+	report := Run(context.Background(), Options{Paths: paths, PreferDotenv: true, Mode: "preflight"})
+	if !report.Failed() {
+		t.Fatalf("expected conflict failure: %#v", report.Checks)
+	}
+	db, err = store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	got, ok, err := db.KVGetString(context.Background(), store.TelegramPollerConflictKey)
+	if err != nil || !ok || !strings.Contains(got, "another getUpdates poller") {
+		t.Fatalf("conflict = %q ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestDoctorClearsTelegramPollerConflictOnSuccess(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SetOwner(context.Background(), db, &auth.Owner{}, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTelegramPollerConflict(context.Background(), "old conflict"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sec.Set(secrets.KeyBotToken, "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err != nil {
+		t.Fatal(err)
+	}
+	old := telegramProbeToken
+	telegramProbeToken = func(context.Context, string, bool) (*telegram.ProbeResult, error) {
+		return &telegram.ProbeResult{
+			Self:             &models.User{ID: 123, Username: "onibi_test_bot"},
+			GetUpdatesOK:     true,
+			GetUpdatesDetail: "ok",
+		}, nil
+	}
+	t.Cleanup(func() { telegramProbeToken = old })
+
+	report := Run(context.Background(), Options{Paths: paths, PreferDotenv: true, Mode: "preflight"})
+	if report.Failed() {
+		t.Fatalf("unexpected fail: %#v", report.Checks)
+	}
+	db, err = store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if got, ok, err := db.KVGetString(context.Background(), store.TelegramPollerConflictKey); err != nil || ok {
+		t.Fatalf("conflict = %q ok=%v err=%v", got, ok, err)
 	}
 }
 

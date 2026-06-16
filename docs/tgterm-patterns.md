@@ -2,7 +2,7 @@
 
 Reference: https://github.com/antirez/tgterm (Apache-2.0-compatible BSD-3-Clause).
 
-We do **not** vendor tgterm C code. We reimplement the patterns below in Go, adapted to our domain (sessions instead of windows, blocking approvals instead of just screenshots, opt-in TOTP instead of mandatory).
+We do **not** vendor tgterm C code. We reimplement the patterns below in Go, adapted to our domain (sessions instead of windows, blocking approvals instead of just visual previews, opt-in TOTP instead of mandatory).
 
 This doc captures what to reproduce and what to deliberately deviate from. File:line citations below were valid at the snapshot used (commit not pinned — patterns are stable across recent tgterm revisions).
 
@@ -144,7 +144,7 @@ CREATE TABLE pairing_tokens (
 
 **Go port:** `bot.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: ..., Photo: ..., ReplyMarkup: ...})`. `EditMessageMedia` for in-place updates.
 
-**Our use:** approval messages get `[Approve][Deny][Edit]` keyboard; turn-complete messages get `[Continue][Interrupt][Peek]` keyboard. Refresh-screenshot pattern carried over for `/peek <session>`.
+**Our use:** approval messages get `[Approve][Deny][Edit]` keyboard; turn-complete messages get `[Continue][Interrupt][Peek]` keyboard. Refresh-preview pattern carried over for `/peek <session>`.
 
 ---
 
@@ -215,7 +215,7 @@ No `InsecureSkipVerify`. Default cert roots. No pinning (Telegram rotates certs)
 ## 12. What we don't carry over
 
 - **macOS Accessibility API usage** (`AXUIElementCreateApplication`, `_AXUIElementGetWindow`, `AXUIElementPerformAction(_, kAXRaiseAction)`) — `tgterm/bot.c:506-548`. We host agents under our own PTY; we don't need to find and raise an existing terminal window.
-- **CoreGraphics window enumeration / screenshot** (`CGWindowListCopyWindowInfo`, `CGWindowListCreateImage`) — `tgterm/bot.c:329-499`. Same reason. Plus this is macOS-only; we render screenshots from our own PTY buffer via `jaguilar/vt100` + `image/png`, which works cross-platform.
+- **CoreGraphics window enumeration / screenshot** (`CGWindowListCopyWindowInfo`, `CGWindowListCreateImage`) — `tgterm/bot.c:329-499`. Same reason. Plus this is macOS-only; we render terminal PNGs from our own PTY buffer via `jaguilar/vt100` + `image/png`, which works cross-platform.
 - **`CGEventPostToPid` keystroke injection** — `tgterm/bot.c:577-621`. We write to PTY directly, or `tmux send-keys -l` if attached to a tmux session.
 - **Dot-prefixed commands** (`.list`, `.N`). We use slash commands.
 - **Emoji-as-modifier convention** (❤️ Ctrl, 💙 Alt, etc.) — `tgterm/bot.c:264-305`. Cute but our preset allowlist + inline keyboards cover the same ground more legibly.

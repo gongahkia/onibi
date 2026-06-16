@@ -136,13 +136,13 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		}
 		answerCallback(ctx, api, q.ID, "Text output")
 		d.handleRenderOverride(ctx, api, q.From.ID, id, render.ModeText)
-	case "screenshot":
+	case "render":
 		if _, err := d.sessionByID(id); err != nil {
 			answerCallback(ctx, api, q.ID, "Session unavailable")
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
 			return nil
 		}
-		answerCallback(ctx, api, q.ID, "Screenshot output")
+		answerCallback(ctx, api, q.ID, "Render output")
 		d.handleRenderOverride(ctx, api, q.From.ID, id, render.ModePNG)
 	case "show":
 		if _, err := d.sessionByID(id); err != nil {

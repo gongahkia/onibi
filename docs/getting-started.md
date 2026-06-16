@@ -121,21 +121,33 @@ Expected result:
 
 ## 5. Start The First Session
 
-If Claude Code is installed, start it under Onibi:
+For the normal Telegram flow, add the repo as an explicit project alias:
+
+```text
+/project add onibi ~/Desktop/coding/projects/onibi
+```
+
+Start a visible tmux-backed session from Telegram:
+
+```text
+/new --visible --project onibi codex
+```
+
+Visible means Onibi opens a local terminal attached to the same tmux session.
+Headless means the same session runs without an attached terminal window:
+
+```text
+/new --headless --project onibi shell
+```
+
+Onibi uses tmux as the control plane. Ghostty or Terminal.app only render the
+session when visible; Onibi does not inject into arbitrary Ghostty tabs.
+
+CLI starts still work for local testing:
 
 ```bash
 onibi run claude
-```
-
-If Claude Code is not installed yet, test with any local TUI or shell command:
-
-```bash
 onibi shell
-```
-
-or:
-
-```bash
 onibi wrap bash
 ```
 
@@ -173,10 +185,12 @@ After the turn finishes, Onibi sends a completion notification. Use:
 or:
 
 ```text
-/screenshot <session-id>
+/render <session-id>
 ```
 
-to inspect recent output from Telegram.
+to inspect recent output from Telegram. `/render` is a PNG render of the
+Onibi PTY/tmux buffer, not a Ghostty window screenshot. `/screenshot` remains a
+compatibility alias for `/render`.
 
 ## 7. Common Next Steps
 

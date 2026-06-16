@@ -24,7 +24,7 @@ func TestRenderOverrideExplicitTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock := telegram.NewMock(nil)
-	msg := &models.Message{From: &models.User{ID: 100}, Chat: models.Chat{ID: 100}, Text: "/screenshot abc"}
+	msg := &models.Message{From: &models.User{ID: 100}, Chat: models.Chat{ID: 100}, Text: "/render abc"}
 	if !d.handleTextCommand(context.Background(), mock, msg) {
 		t.Fatal("command not handled")
 	}
@@ -33,6 +33,28 @@ func TestRenderOverrideExplicitTarget(t *testing.T) {
 	}
 	if len(mock.Photos()) != 1 {
 		t.Fatalf("photos = %d messages = %d", len(mock.Photos()), len(mock.Sent()))
+	}
+}
+
+func TestScreenshotAliasExplainsRender(t *testing.T) {
+	d := newApprovalDaemon(t)
+	s := NewSession("abc123", "claude", "claude", nil, 1024)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	msg := &models.Message{From: &models.User{ID: 100}, Chat: models.Chat{ID: 100}, Text: "/screenshot abc"}
+	if !d.handleTextCommand(context.Background(), mock, msg) {
+		t.Fatal("command not handled")
+	}
+	if got := d.renderOverride("abc123"); got != render.ModePNG {
+		t.Fatalf("override = %s", got)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Using /render") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if len(mock.Photos()) != 1 {
+		t.Fatalf("photos = %d", len(mock.Photos()))
 	}
 }
 
@@ -122,6 +144,18 @@ func TestStatusIncludesContext(t *testing.T) {
 	}
 }
 
+func TestStatusReportsTelegramPollerConflict(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	if err := d.DB.SetTelegramPollerConflict(ctx, "conflict: another getUpdates poller is active"); err != nil {
+		t.Fatal(err)
+	}
+	got := d.statusText(ctx, 100)
+	if !strings.Contains(got, "telegram_poller=conflict: another getUpdates poller is active") {
+		t.Fatalf("status = %s", got)
+	}
+}
+
 func TestStatusClearsStaleDefaultTarget(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()
@@ -161,7 +195,7 @@ func TestMenuShowsGlobalAndSessionButtons(t *testing.T) {
 		t.Fatalf("reply markup = %#v", sent[0].ReplyMarkup)
 	}
 	got := fmt.Sprint(markup.InlineKeyboard)
-	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "Text", "Shot"} {
+	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "Text", "Render"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("menu missing %q: %s", want, got)
 		}
@@ -208,7 +242,7 @@ func TestRenderOverrideAmbiguousWithoutTarget(t *testing.T) {
 	}
 }
 
-func TestNotifyTurnCompleteUsesScreenshotOverride(t *testing.T) {
+func TestNotifyTurnCompleteUsesRenderOverride(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)
 	d.Bot = mock

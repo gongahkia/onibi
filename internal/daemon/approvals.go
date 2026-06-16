@@ -289,7 +289,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 	switch verb {
 	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
 		return d.handlePromptCallback(ctx, api, q, verb, id)
-	case "peek", "text", "screenshot", "show", "hide", "hide_headless", "hide_end", "interrupt", "kill":
+	case "peek", "text", "render", "show", "hide", "hide_headless", "hide_end", "interrupt", "kill":
 		return d.handleSessionActionCallback(ctx, api, q, verb, id)
 	}
 	a, err := d.Queue.Get(ctx, id)

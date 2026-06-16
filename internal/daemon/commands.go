@@ -42,7 +42,13 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.sendSecureRequired(ctx, api, m.Chat.ID)
 	case "/text":
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModeText)
+	case "/render":
+		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModePNG)
 	case "/screenshot":
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
+			ChatID: m.Chat.ID,
+			Text:   "Using /render. This is a terminal-buffer render, not a Ghostty window screenshot.",
+		})
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModePNG)
 	case "/target":
 		d.handleTargetCommand(ctx, api, m.Chat.ID, arg)
@@ -154,7 +160,7 @@ func (d *Daemon) resolveSessionTarget(target string) (*Session, string) {
 		if len(live) == 1 {
 			return live[0], ""
 		}
-		return nil, "Multiple active sessions. Use /sessions, then /target <id|name>, /text <id|name>, or /screenshot <id|name>."
+		return nil, "Multiple active sessions. Use /sessions, then /target <id|name>, /text <id|name>, or /render <id|name>."
 	}
 	target = strings.TrimSpace(target)
 	var matches []*Session
@@ -281,7 +287,11 @@ func (d *Daemon) telegramPollerStatus(ctx context.Context) string {
 		return "unknown"
 	}
 	if ok && strings.TrimSpace(detail) != "" {
-		return "degraded: " + detail
+		detail = strings.TrimSpace(detail)
+		if strings.HasPrefix(detail, "conflict:") {
+			return detail
+		}
+		return "conflict: " + detail
 	}
 	return "ok"
 }

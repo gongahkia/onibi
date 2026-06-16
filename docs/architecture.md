@@ -118,6 +118,9 @@ Event types:
 | `approval_request` | RPC | Agent tool call needs owner decision. |
 | `session_input` | RPC | Write text into a live session. |
 | `session_peek` | RPC | Return recent session output. |
+| `session_new` | RPC | Create a tmux-backed session. |
+| `session_show` | RPC | Open a visible terminal for a tmux-backed session. |
+| `session_hide` | RPC | Detach visible clients or end a tmux-backed session. |
 
 Example approval request:
 
@@ -235,7 +238,7 @@ The seed is stored locally by the daemon and in Telegram Mini App SecureStorage 
 | Intake server | `internal/intake/server.go` | Accepts hook and MCP events over the Unix socket. |
 | Idle detector | `turn_complete.go` | Polls sessions and emits turn-complete notifications after inactivity. |
 | Approval sweeper | `approval/expiry.go` | Expires overdue pending approvals. |
-| Telegram long poll | `telegram` client | Receives updates and dispatches through owner-checked router. |
+| Telegram long poll | `telegram` client | Receives updates and dispatches through owner-checked router; exits polling on `getUpdates` conflicts so doctor reports a hard recovery state. |
 | Exit waiter | `daemon.go` | Optional; exits interactive `onibi run` when hosted sessions finish. |
 
 Session spawn also starts:
@@ -245,7 +248,9 @@ Session spawn also starts:
 
 ## Sessions And PTY
 
-`onibi run`, `onibi shell`, and `onibi wrap` create a `Session`:
+`onibi run`, `onibi shell`, and `onibi wrap` create legacy PTY-backed
+sessions. Telegram `/new` and `onibi new` create tmux-backed sessions so the
+same logical session can switch between headless and visible modes.
 
 | Field | Purpose |
 |---|---|
@@ -267,7 +272,24 @@ ONIBI_SESSION_ID=<session-id>
 
 The ring buffer keeps the newest bytes only. `Snapshot` returns a chronological copy, oldest first. The default per-session buffer is 64 KiB.
 
-Text preview uses the ring snapshot directly. PNG preview replays the snapshot through a vt100 model and draws a fixed-cell terminal image with `golang.org/x/image/font/basicfont`, then encodes PNG.
+Tmux-backed sessions store `Transport=tmux` and `TmuxTarget`. Headless means the
+tmux target is live with no attached terminal clients. Visible means Ghostty or
+Terminal.app is attached to that tmux target. `/show` opens or attaches a
+terminal. `/hide` can detach visible clients and continue headless, or end the
+session.
+
+Daemon startup reconciles persisted session rows. Live tmux targets are restored
+into memory and recaptured into the ring buffer. Stale PTY rows and missing tmux
+targets are marked ended and audited as stale sessions.
+
+Telegram-created sessions must specify an explicit project directory with
+`--project <alias>` or `--cwd <path>`. Project aliases are stored in SQLite KV
+and prevent remote sessions from starting accidentally in the daemon state dir.
+
+Text preview uses the ring snapshot directly. PNG render uses `/render` and
+replays the snapshot through a vt100 model, draws a fixed-cell terminal image
+with `golang.org/x/image/font/basicfont`, then encodes PNG. This is a
+terminal-buffer render, not a Ghostty/window screenshot.
 
 ## Storage
 

@@ -81,6 +81,8 @@ type runner struct {
 	hasOwner bool
 }
 
+var telegramProbeToken = telegram.ProbeToken
+
 func (r *runner) add(name string, st Status, detail string) {
 	next, fixable := nextAction(name, detail, st)
 	r.checks = append(r.checks, Check{Name: name, Status: st, Detail: detail, Next: next, Fixable: fixable})
@@ -542,7 +544,7 @@ func (r *runner) checkTelegram() {
 	if r.token == "" {
 		return
 	}
-	res, err := telegram.ProbeToken(r.ctx, r.token, false)
+	res, err := telegramProbeToken(r.ctx, r.token, false)
 	if err != nil {
 		r.add("telegram reachability", Fail, err.Error())
 		return
@@ -561,8 +563,14 @@ func (r *runner) checkTelegram() {
 		}
 	}
 	if res.GetUpdatesOK {
+		if r.db != nil {
+			_ = r.db.ClearTelegramPollerConflict(r.ctx)
+		}
 		r.add("telegram getUpdates", Pass, res.GetUpdatesDetail)
 	} else if res.GetUpdatesDetail != "" {
+		if r.db != nil {
+			_ = r.db.SetTelegramPollerConflict(r.ctx, res.GetUpdatesDetail)
+		}
 		status := Warn
 		if strings.Contains(res.GetUpdatesDetail, "another getUpdates poller") {
 			status = Fail

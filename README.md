@@ -14,7 +14,7 @@
 
 Telegram-controlled coding-agent host for local terminals.
 
-Onibi runs as a local user daemon, hosts coding agents under PTYs, and routes approvals, turn-complete signals, screenshots, prompt queues, and session controls through a Telegram bot. It uses outbound HTTPS to Telegram only: no tunnels, no inbound ports, no hosted Onibi account.
+Onibi runs as a local user daemon, hosts coding agents under PTYs, and routes approvals, turn-complete signals, terminal renders, prompt queues, and session controls through a Telegram bot. It uses outbound HTTPS to Telegram only: no tunnels, no inbound ports, no hosted Onibi account.
 
 Status: v2 development. Core daemon, setup, approvals, prompt queue, Telegram controls, service install, doctor, MCP, encrypted Mini App controls, and adapters are implemented. Live provider e2e and signed public release validation still gate a stable tag.
 
@@ -30,7 +30,7 @@ Status: v2 development. Core daemon, setup, approvals, prompt queue, Telegram co
 - [Documentation](#documentation)
 - [Development & Verification](#development--verification)
 - [Packaging & Deployment](#packaging--deployment)
-- [Screenshots](#screenshots)
+- [Terminal Renders](#terminal-renders)
 - [Security](#security)
 - [License](#license)
 
@@ -79,7 +79,7 @@ onibi up
 
 - Hosts coding agents and arbitrary CLI/TUI commands under local PTYs.
 - Sends owner-only Telegram approvals for agent tool calls.
-- Sends turn-complete notifications, text tails, and PNG previews from the PTY buffer.
+- Sends turn-complete notifications, text tails, and terminal PNG renders from the PTY buffer.
 - Queues prompts when a session is busy, then dispatches them after the next turn-complete signal.
 - Routes replies and `/target` selections to the right live session.
 - Installs hooks for supported coding agents and shell command-done notifications.
@@ -142,7 +142,7 @@ Telegram:
 - `/hide [id|name]` - hide visible terminal
 - `/peek <id|name>` - send session preview
 - `/text <id|name>` - force text output
-- `/screenshot <id|name>` - send screenshot
+- `/render <id|name>` - send terminal render
 - `/interrupt <id|name>` - send Ctrl-C
 - `/enter [id|name]` - send Enter
 - `/esc [id|name]` - send Escape
@@ -396,7 +396,7 @@ onibi install-hooks --interactive
 
 Release artifacts are defined in [`.goreleaser.yaml`](./.goreleaser.yaml). Signed public releases remain gated on the manual release checklist.
 
-## Screenshots
+## Terminal Renders
 
 Launch flow:
 

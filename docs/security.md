@@ -6,7 +6,7 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 
 | # | adversary | capability | mitigation |
 |---|---|---|---|
-| T1 | bot token thief | can impersonate the bot, consume updates, or set webhooks | OS keychain by default, `.env` fallback warning, log redaction, token rotation, doctor checks, startup `deleteWebhook` alert |
+| T1 | bot token thief | can impersonate the bot, consume updates, or set webhooks | OS keychain by default, `.env` fallback warning, log redaction, token rotation, doctor checks, startup `deleteWebhook` alert, hard `getUpdates` conflict failure |
 | T2 | owner Telegram account compromised | becomes the owner and can approve/inject | setup requires Telegram 2-step verification acknowledgement, approvals expire, optional TOTP for destructive controls and paranoid edit replies |
 | T3 | local malware as same user | can read user files, Keychain after unlock, socket, hooks | out of scope; hook hash checks provide detection only |
 | T4 | network MITM | can try to read/modify Telegram traffic | stdlib TLS, TLS 1.2 minimum, no proxy for `api.telegram.org` by default |
@@ -33,7 +33,7 @@ Onibi gives a Telegram chat controlled access to local coding-agent sessions. Tr
 - Paranoid edit replies must end with a 6-digit TOTP code. TOTP also gates `/kill`, `/interrupt`, and matching menu callbacks when enabled.
 - Bot tokens are never accepted as positional args and are redacted from logs.
 - Startup checks for an existing Telegram webhook, deletes it, and alerts the owner when one was present.
-- `onibi doctor` reports `getUpdates` 409 conflicts as warnings instead of treating them as healthy polling.
+- `getUpdates` 409 conflicts stop the Telegram poller, are stored locally, and make `onibi doctor` fail until the other poller is stopped or the token is rotated.
 - The daemon uses outbound HTTPS to Telegram only; it does not expose an inbound network service.
 - Unix socket/state paths are permission-checked by `onibi doctor`.
 - Telegram send calls are rate-limited below Telegram's documented soft limits.

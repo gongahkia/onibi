@@ -39,6 +39,8 @@ func TestParseCallback(t *testing.T) {
 		{"pup:p1", "prompt_up", "p1"},
 		{"pdown:p1", "prompt_down", "p1"},
 		{"peek:s1", "peek", "s1"},
+		{"render:s1", "render", "s1"},
+		{"shot:s1", "render", "s1"},
 		{"int:s1", "interrupt", "s1"},
 		{"kill:s1", "kill", "s1"},
 		{"bogus:x", "", ""},

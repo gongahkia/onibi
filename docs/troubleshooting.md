@@ -44,6 +44,17 @@ onibi log -n 20
 
 Common causes: wrong bot token, another poller consuming updates, blocked Telegram network, service not running, or owner chat mismatch.
 
+If doctor reports `telegram getUpdates` as `conflict: another getUpdates poller
+is active`, Onibi has stopped its Telegram poll loop. Stop the other Onibi
+daemon/process first. If you cannot identify it, revoke the token in @BotFather
+and run:
+
+```sh
+onibi rotate-token
+onibi install-service
+onibi doctor --mode installed
+```
+
 ## Sleep/Wake
 
 If the laptop slept and messages stopped:
