@@ -154,6 +154,15 @@ func (d *Daemon) popPendingInject(ctx context.Context, chatID int64) string {
 	return text
 }
 
+func (d *Daemon) queuePendingSend(ctx context.Context, chatID int64, text string) {
+	d.setPending(ctx, pendingKindSend, chatID, text)
+}
+
+func (d *Daemon) popPendingSend(ctx context.Context, chatID int64) string {
+	text, _ := d.takePending(ctx, pendingKindSend, chatID)
+	return text
+}
+
 func (d *Daemon) sendTargetPicker(ctx context.Context, api telegram.API, chatID int64, text string) {
 	live := d.liveSessions()
 	targets := make([]telegram.SessionTarget, 0, len(live))

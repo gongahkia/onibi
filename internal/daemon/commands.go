@@ -388,6 +388,9 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	answerCallback(ctx, api, q.ID, "Target set")
+	if text := d.popPendingSend(ctx, chatID); text != "" {
+		return d.sendImmediateText(ctx, api, chatID, s.ID, text)
+	}
 	if text := d.popPendingInject(ctx, chatID); text != "" {
 		return d.injectTelegramText(ctx, api, chatID, s.ID, text)
 	}
