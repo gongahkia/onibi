@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
@@ -28,27 +30,7 @@ func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session,
 	if strings.TrimSpace(name) == "" {
 		name = "tmux:" + target
 	}
-	host := pty.NewVirtualHost(func(p []byte) (int, error) {
-		if len(p) == 1 {
-			switch p[0] {
-			case 3:
-				return 1, ctrl.SendKey(context.Background(), target, "C-c")
-			case '\n', '\r':
-				return 1, ctrl.SendKey(context.Background(), target, "Enter")
-			case 0x1b:
-				return 1, ctrl.SendKey(context.Background(), target, "Escape")
-			}
-		}
-		text := string(p)
-		enter := strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
-		text = strings.TrimRight(text, "\r\n")
-		if err := ctrl.SendText(context.Background(), target, text, enter); err != nil {
-			return 0, err
-		}
-		return len(p), nil
-	}, func() error {
-		return ctrl.KillPane(context.Background(), target)
-	}, nil)
+		host := d.tmuxHost(ctrl, target, false)
 	s := NewSession(id, name, "tmux", host, d.bufferSize())
 	s.Transport = "tmux"
 	s.TmuxTarget = target
@@ -91,27 +73,7 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 		return nil, err
 	}
 	initial, _ := ctrl.Capture(ctx, target, 50)
-	host := pty.NewVirtualHost(func(p []byte) (int, error) {
-		if len(p) == 1 {
-			switch p[0] {
-			case 3:
-				return 1, ctrl.SendKey(context.Background(), target, "C-c")
-			case '\n', '\r':
-				return 1, ctrl.SendKey(context.Background(), target, "Enter")
-			case 0x1b:
-				return 1, ctrl.SendKey(context.Background(), target, "Escape")
-			}
-		}
-		text := string(p)
-		enter := strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
-		text = strings.TrimRight(text, "\r\n")
-		if err := ctrl.SendText(context.Background(), target, text, enter); err != nil {
-			return 0, err
-		}
-		return len(p), nil
-	}, func() error {
-		return ctrl.KillSession(context.Background(), target)
-	}, nil)
+		host := d.tmuxHost(ctrl, target, true)
 	s := NewSession(id, name, agent, host, d.bufferSize())
 	s.Transport = "tmux"
 	s.TmuxTarget = target
@@ -131,6 +93,92 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s target=%s", s.Agent, s.Name, s.TmuxTarget))
 	go d.captureTmuxLoop(ctx, ctrl, s)
 	return s, nil
+}
+
+func (d *Daemon) restoreSessions(ctx context.Context) {
+	if d.DB == nil {
+		return
+	}
+	rows, err := d.DB.SessionsActive(ctx)
+	if err != nil {
+		d.Log.Warn("restore sessions", slog.Any("err", err))
+		return
+	}
+	ctrl := newTmuxController()
+	var restored, stale int
+	for _, row := range rows {
+		if row.Transport == "tmux" && strings.TrimSpace(row.TmuxTarget) != "" {
+			if err := d.restoreTmuxSession(ctx, ctrl, row); err != nil {
+				_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
+				d.audit(ctx, "session.stale", row.ID, "", 0, "missing tmux target "+row.TmuxTarget+": "+err.Error())
+				stale++
+				continue
+			}
+			restored++
+			continue
+		}
+		_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
+		d.audit(ctx, "session.stale", row.ID, "", 0, "stale daemon restart transport="+row.Transport)
+		stale++
+	}
+	if restored > 0 || stale > 0 {
+		d.audit(ctx, "session.reconcile", "", "", 0, fmt.Sprintf("restored=%d stale=%d", restored, stale))
+	}
+}
+
+func (d *Daemon) restoreTmuxSession(ctx context.Context, ctrl *tmux.Controller, row store.SessionEntry) error {
+	initial, err := ctrl.Capture(ctx, row.TmuxTarget, 50)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(row.Name)
+	if name == "" {
+		name = "tmux:" + row.TmuxTarget
+	}
+	agent := strings.TrimSpace(row.Agent)
+	if agent == "" {
+		agent = "tmux"
+	}
+	s := newSessionAt(row.ID, name, agent, d.tmuxHost(ctrl, row.TmuxTarget, true), d.bufferSize(), row.StartedAt)
+	s.Transport = "tmux"
+	s.TmuxTarget = row.TmuxTarget
+	s.Cmd = row.Command
+	if initial != "" {
+		_, _ = s.Buf.Write([]byte(initial))
+	}
+	if err := d.Registry.Add(s); err != nil {
+		return err
+	}
+	d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
+	go d.captureTmuxLoop(ctx, ctrl, s)
+	return nil
+}
+
+func (d *Daemon) tmuxHost(ctrl *tmux.Controller, target string, killSession bool) *pty.Host {
+	return pty.NewVirtualHost(func(p []byte) (int, error) {
+		if len(p) == 1 {
+			switch p[0] {
+			case 3:
+				return 1, ctrl.SendKey(context.Background(), target, "C-c")
+			case '\n', '\r':
+				return 1, ctrl.SendKey(context.Background(), target, "Enter")
+			case 0x1b:
+				return 1, ctrl.SendKey(context.Background(), target, "Escape")
+			}
+		}
+		text := string(p)
+		enter := strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
+		text = strings.TrimRight(text, "\r\n")
+		if err := ctrl.SendText(context.Background(), target, text, enter); err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}, func() error {
+		if killSession {
+			return ctrl.KillSession(context.Background(), target)
+		}
+		return ctrl.KillPane(context.Background(), target)
+	}, nil)
 }
 
 func (d *Daemon) ShowSession(ctx context.Context, id string) (string, error) {

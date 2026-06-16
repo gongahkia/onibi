@@ -44,6 +44,15 @@ func NewSession(id, name, agent string, host *pty.Host, bufSize int) *Session {
 	}
 }
 
+func newSessionAt(id, name, agent string, host *pty.Host, bufSize int, started time.Time) *Session {
+	s := NewSession(id, name, agent, host, bufSize)
+	if !started.IsZero() {
+		s.started = started
+		s.lastActivity = started
+	}
+	return s
+}
+
 // Touch records activity now. Called from the output reader on every read.
 func (s *Session) Touch() {
 	s.mu.Lock()

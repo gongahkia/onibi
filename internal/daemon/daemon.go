@@ -367,6 +367,7 @@ func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 			d.Log.Warn("purge expired kv", slog.Any("err", err))
 		}
 	}
+	d.restoreSessions(ctx)
 	if err := d.RestorePendingApprovals(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		d.Log.Warn("restore pending approvals", slog.Any("err", err))
 	}

@@ -46,6 +46,20 @@ func (d *DB) SessionMarkEnded(ctx context.Context, id string, ended time.Time) e
 	return err
 }
 
+func (d *DB) SessionsActive(ctx context.Context) ([]SessionEntry, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
+		        started_at, ended_at
+		   FROM sessions
+		  WHERE ended_at IS NULL
+		  ORDER BY started_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 func (d *DB) SessionRename(ctx context.Context, id, name string) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE sessions SET name = ? WHERE id = ?`, name, id)
 	return err
@@ -68,6 +82,17 @@ func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]Se
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSessions(rows)
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func scanSessions(rows *sql.Rows) ([]SessionEntry, error) {
 	var out []SessionEntry
 	for rows.Next() {
 		var e SessionEntry
@@ -84,11 +109,4 @@ func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]Se
 		out = append(out, e)
 	}
 	return out, rows.Err()
-}
-
-func nullIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
