@@ -15,6 +15,7 @@ func Root() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().String("color", "auto", "color output: auto, always, never")
 
 	root.AddCommand(
 		runCmd(),
