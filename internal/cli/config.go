@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -74,16 +73,16 @@ func configListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "KEY\tCURRENT\tDEFAULT\tSET\tDESCRIPTION")
+			style := styleFor(cmd)
+			table := [][]string{tableHeader(style, "KEY", "CURRENT", "DEFAULT", "SET", "DESCRIPTION")}
 			for _, row := range config.Keys(cfg, meta) {
 				set := "no"
 				if row.Explicit {
 					set = "yes"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", row.Key, row.Current, row.Default, set, row.Description)
+				table = append(table, []string{row.Key, row.Current, row.Default, styleConfigSet(style, row.Explicit, set), row.Description})
 			}
-			return w.Flush()
+			return renderTable(cmd.OutOrStdout(), table)
 		},
 	}
 }
@@ -187,14 +186,15 @@ func configPathCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintf(w, "config\t%s\n", paths.Config)
-			fmt.Fprintf(w, "state\t%s\n", paths.StateDir)
-			fmt.Fprintf(w, "db\t%s\n", paths.DBFile)
-			fmt.Fprintf(w, "socket\t%s\n", paths.Socket)
-			fmt.Fprintf(w, "env_fallback\t%s\n", paths.EnvFile)
-			fmt.Fprintf(w, "logs\t%s\n", paths.LogDir)
-			return w.Flush()
+			style := styleFor(cmd)
+			return renderTable(cmd.OutOrStdout(), [][]string{
+				{style.bold("config"), paths.Config},
+				{style.bold("state"), paths.StateDir},
+				{style.bold("db"), paths.DBFile},
+				{style.bold("socket"), paths.Socket},
+				{style.bold("env_fallback"), paths.EnvFile},
+				{style.bold("logs"), paths.LogDir},
+			})
 		},
 	}
 }
@@ -205,4 +205,11 @@ func loadConfig() (config.Config, config.LoadMeta, error) {
 		return config.Config{}, config.LoadMeta{}, err
 	}
 	return config.Load(paths)
+}
+
+func styleConfigSet(style cliStyle, explicit bool, text string) string {
+	if explicit {
+		return style.green(text)
+	}
+	return style.dim(text)
 }

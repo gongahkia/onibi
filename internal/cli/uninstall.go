@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -101,28 +100,28 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 }
 
 func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFlag, allHooks bool, agent, sh string, stateFlag bool) {
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ACTION\tTARGET")
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "ACTION", "TARGET")}
 	if serviceFlag {
-		fmt.Fprintln(w, "remove service\tLaunchAgent/systemd user unit")
+		table = append(table, []string{style.yellow("remove service"), "LaunchAgent/systemd user unit"})
 	}
 	if hooksFlag {
 		if allHooks {
-			fmt.Fprintln(w, "remove hooks\tall supported agents and shells")
+			table = append(table, []string{style.yellow("remove hooks"), "all supported agents and shells"})
 		} else {
 			if agent != "" {
-				fmt.Fprintf(w, "remove hook\tagent:%s\n", agent)
+				table = append(table, []string{style.yellow("remove hook"), "agent:" + agent})
 			}
 			if sh != "" {
-				fmt.Fprintf(w, "remove hook\tshell:%s\n", sh)
+				table = append(table, []string{style.yellow("remove hook"), "shell:" + sh})
 			}
 		}
 	}
 	if stateFlag {
-		fmt.Fprintf(w, "remove state\t%s\n", paths.StateDir)
-		fmt.Fprintln(w, "remove secrets\tbot token and TOTP secret from active backend")
+		table = append(table, []string{style.red("remove state"), paths.StateDir})
+		table = append(table, []string{style.red("remove secrets"), "bot token and TOTP secret from active backend"})
 	}
-	_ = w.Flush()
+	_ = renderTable(cmd.OutOrStdout(), table)
 }
 
 func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths, all bool, agent, sh string) error {

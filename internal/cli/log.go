@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"text/tabwriter"
+	"strings"
 
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/spf13/cobra"
@@ -37,7 +37,7 @@ func runLog(cmd *cobra.Command, _ []string) error {
 		if jsonOut {
 			return nil
 		}
-		cmd.Println("audit log empty")
+		cmd.Println(styleFor(cmd).dim("audit log empty"))
 		return nil
 	}
 	if jsonOut {
@@ -49,17 +49,24 @@ func runLog(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tTIME\tACTION\tSESSION\tCHAT\tHASH\tDETAIL")
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "ID", "TIME", "ACTION", "SESSION", "CHAT", "HASH", "DETAIL")}
 	for _, e := range entries {
 		hash := e.PayloadHash
 		if len(hash) > 12 {
 			hash = hash[:12]
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
-			e.ID, e.TS.Format("2006-01-02 15:04:05"), e.Action, e.SessionID, e.DecidedByChat, hash, e.Detail)
+		table = append(table, []string{
+			strconv.FormatInt(e.ID, 10),
+			e.TS.Format("2006-01-02 15:04:05"),
+			styleAuditAction(style, e.Action),
+			e.SessionID,
+			strconv.FormatInt(e.DecidedByChat, 10),
+			hash,
+			e.Detail,
+		})
 	}
-	return w.Flush()
+	return renderTable(cmd.OutOrStdout(), table)
 }
 
 func exportAudit(path string, entries []store.AuditEntry) error {
@@ -93,5 +100,18 @@ func exportAudit(path string, entries []store.AuditEntry) error {
 		enc := json.NewEncoder(f)
 		enc.SetIndent("", "  ")
 		return enc.Encode(entries)
+	}
+}
+
+func styleAuditAction(style cliStyle, action string) string {
+	switch {
+	case strings.Contains(action, ".failed"):
+		return style.red(action)
+	case strings.Contains(action, ".expired"), strings.Contains(action, ".stale"):
+		return style.yellow(action)
+	case strings.Contains(action, ".start"), strings.Contains(action, ".sent"), strings.Contains(action, ".decided"):
+		return style.green(action)
+	default:
+		return action
 	}
 }

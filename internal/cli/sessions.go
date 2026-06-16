@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"text/tabwriter"
+	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/tmux"
@@ -30,18 +30,28 @@ func runSessions(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tAGENT\tMODE\tTRANSPORT\tSTARTED\tSTATE\tCOMMAND\tCWD")
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "ID", "NAME", "AGENT", "MODE", "TRANSPORT", "STARTED", "STATE", "COMMAND", "CWD")}
 	ctrl := tmux.New()
 	for _, s := range rows {
 		state := "active"
 		if s.Ended {
 			state = "ended " + ago(s.EndedAt)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			s.ID, s.Name, s.Agent, sessionMode(ctrl, s.Transport, s.TmuxTarget, s.Ended), s.Transport, ago(s.StartedAt), state, s.Command, s.CWD)
+		mode := sessionMode(ctrl, s.Transport, s.TmuxTarget, s.Ended)
+		table = append(table, []string{
+			s.ID,
+			s.Name,
+			s.Agent,
+			styleSessionMode(style, mode),
+			s.Transport,
+			ago(s.StartedAt),
+			styleSessionState(style, state, s.Ended),
+			s.Command,
+			s.CWD,
+		})
 	}
-	return w.Flush()
+	return renderTable(cmd.OutOrStdout(), table)
 }
 
 type attachCounter interface {
@@ -70,4 +80,24 @@ func ago(t time.Time) string {
 		return "-"
 	}
 	return time.Since(t).Truncate(time.Second).String() + " ago"
+}
+
+func styleSessionMode(style cliStyle, mode string) string {
+	switch {
+	case mode == "headless":
+		return style.yellow(mode)
+	case strings.HasPrefix(mode, "visible"):
+		return style.green(mode)
+	case mode == "legacy pty":
+		return style.dim(mode)
+	default:
+		return mode
+	}
+}
+
+func styleSessionState(style cliStyle, state string, ended bool) string {
+	if ended {
+		return style.dim(state)
+	}
+	return style.green(state)
 }
