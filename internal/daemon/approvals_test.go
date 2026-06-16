@@ -107,6 +107,16 @@ func TestRenderApprovalMessageShowsRisk(t *testing.T) {
 	}
 }
 
+func TestRenderApprovalMessageDoesNotJSONEscapeHTML(t *testing.T) {
+	got := renderApprovalMessage("apply_patch", `{"command":"<article>ok</article>"}`, "s")
+	if strings.Contains(got, `\u003c`) || strings.Contains(got, `\u003e`) {
+		t.Fatalf("message escaped json html = %s", got)
+	}
+	if !strings.Contains(got, "&lt;article&gt;ok&lt;/article&gt;") {
+		t.Fatalf("message = %s", got)
+	}
+}
+
 func TestReplyInvalidJSONKeepsEditPending(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()
@@ -412,6 +422,31 @@ func TestApprovalMessageArmsRaceWarning(t *testing.T) {
 	}
 	if !strings.Contains(sent[1].Text, "Possible token race") {
 		t.Fatalf("warning = %q", sent[1].Text)
+	}
+}
+
+func TestLargeApprovalMessageSendsDocument(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	large := `{"command":"` + strings.Repeat("<article>payload</article>", 500) + `"}`
+	id, _, err := d.Queue.Request(ctx, "s", "claude", "apply_patch", large)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	if _, err := d.sendApprovalMessage(ctx, id, "apply_patch", large, "s", false, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	if len(sent[0].Text) > telegram.SafeTextLimit {
+		t.Fatalf("message too long: %d", len(sent[0].Text))
+	}
+	if docs := mock.Documents(); len(docs) != 1 {
+		t.Fatalf("docs = %d", len(docs))
 	}
 }
 

@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-telegram/bot/models"
 
@@ -14,8 +16,9 @@ import (
 )
 
 type daemonTmuxRunner struct {
-	mu    sync.Mutex
-	calls [][]string
+	mu          sync.Mutex
+	calls       [][]string
+	failCapture map[string]bool
 }
 
 func (r *daemonTmuxRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -24,9 +27,22 @@ func (r *daemonTmuxRunner) Run(_ context.Context, name string, args ...string) (
 	call := append([]string{name}, args...)
 	r.calls = append(r.calls, call)
 	if len(args) > 0 && args[0] == "capture-pane" {
+		target := tmuxTargetArg(args)
+		if r.failCapture != nil && r.failCapture[target] {
+			return nil, errors.New("missing target")
+		}
 		return []byte("tail\n"), nil
 	}
 	return nil, nil
+}
+
+func tmuxTargetArg(args []string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-t" {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 func (r *daemonTmuxRunner) Calls() [][]string {
@@ -132,6 +148,39 @@ func TestNewTmuxCommandAttachesTarget(t *testing.T) {
 	}
 }
 
+func TestStartupRestoresLiveTmuxAndEndsStaleRows(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{failCapture: map[string]bool{"%2": true}}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+
+	ctx := context.Background()
+	started := time.Now().Add(-time.Minute)
+	if err := d.DB.SessionUpsertStart(ctx, "pty1", "old", "shell", "/tmp", "zsh", "pty", "", started); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.SessionUpsertStart(ctx, "tmux1", "live", "codex", "/tmp", "codex", "tmux", "%1", started); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.SessionUpsertStart(ctx, "tmux2", "gone", "codex", "/tmp", "codex", "tmux", "%2", started); err != nil {
+		t.Fatal(err)
+	}
+
+	d.restoreSessions(ctx)
+	live := d.liveSessions()
+	if len(live) != 1 || live[0].ID != "tmux1" || live[0].TmuxTarget != "%1" {
+		t.Fatalf("live = %#v", live)
+	}
+	active, err := d.DB.SessionsActive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != "tmux1" {
+		t.Fatalf("active = %#v", active)
+	}
+}
+
 func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
 	d := newApprovalDaemon(t)
 	r := &daemonTmuxRunner{}
@@ -146,7 +195,7 @@ func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
 	if !d.handleTextCommand(ctx, mock, &models.Message{
 		From: &models.User{ID: 100},
 		Chat: models.Chat{ID: 100},
-			Text: "/new --headless --cwd " + t.TempDir() + " shell",
+		Text: "/new --headless --cwd " + t.TempDir() + " shell",
 	}) {
 		t.Fatal("command not handled")
 	}
@@ -159,6 +208,62 @@ func TestNewHeadlessCommandStartsTmuxSession(t *testing.T) {
 	}
 	if !containsCallPrefix(r.Calls(), []string{"tmux", "new-session", "-d", "-s"}) {
 		t.Fatalf("missing new-session: %#v", r.Calls())
+	}
+}
+
+func TestNewCommandRequiresProjectOrCWD(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+	t.Setenv("SHELL", "/bin/sh")
+
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new --headless shell",
+	}) {
+		t.Fatal("command not handled")
+	}
+	if live := d.liveSessions(); len(live) != 0 {
+		t.Fatalf("live = %#v", live)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Choose a project") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if containsCallPrefix(r.Calls(), []string{"tmux", "new-session"}) {
+		t.Fatalf("unexpected tmux start: %#v", r.Calls())
+	}
+}
+
+func TestNewCommandUsesProjectAlias(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+	t.Setenv("SHELL", "/bin/sh")
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), dir); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new --headless --project repo shell",
+	}) {
+		t.Fatal("command not handled")
+	}
+	if live := d.liveSessions(); len(live) != 1 {
+		t.Fatalf("live = %#v", live)
+	}
+	if !containsTmuxCWD(r.Calls(), dir) {
+		t.Fatalf("missing cwd %q: %#v", dir, r.Calls())
 	}
 }
 
@@ -196,7 +301,11 @@ func TestTmuxPromptsQueueUntilReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queued) != 2 || queued[0].State != "sent" || queued[1].State != "queued" {
+	states := map[string]string{}
+	for _, p := range queued {
+		states[p.Text] = p.State
+	}
+	if len(queued) != 2 || states["clear"] != "sent" || states["ls"] != "queued" {
 		t.Fatalf("queued = %#v", queued)
 	}
 	d.threadMu.RLock()
@@ -227,6 +336,17 @@ func containsCallPrefix(calls [][]string, want []string) bool {
 		}
 		if reflect.DeepEqual(call[:len(want)], want) {
 			return true
+		}
+	}
+	return false
+}
+
+func containsTmuxCWD(calls [][]string, dir string) bool {
+	for _, call := range calls {
+		for i := 0; i+1 < len(call); i++ {
+			if call[i] == "-c" && call[i+1] == dir {
+				return true
+			}
 		}
 	}
 	return false

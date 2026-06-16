@@ -46,12 +46,12 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModePNG)
 	case "/target":
 		d.handleTargetCommand(ctx, api, m.Chat.ID, arg)
-		case "/new":
-			d.handleNewCommand(ctx, api, m.Chat.ID, arg)
-		case "/project":
-			d.handleProjectCommand(ctx, api, m.Chat.ID, arg)
-		case "/show":
-			d.handleShowCommand(ctx, api, m.Chat.ID, arg)
+	case "/new":
+		d.handleNewCommand(ctx, api, m.Chat.ID, arg)
+	case "/project":
+		d.handleProjectCommand(ctx, api, m.Chat.ID, arg)
+	case "/show":
+		d.handleShowCommand(ctx, api, m.Chat.ID, arg)
 	case "/hide":
 		d.handleHideCommand(ctx, api, m.Chat.ID, arg)
 	case "/queue":
@@ -490,7 +490,7 @@ parsedMode:
 		return
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
-		detail := fmt.Sprintf("Started %s (%s) headless in %s. Default target set.", s.Name, s.ID, cwd)
+	detail := fmt.Sprintf("Started %s (%s) headless in %s. Default target set.", s.Name, s.ID, cwd)
 	if mode == "visible" {
 		if msg, err := d.ShowSession(ctx, s.ID); err == nil {
 			detail = fmt.Sprintf("Started %s (%s) visible in %s. %s Default target set.", s.Name, s.ID, cwd, msg)

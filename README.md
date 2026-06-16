@@ -136,7 +136,8 @@ Telegram:
 - `/sessions` - list active sessions
 - `/menu` - show session actions
 - `/target <id|name>` - set default session
-- `/new [--headless|--visible] <agent|shell|tmux> [args...]` - start a headless or visible session
+- `/new [--headless|--visible] (--project <alias>|--cwd <path>) <agent|shell> [args...]` - start a headless or visible session
+- `/project list|add|forget` - manage project aliases
 - `/show [id|name]` - open visible terminal
 - `/hide [id|name]` - hide visible terminal
 - `/peek <id|name>` - send session preview

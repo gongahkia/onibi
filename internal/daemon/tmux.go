@@ -30,7 +30,7 @@ func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session,
 	if strings.TrimSpace(name) == "" {
 		name = "tmux:" + target
 	}
-		host := d.tmuxHost(ctrl, target, false)
+	host := d.tmuxHost(ctrl, target, false)
 	s := NewSession(id, name, "tmux", host, d.bufferSize())
 	s.Transport = "tmux"
 	s.TmuxTarget = target
@@ -73,7 +73,7 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 		return nil, err
 	}
 	initial, _ := ctrl.Capture(ctx, target, 50)
-		host := d.tmuxHost(ctrl, target, true)
+	host := d.tmuxHost(ctrl, target, true)
 	s := NewSession(id, name, agent, host, d.bufferSize())
 	s.Transport = "tmux"
 	s.TmuxTarget = target

@@ -11,6 +11,34 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
+type testOffsetStore struct {
+	offset         int64
+	hasOffset      bool
+	conflict       string
+	conflictClears int
+}
+
+func (s *testOffsetStore) TelegramOffset(context.Context) (int64, bool, error) {
+	return s.offset, s.hasOffset, nil
+}
+
+func (s *testOffsetStore) SetTelegramOffset(_ context.Context, offset int64) error {
+	s.offset = offset
+	s.hasOffset = true
+	return nil
+}
+
+func (s *testOffsetStore) SetTelegramPollerConflict(_ context.Context, detail string) error {
+	s.conflict = detail
+	return nil
+}
+
+func (s *testOffsetStore) ClearTelegramPollerConflict(context.Context) error {
+	s.conflict = ""
+	s.conflictClears++
+	return nil
+}
+
 func newPollTestClient(t *testing.T, handler func(*models.Update)) *Client {
 	t.Helper()
 	b, err := tgbot.New("123:abc",
@@ -120,6 +148,60 @@ func TestPollLoopTransientErrorBackoffContinues(t *testing.T) {
 		t.Fatalf("handled = %d", handled)
 	}
 	if len(sleeps) != 1 || sleeps[0] != 100*time.Millisecond {
+		t.Fatalf("sleeps = %#v", sleeps)
+	}
+}
+
+func TestPollLoopPersistsOffset(t *testing.T) {
+	handled := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newPollTestClient(t, func(*models.Update) {
+		handled++
+		cancel()
+	})
+	store := &testOffsetStore{offset: 40, hasOffset: true}
+	c.offsetStore = store
+	var gotOffset int64
+	c.poll = func(_ context.Context, offset int64, _ time.Duration, _ []string) ([]*models.Update, error) {
+		gotOffset = offset
+		return []*models.Update{{ID: 41, Message: &models.Message{Text: "ok"}}}, nil
+	}
+	c.Start(ctx)
+	if gotOffset != 40 {
+		t.Fatalf("poll offset = %d", gotOffset)
+	}
+	if handled != 1 {
+		t.Fatalf("handled = %d", handled)
+	}
+	if store.offset != 42 {
+		t.Fatalf("stored offset = %d", store.offset)
+	}
+	if store.conflictClears == 0 {
+		t.Fatal("poller conflict was not cleared on success")
+	}
+}
+
+func TestPollLoopRecordsConflictAndBacksOff(t *testing.T) {
+	c := newPollTestClient(t, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := &testOffsetStore{}
+	c.offsetStore = store
+	var sleeps []time.Duration
+	c.sleep = func(_ context.Context, d time.Duration) bool {
+		sleeps = append(sleeps, d)
+		cancel()
+		return false
+	}
+	c.poll = func(context.Context, int64, time.Duration, []string) ([]*models.Update, error) {
+		return nil, errors.New("telegram getUpdates failed (409): Conflict: terminated by other getUpdates request")
+	}
+	c.Start(ctx)
+	if !strings.Contains(store.conflict, "another getUpdates poller") {
+		t.Fatalf("conflict = %q", store.conflict)
+	}
+	if len(sleeps) != 1 || sleeps[0] != maxPollConflictBackoff {
 		t.Fatalf("sleeps = %#v", sleeps)
 	}
 }

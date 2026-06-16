@@ -82,7 +82,7 @@ func TestNotifyToolDelivers(t *testing.T) {
 	}
 	select {
 	case ev := <-got:
-		if ev.Type != intake.TypeAgentMessage || ev.Session != "s1" || ev.Agent != "codex" || ev.Text != "hello" {
+		if ev.Type != intake.TypeAgentMessage || ev.Session != "s1" || !ev.Managed || ev.Agent != "codex" || ev.Text != "hello" {
 			t.Fatalf("event = %+v", ev)
 		}
 	case <-time.After(2 * time.Second):
@@ -134,7 +134,7 @@ func TestApprovalRequestApprove(t *testing.T) {
 	}
 	select {
 	case ev := <-got:
-		if ev.Type != intake.TypeApprovalRequest || ev.Session != "s1" || ev.Agent != "codex" || ev.Tool != "shell" || ev.InputJSON != `{"cmd":"date"}` {
+		if ev.Type != intake.TypeApprovalRequest || ev.Session != "s1" || !ev.Managed || ev.Agent != "codex" || ev.Tool != "shell" || ev.InputJSON != `{"cmd":"date"}` {
 			t.Fatalf("event = %+v", ev)
 		}
 	case <-time.After(2 * time.Second):

@@ -69,9 +69,9 @@ type Options struct {
 	// DefaultHandler runs for any update that no registered handler
 	// matches. Optional; useful for the pair-wizard wait loop.
 	DefaultHandler tgbot.HandlerFunc
-		// APIHandler is the daemon/test handler path. If set, it takes
-		// precedence over DefaultHandler.
-	APIHandler HandlerFunc
+	// APIHandler is the daemon/test handler path. If set, it takes
+	// precedence over DefaultHandler.
+	APIHandler  HandlerFunc
 	OffsetStore OffsetStore
 }
 
@@ -244,21 +244,21 @@ func (c *Client) pollLoop(ctx context.Context) {
 		if backoff > 0 && !c.sleepContext(ctx, backoff) {
 			return
 		}
-			updates, err := poll(ctx, offset, longPollTimeout, c.allowed)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				if detail, ok := getUpdatesConflictDetail(err); ok {
-					c.setPollerConflict(ctx, detail)
-					backoff = maxPollConflictBackoff
-					continue
-				}
-				backoff = nextPollBackoff(backoff)
+		updates, err := poll(ctx, offset, longPollTimeout, c.allowed)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if detail, ok := getUpdatesConflictDetail(err); ok {
+				c.setPollerConflict(ctx, detail)
+				backoff = maxPollConflictBackoff
 				continue
 			}
-			c.clearPollerConflict(ctx)
-			backoff = 0
+			backoff = nextPollBackoff(backoff)
+			continue
+		}
+		c.clearPollerConflict(ctx)
+		backoff = 0
 		if len(updates) == 0 {
 			c.noteEmptyPoll(ctx)
 			continue
@@ -274,12 +274,12 @@ func (c *Client) pollLoop(ctx context.Context) {
 			}
 			c.Bot.ProcessUpdate(ctx, update)
 		}
-			if maxID >= offset {
-				offset = maxID + 1
-				c.storeOffset(ctx, offset)
-			}
+		if maxID >= offset {
+			offset = maxID + 1
+			c.storeOffset(ctx, offset)
 		}
 	}
+}
 
 func (c *Client) fetchUpdates(ctx context.Context, offset int64, timeout time.Duration, allowed []string) ([]*models.Update, error) {
 	var updates []*models.Update

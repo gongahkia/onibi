@@ -200,10 +200,10 @@ func buildStopHook(notifyBin string) map[string]any {
 		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
-					"type":    "command",
-					"command": common.Command(notifyBin, "claude", "claude", "agent_done", false, ""),
-					"timeout": 5,
-				},
+				"type":    "command",
+				"command": common.Command(notifyBin, "claude", "claude", "agent_done", false, ""),
+				"timeout": 5,
+			},
 		},
 	}
 }
@@ -223,10 +223,10 @@ func buildPreToolUseHook(notifyBin string) map[string]any {
 		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
-					"type":    "command",
-					"command": common.Command(notifyBin, "claude", "claude", "approval_request", true, "provider"),
-					"timeout": 360,
-				},
+				"type":    "command",
+				"command": common.Command(notifyBin, "claude", "claude", "approval_request", true, "provider"),
+				"timeout": 360,
+			},
 		},
 	}
 }

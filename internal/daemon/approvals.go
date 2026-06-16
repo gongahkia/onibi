@@ -274,14 +274,14 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		answerCallback(ctx, api, q.ID, "Opening secure controls")
 		d.sendSecureRequired(ctx, api, q.From.ID)
 		return nil
-		case "menu_new_headless":
-			answerCallback(ctx, api, q.ID, "Headless session")
-			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/project list\n/new --headless --project <alias> shell\n/new --headless --project <alias> codex"})
-			return nil
-		case "menu_new_visible":
-			answerCallback(ctx, api, q.ID, "Visible session")
-			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/project list\n/new --visible --project <alias> shell\n/new --visible --project <alias> codex"})
-			return nil
+	case "menu_new_headless":
+		answerCallback(ctx, api, q.ID, "Headless session")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/project list\n/new --headless --project <alias> shell\n/new --headless --project <alias> codex"})
+		return nil
+	case "menu_new_visible":
+		answerCallback(ctx, api, q.ID, "Visible session")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/project list\n/new --visible --project <alias> shell\n/new --visible --project <alias> codex"})
+		return nil
 	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
