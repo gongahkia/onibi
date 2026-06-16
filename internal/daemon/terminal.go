@@ -53,14 +53,32 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 
 func launchGhostty(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("Ghostty auto-launch currently uses macOS open")
+		return errors.New("Ghostty auto-launch is macOS-only")
 	}
 	if _, err := lookTerminalPath("ghostty"); err != nil {
 		if _, statErr := os.Stat("/Applications/Ghostty.app"); statErr != nil {
 			return err
 		}
 	}
-	return runTerminalCommand(ctx, "open", "-na", "Ghostty.app", "--args", "-e", "tmux", "attach-session", "-t", target)
+	if err := launchGhosttyAppleScript(ctx, target); err == nil {
+		return nil
+	}
+	return launchGhosttyFresh(ctx, target)
+}
+
+func launchGhosttyAppleScript(ctx context.Context, target string) error {
+	script := `tell application "Ghostty"` + "\n" +
+		`set cfg to new surface configuration` + "\n" +
+		`set command of cfg to ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
+		`set wait after command of cfg to true` + "\n" +
+		`set win to new window with configuration cfg` + "\n" +
+		`activate` + "\n" +
+		`end tell`
+	return runTerminalCommand(ctx, "osascript", "-e", script)
+}
+
+func launchGhosttyFresh(ctx context.Context, target string) error {
+	return runTerminalCommand(ctx, "open", "-Fna", "Ghostty.app", "--args", "-e", "tmux", "attach-session", "-t", target)
 }
 
 func launchTerminalApp(ctx context.Context, target string) error {
