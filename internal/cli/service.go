@@ -28,7 +28,7 @@ func runInstallService(cmd *cobra.Command, _ []string) error {
 	if !waitForSocket(ctx, m.Paths.Socket, serviceSocketReadyTimeout) {
 		return fmt.Errorf("installed %s, but daemon socket did not become ready within %s; run `onibi doctor --mode installed`", path, serviceSocketReadyTimeout)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Installed and started %s\n", path)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Installed and started %s\n", styleFor(cmd).green("[OK]"), path)
 	return nil
 }
 
@@ -43,7 +43,7 @@ func runUninstallService(cmd *cobra.Command, _ []string) error {
 	if err := m.Uninstall(ctx); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s\n", path)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s\n", styleFor(cmd).green("[OK]"), path)
 	return nil
 }
 

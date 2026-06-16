@@ -46,11 +46,12 @@ func configShowCmd() *cobra.Command {
 					"config": cfg,
 				})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "path: %s\n", meta.Path)
+			style := styleFor(cmd)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", style.bold("path"), meta.Path)
 			if meta.Exists {
-				fmt.Fprintln(cmd.OutOrStdout(), "source: file")
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: file\n", style.bold("source"))
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "source: defaults (run `onibi config init` to create file)")
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: defaults (run `onibi config init` to create file)\n", style.bold("source"))
 			}
 			b, err := yaml.Marshal(cfg)
 			if err != nil {
@@ -123,7 +124,7 @@ func configSetCmd() *cobra.Command {
 			if err := config.Save(meta.Path, cfg); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Set %s=%s in %s\n", args[0], args[1], meta.Path)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Set %s=%s in %s\n", styleFor(cmd).green("[OK]"), args[0], args[1], meta.Path)
 			return nil
 		},
 	}
@@ -150,7 +151,7 @@ func configInitCmd() *cobra.Command {
 			if err := config.Save(paths.Config, config.Default()); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", paths.Config)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Created %s\n", styleFor(cmd).green("[OK]"), paths.Config)
 			return nil
 		},
 	}
@@ -168,9 +169,9 @@ func configValidateCmd() *cobra.Command {
 				return err
 			}
 			if meta.Exists {
-				fmt.Fprintf(cmd.OutOrStdout(), "OK %s\n", meta.Path)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", styleFor(cmd).green("[OK]"), meta.Path)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "OK %s (defaults; file not present)\n", meta.Path)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s (defaults; file not present)\n", styleFor(cmd).green("[OK]"), meta.Path)
 			}
 			return nil
 		},

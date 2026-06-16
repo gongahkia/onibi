@@ -55,14 +55,14 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
 			return nil
 		}
 		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
 			return err
 		}
 		info := adapters.ShellStatus(cmd.Context(), db, sh)
-		fmt.Fprintf(cmd.OutOrStdout(), "Installed %s shell hook into %s\n", sh, info.InstallPath)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s shell hook into %s\n", styleFor(cmd).green("[OK]"), sh, info.InstallPath)
 		return nil
 	}
 
@@ -94,14 +94,14 @@ func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, u
 		if err := a.Uninstall(cmd.Context(), db); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s hooks\n", a.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s hooks\n", styleFor(cmd).green("[OK]"), a.Name)
 		return nil
 	}
 	if err := a.Install(cmd.Context(), db, notifyBin); err != nil {
 		return err
 	}
 	info := a.Status(cmd.Context(), db)
-	fmt.Fprintf(cmd.OutOrStdout(), "Installed %s hooks into %s\n", a.Name, info.InstallPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s hooks into %s\n", styleFor(cmd).green("[OK]"), a.Name, info.InstallPath)
 	return nil
 }
 
@@ -130,7 +130,7 @@ func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uni
 			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
 		} else if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
 			return err
 		}

@@ -80,7 +80,7 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		path, _ := m.ServicePath()
-		fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled service %s\n", path)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled service %s\n", styleFor(cmd).green("[OK]"), path)
 	}
 	if hooksFlag {
 		if err := uninstallHooks(ctx, cmd, paths, allHooks, agent, sh); err != nil {
@@ -94,7 +94,7 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 		if err := os.RemoveAll(paths.StateDir); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Removed state %s\n", paths.StateDir)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Removed state %s\n", styleFor(cmd).green("[OK]"), paths.StateDir)
 	}
 	return nil
 }
@@ -144,7 +144,7 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 			if err := adapters.UninstallShell(ctx, db, name); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", name)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), name)
 		}
 		return nil
 	}
@@ -157,7 +157,7 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 		if err := adapters.UninstallShell(ctx, db, sh); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s shell hook\n", sh)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func uninstallAgentHook(ctx context.Context, cmd *cobra.Command, db *store.DB, n
 	if err := a.Uninstall(ctx, db); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Uninstalled %s hooks\n", a.Name)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s hooks\n", styleFor(cmd).green("[OK]"), a.Name)
 	return nil
 }
 
