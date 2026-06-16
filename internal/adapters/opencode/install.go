@@ -126,6 +126,8 @@ const ONIBI_AGENT = "opencode";
 const ONIBI_NOTIFY = %q;
 
 async function runOnibi(args, payload) {
+  const env = globalThis.process?.env ?? {};
+  if (!env.ONIBI_SESSION_ID) return { code: 0, stdout: "", stderr: "" };
   const body = JSON.stringify(payload ?? {});
   if (globalThis.Bun?.spawn) {
     const p = Bun.spawn([ONIBI_NOTIFY, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });

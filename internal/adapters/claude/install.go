@@ -201,10 +201,10 @@ func buildStopHook(notifyBin string) map[string]any {
 		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
-				"type":    "command",
-				"command": shellQuote(notifyBin) + " --type agent_done",
-				"timeout": 5,
-			},
+					"type":    "command",
+					"command": common.Command(notifyBin, "claude", "claude", "agent_done", false, ""),
+					"timeout": 5,
+				},
 		},
 	}
 }
@@ -224,19 +224,12 @@ func buildPreToolUseHook(notifyBin string) map[string]any {
 		"matcher":           "",
 		"hooks": []any{
 			map[string]any{
-				"type":    "command",
-				"command": shellQuote(notifyBin) + " --type approval_request --wait",
-				"timeout": 360,
-			},
+					"type":    "command",
+					"command": common.Command(notifyBin, "claude", "claude", "approval_request", true, "provider"),
+					"timeout": 360,
+				},
 		},
 	}
-}
-
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // mergeEventHook adds our entry to settings.hooks.<eventName>, replacing

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -44,10 +45,12 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModePNG)
 	case "/target":
 		d.handleTargetCommand(ctx, api, m.Chat.ID, arg)
-	case "/new":
-		d.handleNewCommand(ctx, api, m.Chat.ID, arg)
-	case "/show":
-		d.handleShowCommand(ctx, api, m.Chat.ID, arg)
+		case "/new":
+			d.handleNewCommand(ctx, api, m.Chat.ID, arg)
+		case "/project":
+			d.handleProjectCommand(ctx, api, m.Chat.ID, arg)
+		case "/show":
+			d.handleShowCommand(ctx, api, m.Chat.ID, arg)
 	case "/hide":
 		d.handleHideCommand(ctx, api, m.Chat.ID, arg)
 	case "/queue":
@@ -120,7 +123,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nChoose how to start:\nHeadless: runs on the laptop without opening a terminal window.\nVisible: opens a laptop terminal attached to the same session.\n\nCommands:\n/new --headless shell\n/new --visible shell\n/sessions"
+	text := "Onibi is paired and listening.\n\nChoose how to start:\nHeadless: runs on the laptop without opening a terminal window.\nVisible: opens a laptop terminal attached to the same session.\n\nRemote starts need an explicit project:\n/project add onibi ~/Desktop/coding/projects/onibi\n/new --headless --project onibi shell\n/new --visible --project onibi codex\n/sessions"
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text, ReplyMarkup: telegram.OnboardingKeyboard()})
 }
 
@@ -320,7 +323,7 @@ func (d *Daemon) handleSendCommand(ctx context.Context, api telegram.API, chatID
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /send <text>"})
 		return
 	}
-	_ = d.injectTelegramText(ctx, api, chatID, "", arg)
+	_ = d.sendImmediateText(ctx, api, chatID, "", arg)
 }
 
 func (d *Daemon) handleEnterCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -399,12 +402,18 @@ func (d *Daemon) handleTargetCallback(ctx context.Context, api telegram.API, q *
 }
 
 func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
-	fields := strings.Fields(arg)
+	fields, parseErr := splitCommandFields(arg)
+	if parseErr != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Parse failed: " + parseErr.Error()})
+		return
+	}
 	if len(fields) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> [args...]"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> (--project <alias>|--cwd <path>) [args...]"})
 		return
 	}
 	mode := "headless"
+	cwd := ""
+	project := ""
 	for len(fields) > 0 {
 		switch fields[0] {
 		case "--headless", "headless":
@@ -413,18 +422,41 @@ func (d *Daemon) handleNewCommand(ctx context.Context, api telegram.API, chatID 
 		case "--visible", "visible":
 			mode = "visible"
 			fields = fields[1:]
+		case "--cwd":
+			if len(fields) < 2 {
+				sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new --cwd <path> <agent>"})
+				return
+			}
+			cwd = fields[1]
+			fields = fields[2:]
+		case "--project", "--repo":
+			if len(fields) < 2 {
+				sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new --project <alias> <agent>"})
+				return
+			}
+			project = fields[1]
+			fields = fields[2:]
 		default:
 			goto parsedMode
 		}
 	}
 parsedMode:
 	if len(fields) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> [args...]"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /new [--headless|--visible] <agent|shell|tmux> (--project <alias>|--cwd <path>) [args...]"})
 		return
 	}
 	agent := strings.ToLower(fields[0])
 	if agent == "tmux" {
 		d.handleNewTmuxCommand(ctx, api, chatID, fields[1:])
+		return
+	}
+	cwd, err := d.resolveNewSessionCWD(ctx, project, cwd)
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: err.Error()})
+		return
+	}
+	if cwd == "" {
+		d.sendProjectRequired(ctx, api, chatID, fields, mode)
 		return
 	}
 	bin, spawnAgent, spawnArgs, ok := agentCommand(agent, fields[1:])
@@ -437,16 +469,16 @@ parsedMode:
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("%s not found in PATH.", bin)})
 		return
 	}
-	s, err := d.StartTmuxSession(ctx, spawnAgent, spawnAgent, path, spawnArgs, "")
+	s, err := d.StartTmuxSession(ctx, spawnAgent, spawnAgent, path, spawnArgs, cwd)
 	if err != nil {
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Start failed: " + err.Error()})
 		return
 	}
 	d.setDefaultTarget(ctx, chatID, s.ID)
-	detail := fmt.Sprintf("Started %s (%s) headless. Default target set.", s.Name, s.ID)
+		detail := fmt.Sprintf("Started %s (%s) headless in %s. Default target set.", s.Name, s.ID, cwd)
 	if mode == "visible" {
 		if msg, err := d.ShowSession(ctx, s.ID); err == nil {
-			detail = fmt.Sprintf("Started %s (%s) visible. %s Default target set.", s.Name, s.ID, msg)
+			detail = fmt.Sprintf("Started %s (%s) visible in %s. %s Default target set.", s.Name, s.ID, cwd, msg)
 		} else {
 			detail = fmt.Sprintf("Started %s (%s) headless. Show failed: %s", s.Name, s.ID, err.Error())
 		}
@@ -470,6 +502,216 @@ parsedMode:
 	if err == nil {
 		d.bindMessage(sent, s.ID)
 	}
+}
+
+func (d *Daemon) handleProjectCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
+	fields, err := splitCommandFields(arg)
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Parse failed: " + err.Error()})
+		return
+	}
+	if len(fields) == 0 || fields[0] == "list" {
+		d.sendProjectList(ctx, api, chatID)
+		return
+	}
+	switch fields[0] {
+	case "add":
+		if len(fields) < 3 {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /project add <alias> <path>"})
+			return
+		}
+		alias := sanitizeProjectAlias(fields[1])
+		if alias == "" {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Project alias must contain letters, numbers, dot, underscore, or dash."})
+			return
+		}
+		path, err := normalizeProjectPath(strings.Join(fields[2:], " "))
+		if err != nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: err.Error()})
+			return
+		}
+		if d.DB == nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Project DB unavailable."})
+			return
+		}
+		if err := d.DB.KVSetString(ctx, projectAliasKey(alias), path); err != nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Project save failed: " + err.Error()})
+			return
+		}
+		d.audit(ctx, "project.add", "", path, chatID, "alias="+alias)
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("Project %s saved: %s", alias, path)})
+	case "forget", "del", "delete", "remove":
+		if len(fields) != 2 {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /project forget <alias>"})
+			return
+		}
+		alias := sanitizeProjectAlias(fields[1])
+		if d.DB != nil {
+			_ = d.DB.KVDel(ctx, projectAliasKey(alias))
+		}
+		d.audit(ctx, "project.forget", "", "", chatID, "alias="+alias)
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Project forgotten: " + alias})
+	default:
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Usage: /project list | /project add <alias> <path> | /project forget <alias>"})
+	}
+}
+
+func (d *Daemon) resolveNewSessionCWD(ctx context.Context, project, cwd string) (string, error) {
+	if strings.TrimSpace(project) != "" && strings.TrimSpace(cwd) != "" {
+		return "", errors.New("Use either --project or --cwd, not both.")
+	}
+	if project != "" {
+		if d.DB == nil {
+			return "", errors.New("Project DB unavailable.")
+		}
+		path, ok, err := d.DB.KVGetString(ctx, projectAliasKey(sanitizeProjectAlias(project)))
+		if err != nil {
+			return "", err
+		}
+		if !ok || path == "" {
+			return "", errors.New("Unknown project alias. Use /project list or /project add <alias> <path>.")
+		}
+		return normalizeProjectPath(path)
+	}
+	if strings.TrimSpace(cwd) != "" {
+		return normalizeProjectPath(cwd)
+	}
+	return "", nil
+}
+
+func (d *Daemon) sendProjectRequired(ctx context.Context, api telegram.API, chatID int64, fields []string, mode string) {
+	var b strings.Builder
+	b.WriteString("Choose a project before starting this session.\n\n")
+	b.WriteString("Use /new --")
+	b.WriteString(mode)
+	b.WriteString(" --project <alias> ")
+	b.WriteString(strings.Join(fields, " "))
+	b.WriteString("\nor /new --")
+	b.WriteString(mode)
+	b.WriteString(" --cwd <path> ")
+	b.WriteString(strings.Join(fields, " "))
+	b.WriteString("\n\n")
+	b.WriteString(d.projectListText(ctx))
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: b.String()})
+}
+
+func (d *Daemon) sendProjectList(ctx context.Context, api telegram.API, chatID int64) {
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: d.projectListText(ctx)})
+}
+
+func (d *Daemon) projectListText(ctx context.Context) string {
+	if d.DB == nil {
+		return "Projects unavailable."
+	}
+	keys, err := d.DB.KVKeysWithPrefix(ctx, projectAliasPrefix)
+	if err != nil {
+		return "Project read failed: " + err.Error()
+	}
+	if len(keys) == 0 {
+		return "No project aliases. Add one with /project add <alias> <path>."
+	}
+	var b strings.Builder
+	b.WriteString("Projects:")
+	for _, key := range keys {
+		alias := strings.TrimPrefix(key, projectAliasPrefix)
+		path, ok, _ := d.DB.KVGetString(ctx, key)
+		if ok {
+			fmt.Fprintf(&b, "\n%s  %s", alias, path)
+		}
+	}
+	return b.String()
+}
+
+const projectAliasPrefix = "project_alias:"
+
+func projectAliasKey(alias string) string {
+	return projectAliasPrefix + alias
+}
+
+func sanitizeProjectAlias(alias string) string {
+	alias = strings.ToLower(strings.TrimSpace(alias))
+	var b strings.Builder
+	for _, r := range alias {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func normalizeProjectPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("project path required")
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("project path unavailable: %w", err)
+	}
+	if !st.IsDir() {
+		return "", errors.New("project path is not a directory")
+	}
+	return abs, nil
+}
+
+func splitCommandFields(s string) ([]string, error) {
+	var out []string
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if b.Len() > 0 {
+			out = append(out, b.String())
+			b.Reset()
+		}
+	}
+	for _, r := range s {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				b.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if unicode.IsSpace(r) {
+			flush()
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if escaped {
+		b.WriteRune('\\')
+	}
+	if quote != 0 {
+		return nil, errors.New("unterminated quote")
+	}
+	flush()
+	return out, nil
 }
 
 func (d *Daemon) handleShowCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {

@@ -128,6 +128,8 @@ const ONIBI_AGENT = "amp";
 const ONIBI_NOTIFY = %q;
 
 async function runOnibi(args: string[], payload: any) {
+  const env = (globalThis as any).process?.env ?? {};
+  if (!env.ONIBI_SESSION_ID) return { code: 0, stdout: "" };
   const body = JSON.stringify(payload ?? {});
   const { spawnSync } = await import("node:child_process");
   const r = spawnSync(ONIBI_NOTIFY, args, { input: body, encoding: "utf8" });

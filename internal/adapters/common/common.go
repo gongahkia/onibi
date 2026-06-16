@@ -67,6 +67,14 @@ func HomePath(env string, parts ...string) (string, error) {
 }
 
 func Command(notifyBin, agent, format, typ string, wait bool, response string) string {
+	return guardedCommand(notifyBin, agent, format, typ, wait, response, true)
+}
+
+func UnguardedCommand(notifyBin, agent, format, typ string, wait bool, response string) string {
+	return guardedCommand(notifyBin, agent, format, typ, wait, response, false)
+}
+
+func guardedCommand(notifyBin, agent, format, typ string, wait bool, response string, requireSession bool) string {
 	args := []string{strconv.Quote(notifyBin), "--agent", agent, "--format", format}
 	if typ != "" {
 		args = append(args, "--type", typ)
@@ -77,7 +85,11 @@ func Command(notifyBin, agent, format, typ string, wait bool, response string) s
 	if response != "" {
 		args = append(args, "--response", response)
 	}
-	return strings.Join(args, " ")
+	cmd := strings.Join(args, " ")
+	if requireSession {
+		return `if [ -z "${ONIBI_SESSION_ID:-}" ]; then exit 0; fi; exec ` + cmd
+	}
+	return cmd
 }
 
 func ReadJSON(path string, fallback map[string]any) (map[string]any, error) {

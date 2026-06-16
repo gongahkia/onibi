@@ -209,7 +209,7 @@ func installedVersion(src string) string {
 }
 
 func zshBlock(notifyBin string, minMS int64) string {
-	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
+	cmd := common.UnguardedCommand(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
 _onibi_preexec() { __onibi_cmd="$1"; __onibi_start="${EPOCHREALTIME:-$SECONDS}"; }
@@ -231,7 +231,7 @@ add-zsh-hook precmd _onibi_precmd
 }
 
 func bashBlock(notifyBin string, minMS int64) string {
-	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
+	cmd := common.UnguardedCommand(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
 __onibi_preexec() { __onibi_cmd="$BASH_COMMAND"; __onibi_start="$(date +%%s%%3N)"; }
@@ -251,7 +251,7 @@ PROMPT_COMMAND="__onibi_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 }
 
 func fishBlock(notifyBin string, minMS int64) string {
-	cmd := common.Command(notifyBin, "shell", "shell", "cmd_done", false, "")
+	cmd := common.UnguardedCommand(notifyBin, "shell", "shell", "cmd_done", false, "")
 	return fmt.Sprintf(`%s
 # onibi version %s
 function __onibi_preexec --on-event fish_preexec

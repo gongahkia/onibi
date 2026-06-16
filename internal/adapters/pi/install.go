@@ -138,6 +138,8 @@ const ONIBI_AGENT = "pi";
 const ONIBI_NOTIFY = %q;
 
 async function runOnibi(args: string[], payload: any) {
+  const env = (globalThis as any).process?.env ?? {};
+  if (!env.ONIBI_SESSION_ID) return { code: 0, stdout: "" };
   const body = JSON.stringify(payload ?? {});
   if ((globalThis as any).Bun?.spawn) {
     const p = (globalThis as any).Bun.spawn([ONIBI_NOTIFY, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });

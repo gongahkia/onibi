@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -157,7 +158,8 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 }
 
 func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
-	msg := renderApprovalMessage(tool, inputJSON, sessLabel)
+	rendered := renderApproval(tool, inputJSON, sessLabel)
+	msg := rendered.HTML
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
 	}
@@ -172,6 +174,19 @@ func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJS
 		if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
 			d.bindMessage(sent, a.SessionID)
 		}
+		if rendered.Truncated {
+			_, docErr := d.Bot.SendDocument(ctx, &tgbot.SendDocumentParams{
+				ChatID:  d.Owner.ID(),
+				Caption: "Full approval payload " + id,
+				Document: &models.InputFileUpload{
+					Filename: "approval-" + id + ".json",
+					Data:     bytes.NewReader([]byte(rendered.Full)),
+				},
+			})
+			if docErr != nil {
+				d.Log.Warn("send full approval payload", slog.String("id", id), slog.Any("err", docErr))
+			}
+		}
 	}
 	return sent, err
 }
@@ -180,7 +195,8 @@ func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inp
 	if strings.TrimSpace(d.EnvelopeSeed) == "" {
 		return nil, errors.New("encrypted mode enabled without envelope seed; run `onibi setup --enable-encrypted-mode`")
 	}
-	body, risk := renderApprovalPlainText(tool, inputJSON, sessLabel)
+	rendered := renderApproval(tool, inputJSON, sessLabel)
+	body, risk := rendered.Plain, rendered.Risk
 	if restored {
 		body += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
 	}
@@ -258,14 +274,14 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		answerCallback(ctx, api, q.ID, "Opening secure controls")
 		d.sendSecureRequired(ctx, api, q.From.ID)
 		return nil
-	case "menu_new_headless":
-		answerCallback(ctx, api, q.ID, "Headless session")
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/new --headless shell\n/new --headless codex\n/new --headless claude"})
-		return nil
-	case "menu_new_visible":
-		answerCallback(ctx, api, q.ID, "Visible session")
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/new --visible shell\n/new --visible codex\n/new --visible claude"})
-		return nil
+		case "menu_new_headless":
+			answerCallback(ctx, api, q.ID, "Headless session")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/project list\n/new --headless --project <alias> shell\n/new --headless --project <alias> codex"})
+			return nil
+		case "menu_new_visible":
+			answerCallback(ctx, api, q.ID, "Visible session")
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/project list\n/new --visible --project <alias> shell\n/new --visible --project <alias> codex"})
+			return nil
 	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
@@ -512,21 +528,26 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 // renderApprovalMessage formats the Telegram message body for an approval
 // request. Scrubs secrets from rendered tool inputs.
 func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
-	pretty, risk := approvalRenderParts(tool, inputJSON)
-	return fmt.Sprintf(
-		"Approval request\n"+
-			"Session: %s\n"+
-			"Tool: %s\n"+
-			"Risk: %s\n%s",
-		telegram.EscapeHTML(sessLabel),
-		telegram.EscapeHTML(tool),
-		telegram.EscapeHTML(riskText(risk)),
-		telegram.HTMLPre(pretty))
+	return renderApproval(tool, inputJSON, sessLabel).HTML
 }
 
 func renderApprovalPlainText(tool, inputJSON, sessLabel string) (string, approval.Risk) {
+	rendered := renderApproval(tool, inputJSON, sessLabel)
+	return rendered.Plain, rendered.Risk
+}
+
+type approvalRender struct {
+	HTML      string
+	Plain     string
+	Full      string
+	Risk      approval.Risk
+	Truncated bool
+}
+
+func renderApproval(tool, inputJSON, sessLabel string) approvalRender {
 	pretty, risk := approvalRenderParts(tool, inputJSON)
-	return fmt.Sprintf(
+	preview, truncated := approvalPreview(pretty)
+	plain := fmt.Sprintf(
 		"Approval request\n"+
 			"Session: %s\n"+
 			"Tool: %s\n"+
@@ -534,20 +555,56 @@ func renderApprovalPlainText(tool, inputJSON, sessLabel string) (string, approva
 		sessLabel,
 		tool,
 		riskText(risk),
-		pretty), risk
+		preview)
+	if truncated {
+		plain += "\n\nFull payload attached separately."
+	}
+	html := fmt.Sprintf(
+		"Approval request\n"+
+			"Session: %s\n"+
+			"Tool: %s\n"+
+			"Risk: %s\n%s",
+		telegram.EscapeHTML(sessLabel),
+		telegram.EscapeHTML(tool),
+		telegram.EscapeHTML(riskText(risk)),
+		telegram.HTMLPre(preview))
+	if truncated {
+		html += "\n\nFull payload attached separately."
+	}
+	return approvalRender{HTML: html, Plain: plain, Full: pretty, Risk: risk, Truncated: truncated}
 }
 
 func approvalRenderParts(tool, inputJSON string) (string, approval.Risk) {
 	scrubbed := approval.Scrub(inputJSON)
 	risk := approval.ClassifyRisk(tool, inputJSON)
-	var pretty []byte
 	var anyObj any
 	if err := json.Unmarshal([]byte(scrubbed), &anyObj); err == nil {
-		pretty, _ = json.MarshalIndent(anyObj, "", "  ")
-	} else {
-		pretty = []byte(scrubbed)
+		var b bytes.Buffer
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(anyObj); err == nil {
+			return strings.TrimRight(b.String(), "\n"), risk
+		}
 	}
-	return string(pretty), risk
+	return scrubbed, risk
+}
+
+func approvalPreview(pretty string) (string, bool) {
+	if len(telegram.HTMLPre(pretty)) <= telegram.SafeTextLimit-600 {
+		return pretty, false
+	}
+	runes := []rune(pretty)
+	truncated := false
+	for len(runes) > 0 && len(telegram.HTMLPre(string(runes)+"\n... truncated ...")) > telegram.SafeTextLimit-600 {
+		truncated = true
+		next := len(runes) * 3 / 4
+		if next == len(runes) {
+			next--
+		}
+		runes = runes[:next]
+	}
+	return string(runes) + "\n... truncated ...", truncated
 }
 
 func riskText(r approval.Risk) string {

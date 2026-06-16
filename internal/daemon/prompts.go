@@ -32,13 +32,6 @@ func (d *Daemon) enqueuePromptText(ctx context.Context, api telegram.API, chatID
 	if err != nil {
 		return err
 	}
-	if s.Transport == "tmux" {
-		if err := d.writePromptToSession(ctx, api, chatID, s, text, ""); err != nil {
-			return err
-		}
-		d.audit(ctx, "prompt.sent", s.ID, text, chatID, "transport=tmux")
-		return nil
-	}
 	if d.DB == nil {
 		return d.writePromptToSession(ctx, api, chatID, s, text, "")
 	}
@@ -85,9 +78,6 @@ func (d *Daemon) dispatchNextPrompt(ctx context.Context, api telegram.API, s *Se
 			return err
 		}
 		d.audit(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID)
-		if s.Transport == "tmux" {
-			continue
-		}
 		d.threadMu.Lock()
 		d.busySessions[s.ID] = true
 		d.threadMu.Unlock()
@@ -115,6 +105,31 @@ func (d *Daemon) writePromptToSession(ctx context.Context, api telegram.API, cha
 		detail = "Sent prompt " + promptID + " to " + s.Name + " (" + s.ID + ")."
 	}
 	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", "Prompt sent", detail)
+	return nil
+}
+
+func (d *Daemon) sendImmediateText(ctx context.Context, api telegram.API, chatID int64, sessionID, text string) error {
+	text = strings.TrimRight(text, "\r\n")
+	if text == "" {
+		return nil
+	}
+	s, err := d.resolveInjectTarget(ctx, chatID, sessionID)
+	if errors.Is(err, errAmbiguousTarget) {
+		d.queuePendingSend(ctx, chatID, text)
+		d.sendTargetPicker(ctx, api, chatID, "Pick target session.")
+		return nil
+	}
+	if errors.Is(err, ErrUnknownSession) {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active PTY session."})
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := d.writePromptToSession(ctx, api, chatID, s, text, ""); err != nil {
+		return err
+	}
+	d.audit(ctx, "prompt.sent", s.ID, text, chatID, "immediate=true")
 	return nil
 }
 

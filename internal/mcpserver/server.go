@@ -108,6 +108,7 @@ func (s *Server) notify(_ context.Context, _ *mcp.CallToolRequest, in notifyInpu
 	err := intake.Send(s.socketPath, intake.Event{
 		Type:    intake.TypeAgentMessage,
 		Session: in.Session,
+		Managed: in.Session != "",
 		Agent:   in.Agent,
 		Text:    in.Text,
 	})
@@ -134,6 +135,7 @@ func (s *Server) approvalRequest(ctx context.Context, _ *mcp.CallToolRequest, in
 	resp, err := intake.Request(s.socketPath, intake.Event{
 		Type:      intake.TypeApprovalRequest,
 		Session:   in.Session,
+		Managed:   in.Session != "",
 		Agent:     in.Agent,
 		Tool:      in.Tool,
 		InputJSON: in.InputJSON,
