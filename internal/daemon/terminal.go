@@ -25,7 +25,7 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 	if target == "" {
 		return "", errors.New("tmux target required")
 	}
-	attach := "tmux attach-session -t " + target
+	attach := tmuxAttachShell(target)
 	switch strings.ToLower(strings.TrimSpace(preference)) {
 	case "", "auto":
 		if launchGhostty(ctx, target) == nil {
@@ -78,7 +78,7 @@ func launchGhostty(ctx context.Context, target string) error {
 func launchGhosttyAppleScript(ctx context.Context, target string) error {
 	script := `tell application "Ghostty"` + "\n" +
 		`set cfg to new surface configuration` + "\n" +
-		`set command of cfg to ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
+		`set command of cfg to ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
 		`set wait after command of cfg to true` + "\n" +
 		`set win to new window with configuration cfg` + "\n" +
 		`activate` + "\n" +
@@ -87,7 +87,8 @@ func launchGhosttyAppleScript(ctx context.Context, target string) error {
 }
 
 func launchGhosttyFresh(ctx context.Context, target string) error {
-	return runTerminalCommand(ctx, "open", "-Fna", "Ghostty.app", "--args", "-e", "tmux", "attach-session", "-t", target)
+	args := append([]string{"-Fna", "Ghostty.app", "--args", "-e"}, tmuxAttachArgs(target)...)
+	return runTerminalCommand(ctx, "open", args...)
 }
 
 func launchITerm2(ctx context.Context, target string) error {
@@ -101,7 +102,7 @@ func launchITerm2(ctx context.Context, target string) error {
 		return errors.New("iTerm2 not found")
 	}
 	script := `tell application "iTerm2"` + "\n" +
-		`create window with default profile command ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
+		`create window with default profile command ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
 		`activate` + "\n" +
 		`end tell`
 	return runTerminalCommand(ctx, "osascript", "-e", script)
@@ -114,9 +115,31 @@ func launchTerminalApp(ctx context.Context, target string) error {
 	if _, err := lookTerminalPath("osascript"); err != nil {
 		return err
 	}
-	script := `tell application "Terminal" to do script ` + appleScriptQuote("tmux attach-session -t "+target) + "\n" +
+	script := `tell application "Terminal" to do script ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
 		`tell application "Terminal" to activate`
 	return runTerminalCommand(ctx, "osascript", "-e", script)
+}
+
+func tmuxAttachArgs(target string) []string {
+	return []string{tmuxPath(), "attach-session", "-t", target}
+}
+
+func tmuxAttachShell(target string) string {
+	return shellQuote(tmuxPath()) + " attach-session -t " + shellQuote(target)
+}
+
+func tmuxPath() string {
+	if path, err := lookTerminalPath("tmux"); err == nil && strings.TrimSpace(path) != "" {
+		return path
+	}
+	return "tmux"
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func macAppExists(names ...string) bool {

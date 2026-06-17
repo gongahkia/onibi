@@ -71,7 +71,7 @@ func TestLaunchGhosttyUsesAppleScriptWindow(t *testing.T) {
 	script := args[1]
 	for _, want := range []string{
 		`new surface configuration`,
-		`set command of cfg to "tmux attach-session -t onibi-abc"`,
+		`set command of cfg to "'/usr/bin/tmux' attach-session -t 'onibi-abc'"`,
 		`new window with configuration cfg`,
 	} {
 		if !strings.Contains(script, want) {
@@ -214,7 +214,7 @@ func TestLaunchGhosttyFallsBackToFreshOpen(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("calls = %#v", calls)
 	}
-	want := []string{"open", "-Fna", "Ghostty.app", "--args", "-e", "tmux", "attach-session", "-t", "onibi-abc"}
+	want := []string{"open", "-Fna", "Ghostty.app", "--args", "-e", "/usr/bin/tmux", "attach-session", "-t", "onibi-abc"}
 	if strings.Join(calls[1], "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("fallback = %#v", calls[1])
 	}
@@ -264,7 +264,7 @@ func TestLaunchITerm2UsesAppleScriptWindow(t *testing.T) {
 	script := args[1]
 	for _, want := range []string{
 		`tell application "iTerm2"`,
-		`create window with default profile command "tmux attach-session -t onibi-abc"`,
+		`create window with default profile command "'/usr/bin/tmux' attach-session -t 'onibi-abc'"`,
 		`activate`,
 	} {
 		if !strings.Contains(script, want) {
