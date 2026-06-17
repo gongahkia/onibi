@@ -51,7 +51,7 @@ func TestLaunchGhosttyUsesAppleScriptWindow(t *testing.T) {
 		lookTerminalPath = oldLook
 		findMacApp = oldFind
 	}()
-	lookTerminalPath = func(string) (string, error) { return "/usr/bin/ghostty", nil }
+	lookTerminalPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	var name string
 	var args []string
 	runTerminalCommand = func(_ context.Context, n string, a ...string) error {
@@ -214,7 +214,7 @@ func TestLaunchGhosttyFallsBackToFreshOpen(t *testing.T) {
 		lookTerminalPath = oldLook
 		findMacApp = oldFind
 	}()
-	lookTerminalPath = func(string) (string, error) { return "/usr/bin/ghostty", nil }
+	lookTerminalPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	var calls [][]string
 	runTerminalCommand = func(_ context.Context, n string, a ...string) error {
 		call := append([]string{n}, a...)
@@ -249,10 +249,10 @@ func TestLaunchITerm2UsesAppleScriptWindow(t *testing.T) {
 		findMacApp = oldFind
 	}()
 	lookTerminalPath = func(name string) (string, error) {
-		if name != "osascript" {
+		if name != "osascript" && name != "tmux" {
 			t.Fatalf("looked up %q", name)
 		}
-		return "/usr/bin/osascript", nil
+		return "/usr/bin/" + name, nil
 	}
 	findMacApp = func(names ...string) bool {
 		if strings.Join(names, ",") != "iTerm.app,iTerm2.app" {
