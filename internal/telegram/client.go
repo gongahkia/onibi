@@ -242,6 +242,7 @@ func (c *Client) pollLoop(ctx context.Context) {
 		}
 	}
 	var backoff time.Duration
+	conflictReported := false
 	for {
 		if ctx.Err() != nil {
 			return
@@ -256,13 +257,18 @@ func (c *Client) pollLoop(ctx context.Context) {
 			}
 			if detail, ok := getUpdatesConflictDetail(err); ok {
 				c.setPollerConflict(ctx, detail)
-				c.notifyPollerConflict(ctx, detail)
-				return
+				if !conflictReported {
+					c.notifyPollerConflict(ctx, detail)
+					conflictReported = true
+				}
+				backoff = nextPollBackoff(backoff)
+				continue
 			}
 			backoff = nextPollBackoff(backoff)
 			continue
 		}
 		c.clearPollerConflict(ctx)
+		conflictReported = false
 		backoff = 0
 		if len(updates) == 0 {
 			c.noteEmptyPoll(ctx)

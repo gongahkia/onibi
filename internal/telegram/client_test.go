@@ -15,6 +15,7 @@ type testOffsetStore struct {
 	offset         int64
 	hasOffset      bool
 	conflict       string
+	conflictSets   int
 	conflictClears int
 }
 
@@ -30,6 +31,7 @@ func (s *testOffsetStore) SetTelegramOffset(_ context.Context, offset int64) err
 
 func (s *testOffsetStore) SetTelegramPollerConflict(_ context.Context, detail string) error {
 	s.conflict = detail
+	s.conflictSets++
 	return nil
 }
 
@@ -182,16 +184,29 @@ func TestPollLoopPersistsOffset(t *testing.T) {
 	}
 }
 
-func TestPollLoopRecordsConflictAndStops(t *testing.T) {
-	c := newPollTestClient(t, nil)
-	ctx := context.Background()
+func TestPollLoopRecordsConflictOnceAndRecovers(t *testing.T) {
+	handled := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newPollTestClient(t, func(*models.Update) {
+		handled++
+		cancel()
+	})
 	store := &testOffsetStore{}
 	c.offsetStore = store
 	calls := 0
 	conflicts := 0
+	var sleeps []time.Duration
+	c.sleep = func(_ context.Context, d time.Duration) bool {
+		sleeps = append(sleeps, d)
+		return true
+	}
 	c.poll = func(context.Context, int64, time.Duration, []string) ([]*models.Update, error) {
 		calls++
-		return nil, errors.New("telegram getUpdates failed (409): Conflict: terminated by other getUpdates request")
+		if calls <= 2 {
+			return nil, errors.New("telegram getUpdates failed (409): Conflict: terminated by other getUpdates request")
+		}
+		return []*models.Update{{ID: 9, Message: &models.Message{Text: "ok"}}}, nil
 	}
 	c.pollerConflict = func(_ context.Context, detail string) {
 		conflicts++
@@ -200,14 +215,23 @@ func TestPollLoopRecordsConflictAndStops(t *testing.T) {
 		}
 	}
 	c.Start(ctx)
-	if !strings.Contains(store.conflict, "another getUpdates poller") {
-		t.Fatalf("conflict = %q", store.conflict)
+	if handled != 1 {
+		t.Fatalf("handled = %d", handled)
 	}
-	if calls != 1 {
+	if calls != 3 {
 		t.Fatalf("calls = %d", calls)
+	}
+	if store.conflictSets != 2 {
+		t.Fatalf("conflict sets = %d", store.conflictSets)
+	}
+	if store.conflict != "" {
+		t.Fatalf("conflict was not cleared: %q", store.conflict)
 	}
 	if conflicts != 1 {
 		t.Fatalf("conflicts = %d", conflicts)
+	}
+	if len(sleeps) != 2 || sleeps[0] != 100*time.Millisecond || sleeps[1] != 200*time.Millisecond {
+		t.Fatalf("sleeps = %#v", sleeps)
 	}
 }
 
