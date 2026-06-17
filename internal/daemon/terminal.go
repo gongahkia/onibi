@@ -139,6 +139,11 @@ func shellQuote(s string) string {
 	if s == "" {
 		return "''"
 	}
+	if strings.IndexFunc(s, func(r rune) bool {
+		return !(r == '_' || r == '@' || r == '%' || r == '+' || r == '=' || r == ':' || r == ',' || r == '.' || r == '/' || r == '-' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+	}) < 0 {
+		return s
+	}
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 

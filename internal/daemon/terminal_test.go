@@ -71,7 +71,7 @@ func TestLaunchGhosttyUsesAppleScriptWindow(t *testing.T) {
 	script := args[1]
 	for _, want := range []string{
 		`new surface configuration`,
-		`set command of cfg to "'/usr/bin/tmux' attach-session -t 'onibi-abc'"`,
+		`set command of cfg to "/usr/bin/tmux attach-session -t onibi-abc"`,
 		`new window with configuration cfg`,
 	} {
 		if !strings.Contains(script, want) {
@@ -186,6 +186,22 @@ func TestLaunchTerminalRejectsEmptyTargetAndUnsupportedPreference(t *testing.T) 
 	}
 }
 
+func TestTmuxAttachShellUsesAbsolutePathAndQuotesUnsafeTarget(t *testing.T) {
+	oldLook := lookTerminalPath
+	t.Cleanup(func() { lookTerminalPath = oldLook })
+	lookTerminalPath = func(name string) (string, error) {
+		if name != "tmux" {
+			return "", os.ErrNotExist
+		}
+		return "/opt/homebrew/bin/tmux", nil
+	}
+	got := tmuxAttachShell("onibi weird'target")
+	want := `/opt/homebrew/bin/tmux attach-session -t 'onibi weird'\''target'`
+	if got != want {
+		t.Fatalf("attach = %q want %q", got, want)
+	}
+}
+
 func TestLaunchGhosttyFallsBackToFreshOpen(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS-only launcher")
@@ -264,7 +280,7 @@ func TestLaunchITerm2UsesAppleScriptWindow(t *testing.T) {
 	script := args[1]
 	for _, want := range []string{
 		`tell application "iTerm2"`,
-		`create window with default profile command "'/usr/bin/tmux' attach-session -t 'onibi-abc'"`,
+		`create window with default profile command "/usr/bin/tmux attach-session -t onibi-abc"`,
 		`activate`,
 	} {
 		if !strings.Contains(script, want) {
