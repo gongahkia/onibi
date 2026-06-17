@@ -156,6 +156,29 @@ func TestStatusReportsTelegramPollerConflict(t *testing.T) {
 	}
 }
 
+func TestPingCommandReportsConnectivity(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	msg := &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/ping",
+		Date: int(time.Now().Add(-2 * time.Second).Unix()),
+	}
+	if !d.handleTextCommand(context.Background(), mock, msg) {
+		t.Fatal("command not handled")
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	for _, want := range []string{"pong", "uptime=", "sessions=0", "telegram_poller=ok", "telegram_ingress_lag="} {
+		if !strings.Contains(sent[0].Text, want) {
+			t.Fatalf("ping missing %q:\n%s", want, sent[0].Text)
+		}
+	}
+}
+
 func TestStatusClearsStaleDefaultTarget(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()

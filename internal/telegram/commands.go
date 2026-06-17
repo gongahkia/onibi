@@ -19,6 +19,7 @@ type CommandSpec struct {
 
 var commandSpecs = []CommandSpec{
 	{Name: "/status", Short: "show daemon status", Detail: "Shows daemon uptime, encrypted mode, default target, active session count, pending approval count, queued prompt count, snooze state, and current sessions.", Category: "sessions"},
+	{Name: "/ping", Short: "check daemon connectivity", Detail: "Replies with pong, daemon uptime, live session count, Telegram poller state, and Telegram ingress lag when available.", Category: "sessions"},
 	{Name: "/sessions", Short: "list active sessions", Detail: "Lists active agent, shell, and tmux sessions, including session ids, names, agent type, age, state, command, and default target marker.", Category: "sessions"},
 	{Name: "/menu", Short: "show session actions", Detail: "Shows inline action buttons for status, sessions, queue, secure controls, and live session actions.", Category: "sessions"},
 	{Name: "/target", Args: "<id|name>", Short: "set default session", Detail: "Sets the default session for this chat. Without an argument, shows the current default target.", Category: "sessions", Examples: []string{"/target claude", "/target abc123"}},
