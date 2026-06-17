@@ -273,10 +273,10 @@ ONIBI_SESSION_ID=<session-id>
 The ring buffer keeps the newest bytes only. `Snapshot` returns a chronological copy, oldest first. The default per-session buffer is 64 KiB.
 
 Tmux-backed sessions store `Transport=tmux` and `TmuxTarget`. Headless means the
-tmux target is live with no attached terminal clients. Visible means Ghostty or
-Terminal.app is attached to that tmux target. `/show` opens or attaches a
-terminal. `/hide` can detach visible clients and continue headless, or end the
-session.
+tmux target is live with no attached terminal clients. Visible means Ghostty,
+iTerm2, or Terminal.app is attached to that tmux target. `/show` opens or
+attaches a terminal. `/hide` can detach visible clients and continue headless,
+or end the session.
 
 Daemon startup reconciles persisted session rows. Live tmux targets are restored
 into memory and recaptured into the ring buffer. Stale PTY rows and missing tmux

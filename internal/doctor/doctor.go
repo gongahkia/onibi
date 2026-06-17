@@ -409,6 +409,21 @@ func (r *runner) checkSessionRuntime() {
 	}
 }
 
+func macAppExists(names ...string) bool {
+	roots := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, home+"/Applications")
+	}
+	for _, root := range roots {
+		for _, name := range names {
+			if _, err := os.Stat(root + "/" + name); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *runner) checkHooks() {
 	if r.db == nil {
 		return

@@ -96,6 +96,12 @@ func TestSetValidates(t *testing.T) {
 	if got, _ := Get(cfg, "shell.login"); got != "false" {
 		t.Fatalf("shell.login = %s", got)
 	}
+	if err := Set(&cfg, "terminal.default", "iterm2"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "terminal.default"); got != "iterm2" {
+		t.Fatalf("terminal.default = %s", got)
+	}
 }
 
 func TestApprovalTimeoutHardMax(t *testing.T) {

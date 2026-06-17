@@ -140,8 +140,22 @@ Headless means the same session runs without an attached terminal window:
 /new --headless --project onibi shell
 ```
 
-Onibi uses tmux as the control plane. Ghostty or Terminal.app only render the
-session when visible; Onibi does not inject into arbitrary Ghostty tabs.
+Onibi uses tmux as the control plane. Ghostty, iTerm2, or Terminal.app only
+render the session when visible; Onibi does not inject into arbitrary terminal
+tabs.
+
+Choose a visible-session launcher:
+
+```bash
+onibi config set terminal.default auto
+onibi config set terminal.default ghostty
+onibi config set terminal.default iterm2
+onibi config set terminal.default terminal
+onibi config set terminal.default none
+```
+
+`auto` tries Ghostty, then iTerm2, then Terminal.app, then prints the manual
+`tmux attach-session` command.
 
 CLI starts still work for local testing:
 
