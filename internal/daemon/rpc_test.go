@@ -56,3 +56,16 @@ func TestRPCSessionPeekReturnsTail(t *testing.T) {
 		t.Fatalf("peek = %q", resp.Text)
 	}
 }
+
+func TestRPCPingReturnsDaemonHealth(t *testing.T) {
+	d := newApprovalDaemon(t)
+	resp, err := d.handleRPCRequest(context.Background(), intake.Event{Type: intake.TypePing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pong", "uptime=", "sessions=0", "telegram_poller=ok"} {
+		if !strings.Contains(resp.Text, want) {
+			t.Fatalf("ping missing %q:\n%s", want, resp.Text)
+		}
+	}
+}

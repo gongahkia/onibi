@@ -19,13 +19,20 @@ func TestRegisterCommands(t *testing.T) {
 		t.Fatalf("commands = %#v", got[0].Commands)
 	}
 	foundSecure := false
+	foundPing := false
 	for _, c := range got[0].Commands {
 		if c.Command == "secure" {
 			foundSecure = true
 		}
+		if c.Command == "ping" {
+			foundPing = true
+		}
 	}
 	if !foundSecure {
 		t.Fatalf("commands missing secure = %#v", got[0].Commands)
+	}
+	if !foundPing {
+		t.Fatalf("commands missing ping = %#v", got[0].Commands)
 	}
 }
 
@@ -41,6 +48,13 @@ func TestHelpTextGrouped(t *testing.T) {
 func TestHelpDetail(t *testing.T) {
 	got := HelpDetail("prompt")
 	if !strings.Contains(got, "/prompt <text>") || !strings.Contains(got, "Examples:") {
+		t.Fatalf("detail = %q", got)
+	}
+}
+
+func TestHelpDetailPing(t *testing.T) {
+	got := HelpDetail("ping")
+	if !strings.Contains(got, "/ping") || !strings.Contains(got, "daemon uptime") {
 		t.Fatalf("detail = %q", got)
 	}
 }
