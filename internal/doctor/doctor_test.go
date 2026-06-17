@@ -47,7 +47,7 @@ func doctorPaths(t *testing.T) config.Paths {
 }
 
 func TestTerminalLauncherNextActionMentionsSupportedInstallChoices(t *testing.T) {
-	next, fixable := nextAction("terminal launcher", "not found")
+	next, fixable := nextAction("terminal launcher", "not found", Warn)
 	if fixable {
 		t.Fatal("terminal launcher should not be auto-fixable")
 	}
