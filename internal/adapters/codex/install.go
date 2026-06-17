@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
@@ -13,6 +14,7 @@ import (
 )
 
 const Agent = "codex"
+const versionEnv = "ONIBI_INTEGRATION_VERSION"
 
 type eventSpec struct {
 	event    string
@@ -50,7 +52,7 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 		return err
 	}
 	removeManaged(cfg)
-	cfg[common.VersionField] = common.IntegrationVersion
+	delete(cfg, common.VersionField)
 	hooks, _ := cfg["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
@@ -155,13 +157,16 @@ func Adopt(ctx context.Context, db *store.DB) error {
 
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
-		common.GuardField:   true,
-		common.VersionField: common.IntegrationVersion,
-		"type":              "command",
-		"command":           common.Command(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
-		"timeout":           e.timeout,
-		"statusMessage":     "Waiting for Onibi",
+		"type":          "command",
+		"command":       versionedCommand(notifyBin, e),
+		"timeout":       e.timeout,
+		"statusMessage": "Waiting for Onibi",
 	}
+}
+
+func versionedCommand(notifyBin string, e eventSpec) string {
+	cmd := common.Command(notifyBin, Agent, Agent, e.typ, e.wait, e.response)
+	return strings.Replace(cmd, "exec ", versionEnv+"="+strconv.Quote(common.IntegrationVersion)+" exec ", 1)
 }
 
 func ManagedBody(path string) ([]byte, error) {
@@ -202,12 +207,28 @@ func InstalledVersion(path string) string {
 						if s, _ := hm[common.VersionField].(string); s != "" {
 							return s
 						}
+						if s := commandVersion(hm); s != "" {
+							return s
+						}
 					}
 				}
 			}
 		}
 	}
 	return ""
+}
+
+func commandVersion(h map[string]any) string {
+	cmd, _ := h["command"].(string)
+	i := strings.Index(cmd, versionEnv+"=")
+	if i < 0 {
+		return ""
+	}
+	rest := cmd[i+len(versionEnv)+1:]
+	if j := strings.IndexAny(rest, " \t;"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.Trim(rest, `"'`)
 }
 
 func removeManaged(cfg map[string]any) {
