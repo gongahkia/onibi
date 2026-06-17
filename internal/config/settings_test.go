@@ -30,7 +30,7 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	paths := testPaths(t)
-	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\n")
+	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nterminal:\n  default: iterm\n")
 	if err := os.WriteFile(paths.Config, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["terminal.default"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -55,6 +55,9 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	}
 	if cfg.Shell.Default != "zsh" || cfg.Shell.Login {
 		t.Fatalf("shell config = %#v", cfg.Shell)
+	}
+	if cfg.Terminal.Default != "iterm" {
+		t.Fatalf("terminal.default = %s", cfg.Terminal.Default)
 	}
 }
 
@@ -101,6 +104,53 @@ func TestSetValidates(t *testing.T) {
 	}
 	if got, _ := Get(cfg, "terminal.default"); got != "iterm2" {
 		t.Fatalf("terminal.default = %s", got)
+	}
+}
+
+func TestTerminalDefaultValues(t *testing.T) {
+	for _, value := range []string{"auto", "ghostty", "iterm", "iterm2", "terminal", "none"} {
+		t.Run(value, func(t *testing.T) {
+			cfg := Default()
+			if err := Set(&cfg, "terminal.default", value); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Get(cfg, "terminal.default")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != value {
+				t.Fatalf("got %s", got)
+			}
+		})
+	}
+}
+
+func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
+	cfg := Default()
+	err := Set(&cfg, "terminal.default", "wezterm")
+	if err == nil || !strings.Contains(err.Error(), "terminal.default must be one of auto, ghostty, iterm2, terminal, none") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestSaveLoadTerminalDefault(t *testing.T) {
+	paths := testPaths(t)
+	cfg := Default()
+	if err := Set(&cfg, "terminal.default", "iterm2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(paths.Config, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, meta, err := Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !meta.Explicit["terminal.default"] {
+		t.Fatalf("explicit map missing terminal.default: %#v", meta.Explicit)
+	}
+	if loaded.Terminal.Default != "iterm2" {
+		t.Fatalf("terminal.default = %s", loaded.Terminal.Default)
 	}
 }
 

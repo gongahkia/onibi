@@ -46,6 +46,35 @@ func doctorPaths(t *testing.T) config.Paths {
 	}
 }
 
+func TestTerminalLauncherNextActionMentionsSupportedInstallChoices(t *testing.T) {
+	next, fixable := nextAction("terminal launcher", "not found")
+	if fixable {
+		t.Fatal("terminal launcher should not be auto-fixable")
+	}
+	for _, want := range []string{"terminal.default=none", "Ghostty", "iTerm2"} {
+		if !strings.Contains(next, want) {
+			t.Fatalf("next = %q, missing %q", next, want)
+		}
+	}
+}
+
+func TestMacAppExistsFindsUserApplication(t *testing.T) {
+	home := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	t.Setenv("HOME", home)
+	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
+	app := filepath.Join(home, "Applications", "iTerm2.app")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !macAppExists("iTerm.app", "iTerm2.app") {
+		t.Fatal("expected iTerm2.app to be detected")
+	}
+	if macAppExists("DefinitelyMissing.app") {
+		t.Fatal("unexpected missing app detection")
+	}
+}
+
 func TestDoctorOfflinePassesRequiredChecks(t *testing.T) {
 	paths := doctorPaths(t)
 	if err := paths.EnsureDirs(); err != nil {
