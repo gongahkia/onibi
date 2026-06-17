@@ -68,7 +68,7 @@ func (m *Manager) launchdPlist() string {
 		"Label":            Label,
 		"ProgramArguments": []string{m.Executable, "run"},
 		"RunAtLoad":        true,
-		"KeepAlive":        true,
+		"KeepAlive":        map[string]any{"Crashed": true},
 		"ProcessType":      "Interactive",
 		"WorkingDirectory": m.Paths.StateDir,
 		"EnvironmentVariables": map[string]string{
@@ -126,6 +126,18 @@ func writePlistValue(b *bytes.Buffer, v any, indent string) {
 		for _, k := range keys {
 			fmt.Fprintf(b, "%s  <key>%s</key>\n", indent, xmlEscape(k))
 			fmt.Fprintf(b, "%s  <string>%s</string>\n", indent, xmlEscape(x[k]))
+		}
+		fmt.Fprintf(b, "%s</dict>\n", indent)
+	case map[string]any:
+		fmt.Fprintf(b, "%s<dict>\n", indent)
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(b, "%s  <key>%s</key>\n", indent, xmlEscape(k))
+			writePlistValue(b, x[k], indent+"  ")
 		}
 		fmt.Fprintf(b, "%s</dict>\n", indent)
 	}

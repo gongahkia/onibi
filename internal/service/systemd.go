@@ -64,7 +64,7 @@ After=network-online.target
 Type=simple
 ExecStart=` + systemdQuote(m.Executable) + ` run
 WorkingDirectory=` + systemdQuote(m.Paths.StateDir) + `
-Restart=always
+Restart=on-abnormal
 RestartSec=5
 Environment=ONIBI_SERVICE=1
 

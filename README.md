@@ -133,6 +133,7 @@ Telegram:
 
 <!-- BEGIN-TELEGRAM-COMMANDS -->
 - `/status` - show daemon status
+- `/ping` - check daemon connectivity
 - `/sessions` - list active sessions
 - `/menu` - show session actions
 - `/target <id|name>` - set default session
