@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/spf13/cobra"
@@ -104,6 +105,18 @@ func rotateTokenCmd() *cobra.Command {
 		Short: "Walk through @BotFather /revoke flow and replace the token in Keychain",
 		RunE:  runRotateToken,
 	}
+}
+
+func pingCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ping",
+		Short: "Check daemon socket health",
+		RunE:  runPing,
+	}
+	cmd.Flags().IntP("count", "c", 1, "number of probes")
+	cmd.Flags().Duration("interval", time.Second, "delay between probes")
+	cmd.Flags().Duration("timeout", 2*time.Second, "per-probe timeout")
+	return cmd
 }
 
 func doctorCmd() *cobra.Command {

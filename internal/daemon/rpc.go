@@ -12,6 +12,8 @@ import (
 
 func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	switch ev.Type {
+	case intake.TypePing:
+		return intake.Response{Text: d.pingText(ctx, -1)}, nil
 	case intake.TypeSessionInput:
 		s, err := d.sessionForRPCTarget(ev.Session)
 		if err != nil {

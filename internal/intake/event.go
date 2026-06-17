@@ -13,6 +13,7 @@ const (
 	TypeSessionNew      = "session_new"      // RPC: create a tmux-backed session
 	TypeSessionShow     = "session_show"     // RPC: open a visible terminal for a session
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
+	TypePing            = "ping"             // RPC: daemon health probe
 )
 
 // Event is the wire-level JSON schema written by hooks and onibi-notify.

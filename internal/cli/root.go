@@ -28,6 +28,7 @@ func Root() *cobra.Command {
 		setupCmd(),
 		getChatIDCmd(),
 		rotateTokenCmd(),
+		pingCmd(),
 		doctorCmd(),
 		configCmd(),
 		installHooksCmd(),

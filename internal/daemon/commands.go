@@ -28,6 +28,8 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	switch cmd {
 	case "/start":
 		d.handleStartCommand(ctx, api, m.Chat.ID, arg)
+	case "/ping":
+		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "ping", "Onibi ping", d.pingText(ctx, telegramIngressLag(m)))
 	case "/sessions":
 		_, _ = d.sendMaybeEncryptedText(ctx, api, m.Chat.ID, "sessions", "Active sessions", d.sessionsText(ctx, m.Chat.ID))
 	case "/status":
@@ -232,6 +234,30 @@ func (d *Daemon) statusText(ctx context.Context, chatID int64) string {
 	}
 	return fmt.Sprintf("Onibi status\nuptime=%s\nencrypted_mode=%s\ndefault_target=%s\ntelegram_poller=%s\nsnooze=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
 		time.Since(d.started).Truncate(time.Second), d.encryptedModeLabel(), d.defaultTargetLabel(ctx, chatID), d.telegramPollerStatus(ctx), d.snoozeStatus(ctx), len(d.liveSessions()), pending, queued, d.sessionsText(ctx, chatID))
+}
+
+func (d *Daemon) pingText(ctx context.Context, ingressLag time.Duration) string {
+	parts := []string{
+		"pong",
+		"uptime=" + time.Since(d.started).Truncate(time.Second).String(),
+		fmt.Sprintf("sessions=%d", len(d.liveSessions())),
+		"telegram_poller=" + d.telegramPollerStatus(ctx),
+	}
+	if ingressLag >= 0 {
+		parts = append(parts, "telegram_ingress_lag="+ingressLag.Truncate(time.Second).String())
+	}
+	return strings.Join(parts, "\n")
+}
+
+func telegramIngressLag(m *models.Message) time.Duration {
+	if m == nil || m.Date <= 0 {
+		return -1
+	}
+	lag := time.Since(time.Unix(int64(m.Date), 0))
+	if lag < 0 {
+		return 0
+	}
+	return lag
 }
 
 func (d *Daemon) sessionState(s *Session) string {
