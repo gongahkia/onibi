@@ -487,7 +487,7 @@ Acceptance:
 - User can reorder without typing IDs.
 - Sending into busy session requires explicit confirm.
 
-### Encrypted Mode Readiness
+### Encrypted Mode Readiness [DONE 2026-06-18]
 
 Requirement:
 - Secure mode should show readiness, not just on/off.

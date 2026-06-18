@@ -239,6 +239,60 @@ func TestMenuDashboardShowsState(t *testing.T) {
 	}
 }
 
+func TestSecureStatusCommandShowsReadiness(t *testing.T) {
+	d := newApprovalDaemon(t)
+	enableEncryptedTestDaemon(t, d)
+	mock := telegram.NewMock(nil)
+	d.handleTextCommand(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/secure status",
+	})
+	sent := mock.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	for _, want := range []string{"Secure mode readiness", "mode=on", "seed_present=yes", "mini_app_url_allowed=yes", "webapp_action_last_seen=never", "plaintext_commands_blocked=yes", "secure_button_available=yes"} {
+		if !strings.Contains(sent[0].Text, want) {
+			t.Fatalf("status missing %q:\n%s", want, sent[0].Text)
+		}
+	}
+}
+
+func TestEncryptedModeBlocksPlaintextPromptCommands(t *testing.T) {
+	d := newApprovalDaemon(t)
+	enableEncryptedTestDaemon(t, d)
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"/prompt secret", "/send secret", "/editprompt abc new", "/rename abc123 new"} {
+		mock := telegram.NewMock(nil)
+		d.handleTextCommand(context.Background(), mock, &models.Message{
+			From: &models.User{ID: 100},
+			Chat: models.Chat{ID: 100},
+			Text: text,
+		})
+		sent := mock.Sent()
+		if len(sent) != 1 || !strings.Contains(sent[0].Text, "Plaintext command blocked") || sent[0].ReplyMarkup == nil {
+			t.Fatalf("%s sent = %#v", text, sent)
+		}
+	}
+	if got := readPipeOptional(r, 50*time.Millisecond); got != "" {
+		t.Fatalf("plaintext wrote to PTY: %q", got)
+	}
+	rows, err := d.DB.PromptList(context.Background(), s.ID, false, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("prompt rows = %#v", rows)
+	}
+	if s.Name != "claude" {
+		t.Fatalf("session renamed to %q", s.Name)
+	}
+}
+
 func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)

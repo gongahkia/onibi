@@ -158,6 +158,9 @@ func TestEncryptedWebAppPromptWritesWithoutPlainAck(t *testing.T) {
 		t.Fatalf("injected = %q", got)
 	}
 	assertSentMessagesHide(t, mock, "secret prompt")
+	if _, ok, err := d.DB.KVGetString(context.Background(), secureLastActionKey); err != nil || !ok {
+		t.Fatalf("last webapp action ok=%v err=%v", ok, err)
+	}
 }
 
 func TestEncryptedWebAppDenyCarriesReason(t *testing.T) {

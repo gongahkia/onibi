@@ -15,6 +15,7 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
@@ -210,6 +211,65 @@ func TestDoctorFailsMissingOwner(t *testing.T) {
 	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "installed"})
 	if !report.Failed() {
 		t.Fatalf("expected failure: %#v", report.Checks)
+	}
+}
+
+func TestDoctorFailsEncryptedModeOnMissingSeed(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Telegram.EncryptedMode = "on"
+	if err := config.Save(filepath.Join(paths.StateDir, "config.yaml"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	if !hasCheck(report, "encrypted seed", Fail, "missing") {
+		t.Fatalf("missing encrypted seed fail: %+v", report.Checks)
+	}
+	for _, c := range report.Checks {
+		if c.Name == "encrypted seed" && (c.Impact == "" || c.SafeFix == "" || c.Retry == "") {
+			t.Fatalf("missing repair plan: %#v", c)
+		}
+	}
+}
+
+func TestDoctorAllowsLocalhostMiniAppURL(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Telegram.EncryptedMode = "on"
+	cfg.Telegram.MiniAppURL = "http://localhost:5173/"
+	if err := config.Save(filepath.Join(paths.StateDir, "config.yaml"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := envelope.GenerateSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sec.Set(secrets.KeyEnvelopeSeed, seed); err != nil {
+		t.Fatal(err)
+	}
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	if !hasCheck(report, "mini app url", Pass, "ok") {
+		t.Fatalf("missing mini app pass: %+v", report.Checks)
 	}
 }
 

@@ -42,7 +42,7 @@ var commandSpecs = []CommandSpec{
 	{Name: "/cancelprompt", Args: "<id>", Short: "cancel a queued prompt", Detail: "Cancels a queued prompt by id.", Category: "prompts"},
 	{Name: "/moveprompt", Args: "<id> <position>", Short: "reorder queued prompts", Detail: "Moves a queued prompt to a new queue position.", Category: "prompts"},
 	{Name: "/flushqueue", Args: "[id|name]", Short: "cancel queued prompts", Detail: "Cancels queued prompts for a session, or all queued prompts when no target is supplied.", Category: "prompts"},
-	{Name: "/secure", Short: "open encrypted controls", Detail: "Opens the encrypted Mini App controls. Use this for prompt entry and approval decisions when encrypted mode is on.", Category: "security"},
+	{Name: "/secure", Args: "[status]", Short: "open encrypted controls", Detail: "Opens the encrypted Mini App controls. Use /secure status for encrypted-mode readiness.", Category: "security"},
 	{Name: "/snooze", Args: "[duration|agent [duration]]", Short: "pause non-approval notifications", Detail: "Pauses non-approval notifications globally or for one agent. Approvals still notify.", Category: "notifications", Examples: []string{"/snooze 1h", "/snooze claude 30m"}},
 	{Name: "/unsnooze", Args: "[agent]", Short: "resume notifications", Detail: "Resumes snoozed notifications globally or for one agent.", Category: "notifications"},
 	{Name: "/log", Args: "[n]", Short: "show recent audit entries", Detail: "Shows recent local audit entries. n defaults to the daemon's configured limit.", Category: "diagnostics"},

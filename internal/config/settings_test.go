@@ -133,6 +133,25 @@ func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
+func TestMiniAppURLAllowsHTTPSAndLocalhost(t *testing.T) {
+	for _, value := range []string{"https://example.com/onibi/", "http://localhost:5173/", "http://127.0.0.1:5173/", "http://[::1]:5173/"} {
+		t.Run(value, func(t *testing.T) {
+			cfg := Default()
+			if err := Set(&cfg, "telegram.mini_app_url", value); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMiniAppURLRejectsExternalHTTP(t *testing.T) {
+	cfg := Default()
+	err := Set(&cfg, "telegram.mini_app_url", "http://example.com/onibi/")
+	if err == nil || !strings.Contains(err.Error(), "telegram.mini_app_url must use https or localhost http") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestSaveLoadTerminalDefault(t *testing.T) {
 	paths := testPaths(t)
 	cfg := Default()

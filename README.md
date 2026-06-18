@@ -96,7 +96,7 @@ Onibi supports two equal-parity Telegram modes. Pick the one that fits your trus
 | Mode | When to use | Trade-off |
 |---|---|---|
 | `telegram.encrypted_mode=off` (default) | You trust Telegram-the-service with prompt and approval bodies, or you cannot host the Mini App. | Approvals, prompts, and previews travel as Telegram-readable plaintext. Reply-to-message UX works directly. |
-| `telegram.encrypted_mode=on` | You want Telegram blind to message bodies and can self-host or trust a static Mini App page. | Bodies travel as AES-GCM ciphertext. `/prompt`, `/send`, `/editprompt`, and `/rename <id> <name>` refuse plaintext input and route through `/secure`. |
+| `telegram.encrypted_mode=on` | You want Telegram blind to message bodies and can self-host or trust a static Mini App page. | Bodies travel as AES-GCM ciphertext. `/prompt`, `/send`, `/editprompt`, and `/rename` refuse plaintext input and route through `/secure`. |
 
 Switch at any time:
 
@@ -158,7 +158,7 @@ Telegram:
 - `/cancelprompt <id>` - cancel a queued prompt
 - `/moveprompt <id> <position>` - reorder queued prompts
 - `/flushqueue [id|name]` - cancel queued prompts
-- `/secure` - open encrypted controls
+- `/secure [status]` - open encrypted controls
 - `/snooze [duration|agent [duration]]` - pause non-approval notifications
 - `/unsnooze [agent]` - resume notifications
 - `/log [n]` - show recent audit entries

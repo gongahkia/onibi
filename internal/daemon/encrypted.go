@@ -218,7 +218,7 @@ func (d *Daemon) secureStatus(ctx context.Context) string {
 		r.mode,
 		okMissing(r.seedPresent),
 		okMissing(r.miniAppURLSet),
-		okMissing(r.miniAppURLAllowed),
+		miniAppURLStatus(r),
 		devicesPairedLabel(r),
 		webAppLastSeenLabel(r),
 		blockedAllowed(r.plaintextBlocked),
@@ -254,6 +254,16 @@ func yesNo(ok bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func miniAppURLStatus(r secureReadiness) string {
+	if r.miniAppURLAllowed {
+		return "ok"
+	}
+	if r.miniAppURLSet {
+		return "invalid"
+	}
+	return "missing"
 }
 
 func blockedAllowed(blocked bool) string {

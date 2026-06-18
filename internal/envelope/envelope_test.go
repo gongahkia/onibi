@@ -65,7 +65,14 @@ func TestBuildMiniAppURL(t *testing.T) {
 	if !strings.HasPrefix(got, "https://example.com/onibi/#onibi=") {
 		t.Fatalf("bad url: %s", got)
 	}
+	got, err = BuildMiniAppURL("http://localhost:5173/", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "http://localhost:5173/#onibi=") {
+		t.Fatalf("bad localhost url: %s", got)
+	}
 	if _, err := BuildMiniAppURL("http://example.com", "x"); err == nil {
-		t.Fatal("expected https error")
+		t.Fatal("expected external http error")
 	}
 }

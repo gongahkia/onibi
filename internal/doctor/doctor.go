@@ -18,6 +18,7 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/miniappurl"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
@@ -125,6 +126,7 @@ func (r *runner) run() {
 	r.openSecrets()
 	r.checkToken()
 	r.checkOwner()
+	r.checkEncryptedReadiness()
 	r.checkSocket()
 	r.checkService()
 	r.checkSessionRuntime()
@@ -264,6 +266,10 @@ var repairRules = []repairRule{
 	}},
 	{matchName("encrypted seed"), encryptedRepairSpec},
 	{matchName("mini app url"), miniAppRepairSpec},
+	{matchName("secure button"), secureButtonRepairSpec},
+	{matchName("webapp roundtrip"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi has not observed an encrypted Mini App action from this state DB, so device pairing cannot be confirmed.", SafeFix: "open /secure from Telegram and submit a test encrypted action", ManualFix: "re-pair the Mini App seed on the Telegram device", FilesTouched: []string{"Telegram Mini App secure storage", "onibi.sqlite"}, Retry: "/secure status", Blocks: []string{"encrypted command confidence"}}
+	}},
 }
 
 func botTokenRepairSpec(_, detail string) repairSpec {
@@ -324,6 +330,13 @@ func encryptedRepairSpec(_, _ string) repairSpec {
 
 func miniAppRepairSpec(_, _ string) repairSpec {
 	return repairSpec{Impact: "Encrypted controls may be unavailable from Telegram.", SafeFix: "set a valid HTTPS Mini App URL or localhost dev URL", ManualFix: "host docs/miniapp/index.html and update telegram.mini_app_url", FilesTouched: []string{"config.yaml"}, Retry: "onibi config set telegram.mini_app_url <url>", Blocks: []string{"encrypted controls"}}
+}
+
+func secureButtonRepairSpec(_, detail string) repairSpec {
+	if strings.Contains(detail, "seed") {
+		return encryptedRepairSpec("", detail)
+	}
+	return miniAppRepairSpec("", detail)
 }
 
 func matchName(want string) func(string, string) bool {
@@ -470,6 +483,73 @@ func (r *runner) checkOwner() {
 	}
 	r.hasOwner = true
 	r.add("owner chat_id", Pass, v)
+}
+
+func (r *runner) checkEncryptedReadiness() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil && strings.TrimSpace(cfg.Telegram.EncryptedMode) == "" {
+		r.add("encrypted mode", Warn, err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.Telegram.EncryptedMode))
+	if mode == "" {
+		mode = "off"
+	}
+	if mode == "off" {
+		r.add("encrypted mode", Pass, "off")
+		return
+	}
+	required := encryptedRequiredStatus(mode)
+	seedPresent := false
+	if r.sec == nil {
+		r.add("encrypted seed", required, "secrets backend unavailable")
+	} else {
+		seed, ok, err := r.sec.GetWithTimeout(r.ctx, secrets.KeyEnvelopeSeed, secretLookupTimeout)
+		switch {
+		case err != nil:
+			r.add("encrypted seed", Fail, err.Error())
+		case !ok || strings.TrimSpace(seed) == "":
+			r.add("encrypted seed", required, "missing")
+		default:
+			seedPresent = true
+			r.add("encrypted seed", Pass, "present")
+		}
+	}
+	mini := strings.TrimSpace(cfg.Telegram.MiniAppURL)
+	miniOK := false
+	switch {
+	case mini == "":
+		r.add("mini app url", required, "missing")
+	case !miniappurl.Allowed(mini):
+		r.add("mini app url", required, "must use https or localhost http")
+	default:
+		miniOK = true
+		r.add("mini app url", Pass, "ok")
+	}
+	if seedPresent && miniOK {
+		r.add("secure button", Pass, "available")
+	} else {
+		r.add("secure button", required, "unavailable; seed and Mini App URL required")
+	}
+	r.add("plaintext commands", Pass, "blocked: /prompt /send /editprompt /rename")
+	if r.db == nil {
+		r.add("webapp roundtrip", Warn, "unknown; sqlite db unavailable")
+		return
+	}
+	if _, ok, err := r.db.KVGetString(r.ctx, secureLastActionKey); err != nil {
+		r.add("webapp roundtrip", Warn, err.Error())
+	} else if !ok {
+		r.add("webapp roundtrip", Warn, "never seen; devices paired cannot be verified")
+	} else {
+		r.add("webapp roundtrip", Pass, "seen")
+	}
+}
+
+func encryptedRequiredStatus(mode string) Status {
+	if mode == "on" {
+		return Fail
+	}
+	return Warn
 }
 
 func (r *runner) checkSocket() {
@@ -859,7 +939,10 @@ func (r *runner) checkTOTP() {
 	}
 }
 
-const secretLookupTimeout = 30 * time.Second
+const (
+	secretLookupTimeout = 30 * time.Second
+	secureLastActionKey = "secure:last_webapp_action"
+)
 
 func (r *runner) checkTelegram() {
 	if r.token == "" {

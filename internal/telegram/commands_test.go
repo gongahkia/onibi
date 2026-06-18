@@ -38,7 +38,7 @@ func TestRegisterCommands(t *testing.T) {
 
 func TestHelpTextGrouped(t *testing.T) {
 	got := HelpText()
-	for _, want := range []string{"Sessions:", "Controls:", "Prompts:", "Security:", "/secure - open encrypted controls", "Use /help <command> for details."} {
+	for _, want := range []string{"Sessions:", "Controls:", "Prompts:", "Security:", "/secure [status] - open encrypted controls", "Use /help <command> for details."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help missing %q:\n%s", want, got)
 		}
