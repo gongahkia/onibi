@@ -134,7 +134,7 @@ func parseTelegramCommand(text string) (string, string, bool) {
 }
 
 func (d *Daemon) handleStartCommand(ctx context.Context, api telegram.API, chatID int64, _ string) {
-	text := "Onibi is paired and listening.\n\nChoose how to start:\nHeadless: runs on the laptop without opening a terminal window.\nVisible: opens a laptop terminal attached to the same session.\n\nRemote starts need an explicit project:\n/project add onibi ~/Desktop/coding/projects/onibi\n/new --headless --project onibi shell\n/new --visible --project onibi codex\n/sessions"
+	text := "Onibi is paired and listening.\n\nChoose a guided action below, or send /menu anytime."
 	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: text, ReplyMarkup: telegram.OnboardingKeyboard()})
 }
 
@@ -870,7 +870,7 @@ func (d *Daemon) projectListText(ctx context.Context) string {
 	if d.DB == nil {
 		return "Projects unavailable."
 	}
-	keys, err := d.DB.KVKeysWithPrefix(ctx, projectAliasPrefix)
+	keys, err := d.projectAliasKeys(ctx)
 	if err != nil {
 		return "Project read failed: " + err.Error()
 	}
@@ -887,6 +887,21 @@ func (d *Daemon) projectListText(ctx context.Context) string {
 		}
 	}
 	return b.String()
+}
+
+func (d *Daemon) firstProjectAlias(ctx context.Context) string {
+	keys, err := d.projectAliasKeys(ctx)
+	if err != nil || len(keys) == 0 {
+		return ""
+	}
+	return strings.TrimPrefix(keys[0], projectAliasPrefix)
+}
+
+func (d *Daemon) projectAliasKeys(ctx context.Context) ([]string, error) {
+	if d.DB == nil {
+		return nil, errors.New("Project DB unavailable.")
+	}
+	return d.DB.KVKeysWithPrefix(ctx, projectAliasPrefix)
 }
 
 const projectAliasPrefix = "project_alias:"

@@ -66,7 +66,7 @@ func TestStartCommandShowsHelp(t *testing.T) {
 		t.Fatal("command not handled")
 	}
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/sessions") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/menu") || sent[0].ReplyMarkup == nil {
 		t.Fatalf("sent = %#v", sent)
 	}
 }
@@ -79,7 +79,7 @@ func TestStartCommandIgnoresPairPayload(t *testing.T) {
 		t.Fatal("command not handled")
 	}
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/sessions") {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi is paired and listening") || !strings.Contains(sent[0].Text, "/menu") || sent[0].ReplyMarkup == nil {
 		t.Fatalf("sent = %#v", sent)
 	}
 }
@@ -246,7 +246,7 @@ func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 		t.Fatalf("sent = %#v", sent)
 	}
 	got := fmt.Sprint(sent[0].ReplyMarkup)
-	for _, want := range []string{"New Visible", "New Headless", "Projects", "Doctor", "Hooks"} {
+	for _, want := range []string{"New Visible", "New Headless", "Projects", "Test Approval", "Doctor", "Hooks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("menu missing %q: %s", want, got)
 		}
@@ -274,10 +274,46 @@ func TestMenuShowsGlobalAndSessionButtons(t *testing.T) {
 		}
 	}
 	got := fmt.Sprint(markup.InlineKeyboard)
-	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "New Visible", "New Headless", "Projects", "Peek", "Send", "Interrupt", "Show", "Doctor", "Hooks"} {
+	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "New Visible", "New Headless", "Projects", "Test Approval", "Peek", "Send", "Interrupt", "Show", "Doctor", "Hooks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("menu missing %q: %s", want, got)
 		}
+	}
+}
+
+func TestOnboardVisibleUsesProjectAlias(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), dir); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "onboard_visible", ""); err != nil {
+		t.Fatal(err)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "/new --visible --project repo shell") {
+		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestDemoApprovalCallbackSendsApproval(t *testing.T) {
+	d := newApprovalDaemon(t)
+	mock := telegram.NewMock(nil)
+	d.Bot = mock
+	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "demo_approval", ""); err != nil {
+		t.Fatal(err)
+	}
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Approval request") || !strings.Contains(sent[0].Text, "Agent: demo") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	pending, err := d.Queue.Pending(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Agent != "demo" {
+		t.Fatalf("pending = %#v", pending)
 	}
 }
 

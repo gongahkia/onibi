@@ -92,6 +92,8 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 			mode = "ended"
 		}
 		return intake.Response{SessionID: ev.Session, Mode: mode, Text: msg}, nil
+	case intake.TypeDemoApproval:
+		return d.handleDemoApprovalRequest(ctx, ev)
 	default:
 		return intake.Response{}, errors.New("unknown rpc type")
 	}

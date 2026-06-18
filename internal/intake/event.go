@@ -13,6 +13,7 @@ const (
 	TypeSessionNew      = "session_new"      // RPC: create a tmux-backed session
 	TypeSessionShow     = "session_show"     // RPC: open a visible terminal for a session
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
+	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
 	TypePing            = "ping"             // RPC: daemon health probe
 )
 

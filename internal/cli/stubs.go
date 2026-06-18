@@ -107,6 +107,22 @@ func rotateTokenCmd() *cobra.Command {
 	}
 }
 
+func demoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "demo",
+		Short: "Run guided local demos",
+	}
+	approval := &cobra.Command{
+		Use:   "approval",
+		Short: "Send a test approval to Telegram",
+		RunE:  runDemoApproval,
+	}
+	approval.Flags().String("tool", "Bash", "demo tool name")
+	approval.Flags().String("input", `{"command":"echo onibi demo approval"}`, "demo tool input JSON")
+	cmd.AddCommand(approval)
+	return cmd
+}
+
 func pingCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ping",

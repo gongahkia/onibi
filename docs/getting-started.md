@@ -111,6 +111,7 @@ After setup, run:
 onibi doctor
 onibi adapters
 onibi config list
+onibi demo approval
 ```
 
 Expected result:
@@ -118,8 +119,19 @@ Expected result:
 - `doctor` reports the state directory, SQLite DB, owner chat id, token, and hook status.
 - `adapters` shows which agent hooks are installed or available.
 - `config list` prints daemon, shell, and Telegram settings.
+- `demo approval` sends a labelled test approval to Telegram without executing an agent tool.
 
 ## 5. Start The First Session
+
+Open Telegram and send:
+
+```text
+/menu
+```
+
+Use the onboarding buttons to add a project, choose an agent, start visible,
+or trigger a test approval. The test approval path does not require trusted
+agent hooks.
 
 For the normal Telegram flow, add the repo as an explicit project alias:
 
@@ -176,7 +188,13 @@ You should see the running session id, agent name, and current daemon status.
 
 ## 6. Trigger The First Approval
 
-In the Claude Code session, ask it to do something that uses a tool, for example:
+To test approvals before agent hooks are trusted, run:
+
+```bash
+onibi demo approval
+```
+
+For a real agent approval, ask the agent to do something that uses a tool, for example:
 
 ```text
 list the files in this repo

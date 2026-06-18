@@ -373,7 +373,7 @@ Files:
 - `internal/daemon/webapp.go`
 - `docs/miniapp/index.html`
 
-### 6. First-Run Guided Path
+### 6. First-Run Guided Path [DONE 2026-06-18]
 
 Problem:
 - Docs describe the path, but the product does not drive it.

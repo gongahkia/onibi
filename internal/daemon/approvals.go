@@ -13,6 +13,7 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
+	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/envelope"
@@ -88,6 +89,72 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		_ = d.Queue.Cancel(context.Background(), approvalID, "daemon shutdown")
 		return intake.Response{Decision: "cancelled", Reason: "daemon shutdown"}, nil
 	}
+}
+
+func (d *Daemon) handleDemoApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
+	approvalID, ch, sent, err := d.startDemoApproval(ctx, ev)
+	if err != nil {
+		return intake.Response{}, err
+	}
+	select {
+	case dec := <-ch:
+		return d.respondAndAnnotate(ctx, approvalID, sent, dec, ev)
+	case <-ctx.Done():
+		_ = d.Queue.Cancel(context.Background(), approvalID, "demo approval cancelled")
+		return intake.Response{Decision: "cancelled", Reason: "demo approval cancelled"}, nil
+	}
+}
+
+func (d *Daemon) startDemoApproval(ctx context.Context, ev intake.Event) (string, <-chan approval.Decision, *models.Message, error) {
+	if d.Bot == nil {
+		return "", nil, nil, errors.New("telegram bot unavailable")
+	}
+	if d.Owner == nil {
+		return "", nil, nil, errors.New("owner unavailable")
+	}
+	tool := strings.TrimSpace(ev.Tool)
+	if tool == "" {
+		tool = "Bash"
+	}
+	inputJSON := strings.TrimSpace(ev.InputJSON)
+	if inputJSON == "" {
+		inputJSON = `{"command":"echo onibi demo approval"}`
+	}
+	agent := strings.TrimSpace(ev.Agent)
+	if agent == "" {
+		agent = "demo"
+	}
+	sessionID := strings.TrimSpace(ev.Session)
+	if sessionID == "" {
+		sessionID = "demo"
+	}
+	approvalID, ch, err := d.Queue.Request(ctx, sessionID, agent, tool, inputJSON)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	a, err := d.Queue.Get(ctx, approvalID)
+	if err != nil {
+		_ = d.Queue.Cancel(context.Background(), approvalID, "demo approval failed")
+		return "", nil, nil, err
+	}
+	sent, err := d.sendApprovalMessageWithContext(ctx, approvalID, tool, inputJSON, false, approvalRenderContext{
+		Agent:        agent,
+		SessionLabel: "test approval (" + sessionID + ")",
+		CWD:          ev.CWD,
+		ToolTarget:   ev.ToolTarget,
+		Command:      ev.Command,
+		FilePath:     ev.FilePath,
+		ExpiresAt:    a.ExpiresAt,
+	})
+	if err != nil {
+		_ = d.Queue.Cancel(context.Background(), approvalID, "telegram send failed: "+err.Error())
+		return "", nil, nil, err
+	}
+	if sent != nil {
+		_ = d.Queue.SetMessage(ctx, approvalID, sent.Chat.ID, int64(sent.ID))
+	}
+	d.audit(ctx, "approval.demo", sessionID, inputJSON, 0, "tool="+tool+" id="+approvalID)
+	return approvalID, ch, sent, nil
 }
 
 // RestorePendingApprovals re-renders pending approvals after a daemon restart.
@@ -279,6 +346,10 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		answerCallback(ctx, api, q.ID, "Sending status")
 		_, _ = d.sendMaybeEncryptedText(ctx, api, q.From.ID, "status", "Onibi status", d.statusText(ctx, q.From.ID))
 		return nil
+	case "menu_home":
+		answerCallback(ctx, api, q.ID, "Opening menu")
+		d.handleMenuCommand(ctx, api, q.From.ID)
+		return nil
 	case "menu_sessions":
 		answerCallback(ctx, api, q.ID, "Sending sessions")
 		_, _ = d.sendMaybeEncryptedText(ctx, api, q.From.ID, "sessions", "Active sessions", d.sessionsText(ctx, q.From.ID))
@@ -318,6 +389,35 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 	case "menu_new_visible":
 		answerCallback(ctx, api, q.ID, "Visible session")
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/project list\n/new --visible --project <alias> shell\n/new --visible --project <alias> codex"})
+		return nil
+	case "onboard_project":
+		answerCallback(ctx, api, q.ID, "Add project")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Add project:\n/project add <alias> <path>\n\nExample:\n/project add onibi ~/Desktop/coding/projects/onibi"})
+		return nil
+	case "onboard_agent":
+		answerCallback(ctx, api, q.ID, "Choose agent")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Choose agent:\nshell  no hooks required\n" + strings.Join(adapters.Names(), "\n") + "\n\nStart with shell if you have not reviewed agent hooks."})
+		return nil
+	case "onboard_visible":
+		answerCallback(ctx, api, q.ID, "Start visible")
+		alias := d.firstProjectAlias(ctx)
+		if alias == "" {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Add a project first:\n/project add <alias> <path>"})
+			return nil
+		}
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start visible:\n/new --visible --project " + alias + " shell\n/new --visible --project " + alias + " codex"})
+		return nil
+	case "demo_approval":
+		answerCallback(ctx, api, q.ID, "Sending test approval")
+		if _, _, _, err := d.startDemoApproval(ctx, intake.Event{
+			Type:       intake.TypeDemoApproval,
+			Agent:      "demo",
+			Tool:       "Bash",
+			ToolTarget: "echo onibi demo approval",
+			InputJSON:  `{"command":"echo onibi demo approval"}`,
+		}); err != nil {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Test approval failed: " + err.Error()})
+		}
 		return nil
 	}
 	if verb == "target" {

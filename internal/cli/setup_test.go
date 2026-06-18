@@ -72,6 +72,9 @@ func TestSetupCompleteContinuesWhenUserConfirmsMissingNotify(t *testing.T) {
 	if !strings.Contains(out.String(), "Doctor summary:") {
 		t.Fatalf("stdout = %q", out.String())
 	}
+	if !strings.Contains(out.String(), "onibi demo approval") {
+		t.Fatalf("missing next action: %q", out.String())
+	}
 }
 
 func TestSetupEncryptedPrintsURLBeforeQR(t *testing.T) {

@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/envelope"
@@ -19,6 +21,7 @@ import (
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 var doctorRun = doctor.Run
@@ -105,6 +108,8 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	if complete {
 		return runSetupComplete(cmd, paths, db)
 	}
+	printSetupNextActions(cmd)
+	sendSetupOnboarding(ctx, cmd, paths, db)
 	return nil
 }
 
@@ -208,7 +213,54 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 	if report.Failed() {
 		return fmt.Errorf("setup complete but doctor failed")
 	}
+	printSetupNextActions(cmd)
+	sendSetupOnboarding(cmd.Context(), cmd, paths, db)
 	return nil
+}
+
+func printSetupNextActions(cmd *cobra.Command) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nNext:")
+	fmt.Fprintln(cmd.OutOrStdout(), "  onibi demo approval")
+	fmt.Fprintln(cmd.OutOrStdout(), "  /menu")
+	fmt.Fprintln(cmd.OutOrStdout(), "  /project add <alias> <path>")
+	fmt.Fprintln(cmd.OutOrStdout(), "  /new --visible --project <alias> shell")
+}
+
+func sendSetupOnboarding(ctx context.Context, cmd *cobra.Command, paths config.Paths, db *store.DB) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	owner, err := auth.LoadOwner(ctx, db)
+	if err != nil {
+		return
+	}
+	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	if err != nil {
+		return
+	}
+	token, ok, err := sec.GetWithTimeout(ctx, secrets.KeyBotToken, 5*time.Second)
+	if err != nil || !ok || strings.TrimSpace(token) == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	bot, err := telegram.New(ctx, telegram.Options{Token: token, OffsetStore: db})
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: onboarding Telegram send skipped: %v\n", err)
+		return
+	}
+	_, err = bot.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID:      owner.ID(),
+		Text:        onboardingText(),
+		ReplyMarkup: telegram.OnboardingKeyboard(),
+	})
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: onboarding Telegram send failed: %v\n", err)
+	}
+}
+
+func onboardingText() string {
+	return "Onibi setup complete.\n\nChoose next action:"
 }
 
 func handleMissingNotifyBinary(cmd *cobra.Command, br *bufio.Reader, cause error) error {

@@ -1,6 +1,9 @@
 package telegram
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestApprovalKeyboardLayout(t *testing.T) {
 	kb := ApprovalKeyboard("abc123")
@@ -48,6 +51,11 @@ func TestParseCallback(t *testing.T) {
 		{"msend:s1", "menu_send", "s1"},
 		{"msnooze", "menu_snooze", ""},
 		{"munsnooze", "menu_unsnooze", ""},
+		{"mmenu", "menu_home", ""},
+		{"obproj", "onboard_project", ""},
+		{"obagent", "onboard_agent", ""},
+		{"obvis", "onboard_visible", ""},
+		{"obdemo", "demo_approval", ""},
 		{"peek:s1", "peek", "s1"},
 		{"render:s1", "render", "s1"},
 		{"shot:s1", "render", "s1"},
@@ -60,6 +68,24 @@ func TestParseCallback(t *testing.T) {
 		v, id := ParseCallback(c.in)
 		if v != c.verb || id != c.id {
 			t.Errorf("ParseCallback(%q) = (%q, %q), want (%q, %q)", c.in, v, id, c.verb, c.id)
+		}
+	}
+}
+
+func TestOnboardingKeyboardHasGuidedActions(t *testing.T) {
+	kb := OnboardingKeyboard()
+	got := ""
+	for _, row := range kb.InlineKeyboard {
+		for _, b := range row {
+			got += b.Text + " "
+			if len(b.CallbackData) > 64 {
+				t.Fatalf("%s callback_data over 64 bytes: %d", b.Text, len(b.CallbackData))
+			}
+		}
+	}
+	for _, want := range []string{"Add Project", "Choose Agent", "Start Visible", "Test Approval", "Sessions", "Menu"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("keyboard missing %q: %s", want, got)
 		}
 	}
 }

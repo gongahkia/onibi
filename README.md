@@ -120,6 +120,7 @@ CLI:
 - `onibi up`
 - `onibi doctor`
 - `onibi adapters`
+- `onibi demo approval`
 - `onibi run <agent>`
 - `onibi shell [shell]`
 - `onibi wrap <command>`

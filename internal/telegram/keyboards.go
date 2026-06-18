@@ -42,6 +42,11 @@ const (
 	CBMenuSend        = "msend:"
 	CBMenuSnooze      = "msnooze"
 	CBMenuUnsnooze    = "munsnooze"
+	CBMenuHome        = "mmenu"
+	CBOnboardProject  = "obproj"
+	CBOnboardAgent    = "obagent"
+	CBOnboardVisible  = "obvis"
+	CBOnboardDemo     = "obdemo"
 )
 
 type SessionTarget struct {
@@ -109,12 +114,16 @@ func EncryptedWebAppKeyboard(label, url string) *models.ReplyKeyboardMarkup {
 func OnboardingKeyboard() *models.InlineKeyboardMarkup {
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
 		{
-			{Text: "New Headless", CallbackData: CBMenuNewHeadless},
-			{Text: "New Visible", CallbackData: CBMenuNewVisible},
+			{Text: "Add Project", CallbackData: CBOnboardProject},
+			{Text: "Choose Agent", CallbackData: CBOnboardAgent},
+		},
+		{
+			{Text: "Start Visible", CallbackData: CBOnboardVisible},
+			{Text: "Test Approval", CallbackData: CBOnboardDemo},
 		},
 		{
 			{Text: "Sessions", CallbackData: CBMenuSessions},
-			{Text: "Queue", CallbackData: CBMenuQueue},
+			{Text: "Menu", CallbackData: CBMenuHome},
 		},
 	}}
 }
@@ -173,6 +182,7 @@ func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
 		{Text: "New Visible", CallbackData: CBMenuNewVisible},
 		{Text: "New Headless", CallbackData: CBMenuNewHeadless},
 		{Text: "Projects", CallbackData: CBMenuProjects},
+		{Text: "Test Approval", CallbackData: CBOnboardDemo},
 	})
 	rows = append(rows, []models.InlineKeyboardButton{
 		{Text: "Snooze", CallbackData: CBMenuSnooze},
@@ -246,6 +256,16 @@ func ParseCallback(data string) (verb, id string) {
 		return "menu_snooze", ""
 	case data == CBMenuUnsnooze:
 		return "menu_unsnooze", ""
+	case data == CBMenuHome:
+		return "menu_home", ""
+	case data == CBOnboardProject:
+		return "onboard_project", ""
+	case data == CBOnboardAgent:
+		return "onboard_agent", ""
+	case data == CBOnboardVisible:
+		return "onboard_visible", ""
+	case data == CBOnboardDemo:
+		return "demo_approval", ""
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
 	case strings.HasPrefix(data, CBConfirm):
