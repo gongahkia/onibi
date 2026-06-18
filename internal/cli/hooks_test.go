@@ -118,6 +118,44 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	}
 }
 
+func TestHooksMatrixIncludesAgentsAndShells(t *testing.T) {
+	hooksCLIFixture(t)
+	out, _ := executeRoot(t, "hooks", "matrix", "--json", "--color", "never")
+	var rows []hooksMatrixRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if row, ok := matrixRow(rows, "goose"); !ok || row.Support != "event-bridge" {
+		t.Fatalf("goose row = %+v ok=%v", row, ok)
+	}
+	if row, ok := matrixRow(rows, "codex"); !ok || row.Support != "blocking" || row.NextAction == "" {
+		t.Fatalf("codex row = %+v ok=%v", row, ok)
+	}
+	if row, ok := matrixRow(rows, "shell:zsh"); !ok || row.Support != "event-bridge" || row.ConfigSchemaStatus != "n/a" {
+		t.Fatalf("shell row = %+v ok=%v", row, ok)
+	}
+}
+
+func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
+	hooksCLIFixture(t)
+	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "matrix", "--json", "--color", "never")
+	var rows []hooksMatrixRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	row, ok := matrixRow(rows, "codex")
+	if !ok {
+		t.Fatalf("missing codex row: %+v", rows)
+	}
+	if row.ConfigSchemaStatus != "ok" || row.HashStatus != "ok" || row.Drift != "ok" {
+		t.Fatalf("codex matrix = %+v", row)
+	}
+	if !strings.Contains(row.TrustedManualStep, "Review hooks") || !strings.Contains(row.NextAction, "Review hooks") {
+		t.Fatalf("manual step missing: %+v", row)
+	}
+}
+
 func hooksCLIFixture(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -147,6 +185,15 @@ func executeRoot(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer) {
 		t.Fatalf("execute %v: %v\nstdout:\n%s\nstderr:\n%s", args, err, out.String(), errOut.String())
 	}
 	return out, errOut
+}
+
+func matrixRow(rows []hooksMatrixRow, provider string) (hooksMatrixRow, bool) {
+	for _, row := range rows {
+		if row.Provider == provider {
+			return row, true
+		}
+	}
+	return hooksMatrixRow{}, false
 }
 
 func hasDrift(rows []hookDrift, event, status, detailPart string) bool {

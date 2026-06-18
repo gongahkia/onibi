@@ -141,6 +141,19 @@ type hookDrift struct {
 	Detail           string `json:"detail,omitempty"`
 }
 
+type hooksMatrixRow struct {
+	Provider           string `json:"provider"`
+	Support            string `json:"support"`
+	InstallPath        string `json:"install_path,omitempty"`
+	ObservedVersion    string `json:"observed_version,omitempty"`
+	BundledVersion     string `json:"bundled_version"`
+	TrustedManualStep  string `json:"trusted_manual_step"`
+	ConfigSchemaStatus string `json:"config_schema_status"`
+	HashStatus         string `json:"hash_status"`
+	Drift              string `json:"drift"`
+	NextAction         string `json:"next_action,omitempty"`
+}
+
 func runHooksShow(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
 	all, _ := cmd.Flags().GetBool("all")
@@ -185,6 +198,171 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 		renderHooksShow(cmd, report)
 	}
 	return nil
+}
+
+func runHooksMatrix(cmd *cobra.Command, _ []string) error {
+	asJSON, _ := cmd.Flags().GetBool("json")
+	db, err := openDefaultDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	rows, err := buildHooksMatrix(cmd, db, hooksShowNotifyBin())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(rows)
+	}
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "PROVIDER", "SUPPORT", "PATH", "OBSERVED", "BUNDLED", "MANUAL", "SCHEMA", "HASH", "DRIFT", "NEXT")}
+	for _, r := range rows {
+		table = append(table, []string{
+			r.Provider,
+			r.Support,
+			valueOrDash(r.InstallPath),
+			valueOrDash(r.ObservedVersion),
+			valueOrDash(r.BundledVersion),
+			valueOrDash(r.TrustedManualStep),
+			r.ConfigSchemaStatus,
+			r.HashStatus,
+			r.Drift,
+			valueOrDash(r.NextAction),
+		})
+	}
+	return renderTable(cmd.OutOrStdout(), table)
+}
+
+func buildHooksMatrix(cmd *cobra.Command, db *store.DB, notifyBin string) ([]hooksMatrixRow, error) {
+	var rows []hooksMatrixRow
+	for _, name := range adapters.Names() {
+		a, _ := adapters.Get(name)
+		info := a.Status(cmd.Context(), db)
+		report, err := buildHooksShowReport(cmd, db, name, notifyBin)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, matrixRowFromInfo(info, &report, "onibi install-hooks --agent "+name))
+	}
+	for _, sh := range adapters.ShellNames() {
+		info := adapters.ShellStatus(cmd.Context(), db, sh)
+		rows = append(rows, matrixRowFromInfo(info, nil, "onibi install-hooks --shell "+sh))
+	}
+	return rows, nil
+}
+
+func matrixRowFromInfo(info common.Info, report *hooksShowReport, installCmd string) hooksMatrixRow {
+	row := hooksMatrixRow{
+		Provider:           info.Name,
+		Support:            info.Support,
+		InstallPath:        info.InstallPath,
+		ObservedVersion:    installedVersionString(info),
+		BundledVersion:     info.BundledVersion,
+		TrustedManualStep:  manualStep(report),
+		ConfigSchemaStatus: schemaStatus(info, report),
+		HashStatus:         hashStatus(info),
+		Drift:              driftSummary(info, report),
+		NextAction:         info.Next,
+	}
+	if row.NextAction == "" && !info.Installed {
+		row.NextAction = installCmd
+	}
+	if row.NextAction == "" && row.TrustedManualStep != "none" {
+		row.NextAction = row.TrustedManualStep
+	}
+	return row
+}
+
+func installedVersionString(info common.Info) string {
+	if info.InstalledVersion == nil {
+		return ""
+	}
+	return *info.InstalledVersion
+}
+
+func manualStep(report *hooksShowReport) string {
+	if report == nil || len(report.TrustInstructions) == 0 {
+		return "none"
+	}
+	return strings.Join(report.TrustInstructions, " | ")
+}
+
+func schemaStatus(info common.Info, report *hooksShowReport) string {
+	if strings.HasPrefix(info.Name, "shell:") {
+		return "n/a"
+	}
+	if report != nil {
+		for _, row := range report.Drift {
+			if row.Status == "schema-invalid" {
+				return "schema-invalid"
+			}
+		}
+		if len(report.Expected) > 0 || len(report.Observed) > 0 {
+			return "ok"
+		}
+	}
+	if !info.Installed {
+		return "not installed"
+	}
+	switch info.Name {
+	case "amp", "opencode", "pi":
+		return "owned-source"
+	default:
+		return "not checked"
+	}
+}
+
+func hashStatus(info common.Info) string {
+	switch {
+	case !info.Installed:
+		return "n/a"
+	case !info.Managed:
+		return "unmanaged"
+	case info.Tampered:
+		return "mismatch"
+	case !info.HashRecorded:
+		return "missing"
+	case info.Adoptable:
+		return "adoptable"
+	default:
+		return "ok"
+	}
+}
+
+func driftSummary(info common.Info, report *hooksShowReport) string {
+	if report == nil || len(report.Drift) == 0 {
+		switch {
+		case !info.Installed:
+			return "not installed"
+		case !info.Managed:
+			return "unmanaged"
+		case info.Tampered:
+			return "hash-mismatch"
+		case !info.HashRecorded:
+			return "hash-missing"
+		case info.Outdated:
+			return "outdated"
+		default:
+			return "ok"
+		}
+	}
+	counts := map[string]int{}
+	for _, row := range report.Drift {
+		counts[row.Status]++
+	}
+	if len(counts) == 1 && counts["ok"] > 0 {
+		return "ok"
+	}
+	order := []string{"schema-invalid", "missing", "changed", "hash-missing", "hash-mismatch", "outdated", "extra", "ok"}
+	parts := make([]string, 0, len(counts))
+	for _, status := range order {
+		if counts[status] > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", status, counts[status]))
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 func buildHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin string) (hooksShowReport, error) {

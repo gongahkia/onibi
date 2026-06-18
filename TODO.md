@@ -514,7 +514,7 @@ Acceptance:
 - `telegram.encrypted_mode=on` with missing seed fails doctor with repair plan.
 - Plaintext `/prompt`, `/send`, `/editprompt`, `/rename` remain blocked in encrypted mode.
 
-### Hook Compatibility Matrix
+### Hook Compatibility Matrix [DONE 2026-06-18]
 
 Requirement:
 - Users and support need a single view of hook status across providers.
