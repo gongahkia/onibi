@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/miniappurl"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -190,8 +192,8 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("telegram.encrypted_mode must be one of off, ask, on")
 	}
-	if c.Telegram.MiniAppURL != "" && !strings.HasPrefix(c.Telegram.MiniAppURL, "https://") {
-		return fmt.Errorf("telegram.mini_app_url must use https")
+	if c.Telegram.MiniAppURL != "" && !miniappurl.Allowed(c.Telegram.MiniAppURL) {
+		return fmt.Errorf("telegram.mini_app_url must use https or localhost http")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":

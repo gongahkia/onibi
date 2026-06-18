@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/miniappurl"
 )
 
 const (
@@ -159,8 +161,8 @@ func BuildOpenURL(base string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if u.Scheme != "https" {
-		return "", errors.New("mini app URL must use https")
+	if !miniappurl.Allowed(base) {
+		return "", errors.New("mini app URL must use https or localhost http")
 	}
 	return u.String(), nil
 }
@@ -182,8 +184,8 @@ func buildURL(base, key, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if u.Scheme != "https" {
-		return "", errors.New("mini app URL must use https")
+	if !miniappurl.Allowed(base) {
+		return "", errors.New("mini app URL must use https or localhost http")
 	}
 	u.Fragment = key + "=" + url.QueryEscape(value)
 	return u.String(), nil

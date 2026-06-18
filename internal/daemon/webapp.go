@@ -42,6 +42,7 @@ func (d *Daemon) onWebAppData(ctx context.Context, api telegram.API, m *models.M
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Invalid Mini App payload."})
 		return nil
 	}
+	d.recordSecureWebAppAction(ctx)
 	switch dec.Action {
 	case "prompt":
 		if strings.TrimSpace(dec.Text) == "" {

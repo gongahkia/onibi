@@ -43,7 +43,11 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: telegram.HelpDetail(arg)})
 		}
 	case "/secure":
-		d.sendSecureRequired(ctx, api, m.Chat.ID)
+		if strings.EqualFold(strings.TrimSpace(arg), "status") {
+			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: d.secureStatusText(ctx)})
+		} else {
+			d.sendSecureRequired(ctx, api, m.Chat.ID)
+		}
 	case "/text":
 		d.handleRenderOverride(ctx, api, m.Chat.ID, arg, render.ModeText)
 	case "/render":
@@ -68,19 +72,19 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 		d.handleQueueCommand(ctx, api, m.Chat.ID, arg)
 	case "/prompt":
 		if d.encryptedModeEnabled() {
-			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			d.sendSecureBlocked(ctx, api, m.Chat.ID)
 			return true
 		}
 		d.handlePromptCommand(ctx, api, m.Chat.ID, arg)
 	case "/send":
 		if d.encryptedModeEnabled() {
-			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			d.sendSecureBlocked(ctx, api, m.Chat.ID)
 			return true
 		}
 		d.handleSendCommand(ctx, api, m.Chat.ID, arg)
 	case "/editprompt":
 		if d.encryptedModeEnabled() {
-			d.sendSecureRequired(ctx, api, m.Chat.ID)
+			d.sendSecureBlocked(ctx, api, m.Chat.ID)
 			return true
 		}
 		d.handleEditPromptCommand(ctx, api, m.Chat.ID, arg)
@@ -101,8 +105,8 @@ func (d *Daemon) handleTextCommand(ctx context.Context, api telegram.API, m *mod
 	case "/kill":
 		d.handleKillCommand(ctx, api, m.Chat.ID, arg)
 	case "/rename":
-		if d.encryptedModeEnabled() && strings.TrimSpace(arg) != "" {
-			d.sendSecureRequired(ctx, api, m.Chat.ID)
+		if d.encryptedModeEnabled() {
+			d.sendSecureBlocked(ctx, api, m.Chat.ID)
 			return true
 		}
 		d.handleRenameCommand(ctx, api, m.Chat.ID, arg)
@@ -236,7 +240,7 @@ func (d *Daemon) menuText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	total, busy, headless, visible := d.menuSessionCounts(ctx, live)
 	text := fmt.Sprintf("Onibi\ndaemon: %s\ntarget: %s\nsessions: %d total, %d busy, %d headless, %d visible\napprovals: %s pending\nqueue: %s queued\nsnooze: %s\nsecure: %s\nhooks: %s",
-		d.menuDaemonState(ctx), d.menuTargetLabel(ctx, chatID, live), total, busy, headless, visible, d.pendingApprovalCount(ctx), d.queuedPromptCount(ctx), d.menuSnoozeLabel(ctx), d.secureStatus(), d.hookHealthSummary(ctx))
+		d.menuDaemonState(ctx), d.menuTargetLabel(ctx, chatID, live), total, busy, headless, visible, d.pendingApprovalCount(ctx), d.queuedPromptCount(ctx), d.menuSnoozeLabel(ctx), d.secureStatus(ctx), d.hookHealthSummary(ctx))
 	if len(live) > 0 {
 		text += "\n\n" + d.sessionCardsText(ctx, chatID, live)
 	}
@@ -316,18 +320,6 @@ func (d *Daemon) menuSnoozeLabel(ctx context.Context) string {
 	default:
 		return "agent"
 	}
-}
-
-func (d *Daemon) secureStatus() string {
-	seed := "missing"
-	if strings.TrimSpace(d.EnvelopeSeed) != "" {
-		seed = "ok"
-	}
-	mini := "missing"
-	if strings.TrimSpace(d.MiniAppURL) != "" {
-		mini = "ok"
-	}
-	return fmt.Sprintf("%s, seed %s, mini app %s", d.encryptedModeLabel(), seed, mini)
 }
 
 func (d *Daemon) hookHealthSummary(ctx context.Context) string {
