@@ -59,9 +59,8 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 		return err
 	}
 	cfg := map[string]any{
-		"version":           1,
-		common.VersionField: common.IntegrationVersion,
-		"hooks":             map[string]any{},
+		"version": 1,
+		"hooks":   map[string]any{},
 	}
 	hooks := cfg["hooks"].(map[string]any)
 	for _, e := range events {
@@ -150,11 +149,9 @@ func Adopt(ctx context.Context, db *store.DB) error {
 
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
-		common.GuardField:   true,
-		common.VersionField: common.IntegrationVersion,
-		"type":              "command",
-		"bash":              common.Command(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
-		"timeoutSec":        e.timeout,
+		"type":       "command",
+		"bash":       common.VersionedCommand(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
+		"timeoutSec": e.timeout,
 	}
 }
 
@@ -184,6 +181,21 @@ func installedVersion(path string) string {
 	if s, _ := cfg[common.VersionField].(string); s != "" {
 		return s
 	}
+	if hooks, ok := cfg["hooks"].(map[string]any); ok {
+		for _, entries := range hooks {
+			for _, h := range asSlice(entries) {
+				hm, _ := h.(map[string]any)
+				if isManaged(hm) {
+					if s, _ := hm[common.VersionField].(string); s != "" {
+						return s
+					}
+					if s := common.CommandVersion(commandValue(hm)); s != "" {
+						return s
+					}
+				}
+			}
+		}
+	}
 	return ""
 }
 
@@ -197,6 +209,15 @@ func isManaged(v any) bool {
 	}
 	cmd, _ := m["bash"].(string)
 	return strings.Contains(cmd, "onibi-notify") && strings.Contains(cmd, "--agent copilot")
+}
+
+func commandValue(m map[string]any) string {
+	cmd, _ := m["bash"].(string)
+	if cmd != "" {
+		return cmd
+	}
+	cmd, _ = m["command"].(string)
+	return cmd
 }
 
 func keys(m map[string]any) []string {

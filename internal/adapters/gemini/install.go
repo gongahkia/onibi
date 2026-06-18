@@ -24,13 +24,13 @@ type eventSpec struct {
 }
 
 var events = []eventSpec{
-	{event: "SessionStart", typ: "agent_message", timeout: 30},
-	{event: "BeforeAgent", typ: "agent_message", timeout: 30},
-	{event: "BeforeTool", matcher: "*", typ: "approval_request", wait: true, response: "provider", timeout: 360},
-	{event: "AfterTool", typ: "agent_message", timeout: 30},
-	{event: "Notification", typ: "agent_message", timeout: 30},
-	{event: "AfterAgent", typ: "agent_done", timeout: 30},
-	{event: "SessionEnd", typ: "session_exited", timeout: 30},
+	{event: "SessionStart", typ: "agent_message", timeout: 30000},
+	{event: "BeforeAgent", typ: "agent_message", timeout: 30000},
+	{event: "BeforeTool", matcher: "*", typ: "approval_request", wait: true, response: "provider", timeout: 360000},
+	{event: "AfterTool", typ: "agent_message", timeout: 30000},
+	{event: "Notification", typ: "agent_message", timeout: 30000},
+	{event: "AfterAgent", typ: "agent_done", timeout: 30000},
+	{event: "SessionEnd", typ: "session_exited", timeout: 30000},
 }
 
 func SettingsPath() (string, error) {
@@ -56,7 +56,7 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 		return err
 	}
 	removeManaged(cfg)
-	cfg[common.VersionField] = common.IntegrationVersion
+	delete(cfg, common.VersionField)
 	hooks, _ := cfg["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
@@ -159,11 +159,9 @@ func Adopt(ctx context.Context, db *store.DB) error {
 
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
-		common.GuardField:   true,
-		common.VersionField: common.IntegrationVersion,
-		"type":              "command",
-		"command":           common.Command(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
-		"timeout":           e.timeout,
+		"type":    "command",
+		"command": common.VersionedCommand(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
+		"timeout": e.timeout,
 	}
 }
 
@@ -195,6 +193,24 @@ func installedVersion(path string) string {
 	}
 	if s, _ := cfg[common.VersionField].(string); s != "" {
 		return s
+	}
+	if hooks, ok := cfg["hooks"].(map[string]any); ok {
+		for _, groups := range hooks {
+			for _, group := range asSlice(groups) {
+				gm, _ := group.(map[string]any)
+				for _, h := range asSlice(gm["hooks"]) {
+					hm, _ := h.(map[string]any)
+					if isManaged(hm) {
+						if s, _ := hm[common.VersionField].(string); s != "" {
+							return s
+						}
+						if s := common.CommandVersion(commandValue(hm)); s != "" {
+							return s
+						}
+					}
+				}
+			}
+		}
 	}
 	return ""
 }
@@ -241,6 +257,11 @@ func isManaged(v any) bool {
 	}
 	cmd, _ := m["command"].(string)
 	return strings.Contains(cmd, "onibi-notify") && strings.Contains(cmd, "--agent gemini")
+}
+
+func commandValue(m map[string]any) string {
+	cmd, _ := m["command"].(string)
+	return cmd
 }
 
 func keys(m map[string]any) []string {

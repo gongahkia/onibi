@@ -14,13 +14,17 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	offline, _ := cmd.Flags().GetBool("offline")
 	mode, _ := cmd.Flags().GetString("mode")
 	fix, _ := cmd.Flags().GetBool("fix")
+	afterUpgrade, _ := cmd.Flags().GetBool("after-upgrade")
+	if afterUpgrade {
+		offline = true
+	}
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
-	opts := doctor.Options{Paths: paths, Offline: offline, Mode: mode}
+	opts := doctor.Options{Paths: paths, Offline: offline, Mode: mode, AfterUpgrade: afterUpgrade}
 	style := styleFor(cmd)
 	if fix {
 		fixes := doctor.Fix(ctx, opts)

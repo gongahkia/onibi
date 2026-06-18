@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -51,8 +52,11 @@ func TestInstallCreatesSettings(t *testing.T) {
 			t.Fatalf("expected 1 %s entry, got %d", ev, len(entries))
 		}
 		entry := entries[0].(map[string]any)
-		if entry[guardKey] != true {
-			t.Fatalf("%s entry missing onibi-managed marker", ev)
+		if _, ok := entry[guardKey]; ok {
+			t.Fatalf("%s entry has legacy marker", ev)
+		}
+		if _, ok := entry[common.VersionField]; ok {
+			t.Fatalf("%s entry has legacy version", ev)
 		}
 	}
 
@@ -64,6 +68,9 @@ func TestInstallCreatesSettings(t *testing.T) {
 	}
 	if !contains(cmd, "approval_request") {
 		t.Fatalf("PreToolUse command missing approval_request type: %s", cmd)
+	}
+	if !contains(cmd, common.VersionEnv+"=\""+common.IntegrationVersion+"\"") {
+		t.Fatalf("PreToolUse command missing version env: %s", cmd)
 	}
 
 	// settings file perms
@@ -78,6 +85,9 @@ func TestHookCommandsQuoteNotifyPath(t *testing.T) {
 	cmd := hook["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	if !contains(cmd, "ONIBI_SESSION_ID") || !contains(cmd, "\"/tmp/onibi dir/onibi-notify\"") || !contains(cmd, "--type approval_request --wait") {
 		t.Fatalf("cmd = %q", cmd)
+	}
+	if !contains(cmd, common.VersionEnv+"=\""+common.IntegrationVersion+"\"") {
+		t.Fatalf("cmd missing version env = %q", cmd)
 	}
 }
 

@@ -128,6 +128,7 @@ func doctorCmd() *cobra.Command {
 	cmd.Flags().Bool("offline", false, "skip live Telegram network checks")
 	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
 	cmd.Flags().Bool("fix", false, "apply safe local fixes for doctor warnings")
+	cmd.Flags().Bool("after-upgrade", false, "run offline upgrade checks")
 	return cmd
 }
 

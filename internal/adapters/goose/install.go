@@ -15,18 +15,17 @@ import (
 const Agent = "goose"
 
 type eventSpec struct {
-	event   string
-	typ     string
-	timeout int
+	event string
+	typ   string
 }
 
 var events = []eventSpec{
-	{event: "SessionStart", typ: "agent_message", timeout: 30},
-	{event: "UserPromptSubmit", typ: "agent_message", timeout: 30},
-	{event: "PreToolUse", typ: "agent_message", timeout: 30},
-	{event: "PostToolUse", typ: "agent_message", timeout: 30},
-	{event: "PostToolUseFailure", typ: "agent_message", timeout: 30},
-	{event: "Stop", typ: "agent_done", timeout: 30},
+	{event: "SessionStart", typ: "agent_message"},
+	{event: "UserPromptSubmit", typ: "agent_message"},
+	{event: "PreToolUse", typ: "agent_message"},
+	{event: "PostToolUse", typ: "agent_message"},
+	{event: "PostToolUseFailure", typ: "agent_message"},
+	{event: "Stop", typ: "agent_done"},
 }
 
 func HooksPath() (string, error) {
@@ -48,8 +47,7 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 		return err
 	}
 	cfg := map[string]any{
-		common.VersionField: common.IntegrationVersion,
-		"hooks":             map[string]any{},
+		"hooks": map[string]any{},
 	}
 	hooks := cfg["hooks"].(map[string]any)
 	for _, e := range events {
@@ -138,11 +136,8 @@ func Adopt(ctx context.Context, db *store.DB) error {
 
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
-		common.GuardField:   true,
-		common.VersionField: common.IntegrationVersion,
-		"type":              "command",
-		"command":           common.Command(notifyBin, Agent, Agent, e.typ, false, ""),
-		"timeout":           e.timeout,
+		"type":    "command",
+		"command": common.VersionedCommand(notifyBin, Agent, Agent, e.typ, false, ""),
 	}
 }
 
@@ -175,6 +170,24 @@ func installedVersion(path string) string {
 	if s, _ := cfg[common.VersionField].(string); s != "" {
 		return s
 	}
+	if hooks, ok := cfg["hooks"].(map[string]any); ok {
+		for _, groups := range hooks {
+			for _, group := range asSlice(groups) {
+				gm, _ := group.(map[string]any)
+				for _, h := range asSlice(gm["hooks"]) {
+					hm, _ := h.(map[string]any)
+					if isManaged(hm) {
+						if s, _ := hm[common.VersionField].(string); s != "" {
+							return s
+						}
+						if s := common.CommandVersion(commandValue(hm)); s != "" {
+							return s
+						}
+					}
+				}
+			}
+		}
+	}
 	return ""
 }
 
@@ -189,6 +202,11 @@ func isManaged(v any) bool {
 	cmd, _ := m["command"].(string)
 	return strings.Contains(cmd, "onibi-notify") && strings.Contains(cmd, "--agent goose") ||
 		strings.TrimSpace(cmd) == "onibi _hook goose"
+}
+
+func commandValue(m map[string]any) string {
+	cmd, _ := m["command"].(string)
+	return cmd
 }
 
 func keys(m map[string]any) []string {

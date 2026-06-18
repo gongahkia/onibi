@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
@@ -14,7 +13,7 @@ import (
 )
 
 const Agent = "codex"
-const versionEnv = "ONIBI_INTEGRATION_VERSION"
+const versionEnv = common.VersionEnv
 
 type eventSpec struct {
 	event    string
@@ -265,8 +264,7 @@ func hook(notifyBin string, e eventSpec) map[string]any {
 }
 
 func versionedCommand(notifyBin string, e eventSpec) string {
-	cmd := common.Command(notifyBin, Agent, Agent, e.typ, e.wait, e.response)
-	return strings.Replace(cmd, "exec ", versionEnv+"="+strconv.Quote(common.IntegrationVersion)+" exec ", 1)
+	return common.VersionedCommand(notifyBin, Agent, Agent, e.typ, e.wait, e.response)
 }
 
 func ManagedBody(path string) ([]byte, error) {
@@ -320,15 +318,7 @@ func InstalledVersion(path string) string {
 
 func commandVersion(h map[string]any) string {
 	cmd, _ := h["command"].(string)
-	i := strings.Index(cmd, versionEnv+"=")
-	if i < 0 {
-		return ""
-	}
-	rest := cmd[i+len(versionEnv)+1:]
-	if j := strings.IndexAny(rest, " \t;"); j >= 0 {
-		rest = rest[:j]
-	}
-	return strings.Trim(rest, `"'`)
+	return common.CommandVersion(cmd)
 }
 
 func removeManaged(cfg map[string]any) {

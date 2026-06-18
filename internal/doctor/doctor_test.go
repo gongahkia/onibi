@@ -465,6 +465,57 @@ func TestDoctorFixRefusesTamperedHook(t *testing.T) {
 	}
 }
 
+func TestDoctorAfterUpgradeCatchesLegacyMetadataAndGeminiTimeout(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	hookDir := t.TempDir()
+	isolateHookPaths(t, hookDir)
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	geminiPath := filepath.Join(hookDir, "gemini-settings.json")
+	legacy := map[string]any{
+		"hooks": map[string]any{
+			"BeforeTool": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{
+							"onibiManaged":            true,
+							"onibiIntegrationVersion": "1.0.0",
+							"type":                    "command",
+							"command":                 `exec "/tmp/onibi-notify" --agent gemini --format gemini --type approval_request`,
+							"timeout":                 30,
+						},
+					},
+				},
+			},
+		},
+	}
+	writeJSONFile(t, geminiPath, legacy)
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, AfterUpgrade: true})
+	if !hasCheck(report, "after-upgrade hook gemini", Fail, "legacy Onibi metadata fields") {
+		t.Fatalf("legacy metadata check missing: %+v", report.Checks)
+	}
+	if !hasCheck(report, "after-upgrade hook gemini", Fail, "timeout must be milliseconds") {
+		t.Fatalf("timeout check missing: %+v", report.Checks)
+	}
+}
+
+func hasCheck(report Report, name string, status Status, detail string) bool {
+	for _, check := range report.Checks {
+		if check.Name == name && check.Status == status && strings.Contains(check.Detail, detail) {
+			return true
+		}
+	}
+	return false
+}
+
 func isolateHookPaths(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", filepath.Join(dir, "home"))

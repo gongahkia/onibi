@@ -22,6 +22,7 @@ const (
 	IntegrationVersion = "2.0.0"
 	VersionField       = "onibiIntegrationVersion"
 	GuardField         = "onibiManaged"
+	VersionEnv         = "ONIBI_INTEGRATION_VERSION"
 )
 
 type Info struct {
@@ -96,6 +97,26 @@ func HomePath(env string, parts ...string) (string, error) {
 
 func Command(notifyBin, agent, format, typ string, wait bool, response string) string {
 	return guardedCommand(notifyBin, agent, format, typ, wait, response, true)
+}
+
+func VersionedCommand(notifyBin, agent, format, typ string, wait bool, response string) string {
+	return InjectVersionEnv(Command(notifyBin, agent, format, typ, wait, response))
+}
+
+func InjectVersionEnv(cmd string) string {
+	return strings.Replace(cmd, "exec ", VersionEnv+"="+strconv.Quote(IntegrationVersion)+" exec ", 1)
+}
+
+func CommandVersion(cmd string) string {
+	i := strings.Index(cmd, VersionEnv+"=")
+	if i < 0 {
+		return ""
+	}
+	rest := cmd[i+len(VersionEnv)+1:]
+	if j := strings.IndexAny(rest, " \t;"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.Trim(rest, `"'`)
 }
 
 func UnguardedCommand(notifyBin, agent, format, typ string, wait bool, response string) string {

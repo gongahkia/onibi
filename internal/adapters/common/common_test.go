@@ -29,6 +29,16 @@ func TestUnguardedCommandHasNoSessionGuard(t *testing.T) {
 	}
 }
 
+func TestVersionedCommandRoundTrip(t *testing.T) {
+	cmd := VersionedCommand("/tmp/onibi-notify", "gemini", "gemini", "agent_message", false, "")
+	if got := CommandVersion(cmd); got != IntegrationVersion {
+		t.Fatalf("CommandVersion = %q", got)
+	}
+	if !strings.Contains(cmd, VersionEnv+"=\""+IntegrationVersion+"\"") {
+		t.Fatalf("command missing version env: %s", cmd)
+	}
+}
+
 func TestBackupOriginalDoesNotOverwriteSameSourceHash(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "state", "onibi.sqlite"))

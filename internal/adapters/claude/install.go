@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
@@ -25,8 +26,6 @@ func SettingsPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
-// guardKey is the top-level key we add to the settings hooks block so we
-// can find and remove our entries idempotently.
 const guardKey = "onibi-managed"
 
 // Install writes the Onibi Stop and PreToolUse hooks into Claude's
@@ -147,6 +146,12 @@ func InstalledVersion(path string) string {
 		if s, _ := hook[common.VersionField].(string); s != "" {
 			return s
 		}
+		for _, h := range asSlice(hook["hooks"]) {
+			hm, _ := h.(map[string]any)
+			if s := common.CommandVersion(commandValue(hm)); s != "" {
+				return s
+			}
+		}
 	}
 	return ""
 }
@@ -196,18 +201,13 @@ func writeJSON(path string, m map[string]any) error {
 	return os.Rename(tmp, path)
 }
 
-// buildStopHook returns the JSON shape Claude Code expects for one
-// HookMatcher in the Stop event. Empty matcher = match all, one command.
-// Tagged with guardKey so we can locate the entry on re-install or remove.
 func buildStopHook(notifyBin string) map[string]any {
 	return map[string]any{
-		guardKey:            true,
-		common.VersionField: common.IntegrationVersion,
-		"matcher":           "",
+		"matcher": "",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": common.Command(notifyBin, "claude", "claude", "agent_done", false, ""),
+				"command": common.VersionedCommand(notifyBin, "claude", "claude", "agent_done", false, ""),
 				"timeout": 5,
 			},
 		},
@@ -224,13 +224,11 @@ func buildStopHook(notifyBin string) map[string]any {
 // so 360 (6min) gives slack for round-trip.
 func buildPreToolUseHook(notifyBin string) map[string]any {
 	return map[string]any{
-		guardKey:            true,
-		common.VersionField: common.IntegrationVersion,
-		"matcher":           "",
+		"matcher": "",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": common.Command(notifyBin, "claude", "claude", "approval_request", true, "provider"),
+				"command": common.VersionedCommand(notifyBin, "claude", "claude", "approval_request", true, "provider"),
 				"timeout": 360,
 			},
 		},
@@ -252,7 +250,7 @@ func mergeEventHook(settings map[string]any, eventName string, ours map[string]a
 			kept = append(kept, e)
 			continue
 		}
-		if m[guardKey] == true {
+		if isManagedEventHook(m) {
 			continue
 		}
 		kept = append(kept, e)
@@ -271,7 +269,7 @@ func removeEventHook(settings map[string]any, eventName string) map[string]any {
 	existing, _ := hooks[eventName].([]any)
 	kept := existing[:0]
 	for _, e := range existing {
-		if m, ok := e.(map[string]any); ok && m[guardKey] == true {
+		if m, ok := e.(map[string]any); ok && isManagedEventHook(m) {
 			continue
 		}
 		kept = append(kept, e)
@@ -296,9 +294,34 @@ func extractEventHook(settings map[string]any, eventName string) map[string]any 
 	}
 	existing, _ := hooks[eventName].([]any)
 	for _, e := range existing {
-		if m, ok := e.(map[string]any); ok && m[guardKey] == true {
+		if m, ok := e.(map[string]any); ok && isManagedEventHook(m) {
 			return m
 		}
+	}
+	return nil
+}
+
+func isManagedEventHook(m map[string]any) bool {
+	if m[guardKey] == true {
+		return true
+	}
+	for _, h := range asSlice(m["hooks"]) {
+		hm, _ := h.(map[string]any)
+		if strings.Contains(commandValue(hm), "onibi-notify") && strings.Contains(commandValue(hm), "--agent claude") {
+			return true
+		}
+	}
+	return false
+}
+
+func commandValue(m map[string]any) string {
+	cmd, _ := m["command"].(string)
+	return cmd
+}
+
+func asSlice(v any) []any {
+	if s, ok := v.([]any); ok {
+		return s
 	}
 	return nil
 }

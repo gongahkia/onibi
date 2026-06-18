@@ -2,11 +2,14 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +65,7 @@ type Options struct {
 	PreferDotenv bool
 	Mode         string
 	NotifyBin    string
+	AfterUpgrade bool
 }
 
 // Run performs local integrity checks and optional live Telegram checks.
@@ -105,6 +109,9 @@ func (r *runner) run() {
 	r.checkService()
 	r.checkSessionRuntime()
 	r.checkHooks()
+	if r.opts.AfterUpgrade {
+		r.checkAfterUpgradeHooks()
+	}
 	r.checkTOTP()
 	if !r.opts.Offline {
 		r.checkTelegram()
@@ -532,6 +539,131 @@ func (r *runner) addRecordedHookStatus(agent, path string, info common.Info) {
 		}
 		r.add("hook "+agent, Pass, detail)
 	}
+}
+
+func (r *runner) checkAfterUpgradeHooks() {
+	if r.db == nil {
+		return
+	}
+	checked := 0
+	issues := 0
+	for _, name := range adapters.Names() {
+		info := adapters.Registry()[name].Status(r.ctx, r.db)
+		if info.InstallPath == "" || filepath.Ext(info.InstallPath) != ".json" {
+			continue
+		}
+		body, err := os.ReadFile(info.InstallPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		checked++
+		if err != nil {
+			issues++
+			r.add("after-upgrade hook "+name, Fail, err.Error())
+			continue
+		}
+		var cfg any
+		if err := json.Unmarshal(body, &cfg); err != nil {
+			issues++
+			r.add("after-upgrade hook "+name, Fail, "parse "+info.InstallPath+": "+err.Error())
+			continue
+		}
+		fields := legacyMetadataFields(cfg)
+		if len(fields) > 0 {
+			issues++
+			r.add("after-upgrade hook "+name, Fail, "legacy Onibi metadata fields in "+info.InstallPath+": "+strings.Join(fields, ", "))
+		}
+		if name == "gemini" {
+			low := geminiLowTimeouts(cfg)
+			if len(low) > 0 {
+				issues++
+				r.add("after-upgrade hook gemini", Fail, "Gemini hook timeout must be milliseconds: "+strings.Join(low, ", "))
+			}
+		}
+	}
+	if issues == 0 {
+		r.add("after-upgrade hook schema", Pass, fmt.Sprintf("checked %d provider JSON configs", checked))
+	}
+}
+
+func legacyMetadataFields(v any) []string {
+	fields := map[string]bool{}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, v := range x {
+				if k == common.VersionField || k == common.GuardField || k == "onibi-managed" {
+					fields[k] = true
+				}
+				walk(v)
+			}
+		case []any:
+			for _, v := range x {
+				walk(v)
+			}
+		}
+	}
+	walk(v)
+	out := make([]string, 0, len(fields))
+	for k := range fields {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func geminiLowTimeouts(v any) []string {
+	var out []string
+	root, _ := v.(map[string]any)
+	hooks, _ := root["hooks"].(map[string]any)
+	for event, groups := range hooks {
+		for _, group := range asSlice(groups) {
+			gm, _ := group.(map[string]any)
+			for _, hook := range asSlice(gm["hooks"]) {
+				hm, _ := hook.(map[string]any)
+				if !managedCommand(hm, "gemini") {
+					continue
+				}
+				timeout, ok := numberValue(hm["timeout"])
+				if ok && timeout > 0 && timeout < 1000 {
+					out = append(out, fmt.Sprintf("%s=%g", event, timeout))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func managedCommand(m map[string]any, agent string) bool {
+	if m[common.GuardField] == true {
+		return true
+	}
+	cmd, _ := m["command"].(string)
+	if cmd == "" {
+		cmd, _ = m["bash"].(string)
+	}
+	return strings.Contains(cmd, "onibi-notify") && strings.Contains(cmd, "--agent "+agent)
+}
+
+func numberValue(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func asSlice(v any) []any {
+	if s, ok := v.([]any); ok {
+		return s
+	}
+	return nil
 }
 
 func (r *runner) checkTOTP() {
