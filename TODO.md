@@ -593,7 +593,7 @@ Acceptance:
 
 ## Adapter Hook Matrix
 
-### Codex
+### Codex [DONE 2026-06-18]
 
 Provider surface:
 - `~/.codex/hooks.json`
