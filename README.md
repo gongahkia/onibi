@@ -221,6 +221,8 @@ onibi mcp
 Uninstall service and hooks while keeping state:
 
 ```bash
+onibi hooks show --all
+onibi uninstall --dry-run
 onibi uninstall
 ```
 

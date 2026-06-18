@@ -1003,7 +1003,7 @@ Needed:
 - `doctor --after-upgrade` should catch schema drift and stale binary paths.
 - `hooks show --all` should compare bundled vs installed versions.
 
-### Uninstall
+### Uninstall [DONE 2026-06-18]
 
 Flow:
 1. user runs `onibi uninstall`

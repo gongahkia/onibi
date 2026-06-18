@@ -395,6 +395,9 @@ func TestHooksShowAllComparesBundledAndObservedVersions(t *testing.T) {
 	if report.ObservedVersion != common.IntegrationVersion || report.BundledVersion != common.IntegrationVersion || report.VersionStatus != "ok" {
 		t.Fatalf("version compare = %+v", report)
 	}
+	if _, ok := hooksReport(reports, "shell:zsh"); !ok {
+		t.Fatalf("missing shell report: %+v", reports)
+	}
 }
 
 func hooksCLIFixture(t *testing.T) (string, string, string) {

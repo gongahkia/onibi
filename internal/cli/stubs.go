@@ -203,7 +203,7 @@ func hooksCmd() *cobra.Command {
 	}
 	show.Flags().String("agent", "", "agent name")
 	show.Flags().String("shell", "", "shell name")
-	show.Flags().Bool("all", false, "show every supported agent adapter")
+	show.Flags().Bool("all", false, "show every supported agent and shell hook")
 	show.Flags().Bool("json", false, "print JSON")
 	matrix := &cobra.Command{
 		Use:   "matrix",

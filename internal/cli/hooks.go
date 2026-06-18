@@ -193,6 +193,13 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 			}
 			reports = append(reports, report)
 		}
+		for _, name := range adapters.ShellNames() {
+			report, err := buildShellHooksShowReport(cmd, db, name, notifyBin)
+			if err != nil {
+				return err
+			}
+			reports = append(reports, report)
+		}
 	} else {
 		report, err := buildHooksShowReport(cmd, db, agent, notifyBin)
 		if err != nil {

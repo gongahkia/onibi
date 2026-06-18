@@ -106,6 +106,9 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 		table = append(table, []string{style.yellow("remove service"), "LaunchAgent/systemd user unit"})
 	}
 	if hooksFlag {
+		for _, inspect := range uninstallHookInspectCommands(allHooks, agent, sh) {
+			table = append(table, []string{style.yellow("inspect hooks"), inspect})
+		}
 		if allHooks {
 			table = append(table, []string{style.yellow("remove hooks"), "all supported agents and shells"})
 		} else {
@@ -122,6 +125,20 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 		table = append(table, []string{style.red("remove secrets"), "bot token and TOTP secret from active backend"})
 	}
 	_ = renderTable(cmd.OutOrStdout(), table)
+}
+
+func uninstallHookInspectCommands(allHooks bool, agent, sh string) []string {
+	if allHooks {
+		return []string{"onibi hooks show --all"}
+	}
+	var out []string
+	if agent != "" {
+		out = append(out, "onibi hooks show --agent "+agent)
+	}
+	if sh != "" {
+		out = append(out, "onibi hooks show --shell "+sh)
+	}
+	return out
 }
 
 func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths, all bool, agent, sh string) error {

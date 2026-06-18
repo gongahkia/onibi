@@ -43,6 +43,8 @@ Run on a clean macOS user before a public tag.
 6. Verify uninstall.
 
    ```sh
-   onibi uninstall-service
+   onibi hooks show --all
+   onibi uninstall --dry-run
+   onibi uninstall
    onibi doctor --mode preflight --offline
    ```
