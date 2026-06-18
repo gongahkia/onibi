@@ -310,7 +310,13 @@ func geminiResponse(resp intake.Response) (string, string, int) {
 	case "approve":
 		return "{}\n", "", 0
 	case "edited":
-		return marshal(map[string]any{"decision": "allow", "updatedInput": jsonObject(resp.UpdatedInput)}), "", 0
+		return marshal(map[string]any{
+			"decision": "allow",
+			"hookSpecificOutput": map[string]any{
+				"hookEventName": "BeforeTool",
+				"tool_input":    jsonObject(resp.UpdatedInput),
+			},
+		}), "", 0
 	case "deny":
 		return marshal(map[string]any{"decision": "deny", "reason": firstNonEmpty(resp.Reason, "Denied by Onibi")}), "", 0
 	case "expired":

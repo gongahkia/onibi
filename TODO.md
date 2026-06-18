@@ -641,7 +641,7 @@ Needed:
 - Add `hooks show --agent claude` with `/hooks` instruction.
 - Add provider version/runtime smoke if Claude exposes version command.
 
-### Gemini CLI
+### Gemini CLI [DONE 2026-06-18]
 
 Provider surface:
 - `~/.gemini/settings.json`

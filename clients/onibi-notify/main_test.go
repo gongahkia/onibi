@@ -72,6 +72,28 @@ func TestProviderResponses(t *testing.T) {
 		t.Fatalf("bad gemini expired: code=%d out=%s", code, out)
 	}
 
+	out, _, code = providerResponse("gemini", intake.Response{Decision: "deny", Reason: "no"})
+	if code != 0 || !strings.Contains(out, `"decision":"deny"`) || !strings.Contains(out, `"reason":"no"`) {
+		t.Fatalf("bad gemini deny: code=%d out=%s", code, out)
+	}
+
+	out, _, code = providerResponse("gemini", intake.Response{Decision: "edited", UpdatedInput: `{"command":"echo ok"}`})
+	if code != 0 {
+		t.Fatalf("bad gemini edit code=%d out=%s", code, out)
+	}
+	var gemini map[string]any
+	if err := json.Unmarshal([]byte(out), &gemini); err != nil {
+		t.Fatal(err)
+	}
+	geminiHSO := gemini["hookSpecificOutput"].(map[string]any)
+	if gemini["decision"] != "allow" || geminiHSO["hookEventName"] != "BeforeTool" {
+		t.Fatalf("bad gemini edit response: %s", out)
+	}
+	toolInput := geminiHSO["tool_input"].(map[string]any)
+	if toolInput["command"] != "echo ok" {
+		t.Fatalf("bad gemini tool_input: %s", out)
+	}
+
 	out, errOut, code = providerResponse("codex", intake.Response{Decision: "cancelled", Reason: "unmanaged external hook"})
 	if code != 0 || out != "" || errOut != "" {
 		t.Fatalf("cancelled should fail open: code=%d out=%q stderr=%q", code, out, errOut)
