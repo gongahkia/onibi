@@ -94,11 +94,24 @@ If `onibi adapters` or `onibi doctor` reports hook drift:
 
 ```sh
 onibi adapters
+onibi hooks show --all
 onibi doctor --fix
 onibi install-hooks --interactive
 ```
 
 `doctor --fix` adopts recognized current Onibi hooks with missing hashes and reinstalls outdated managed hooks. Tampered hooks require manual review.
+
+Before or after installing one provider, inspect the exact file, backup, expected commands, installed commands, and trust/reload next step:
+
+```sh
+onibi hooks show --agent codex
+onibi hooks show --agent claude
+onibi hooks show --agent gemini
+onibi hooks show --shell zsh
+onibi doctor --after-upgrade
+```
+
+Provider-specific trust or reload prompts printed by `install-hooks` are required for that provider. Codex and Claude require manual review; OpenCode, Amp, and Pi require restart/reload behavior from their own CLI.
 
 ## Shell Hook Conflicts
 

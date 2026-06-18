@@ -869,7 +869,7 @@ Needed:
 - Pairing screen should include `/menu` next step.
 - Doctor should clearly say whether bot token retry is safe.
 
-### Hook Install And Trust
+### Hook Install And Trust [DONE 2026-06-18]
 
 Flow:
 1. user runs `onibi install-hooks --agent <agent>`
