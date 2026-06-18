@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   transport     TEXT NOT NULL DEFAULT 'pty',  -- pty|tmux
   tmux_target   TEXT,
   started_at    INTEGER NOT NULL,
+  last_activity INTEGER,
   ended_at      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
@@ -177,6 +178,9 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "approvals", "decided_by", "INTEGER"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "sessions", "last_activity", "INTEGER"); err != nil {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")

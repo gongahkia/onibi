@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -115,10 +114,10 @@ func (d *Daemon) sendEncryptedPlain(ctx context.Context, api telegram.API, chatI
 
 func (d *Daemon) sendSecureComposer(ctx context.Context, api telegram.API, chatID int64) (*models.Message, error) {
 	ctxPayload := secureContext{Agents: supportedAgentNames()}
-	for _, s := range d.liveSessions() {
+	for _, c := range d.sessionCards(ctx, chatID, d.liveSessions()) {
 		ctxPayload.Sessions = append(ctxPayload.Sessions, secureSession{
-			ID:    s.ID,
-			Label: fmt.Sprintf("%s %s %s", s.Name, s.Agent, s.ID),
+			ID:    c.ID,
+			Label: c.Label(),
 		})
 	}
 	b, err := json.Marshal(ctxPayload)

@@ -414,7 +414,7 @@ Files:
 
 ## P1
 
-### Session Cards
+### Session Cards [DONE 2026-06-18]
 
 Requirement:
 - Replace flat session lines with cards:

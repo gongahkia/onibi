@@ -18,6 +18,7 @@ type Session struct {
 	Name       string // human-readable label (CLI --name or auto from agent)
 	Agent      string // adapter name (claude, codex, ...)
 	Cmd        string
+	CWD        string
 	Host       *pty.Host
 	Buf        *RingBuffer
 	Transport  string
@@ -44,11 +45,14 @@ func NewSession(id, name, agent string, host *pty.Host, bufSize int) *Session {
 	}
 }
 
-func newSessionAt(id, name, agent string, host *pty.Host, bufSize int, started time.Time) *Session {
+func newSessionAt(id, name, agent string, host *pty.Host, bufSize int, started, lastActivity time.Time) *Session {
 	s := NewSession(id, name, agent, host, bufSize)
 	if !started.IsZero() {
 		s.started = started
 		s.lastActivity = started
+	}
+	if !lastActivity.IsZero() {
+		s.lastActivity = lastActivity
 	}
 	return s
 }

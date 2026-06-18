@@ -202,19 +202,13 @@ func (d *Daemon) sessionsText(ctx context.Context, chatID int64) string {
 	defaultID := d.activeDefaultTarget(ctx, chatID)
 	var b strings.Builder
 	b.WriteString("Active sessions:\n")
-	for _, s := range live {
-		cmd := s.Cmd
-		if cmd == "" {
-			cmd = s.Agent
-		}
-		mark := " "
-		if s.ID == defaultID {
-			mark = "*"
-		}
-		fmt.Fprintf(&b, "%s %s  %s  %s  mode=%s  state=%s  age=%s  cmd=%s\n", mark, shortID(s.ID), s.Name, s.Agent, d.sessionMode(ctx, s), d.sessionState(s), time.Since(s.StartedAt()).Truncate(time.Second), cmd)
-	}
+	b.WriteString(d.sessionCardsText(ctx, chatID, live))
 	if defaultID == "" {
-		b.WriteString("\n* = default target (none set)")
+		if len(live) == 1 {
+			b.WriteString("\n* = default target (implicit)")
+		} else {
+			b.WriteString("\n* = default target (none set)")
+		}
 	} else {
 		b.WriteString("\n* = default target")
 	}
@@ -241,8 +235,12 @@ func (d *Daemon) statusText(ctx context.Context, chatID int64) string {
 func (d *Daemon) menuText(ctx context.Context, chatID int64) string {
 	live := d.liveSessions()
 	total, busy, headless, visible := d.menuSessionCounts(ctx, live)
-	return fmt.Sprintf("Onibi\ndaemon: %s\ntarget: %s\nsessions: %d total, %d busy, %d headless, %d visible\napprovals: %s pending\nqueue: %s queued\nsnooze: %s\nsecure: %s\nhooks: %s",
+	text := fmt.Sprintf("Onibi\ndaemon: %s\ntarget: %s\nsessions: %d total, %d busy, %d headless, %d visible\napprovals: %s pending\nqueue: %s queued\nsnooze: %s\nsecure: %s\nhooks: %s",
 		d.menuDaemonState(ctx), d.menuTargetLabel(ctx, chatID, live), total, busy, headless, visible, d.pendingApprovalCount(ctx), d.queuedPromptCount(ctx), d.menuSnoozeLabel(ctx), d.secureStatus(), d.hookHealthSummary(ctx))
+	if len(live) > 0 {
+		text += "\n\n" + d.sessionCardsText(ctx, chatID, live)
+	}
+	return text
 }
 
 func (d *Daemon) menuDaemonState(ctx context.Context) string {
@@ -591,7 +589,7 @@ func (d *Daemon) handlePTYByteCommand(ctx context.Context, api telegram.API, cha
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: label + " failed: " + err.Error()})
 		return
 	}
-	s.Touch()
+	d.touchSession(ctx, s)
 	d.noteAnomaly(ctx, anomaly)
 	d.setDefaultTarget(ctx, chatID, s.ID)
 	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "prompt", label+" sent", "Sent "+label+" to "+s.Name+" ("+s.ID+").")

@@ -7,16 +7,17 @@ import (
 )
 
 type SessionEntry struct {
-	ID         string
-	Name       string
-	Agent      string
-	CWD        string
-	Command    string
-	Transport  string
-	TmuxTarget string
-	StartedAt  time.Time
-	EndedAt    time.Time
-	Ended      bool
+	ID           string
+	Name         string
+	Agent        string
+	CWD          string
+	Command      string
+	Transport    string
+	TmuxTarget   string
+	StartedAt    time.Time
+	LastActivity time.Time
+	EndedAt      time.Time
+	Ended        bool
 }
 
 func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, command, transport, tmuxTarget string, started time.Time) error {
@@ -24,8 +25,8 @@ func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, comma
 		transport = "pty"
 	}
 	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO sessions(id, name, agent, cwd, cmd, transport, tmux_target, started_at, ended_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+		`INSERT INTO sessions(id, name, agent, cwd, cmd, transport, tmux_target, started_at, last_activity, ended_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 		 ON CONFLICT(id) DO UPDATE SET
 		   name=excluded.name,
 		   agent=excluded.agent,
@@ -34,8 +35,16 @@ func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, comma
 		   transport=excluded.transport,
 		   tmux_target=excluded.tmux_target,
 		   started_at=excluded.started_at,
+		   last_activity=excluded.last_activity,
 		   ended_at=NULL`,
-		id, name, agent, nullIfEmpty(cwd), nullIfEmpty(command), transport, nullIfEmpty(tmuxTarget), started.Unix())
+		id, name, agent, nullIfEmpty(cwd), nullIfEmpty(command), transport, nullIfEmpty(tmuxTarget), started.Unix(), started.Unix())
+	return err
+}
+
+func (d *DB) SessionTouch(ctx context.Context, id string, at time.Time) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET last_activity = ? WHERE id = ?`,
+		at.Unix(), id)
 	return err
 }
 
@@ -49,7 +58,7 @@ func (d *DB) SessionMarkEnded(ctx context.Context, id string, ended time.Time) e
 func (d *DB) SessionsActive(ctx context.Context) ([]SessionEntry, error) {
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
-		        started_at, ended_at
+		        started_at, COALESCE(last_activity, started_at), ended_at
 		   FROM sessions
 		  WHERE ended_at IS NULL
 		  ORDER BY started_at ASC`)
@@ -75,7 +84,7 @@ func (d *DB) SessionsRecent(ctx context.Context, n int, includeEnded bool) ([]Se
 	}
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
-		        started_at, ended_at
+		        started_at, COALESCE(last_activity, started_at), ended_at
 		   FROM sessions `+where+`
 		  ORDER BY started_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -96,12 +105,13 @@ func scanSessions(rows *sql.Rows) ([]SessionEntry, error) {
 	var out []SessionEntry
 	for rows.Next() {
 		var e SessionEntry
-		var started int64
+		var started, lastActivity int64
 		var ended sql.NullInt64
-		if err := rows.Scan(&e.ID, &e.Name, &e.Agent, &e.CWD, &e.Command, &e.Transport, &e.TmuxTarget, &started, &ended); err != nil {
+		if err := rows.Scan(&e.ID, &e.Name, &e.Agent, &e.CWD, &e.Command, &e.Transport, &e.TmuxTarget, &started, &lastActivity, &ended); err != nil {
 			return nil, err
 		}
 		e.StartedAt = time.Unix(started, 0)
+		e.LastActivity = time.Unix(lastActivity, 0)
 		if ended.Valid {
 			e.Ended = true
 			e.EndedAt = time.Unix(ended.Int64, 0)

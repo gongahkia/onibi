@@ -201,6 +201,8 @@ func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args [
 	}
 	bufSize := d.bufferSize()
 	s := NewSession(id, name, agent, host, bufSize)
+	cwd, _ := os.Getwd()
+	s.CWD = cwd
 	if argv0 != "" {
 		s.Cmd = commandLine(argv0, args)
 	} else {
@@ -210,7 +212,7 @@ func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args [
 		_ = host.Close()
 		return nil, err
 	}
-	d.persistSessionStart(ctx, s, "")
+	d.persistSessionStart(ctx, s, cwd)
 
 	go d.readLoop(s)
 	go d.waitHost(s)
@@ -234,7 +236,7 @@ func (d *Daemon) readLoop(s *Session) {
 		if n > 0 {
 			_, _ = s.Buf.Write(buf[:n])
 			_, _ = os.Stdout.Write(buf[:n]) // mirror to user's tty
-			s.Touch()
+			d.touchSession(context.Background(), s)
 			// new activity means a future turn-complete should fire again
 			d.mu.Lock()
 			delete(d.notified, s.ID)
@@ -267,6 +269,7 @@ func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	s.CWD = cwd
 	transport := s.Transport
 	if transport == "" {
 		transport = "pty"
@@ -275,6 +278,18 @@ func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string
 		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
 	}
 	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
+}
+
+func (d *Daemon) touchSession(ctx context.Context, s *Session) {
+	if s == nil {
+		return
+	}
+	s.Touch()
+	if d.DB != nil {
+		if err := d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt()); err != nil {
+			d.Log.Warn("persist session activity", slog.String("session", s.ID), slog.Any("err", err))
+		}
+	}
 }
 
 func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
@@ -529,7 +544,7 @@ func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {
 	}
 	if b.Len() > 0 {
 		_, _ = s.Buf.Write([]byte(b.String()))
-		s.Touch()
+		d.touchSession(context.Background(), s)
 	}
 }
 

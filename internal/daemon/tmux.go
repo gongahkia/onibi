@@ -35,6 +35,7 @@ func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session,
 	s.Transport = "tmux"
 	s.TmuxTarget = target
 	s.Cmd = "tmux attach " + target
+	s.CWD = ""
 	if _, err := s.Buf.Write([]byte(initial)); err != nil {
 		return nil, err
 	}
@@ -78,6 +79,7 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	s.Transport = "tmux"
 	s.TmuxTarget = target
 	s.Cmd = commandLine(bin, args)
+	s.CWD = cwd
 	if initial != "" {
 		_, _ = s.Buf.Write([]byte(initial))
 	}
@@ -139,10 +141,11 @@ func (d *Daemon) restoreTmuxSession(ctx context.Context, ctrl *tmux.Controller, 
 	if agent == "" {
 		agent = "tmux"
 	}
-	s := newSessionAt(row.ID, name, agent, d.tmuxHost(ctrl, row.TmuxTarget, true), d.bufferSize(), row.StartedAt)
+	s := newSessionAt(row.ID, name, agent, d.tmuxHost(ctrl, row.TmuxTarget, true), d.bufferSize(), row.StartedAt, row.LastActivity)
 	s.Transport = "tmux"
 	s.TmuxTarget = row.TmuxTarget
 	s.Cmd = row.Command
+	s.CWD = row.CWD
 	if initial != "" {
 		_, _ = s.Buf.Write([]byte(initial))
 	}
@@ -252,7 +255,7 @@ func (d *Daemon) captureTmuxLoop(ctx context.Context, ctrl *tmux.Controller, s *
 			}
 			s.Buf.Reset()
 			_, _ = s.Buf.Write([]byte(out))
-			s.Touch()
+			d.touchSession(ctx, s)
 		}
 	}
 }

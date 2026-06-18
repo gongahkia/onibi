@@ -137,7 +137,7 @@ func TestStatusIncludesContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := d.statusText(ctx, 100)
-	for _, want := range []string{"encrypted_mode=ask", "default_target=claude (abc123)", "snooze=global=indefinite", "* abc123", "state=busy"} {
+	for _, want := range []string{"encrypted_mode=ask", "default_target=claude (abc123)", "snooze=global=indefinite", "* claude (abc123)", "state=busy"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q:\n%s", want, got)
 		}
