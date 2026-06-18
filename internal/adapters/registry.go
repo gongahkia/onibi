@@ -102,6 +102,14 @@ func AdoptShell(ctx context.Context, db *store.DB, name string) error {
 	return shell.Adopt(ctx, db, strings.ToLower(strings.TrimSpace(name)))
 }
 
+func ShellPreview(name, notifyBin string, minMS int64) (shell.PreviewInfo, error) {
+	return shell.Preview(strings.ToLower(strings.TrimSpace(name)), notifyBin, minMS)
+}
+
+func ShellBackupPath(ctx context.Context, db *store.DB, name string) string {
+	return shell.BackupPath(ctx, db, strings.ToLower(strings.TrimSpace(name)))
+}
+
 func ShellNames() []string { return shell.Supported() }
 
 func Unsupported(name string) error {

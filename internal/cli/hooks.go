@@ -118,6 +118,10 @@ type hooksShowReport struct {
 	ConfigPath        string                `json:"config_path,omitempty"`
 	Record            *hookRecordView       `json:"record,omitempty"`
 	BackupPath        string                `json:"backup_path,omitempty"`
+	Preview           string                `json:"preview,omitempty"`
+	ThresholdMS       *int64                `json:"threshold_ms,omitempty"`
+	EditCommand       string                `json:"edit_command,omitempty"`
+	Compatibility     []string              `json:"compatibility_notes,omitempty"`
 	Expected          []common.ExpectedHook `json:"expected"`
 	Observed          []common.ObservedHook `json:"observed"`
 	Drift             []hookDrift           `json:"drift"`
@@ -156,10 +160,14 @@ type hooksMatrixRow struct {
 
 func runHooksShow(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
+	sh, _ := cmd.Flags().GetString("shell")
 	all, _ := cmd.Flags().GetBool("all")
 	asJSON, _ := cmd.Flags().GetBool("json")
-	if agent == "" && !all {
-		return errors.New("--agent or --all required")
+	if agent == "" && sh == "" && !all {
+		return errors.New("--agent, --shell, or --all required")
+	}
+	if sh != "" && (agent != "" || all) {
+		return errors.New("--shell cannot be combined with --agent or --all")
 	}
 	db, err := openDefaultDB()
 	if err != nil {
@@ -168,7 +176,13 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 	defer db.Close()
 	notifyBin := hooksShowNotifyBin()
 	var reports []hooksShowReport
-	if all {
+	if sh != "" {
+		report, err := buildShellHooksShowReport(cmd, db, sh, notifyBin)
+		if err != nil {
+			return err
+		}
+		reports = append(reports, report)
+	} else if all {
 		for _, name := range adapters.Names() {
 			report, err := buildHooksShowReport(cmd, db, name, notifyBin)
 			if err != nil {
@@ -418,6 +432,63 @@ func buildHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin stri
 	return report, nil
 }
 
+func buildShellHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin string) (hooksShowReport, error) {
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return hooksShowReport{}, err
+	}
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return hooksShowReport{}, err
+	}
+	minMS := cfg.Shell.MinDuration.Std().Milliseconds()
+	preview, err := adapters.ShellPreview(name, notifyBin, minMS)
+	if err != nil {
+		return hooksShowReport{}, err
+	}
+	info := adapters.ShellStatus(cmd.Context(), db, name)
+	thresholdMS := preview.MinMS
+	report := hooksShowReport{
+		Agent:         "shell:" + name,
+		Support:       info.Support,
+		ConfigPath:    info.InstallPath,
+		BackupPath:    adapters.ShellBackupPath(cmd.Context(), db, name),
+		Preview:       preview.Block,
+		ThresholdMS:   &thresholdMS,
+		EditCommand:   preview.EditCommand,
+		Compatibility: preview.CompatibilityNotes,
+		Expected:      []common.ExpectedHook{},
+		Observed:      []common.ObservedHook{},
+		Message:       info.Message,
+	}
+	if report.ConfigPath == "" {
+		report.ConfigPath = preview.Path
+	}
+	if report.Support == "" {
+		report.Support = adapters.ShellStatus(cmd.Context(), db, name).Support
+	}
+	if report.ConfigPath != "" {
+		if rec, ok, err := common.RecordFor(cmd.Context(), db, report.Agent, report.ConfigPath); err != nil {
+			return hooksShowReport{}, err
+		} else if ok {
+			report.Record = &hookRecordView{Path: rec.Path, SHA256: rec.SHA256, Version: rec.Version, InstalledAt: rec.InstalledAt}
+		}
+		if report.BackupPath == "" {
+			if backup, ok, err := common.LatestBackup(cmd.Context(), db, report.Agent, report.ConfigPath); err != nil {
+				return hooksShowReport{}, err
+			} else if ok {
+				report.BackupPath = backup.BackupPath
+			}
+		}
+	}
+	detail := info.Message
+	if detail == "" {
+		detail = info.InstallPath
+	}
+	report.Drift = []hookDrift{{Event: "cmd_done", Status: driftSummary(info, nil), InstalledCommand: "shell hook block", Detail: detail}}
+	return report, nil
+}
+
 func hookDriftRows(info common.Info, expected []common.ExpectedHook, observed []common.ObservedHook) []hookDrift {
 	var rows []hookDrift
 	used := make(map[int]bool)
@@ -491,6 +562,25 @@ func renderHooksShow(cmd *cobra.Command, report hooksShowReport) {
 		fmt.Fprintln(out, "trust:")
 		for _, line := range report.TrustInstructions {
 			fmt.Fprintf(out, "  %s\n", line)
+		}
+	}
+	if report.ThresholdMS != nil {
+		fmt.Fprintf(out, "threshold_ms: %d\n", *report.ThresholdMS)
+	}
+	if report.EditCommand != "" {
+		fmt.Fprintf(out, "edit: %s\n", report.EditCommand)
+	}
+	if len(report.Compatibility) > 0 {
+		fmt.Fprintln(out, "compatibility:")
+		for _, line := range report.Compatibility {
+			fmt.Fprintf(out, "  %s\n", line)
+		}
+	}
+	if report.Preview != "" {
+		fmt.Fprintln(out, "preview:")
+		fmt.Fprint(out, report.Preview)
+		if !strings.HasSuffix(report.Preview, "\n") {
+			fmt.Fprintln(out)
 		}
 	}
 	table := [][]string{tableHeader(styleFor(cmd), "EVENT", "MATCHER", "DRIFT", "EXPECTED", "INSTALLED", "DETAIL")}

@@ -19,6 +19,15 @@ const (
 	defaultMinMS = 5000
 )
 
+type PreviewInfo struct {
+	Name               string
+	Path               string
+	Block              string
+	MinMS              int64
+	CompatibilityNotes []string
+	EditCommand        string
+}
+
 func Supported() []string { return []string{"zsh", "bash", "fish"} }
 
 func Install(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {
@@ -130,14 +139,39 @@ func Adopt(ctx context.Context, db *store.DB, name string) error {
 	return common.Record(ctx, db, "shell:"+name, path, []byte(got))
 }
 
+func Preview(name, notifyBin string, minMS int64) (PreviewInfo, error) {
+	path, block, err := target(name, notifyBin, minMS)
+	if err != nil {
+		return PreviewInfo{}, err
+	}
+	return PreviewInfo{
+		Name:               name,
+		Path:               path,
+		Block:              block,
+		MinMS:              normalizedMinMS(minMS),
+		CompatibilityNotes: compatibilityNotes(name),
+		EditCommand:        "onibi config set shell.min_duration <duration>; onibi install-hooks --shell " + name,
+	}, nil
+}
+
+func BackupPath(ctx context.Context, db *store.DB, name string) string {
+	path, _, err := target(name, "/bin/true", defaultMinMS)
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, "shell:"+name, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
+}
+
 func target(name, notifyBin string, minMS int64) (string, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", "", err
 	}
-	if minMS < 0 {
-		minMS = defaultMinMS
-	}
+	minMS = normalizedMinMS(minMS)
 	switch name {
 	case "zsh":
 		return filepath.Join(home, ".zshrc"), zshBlock(notifyBin, minMS), nil
@@ -147,6 +181,35 @@ func target(name, notifyBin string, minMS int64) (string, string, error) {
 		return filepath.Join(home, ".config", "fish", "conf.d", "onibi.fish"), fishBlock(notifyBin, minMS), nil
 	default:
 		return "", "", fmt.Errorf("unsupported shell %q", name)
+	}
+}
+
+func normalizedMinMS(minMS int64) int64 {
+	if minMS < 0 {
+		return defaultMinMS
+	}
+	return minMS
+}
+
+func compatibilityNotes(name string) []string {
+	switch name {
+	case "zsh":
+		return []string{
+			"zsh: uses add-zsh-hook preexec/precmd; keep the Onibi block after frameworks/plugins that redefine hooks.",
+			"oh-my-zsh: reinstall if plugin order changes command timing.",
+		}
+	case "bash":
+		return []string{
+			"bash: installs a DEBUG trap and prepends __onibi_precmd to PROMPT_COMMAND.",
+			"bash: existing PROMPT_COMMAND is preserved after Onibi's callback.",
+		}
+	case "fish":
+		return []string{
+			"fish: writes conf.d/onibi.fish with fish_preexec/fish_postexec event handlers.",
+			"fish: conf.d files are loaded by filename order; rename only if you need different ordering.",
+		}
+	default:
+		return nil
 	}
 }
 

@@ -799,7 +799,7 @@ Needed:
 - Add `disableAllHooks` detection in status/doctor.
 - Add `hooks show --agent copilot`.
 
-### Shell Hooks
+### Shell Hooks [DONE 2026-06-18]
 
 Provider surface:
 - zsh: `.zshrc` with `add-zsh-hook preexec/precmd`

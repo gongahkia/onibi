@@ -264,6 +264,46 @@ func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 	}
 }
 
+func TestHooksShowShellJSONReportsPreviewBackupAndThreshold(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("# user zshrc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--shell", "zsh", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--shell", "zsh", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.Agent != "shell:zsh" || report.ConfigPath != zshrc {
+		t.Fatalf("bad shell report: %+v", report)
+	}
+	if report.Record == nil || report.BackupPath == "" {
+		t.Fatalf("missing record/backup: %+v", report)
+	}
+	if report.ThresholdMS == nil || *report.ThresholdMS != 5000 {
+		t.Fatalf("threshold = %v", report.ThresholdMS)
+	}
+	for _, want := range []string{"add-zsh-hook preexec", "add-zsh-hook precmd", "onibi-notify"} {
+		if !strings.Contains(report.Preview, want) {
+			t.Fatalf("preview missing %q:\n%s", want, report.Preview)
+		}
+	}
+	notes := strings.Join(report.Compatibility, "\n")
+	for _, want := range []string{"oh-my-zsh", "plugin order"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("compatibility missing %q: %+v", want, report.Compatibility)
+		}
+	}
+	if !strings.Contains(report.EditCommand, "onibi config set shell.min_duration <duration>") {
+		t.Fatalf("bad edit command: %q", report.EditCommand)
+	}
+	if !hasDrift(report.Drift, "cmd_done", "ok", "") {
+		t.Fatalf("missing shell drift row: %+v", report.Drift)
+	}
+}
+
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
