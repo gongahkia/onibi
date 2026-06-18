@@ -104,7 +104,7 @@ func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, u
 	}
 	info := a.Status(cmd.Context(), db)
 	fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s hooks into %s\n", styleFor(cmd).green("[OK]"), a.Name, info.InstallPath)
-	if name == "codex" {
+	if a.TrustInstructions != nil {
 		for _, line := range a.TrustInstructions() {
 			fmt.Fprintln(cmd.OutOrStdout(), line)
 		}

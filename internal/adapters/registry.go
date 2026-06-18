@@ -35,14 +35,14 @@ type Adapter struct {
 
 func Registry() map[string]Adapter {
 	return map[string]Adapter{
-		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt},
+		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt, TrustInstructions: amp.TrustInstructions},
 		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt},
 		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt, ExpectedHooks: codex.ExpectedHooks, ObservedHooks: codex.ObservedHooks, TrustInstructions: codex.TrustInstructions, BackupPath: codex.BackupPath},
 		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash, Adopt: copilot.Adopt},
 		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash, Adopt: gemini.Adopt},
 		"goose":    {Name: "goose", Install: goose.Install, Uninstall: goose.Uninstall, Status: goose.Status, Verify: goose.VerifyHash, Adopt: goose.Adopt},
-		"opencode": {Name: "opencode", Install: opencode.Install, Uninstall: opencode.Uninstall, Status: opencode.Status, Verify: opencode.VerifyHash, Adopt: opencode.Adopt},
-		"pi":       {Name: "pi", Install: pi.Install, Uninstall: pi.Uninstall, Status: pi.Status, Verify: pi.VerifyHash, Adopt: pi.Adopt},
+		"opencode": {Name: "opencode", Install: opencode.Install, Uninstall: opencode.Uninstall, Status: opencode.Status, Verify: opencode.VerifyHash, Adopt: opencode.Adopt, TrustInstructions: opencode.TrustInstructions},
+		"pi":       {Name: "pi", Install: pi.Install, Uninstall: pi.Uninstall, Status: pi.Status, Verify: pi.VerifyHash, Adopt: pi.Adopt, TrustInstructions: pi.TrustInstructions},
 	}
 }
 

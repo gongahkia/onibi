@@ -126,6 +126,12 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func TrustInstructions() []string {
+	return []string{
+		"Pi next step: run /reload so auto-discovered extensions are reloaded.",
+	}
+}
+
 func installedVersion(src string) string {
 	for _, line := range strings.Split(src, "\n") {
 		line = strings.TrimSpace(line)
@@ -178,9 +184,15 @@ async function approval(event: any) {
   const decision = JSON.parse(r.stdout);
   if (decision.decision === "deny" || decision.decision === "expired") return { block: true, reason: decision.reason || "Denied by Onibi" };
   if (decision.decision === "edited" && decision.updated_input && event?.input && typeof event.input === "object") {
-    Object.assign(event.input, JSON.parse(decision.updated_input));
+    Object.assign(event.input, parseUpdatedInput(decision.updated_input)); // pi does not re-validate mutated tool input
   }
   return undefined;
+}
+
+function parseUpdatedInput(value: string) {
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Onibi edited input must be a JSON object");
+  return parsed;
 }
 
 export default function (pi: ExtensionAPI) {

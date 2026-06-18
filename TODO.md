@@ -110,7 +110,7 @@ Files:
 - `internal/store/*`
 - `internal/doctor/doctor.go`
 
-### 2. Provider Schema Strictness Audit
+### 2. Provider Schema Strictness Audit [DONE 2026-06-18]
 
 Problem:
 - Codex was strict and rejected unknown top-level fields.

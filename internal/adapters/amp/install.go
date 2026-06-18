@@ -116,6 +116,12 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func TrustInstructions() []string {
+	return []string{
+		"Amp next step: run plugins: reload from the command palette, then plugins: list to confirm Onibi is loaded.",
+	}
+}
+
 func installedVersion(src string) string {
 	for _, line := range strings.Split(src, "\n") {
 		line = strings.TrimSpace(line)
@@ -156,12 +162,21 @@ async function approval(event: any) {
     raw: event
   };
   const r = await runOnibi(["--agent", ONIBI_AGENT, "--format", "amp", "--type", "approval_request", "--wait", "--response", "onibi-json"], payload);
-  if (!r.stdout.trim()) return;
+  if (!r.stdout.trim()) return { action: "allow" };
   const decision = JSON.parse(r.stdout);
-  if (decision.decision === "deny" || decision.decision === "expired") throw new Error(decision.reason || "Denied by Onibi");
-  if (decision.decision === "edited" && decision.updated_input && event?.input && typeof event.input === "object") {
-    Object.assign(event.input, JSON.parse(decision.updated_input));
+  if (decision.decision === "deny" || decision.decision === "expired") {
+    return { action: "reject-and-continue", message: decision.reason || "Denied by Onibi" };
   }
+  if (decision.decision === "edited" && decision.updated_input) {
+    return { action: "modify", input: parseUpdatedInput(decision.updated_input) };
+  }
+  return { action: "allow" };
+}
+
+function parseUpdatedInput(value: string) {
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Onibi edited input must be a JSON object");
+  return parsed;
 }
 
 export default function (amp: PluginAPI) {
@@ -169,7 +184,7 @@ export default function (amp: PluginAPI) {
   amp.on("agent.start", async (event: any) => emit("agent_message", event));
   amp.on("tool.call", async (event: any) => {
     await emit("agent_message", event);
-    await approval(event);
+    return await approval(event);
   });
   amp.on("tool.result", async (event: any) => emit("agent_message", event));
   amp.on("agent.end", async (event: any) => emit("agent_done", event));

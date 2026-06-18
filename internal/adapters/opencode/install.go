@@ -116,6 +116,12 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func TrustInstructions() []string {
+	return []string{
+		"OpenCode next step: restart OpenCode so local plugins are loaded from the plugin directory.",
+	}
+}
+
 func installedVersion(src string) string {
 	for _, line := range strings.Split(src, "\n") {
 		line = strings.TrimSpace(line)
@@ -166,7 +172,13 @@ async function approval(input, output) {
   if (!r.stdout.trim()) return;
   const decision = JSON.parse(r.stdout);
   if (decision.decision === "deny" || decision.decision === "expired") throw new Error(decision.reason || "Denied by Onibi");
-  if (decision.decision === "edited" && decision.updated_input) output.args = JSON.parse(decision.updated_input);
+  if (decision.decision === "edited" && decision.updated_input) output.args = parseUpdatedInput(decision.updated_input);
+}
+
+function parseUpdatedInput(value) {
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Onibi edited input must be a JSON object");
+  return parsed;
 }
 
 export const Onibi = async () => ({
