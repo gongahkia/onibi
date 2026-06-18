@@ -969,7 +969,7 @@ Needed:
 - reorder buttons.
 - send-now confirm.
 
-### Encrypted Mode
+### Encrypted Mode [DONE 2026-06-18]
 
 Flow:
 1. user enables encrypted mode
