@@ -919,7 +919,7 @@ Needed:
 - Start visible defaults for first run.
 - Clear headless vs visible labels.
 
-### Approval
+### Approval [DONE 2026-06-18]
 
 Flow:
 1. agent calls tool
