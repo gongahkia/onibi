@@ -13,6 +13,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/envelope"
@@ -620,6 +621,40 @@ func TestDoctorAfterUpgradeCatchesLegacyMetadataAndGeminiTimeout(t *testing.T) {
 	}
 }
 
+func TestDoctorAfterUpgradeChecksNotifyPathAndVersion(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	hookDir := t.TempDir()
+	isolateHookPaths(t, hookDir)
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	notify := filepath.Join(hookDir, "bin", "onibi-notify")
+	codexPath := filepath.Join(hookDir, "codex-hooks.json")
+	writeCodexCommandHook(t, codexPath, notify, "1.0.0")
+
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, AfterUpgrade: true})
+	if !hasCheck(report, "after-upgrade hook codex", Fail, "onibi-notify missing") {
+		t.Fatalf("missing notify check: %+v", report.Checks)
+	}
+	if err := os.MkdirAll(filepath.Dir(notify), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report = Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, AfterUpgrade: true})
+	if !hasCheck(report, "after-upgrade hook codex", Fail, "managed command version 1.0.0 want "+common.IntegrationVersion) {
+		t.Fatalf("version check missing: %+v", report.Checks)
+	}
+}
+
 func hasCheck(report Report, name string, status Status, detail string) bool {
 	for _, check := range report.Checks {
 		if check.Name == name && check.Status == status && strings.Contains(check.Detail, detail) {
@@ -686,4 +721,25 @@ func writeJSONFile(t *testing.T, path string, m map[string]any) {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeCodexCommandHook(t *testing.T, path, notify, version string) {
+	t.Helper()
+	cmd := common.VersionEnv + `="` + version + `" exec "` + notify + `" --agent codex --format codex --type agent_message`
+	writeJSONFile(t, path, map[string]any{
+		"hooks": map[string]any{
+			"SessionStart": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{
+							"type":          "command",
+							"command":       cmd,
+							"timeout":       30,
+							"statusMessage": "Waiting for Onibi",
+						},
+					},
+				},
+			},
+		},
+	})
 }

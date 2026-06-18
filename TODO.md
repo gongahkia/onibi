@@ -567,7 +567,7 @@ Acceptance:
 - Bundle can be attached to a GitHub issue without leaking tokens or prompt bodies.
 - Tests run redaction fixtures.
 
-### Upgrade Smoke
+### Upgrade Smoke [DONE 2026-06-18]
 
 Requirement:
 - Add `onibi doctor --after-upgrade`.

@@ -786,13 +786,24 @@ func (r *runner) addRecordedHookStatus(agent, path string, info common.Info) {
 }
 
 func (r *runner) checkAfterUpgradeHooks() {
+	r.checkAfterUpgradeConfig()
+	r.checkAfterUpgradeDB()
 	if r.db == nil {
 		return
 	}
 	checked := 0
 	issues := 0
+	commandChecked := 0
+	commandIssues := 0
 	for _, name := range adapters.Names() {
 		info := adapters.Registry()[name].Status(r.ctx, r.db)
+		if name == "codex" && info.Installed {
+			r.add("after-upgrade hook codex trust", Warn, "Codex trust state is manual; run codex and review Onibi hooks before trusting")
+		}
+		if pluginSourceAdapter(name) && info.Installed && info.Outdated {
+			issues++
+			r.add("after-upgrade hook "+name, Fail, fmt.Sprintf("plugin source stale: version %s want %s", versionLabel(info.InstalledVersion), common.IntegrationVersion))
+		}
 		if info.InstallPath == "" || filepath.Ext(info.InstallPath) != ".json" {
 			continue
 		}
@@ -824,10 +835,116 @@ func (r *runner) checkAfterUpgradeHooks() {
 				r.add("after-upgrade hook gemini", Fail, "Gemini hook timeout must be milliseconds: "+strings.Join(low, ", "))
 			}
 		}
+		for _, cmd := range managedHookCommands(cfg, name) {
+			commandChecked++
+			if path := notifyPathFromCommand(cmd); path == "" {
+				commandIssues++
+				r.add("after-upgrade hook "+name, Fail, "onibi-notify path missing in managed command")
+			} else if _, err := os.Stat(path); err != nil {
+				commandIssues++
+				r.add("after-upgrade hook "+name, Fail, "onibi-notify missing: "+path)
+			}
+			if got := common.CommandVersion(cmd); got == "" {
+				commandIssues++
+				r.add("after-upgrade hook "+name, Fail, "managed command missing "+common.VersionEnv)
+			} else if got != common.IntegrationVersion {
+				commandIssues++
+				r.add("after-upgrade hook "+name, Fail, fmt.Sprintf("managed command version %s want %s", got, common.IntegrationVersion))
+			}
+		}
 	}
 	if issues == 0 {
 		r.add("after-upgrade hook schema", Pass, fmt.Sprintf("checked %d provider JSON configs", checked))
 	}
+	if commandChecked > 0 && commandIssues == 0 {
+		r.add("after-upgrade hook commands", Pass, fmt.Sprintf("checked %d managed commands", commandChecked))
+	}
+}
+
+func (r *runner) checkAfterUpgradeConfig() {
+	_, meta, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("after-upgrade config", Fail, err.Error())
+		return
+	}
+	r.add("after-upgrade config", Pass, meta.Path)
+}
+
+func (r *runner) checkAfterUpgradeDB() {
+	if r.db == nil {
+		return
+	}
+	var version int
+	if err := r.db.SQL().QueryRowContext(r.ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		r.add("after-upgrade db schema", Fail, err.Error())
+		return
+	}
+	if version < 1 {
+		r.add("after-upgrade db schema", Fail, fmt.Sprintf("version %d want >=1", version))
+		return
+	}
+	missing := missingUpgradeColumns(r.ctx, r.db)
+	if len(missing) > 0 {
+		r.add("after-upgrade db schema", Fail, "missing columns: "+strings.Join(missing, ", "))
+		return
+	}
+	r.add("after-upgrade db schema", Pass, fmt.Sprintf("version %d", version))
+}
+
+func missingUpgradeColumns(ctx context.Context, db *store.DB) []string {
+	want := map[string][]string{
+		"hooks":     {"version"},
+		"approvals": {"reason", "decided_by"},
+		"sessions":  {"cmd", "last_activity"},
+	}
+	var missing []string
+	for table, columns := range want {
+		have := tableColumns(ctx, db, table)
+		for _, column := range columns {
+			if !have[column] {
+				missing = append(missing, table+"."+column)
+			}
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func tableColumns(ctx context.Context, db *store.DB, table string) map[string]bool {
+	rows, err := db.SQL().QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return map[string]bool{}
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return map[string]bool{}
+		}
+		out[name] = true
+	}
+	return out
+}
+
+func pluginSourceAdapter(name string) bool {
+	switch name {
+	case "amp", "opencode", "pi":
+		return true
+	default:
+		return false
+	}
+}
+
+func versionLabel(v *string) string {
+	if v == nil || *v == "" {
+		return "unknown"
+	}
+	return *v
 }
 
 func legacyMetadataFields(v any) []string {
@@ -880,15 +997,98 @@ func geminiLowTimeouts(v any) []string {
 	return out
 }
 
+func managedHookCommands(v any, agent string) []string {
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			if managedCommand(x, agent) {
+				if cmd := commandValue(x); cmd != "" {
+					out = append(out, cmd)
+				}
+			}
+			for _, v := range x {
+				walk(v)
+			}
+		case []any:
+			for _, v := range x {
+				walk(v)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
 func managedCommand(m map[string]any, agent string) bool {
 	if m[common.GuardField] == true {
 		return true
 	}
-	cmd, _ := m["command"].(string)
-	if cmd == "" {
-		cmd, _ = m["bash"].(string)
-	}
+	cmd := commandValue(m)
 	return strings.Contains(cmd, "onibi-notify") && strings.Contains(cmd, "--agent "+agent)
+}
+
+func commandValue(m map[string]any) string {
+	for _, key := range []string{"command", "bash", "powershell"} {
+		if s, _ := m[key].(string); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func notifyPathFromCommand(cmd string) string {
+	for _, field := range shellFields(cmd) {
+		if strings.Contains(filepath.Base(field), "onibi-notify") {
+			return field
+		}
+	}
+	return ""
+}
+
+func shellFields(s string) []string {
+	var out []string
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		out = append(out, b.String())
+		b.Reset()
+	}
+	for _, r := range s {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				b.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\n' {
+			flush()
+			continue
+		}
+		b.WriteRune(r)
+	}
+	flush()
+	return out
 }
 
 func numberValue(v any) (float64, bool) {
