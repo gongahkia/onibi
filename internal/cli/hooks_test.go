@@ -179,6 +179,35 @@ func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 	}
 }
 
+func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	extensionPath := filepath.Join(home, ".pi", "agent", "extensions", "onibi.ts")
+	if err := os.MkdirAll(filepath.Dir(extensionPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extensionPath, []byte("old pi extension"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "pi", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--agent", "pi", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != extensionPath {
+		t.Fatalf("config path = %q want %q", report.ConfigPath, extensionPath)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("backup path missing")
+	}
+	trust := strings.Join(report.TrustInstructions, "\n")
+	for _, want := range []string{"/reload", "ONIBI_PI_SCOPE=project", "ONIBI_PI_EXTENSION"} {
+		if !strings.Contains(trust, want) {
+			t.Fatalf("trust instructions missing %q: %+v", want, report.TrustInstructions)
+		}
+	}
+}
+
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")

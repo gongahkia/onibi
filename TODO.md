@@ -742,7 +742,7 @@ Needed:
 - Add generated plugin type tests or snapshot tests.
 - Add `hooks show --agent amp` that prints plugin path and reload instruction.
 
-### Pi
+### Pi [DONE 2026-06-18]
 
 Provider surface:
 - TypeScript extension

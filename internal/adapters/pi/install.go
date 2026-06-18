@@ -18,6 +18,9 @@ func ExtensionPath() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("ONIBI_PI_EXTENSION")); v != "" {
 		return filepath.Abs(v)
 	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ONIBI_PI_SCOPE")), "project") {
+		return filepath.Abs(filepath.Join(".pi", "extensions", "onibi.ts"))
+	}
 	if d := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); d != "" {
 		return filepath.Abs(filepath.Join(d, "extensions", "onibi.ts"))
 	}
@@ -129,6 +132,7 @@ func Adopt(ctx context.Context, db *store.DB) error {
 func TrustInstructions() []string {
 	return []string{
 		"Pi next step: run /reload so auto-discovered extensions are reloaded.",
+		"Pi default path is ~/.pi/agent/extensions/onibi.ts; use ONIBI_PI_SCOPE=project for .pi/extensions/onibi.ts, or ONIBI_PI_EXTENSION for an explicit path.",
 	}
 }
 
@@ -184,7 +188,8 @@ async function approval(event: any) {
   const decision = JSON.parse(r.stdout);
   if (decision.decision === "deny" || decision.decision === "expired") return { block: true, reason: decision.reason || "Denied by Onibi" };
   if (decision.decision === "edited" && decision.updated_input && event?.input && typeof event.input === "object") {
-    Object.assign(event.input, parseUpdatedInput(decision.updated_input)); // pi does not re-validate mutated tool input
+    const nextInput = parseUpdatedInput(decision.updated_input);
+    Object.assign(event.input, nextInput); // Pi does no post-mutation validation; validate before mutation
   }
   return undefined;
 }
