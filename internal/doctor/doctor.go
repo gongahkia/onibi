@@ -273,13 +273,13 @@ var repairRules = []repairRule{
 }
 
 func botTokenRepairSpec(_, detail string) repairSpec {
-	spec := repairSpec{Impact: "Telegram daemon startup, approvals, notifications, and Telegram-created sessions cannot work until token lookup succeeds. [Inference] Existing local shells/agents outside Onibi and any already-running PTY/tmux process keep running at OS level.", SafeFix: "unlock/login to the OS keychain, then rerun the retry command", ManualFix: "rotate token only if the stored token is invalid or inaccessible after keychain repair", FilesTouched: []string{}, Retry: "onibi doctor, onibi up, or onibi run", Blocks: []string{"Telegram daemon startup", "approvals", "notifications", "Telegram-created sessions"}}
+	spec := repairSpec{Impact: "Telegram daemon startup, approvals, notifications, and Telegram-created sessions cannot work until token lookup succeeds. [Inference] Existing local shells/agents outside Onibi and any already-running PTY/tmux process keep running at OS level.", SafeFix: "safe to retry after unlock/login to the OS keychain", ManualFix: "rotate token only if the stored token is invalid or inaccessible after keychain repair", FilesTouched: []string{}, Retry: "onibi doctor, onibi up, or onibi run", Blocks: []string{"Telegram daemon startup", "approvals", "notifications", "Telegram-created sessions"}}
 	if strings.Contains(strings.ToLower(detail), "timeout") || strings.Contains(strings.ToLower(detail), "deadline") {
 		spec.Code = "bot_token_timeout"
 		return spec
 	}
 	spec.Code = "bot_token_missing"
-	spec.SafeFix = "complete setup or rotate the bot token"
+	spec.SafeFix = "safe to rerun setup or rotate the bot token"
 	spec.ManualFix = "store a valid BotFather token in keychain; use dotenv only as an explicit fallback"
 	spec.FilesTouched = []string{"secret store"}
 	spec.Retry = "onibi setup --complete"

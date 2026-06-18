@@ -847,7 +847,7 @@ Needed:
 - Setup must end with the next useful action, not a generic success.
 - Doctor repair plan must explain which failures block Telegram vs only optional features.
 
-### Bot Creation And Pairing
+### Bot Creation And Pairing [DONE 2026-06-18]
 
 Flow:
 1. user creates Telegram bot through BotFather

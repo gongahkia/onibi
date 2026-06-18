@@ -234,6 +234,7 @@ func welcomeText() string {
 		"Onibi is paired.",
 		"",
 		"Useful commands:",
+		"/menu - dashboard and next actions",
 		"/new --headless shell - start without opening a terminal",
 		"/new --visible shell - start and open a terminal",
 		"/show <id|name> / /hide <id|name> - switch visibility",
