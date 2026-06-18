@@ -537,7 +537,7 @@ Action:
 Acceptance:
 - Matrix explains why Goose is event-bridge while Codex/Claude/Gemini/Copilot/OpenCode/Amp/Pi can block or intercept tool calls where supported.
 
-### Redacted Support Bundle
+### Redacted Support Bundle [DONE 2026-06-18]
 
 Requirement:
 - Add `onibi support-bundle --redacted`.

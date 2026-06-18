@@ -42,6 +42,7 @@ func Root() *cobra.Command {
 		sessionsCmd(),
 		logCmd(),
 		tailLogCmd(),
+		supportBundleCmd(),
 		mcpCmd(),
 		versionCmd(),
 	)
