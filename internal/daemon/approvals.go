@@ -55,7 +55,16 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	if isHighRiskApproval(a) {
 		d.noteAnomaly(ctx, "approval.high_risk")
 	}
-	sent, sendErr := d.sendApprovalMessage(ctx, approvalID, ev.Tool, ev.InputJSON, sessLabel, false, a.ExpiresAt)
+	renderCtx := approvalRenderContext{
+		Agent:        ev.Agent,
+		SessionLabel: sessLabel,
+		CWD:          ev.CWD,
+		ToolTarget:   ev.ToolTarget,
+		Command:      ev.Command,
+		FilePath:     ev.FilePath,
+		ExpiresAt:    a.ExpiresAt,
+	}
+	sent, sendErr := d.sendApprovalMessageWithContext(ctx, approvalID, ev.Tool, ev.InputJSON, false, renderCtx)
 	if sendErr != nil {
 		// Telegram unreachable — cancel the approval so the hook unblocks
 		_ = d.Queue.Cancel(context.Background(), approvalID, "telegram send failed: "+sendErr.Error())
@@ -107,7 +116,11 @@ func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
 				continue
 			}
 		}
-		sent, err := d.sendApprovalMessage(ctx, a.ID, a.Tool, a.InputJSON, sessLabel, true, a.ExpiresAt)
+		sent, err := d.sendApprovalMessageWithContext(ctx, a.ID, a.Tool, a.InputJSON, true, approvalRenderContext{
+			Agent:        a.Agent,
+			SessionLabel: sessLabel,
+			ExpiresAt:    a.ExpiresAt,
+		})
 		if err != nil {
 			d.Log.Warn("restore approval message", slog.String("id", a.ID), slog.Any("err", err))
 			continue
@@ -124,7 +137,7 @@ func (d *Daemon) tryEditApprovalInPlace(ctx context.Context, a *approval.Approva
 	case "on", "ask":
 		return false, true
 	}
-	body := renderApprovalMessage(a.Tool, a.InputJSON, sessLabel)
+	body := renderApproval(a.Tool, a.InputJSON, approvalRenderContext{Agent: a.Agent, SessionLabel: sessLabel, ExpiresAt: a.ExpiresAt}).HTML
 	_, err := d.Bot.EditMessageText(ctx, &tgbot.EditMessageTextParams{
 		ChatID:      a.ChatID,
 		MessageID:   int(a.MsgID),
@@ -146,19 +159,23 @@ func shouldFallbackApprovalEdit(err error) bool {
 }
 
 func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool, expires time.Time) (*models.Message, error) {
+	return d.sendApprovalMessageWithContext(ctx, id, tool, inputJSON, restored, approvalRenderContext{SessionLabel: sessLabel, ExpiresAt: expires})
+}
+
+func (d *Daemon) sendApprovalMessageWithContext(ctx context.Context, id, tool, inputJSON string, restored bool, renderCtx approvalRenderContext) (*models.Message, error) {
 	if d.Bot == nil {
 		return nil, errors.New("telegram bot unavailable")
 	}
 	switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
 	case "on", "ask":
-		return d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored, expires)
+		return d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, restored, renderCtx)
 	default:
-		return d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, sessLabel, restored)
+		return d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, restored, renderCtx)
 	}
 }
 
-func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool) (*models.Message, error) {
-	rendered := renderApproval(tool, inputJSON, sessLabel)
+func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJSON string, restored bool, renderCtx approvalRenderContext) (*models.Message, error) {
+	rendered := renderApproval(tool, inputJSON, renderCtx)
 	msg := rendered.HTML
 	if restored {
 		msg += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
@@ -191,11 +208,11 @@ func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJS
 	return sent, err
 }
 
-func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inputJSON, sessLabel string, restored bool, expires time.Time) (*models.Message, error) {
+func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inputJSON string, restored bool, renderCtx approvalRenderContext) (*models.Message, error) {
 	if strings.TrimSpace(d.EnvelopeSeed) == "" {
 		return nil, errors.New("encrypted mode enabled without envelope seed; run `onibi setup --enable-encrypted-mode`")
 	}
-	rendered := renderApproval(tool, inputJSON, sessLabel)
+	rendered := renderApproval(tool, inputJSON, renderCtx)
 	body, risk := rendered.Plain, rendered.Risk
 	if restored {
 		body += "\n\nRe-sent after daemon restart. The original hook may have already proceeded."
@@ -206,7 +223,7 @@ func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inp
 		Title: "Approval request",
 		Risk:  risk.Level,
 		Body:  body,
-	}, expires)
+	}, renderCtx.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +231,7 @@ func (d *Daemon) sendEncryptedApprovalMessage(ctx context.Context, id, tool, inp
 	if err != nil {
 		return nil, err
 	}
-	msg := fmt.Sprintf("Encrypted approval request %s.\nOpen the Mini App to decrypt and decide.\nExpires: %s", id, expires.Format(time.RFC3339))
+	msg := fmt.Sprintf("Encrypted approval request %s.\nOpen the Mini App to decrypt and decide.\n%s", id, formatApprovalExpiry(renderCtx.ExpiresAt))
 	sent, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID:      d.Owner.ID(),
 		Text:        msg,
@@ -360,6 +377,24 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 			"denied by owner via Telegram", q.From.ID)
 		return d.finishCallbackDecision(ctx, api, q, a, res, err, "Denied")
 
+	case "deny_reason":
+		if d.encryptedModeEnabled() {
+			answerCallback(ctx, api, q.ID, "Use secure controls")
+			d.sendSecureRequired(ctx, api, q.From.ID)
+			return nil
+		}
+		d.setPending(ctx, pendingKindDenyReason, q.From.ID, id)
+		answerCallback(ctx, api, q.ID, "Send deny reason")
+		params := &tgbot.SendMessageParams{
+			ChatID: q.From.ID,
+			Text:   "Reply with denial reason for approval " + id + ". Reply 'cancel' to abort.",
+		}
+		if q.Message.Message != nil {
+			params.ReplyParameters = &models.ReplyParameters{MessageID: q.Message.Message.ID}
+		}
+		sendAwaitingMessage(ctx, api, params)
+		return nil
+
 	case "edit":
 		// park: next text reply from the owner becomes the edited JSON
 		d.setPending(ctx, pendingKindApprovalEdit, q.From.ID, id)
@@ -387,6 +422,9 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	approvalID, ok := d.takePending(ctx, pendingKindApprovalEdit, m.From.ID)
 	if !ok {
 		if d.handlePendingPromptEdit(ctx, api, m) {
+			return nil
+		}
+		if d.handlePendingDenyReason(ctx, api, m) {
 			return nil
 		}
 		if d.handlePendingMenuSend(ctx, api, m) {
@@ -470,6 +508,53 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 		Text:   withTOTPNote("Edited input accepted; tool will run with your version.", authNote),
 	})
 	return nil
+}
+
+func (d *Daemon) handlePendingDenyReason(ctx context.Context, api telegram.API, m *models.Message) bool {
+	approvalID, ok := d.takePending(ctx, pendingKindDenyReason, m.From.ID)
+	if !ok {
+		return false
+	}
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
+		return true
+	}
+	reason := strings.TrimSpace(m.Text)
+	if strings.EqualFold(reason, "cancel") {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Deny reason cancelled. Tap Deny for one-tap denial."})
+		return true
+	}
+	if reason == "" {
+		d.setPending(ctx, pendingKindDenyReason, m.From.ID, approvalID)
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Deny reason is empty. Reply with a reason, or 'cancel' to abort."})
+		return true
+	}
+	a, err := d.Queue.Get(ctx, approvalID)
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Unknown approval."})
+		return true
+	}
+	res, err := d.Queue.DecideWithResult(ctx, approvalID, approval.VerdictDeny, "", reason, m.From.ID)
+	if errors.Is(err, approval.ErrExpired) {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Approval expired."})
+		if !res.Delivered {
+			d.editStoredDecision(ctx, a, res.Decision)
+		}
+		return true
+	}
+	if errors.Is(err, approval.ErrAlreadyDecided) {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Approval already decided by another path."})
+		return true
+	}
+	if err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Deny failed: " + err.Error()})
+		return true
+	}
+	if !res.Delivered {
+		d.editStoredDecision(ctx, a, res.Decision)
+	}
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Denied with reason."})
+	return true
 }
 
 func (d *Daemon) prepareApprovalEdit(ctx context.Context, chatID int64, txt string) (string, string, string) {
@@ -557,12 +642,22 @@ func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message
 // renderApprovalMessage formats the Telegram message body for an approval
 // request. Scrubs secrets from rendered tool inputs.
 func renderApprovalMessage(tool, inputJSON, sessLabel string) string {
-	return renderApproval(tool, inputJSON, sessLabel).HTML
+	return renderApproval(tool, inputJSON, approvalRenderContext{SessionLabel: sessLabel}).HTML
 }
 
 func renderApprovalPlainText(tool, inputJSON, sessLabel string) (string, approval.Risk) {
-	rendered := renderApproval(tool, inputJSON, sessLabel)
+	rendered := renderApproval(tool, inputJSON, approvalRenderContext{SessionLabel: sessLabel})
 	return rendered.Plain, rendered.Risk
+}
+
+type approvalRenderContext struct {
+	Agent        string
+	SessionLabel string
+	CWD          string
+	ToolTarget   string
+	Command      string
+	FilePath     string
+	ExpiresAt    time.Time
 }
 
 type approvalRender struct {
@@ -573,34 +668,88 @@ type approvalRender struct {
 	Truncated bool
 }
 
-func renderApproval(tool, inputJSON, sessLabel string) approvalRender {
+func renderApproval(tool, inputJSON string, renderCtx approvalRenderContext) approvalRender {
 	pretty, risk := approvalRenderParts(tool, inputJSON)
+	renderCtx = completeApprovalRenderContext(tool, inputJSON, renderCtx)
 	preview, truncated := approvalPreview(pretty)
 	plain := fmt.Sprintf(
 		"Approval request\n"+
+			"Agent: %s\n"+
 			"Session: %s\n"+
+			"Project: %s\n"+
 			"Tool: %s\n"+
-			"Risk: %s\n\n%s",
-		sessLabel,
+			"Risk: %s\n"+
+			"Target: %s\n"+
+			"%s\n\n%s",
+		renderCtx.Agent,
+		renderCtx.SessionLabel,
+		renderCtx.CWD,
 		tool,
 		riskText(risk),
+		renderCtx.ToolTarget,
+		formatApprovalExpiry(renderCtx.ExpiresAt),
 		preview)
 	if truncated {
 		plain += "\n\nFull payload attached separately."
 	}
 	html := fmt.Sprintf(
 		"Approval request\n"+
+			"Agent: %s\n"+
 			"Session: %s\n"+
+			"Project: %s\n"+
 			"Tool: %s\n"+
-			"Risk: %s\n%s",
-		telegram.EscapeHTML(sessLabel),
+			"Risk: %s\n"+
+			"Target: %s\n"+
+			"%s\n%s",
+		telegram.EscapeHTML(renderCtx.Agent),
+		telegram.EscapeHTML(renderCtx.SessionLabel),
+		telegram.EscapeHTML(renderCtx.CWD),
 		telegram.EscapeHTML(tool),
 		telegram.EscapeHTML(riskText(risk)),
+		telegram.EscapeHTML(renderCtx.ToolTarget),
+		telegram.EscapeHTML(formatApprovalExpiry(renderCtx.ExpiresAt)),
 		telegram.HTMLPre(preview))
 	if truncated {
 		html += "\n\nFull payload attached separately."
 	}
 	return approvalRender{HTML: html, Plain: plain, Full: pretty, Risk: risk, Truncated: truncated}
+}
+
+func completeApprovalRenderContext(tool, inputJSON string, renderCtx approvalRenderContext) approvalRenderContext {
+	if renderCtx.Agent == "" {
+		renderCtx.Agent = "unknown"
+	}
+	if renderCtx.SessionLabel == "" {
+		renderCtx.SessionLabel = "unknown"
+	}
+	if renderCtx.CWD == "" {
+		renderCtx.CWD = "unknown"
+	}
+	details := approval.ExtractDetails(tool, inputJSON)
+	if renderCtx.Command == "" {
+		renderCtx.Command = details.Command
+	}
+	if renderCtx.FilePath == "" {
+		renderCtx.FilePath = details.FilePath
+	}
+	if renderCtx.ToolTarget == "" {
+		renderCtx.ToolTarget = details.Target
+	}
+	if renderCtx.ToolTarget == "" {
+		renderCtx.ToolTarget = "unknown"
+	}
+	return renderCtx
+}
+
+func formatApprovalExpiry(expires time.Time) string {
+	if expires.IsZero() {
+		return "expires: unknown"
+	}
+	remain := time.Until(expires).Truncate(time.Second)
+	if remain < 0 {
+		remain = 0
+	}
+	return fmt.Sprintf("expires: %s local (%s)", expires.Local().Format("15:04:05"), remain)
 }
 
 func approvalRenderParts(tool, inputJSON string) (string, approval.Risk) {

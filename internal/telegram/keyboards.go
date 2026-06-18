@@ -12,6 +12,7 @@ const (
 	CBApprove         = "approve:"
 	CBConfirm         = "confirm:"
 	CBDeny            = "deny:"
+	CBDenyReason      = "reason:"
 	CBEdit            = "edit:"
 	CBTarget          = "target:"
 	CBPromptSend      = "psend:"
@@ -61,6 +62,9 @@ func ApprovalKeyboard(approvalID string) *models.InlineKeyboardMarkup {
 				{Text: "Deny", CallbackData: CBDeny + approvalID},
 				{Text: "Edit", CallbackData: CBEdit + approvalID},
 			},
+			{
+				{Text: "Reason", CallbackData: CBDenyReason + approvalID},
+			},
 		},
 	}
 }
@@ -73,6 +77,7 @@ func ConfirmApprovalKeyboard(approvalID string) *models.InlineKeyboardMarkup {
 			},
 			{
 				{Text: "Deny", CallbackData: CBDeny + approvalID},
+				{Text: "Reason", CallbackData: CBDenyReason + approvalID},
 				{Text: "Edit", CallbackData: CBEdit + approvalID},
 			},
 		},
@@ -247,6 +252,8 @@ func ParseCallback(data string) (verb, id string) {
 		return "confirm_approve", strings.TrimPrefix(data, CBConfirm)
 	case strings.HasPrefix(data, CBDeny):
 		return "deny", strings.TrimPrefix(data, CBDeny)
+	case strings.HasPrefix(data, CBDenyReason):
+		return "deny_reason", strings.TrimPrefix(data, CBDenyReason)
 	case strings.HasPrefix(data, CBEdit):
 		return "edit", strings.TrimPrefix(data, CBEdit)
 	case strings.HasPrefix(data, CBTarget):

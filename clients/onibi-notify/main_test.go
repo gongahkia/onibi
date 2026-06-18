@@ -17,11 +17,34 @@ func TestParseHookPayloadSnakeAndCamel(t *testing.T) {
 	if !strings.Contains(p.InputJSON, "ls") {
 		t.Fatalf("missing input JSON: %s", p.InputJSON)
 	}
+	if p.Command != "ls" || p.ToolTarget != "ls" || p.Risk != "low" {
+		t.Fatalf("missing normalized command fields: %+v", p)
+	}
 
 	raw = []byte(`{"sessionId":"s2","toolName":"run","toolArgs":{"x":1}}`)
 	p = parseHookPayload(raw)
 	if p.SessionID != "s2" || p.Tool != "run" || !strings.Contains(p.InputJSON, `"x":1`) {
 		t.Fatalf("bad camel payload: %+v", p)
+	}
+}
+
+func TestParseHookPayloadProviderTargets(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"claude_file", `{"tool_name":"Edit","tool_input":{"file_path":"internal/app.go","old_string":"a","new_string":"b"}}`, "internal/app.go"},
+		{"codex_apply_patch", `{"toolName":"apply_patch","toolArgs":{"cmd":"apply_patch <<'PATCH'"}}`, "apply_patch <<'PATCH'"},
+		{"gemini", `{"tool_name":"run_shell_command","tool_input":{"command":"npm publish"}}`, "npm publish"},
+		{"copilot_camel", `{"toolName":"writeFile","toolArgs":{"filePath":"src/index.ts","content":"x"}}`, "src/index.ts"},
+		{"plugin_mcp", `{"tool":"mcp.call","input":{"server":"fs","tool":"read","arguments":{"path":"README.md"}}}`, "fs read"},
+	}
+	for _, c := range cases {
+		p := parseHookPayload([]byte(c.raw))
+		if !strings.Contains(p.ToolTarget, c.want) {
+			t.Fatalf("%s target = %q want %q", c.name, p.ToolTarget, c.want)
+		}
 	}
 }
 

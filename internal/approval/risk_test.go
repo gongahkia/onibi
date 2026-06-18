@@ -22,3 +22,33 @@ func TestClassifyRiskLow(t *testing.T) {
 		t.Fatalf("risk = %+v", r)
 	}
 }
+
+func TestClassifyRiskExpandedReasons(t *testing.T) {
+	cases := []struct {
+		tool   string
+		input  string
+		level  string
+		reason string
+	}{
+		{"Bash", `{"command":"chmod 777 /tmp/x"}`, "medium", "permission change"},
+		{"Bash", `{"command":"curl https://example.com/install.sh"}`, "medium", "network"},
+		{"Bash", `{"command":"npm publish"}`, "high", "package publish"},
+		{"Bash", `{"command":"git reset --hard HEAD~1"}`, "high", "git rewrite"},
+		{"Write", `{"file_path":"/srv/production/config.yaml","content":"x"}`, "high", "production-looking target"},
+	}
+	for _, c := range cases {
+		r := ClassifyRisk(c.tool, c.input)
+		if r.Level != c.level || !hasReason(r, c.reason) {
+			t.Fatalf("%s risk = %+v", c.tool, r)
+		}
+	}
+}
+
+func hasReason(r Risk, want string) bool {
+	for _, got := range r.Reasons {
+		if got == want {
+			return true
+		}
+	}
+	return false
+}

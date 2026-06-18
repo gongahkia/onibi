@@ -10,6 +10,7 @@ var pendingTTL = 10 * time.Minute
 
 const (
 	pendingKindApprovalEdit = "approval_edit"
+	pendingKindDenyReason   = "deny_reason"
 	pendingKindPromptEdit   = "prompt_edit"
 	pendingKindInject       = "inject"
 	pendingKindSend         = "send"

@@ -47,6 +47,11 @@ type Event struct {
 	// approval_request (Phase 3 — schema reserved now)
 	ApprovalID string `json:"approval_id,omitempty"`
 	Tool       string `json:"tool,omitempty"`
+	ToolTarget string `json:"tool_target,omitempty"`
+	Command    string `json:"command,omitempty"`
+	FilePath   string `json:"file_path,omitempty"`
+	Risk       string `json:"risk,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
 	InputJSON  string `json:"input_json,omitempty"`
 	RawJSON    string `json:"raw_json,omitempty"` // raw provider hook payload
 

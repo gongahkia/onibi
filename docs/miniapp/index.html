@@ -71,6 +71,9 @@
   <section id="editBox" class="hidden">
     <textarea id="editText" spellcheck="false"></textarea>
   </section>
+  <section id="reasonBox" class="hidden">
+    <textarea id="denyReason" spellcheck="true" placeholder="Optional deny reason"></textarea>
+  </section>
   <div class="row">
     <button id="approve" class="primary" disabled>Approve</button>
     <button id="deny" class="danger" disabled>Deny</button>
@@ -100,6 +103,8 @@ const edit = document.getElementById("edit");
 const sendEdit = document.getElementById("sendEdit");
 const editBox = document.getElementById("editBox");
 const editText = document.getElementById("editText");
+const reasonBox = document.getElementById("reasonBox");
+const denyReason = document.getElementById("denyReason");
 let current = null;
 let confirmArmed = false;
 
@@ -180,6 +185,7 @@ async function send(action, extra){
   if(!seed) throw new Error("seed missing");
   const payload = Object.assign({v:1, action, id:current.id || ""}, extra || {});
   if(action === "edit") payload.updated_input = editText.value;
+  if(action === "deny" && denyReason.value.trim()) payload.reason = denyReason.value.trim();
   const token = await encryptPlain(seed, "action", {kind:"action", body:JSON.stringify(payload)}, 300);
   tg.sendData(JSON.stringify({v:1, envelope:token}));
   tg.close();
@@ -189,6 +195,7 @@ function resetViews(){
   importBox.classList.add("hidden");
   secureBox.classList.add("hidden");
   editBox.classList.add("hidden");
+  reasonBox.classList.add("hidden");
   sendEdit.classList.add("hidden");
   itemImage.classList.add("hidden");
   itemImage.removeAttribute("src");
@@ -198,6 +205,7 @@ function resetViews(){
   confirmArmed = false;
 }
 function armActions(){
+  reasonBox.classList.remove("hidden");
   approve.disabled = deny.disabled = edit.disabled = false;
   approve.onclick = () => {
     if(current.risk === "high" && !confirmArmed){
@@ -238,6 +246,7 @@ function renderCurrent(){
   setState(current.risk === "high" ? "high risk" : "ready");
   body.textContent = current.body || "";
   editText.value = "";
+  denyReason.value = "";
   if(current.mime && current.mime.startsWith("image/") && current.data_b64){
     itemImage.src = `data:${current.mime};base64,${current.data_b64}`;
     itemImage.classList.remove("hidden");

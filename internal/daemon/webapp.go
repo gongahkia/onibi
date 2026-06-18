@@ -20,6 +20,7 @@ type webAppDecision struct {
 	Action       string `json:"action"`
 	ID           string `json:"id"`
 	UpdatedInput string `json:"updated_input,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 	Session      string `json:"session,omitempty"`
 	Text         string `json:"text,omitempty"`
 	Agent        string `json:"agent,omitempty"`
@@ -83,7 +84,11 @@ func (d *Daemon) onWebAppData(ctx context.Context, api telegram.API, m *models.M
 		res, err := d.Queue.DecideWithResult(ctx, a.ID, approval.VerdictApprove, "", "", m.From.ID)
 		return d.finishWebAppDecision(ctx, api, m.Chat.ID, a, res, err, "Approved.")
 	case "deny":
-		res, err := d.Queue.DecideWithResult(ctx, a.ID, approval.VerdictDeny, "", "denied by owner via encrypted Mini App", m.From.ID)
+		reason := strings.TrimSpace(dec.Reason)
+		if reason == "" {
+			reason = "denied by owner via encrypted Mini App"
+		}
+		res, err := d.Queue.DecideWithResult(ctx, a.ID, approval.VerdictDeny, "", reason, m.From.ID)
 		return d.finishWebAppDecision(ctx, api, m.Chat.ID, a, res, err, "Denied.")
 	case "edit":
 		editJSON, authErr, authNote := d.prepareApprovalEdit(ctx, m.Chat.ID, dec.UpdatedInput)

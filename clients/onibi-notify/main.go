@@ -40,6 +40,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
 )
@@ -107,6 +108,11 @@ func main() {
 		CWD:               parsed.CWD,
 		EventName:         firstNonEmpty(*eventName, parsed.EventName),
 		ProviderSessionID: parsed.ProviderSessionID,
+		Tool:              parsed.Tool,
+		ToolTarget:        parsed.ToolTarget,
+		Command:           parsed.Command,
+		FilePath:          parsed.FilePath,
+		Risk:              parsed.Risk,
 		Status:            *status,
 		Cmd:               *cmd,
 		Elapsed:           *elapsedMS,
@@ -147,6 +153,10 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 		EventName:         parsed.EventName,
 		ProviderSessionID: parsed.ProviderSessionID,
 		Tool:              parsed.Tool,
+		ToolTarget:        parsed.ToolTarget,
+		Command:           parsed.Command,
+		FilePath:          parsed.FilePath,
+		Risk:              parsed.Risk,
 		InputJSON:         parsed.InputJSON,
 		RawJSON:           string(raw),
 	}
@@ -208,6 +218,10 @@ type hookPayload struct {
 	ProviderSessionID string
 	CWD               string
 	Tool              string
+	ToolTarget        string
+	Command           string
+	FilePath          string
+	Risk              string
 	InputJSON         string
 	Text              string
 }
@@ -238,6 +252,11 @@ func parseHookPayload(raw []byte) hookPayload {
 	} else {
 		p.InputJSON = "{}"
 	}
+	details := approval.ExtractDetails(p.Tool, p.InputJSON)
+	p.ToolTarget = details.Target
+	p.Command = details.Command
+	p.FilePath = details.FilePath
+	p.Risk = approval.ClassifyRisk(p.Tool, p.InputJSON).Level
 	p.Text = summarize(m, p)
 	return p
 }
