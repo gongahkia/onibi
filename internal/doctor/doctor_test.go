@@ -655,6 +655,42 @@ func TestDoctorAfterUpgradeChecksNotifyPathAndVersion(t *testing.T) {
 	}
 }
 
+func TestDoctorAfterUpgradeChecksClaudeRuntime(t *testing.T) {
+	paths := doctorPaths(t)
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	hookDir := t.TempDir()
+	isolateHookPaths(t, hookDir)
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notify := filepath.Join(hookDir, "bin", "onibi-notify")
+	if err := os.MkdirAll(filepath.Dir(notify), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := adapters.Get("claude")
+	if err := a.Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte("#!/bin/sh\necho '9.9.9 (Claude Code)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, AfterUpgrade: true})
+	if !hasCheck(report, "after-upgrade claude runtime", Pass, "9.9.9 (Claude Code)") {
+		t.Fatalf("claude runtime check missing: %+v", report.Checks)
+	}
+}
+
 func hasCheck(report Report, name string, status Status, detail string) bool {
 	for _, check := range report.Checks {
 		if check.Name == name && check.Status == status && strings.Contains(check.Detail, detail) {

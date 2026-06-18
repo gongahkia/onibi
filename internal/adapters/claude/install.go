@@ -13,6 +13,27 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
+const Agent = "claude"
+const guardKey = "onibi-managed"
+
+type eventSpec struct {
+	event    string
+	typ      string
+	wait     bool
+	response string
+	timeout  int
+}
+
+var events = []eventSpec{
+	{event: "SessionStart", typ: "agent_message", timeout: 30},
+	{event: "UserPromptSubmit", typ: "agent_message", timeout: 30},
+	{event: "PreToolUse", typ: "approval_request", wait: true, response: "provider", timeout: 360},
+	{event: "PostToolUse", typ: "agent_message", timeout: 30},
+	{event: "PostToolUseFailure", typ: "agent_message", timeout: 30},
+	{event: "Stop", typ: "agent_done", timeout: 5},
+	{event: "SessionEnd", typ: "session_exited", timeout: 30},
+}
+
 // SettingsPath returns the canonical Claude Code settings.json path:
 // $CLAUDE_CONFIG_DIR/settings.json or ~/.claude/settings.json.
 func SettingsPath() (string, error) {
@@ -25,8 +46,6 @@ func SettingsPath() (string, error) {
 	}
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
-
-const guardKey = "onibi-managed"
 
 // Install writes the Onibi Stop and PreToolUse hooks into Claude's
 // settings.json. Idempotent — previous Onibi-managed entries are replaced
@@ -53,21 +72,23 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, "claude", path); err != nil {
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
 
-	stop := buildStopHook(notifyBin)
-	pre := buildPreToolUseHook(notifyBin)
-
-	merged := mergeEventHook(existing, "Stop", stop)
-	merged = mergeEventHook(merged, "PreToolUse", pre)
+	merged := existing
+	for _, e := range events {
+		merged = mergeEventHook(merged, e.event, buildEventHook(notifyBin, e))
+	}
 	if err := writeJSON(path, merged); err != nil {
 		return err
 	}
 
-	body := managedBody(stop, pre)
-	return common.Record(ctx, db, "claude", path, body)
+	body, err := ManagedBody(path)
+	if err != nil {
+		return err
+	}
+	return common.Record(ctx, db, Agent, path, body)
 }
 
 // Uninstall removes all Onibi-managed hooks from Claude's settings.json.
@@ -83,15 +104,17 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 		}
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, "claude", path); err != nil {
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
-	cleaned := removeEventHook(existing, "Stop")
-	cleaned = removeEventHook(cleaned, "PreToolUse")
+	cleaned := existing
+	for _, e := range events {
+		cleaned = removeEventHook(cleaned, e.event)
+	}
 	if err := writeJSON(path, cleaned); err != nil {
 		return err
 	}
-	return common.DeleteRecord(ctx, db, "claude", path)
+	return common.DeleteRecord(ctx, db, Agent, path)
 }
 
 // VerifyHash returns nil iff the currently installed hook block (Stop +
@@ -105,7 +128,7 @@ func VerifyHash(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	return common.VerifyRecorded(ctx, db, "claude", path, body)
+	return common.VerifyRecorded(ctx, db, Agent, path, body)
 }
 
 func Adopt(ctx context.Context, db *store.DB) error {
@@ -117,7 +140,7 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	return common.Record(ctx, db, "claude", path, body)
+	return common.Record(ctx, db, Agent, path, body)
 }
 
 func ManagedBody(path string) ([]byte, error) {
@@ -125,12 +148,20 @@ func ManagedBody(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	stop := extractEventHook(existing, "Stop")
-	pre := extractEventHook(existing, "PreToolUse")
-	if stop == nil || pre == nil {
-		return nil, errors.New("onibi-managed Stop or PreToolUse hook is missing")
+	managed := make([]any, 0, len(events))
+	var missing []string
+	for _, e := range events {
+		hook := extractEventHook(existing, e.event)
+		if hook == nil {
+			missing = append(missing, e.event)
+			continue
+		}
+		managed = append(managed, map[string]any{"event": e.event, "hook": hook})
 	}
-	return managedBody(stop, pre), nil
+	if len(missing) > 0 {
+		return nil, errors.New("onibi-managed Claude hook is missing: " + strings.Join(missing, ", "))
+	}
+	return common.StableJSON(managed), nil
 }
 
 func InstalledVersion(path string) string {
@@ -138,8 +169,8 @@ func InstalledVersion(path string) string {
 	if err != nil {
 		return ""
 	}
-	for _, event := range []string{"Stop", "PreToolUse"} {
-		hook := extractEventHook(existing, event)
+	for _, e := range events {
+		hook := extractEventHook(existing, e.event)
 		if hook == nil {
 			continue
 		}
@@ -156,12 +187,97 @@ func InstalledVersion(path string) string {
 	return ""
 }
 
-func managedBody(stop, pre map[string]any) []byte {
-	combined := struct {
-		Stop, PreToolUse map[string]any
-	}{stop, pre}
-	body, _ := json.Marshal(combined)
-	return body
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(events))
+	for _, e := range events {
+		h := buildEventHook(notifyBin, e)
+		hooks := h["hooks"].([]any)
+		hm := hooks[0].(map[string]any)
+		cmd, _ := hm["command"].(string)
+		out = append(out, common.ExpectedHook{
+			Event:   e.event,
+			Matcher: "",
+			Type:    "command",
+			Command: cmd,
+			Timeout: e.timeout,
+		})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := SettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := readJSON(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []common.ObservedHook
+	hooks, ok := cfg["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := cfg["hooks"]; exists {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: hooks is not an object"}})
+		}
+		return out, nil
+	}
+	for _, event := range common.SortStrings(keys(hooks)) {
+		for _, group := range asSlice(hooks[event]) {
+			gm, ok := group.(map[string]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Problems: []string{"schema-invalid: matcher group is not an object"}})
+				continue
+			}
+			groupProblems := groupSchemaProblems(gm)
+			matcher, _ := gm["matcher"].(string)
+			inner := asSlice(gm["hooks"])
+			if inner == nil {
+				out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(groupProblems, "schema-invalid: hooks is not an array")})
+				continue
+			}
+			for _, h := range inner {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(groupProblems, "schema-invalid: hook is not an object")})
+					continue
+				}
+				typ, _ := hm["type"].(string)
+				cmd, _ := hm["command"].(string)
+				status, _ := hm["statusMessage"].(string)
+				out = append(out, common.ObservedHook{
+					Event:         event,
+					Matcher:       matcher,
+					Type:          typ,
+					Command:       cmd,
+					Timeout:       intValue(hm["timeout"]),
+					StatusMessage: status,
+					Managed:       isManagedHook(hm),
+					Problems:      append(groupProblems, hookSchemaProblems(hm)...),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+func TrustInstructions() []string {
+	return []string{
+		"Claude next step: run claude, open /hooks, inspect onibi-notify commands, then keep them enabled if they match.",
+		"Use onibi hooks show --agent claude to compare expected commands, installed commands, backups, and drift.",
+	}
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := SettingsPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
 }
 
 // ----------------------------------------------------------------------------
@@ -201,35 +317,14 @@ func writeJSON(path string, m map[string]any) error {
 	return os.Rename(tmp, path)
 }
 
-func buildStopHook(notifyBin string) map[string]any {
+func buildEventHook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
 		"matcher": "",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": common.VersionedCommand(notifyBin, "claude", "claude", "agent_done", false, ""),
-				"timeout": 5,
-			},
-		},
-	}
-}
-
-// buildPreToolUseHook installs an empty-matcher hook that intercepts every
-// tool call. The hook runs in --wait mode so Claude blocks until the
-// daemon returns a decision (approve/deny/edited).
-//
-// timeout intentionally longer than the approval TTL — Claude waits up to
-// `timeout` seconds for the hook to exit. If it expires before we respond,
-// Claude treats the hook as failing-closed (denies). Approval TTL is 5min
-// so 360 (6min) gives slack for round-trip.
-func buildPreToolUseHook(notifyBin string) map[string]any {
-	return map[string]any{
-		"matcher": "",
-		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": common.VersionedCommand(notifyBin, "claude", "claude", "approval_request", true, "provider"),
-				"timeout": 360,
+				"command": common.VersionedCommand(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
+				"timeout": e.timeout,
 			},
 		},
 	}
@@ -307,11 +402,15 @@ func isManagedEventHook(m map[string]any) bool {
 	}
 	for _, h := range asSlice(m["hooks"]) {
 		hm, _ := h.(map[string]any)
-		if strings.Contains(commandValue(hm), "onibi-notify") && strings.Contains(commandValue(hm), "--agent claude") {
+		if isManagedHook(hm) {
 			return true
 		}
 	}
 	return false
+}
+
+func isManagedHook(m map[string]any) bool {
+	return strings.Contains(commandValue(m), "onibi-notify") && strings.Contains(commandValue(m), "--agent "+Agent)
 }
 
 func commandValue(m map[string]any) string {
@@ -319,9 +418,53 @@ func commandValue(m map[string]any) string {
 	return cmd
 }
 
+func keys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func asSlice(v any) []any {
 	if s, ok := v.([]any); ok {
 		return s
 	}
 	return nil
+}
+
+func groupSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "matcher", "hooks":
+		default:
+			problems = append(problems, "schema-invalid: unknown matcher field "+k)
+		}
+	}
+	return problems
+}
+
+func hookSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "type", "if", "timeout", "statusMessage", "once", "command", "args", "async", "asyncRewake", "shell", "url", "headers", "allowedEnvVars", "server", "tool", "input", "prompt", "model":
+		default:
+			problems = append(problems, "schema-invalid: unknown hook field "+k)
+		}
+	}
+	return problems
+}
+
+func intValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }

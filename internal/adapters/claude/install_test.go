@@ -45,8 +45,7 @@ func TestInstallCreatesSettings(t *testing.T) {
 	}
 	hooks := m["hooks"].(map[string]any)
 
-	// both Stop and PreToolUse must be installed
-	for _, ev := range []string{"Stop", "PreToolUse"} {
+	for _, ev := range eventNames() {
 		entries, _ := hooks[ev].([]any)
 		if len(entries) != 1 {
 			t.Fatalf("expected 1 %s entry, got %d", ev, len(entries))
@@ -58,9 +57,22 @@ func TestInstallCreatesSettings(t *testing.T) {
 		if _, ok := entry[common.VersionField]; ok {
 			t.Fatalf("%s entry has legacy version", ev)
 		}
+		inner := entry["hooks"].([]any)[0].(map[string]any)
+		if _, ok := inner[guardKey]; ok {
+			t.Fatalf("%s hook has legacy marker", ev)
+		}
+		if _, ok := inner[common.VersionField]; ok {
+			t.Fatalf("%s hook has legacy version", ev)
+		}
+		for k := range inner {
+			switch k {
+			case "type", "command", "timeout":
+			default:
+				t.Fatalf("%s hook has Claude-unknown key %q", ev, k)
+			}
+		}
 	}
 
-	// PreToolUse must use --wait so Claude blocks for the daemon
 	pre := hooks["PreToolUse"].([]any)[0].(map[string]any)["hooks"].([]any)
 	cmd := pre[0].(map[string]any)["command"].(string)
 	if !contains(cmd, "--wait") {
@@ -72,8 +84,11 @@ func TestInstallCreatesSettings(t *testing.T) {
 	if !contains(cmd, common.VersionEnv+"=\""+common.IntegrationVersion+"\"") {
 		t.Fatalf("PreToolUse command missing version env: %s", cmd)
 	}
+	sessionEnd := hooks["SessionEnd"].([]any)[0].(map[string]any)["hooks"].([]any)
+	if cmd := sessionEnd[0].(map[string]any)["command"].(string); !contains(cmd, "--type session_exited") {
+		t.Fatalf("SessionEnd command missing session_exited type: %s", cmd)
+	}
 
-	// settings file perms
 	fi, _ := os.Stat(path)
 	if fi.Mode().Perm() != 0o600 {
 		t.Fatalf("perms %#o (want 0600)", fi.Mode().Perm())
@@ -81,7 +96,7 @@ func TestInstallCreatesSettings(t *testing.T) {
 }
 
 func TestHookCommandsQuoteNotifyPath(t *testing.T) {
-	hook := buildPreToolUseHook("/tmp/onibi dir/onibi-notify")
+	hook := buildEventHook("/tmp/onibi dir/onibi-notify", eventByName(t, "PreToolUse"))
 	cmd := hook["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	if !contains(cmd, "ONIBI_SESSION_ID") || !contains(cmd, "\"/tmp/onibi dir/onibi-notify\"") || !contains(cmd, "--type approval_request --wait") {
 		t.Fatalf("cmd = %q", cmd)
@@ -116,11 +131,10 @@ func TestInstallIdempotent(t *testing.T) {
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	hooks := m["hooks"].(map[string]any)
-	if got := len(hooks["Stop"].([]any)); got != 1 {
-		t.Fatalf("re-install should not duplicate Stop; got %d entries", got)
-	}
-	if got := len(hooks["PreToolUse"].([]any)); got != 1 {
-		t.Fatalf("re-install should not duplicate PreToolUse; got %d entries", got)
+	for _, ev := range eventNames() {
+		if got := len(hooks[ev].([]any)); got != 1 {
+			t.Fatalf("re-install should not duplicate %s; got %d entries", ev, got)
+		}
 	}
 }
 
@@ -211,4 +225,73 @@ func TestUninstallMissingSettingsIsNoop(t *testing.T) {
 	if err := Uninstall(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestObservedHooksReportsClaudeSchemaInvalid(t *testing.T) {
+	_, _, dir := newTestEnv(t)
+	path := filepath.Join(dir, "settings.json")
+	cfg := map[string]any{
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{
+					common.VersionField: "1.0.0",
+					"matcher":           "",
+					"hooks": []any{
+						map[string]any{
+							"type":            "command",
+							"command":         "echo user",
+							common.GuardField: true,
+						},
+					},
+				},
+			},
+		},
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasObservedProblem(observed, "schema-invalid: unknown matcher field "+common.VersionField) {
+		t.Fatalf("missing matcher schema problem: %+v", observed)
+	}
+	if !hasObservedProblem(observed, "schema-invalid: unknown hook field "+common.GuardField) {
+		t.Fatalf("missing hook schema problem: %+v", observed)
+	}
+}
+
+func eventNames() []string {
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.event)
+	}
+	return out
+}
+
+func eventByName(t *testing.T, name string) eventSpec {
+	t.Helper()
+	for _, e := range events {
+		if e.event == name {
+			return e
+		}
+	}
+	t.Fatalf("missing event %s", name)
+	return eventSpec{}
+}
+
+func hasObservedProblem(rows []common.ObservedHook, want string) bool {
+	for _, row := range rows {
+		for _, problem := range row.Problems {
+			if problem == want {
+				return true
+			}
+		}
+	}
+	return false
 }

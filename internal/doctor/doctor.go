@@ -800,6 +800,9 @@ func (r *runner) checkAfterUpgradeHooks() {
 		if name == "codex" && info.Installed {
 			r.add("after-upgrade hook codex trust", Warn, "Codex trust state is manual; run codex and review Onibi hooks before trusting")
 		}
+		if name == "claude" && info.Installed {
+			r.checkAfterUpgradeClaudeRuntime()
+		}
 		if pluginSourceAdapter(name) && info.Installed && info.Outdated {
 			issues++
 			r.add("after-upgrade hook "+name, Fail, fmt.Sprintf("plugin source stale: version %s want %s", versionLabel(info.InstalledVersion), common.IntegrationVersion))
@@ -889,6 +892,27 @@ func (r *runner) checkAfterUpgradeDB() {
 		return
 	}
 	r.add("after-upgrade db schema", Pass, fmt.Sprintf("version %d", version))
+}
+
+func (r *runner) checkAfterUpgradeClaudeRuntime() {
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		r.add("after-upgrade claude runtime", Fail, "claude binary not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if err != nil {
+		r.add("after-upgrade claude runtime", Fail, strings.TrimSpace(string(out))+": "+err.Error())
+		return
+	}
+	version := strings.TrimSpace(string(out))
+	if version == "" {
+		r.add("after-upgrade claude runtime", Warn, "claude --version returned empty output")
+		return
+	}
+	r.add("after-upgrade claude runtime", Pass, version)
 }
 
 func missingUpgradeColumns(ctx context.Context, db *store.DB) []string {

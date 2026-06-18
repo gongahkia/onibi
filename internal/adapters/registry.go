@@ -36,7 +36,7 @@ type Adapter struct {
 func Registry() map[string]Adapter {
 	return map[string]Adapter{
 		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt, TrustInstructions: amp.TrustInstructions},
-		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt},
+		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt, ExpectedHooks: claude.ExpectedHooks, ObservedHooks: claude.ObservedHooks, TrustInstructions: claude.TrustInstructions, BackupPath: claude.BackupPath},
 		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt, ExpectedHooks: codex.ExpectedHooks, ObservedHooks: codex.ObservedHooks, TrustInstructions: codex.TrustInstructions, BackupPath: codex.BackupPath},
 		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash, Adopt: copilot.Adopt},
 		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash, Adopt: gemini.Adopt},
@@ -54,7 +54,7 @@ func claudeStatus(ctx context.Context, db *store.DB) common.Info {
 	info := common.Info{Name: "claude", Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
 	body, err := claude.ManagedBody(path)
 	if err != nil {
-		if strings.Contains(err.Error(), "onibi-managed Stop or PreToolUse hook is missing") {
+		if strings.Contains(err.Error(), "onibi-managed Claude hook is missing") {
 			common.MarkNotInstalled(&info)
 			return info
 		}

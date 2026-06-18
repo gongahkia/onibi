@@ -616,7 +616,7 @@ Needed:
 - schema test for no unknown fields
 - document Codex PreToolUse limitations: not all tool paths are intercepted
 
-### Claude Code
+### Claude Code [DONE 2026-06-18]
 
 Provider surface:
 - `~/.claude/settings.json`

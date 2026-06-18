@@ -82,6 +82,43 @@ func TestHooksShowCodexJSONAllowsMissingBackup(t *testing.T) {
 	}
 }
 
+func TestHooksShowClaudeJSONReportsCommandsBackupAndTrust(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo user-hook"}]}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "claude", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--agent", "claude", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != settingsPath {
+		t.Fatalf("config path = %q want %q", report.ConfigPath, settingsPath)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("backup path missing")
+	}
+	if len(report.Expected) != 7 {
+		t.Fatalf("expected hooks = %d", len(report.Expected))
+	}
+	if len(report.TrustInstructions) == 0 || !strings.Contains(strings.Join(report.TrustInstructions, "\n"), "/hooks") {
+		t.Fatalf("trust instructions missing /hooks: %+v", report.TrustInstructions)
+	}
+	for _, ev := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"} {
+		if !hasDrift(report.Drift, ev, "ok", "") {
+			t.Fatalf("missing ok drift for %s: %+v", ev, report.Drift)
+		}
+	}
+	if !hasDrift(report.Drift, "Stop", "extra", "user hook, not managed") {
+		t.Fatalf("user hook not reported: %+v", report.Drift)
+	}
+}
+
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
