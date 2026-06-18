@@ -478,6 +478,9 @@ func renderHooksShow(cmd *cobra.Command, report hooksShowReport) {
 	fmt.Fprintf(out, "agent: %s\n", report.Agent)
 	fmt.Fprintf(out, "support: %s\n", report.Support)
 	fmt.Fprintf(out, "provider config: %s\n", valueOrDash(report.ConfigPath))
+	if report.Message != "" {
+		fmt.Fprintf(out, "message: %s\n", report.Message)
+	}
 	if report.Record != nil {
 		fmt.Fprintf(out, "record: path=%s hash=%s version=%s\n", report.Record.Path, report.Record.SHA256, valueOrDash(report.Record.Version))
 	} else {

@@ -769,7 +769,7 @@ Needed:
 - Add provider-specific edited input shape tests.
 - Add `hooks show --agent pi`.
 
-### GitHub Copilot CLI
+### GitHub Copilot CLI [DONE 2026-06-18]
 
 Provider surface:
 - JSON hook files with `"version": 1`

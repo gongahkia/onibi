@@ -30,6 +30,7 @@ type Info struct {
 	Support          string
 	Installed        bool
 	Managed          bool
+	Disabled         bool
 	HashRecorded     bool
 	Tampered         bool
 	Adoptable        bool

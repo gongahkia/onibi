@@ -66,6 +66,18 @@ func TestProviderResponses(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"permissionDecision":"deny"`) {
 		t.Fatalf("bad copilot deny: code=%d out=%s", code, out)
 	}
+	out, _, code = providerResponse("copilot", intake.Response{Decision: "edited", UpdatedInput: `{"command":"echo ok"}`})
+	if code != 0 {
+		t.Fatalf("bad copilot edit code=%d out=%s", code, out)
+	}
+	var copilot map[string]any
+	if err := json.Unmarshal([]byte(out), &copilot); err != nil {
+		t.Fatal(err)
+	}
+	modifiedArgs := copilot["modifiedArgs"].(map[string]any)
+	if modifiedArgs["command"] != "echo ok" {
+		t.Fatalf("bad copilot modifiedArgs: %s", out)
+	}
 
 	out, _, code = providerResponse("gemini", intake.Response{Decision: "expired"})
 	if code != 0 || !strings.Contains(out, `"decision":"deny"`) {

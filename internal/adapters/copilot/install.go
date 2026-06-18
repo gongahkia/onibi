@@ -114,6 +114,11 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Copilot CLI hooks installed", "onibi install-hooks --agent copilot")
+	if disabled, _ := disableAllHooks(path); disabled {
+		info.Disabled = true
+		info.Message = "Copilot disableAllHooks=true; installed hooks are skipped"
+		info.Next = "set disableAllHooks=false in " + path
+	}
 	return info
 }
 
@@ -145,6 +150,88 @@ func Adopt(ctx context.Context, db *store.DB) error {
 		return errors.New("onibi-managed Copilot hook is missing")
 	}
 	return common.Record(ctx, db, Agent, path, body)
+}
+
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(events))
+	for _, e := range events {
+		h := hook(notifyBin, e)
+		cmd, _ := h["bash"].(string)
+		out = append(out, common.ExpectedHook{
+			Event:   e.event,
+			Type:    "command",
+			Command: cmd,
+			Timeout: e.timeout,
+		})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := HooksPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
+	if err != nil {
+		return nil, err
+	}
+	var out []common.ObservedHook
+	for k := range cfg {
+		switch k {
+		case "version", "disableAllHooks", "hooks":
+		default:
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: unknown top-level field " + k}})
+		}
+	}
+	hooks, ok := cfg["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := cfg["hooks"]; exists {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: hooks is not an object"}})
+		}
+		return out, nil
+	}
+	for _, event := range common.SortStrings(keys(hooks)) {
+		for _, h := range asSlice(hooks[event]) {
+			hm, ok := h.(map[string]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Problems: []string{"schema-invalid: hook is not an object"}})
+				continue
+			}
+			typ, _ := hm["type"].(string)
+			matcher, _ := hm["matcher"].(string)
+			out = append(out, common.ObservedHook{
+				Event:    event,
+				Matcher:  matcher,
+				Type:     typ,
+				Command:  commandValue(hm),
+				Timeout:  intValue(firstValue(hm, "timeoutSec", "timeout")),
+				Managed:  isManaged(hm),
+				Problems: hookSchemaProblems(hm),
+			})
+		}
+	}
+	return out, nil
+}
+
+func TrustInstructions() []string {
+	return []string{
+		"Copilot next step: restart Copilot CLI so hook configurations are loaded.",
+		"Copilot loads user hooks from ~/.copilot/hooks/*.json, or $COPILOT_HOME/hooks/*.json when COPILOT_HOME is set.",
+		"If disableAllHooks is true, Copilot skips hooks in that file.",
+	}
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := HooksPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
 }
 
 func hook(notifyBin string, e eventSpec) map[string]any {
@@ -199,6 +286,15 @@ func installedVersion(path string) string {
 	return ""
 }
 
+func disableAllHooks(path string) (bool, error) {
+	cfg, err := common.ReadJSON(path, map[string]any{})
+	if err != nil {
+		return false, err
+	}
+	v, _ := cfg["disableAllHooks"].(bool)
+	return v, nil
+}
+
 func isManaged(v any) bool {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -218,6 +314,50 @@ func commandValue(m map[string]any) string {
 	}
 	cmd, _ = m["command"].(string)
 	return cmd
+}
+
+func hookSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "type", "bash", "powershell", "command", "cwd", "env", "timeout", "timeoutSec", "matcher":
+		default:
+			problems = append(problems, "schema-invalid: unknown hook field "+k)
+		}
+	}
+	if typ, _ := m["type"].(string); typ != "" && typ != "command" {
+		problems = append(problems, "schema-invalid: unsupported hook type "+typ)
+	}
+	return problems
+}
+
+func intValue(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	case jsonNumber:
+		i, _ := x.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+type jsonNumber interface {
+	Int64() (int64, error)
+}
+
+func firstValue(m map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if v, ok := m[key]; ok {
+			return v
+		}
+	}
+	return nil
 }
 
 func keys(m map[string]any) []string {

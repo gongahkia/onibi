@@ -150,6 +150,62 @@ func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
 	}
 }
 
+func TestHooksShowCopilotJSONReportsCommandsBackupTrustAndDisabled(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	hooksPath := filepath.Join(home, ".copilot", "hooks", "onibi.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, []byte(`{"version":1,"disableAllHooks":true,"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "copilot", "--color", "never")
+	var cfg map[string]any
+	b, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg["disableAllHooks"] = true
+	b, err = json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, append(b, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRoot(t, "hooks", "show", "--agent", "copilot", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != hooksPath {
+		t.Fatalf("config path = %q want %q", report.ConfigPath, hooksPath)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("backup path missing")
+	}
+	if !strings.Contains(report.Message, "disableAllHooks=true") {
+		t.Fatalf("message missing disableAllHooks: %+v", report)
+	}
+	if len(report.Expected) != 9 {
+		t.Fatalf("expected hooks = %d", len(report.Expected))
+	}
+	for _, ev := range []string{"sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "postToolUseFailure", "notification", "agentStop", "sessionEnd", "errorOccurred"} {
+		if !hasDrift(report.Drift, ev, "ok", "") {
+			t.Fatalf("missing ok drift for %s: %+v", ev, report.Drift)
+		}
+	}
+	trust := strings.Join(report.TrustInstructions, "\n")
+	for _, want := range []string{"restart Copilot CLI", "COPILOT_HOME", "disableAllHooks"} {
+		if !strings.Contains(trust, want) {
+			t.Fatalf("trust instructions missing %q: %+v", want, report.TrustInstructions)
+		}
+	}
+}
+
 func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 	home, _, _ := hooksCLIFixture(t)
 	pluginPath := filepath.Join(home, ".config", "amp", "plugins", "onibi.ts")

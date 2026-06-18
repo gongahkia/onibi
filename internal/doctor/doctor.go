@@ -313,6 +313,12 @@ func hookRepairSpec(_, detail string) repairSpec {
 		spec.Impact = "A provider may reject the hook config at startup."
 		spec.SafeFix = "reinstall hooks with the current schema-clean adapter"
 		spec.Blocks = []string{"provider startup"}
+	case strings.Contains(detail, "disableAllHooks"):
+		spec.Impact = "Copilot has Onibi hooks installed but will skip them."
+		spec.SafeFix = "set disableAllHooks=false in the Copilot hook file"
+		spec.ManualFix = "remove disableAllHooks or start Copilot with a hook file that enables hooks"
+		spec.Retry = "onibi doctor"
+		spec.Blocks = []string{"copilot approvals", "copilot turn notifications"}
 	}
 	return spec
 }
@@ -775,6 +781,8 @@ func (r *runner) addRecordedHookStatus(agent, path string, info common.Info) {
 		r.add("hook "+agent, Fail, detail)
 	case !info.HashRecorded:
 		r.add("hook "+agent, Fail, detail)
+	case info.Disabled:
+		r.add("hook "+agent, Warn, detail)
 	case info.Outdated:
 		r.add("hook "+agent, Warn, detail)
 	default:
