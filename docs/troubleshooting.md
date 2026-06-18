@@ -72,8 +72,8 @@ Run:
 
 ```sh
 onibi setup --enable-encrypted-mode
-onibi config get telegram.encrypted_mode
-onibi config get telegram.mini_app_url
+onibi config --get telegram.encrypted_mode
+onibi config --get telegram.mini_app_url
 ```
 
 If the Mini App says `seed missing`, scan the setup QR again. If Telegram opens
@@ -94,7 +94,7 @@ If `onibi adapters` or `onibi doctor` reports hook drift:
 
 ```sh
 onibi adapters
-onibi hooks show --all
+onibi hooks --show --all
 onibi doctor --fix
 onibi install-hooks --interactive
 ```
@@ -104,10 +104,10 @@ onibi install-hooks --interactive
 Before or after installing one provider, inspect the exact file, backup, expected commands, installed commands, and trust/reload next step:
 
 ```sh
-onibi hooks show --agent codex
-onibi hooks show --agent claude
-onibi hooks show --agent gemini
-onibi hooks show --shell zsh
+onibi hooks --show --agent codex
+onibi hooks --show --agent claude
+onibi hooks --show --agent gemini
+onibi hooks --show --shell zsh
 onibi doctor --after-upgrade
 ```
 

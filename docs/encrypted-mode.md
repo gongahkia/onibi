@@ -23,7 +23,7 @@ onibi setup --enable-encrypted-mode --encrypted-mode on
 After setup creates and pairs the seed, switch the mode explicitly with:
 
 ```bash
-onibi config set telegram.encrypted_mode on
+onibi config --set telegram.encrypted_mode on
 ```
 
 ## Envelope

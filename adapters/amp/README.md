@@ -11,7 +11,7 @@ Writes `~/.config/amp/plugins/onibi.ts` or `$ONIBI_AMP_PLUGIN`.
 Inspect with:
 
 ```sh
-onibi hooks show --agent amp
+onibi hooks --show --agent amp
 ```
 
 Events used:

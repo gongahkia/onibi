@@ -372,7 +372,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		return nil
 	case "menu_hooks":
 		answerCallback(ctx, api, q.ID, "Hooks")
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Hooks: " + d.hookHealthSummary(ctx) + "\nlocal: onibi hooks show --all\nfix: onibi install-hooks --interactive"})
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Hooks: " + d.hookHealthSummary(ctx) + "\nlocal: onibi hooks --show --all\nfix: onibi install-hooks --interactive"})
 		return nil
 	case "menu_snooze":
 		answerCallback(ctx, api, q.ID, "Snoozed")

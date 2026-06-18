@@ -264,7 +264,7 @@ func ObservedHooks() ([]common.ObservedHook, error) {
 func TrustInstructions() []string {
 	return []string{
 		"Claude next step: run claude, open /hooks, inspect onibi-notify commands, then keep them enabled if they match.",
-		"Use onibi hooks show --agent claude to compare expected commands, installed commands, backups, and drift.",
+		"Use onibi hooks --show --agent claude to compare expected commands, installed commands, backups, and drift.",
 	}
 }
 

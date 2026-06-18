@@ -13,7 +13,7 @@ After install, restart Copilot CLI. Hook configuration changes are loaded when t
 Inspect:
 
 ```sh
-onibi hooks show --agent copilot
+onibi hooks --show --agent copilot
 ```
 
 Events:
@@ -31,4 +31,4 @@ Approval behavior:
 Notes:
 
 - Onibi does not write legacy `onibiManaged` or `onibiIntegrationVersion` fields into Copilot JSON.
-- If `disableAllHooks` is true in `onibi.json`, Copilot skips the file's hooks; `onibi hooks show --agent copilot` and `onibi doctor` report it.
+- If `disableAllHooks` is true in `onibi.json`, Copilot skips the file's hooks; `onibi hooks --show --agent copilot` and `onibi doctor` report it.

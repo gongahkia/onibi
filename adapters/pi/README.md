@@ -19,7 +19,7 @@ After install, run `/reload` in Pi so auto-discovered extensions are reloaded.
 Inspect:
 
 ```sh
-onibi hooks show --agent pi
+onibi hooks --show --agent pi
 ```
 
 Events:

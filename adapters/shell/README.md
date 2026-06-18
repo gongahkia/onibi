@@ -11,7 +11,7 @@ onibi install-hooks --shell fish
 Inspect:
 
 ```sh
-onibi hooks show --shell zsh
+onibi hooks --show --shell zsh
 ```
 
 Paths:
@@ -24,7 +24,7 @@ Behavior:
 
 - emits `cmd_done` for commands longer than `shell.min_duration`
 - override per shell session with `ONIBI_SHELL_MIN_MS`
-- edit threshold with `onibi config set shell.min_duration <duration>`, then reinstall the shell hook
+- edit threshold with `onibi config --set shell.min_duration <duration>`, then reinstall the shell hook
 
 Compatibility:
 

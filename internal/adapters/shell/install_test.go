@@ -30,7 +30,7 @@ func TestPreviewReportsPathsNotesAndThreshold(t *testing.T) {
 		if !strings.Contains(got.Block, c.body) || !strings.Contains(strings.Join(got.CompatibilityNotes, "\n"), c.note) {
 			t.Fatalf("%s preview missing body/note: %+v", c.name, got)
 		}
-		if !strings.Contains(got.EditCommand, "onibi config set shell.min_duration <duration>") {
+		if !strings.Contains(got.EditCommand, "onibi config --set shell.min_duration <duration>") {
 			t.Fatalf("%s edit command = %q", c.name, got.EditCommand)
 		}
 	}

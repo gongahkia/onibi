@@ -6,10 +6,10 @@ into `~/.claude/settings.json` as managed command hooks.
 Inspect with:
 
 ```sh
-onibi hooks show --agent claude
+onibi hooks --show --agent claude
 ```
 
-`hooks show` prints the settings path, Onibi's recorded hash/version, latest backup path if present, expected commands, installed commands, drift, and `/hooks` review guidance.
+`hooks --show` prints the settings path, Onibi's recorded hash/version, latest backup path if present, expected commands, installed commands, drift, and `/hooks` review guidance.
 
 Events used:
 

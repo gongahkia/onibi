@@ -123,16 +123,16 @@ After setup, run:
 ```bash
 onibi doctor
 onibi adapters
-onibi config list
-onibi demo approval
+onibi config --list
+onibi demo --approval
 ```
 
 Expected result:
 
 - `doctor` reports the state directory, SQLite DB, owner chat id, token, and hook status.
 - `adapters` shows which agent hooks are installed or available.
-- `config list` prints daemon, shell, and Telegram settings.
-- `demo approval` sends a labelled test approval to Telegram without executing an agent tool.
+- `config --list` prints daemon, shell, and Telegram settings.
+- `demo --approval` sends a labelled test approval to Telegram without executing an agent tool.
 
 ## 5. Start The First Session
 
@@ -149,7 +149,7 @@ agent hooks.
 For the normal Telegram flow, add the repo as an explicit project alias:
 
 ```bash
-onibi project add here
+onibi project --add here
 ```
 
 Or from Telegram:
@@ -181,11 +181,11 @@ tabs.
 Choose a visible-session launcher:
 
 ```bash
-onibi config set terminal.default auto
-onibi config set terminal.default ghostty
-onibi config set terminal.default iterm2
-onibi config set terminal.default terminal
-onibi config set terminal.default none
+onibi config --set terminal.default auto
+onibi config --set terminal.default ghostty
+onibi config --set terminal.default iterm2
+onibi config --set terminal.default terminal
+onibi config --set terminal.default none
 ```
 
 `auto` tries Ghostty, then iTerm2, then Terminal.app, then prints the manual
@@ -213,7 +213,7 @@ You should see the running session id, agent name, and current daemon status.
 To test approvals before agent hooks are trusted, run:
 
 ```bash
-onibi demo approval
+onibi demo --approval
 ```
 
 For a real agent approval, ask the agent to do something that uses a tool, for example:
@@ -299,7 +299,7 @@ Encrypted mode sends ciphertext through Telegram and decrypts in the Mini App:
 
 ```bash
 onibi setup --enable-encrypted-mode --encrypted-mode on
-onibi config get telegram.encrypted_mode
+onibi config --get telegram.encrypted_mode
 ```
 
 Setup prints a Mini App seed URL and QR code. Open it in Telegram so the Mini App stores the seed in Telegram SecureStorage.

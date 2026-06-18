@@ -11,10 +11,10 @@ Writes `~/.codex/hooks.json` or `$ONIBI_CODEX_HOOKS`.
 Inspect with:
 
 ```sh
-onibi hooks show --agent codex
+onibi hooks --show --agent codex
 ```
 
-`hooks show` prints the provider config path, Onibi's recorded hash/version, the latest backup path if one exists, expected commands, installed commands, drift, and Codex trust instructions.
+`hooks --show` prints the provider config path, Onibi's recorded hash/version, the latest backup path if one exists, expected commands, installed commands, drift, and Codex trust instructions.
 
 Trust state:
 

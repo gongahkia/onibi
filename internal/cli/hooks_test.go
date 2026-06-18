@@ -38,7 +38,7 @@ func TestHooksShowCodexJSONReportsCommandsBackupAndUserHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "codex", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -71,7 +71,7 @@ func TestHooksShowCodexJSONReportsCommandsBackupAndUserHook(t *testing.T) {
 func TestHooksShowCodexJSONAllowsMissingBackup(t *testing.T) {
 	hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "codex", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -94,7 +94,7 @@ func TestHooksShowClaudeJSONReportsCommandsBackupAndTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--agent", "claude", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "claude", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "claude", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -131,7 +131,7 @@ func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--agent", "goose", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "goose", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "goose", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -178,7 +178,7 @@ func TestHooksShowCopilotJSONReportsCommandsBackupTrustAndDisabled(t *testing.T)
 	if err := os.WriteFile(hooksPath, append(b, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "copilot", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "copilot", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -218,7 +218,7 @@ func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--agent", "amp", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "amp", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "amp", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -247,7 +247,7 @@ func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--agent", "pi", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "pi", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "pi", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -273,7 +273,7 @@ func TestHooksShowShellJSONReportsPreviewBackupAndThreshold(t *testing.T) {
 		t.Fatal(err)
 	}
 	executeRoot(t, "install-hooks", "--shell", "zsh", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--shell", "zsh", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--shell", "zsh", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -298,7 +298,7 @@ func TestHooksShowShellJSONReportsPreviewBackupAndThreshold(t *testing.T) {
 			t.Fatalf("compatibility missing %q: %+v", want, report.Compatibility)
 		}
 	}
-	if !strings.Contains(report.EditCommand, "onibi config set shell.min_duration <duration>") {
+	if !strings.Contains(report.EditCommand, "onibi config --set shell.min_duration <duration>") {
 		t.Fatalf("bad edit command: %q", report.EditCommand)
 	}
 	if !hasDrift(report.Drift, "cmd_done", "ok", "") {
@@ -329,7 +329,7 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	if err := os.WriteFile(hooksPath, append(b, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "hooks", "show", "--agent", "codex", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -344,7 +344,7 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 
 func TestHooksMatrixIncludesAgentsAndShells(t *testing.T) {
 	hooksCLIFixture(t)
-	out, _ := executeRoot(t, "hooks", "matrix", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--matrix", "--json", "--color", "never")
 	var rows []hooksMatrixRow
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -363,7 +363,7 @@ func TestHooksMatrixIncludesAgentsAndShells(t *testing.T) {
 func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
 	hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "matrix", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--matrix", "--json", "--color", "never")
 	var rows []hooksMatrixRow
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -383,7 +383,7 @@ func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
 func TestHooksShowAllComparesBundledAndObservedVersions(t *testing.T) {
 	hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "show", "--all", "--json", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--all", "--json", "--color", "never")
 	var reports []hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &reports); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())

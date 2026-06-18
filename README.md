@@ -50,7 +50,7 @@ Check local health:
 ```bash
 onibi doctor
 onibi adapters
-onibi config list
+onibi config --list
 ```
 
 Start an agent:
@@ -101,7 +101,7 @@ Onibi supports two equal-parity Telegram modes. Pick the one that fits your trus
 Switch at any time:
 
 ```bash
-onibi config set telegram.encrypted_mode on   # or off, or ask
+onibi config --set telegram.encrypted_mode on   # or off, or ask
 ```
 
 Or during setup:
@@ -121,12 +121,12 @@ CLI:
 - `onibi doctor`
 - `onibi update-check`
 - `onibi adapters`
-- `onibi demo approval`
-- `onibi project add here`
+- `onibi demo --approval`
+- `onibi project --add here`
 - `onibi run <agent>`
 - `onibi shell [shell]`
 - `onibi wrap <command>`
-- `onibi config list`
+- `onibi config --list`
 - `onibi log`
 - `onibi tail-log`
 - `onibi mcp`
@@ -197,7 +197,7 @@ onibi shell
 onibi shell nu
 onibi shell pwsh
 onibi shell tcsh
-onibi config set shell.default zsh
+onibi config --set shell.default zsh
 onibi shell --no-login
 onibi wrap vim
 onibi wrap lazygit
@@ -209,8 +209,8 @@ Enable encrypted Telegram controls:
 
 ```bash
 onibi setup --enable-encrypted-mode
-onibi config set telegram.encrypted_mode on
-onibi config validate
+onibi config --set telegram.encrypted_mode on
+onibi config --validate
 ```
 
 Use MCP from an MCP-capable client:
@@ -222,7 +222,7 @@ onibi mcp
 Uninstall service and hooks while keeping state:
 
 ```bash
-onibi hooks show --all
+onibi hooks --show --all
 onibi uninstall --dry-run
 onibi uninstall
 ```
@@ -293,7 +293,7 @@ Encrypted mode uses AES-GCM envelopes and a Telegram Mini App seed stored in Tel
 
 ```bash
 onibi setup --enable-encrypted-mode
-onibi config set telegram.encrypted_mode on
+onibi config --set telegram.encrypted_mode on
 ```
 
 `telegram.encrypted_mode=on` encrypts approvals, session previews/output, prompt acknowledgements, logs/status/session lists, and Mini App actions. Use `/secure` for encrypted prompt entry so Telegram stores ciphertext.

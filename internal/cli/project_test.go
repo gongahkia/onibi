@@ -48,3 +48,17 @@ func TestProjectAddHereSeedsCurrentRepo(t *testing.T) {
 		t.Fatalf("alias = %q ok=%v", got, ok)
 	}
 }
+
+func TestProjectActionFlagAddHere(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := filepath.Join(t.TempDir(), "flag-repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	out, _ := executeRoot(t, "project", "--add", "here", "--color", "never")
+	if !strings.Contains(out.String(), "Project flag-repo saved") {
+		t.Fatalf("out = %q", out.String())
+	}
+}
