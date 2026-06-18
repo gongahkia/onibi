@@ -21,10 +21,15 @@ type eventSpec struct {
 
 var events = []eventSpec{
 	{event: "SessionStart", typ: "agent_message"},
+	{event: "SessionEnd", typ: "session_exited"},
 	{event: "UserPromptSubmit", typ: "agent_message"},
 	{event: "PreToolUse", typ: "agent_message"},
 	{event: "PostToolUse", typ: "agent_message"},
 	{event: "PostToolUseFailure", typ: "agent_message"},
+	{event: "BeforeReadFile", typ: "agent_message"},
+	{event: "AfterFileEdit", typ: "agent_message"},
+	{event: "BeforeShellExecution", typ: "agent_message"},
+	{event: "AfterShellExecution", typ: "agent_message"},
 	{event: "Stop", typ: "agent_done"},
 }
 
@@ -134,6 +139,90 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(events))
+	for _, e := range events {
+		h := hook(notifyBin, e)
+		cmd, _ := h["command"].(string)
+		out = append(out, common.ExpectedHook{
+			Event:   e.event,
+			Type:    "command",
+			Command: cmd,
+		})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := HooksPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := common.ReadJSON(path, map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	var out []common.ObservedHook
+	for k := range cfg {
+		if k != "hooks" {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: unknown top-level field " + k}})
+		}
+	}
+	hooks, ok := cfg["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := cfg["hooks"]; exists {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: hooks is not an object"}})
+		}
+		return out, nil
+	}
+	for _, event := range common.SortStrings(keys(hooks)) {
+		for _, group := range asSlice(hooks[event]) {
+			gm, ok := group.(map[string]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Problems: []string{"schema-invalid: matcher group is not an object"}})
+				continue
+			}
+			groupProblems := groupSchemaProblems(gm)
+			matcher, _ := gm["matcher"].(string)
+			inner := asSlice(gm["hooks"])
+			if inner == nil {
+				out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(groupProblems, "schema-invalid: hooks is not an array")})
+				continue
+			}
+			for _, h := range inner {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(groupProblems, "schema-invalid: hook is not an object")})
+					continue
+				}
+				typ, _ := hm["type"].(string)
+				cmd, _ := hm["command"].(string)
+				out = append(out, common.ObservedHook{
+					Event:    event,
+					Matcher:  matcher,
+					Type:     typ,
+					Command:  cmd,
+					Managed:  isManaged(hm),
+					Problems: append(groupProblems, hookSchemaProblems(hm)...),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := HooksPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
+}
+
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
 		"type":    "command",
@@ -222,4 +311,28 @@ func asSlice(v any) []any {
 		return s
 	}
 	return nil
+}
+
+func groupSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "matcher", "hooks":
+		default:
+			problems = append(problems, "schema-invalid: unknown matcher field "+k)
+		}
+	}
+	return problems
+}
+
+func hookSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "type", "command", "prompt":
+		default:
+			problems = append(problems, "schema-invalid: unknown hook field "+k)
+		}
+	}
+	return problems
 }

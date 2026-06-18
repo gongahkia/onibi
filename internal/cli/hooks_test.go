@@ -119,6 +119,37 @@ func TestHooksShowClaudeJSONReportsCommandsBackupAndTrust(t *testing.T) {
 	}
 }
 
+func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	hooksPath := filepath.Join(home, ".agents", "plugins", "onibi", "hooks", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, []byte(`{"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "goose", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--agent", "goose", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != hooksPath {
+		t.Fatalf("config path = %q want %q", report.ConfigPath, hooksPath)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("backup path missing")
+	}
+	if len(report.Expected) != 11 {
+		t.Fatalf("expected hooks = %d", len(report.Expected))
+	}
+	for _, ev := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "BeforeReadFile", "AfterFileEdit", "BeforeShellExecution", "AfterShellExecution", "Stop"} {
+		if !hasDrift(report.Drift, ev, "ok", "") {
+			t.Fatalf("missing ok drift for %s: %+v", ev, report.Drift)
+		}
+	}
+}
+
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")

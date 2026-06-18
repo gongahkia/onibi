@@ -667,7 +667,7 @@ Needed:
 - Consider `PreCompress` event for session summary notification.
 - Do not add `BeforeModel`/`AfterModel` until there is a product need; those are deeper model-context hooks.
 
-### Goose
+### Goose [DONE 2026-06-18]
 
 Provider surface:
 - Open Plugins style folder under `~/.agents/plugins/<name>/`
