@@ -460,7 +460,7 @@ Acceptance:
 - New visible/headless session can be started from buttons after one alias exists.
 - Missing alias path gives a repair message, not a silent launch failure.
 
-### Queue UX
+### Queue UX [DONE 2026-06-18]
 
 Requirement:
 - Queue state should explain when a prompt is waiting behind an active turn.

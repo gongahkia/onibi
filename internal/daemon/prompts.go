@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -166,7 +167,12 @@ func (d *Daemon) handleQueueCommand(ctx context.Context, api telegram.API, chatI
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "Prompt queue empty."})
 		return
 	}
-	_, _ = d.sendMaybeEncryptedText(ctx, api, chatID, "queue", "Prompt queue", promptListText(rows))
+	body := d.promptListText(ctx, rows)
+	if d.encryptedModeEnabled() {
+		_, _ = d.sendEncryptedText(ctx, api, chatID, "queue", "Prompt queue", body)
+		return
+	}
+	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: body, ReplyMarkup: telegram.PromptKeyboard(rows[0].ID)})
 }
 
 func (d *Daemon) handlePromptCommand(ctx context.Context, api telegram.API, chatID int64, arg string) {
@@ -244,18 +250,9 @@ func (d *Daemon) handleFlushQueueCommand(ctx context.Context, api telegram.API, 
 func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, verb, id string) error {
 	switch verb {
 	case "prompt_send":
-		p, err := d.DB.PromptMove(ctx, id, 1)
-		if err != nil {
-			answerCallback(ctx, api, q.ID, "Prompt unavailable")
-			return nil
-		}
-		s, err := d.sessionByID(p.SessionID)
-		if err != nil {
-			answerCallback(ctx, api, q.ID, "Session unavailable")
-			return nil
-		}
-		answerCallback(ctx, api, q.ID, "Queued at front")
-		return d.dispatchNextPrompt(ctx, api, s)
+		return d.sendQueuedPromptNow(ctx, api, q, id, false)
+	case "prompt_confirm_send":
+		return d.sendQueuedPromptNow(ctx, api, q, id, true)
 	case "prompt_edit":
 		if d.encryptedModeEnabled() {
 			answerCallback(ctx, api, q.ID, "Use secure controls")
@@ -274,6 +271,30 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 		d.audit(ctx, "prompt.cancelled", "", "", q.From.ID, "id="+id)
 		answerCallback(ctx, api, q.ID, "Cancelled")
 		return nil
+	case "prompt_top":
+		p, err := d.DB.PromptMove(ctx, id, 1)
+		if err != nil {
+			answerCallback(ctx, api, q.ID, "Move failed")
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Moved top")
+		d.audit(ctx, "prompt.moved", p.SessionID, "", q.From.ID, fmt.Sprintf("id=%s pos=1", p.ID))
+		return nil
+	case "prompt_flush":
+		p, err := d.DB.PromptGet(ctx, id)
+		if err != nil {
+			answerCallback(ctx, api, q.ID, "Prompt unavailable")
+			return nil
+		}
+		n, err := d.DB.PromptCancelQueued(ctx, p.SessionID)
+		if err != nil {
+			answerCallback(ctx, api, q.ID, "Flush failed")
+			return nil
+		}
+		d.audit(ctx, "prompt.flush", p.SessionID, "", q.From.ID, fmt.Sprintf("%d prompt(s)", n))
+		answerCallback(ctx, api, q.ID, "Flushed")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: fmt.Sprintf("Cancelled %d queued prompt(s).", n)})
+		return nil
 	case "prompt_up", "prompt_down":
 		delta := -1
 		if verb == "prompt_down" {
@@ -288,6 +309,49 @@ func (d *Daemon) handlePromptCallback(ctx context.Context, api telegram.API, q *
 		return nil
 	}
 	return nil
+}
+
+func (d *Daemon) sendQueuedPromptNow(ctx context.Context, api telegram.API, q *models.CallbackQuery, id string, force bool) error {
+	p, err := d.DB.PromptMove(ctx, id, 1)
+	if err != nil {
+		answerCallback(ctx, api, q.ID, "Prompt unavailable")
+		return nil
+	}
+	s, err := d.sessionByID(p.SessionID)
+	if err != nil {
+		answerCallback(ctx, api, q.ID, "Session unavailable")
+		return nil
+	}
+	if d.sessionBusy(s.ID) && !force {
+		answerCallback(ctx, api, q.ID, "Confirm send now")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
+			ChatID:      q.From.ID,
+			Text:        "Session is busy. Confirm sending prompt " + id + " now.",
+			ReplyMarkup: telegram.ConfirmPromptSendKeyboard(id),
+		})
+		return nil
+	}
+	if err := d.writePromptToSession(ctx, api, p.ChatID, s, p.Text, p.ID); err != nil {
+		_, _ = d.DB.PromptSetState(ctx, p.ID, store.PromptFailed)
+		answerCallback(ctx, api, q.ID, "Send failed")
+		return nil
+	}
+	if _, err := d.DB.PromptSetState(ctx, p.ID, store.PromptSent); err != nil {
+		answerCallback(ctx, api, q.ID, "State failed")
+		return nil
+	}
+	d.audit(ctx, "prompt.sent", s.ID, p.Text, p.ChatID, "id="+p.ID+" immediate=true")
+	d.threadMu.Lock()
+	d.busySessions[s.ID] = true
+	d.threadMu.Unlock()
+	answerCallback(ctx, api, q.ID, "Sent")
+	return nil
+}
+
+func (d *Daemon) sessionBusy(sessionID string) bool {
+	d.threadMu.RLock()
+	defer d.threadMu.RUnlock()
+	return d.busySessions[sessionID]
 }
 
 func (d *Daemon) applyPromptEdit(ctx context.Context, api telegram.API, chatID int64, id, text string) {
@@ -342,17 +406,41 @@ func (d *Daemon) handlePendingMenuSend(ctx context.Context, api telegram.API, m 
 	return true
 }
 
-func promptListText(rows []store.PromptEntry) string {
+func (d *Daemon) promptListText(ctx context.Context, rows []store.PromptEntry) string {
 	var b strings.Builder
-	b.WriteString("Queued prompts:\n")
+	b.WriteString("Prompt queue:\n")
 	for _, p := range rows {
-		fmt.Fprintf(&b, "%s  %s  pos=%d  %s\n", p.ID, shortID(p.SessionID), p.Position, promptPreview(p.Text))
+		fmt.Fprintf(&b, "#%d %s target=%s\n  age=%s state=%s reason=%s\n  %s\n",
+			p.Position, p.ID, d.promptTargetLabel(p.SessionID), time.Since(p.CreatedAt).Truncate(time.Second), p.State, d.promptReason(ctx, p), promptPreview(p.Text))
 		if b.Len() > 3800 {
 			b.WriteString("...")
 			break
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (d *Daemon) promptTargetLabel(sessionID string) string {
+	if s, err := d.sessionByID(sessionID); err == nil {
+		return s.Name + " (" + shortID(s.ID) + ")"
+	}
+	return shortID(sessionID)
+}
+
+func (d *Daemon) promptReason(ctx context.Context, p store.PromptEntry) string {
+	if p.State != store.PromptQueued {
+		return p.State
+	}
+	if _, err := d.sessionByID(p.SessionID); err != nil {
+		return "session ended"
+	}
+	if d.sessionBusy(p.SessionID) {
+		return "queued behind active turn"
+	}
+	if d.defaultTarget(ctx, p.ChatID) == "" {
+		return "no default target"
+	}
+	return "ready"
 }
 
 func promptPreview(s string) string {

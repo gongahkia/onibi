@@ -20,6 +20,9 @@ const (
 	CBPromptCancel    = "pcancel:"
 	CBPromptUp        = "pup:"
 	CBPromptDown      = "pdown:"
+	CBPromptTop       = "ptop:"
+	CBPromptFlush     = "pflush:"
+	CBPromptConfirm   = "pconfirm:"
 	CBPeek            = "peek:"
 	CBText            = "text:"
 	CBRender          = "render:"
@@ -198,8 +201,21 @@ func PromptKeyboard(id string) *models.InlineKeyboardMarkup {
 				{Text: "Up", CallbackData: CBPromptUp + id},
 				{Text: "Down", CallbackData: CBPromptDown + id},
 			},
+			{
+				{Text: "Move top", CallbackData: CBPromptTop + id},
+				{Text: "Flush", CallbackData: CBPromptFlush + id},
+			},
 		},
 	}
+}
+
+func ConfirmPromptSendKeyboard(id string) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{
+			{Text: "Confirm send now", CallbackData: CBPromptConfirm + id},
+			{Text: "Cancel prompt", CallbackData: CBPromptCancel + id},
+		},
+	}}
 }
 
 func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
@@ -324,6 +340,12 @@ func ParseCallback(data string) (verb, id string) {
 		return "prompt_up", strings.TrimPrefix(data, CBPromptUp)
 	case strings.HasPrefix(data, CBPromptDown):
 		return "prompt_down", strings.TrimPrefix(data, CBPromptDown)
+	case strings.HasPrefix(data, CBPromptTop):
+		return "prompt_top", strings.TrimPrefix(data, CBPromptTop)
+	case strings.HasPrefix(data, CBPromptFlush):
+		return "prompt_flush", strings.TrimPrefix(data, CBPromptFlush)
+	case strings.HasPrefix(data, CBPromptConfirm):
+		return "prompt_confirm_send", strings.TrimPrefix(data, CBPromptConfirm)
 	case strings.HasPrefix(data, CBMenuSend):
 		return "menu_send", strings.TrimPrefix(data, CBMenuSend)
 	case strings.HasPrefix(data, CBPeek):

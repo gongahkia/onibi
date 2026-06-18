@@ -15,6 +15,7 @@ import (
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/secrets"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
 
@@ -731,6 +732,103 @@ func TestQueuedPromptWaitsUntilTurnComplete(t *testing.T) {
 	}
 }
 
+func TestQueueCommandShowsCardsAndControls(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	d.threadMu.Lock()
+	d.busySessions[s.ID] = true
+	d.threadMu.Unlock()
+	if _, err := d.DB.PromptEnqueue(ctx, s.ID, 100, "first line\nsecond line"); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleQueueCommand(ctx, mock, 100, "")
+	sent := mock.Sent()
+	if len(sent) != 1 || sent[0].ReplyMarkup == nil {
+		t.Fatalf("sent = %#v", sent)
+	}
+	for _, want := range []string{"Prompt queue:", "target=claude (abc123)", "state=queued", "reason=queued behind active turn", "first line"} {
+		if !strings.Contains(sent[0].Text, want) {
+			t.Fatalf("queue missing %q:\n%s", want, sent[0].Text)
+		}
+	}
+}
+
+func TestPromptSendRequiresConfirmWhenBusy(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	p, err := d.DB.PromptEnqueue(ctx, s.ID, 100, "urgent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.threadMu.Lock()
+	d.busySessions[s.ID] = true
+	d.threadMu.Unlock()
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "prompt_send", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipeOptional(r, 50*time.Millisecond); got != "" {
+		t.Fatalf("sent before confirm = %q", got)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Confirm sending") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb2", From: models.User{ID: 100}}, "prompt_confirm_send", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "urgent\n" {
+		t.Fatalf("sent after confirm = %q", got)
+	}
+	got, err := d.DB.PromptGet(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != store.PromptSent {
+		t.Fatalf("state = %s", got.State)
+	}
+}
+
+func TestPromptTopAndFlushCallbacks(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	_, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	p1, _ := d.DB.PromptEnqueue(ctx, s.ID, 100, "one")
+	p2, _ := d.DB.PromptEnqueue(ctx, s.ID, 100, "two")
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "top", From: models.User{ID: 100}}, "prompt_top", p2.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.DB.PromptGet(ctx, p2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Position != 1 {
+		t.Fatalf("position = %d", got.Position)
+	}
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "flush", From: models.User{ID: 100}}, "prompt_flush", p1.ID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := d.DB.PromptList(ctx, s.ID, false, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("rows = %#v", rows)
+	}
+}
+
 func TestEditPromptCommand(t *testing.T) {
 	d := newApprovalDaemon(t)
 	_, s := pipeSession(t, "abc123", "claude")
@@ -940,4 +1038,15 @@ func readPipe(t *testing.T, r *os.File) string {
 		t.Fatal("timed out waiting for PTY write")
 	}
 	return ""
+}
+
+func readPipeOptional(r *os.File, timeout time.Duration) string {
+	_ = r.SetReadDeadline(time.Now().Add(timeout))
+	defer r.SetReadDeadline(time.Time{})
+	buf := make([]byte, 256)
+	n, err := r.Read(buf)
+	if err != nil {
+		return ""
+	}
+	return string(buf[:n])
 }

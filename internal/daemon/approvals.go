@@ -454,7 +454,7 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		return d.handleMenuSendCallback(ctx, api, q, id)
 	}
 	switch verb {
-	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
+	case "prompt_send", "prompt_confirm_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down", "prompt_top", "prompt_flush":
 		return d.handlePromptCallback(ctx, api, q, verb, id)
 	case "peek", "text", "render", "show", "hide", "hide_headless", "hide_end", "interrupt", "kill":
 		return d.handleSessionActionCallback(ctx, api, q, verb, id)
