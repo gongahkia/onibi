@@ -11,6 +11,7 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -157,4 +158,39 @@ func TestEncryptedWebAppPromptWritesWithoutPlainAck(t *testing.T) {
 		t.Fatalf("injected = %q", got)
 	}
 	assertSentMessagesHide(t, mock, "secret prompt")
+}
+
+func TestEncryptedWebAppDenyCarriesReason(t *testing.T) {
+	d := newApprovalDaemon(t)
+	seed := enableEncryptedTestDaemon(t, d)
+	ctx := context.Background()
+	id, ch, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := webAppDecision{Version: 1, Action: "deny", ID: id, Reason: "not now"}
+	body, err := json.Marshal(action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := envelope.Encrypt(seed, envelope.Plain{Kind: "action", Body: string(body)}, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(webAppEnvelopePayload{Version: 1, Envelope: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onWebAppData(ctx, mock, &models.Message{
+		From:       &models.User{ID: 100},
+		Chat:       models.Chat{ID: 100},
+		WebAppData: &models.WebAppData{Data: string(payload), ButtonText: "Open secure controls"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dec := <-ch
+	if dec.Verdict != approval.VerdictDeny || dec.Reason != "not now" {
+		t.Fatalf("decision = %#v", dec)
+	}
 }

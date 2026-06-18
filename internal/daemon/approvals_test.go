@@ -107,6 +107,30 @@ func TestRenderApprovalMessageShowsRisk(t *testing.T) {
 	}
 }
 
+func TestRenderApprovalMessageShowsContextTargetAndTTL(t *testing.T) {
+	expires := time.Now().Add(5 * time.Minute)
+	got := renderApproval("Bash", `{"command":"git reset --hard HEAD~1"}`, approvalRenderContext{
+		Agent:        "codex",
+		SessionLabel: "codex (abc123)",
+		CWD:          "/tmp/repo",
+		ExpiresAt:    expires,
+	}).Plain
+	for _, want := range []string{
+		"Agent: codex",
+		"Session: codex (abc123)",
+		"Project: /tmp/repo",
+		"Tool: Bash",
+		"Risk: high - git rewrite",
+		"Target: git reset --hard HEAD~1",
+		"expires:",
+		"local",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("message missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderApprovalMessageDoesNotJSONEscapeHTML(t *testing.T) {
 	got := renderApprovalMessage("apply_patch", `{"command":"<article>ok</article>"}`, "s")
 	if strings.Contains(got, `\u003c`) || strings.Contains(got, `\u003e`) {
@@ -166,6 +190,41 @@ func TestReplyInvalidToolSchemaKeepsEditPending(t *testing.T) {
 	a, _ := d.Queue.Get(ctx, id)
 	if a.State != approval.StatePending {
 		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestDenyReasonReplyReturnsReasonToHook(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	id, ch, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"rm x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{
+		ID:   "cb",
+		From: models.User{ID: 100},
+		Data: "reason:" + id,
+	}, "deny_reason", id); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := d.peekPending(ctx, pendingKindDenyReason, 100); !ok || got != id {
+		t.Fatalf("pending deny reason = %q", got)
+	}
+	if err := d.onReply(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "too risky",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dec := <-ch
+	if dec.Verdict != approval.VerdictDeny || dec.Reason != "too risky" {
+		t.Fatalf("decision = %#v", dec)
+	}
+	a, _ := d.Queue.Get(ctx, id)
+	if a.Reason != "too risky" {
+		t.Fatalf("stored reason = %q", a.Reason)
 	}
 }
 

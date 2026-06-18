@@ -301,7 +301,7 @@ Files:
 - `internal/telegram/commands.go`
 - `internal/daemon/commands_test.go`
 
-### 5. Approval Message Polish
+### 5. Approval Message Polish [DONE 2026-06-18]
 
 Problem:
 - Approval messages show core details but not enough context for daily risk decisions.

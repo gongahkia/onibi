@@ -101,13 +101,13 @@ func (q *Queue) SetMessage(ctx context.Context, id string, chatID, msgID int64) 
 func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 	row := q.db.SQL().QueryRowContext(ctx,
 		`SELECT id, session_id, agent, tool, input_json, state,
-		        COALESCE(edited_json, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
-		        created_at, COALESCE(decided_at, 0), expires_at
+		        COALESCE(edited_json, ''), COALESCE(reason, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
+		        created_at, COALESCE(decided_at, 0), COALESCE(decided_by, 0), expires_at
 		 FROM approvals WHERE id = ?`, id)
 	a := &Approval{}
-	var createdAt, decidedAt, expiresAt int64
+	var createdAt, decidedAt, decidedBy, expiresAt int64
 	err := row.Scan(&a.ID, &a.SessionID, &a.Agent, &a.Tool, &a.InputJSON, &a.State,
-		&a.EditedJSON, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &expiresAt)
+		&a.EditedJSON, &a.Reason, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &decidedBy, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnknownApproval
 	}
@@ -118,6 +118,7 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 	if decidedAt > 0 {
 		a.DecidedAt = time.Unix(decidedAt, 0)
 	}
+	a.DecidedBy = decidedBy
 	a.ExpiresAt = time.Unix(expiresAt, 0)
 	return a, nil
 }
@@ -127,8 +128,8 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 	rows, err := q.db.SQL().QueryContext(ctx,
 		`SELECT id, session_id, agent, tool, input_json, state,
-		        COALESCE(edited_json, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
-		        created_at, COALESCE(decided_at, 0), expires_at
+		        COALESCE(edited_json, ''), COALESCE(reason, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
+		        created_at, COALESCE(decided_at, 0), COALESCE(decided_by, 0), expires_at
 		   FROM approvals
 		  WHERE state = ? AND expires_at > ?
 		  ORDER BY created_at ASC`,
@@ -140,15 +141,16 @@ func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 	var out []*Approval
 	for rows.Next() {
 		a := &Approval{}
-		var createdAt, decidedAt, expiresAt int64
+		var createdAt, decidedAt, decidedBy, expiresAt int64
 		if err := rows.Scan(&a.ID, &a.SessionID, &a.Agent, &a.Tool, &a.InputJSON, &a.State,
-			&a.EditedJSON, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &expiresAt); err != nil {
+			&a.EditedJSON, &a.Reason, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &decidedBy, &expiresAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.Unix(createdAt, 0)
 		if decidedAt > 0 {
 			a.DecidedAt = time.Unix(decidedAt, 0)
 		}
+		a.DecidedBy = decidedBy
 		a.ExpiresAt = time.Unix(expiresAt, 0)
 		out = append(out, a)
 	}
@@ -198,9 +200,11 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 		`UPDATE approvals
 		   SET state = ?,
 		       edited_json = ?,
-		       decided_at = ?
+		       reason = ?,
+		       decided_at = ?,
+		       decided_by = ?
 		 WHERE id = ? AND state = ?`,
-		st, nullIfEmpty(editedJSON), now.Unix(), a.ID, StatePending)
+		st, nullIfEmpty(editedJSON), nullIfEmpty(reason), now.Unix(), nullIfZero(decidedBy), a.ID, StatePending)
 	if err != nil {
 		return DecisionResult{}, fmt.Errorf("update approval: %w", err)
 	}
@@ -350,6 +354,13 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func nullIfZero(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
 
 func userVerdict(v Verdict) bool {

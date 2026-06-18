@@ -4,8 +4,8 @@ import "testing"
 
 func TestApprovalKeyboardLayout(t *testing.T) {
 	kb := ApprovalKeyboard("abc123")
-	if len(kb.InlineKeyboard) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(kb.InlineKeyboard))
+	if len(kb.InlineKeyboard) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(kb.InlineKeyboard))
 	}
 	row := kb.InlineKeyboard[0]
 	if len(row) != 3 {
@@ -20,6 +20,9 @@ func TestApprovalKeyboardLayout(t *testing.T) {
 			t.Fatalf("callback_data over 64 bytes (Telegram limit): %d", len(b.CallbackData))
 		}
 	}
+	if kb.InlineKeyboard[1][0].Text != "Reason" {
+		t.Fatalf("reason row = %#v", kb.InlineKeyboard[1])
+	}
 }
 
 func TestParseCallback(t *testing.T) {
@@ -31,6 +34,7 @@ func TestParseCallback(t *testing.T) {
 		{"approve:abc123", "approve", "abc123"},
 		{"confirm:abc123", "confirm_approve", "abc123"},
 		{"deny:def456", "deny", "def456"},
+		{"reason:def456", "deny_reason", "def456"},
 		{"edit:ghi789", "edit", "ghi789"},
 		{"target:s1", "target", "s1"},
 		{"psend:p1", "prompt_send", "p1"},

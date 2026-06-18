@@ -89,10 +89,12 @@ CREATE TABLE IF NOT EXISTS approvals (
   input_json  TEXT NOT NULL,
   state       TEXT NOT NULL DEFAULT 'pending',     -- pending|approved|denied|edited|expired|cancelled
   edited_json TEXT,
+  reason      TEXT,
   msg_id      INTEGER,                              -- telegram message id for callback editing
   chat_id     INTEGER,
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER,
+  decided_by  INTEGER,
   expires_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_state ON approvals(state, expires_at);
@@ -169,6 +171,12 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "hooks", "version", "TEXT"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "approvals", "reason", "TEXT"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "approvals", "decided_by", "INTEGER"); err != nil {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")

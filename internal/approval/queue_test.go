@@ -246,6 +246,27 @@ func TestCancelDeliversCancelled(t *testing.T) {
 	if d.Reason != "shutting down" {
 		t.Fatalf("reason = %q", d.Reason)
 	}
+	a, _ := q.Get(ctx, id)
+	if a.Reason != "shutting down" {
+		t.Fatalf("stored reason = %q", a.Reason)
+	}
+}
+
+func TestDenyPersistsReasonAndDecider(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	if err := q.Decide(ctx, id, VerdictDeny, "", "too risky", 42); err != nil {
+		t.Fatal(err)
+	}
+	d := <-ch
+	if d.Reason != "too risky" || d.DecidedBy != 42 {
+		t.Fatalf("decision = %#v", d)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.Reason != "too risky" || a.DecidedBy != 42 {
+		t.Fatalf("approval = %#v", a)
+	}
 }
 
 func TestSetMessagePersists(t *testing.T) {

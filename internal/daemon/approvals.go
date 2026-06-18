@@ -671,7 +671,25 @@ type approvalRender struct {
 func renderApproval(tool, inputJSON string, renderCtx approvalRenderContext) approvalRender {
 	pretty, risk := approvalRenderParts(tool, inputJSON)
 	renderCtx = completeApprovalRenderContext(tool, inputJSON, renderCtx)
-	preview, truncated := approvalPreview(pretty)
+	target := approvalDisplayLine(renderCtx.ToolTarget, 160)
+	expiry := formatApprovalExpiry(renderCtx.ExpiresAt)
+	htmlPrefix := fmt.Sprintf(
+		"Approval request\n"+
+			"Agent: %s\n"+
+			"Session: %s\n"+
+			"Project: %s\n"+
+			"Tool: %s\n"+
+			"Risk: %s\n"+
+			"Target: %s\n"+
+			"%s\n",
+		telegram.EscapeHTML(renderCtx.Agent),
+		telegram.EscapeHTML(renderCtx.SessionLabel),
+		telegram.EscapeHTML(renderCtx.CWD),
+		telegram.EscapeHTML(tool),
+		telegram.EscapeHTML(riskText(risk)),
+		telegram.EscapeHTML(target),
+		telegram.EscapeHTML(expiry))
+	preview, truncated := approvalPreview(pretty, len(htmlPrefix)+len(approvalFullPayloadNotice))
 	plain := fmt.Sprintf(
 		"Approval request\n"+
 			"Agent: %s\n"+
@@ -686,31 +704,15 @@ func renderApproval(tool, inputJSON string, renderCtx approvalRenderContext) app
 		renderCtx.CWD,
 		tool,
 		riskText(risk),
-		renderCtx.ToolTarget,
-		formatApprovalExpiry(renderCtx.ExpiresAt),
+		target,
+		expiry,
 		preview)
 	if truncated {
-		plain += "\n\nFull payload attached separately."
+		plain += approvalFullPayloadNotice
 	}
-	html := fmt.Sprintf(
-		"Approval request\n"+
-			"Agent: %s\n"+
-			"Session: %s\n"+
-			"Project: %s\n"+
-			"Tool: %s\n"+
-			"Risk: %s\n"+
-			"Target: %s\n"+
-			"%s\n%s",
-		telegram.EscapeHTML(renderCtx.Agent),
-		telegram.EscapeHTML(renderCtx.SessionLabel),
-		telegram.EscapeHTML(renderCtx.CWD),
-		telegram.EscapeHTML(tool),
-		telegram.EscapeHTML(riskText(risk)),
-		telegram.EscapeHTML(renderCtx.ToolTarget),
-		telegram.EscapeHTML(formatApprovalExpiry(renderCtx.ExpiresAt)),
-		telegram.HTMLPre(preview))
+	html := htmlPrefix + telegram.HTMLPre(preview)
 	if truncated {
-		html += "\n\nFull payload attached separately."
+		html += approvalFullPayloadNotice
 	}
 	return approvalRender{HTML: html, Plain: plain, Full: pretty, Risk: risk, Truncated: truncated}
 }
@@ -768,13 +770,19 @@ func approvalRenderParts(tool, inputJSON string) (string, approval.Risk) {
 	return scrubbed, risk
 }
 
-func approvalPreview(pretty string) (string, bool) {
-	if len(telegram.HTMLPre(pretty)) <= telegram.SafeTextLimit-600 {
+const approvalFullPayloadNotice = "\n\nFull payload attached separately."
+
+func approvalPreview(pretty string, htmlOverhead int) (string, bool) {
+	budget := telegram.SafeTextLimit - htmlOverhead
+	if budget < 0 {
+		budget = 0
+	}
+	if len(telegram.HTMLPre(pretty)) <= budget {
 		return pretty, false
 	}
 	runes := []rune(pretty)
 	truncated := false
-	for len(runes) > 0 && len(telegram.HTMLPre(string(runes)+"\n... truncated ...")) > telegram.SafeTextLimit-600 {
+	for len(runes) > 0 && len(telegram.HTMLPre(string(runes)+"\n... truncated ...")) > budget {
 		truncated = true
 		next := len(runes) * 3 / 4
 		if next == len(runes) {
@@ -783,6 +791,18 @@ func approvalPreview(pretty string) (string, bool) {
 		runes = runes[:next]
 	}
 	return string(runes) + "\n... truncated ...", truncated
+}
+
+func approvalDisplayLine(s string, limit int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	runes := []rune(s)
+	if limit <= 0 || len(runes) <= limit {
+		return s
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
 }
 
 func riskText(r approval.Risk) string {
