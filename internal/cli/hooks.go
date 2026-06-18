@@ -116,6 +116,9 @@ type hooksShowReport struct {
 	Agent             string                `json:"agent"`
 	Support           string                `json:"support"`
 	ConfigPath        string                `json:"config_path,omitempty"`
+	ObservedVersion   string                `json:"observed_version,omitempty"`
+	BundledVersion    string                `json:"bundled_version,omitempty"`
+	VersionStatus     string                `json:"version_status,omitempty"`
 	Record            *hookRecordView       `json:"record,omitempty"`
 	BackupPath        string                `json:"backup_path,omitempty"`
 	Preview           string                `json:"preview,omitempty"`
@@ -296,6 +299,19 @@ func installedVersionString(info common.Info) string {
 	return *info.InstalledVersion
 }
 
+func versionStatus(info common.Info) string {
+	if !info.Installed {
+		return "not installed"
+	}
+	if info.InstalledVersion == nil || *info.InstalledVersion == "" {
+		return "unknown"
+	}
+	if info.Outdated || *info.InstalledVersion != info.BundledVersion {
+		return "outdated"
+	}
+	return "ok"
+}
+
 func manualStep(report *hooksShowReport) string {
 	if report == nil || len(report.TrustInstructions) == 0 {
 		return "none"
@@ -386,12 +402,15 @@ func buildHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin stri
 	}
 	info := a.Status(cmd.Context(), db)
 	report := hooksShowReport{
-		Agent:      a.Name,
-		Support:    info.Support,
-		ConfigPath: info.InstallPath,
-		Expected:   []common.ExpectedHook{},
-		Observed:   []common.ObservedHook{},
-		Message:    info.Message,
+		Agent:           a.Name,
+		Support:         info.Support,
+		ConfigPath:      info.InstallPath,
+		ObservedVersion: installedVersionString(info),
+		BundledVersion:  info.BundledVersion,
+		VersionStatus:   versionStatus(info),
+		Expected:        []common.ExpectedHook{},
+		Observed:        []common.ObservedHook{},
+		Message:         info.Message,
 	}
 	if info.InstallPath != "" {
 		if rec, ok, err := common.RecordFor(cmd.Context(), db, a.Name, info.InstallPath); err != nil {
@@ -449,17 +468,20 @@ func buildShellHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin
 	info := adapters.ShellStatus(cmd.Context(), db, name)
 	thresholdMS := preview.MinMS
 	report := hooksShowReport{
-		Agent:         "shell:" + name,
-		Support:       info.Support,
-		ConfigPath:    info.InstallPath,
-		BackupPath:    adapters.ShellBackupPath(cmd.Context(), db, name),
-		Preview:       preview.Block,
-		ThresholdMS:   &thresholdMS,
-		EditCommand:   preview.EditCommand,
-		Compatibility: preview.CompatibilityNotes,
-		Expected:      []common.ExpectedHook{},
-		Observed:      []common.ObservedHook{},
-		Message:       info.Message,
+		Agent:           "shell:" + name,
+		Support:         info.Support,
+		ConfigPath:      info.InstallPath,
+		ObservedVersion: installedVersionString(info),
+		BundledVersion:  info.BundledVersion,
+		VersionStatus:   versionStatus(info),
+		BackupPath:      adapters.ShellBackupPath(cmd.Context(), db, name),
+		Preview:         preview.Block,
+		ThresholdMS:     &thresholdMS,
+		EditCommand:     preview.EditCommand,
+		Compatibility:   preview.CompatibilityNotes,
+		Expected:        []common.ExpectedHook{},
+		Observed:        []common.ObservedHook{},
+		Message:         info.Message,
 	}
 	if report.ConfigPath == "" {
 		report.ConfigPath = preview.Path
@@ -549,6 +571,7 @@ func renderHooksShow(cmd *cobra.Command, report hooksShowReport) {
 	fmt.Fprintf(out, "agent: %s\n", report.Agent)
 	fmt.Fprintf(out, "support: %s\n", report.Support)
 	fmt.Fprintf(out, "provider config: %s\n", valueOrDash(report.ConfigPath))
+	fmt.Fprintf(out, "version: observed=%s bundled=%s status=%s\n", valueOrDash(report.ObservedVersion), valueOrDash(report.BundledVersion), valueOrDash(report.VersionStatus))
 	if report.Message != "" {
 		fmt.Fprintf(out, "message: %s\n", report.Message)
 	}

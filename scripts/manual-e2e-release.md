@@ -7,6 +7,8 @@ Run on a clean macOS user before a public tag.
    ```sh
    brew install --cask gongahkia/onibi/onibi
    onibi version
+   onibi doctor --after-upgrade
+   onibi hooks show --all
    ```
 
 2. Pair and complete first-run setup.

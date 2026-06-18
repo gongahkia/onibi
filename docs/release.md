@@ -41,6 +41,8 @@ GoReleaser publishes a cask to `gongahkia/homebrew-onibi` when
 brew install --cask ./Casks/onibi.rb
 onibi version
 onibi doctor --mode preflight --offline
+onibi doctor --after-upgrade --offline
+onibi hooks show --all --json >/tmp/onibi-hooks.json
 ```
 
 ## Notarization

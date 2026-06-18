@@ -991,7 +991,7 @@ Needed:
 - one-tap `/secure`.
 - doctor repair plan.
 
-### Upgrade
+### Upgrade [DONE 2026-06-18]
 
 Flow:
 1. user upgrades binary

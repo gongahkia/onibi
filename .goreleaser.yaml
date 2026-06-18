@@ -118,4 +118,9 @@ homebrew_casks:
     directory: Casks
     homepage: https://github.com/gongahkia/onibi
     description: "Telegram-controlled coding-agent host"
+    caveats: |
+      After install or upgrade, run:
+        onibi doctor --after-upgrade
+      To compare bundled hook schemas with installed hooks, run:
+        onibi hooks show --all
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"

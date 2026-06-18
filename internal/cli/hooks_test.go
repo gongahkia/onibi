@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gongahkia/onibi/internal/adapters/common"
 )
 
 func TestInstallHooksCodexPrintsTrustInstructions(t *testing.T) {
@@ -378,6 +380,23 @@ func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
 	}
 }
 
+func TestHooksShowAllComparesBundledAndObservedVersions(t *testing.T) {
+	hooksCLIFixture(t)
+	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--all", "--json", "--color", "never")
+	var reports []hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &reports); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	report, ok := hooksReport(reports, "codex")
+	if !ok {
+		t.Fatalf("missing codex report: %+v", reports)
+	}
+	if report.ObservedVersion != common.IntegrationVersion || report.BundledVersion != common.IntegrationVersion || report.VersionStatus != "ok" {
+		t.Fatalf("version compare = %+v", report)
+	}
+}
+
 func hooksCLIFixture(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -416,6 +435,15 @@ func matrixRow(rows []hooksMatrixRow, provider string) (hooksMatrixRow, bool) {
 		}
 	}
 	return hooksMatrixRow{}, false
+}
+
+func hooksReport(reports []hooksShowReport, agent string) (hooksShowReport, bool) {
+	for _, report := range reports {
+		if report.Agent == agent {
+			return report, true
+		}
+	}
+	return hooksShowReport{}, false
 }
 
 func hasDrift(rows []hookDrift, event, status, detailPart string) bool {
