@@ -55,6 +55,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+		return err
+	}
 	cfg := map[string]any{
 		"version":           1,
 		common.VersionField: common.IntegrationVersion,
@@ -77,6 +80,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 func Uninstall(ctx context.Context, db *store.DB) error {
 	path, err := HooksPath()
 	if err != nil {
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -1,8 +1,13 @@
 package common
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestCommandRequiresManagedSession(t *testing.T) {
@@ -21,5 +26,42 @@ func TestUnguardedCommandHasNoSessionGuard(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "--agent shell") {
 		t.Fatalf("command = %s", cmd)
+	}
+}
+
+func TestBackupOriginalDoesNotOverwriteSameSourceHash(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "state", "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	src := filepath.Join(dir, "hooks.json")
+	if err := os.WriteFile(src, []byte(`{"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := BackupOriginal(context.Background(), db, "codex", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" {
+		t.Fatal("backup path missing")
+	}
+	if err := os.WriteFile(first, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := BackupOriginal(context.Background(), db, "codex", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("backup path changed: %q != %q", second, first)
+	}
+	body, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "sentinel" {
+		t.Fatalf("backup overwritten: %q", body)
 	}
 }

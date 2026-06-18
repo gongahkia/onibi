@@ -52,6 +52,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+		return err
+	}
 	removeManaged(cfg)
 	cfg[common.VersionField] = common.IntegrationVersion
 	hooks, _ := cfg["hooks"].(map[string]any)
@@ -84,6 +87,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	}
 	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
 	if err != nil {
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
 	removeManaged(cfg)

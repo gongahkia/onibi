@@ -32,6 +32,10 @@ func Install(ctx context.Context, db *store.DB, notifyBin, name string, minMS in
 	if err != nil {
 		return err
 	}
+	agent := "shell:" + name
+	if _, err := common.BackupOriginal(ctx, db, agent, path); err != nil {
+		return err
+	}
 	if name == "fish" {
 		if err := common.WriteFile(path, []byte(block), 0o600); err != nil {
 			return err
@@ -39,12 +43,15 @@ func Install(ctx context.Context, db *store.DB, notifyBin, name string, minMS in
 	} else if err := mergeBlock(path, block); err != nil {
 		return err
 	}
-	return common.Record(ctx, db, "shell:"+name, path, []byte(block))
+	return common.Record(ctx, db, agent, path, []byte(block))
 }
 
 func Uninstall(ctx context.Context, db *store.DB, name string) error {
 	path, _, err := target(name, "/bin/true", defaultMinMS)
 	if err != nil {
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, "shell:"+name, path); err != nil {
 		return err
 	}
 	if name == "fish" {

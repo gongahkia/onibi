@@ -15,7 +15,8 @@ import (
 
 // DB wraps a *sql.DB with our typed helpers. Constructed via Open.
 type DB struct {
-	sql *sql.DB
+	sql  *sql.DB
+	path string
 }
 
 // Open opens (or creates) the SQLite database at path, applies migrations,
@@ -36,7 +37,7 @@ func Open(path string) (*DB, error) {
 	if err := d.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	db := &DB{sql: d}
+	db := &DB{sql: d, path: path}
 	if err := db.migrate(); err != nil {
 		return nil, err
 	}
@@ -53,6 +54,8 @@ func (d *DB) Close() error { return d.sql.Close() }
 // SQL exposes the raw handle for advanced callers (audit log, sessions).
 // Prefer the typed helpers in this package where possible.
 func (d *DB) SQL() *sql.DB { return d.sql }
+
+func (d *DB) Path() string { return d.path }
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -115,6 +118,15 @@ CREATE TABLE IF NOT EXISTS hooks (
   version     TEXT,
   installed_at INTEGER NOT NULL,
   PRIMARY KEY (agent, path)
+);
+
+CREATE TABLE IF NOT EXISTS hook_backups (
+  agent         TEXT NOT NULL,
+  path          TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  backup_path   TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (agent, path, source_sha256)
 );
 
 -- session registry (phase 6 — multi-session)

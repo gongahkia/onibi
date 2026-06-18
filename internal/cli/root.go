@@ -32,6 +32,7 @@ func Root() *cobra.Command {
 		doctorCmd(),
 		configCmd(),
 		installHooksCmd(),
+		hooksCmd(),
 		installServiceCmd(),
 		uninstallServiceCmd(),
 		uninstallCmd(),

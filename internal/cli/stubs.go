@@ -145,6 +145,23 @@ func installHooksCmd() *cobra.Command {
 	return cmd
 }
 
+func hooksCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hooks",
+		Short: "Inspect installed hooks",
+	}
+	show := &cobra.Command{
+		Use:   "show",
+		Short: "Show hook config, records, backups, and drift",
+		RunE:  runHooksShow,
+	}
+	show.Flags().String("agent", "", "agent name")
+	show.Flags().Bool("all", false, "show every supported agent adapter")
+	show.Flags().Bool("json", false, "print JSON")
+	cmd.AddCommand(show)
+	return cmd
+}
+
 func installServiceCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install-service",

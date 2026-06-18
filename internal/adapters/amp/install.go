@@ -29,6 +29,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+		return err
+	}
 	body := []byte(pluginSource(notifyBin))
 	if err := common.WriteFile(path, body, 0o600); err != nil {
 		return err
@@ -39,6 +42,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 func Uninstall(ctx context.Context, db *store.DB) error {
 	path, err := PluginPath()
 	if err != nil {
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

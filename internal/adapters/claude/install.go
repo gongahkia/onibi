@@ -54,6 +54,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := common.BackupOriginal(ctx, db, "claude", path); err != nil {
+		return err
+	}
 
 	stop := buildStopHook(notifyBin)
 	pre := buildPreToolUseHook(notifyBin)
@@ -79,6 +82,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, "claude", path); err != nil {
 		return err
 	}
 	cleaned := removeEventHook(existing, "Stop")

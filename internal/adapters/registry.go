@@ -21,19 +21,23 @@ import (
 )
 
 type Adapter struct {
-	Name      string
-	Install   func(context.Context, *store.DB, string) error
-	Uninstall func(context.Context, *store.DB) error
-	Status    func(context.Context, *store.DB) common.Info
-	Verify    func(context.Context, *store.DB) error
-	Adopt     func(context.Context, *store.DB) error
+	Name              string
+	Install           func(context.Context, *store.DB, string) error
+	Uninstall         func(context.Context, *store.DB) error
+	Status            func(context.Context, *store.DB) common.Info
+	Verify            func(context.Context, *store.DB) error
+	Adopt             func(context.Context, *store.DB) error
+	ExpectedHooks     func(string) ([]common.ExpectedHook, error)
+	ObservedHooks     func() ([]common.ObservedHook, error)
+	TrustInstructions func() []string
+	BackupPath        func(context.Context, *store.DB) string
 }
 
 func Registry() map[string]Adapter {
 	return map[string]Adapter{
 		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt},
 		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt},
-		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt},
+		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt, ExpectedHooks: codex.ExpectedHooks, ObservedHooks: codex.ObservedHooks, TrustInstructions: codex.TrustInstructions, BackupPath: codex.BackupPath},
 		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash, Adopt: copilot.Adopt},
 		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash, Adopt: gemini.Adopt},
 		"goose":    {Name: "goose", Install: goose.Install, Uninstall: goose.Uninstall, Status: goose.Status, Verify: goose.VerifyHash, Adopt: goose.Adopt},

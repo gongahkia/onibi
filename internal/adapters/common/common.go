@@ -48,6 +48,34 @@ type HookRecord struct {
 	InstalledAt int64
 }
 
+type HookBackup struct {
+	Agent        string `json:"agent"`
+	Path         string `json:"path"`
+	SourceSHA256 string `json:"source_sha256"`
+	BackupPath   string `json:"backup_path"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+type ExpectedHook struct {
+	Event         string `json:"event"`
+	Matcher       string `json:"matcher,omitempty"`
+	Type          string `json:"type"`
+	Command       string `json:"command"`
+	Timeout       int    `json:"timeout,omitempty"`
+	StatusMessage string `json:"status_message,omitempty"`
+}
+
+type ObservedHook struct {
+	Event         string   `json:"event"`
+	Matcher       string   `json:"matcher,omitempty"`
+	Type          string   `json:"type,omitempty"`
+	Command       string   `json:"command,omitempty"`
+	Timeout       int      `json:"timeout,omitempty"`
+	StatusMessage string   `json:"status_message,omitempty"`
+	Managed       bool     `json:"managed"`
+	Problems      []string `json:"problems,omitempty"`
+}
+
 func VersionPtr(v string) *string {
 	if v == "" {
 		return nil
@@ -145,9 +173,81 @@ func Record(ctx context.Context, db *store.DB, agent, path string, body []byte) 
 	return err
 }
 
+func RecordFor(ctx context.Context, db *store.DB, agent, path string) (HookRecord, bool, error) {
+	var rec HookRecord
+	err := db.SQL().QueryRowContext(ctx,
+		`SELECT agent, path, sha256, COALESCE(version, ''), installed_at FROM hooks WHERE agent = ? AND path = ?`,
+		agent, path).Scan(&rec.Agent, &rec.Path, &rec.SHA256, &rec.Version, &rec.InstalledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HookRecord{}, false, nil
+	}
+	if err != nil {
+		return HookRecord{}, false, err
+	}
+	return rec, true, nil
+}
+
 func DeleteRecord(ctx context.Context, db *store.DB, agent, path string) error {
 	_, err := db.SQL().ExecContext(ctx, `DELETE FROM hooks WHERE agent = ? AND path = ?`, agent, path)
 	return err
+}
+
+func BackupOriginal(ctx context.Context, db *store.DB, agent, path string) (string, error) {
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	sourceSHA := hex.EncodeToString(sum[:])
+	var existing string
+	err = db.SQL().QueryRowContext(ctx,
+		`SELECT backup_path FROM hook_backups WHERE agent = ? AND path = ? AND source_sha256 = ?`,
+		agent, path, sourceSHA).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	prefix := sourceSHA[:12]
+	backupPath := filepath.Join(filepath.Dir(db.Path()), "hook-backups", agent, prefix, filepath.Base(path))
+	if err := os.MkdirAll(filepath.Dir(backupPath), 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	if err == nil {
+		if _, err := f.Write(body); err != nil {
+			_ = f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+	}
+	_, err = db.SQL().ExecContext(ctx,
+		`INSERT OR IGNORE INTO hook_backups(agent, path, source_sha256, backup_path, created_at) VALUES (?, ?, ?, ?, ?)`,
+		agent, path, sourceSHA, backupPath, time.Now().Unix())
+	return backupPath, err
+}
+
+func LatestBackup(ctx context.Context, db *store.DB, agent, path string) (HookBackup, bool, error) {
+	var b HookBackup
+	err := db.SQL().QueryRowContext(ctx,
+		`SELECT agent, path, source_sha256, backup_path, created_at FROM hook_backups WHERE agent = ? AND path = ? ORDER BY created_at DESC LIMIT 1`,
+		agent, path).Scan(&b.Agent, &b.Path, &b.SourceSHA256, &b.BackupPath, &b.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HookBackup{}, false, nil
+	}
+	if err != nil {
+		return HookBackup{}, false, err
+	}
+	return b, true, nil
 }
 
 func VerifyRecorded(ctx context.Context, db *store.DB, agent, path string, body []byte) error {

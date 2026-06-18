@@ -51,6 +51,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+		return err
+	}
 	removeManaged(cfg)
 	delete(cfg, common.VersionField)
 	hooks, _ := cfg["hooks"].(map[string]any)
@@ -88,6 +91,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
+		return err
+	}
+	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
 	removeManaged(cfg)
@@ -153,6 +159,100 @@ func Adopt(ctx context.Context, db *store.DB) error {
 		return errors.New("onibi-managed Codex hook is missing")
 	}
 	return common.Record(ctx, db, Agent, path, body)
+}
+
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(events))
+	for _, e := range events {
+		h := hook(notifyBin, e)
+		cmd, _ := h["command"].(string)
+		status, _ := h["statusMessage"].(string)
+		out = append(out, common.ExpectedHook{
+			Event:         e.event,
+			Matcher:       e.matcher,
+			Type:          "command",
+			Command:       cmd,
+			Timeout:       e.timeout,
+			StatusMessage: status,
+		})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := HooksPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
+	if err != nil {
+		return nil, err
+	}
+	var out []common.ObservedHook
+	for k := range cfg {
+		if k != "hooks" {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: unknown top-level field " + k}})
+		}
+	}
+	hooks, ok := cfg["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := cfg["hooks"]; exists {
+			out = append(out, common.ObservedHook{Event: "*", Problems: []string{"schema-invalid: hooks is not an object"}})
+		}
+		return out, nil
+	}
+	for _, event := range common.SortStrings(keys(hooks)) {
+		for _, group := range asSlice(hooks[event]) {
+			gm, ok := group.(map[string]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Problems: []string{"schema-invalid: matcher group is not an object"}})
+				continue
+			}
+			groupProblems := groupSchemaProblems(gm)
+			matcher, _ := gm["matcher"].(string)
+			for _, h := range asSlice(gm["hooks"]) {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(groupProblems, "schema-invalid: hook is not an object")})
+					continue
+				}
+				typ, _ := hm["type"].(string)
+				cmd, _ := hm["command"].(string)
+				status, _ := hm["statusMessage"].(string)
+				out = append(out, common.ObservedHook{
+					Event:         event,
+					Matcher:       matcher,
+					Type:          typ,
+					Command:       cmd,
+					Timeout:       intValue(hm["timeout"]),
+					StatusMessage: status,
+					Managed:       isManaged(hm),
+					Problems:      append(groupProblems, hookSchemaProblems(hm)...),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+func TrustInstructions() []string {
+	return []string{
+		"Codex next step: run codex, choose Review hooks, inspect onibi-notify commands, then trust if they match.",
+		"Do not choose Trust all unless you have inspected every command.",
+		"Continue without trusting disables these Onibi hooks for that Codex run.",
+	}
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := HooksPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
 }
 
 func hook(notifyBin string, e eventSpec) map[string]any {
@@ -289,4 +389,40 @@ func asSlice(v any) []any {
 		return s
 	}
 	return nil
+}
+
+func groupSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "matcher", "hooks":
+		default:
+			problems = append(problems, "schema-invalid: unknown matcher field "+k)
+		}
+	}
+	return problems
+}
+
+func hookSchemaProblems(m map[string]any) []string {
+	var problems []string
+	for k := range m {
+		switch k {
+		case "type", "command", "timeout", "statusMessage", "commandWindows", "command_windows", "async":
+		default:
+			problems = append(problems, "schema-invalid: unknown hook field "+k)
+		}
+	}
+	return problems
+}
+
+func intValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }

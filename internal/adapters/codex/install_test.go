@@ -121,6 +121,28 @@ func TestInstallRemovesLegacyCodexMetadataAndPreservesUserHooks(t *testing.T) {
 	}
 }
 
+func TestInstallCodexReinstallDoesNotDuplicateManagedHooks(t *testing.T) {
+	db, notify, path := newTestEnv(t)
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	m := readHookFile(t, path)
+	hooks := m["hooks"].(map[string]any)
+	for _, ev := range []string{"SessionStart", "PreToolUse", "PostToolUse", "Stop"} {
+		groups := hooks[ev].([]any)
+		if len(groups) != 1 {
+			t.Fatalf("%s groups = %d", ev, len(groups))
+		}
+		entries := groups[0].(map[string]any)["hooks"].([]any)
+		if len(entries) != 1 {
+			t.Fatalf("%s entries = %d", ev, len(entries))
+		}
+	}
+}
+
 func TestUninstallRemovesCommandManagedCodexHooks(t *testing.T) {
 	db, notify, path := newTestEnv(t)
 	if err := Install(context.Background(), db, notify); err != nil {
