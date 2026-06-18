@@ -895,7 +895,7 @@ Needed:
 - `doctor --after-upgrade`.
 - provider-specific trust/reload instructions.
 
-### Start Session
+### Start Session [DONE 2026-06-18]
 
 Flow:
 1. user chooses project alias
