@@ -121,6 +121,7 @@ CLI:
 - `onibi doctor`
 - `onibi adapters`
 - `onibi demo approval`
+- `onibi project add here`
 - `onibi run <agent>`
 - `onibi shell [shell]`
 - `onibi wrap <command>`

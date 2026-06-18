@@ -3,6 +3,8 @@ package telegram
 import (
 	"strings"
 	"testing"
+
+	"github.com/go-telegram/bot/models"
 )
 
 func TestApprovalKeyboardLayout(t *testing.T) {
@@ -56,6 +58,8 @@ func TestParseCallback(t *testing.T) {
 		{"obagent", "onboard_agent", ""},
 		{"obvis", "onboard_visible", ""},
 		{"obdemo", "demo_approval", ""},
+		{"proj:repo", "project_alias", "repo"},
+		{"pnew:visible:shell:repo", "project_start", "visible:shell:repo"},
 		{"peek:s1", "peek", "s1"},
 		{"render:s1", "render", "s1"},
 		{"shot:s1", "render", "s1"},
@@ -98,6 +102,22 @@ func TestSessionMenuCallbackDataLimit(t *testing.T) {
 		for _, b := range row {
 			if len(b.CallbackData) > 64 {
 				t.Fatalf("%s callback_data over 64 bytes: %d", b.Text, len(b.CallbackData))
+			}
+		}
+	}
+}
+
+func TestProjectKeyboardCallbackDataLimit(t *testing.T) {
+	kbs := []*models.InlineKeyboardMarkup{
+		ProjectAliasKeyboard([]string{"repo", strings.Repeat("x", 80)}),
+		ProjectStartKeyboard("repo"),
+	}
+	for _, kb := range kbs {
+		for _, row := range kb.InlineKeyboard {
+			for _, b := range row {
+				if len(b.CallbackData) > 64 {
+					t.Fatalf("%s callback_data over 64 bytes: %d", b.Text, len(b.CallbackData))
+				}
 			}
 		}
 	}

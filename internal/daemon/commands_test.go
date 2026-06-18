@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -294,6 +295,27 @@ func TestOnboardVisibleUsesProjectAlias(t *testing.T) {
 	}
 	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "/new --visible --project repo shell") {
 		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestProjectListShowsHealthAndAliasButtons(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), dir); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	d.handleProjectCommand(ctx, mock, 100, "list")
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "repo  ok writable git") || sent[0].ReplyMarkup == nil {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if strings.Contains(sent[0].Text, dir) {
+		t.Fatalf("raw path leaked: %q", sent[0].Text)
 	}
 }
 

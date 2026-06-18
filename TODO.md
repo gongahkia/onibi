@@ -440,7 +440,7 @@ Acceptance:
 - Default target is obvious.
 - Long names/path text stay readable on phone.
 
-### Project Alias Picker
+### Project Alias Picker [DONE 2026-06-18]
 
 Requirement:
 - Phone users should not type raw paths unless advanced.

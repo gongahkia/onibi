@@ -47,6 +47,8 @@ const (
 	CBOnboardAgent    = "obagent"
 	CBOnboardVisible  = "obvis"
 	CBOnboardDemo     = "obdemo"
+	CBProjectAlias    = "proj:"
+	CBProjectStart    = "pnew:"
 )
 
 type SessionTarget struct {
@@ -152,6 +154,36 @@ func SessionTargetKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup
 		}})
 	}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func ProjectAliasKeyboard(aliases []string) *models.InlineKeyboardMarkup {
+	rows := make([][]models.InlineKeyboardButton, 0, len(aliases))
+	for _, alias := range aliases {
+		if len(CBProjectAlias+alias) > 64 {
+			continue
+		}
+		rows = append(rows, []models.InlineKeyboardButton{{
+			Text:         trimButton(alias),
+			CallbackData: CBProjectAlias + alias,
+		}})
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func ProjectStartKeyboard(alias string) *models.InlineKeyboardMarkup {
+	if len(CBProjectStart+"headless:codex:"+alias) > 64 {
+		return &models.InlineKeyboardMarkup{}
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{
+			{Text: "Visible shell", CallbackData: CBProjectStart + "visible:shell:" + alias},
+			{Text: "Headless shell", CallbackData: CBProjectStart + "headless:shell:" + alias},
+		},
+		{
+			{Text: "Visible codex", CallbackData: CBProjectStart + "visible:codex:" + alias},
+			{Text: "Headless codex", CallbackData: CBProjectStart + "headless:codex:" + alias},
+		},
+	}}
 }
 
 func PromptKeyboard(id string) *models.InlineKeyboardMarkup {
@@ -266,6 +298,10 @@ func ParseCallback(data string) (verb, id string) {
 		return "onboard_visible", ""
 	case data == CBOnboardDemo:
 		return "demo_approval", ""
+	case strings.HasPrefix(data, CBProjectAlias):
+		return "project_alias", strings.TrimPrefix(data, CBProjectAlias)
+	case strings.HasPrefix(data, CBProjectStart):
+		return "project_start", strings.TrimPrefix(data, CBProjectStart)
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
 	case strings.HasPrefix(data, CBConfirm):

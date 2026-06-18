@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -264,6 +265,49 @@ func TestNewCommandUsesProjectAlias(t *testing.T) {
 	}
 	if !containsTmuxCWD(r.Calls(), dir) {
 		t.Fatalf("missing cwd %q: %#v", dir, r.Calls())
+	}
+}
+
+func TestProjectStartCallbackUsesAlias(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r := &daemonTmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+	t.Setenv("SHELL", "/bin/sh")
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), dir); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "project_start", "headless:shell:repo"); err != nil {
+		t.Fatal(err)
+	}
+	if live := d.liveSessions(); len(live) != 1 {
+		t.Fatalf("live = %#v sent=%#v", live, mock.Sent())
+	}
+	if !containsTmuxCWD(r.Calls(), dir) {
+		t.Fatalf("missing cwd %q: %#v", dir, r.Calls())
+	}
+}
+
+func TestNewCommandMissingProjectAliasPathGivesRepair(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	if err := d.DB.KVSetString(ctx, projectAliasKey("repo"), filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if !d.handleTextCommand(ctx, mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/new --headless --project repo shell",
+	}) {
+		t.Fatal("command not handled")
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Repair: /project add repo &lt;path&gt;") {
+		t.Fatalf("sent = %#v", sent)
 	}
 }
 

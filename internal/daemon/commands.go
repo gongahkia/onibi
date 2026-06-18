@@ -836,7 +836,12 @@ func (d *Daemon) resolveNewSessionCWD(ctx context.Context, project, cwd string) 
 		if !ok || path == "" {
 			return "", errors.New("Unknown project alias. Use /project list or /project add <alias> <path>.")
 		}
-		return normalizeProjectPath(path)
+		normalized, err := normalizeProjectPath(path)
+		if err != nil {
+			alias := sanitizeProjectAlias(project)
+			return "", fmt.Errorf("Project %s path is invalid: %w. Repair: /project add %s <path> or /project forget %s", alias, err, alias, alias)
+		}
+		return normalized, nil
 	}
 	if strings.TrimSpace(cwd) != "" {
 		return normalizeProjectPath(cwd)
@@ -857,11 +862,19 @@ func (d *Daemon) sendProjectRequired(ctx context.Context, api telegram.API, chat
 	b.WriteString(strings.Join(fields, " "))
 	b.WriteString("\n\n")
 	b.WriteString(d.projectListText(ctx))
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: b.String()})
+	params := &tgbot.SendMessageParams{ChatID: chatID, Text: b.String()}
+	if aliases, err := d.projectAliases(ctx); err == nil && len(aliases) > 0 {
+		params.ReplyMarkup = telegram.ProjectAliasKeyboard(aliases)
+	}
+	sendMessage(ctx, api, params)
 }
 
 func (d *Daemon) sendProjectList(ctx context.Context, api telegram.API, chatID int64) {
-	sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: d.projectListText(ctx)})
+	params := &tgbot.SendMessageParams{ChatID: chatID, Text: d.projectListText(ctx)}
+	if aliases, err := d.projectAliases(ctx); err == nil && len(aliases) > 0 {
+		params.ReplyMarkup = telegram.ProjectAliasKeyboard(aliases)
+	}
+	sendMessage(ctx, api, params)
 }
 
 func (d *Daemon) projectListText(ctx context.Context) string {
@@ -881,18 +894,30 @@ func (d *Daemon) projectListText(ctx context.Context) string {
 		alias := strings.TrimPrefix(key, projectAliasPrefix)
 		path, ok, _ := d.DB.KVGetString(ctx, key)
 		if ok {
-			fmt.Fprintf(&b, "\n%s  %s", alias, path)
+			fmt.Fprintf(&b, "\n%s  %s", alias, projectHealth(path))
 		}
 	}
 	return b.String()
 }
 
 func (d *Daemon) firstProjectAlias(ctx context.Context) string {
-	keys, err := d.projectAliasKeys(ctx)
-	if err != nil || len(keys) == 0 {
+	aliases, err := d.projectAliases(ctx)
+	if err != nil || len(aliases) == 0 {
 		return ""
 	}
-	return strings.TrimPrefix(keys[0], projectAliasPrefix)
+	return aliases[0]
+}
+
+func (d *Daemon) projectAliases(ctx context.Context) ([]string, error) {
+	keys, err := d.projectAliasKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	aliases := make([]string, 0, len(keys))
+	for _, key := range keys {
+		aliases = append(aliases, strings.TrimPrefix(key, projectAliasPrefix))
+	}
+	return aliases, nil
 }
 
 func (d *Daemon) projectAliasKeys(ctx context.Context) ([]string, error) {
@@ -916,7 +941,11 @@ func sanitizeProjectAlias(alias string) string {
 			b.WriteRune(r)
 		}
 	}
-	return b.String()
+	runes := []rune(b.String())
+	if len(runes) > 32 {
+		return string(runes[:32])
+	}
+	return string(runes)
 }
 
 func normalizeProjectPath(path string) (string, error) {
@@ -943,6 +972,25 @@ func normalizeProjectPath(path string) (string, error) {
 		return "", errors.New("project path is not a directory")
 	}
 	return abs, nil
+}
+
+func projectHealth(path string) string {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "missing repair=/project add"
+	}
+	if !st.IsDir() {
+		return "not-dir repair=/project add"
+	}
+	write := "read-only"
+	if st.Mode().Perm()&0o200 != 0 {
+		write = "writable"
+	}
+	git := "no-git"
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		git = "git"
+	}
+	return "ok " + write + " " + git
 }
 
 func splitCommandFields(s string) ([]string, error) {

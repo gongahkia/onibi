@@ -123,6 +123,33 @@ func demoCmd() *cobra.Command {
 	return cmd
 }
 
+func projectCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "project",
+		Short: "Manage project aliases",
+	}
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List project aliases",
+		RunE:  runProjectList,
+	}
+	add := &cobra.Command{
+		Use:   "add here | add <alias> <path>",
+		Short: "Add a project alias",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runProjectAdd,
+	}
+	forget := &cobra.Command{
+		Use:     "forget <alias>",
+		Aliases: []string{"remove", "delete", "del"},
+		Short:   "Forget a project alias",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runProjectForget,
+	}
+	cmd.AddCommand(list, add, forget)
+	return cmd
+}
+
 func pingCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ping",

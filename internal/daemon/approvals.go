@@ -419,6 +419,33 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 			sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Test approval failed: " + err.Error()})
 		}
 		return nil
+	case "project_alias":
+		alias := sanitizeProjectAlias(id)
+		if alias == "" {
+			answerCallback(ctx, api, q.ID, "Invalid project")
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Project "+alias)
+		sendMessage(ctx, api, &tgbot.SendMessageParams{
+			ChatID:      q.From.ID,
+			Text:        "Project " + alias + "\nChoose a start mode:",
+			ReplyMarkup: telegram.ProjectStartKeyboard(alias),
+		})
+		return nil
+	case "project_start":
+		parts := strings.SplitN(id, ":", 3)
+		if len(parts) != 3 {
+			answerCallback(ctx, api, q.ID, "Invalid start")
+			return nil
+		}
+		mode, agent, alias := parts[0], parts[1], sanitizeProjectAlias(parts[2])
+		if alias == "" || (mode != "visible" && mode != "headless") {
+			answerCallback(ctx, api, q.ID, "Invalid start")
+			return nil
+		}
+		answerCallback(ctx, api, q.ID, "Starting "+agent)
+		d.handleNewCommand(ctx, api, q.From.ID, "--"+mode+" --project "+alias+" "+agent)
+		return nil
 	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)

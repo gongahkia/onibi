@@ -135,9 +135,18 @@ agent hooks.
 
 For the normal Telegram flow, add the repo as an explicit project alias:
 
+```bash
+onibi project add here
+```
+
+Or from Telegram:
+
 ```text
 /project add onibi ~/Desktop/coding/projects/onibi
 ```
+
+`/project list` shows alias health and buttons for starting visible or
+headless sessions from saved aliases.
 
 Start a visible tmux-backed session from Telegram:
 
