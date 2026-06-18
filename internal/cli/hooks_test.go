@@ -150,6 +150,35 @@ func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
 	}
 }
 
+func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	pluginPath := filepath.Join(home, ".config", "amp", "plugins", "onibi.ts")
+	if err := os.MkdirAll(filepath.Dir(pluginPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pluginPath, []byte("old amp plugin"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "amp", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "show", "--agent", "amp", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != pluginPath {
+		t.Fatalf("config path = %q want %q", report.ConfigPath, pluginPath)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("backup path missing")
+	}
+	trust := strings.Join(report.TrustInstructions, "\n")
+	for _, want := range []string{"plugins: reload", "plugins: list"} {
+		if !strings.Contains(trust, want) {
+			t.Fatalf("trust instructions missing %q: %+v", want, report.TrustInstructions)
+		}
+	}
+}
+
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")

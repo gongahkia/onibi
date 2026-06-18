@@ -719,7 +719,7 @@ Needed:
 - Validate edited input JSON before assigning `output.args`.
 - Add plugin API compatibility tests with a fixture.
 
-### Amp
+### Amp [DONE 2026-06-18]
 
 Provider surface:
 - TypeScript plugin file
