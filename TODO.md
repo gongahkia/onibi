@@ -947,7 +947,7 @@ Needed:
 - provider-specific target extraction.
 - encrypted parity.
 
-### Prompt Queue
+### Prompt Queue [DONE 2026-06-18]
 
 Flow:
 1. user sends prompt
