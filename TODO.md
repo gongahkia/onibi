@@ -695,7 +695,7 @@ Needed:
 - Migrate metadata out of provider JSON unless Open Plugins allows it.
 - Add `hooks show --agent goose`.
 
-### OpenCode
+### OpenCode [DONE 2026-06-18]
 
 Provider surface:
 - plugin file under OpenCode config plugin directory

@@ -15,7 +15,17 @@ import (
 const Agent = "opencode"
 
 func PluginPath() (string, error) {
-	return common.HomePath("ONIBI_OPENCODE_PLUGIN", ".config", "opencode", "plugins", "onibi.js")
+	if v := strings.TrimSpace(os.Getenv("ONIBI_OPENCODE_PLUGIN")); v != "" {
+		return filepath.Abs(v)
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ONIBI_OPENCODE_SCOPE")), "project") {
+		return filepath.Abs(filepath.Join(".opencode", "plugins", "onibi.js"))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "opencode", "plugins", "onibi.js"), nil
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {
@@ -118,7 +128,8 @@ func Adopt(ctx context.Context, db *store.DB) error {
 
 func TrustInstructions() []string {
 	return []string{
-		"OpenCode next step: restart OpenCode so local plugins are loaded from the plugin directory.",
+		"OpenCode next step: restart OpenCode or start a new session so local plugins are loaded from the plugin directory.",
+		"Use ONIBI_OPENCODE_SCOPE=project for .opencode/plugins/onibi.js, or ONIBI_OPENCODE_PLUGIN for an explicit plugin path.",
 	}
 }
 
@@ -159,6 +170,14 @@ async function emit(type, event, extra = {}) {
   await runOnibi(["--agent", ONIBI_AGENT, "--format", "opencode", "--type", type], { event, ...extra }).catch(() => {});
 }
 
+async function emitEvent(input) {
+  const event = input?.event ?? input;
+  const name = event?.type ?? event?.event ?? "";
+  if (name === "session.deleted") return emit("session_exited", event);
+  if (name === "session.idle") return emit("agent_done", event);
+  return emit("agent_message", event);
+}
+
 async function approval(input, output) {
   const payload = {
     hook_event_name: "tool.execute.before",
@@ -182,7 +201,7 @@ function parseUpdatedInput(value) {
 }
 
 export const Onibi = async () => ({
-  event: async (input) => emit("agent_message", input?.event ?? input),
+  event: async (input) => emitEvent(input),
   "tool.execute.before": async (input, output) => {
     await emit("agent_message", { input, output });
     await approval(input, output);
