@@ -58,6 +58,59 @@ func TestTerminalLauncherNextActionMentionsSupportedInstallChoices(t *testing.T)
 	}
 }
 
+func TestNonPassChecksCarryRepairPlan(t *testing.T) {
+	paths := doctorPaths(t)
+	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, Mode: "preflight"})
+	found := false
+	for _, c := range report.Checks {
+		if c.Status == Pass {
+			continue
+		}
+		found = true
+		if c.Impact == "" || c.SafeFix == "" || c.ManualFix == "" || c.Retry == "" || c.Code == "" {
+			t.Fatalf("missing repair text: %#v", c)
+		}
+		if c.FilesTouched == nil {
+			t.Fatalf("files touched is nil: %#v", c)
+		}
+		if c.Blocks == nil {
+			t.Fatalf("blocks is nil: %#v", c)
+		}
+	}
+	if !found {
+		t.Fatalf("expected non-pass checks: %#v", report.Checks)
+	}
+}
+
+func TestBotTokenTimeoutRepairPlan(t *testing.T) {
+	spec := repairSpecFor("bot token", "secret bot_token lookup timeout: context deadline exceeded", Fail)
+	for _, want := range []string{
+		"Telegram daemon startup, approvals, notifications, and Telegram-created sessions cannot work until token lookup succeeds.",
+		"[Inference] Existing local shells/agents outside Onibi and any already-running PTY/tmux process keep running at OS level.",
+	} {
+		if !strings.Contains(spec.Impact, want) {
+			t.Fatalf("impact = %q, missing %q", spec.Impact, want)
+		}
+	}
+	if !strings.Contains(spec.SafeFix, "unlock/login to the OS keychain") {
+		t.Fatalf("safe fix = %q", spec.SafeFix)
+	}
+	if !strings.Contains(spec.ManualFix, "rotate token only if") {
+		t.Fatalf("manual fix = %q", spec.ManualFix)
+	}
+	if len(spec.FilesTouched) != 0 {
+		t.Fatalf("files touched = %#v", spec.FilesTouched)
+	}
+	for _, want := range []string{"onibi doctor", "onibi up", "onibi run"} {
+		if !strings.Contains(spec.Retry, want) {
+			t.Fatalf("retry = %q, missing %q", spec.Retry, want)
+		}
+	}
+	if spec.Code != "bot_token_timeout" {
+		t.Fatalf("code = %q", spec.Code)
+	}
+}
+
 func TestMacAppExistsFindsUserApplication(t *testing.T) {
 	home := t.TempDir()
 	oldHome := os.Getenv("HOME")

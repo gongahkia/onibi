@@ -35,16 +35,23 @@ const (
 
 // Check is one doctor line.
 type Check struct {
-	Name    string
-	Status  Status
-	Detail  string
-	Next    string
-	Fixable bool
+	Name         string   `json:"name"`
+	Status       Status   `json:"status"`
+	Detail       string   `json:"detail"`
+	Next         string   `json:"next,omitempty"`
+	Fixable      bool     `json:"fixable,omitempty"`
+	Impact       string   `json:"impact,omitempty"`
+	SafeFix      string   `json:"safe_fix,omitempty"`
+	ManualFix    string   `json:"manual_fix,omitempty"`
+	FilesTouched []string `json:"files_touched,omitempty"`
+	Retry        string   `json:"retry,omitempty"`
+	Blocks       []string `json:"blocks,omitempty"`
+	Code         string   `json:"code,omitempty"`
 }
 
 // Report is the full doctor result.
 type Report struct {
-	Checks []Check
+	Checks []Check `json:"checks"`
 }
 
 // Failed reports whether any check failed.
@@ -88,8 +95,21 @@ type runner struct {
 var telegramProbeToken = telegram.ProbeToken
 
 func (r *runner) add(name string, st Status, detail string) {
-	next, fixable := nextAction(name, detail, st)
-	r.checks = append(r.checks, Check{Name: name, Status: st, Detail: detail, Next: next, Fixable: fixable})
+	spec := repairSpecFor(name, detail, st)
+	r.checks = append(r.checks, Check{
+		Name:         name,
+		Status:       st,
+		Detail:       detail,
+		Next:         spec.Next(),
+		Fixable:      spec.Fixable,
+		Impact:       spec.Impact,
+		SafeFix:      spec.SafeFix,
+		ManualFix:    spec.ManualFix,
+		FilesTouched: spec.FilesTouched,
+		Retry:        spec.Retry,
+		Blocks:       spec.Blocks,
+		Code:         spec.Code,
+	})
 }
 
 func (r *runner) run() {
@@ -118,61 +138,205 @@ func (r *runner) run() {
 	}
 }
 
+type repairSpec struct {
+	Code         string
+	Impact       string
+	SafeFix      string
+	ManualFix    string
+	FilesTouched []string
+	Retry        string
+	Blocks       []string
+	Fixable      bool
+}
+
+func (s repairSpec) Next() string {
+	if s.Retry != "" {
+		return s.Retry
+	}
+	return s.SafeFix
+}
+
+type repairRule struct {
+	match func(name, detail string) bool
+	spec  func(name, detail string) repairSpec
+}
+
 func nextAction(name, detail string, st Status) (string, bool) {
+	spec := repairSpecFor(name, detail, st)
+	return spec.Next(), spec.Fixable
+}
+
+func repairSpecFor(name, detail string, st Status) repairSpec {
 	if st == Pass {
-		return "", false
+		return repairSpec{}
 	}
+	for _, rule := range repairRules {
+		if rule.match(name, detail) {
+			return completeRepairSpec(rule.spec(name, detail), name)
+		}
+	}
+	return completeRepairSpec(repairSpec{
+		Code:      codeFor(name),
+		Impact:    "This check did not pass; related Onibi functionality may be degraded.",
+		SafeFix:   "rerun onibi doctor with more context",
+		ManualFix: "inspect the reported detail and relevant config manually",
+		Retry:     "onibi doctor",
+	}, name)
+}
+
+func completeRepairSpec(spec repairSpec, name string) repairSpec {
+	if spec.Code == "" {
+		spec.Code = codeFor(name)
+	}
+	if spec.Impact == "" {
+		spec.Impact = "This check can degrade related Onibi functionality."
+	}
+	if spec.SafeFix == "" {
+		spec.SafeFix = "rerun onibi doctor after fixing the reported condition"
+	}
+	if spec.ManualFix == "" {
+		spec.ManualFix = "inspect the reported detail manually"
+	}
+	if spec.FilesTouched == nil {
+		spec.FilesTouched = []string{}
+	}
+	if spec.Blocks == nil {
+		spec.Blocks = []string{}
+	}
+	return spec
+}
+
+var repairRules = []repairRule{
+	{matchName("state dir"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi cannot safely store state, sockets, logs, and the SQLite DB.", SafeFix: "fix state directory permissions", ManualFix: "chmod 0700 the Onibi state directory or recreate it", FilesTouched: []string{"state dir"}, Retry: "onibi doctor --fix", Blocks: []string{"daemon startup", "setup", "state writes"}, Fixable: true}
+	}},
+	{matchName(".env fallback"), func(_, detail string) repairSpec {
+		if strings.Contains(detail, "perms") {
+			return repairSpec{Impact: "The dotenv fallback may expose secrets if permissions are loose.", SafeFix: "chmod .env to 0600", ManualFix: "remove the dotenv fallback or set strict owner-only permissions", FilesTouched: []string{".env"}, Retry: "onibi doctor --fix", Blocks: []string{"dotenv fallback secrets"}, Fixable: true}
+		}
+		return repairSpec{Impact: "Bot token storage is using a file fallback instead of the OS keystore.", SafeFix: "keep OS keychain preferred; retry after keychain is available", ManualFix: "move the token back to keychain with onibi rotate-token", FilesTouched: []string{}, Retry: "onibi rotate-token"}
+	}},
+	{matchName("sqlite db"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi cannot read durable approvals, sessions, prompts, owners, hooks, or audit state.", SafeFix: "rerun setup to create or migrate the database", ManualFix: "restore the SQLite DB from backup or move the corrupt file aside", FilesTouched: []string{"onibi.sqlite"}, Retry: "onibi setup --complete", Blocks: []string{"daemon state", "approvals", "sessions", "hook verification"}}
+	}},
+	{matchName("secrets backend"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi cannot read or store the bot token/TOTP secrets.", SafeFix: "unlock/login to the OS keychain, then retry", ManualFix: "repair OS keyring support or intentionally use dotenv fallback", FilesTouched: []string{}, Retry: "onibi rotate-token", Blocks: []string{"Telegram startup", "approvals", "notifications"}}
+	}},
+	{matchName("bot token"), botTokenRepairSpec},
+	{matchName("owner chat_id"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi cannot authorize Telegram control without an owner chat id.", SafeFix: "complete pairing again", ManualFix: "set the owner only through the pairing flow; do not guess chat ids", FilesTouched: []string{"onibi.sqlite"}, Retry: "onibi setup --complete", Blocks: []string{"Telegram commands", "approvals", "notifications"}}
+	}},
+	{matchName("unix socket"), unixSocketRepairSpec},
+	{matchName("service"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "The daemon may not start automatically, so Telegram controls may be offline.", SafeFix: "install/start the user service", ManualFix: "run onibi run manually for foreground use", FilesTouched: []string{"LaunchAgent or systemd user unit"}, Retry: "onibi install-service", Blocks: []string{"background daemon", "Telegram controls"}, Fixable: true}
+	}},
+	{matchName("tmux"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Headless/visible session switching requires tmux.", SafeFix: "install tmux", ManualFix: "install tmux with your OS package manager", FilesTouched: []string{}, Retry: "brew install tmux", Blocks: []string{"headless sessions", "visible session switching"}}
+	}},
+	{matchName("terminal launcher"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Visible session windows may not open automatically.", SafeFix: "set terminal.default=none or install Ghostty/iTerm2", ManualFix: "open tmux attach commands manually", FilesTouched: []string{"config.yaml"}, Retry: "set terminal.default=none or install Ghostty/iTerm2", Blocks: []string{"visible terminal launch"}}
+	}},
+	{matchName("hooks"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Agent hooks are not installed, so approvals/turn notifications may not work.", SafeFix: "install supported hooks interactively", ManualFix: "inspect and install per-agent hooks manually", FilesTouched: []string{"provider hook configs"}, Retry: "onibi install-hooks --interactive", Blocks: []string{"agent approvals", "turn notifications"}}
+	}},
+	{matchPrefix("hook "), hookRepairSpec},
+	{matchPrefix("after-upgrade hook "), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "A provider may reject stale or schema-risk hook config on startup.", SafeFix: "reinstall hooks with the current Onibi binary", ManualFix: "remove legacy Onibi metadata fields and stale commands by hand", FilesTouched: []string{"provider hook configs"}, Retry: "onibi install-hooks --interactive", Blocks: []string{"provider startup", "hook loading"}}
+	}},
+	{matchName("totp"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Telegram control has no optional second factor.", SafeFix: "enable TOTP if desired", ManualFix: "leave disabled only if Telegram owner auth is sufficient for your risk model", FilesTouched: []string{"secret store"}, Retry: "onibi setup --enable-totp"}
+	}},
+	{matchName("telegram 2fa ack"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Owner account hardening has not been acknowledged.", SafeFix: "enable Telegram 2-step verification, then rerun setup when rotating owner", ManualFix: "document the accepted risk if you intentionally skip Telegram 2FA", FilesTouched: []string{"onibi.sqlite"}, Retry: "onibi setup --complete"}
+	}},
+	{matchName("telegram reachability"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Onibi cannot reach Telegram, so bot commands, approvals, and notifications fail.", SafeFix: "check network/proxy/token, then retry", ManualFix: "see docs/troubleshooting.md#no-telegram-updates", FilesTouched: []string{}, Retry: "onibi doctor", Blocks: []string{"Telegram commands", "approvals", "notifications"}}
+	}},
+	{matchName("telegram getUpdates"), telegramGetUpdatesRepairSpec},
+	{matchName("telegram webhook"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "A webhook can block polling-based bot updates.", SafeFix: "restart Onibi so startup deletes the webhook", ManualFix: "delete the webhook through Telegram Bot API", FilesTouched: []string{}, Retry: "onibi doctor", Blocks: []string{"Telegram command intake"}}
+	}},
+	{matchName("bot identity"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Stored bot identity does not match the token, so updates may belong to the wrong bot.", SafeFix: "rotate the bot token and pair again", ManualFix: "verify BotFather token and clear stale bot identity only after confirming ownership", FilesTouched: []string{"secret store", "onibi.sqlite"}, Retry: "onibi rotate-token", Blocks: []string{"Telegram commands", "approvals"}}
+	}},
+	{matchName("doctor mode"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "Doctor mode selection is invalid, so checks may use the wrong strictness.", SafeFix: "run with a valid doctor mode", ManualFix: "use auto, preflight, installed, or ci", FilesTouched: []string{}, Retry: "onibi doctor --mode auto"}
+	}},
+	{matchName("encrypted seed"), encryptedRepairSpec},
+	{matchName("mini app url"), miniAppRepairSpec},
+}
+
+func botTokenRepairSpec(_, detail string) repairSpec {
+	spec := repairSpec{Impact: "Telegram daemon startup, approvals, notifications, and Telegram-created sessions cannot work until token lookup succeeds. [Inference] Existing local shells/agents outside Onibi and any already-running PTY/tmux process keep running at OS level.", SafeFix: "unlock/login to the OS keychain, then rerun the retry command", ManualFix: "rotate token only if the stored token is invalid or inaccessible after keychain repair", FilesTouched: []string{}, Retry: "onibi doctor, onibi up, or onibi run", Blocks: []string{"Telegram daemon startup", "approvals", "notifications", "Telegram-created sessions"}}
+	if strings.Contains(strings.ToLower(detail), "timeout") || strings.Contains(strings.ToLower(detail), "deadline") {
+		spec.Code = "bot_token_timeout"
+		return spec
+	}
+	spec.Code = "bot_token_missing"
+	spec.SafeFix = "complete setup or rotate the bot token"
+	spec.ManualFix = "store a valid BotFather token in keychain; use dotenv only as an explicit fallback"
+	spec.FilesTouched = []string{"secret store"}
+	spec.Retry = "onibi setup --complete"
+	return spec
+}
+
+func unixSocketRepairSpec(_, detail string) repairSpec {
+	if strings.Contains(detail, "not listening") {
+		return repairSpec{Impact: "The daemon socket exists but is stale or unreachable.", SafeFix: "remove stale socket with doctor fix", ManualFix: "stop stale daemon processes and remove the socket file", FilesTouched: []string{"onibi.sock"}, Retry: "onibi doctor --fix", Blocks: []string{"daemon RPC", "Telegram controls"}, Fixable: true}
+	}
+	return repairSpec{Impact: "No daemon socket is available, so local CLI/Telegram controls cannot reach the daemon.", SafeFix: "start or install the daemon", ManualFix: "run onibi run for foreground use", FilesTouched: []string{}, Retry: "onibi install-service or onibi run", Blocks: []string{"daemon RPC", "Telegram controls"}}
+}
+
+func hookRepairSpec(_, detail string) repairSpec {
+	spec := repairSpec{Impact: "Agent integration hooks may not fire correctly.", SafeFix: "install hooks interactively", ManualFix: "inspect provider hook config before changing it", FilesTouched: []string{"provider hook configs"}, Retry: "onibi install-hooks --interactive", Blocks: []string{"agent approvals", "turn notifications"}}
 	switch {
-	case name == "state dir":
-		return "onibi doctor --fix", true
-	case name == ".env fallback" && strings.Contains(detail, "perms"):
-		return "onibi doctor --fix", true
-	case name == ".env fallback":
-		return "keep OS keychain preferred; use onibi rotate-token after keychain is available", false
-	case name == "sqlite db":
-		return "onibi setup --complete", false
-	case name == "secrets backend":
-		return "install OS keyring support, then run onibi rotate-token", false
-	case name == "bot token":
-		return "onibi setup --complete", false
-	case name == "owner chat_id":
-		return "onibi setup --complete", false
-	case name == "unix socket" && strings.Contains(detail, "not listening"):
-		return "onibi doctor --fix", true
-	case name == "unix socket":
-		return "onibi install-service or onibi run", false
-	case name == "service":
-		return "onibi install-service", true
-	case name == "tmux":
-		return "brew install tmux", false
-	case name == "terminal launcher":
-		return "set terminal.default=none or install Ghostty/iTerm2", false
-	case name == "hooks":
-		return "onibi install-hooks --interactive", false
-	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "hash missing"):
-		return "onibi doctor --fix", true
-	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "tampered"):
-		return "review hook file, then run onibi install-hooks --interactive", false
-	case strings.HasPrefix(name, "hook ") && strings.Contains(detail, "outdated"):
-		return "onibi doctor --fix", true
-	case strings.HasPrefix(name, "hook "):
-		return "onibi install-hooks --interactive", false
-	case name == "totp":
-		return "onibi setup --enable-totp", false
-	case name == "telegram 2fa ack":
-		return "enable Telegram 2-step verification, then rerun setup when rotating owner", false
-	case name == "telegram reachability":
-		return "see docs/troubleshooting.md#no-telegram-updates", false
-	case name == "telegram getUpdates" && strings.Contains(detail, "another getUpdates poller"):
-		return "stop the other poller or run onibi rotate-token", false
-	case name == "telegram webhook":
-		return "restart onibi; startup deletes webhooks, then run onibi doctor", false
-	case name == "bot identity":
-		return "onibi rotate-token", false
-	case name == "doctor mode":
-		return "onibi doctor --mode auto", false
+	case strings.Contains(detail, "hash missing"):
+		spec.SafeFix = "adopt current hook hash after inspection"
+		spec.Retry = "onibi doctor --fix"
+		spec.Fixable = true
+	case strings.Contains(detail, "tampered"):
+		spec.Impact = "A managed hook changed since install; it may be unsafe or broken."
+		spec.SafeFix = "do not auto-fix tampered hooks"
+		spec.ManualFix = "review the hook file, then uninstall/reinstall if the change is expected"
+		spec.Blocks = []string{"trusted hook execution"}
+	case strings.Contains(detail, "outdated"):
+		spec.SafeFix = "reinstall the hook with the current Onibi binary"
+		spec.Retry = "onibi doctor --fix"
+		spec.Fixable = true
+	case strings.Contains(detail, "schema"):
+		spec.Impact = "A provider may reject the hook config at startup."
+		spec.SafeFix = "reinstall hooks with the current schema-clean adapter"
+		spec.Blocks = []string{"provider startup"}
 	}
-	return "", false
+	return spec
+}
+
+func telegramGetUpdatesRepairSpec(_, detail string) repairSpec {
+	if strings.Contains(detail, "another getUpdates poller") {
+		return repairSpec{Impact: "Telegram update polling is already owned elsewhere, so this daemon cannot receive commands.", SafeFix: "stop the other poller or rotate the bot token", ManualFix: "find the other process/container using getUpdates", FilesTouched: []string{"secret store if rotating token"}, Retry: "onibi rotate-token", Blocks: []string{"Telegram commands", "approvals"}}
+	}
+	return repairSpec{Impact: "Telegram getUpdates is unhealthy, so commands may not arrive.", SafeFix: "retry after checking network and token state", ManualFix: "inspect Telegram API response details", FilesTouched: []string{}, Retry: "onibi doctor", Blocks: []string{"Telegram commands"}}
+}
+
+func encryptedRepairSpec(_, _ string) repairSpec {
+	return repairSpec{Impact: "Encrypted mode cannot decrypt or authorize secure actions without a seed.", SafeFix: "create/pair encrypted mode seed through setup", ManualFix: "turn encrypted mode off only if plaintext Telegram transport is acceptable", FilesTouched: []string{"secret store"}, Retry: "onibi setup --enable-encrypted-mode", Blocks: []string{"encrypted prompts", "encrypted approvals"}}
+}
+
+func miniAppRepairSpec(_, _ string) repairSpec {
+	return repairSpec{Impact: "Encrypted controls may be unavailable from Telegram.", SafeFix: "set a valid HTTPS Mini App URL or localhost dev URL", ManualFix: "host docs/miniapp/index.html and update telegram.mini_app_url", FilesTouched: []string{"config.yaml"}, Retry: "onibi config set telegram.mini_app_url <url>", Blocks: []string{"encrypted controls"}}
+}
+
+func matchName(want string) func(string, string) bool {
+	return func(name, _ string) bool { return name == want }
+}
+
+func matchPrefix(prefix string) func(string, string) bool {
+	return func(name, _ string) bool { return strings.HasPrefix(name, prefix) }
+}
+
+func codeFor(name string) string {
+	repl := strings.NewReplacer(" ", "_", ".", "", ":", "_", "-", "_")
+	return repl.Replace(strings.ToLower(name))
 }
 
 func (r *runner) normalizeMode() {

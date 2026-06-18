@@ -129,6 +129,8 @@ func doctorCmd() *cobra.Command {
 	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
 	cmd.Flags().Bool("fix", false, "apply safe local fixes for doctor warnings")
 	cmd.Flags().Bool("after-upgrade", false, "run offline upgrade checks")
+	cmd.Flags().Bool("json", false, "print JSON")
+	cmd.Flags().Bool("explain", false, "print verbose repair plans")
 	return cmd
 }
 

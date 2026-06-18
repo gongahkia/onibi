@@ -162,7 +162,7 @@ Acceptance:
 - `go test -race -count=1 ./internal/adapters/... ./internal/doctor` covers migration from legacy metadata.
 - `onibi doctor --after-upgrade` reports stale/strict-schema risk before the user opens Codex/Gemini/Copilot/Claude.
 
-### 3. Doctor As A Repair Plan
+### 3. Doctor As A Repair Plan [DONE 2026-06-18]
 
 Problem:
 - Doctor checks are useful but too diagnostic-only.
