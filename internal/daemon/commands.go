@@ -15,6 +15,8 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
+	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
@@ -234,6 +236,188 @@ func (d *Daemon) statusText(ctx context.Context, chatID int64) string {
 	}
 	return fmt.Sprintf("Onibi status\nuptime=%s\nencrypted_mode=%s\ndefault_target=%s\ntelegram_poller=%s\nsnooze=%s\nsessions=%d\npending_approvals=%s\nqueued_prompts=%s\n\n%s",
 		time.Since(d.started).Truncate(time.Second), d.encryptedModeLabel(), d.defaultTargetLabel(ctx, chatID), d.telegramPollerStatus(ctx), d.snoozeStatus(ctx), len(d.liveSessions()), pending, queued, d.sessionsText(ctx, chatID))
+}
+
+func (d *Daemon) menuText(ctx context.Context, chatID int64) string {
+	live := d.liveSessions()
+	total, busy, headless, visible := d.menuSessionCounts(ctx, live)
+	return fmt.Sprintf("Onibi\ndaemon: %s\ntarget: %s\nsessions: %d total, %d busy, %d headless, %d visible\napprovals: %s pending\nqueue: %s queued\nsnooze: %s\nsecure: %s\nhooks: %s",
+		d.menuDaemonState(ctx), d.menuTargetLabel(ctx, chatID, live), total, busy, headless, visible, d.pendingApprovalCount(ctx), d.queuedPromptCount(ctx), d.menuSnoozeLabel(ctx), d.secureStatus(), d.hookHealthSummary(ctx))
+}
+
+func (d *Daemon) menuDaemonState(ctx context.Context) string {
+	if d.DB == nil || d.Queue == nil {
+		return "degraded"
+	}
+	if d.telegramPollerStatus(ctx) != "ok" {
+		return "degraded"
+	}
+	return "up"
+}
+
+func (d *Daemon) menuTargetLabel(ctx context.Context, chatID int64, live []*Session) string {
+	id := d.activeDefaultTarget(ctx, chatID)
+	if id == "" && len(live) == 1 {
+		return live[0].Name + " (" + shortID(live[0].ID) + ")"
+	}
+	if id == "" {
+		return "none"
+	}
+	if s, err := d.sessionByID(id); err == nil {
+		return s.Name + " (" + shortID(s.ID) + ")"
+	}
+	return "none"
+}
+
+func (d *Daemon) menuSessionCounts(ctx context.Context, live []*Session) (total, busy, headless, visible int) {
+	for _, s := range live {
+		total++
+		if d.sessionState(s) == "busy" {
+			busy++
+		}
+		if strings.HasPrefix(d.sessionMode(ctx, s), "visible") {
+			visible++
+			continue
+		}
+		headless++
+	}
+	return total, busy, headless, visible
+}
+
+func (d *Daemon) pendingApprovalCount(ctx context.Context) string {
+	if d.DB == nil || d.Queue == nil {
+		return "unknown"
+	}
+	pending, err := d.Queue.Pending(ctx)
+	if err != nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d", len(pending))
+}
+
+func (d *Daemon) queuedPromptCount(ctx context.Context) string {
+	if d.DB == nil {
+		return "unknown"
+	}
+	rows, err := d.DB.PromptList(ctx, "", false, 1000)
+	if err != nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d", len(rows))
+}
+
+func (d *Daemon) menuSnoozeLabel(ctx context.Context) string {
+	status := d.snoozeStatus(ctx)
+	switch {
+	case status == "none":
+		return "off"
+	case status == "unknown":
+		return "unknown"
+	case strings.Contains(status, "global="):
+		return "global"
+	default:
+		return "agent"
+	}
+}
+
+func (d *Daemon) secureStatus() string {
+	seed := "missing"
+	if strings.TrimSpace(d.EnvelopeSeed) != "" {
+		seed = "ok"
+	}
+	mini := "missing"
+	if strings.TrimSpace(d.MiniAppURL) != "" {
+		mini = "ok"
+	}
+	return fmt.Sprintf("%s, seed %s, mini app %s", d.encryptedModeLabel(), seed, mini)
+}
+
+func (d *Daemon) hookHealthSummary(ctx context.Context) string {
+	if d.DB == nil {
+		return "unknown"
+	}
+	rows, err := d.DB.SQL().QueryContext(ctx, `SELECT agent FROM hooks ORDER BY agent`)
+	if err != nil {
+		return "fail"
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	total, warns, fails := 0, 0, 0
+	for rows.Next() {
+		var agent string
+		if err := rows.Scan(&agent); err != nil {
+			return "fail"
+		}
+		if seen[agent] {
+			continue
+		}
+		seen[agent] = true
+		total++
+		info, ok := d.hookInfo(ctx, agent)
+		if !ok {
+			warns++
+			continue
+		}
+		switch hookHealthLevel(info) {
+		case "fail":
+			fails++
+		case "warn":
+			warns++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "fail"
+	}
+	switch {
+	case total == 0:
+		return "warn"
+	case fails > 0:
+		return fmt.Sprintf("fail (%d)", fails)
+	case warns > 0:
+		return fmt.Sprintf("warn (%d)", warns)
+	default:
+		return "ok"
+	}
+}
+
+func (d *Daemon) hookInfo(ctx context.Context, agent string) (common.Info, bool) {
+	if strings.HasPrefix(agent, "shell:") {
+		return adapters.ShellStatus(ctx, d.DB, strings.TrimPrefix(agent, "shell:")), true
+	}
+	if a, ok := adapters.Get(agent); ok {
+		return a.Status(ctx, d.DB), true
+	}
+	return common.Info{}, false
+}
+
+func hookHealthLevel(info common.Info) string {
+	switch {
+	case !info.Installed || !info.Managed || !info.HashRecorded || info.Tampered:
+		return "fail"
+	case info.Outdated || info.Adoptable:
+		return "warn"
+	default:
+		return "ok"
+	}
+}
+
+func (d *Daemon) menuTargets(ctx context.Context, chatID int64, live []*Session) []telegram.SessionTarget {
+	defaultID := d.activeDefaultTarget(ctx, chatID)
+	actionID := defaultID
+	if actionID == "" && len(live) == 1 {
+		actionID = live[0].ID
+	}
+	targets := make([]telegram.SessionTarget, 0, len(live))
+	for _, s := range live {
+		mode := d.sessionMode(ctx, s)
+		targets = append(targets, telegram.SessionTarget{
+			ID:       s.ID,
+			Label:    s.Name + " " + s.Agent + " " + shortID(s.ID),
+			Selected: s.ID == actionID,
+			Visible:  strings.HasPrefix(mode, "visible"),
+		})
+	}
+	return targets
 }
 
 func (d *Daemon) pingText(ctx context.Context, ingressLag time.Duration) string {

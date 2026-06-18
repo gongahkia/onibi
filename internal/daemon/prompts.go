@@ -322,6 +322,26 @@ func (d *Daemon) handlePendingPromptEdit(ctx context.Context, api telegram.API, 
 	return true
 }
 
+func (d *Daemon) handlePendingMenuSend(ctx context.Context, api telegram.API, m *models.Message) bool {
+	id, ok := d.takePending(ctx, pendingKindMenuSend, m.From.ID)
+	if !ok {
+		return false
+	}
+	if d.encryptedModeEnabled() {
+		d.sendSecureRequired(ctx, api, m.Chat.ID)
+		return true
+	}
+	text := strings.TrimSpace(m.Text)
+	if strings.EqualFold(text, "cancel") {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Send cancelled."})
+		return true
+	}
+	if err := d.sendImmediateText(ctx, api, m.Chat.ID, id, m.Text); err != nil {
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: m.Chat.ID, Text: "Send failed: " + err.Error()})
+	}
+	return true
+}
+
 func promptListText(rows []store.PromptEntry) string {
 	var b strings.Builder
 	b.WriteString("Queued prompts:\n")

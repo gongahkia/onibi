@@ -97,23 +97,11 @@ func (d *Daemon) handleRenameCommand(ctx context.Context, api telegram.API, chat
 }
 
 func (d *Daemon) handleMenuCommand(ctx context.Context, api telegram.API, chatID int64) {
-	if d.encryptedModeEnabled() {
-		d.sendSecureRequired(ctx, api, chatID)
-		return
-	}
 	live := d.liveSessions()
-	if len(live) == 0 {
-		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: chatID, Text: "No active sessions. Start one:", ReplyMarkup: telegram.OnboardingKeyboard()})
-		return
-	}
-	targets := make([]telegram.SessionTarget, 0, len(live))
-	for _, s := range live {
-		targets = append(targets, telegram.SessionTarget{ID: s.ID, Label: s.Name + " " + s.Agent + " " + s.ID})
-	}
 	sendMessage(ctx, api, &tgbot.SendMessageParams{
 		ChatID:      chatID,
-		Text:        "Session menu",
-		ReplyMarkup: telegram.SessionMenuKeyboard(targets),
+		Text:        d.menuText(ctx, chatID),
+		ReplyMarkup: telegram.SessionMenuKeyboard(d.menuTargets(ctx, chatID, live)),
 	})
 }
 
@@ -208,5 +196,23 @@ func (d *Daemon) handleSessionActionCallback(ctx context.Context, api telegram.A
 		answerCallback(ctx, api, q.ID, "Killed")
 		d.handleKillCommand(ctx, api, q.From.ID, id)
 	}
+	return nil
+}
+
+func (d *Daemon) handleMenuSendCallback(ctx context.Context, api telegram.API, q *models.CallbackQuery, id string) error {
+	if d.encryptedModeEnabled() {
+		answerCallback(ctx, api, q.ID, "Use secure controls")
+		d.sendSecureRequired(ctx, api, q.From.ID)
+		return nil
+	}
+	s, err := d.sessionByID(id)
+	if err != nil {
+		answerCallback(ctx, api, q.ID, "Session unavailable")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Session unavailable. Use /sessions."})
+		return nil
+	}
+	d.setPending(ctx, pendingKindMenuSend, q.From.ID, s.ID)
+	answerCallback(ctx, api, q.ID, "Send text")
+	sendAwaitingMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Reply with text to send to " + s.Name + " (" + s.ID + "). Reply 'cancel' to abort."})
 	return nil
 }

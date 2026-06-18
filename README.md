@@ -135,7 +135,7 @@ Telegram:
 - `/status` - show daemon status
 - `/ping` - check daemon connectivity
 - `/sessions` - list active sessions
-- `/menu` - show session actions
+- `/menu` - show dashboard
 - `/target <id|name>` - set default session
 - `/new [--headless|--visible] (--project <alias>|--cwd <path>) <agent|shell> [args...]` - start a headless or visible session
 - `/project list|add|forget` - manage project aliases

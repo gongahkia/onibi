@@ -274,6 +274,26 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 		answerCallback(ctx, api, q.ID, "Opening secure controls")
 		d.sendSecureRequired(ctx, api, q.From.ID)
 		return nil
+	case "menu_projects":
+		answerCallback(ctx, api, q.ID, "Sending projects")
+		d.handleProjectCommand(ctx, api, q.From.ID, "list")
+		return nil
+	case "menu_doctor":
+		answerCallback(ctx, api, q.ID, "Doctor")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Doctor\nlocal: onibi doctor --explain\nupgrade: onibi doctor --after-upgrade"})
+		return nil
+	case "menu_hooks":
+		answerCallback(ctx, api, q.ID, "Hooks")
+		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Hooks: " + d.hookHealthSummary(ctx) + "\nlocal: onibi hooks show --all\nfix: onibi install-hooks --interactive"})
+		return nil
+	case "menu_snooze":
+		answerCallback(ctx, api, q.ID, "Snoozed")
+		d.handleSnoozeCommand(ctx, api, q.From.ID, "")
+		return nil
+	case "menu_unsnooze":
+		answerCallback(ctx, api, q.ID, "Unsnoozed")
+		d.handleUnsnoozeCommand(ctx, api, q.From.ID, "")
+		return nil
 	case "menu_new_headless":
 		answerCallback(ctx, api, q.ID, "Headless session")
 		sendMessage(ctx, api, &tgbot.SendMessageParams{ChatID: q.From.ID, Text: "Start headless:\n/project list\n/new --headless --project <alias> shell\n/new --headless --project <alias> codex"})
@@ -285,6 +305,9 @@ func (d *Daemon) onCallback(ctx context.Context, api telegram.API, q *models.Cal
 	}
 	if verb == "target" {
 		return d.handleTargetCallback(ctx, api, q, id)
+	}
+	if verb == "menu_send" {
+		return d.handleMenuSendCallback(ctx, api, q, id)
 	}
 	switch verb {
 	case "prompt_send", "prompt_edit", "prompt_cancel", "prompt_up", "prompt_down":
@@ -364,6 +387,9 @@ func (d *Daemon) onReply(ctx context.Context, api telegram.API, m *models.Messag
 	approvalID, ok := d.takePending(ctx, pendingKindApprovalEdit, m.From.ID)
 	if !ok {
 		if d.handlePendingPromptEdit(ctx, api, m) {
+			return nil
+		}
+		if d.handlePendingMenuSend(ctx, api, m) {
 			return nil
 		}
 		if d.encryptedModeEnabled() {
@@ -498,6 +524,9 @@ func splitEditTOTP(txt string) (string, string, bool) {
 func (d *Daemon) onText(ctx context.Context, api telegram.API, m *models.Message) error {
 	if m.WebAppData != nil {
 		return d.onWebAppData(ctx, api, m)
+	}
+	if d.handlePendingMenuSend(ctx, api, m) {
+		return nil
 	}
 	text := strings.TrimRight(m.Text, "\r\n")
 	trimmed := strings.TrimSpace(text)

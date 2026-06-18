@@ -234,7 +234,7 @@ Files:
 - `internal/secrets/*`
 - `docs/troubleshooting.md`
 
-### 4. Telegram Home Dashboard
+### 4. Telegram Home Dashboard [DONE 2026-06-18]
 
 Problem:
 - `/menu` exists, but behaves like a command hub, not a state dashboard.

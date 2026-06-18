@@ -13,6 +13,7 @@ const (
 	pendingKindPromptEdit   = "prompt_edit"
 	pendingKindInject       = "inject"
 	pendingKindSend         = "send"
+	pendingKindMenuSend     = "menu_send"
 )
 
 func pendingKey(kind string, chatID int64) string {

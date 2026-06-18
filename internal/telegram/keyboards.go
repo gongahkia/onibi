@@ -35,11 +35,19 @@ const (
 	CBMenuSecure      = "msecure"
 	CBMenuNewHeadless = "mnewh"
 	CBMenuNewVisible  = "mnewv"
+	CBMenuProjects    = "mproj"
+	CBMenuDoctor      = "mdoc"
+	CBMenuHooks       = "mhooks"
+	CBMenuSend        = "msend:"
+	CBMenuSnooze      = "msnooze"
+	CBMenuUnsnooze    = "munsnooze"
 )
 
 type SessionTarget struct {
-	ID    string
-	Label string
+	ID       string
+	Label    string
+	Selected bool
+	Visible  bool
 }
 
 // ApprovalKeyboard returns the inline keyboard rendered alongside an
@@ -149,33 +157,50 @@ func PromptKeyboard(id string) *models.InlineKeyboardMarkup {
 }
 
 func SessionMenuKeyboard(targets []SessionTarget) *models.InlineKeyboardMarkup {
-	rows := make([][]models.InlineKeyboardButton, 0, len(targets)*3+1)
+	rows := make([][]models.InlineKeyboardButton, 0, len(targets)*2+5)
 	rows = append(rows, []models.InlineKeyboardButton{
 		{Text: "Status", CallbackData: CBMenuStatus},
 		{Text: "Sessions", CallbackData: CBMenuSessions},
 		{Text: "Queue", CallbackData: CBMenuQueue},
 		{Text: "Secure", CallbackData: CBMenuSecure},
 	})
+	rows = append(rows, []models.InlineKeyboardButton{
+		{Text: "New Visible", CallbackData: CBMenuNewVisible},
+		{Text: "New Headless", CallbackData: CBMenuNewHeadless},
+		{Text: "Projects", CallbackData: CBMenuProjects},
+	})
+	rows = append(rows, []models.InlineKeyboardButton{
+		{Text: "Snooze", CallbackData: CBMenuSnooze},
+		{Text: "Unsnooze", CallbackData: CBMenuUnsnooze},
+	})
 	for _, t := range targets {
 		label := t.Label
 		if label == "" {
 			label = t.ID
 		}
+		if t.Selected {
+			label = "* " + label
+		}
 		rows = append(rows, []models.InlineKeyboardButton{{Text: trimButton(label), CallbackData: CBTarget + t.ID}})
-		rows = append(rows, []models.InlineKeyboardButton{
-			{Text: "Peek", CallbackData: CBPeek + t.ID},
-			{Text: "Text", CallbackData: CBText + t.ID},
-			{Text: "Render", CallbackData: CBRender + t.ID},
-		})
-		rows = append(rows, []models.InlineKeyboardButton{
-			{Text: "Show", CallbackData: CBShow + t.ID},
-			{Text: "Hide", CallbackData: CBHide + t.ID},
-		})
-		rows = append(rows, []models.InlineKeyboardButton{
-			{Text: "Interrupt", CallbackData: CBInterrupt + t.ID},
-			{Text: "Kill", CallbackData: CBKill + t.ID},
-		})
+		if t.Selected {
+			showHideText := "Show"
+			showHideData := CBShow + t.ID
+			if t.Visible {
+				showHideText = "Hide"
+				showHideData = CBHide + t.ID
+			}
+			rows = append(rows, []models.InlineKeyboardButton{
+				{Text: "Peek", CallbackData: CBPeek + t.ID},
+				{Text: "Send", CallbackData: CBMenuSend + t.ID},
+				{Text: "Interrupt", CallbackData: CBInterrupt + t.ID},
+				{Text: showHideText, CallbackData: showHideData},
+			})
+		}
 	}
+	rows = append(rows, []models.InlineKeyboardButton{
+		{Text: "Doctor", CallbackData: CBMenuDoctor},
+		{Text: "Hooks", CallbackData: CBMenuHooks},
+	})
 	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
@@ -206,6 +231,16 @@ func ParseCallback(data string) (verb, id string) {
 		return "menu_new_headless", ""
 	case data == CBMenuNewVisible:
 		return "menu_new_visible", ""
+	case data == CBMenuProjects:
+		return "menu_projects", ""
+	case data == CBMenuDoctor:
+		return "menu_doctor", ""
+	case data == CBMenuHooks:
+		return "menu_hooks", ""
+	case data == CBMenuSnooze:
+		return "menu_snooze", ""
+	case data == CBMenuUnsnooze:
+		return "menu_unsnooze", ""
 	case strings.HasPrefix(data, CBApprove):
 		return "approve", strings.TrimPrefix(data, CBApprove)
 	case strings.HasPrefix(data, CBConfirm):
@@ -226,6 +261,8 @@ func ParseCallback(data string) (verb, id string) {
 		return "prompt_up", strings.TrimPrefix(data, CBPromptUp)
 	case strings.HasPrefix(data, CBPromptDown):
 		return "prompt_down", strings.TrimPrefix(data, CBPromptDown)
+	case strings.HasPrefix(data, CBMenuSend):
+		return "menu_send", strings.TrimPrefix(data, CBMenuSend)
 	case strings.HasPrefix(data, CBPeek):
 		return "peek", strings.TrimPrefix(data, CBPeek)
 	case strings.HasPrefix(data, CBText):

@@ -38,6 +38,12 @@ func TestParseCallback(t *testing.T) {
 		{"pcancel:p1", "prompt_cancel", "p1"},
 		{"pup:p1", "prompt_up", "p1"},
 		{"pdown:p1", "prompt_down", "p1"},
+		{"mproj", "menu_projects", ""},
+		{"mdoc", "menu_doctor", ""},
+		{"mhooks", "menu_hooks", ""},
+		{"msend:s1", "menu_send", "s1"},
+		{"msnooze", "menu_snooze", ""},
+		{"munsnooze", "menu_unsnooze", ""},
 		{"peek:s1", "peek", "s1"},
 		{"render:s1", "render", "s1"},
 		{"shot:s1", "render", "s1"},
@@ -50,6 +56,19 @@ func TestParseCallback(t *testing.T) {
 		v, id := ParseCallback(c.in)
 		if v != c.verb || id != c.id {
 			t.Errorf("ParseCallback(%q) = (%q, %q), want (%q, %q)", c.in, v, id, c.verb, c.id)
+		}
+	}
+}
+
+func TestSessionMenuCallbackDataLimit(t *testing.T) {
+	kb := SessionMenuKeyboard([]SessionTarget{
+		{ID: "0123456789abcdef", Label: "codex 012345", Selected: true},
+	})
+	for _, row := range kb.InlineKeyboard {
+		for _, b := range row {
+			if len(b.CallbackData) > 64 {
+				t.Fatalf("%s callback_data over 64 bytes: %d", b.Text, len(b.CallbackData))
+			}
 		}
 	}
 }

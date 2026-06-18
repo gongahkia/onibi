@@ -192,13 +192,64 @@ func TestStatusClearsStaleDefaultTarget(t *testing.T) {
 	}
 }
 
+func TestMenuDashboardShowsState(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	d.EncryptedMode = "ask"
+	d.EnvelopeSeed = "seed"
+	d.MiniAppURL = "https://example.com/onibi/"
+	s1 := NewSession("aaa111", "one", "claude", nil, 1024)
+	s2 := NewSession("bbb222", "two", "codex", nil, 1024)
+	if err := d.Registry.Add(s1); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Registry.Add(s2); err != nil {
+		t.Fatal(err)
+	}
+	d.setDefaultTarget(ctx, 100, s2.ID)
+	d.threadMu.Lock()
+	d.busySessions[s1.ID] = true
+	d.threadMu.Unlock()
+	if _, _, err := d.Queue.Request(ctx, s2.ID, "codex", "Bash", `{"command":"true"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.PromptEnqueue(ctx, s2.ID, 100, "queued prompt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DB.KVSetString(ctx, snoozeKey("global"), "indefinite"); err != nil {
+		t.Fatal(err)
+	}
+	got := d.menuText(ctx, 100)
+	for _, want := range []string{
+		"Onibi",
+		"daemon: up",
+		"target: two (bbb222)",
+		"sessions: 2 total, 1 busy, 2 headless, 0 visible",
+		"approvals: 1 pending",
+		"queue: 1 queued",
+		"snooze: global",
+		"secure: ask, seed ok, mini app ok",
+		"hooks: warn",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("menu missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestMenuNoSessionsShowsNextStep(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)
 	d.handleMenuCommand(context.Background(), mock, 100)
 	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "No active sessions") || sent[0].ReplyMarkup == nil {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "sessions: 0 total") || sent[0].ReplyMarkup == nil {
 		t.Fatalf("sent = %#v", sent)
+	}
+	got := fmt.Sprint(sent[0].ReplyMarkup)
+	for _, want := range []string{"New Visible", "New Headless", "Projects", "Doctor", "Hooks"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("menu missing %q: %s", want, got)
+		}
 	}
 }
 
@@ -217,11 +268,87 @@ func TestMenuShowsGlobalAndSessionButtons(t *testing.T) {
 	if !ok {
 		t.Fatalf("reply markup = %#v", sent[0].ReplyMarkup)
 	}
+	for _, want := range []string{"daemon:", "target: claude (abc123)", "sessions:", "approvals:", "queue:", "snooze:", "secure:", "hooks:"} {
+		if !strings.Contains(sent[0].Text, want) {
+			t.Fatalf("menu text missing %q:\n%s", want, sent[0].Text)
+		}
+	}
 	got := fmt.Sprint(markup.InlineKeyboard)
-	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "Text", "Render"} {
+	for _, want := range []string{"Status", "Sessions", "Queue", "Secure", "New Visible", "New Headless", "Projects", "Peek", "Send", "Interrupt", "Show", "Doctor", "Hooks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("menu missing %q: %s", want, got)
 		}
+	}
+}
+
+func TestMenuWithMultipleSessionsShowsDefault(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	s1 := NewSession("aaa111", "one", "claude", nil, 1024)
+	s2 := NewSession("bbb222", "two", "codex", nil, 1024)
+	_ = d.Registry.Add(s1)
+	_ = d.Registry.Add(s2)
+	d.setDefaultTarget(ctx, 100, s2.ID)
+	mock := telegram.NewMock(nil)
+	d.handleMenuCommand(ctx, mock, 100)
+	sent := mock.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "target: two (bbb222)") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if !strings.Contains(fmt.Sprint(sent[0].ReplyMarkup), "* two codex bbb222") {
+		t.Fatalf("default not marked: %#v", sent[0].ReplyMarkup)
+	}
+}
+
+func TestMenuSendCallbackSendsNextText(t *testing.T) {
+	d := newApprovalDaemon(t)
+	r, s := pipeSession(t, "abc123", "claude")
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{
+		ID:   "cb",
+		From: models.User{ID: 100},
+		Data: "msend:" + s.ID,
+	}, "menu_send", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Reply with text to send") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if err := d.onText(context.Background(), mock, &models.Message{
+		From: &models.User{ID: 100},
+		Chat: models.Chat{ID: 100},
+		Text: "/help",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPipe(t, r); got != "/help\n" {
+		t.Fatalf("sent text = %q", got)
+	}
+}
+
+func TestMenuSendCallbackUsesSecureWhenEncrypted(t *testing.T) {
+	d := newApprovalDaemon(t)
+	enableEncryptedTestDaemon(t, d)
+	s := NewSession("abc123", "claude", "claude", nil, 1024)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{
+		ID:   "cb",
+		From: models.User{ID: 100},
+		Data: "msend:" + s.ID,
+	}, "menu_send", s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Encrypted Onibi controls") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if _, ok := d.peekPending(context.Background(), pendingKindMenuSend, 100); ok {
+		t.Fatal("plaintext send pending in encrypted mode")
 	}
 }
 
@@ -236,6 +363,24 @@ func TestMenuStatusCallbackAnswersAndSendsStatus(t *testing.T) {
 	}
 	if sent := mock.Sent(); len(sent) != 1 || !strings.Contains(sent[0].Text, "Onibi status") {
 		t.Fatalf("sent = %#v", sent)
+	}
+}
+
+func TestMenuSnoozeCallbacksToggleGlobal(t *testing.T) {
+	d := newApprovalDaemon(t)
+	ctx := context.Background()
+	mock := telegram.NewMock(nil)
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb1", From: models.User{ID: 100}}, "menu_snooze", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.menuSnoozeLabel(ctx); got != "global" {
+		t.Fatalf("snooze = %q", got)
+	}
+	if err := d.onCallback(ctx, mock, &models.CallbackQuery{ID: "cb2", From: models.User{ID: 100}}, "menu_unsnooze", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.menuSnoozeLabel(ctx); got != "off" {
+		t.Fatalf("snooze = %q", got)
 	}
 }
 
