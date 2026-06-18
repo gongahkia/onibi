@@ -119,6 +119,7 @@ CLI:
 - `onibi setup --complete`
 - `onibi up`
 - `onibi doctor`
+- `onibi update-check`
 - `onibi adapters`
 - `onibi demo approval`
 - `onibi project add here`

@@ -17,12 +17,14 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/miniappurl"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
+	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
 // Status is a check result class.
@@ -130,6 +132,7 @@ func (r *runner) run() {
 	r.checkSocket()
 	r.checkService()
 	r.checkSessionRuntime()
+	r.checkUpdate()
 	r.checkHooks()
 	if r.opts.AfterUpgrade {
 		r.checkAfterUpgradeHooks()
@@ -238,6 +241,9 @@ var repairRules = []repairRule{
 	{matchName("terminal launcher"), func(_, _ string) repairSpec {
 		return repairSpec{Impact: "Visible session windows may not open automatically.", SafeFix: "set terminal.default=none or install Ghostty/iTerm2", ManualFix: "open tmux attach commands manually", FilesTouched: []string{"config.yaml"}, Retry: "set terminal.default=none or install Ghostty/iTerm2", Blocks: []string{"visible terminal launch"}}
 	}},
+	{matchName("update"), func(_, _ string) repairSpec {
+		return repairSpec{Impact: "The installed Onibi binary is behind an available source or release.", SafeFix: "update from the reported source", ManualFix: "reinstall from the local checkout or upgrade the Homebrew cask", FilesTouched: []string{"onibi binary", "LaunchAgent or systemd unit if service is reinstalled"}, Retry: "onibi update-check", Blocks: []string{}}
+	}},
 	{matchName("hooks"), func(_, _ string) repairSpec {
 		return repairSpec{Impact: "Agent hooks are not installed, so approvals/turn notifications may not work.", SafeFix: "install supported hooks interactively", ManualFix: "inspect and install per-agent hooks manually", FilesTouched: []string{"provider hook configs"}, Retry: "onibi install-hooks --interactive", Blocks: []string{"agent approvals", "turn notifications"}}
 	}},
@@ -335,7 +341,7 @@ func encryptedRepairSpec(_, _ string) repairSpec {
 }
 
 func miniAppRepairSpec(_, _ string) repairSpec {
-	return repairSpec{Impact: "Encrypted controls may be unavailable from Telegram.", SafeFix: "set a valid HTTPS Mini App URL or localhost dev URL", ManualFix: "host docs/miniapp/index.html and update telegram.mini_app_url", FilesTouched: []string{"config.yaml"}, Retry: "onibi config set telegram.mini_app_url <url>", Blocks: []string{"encrypted controls"}}
+	return repairSpec{Impact: "Encrypted controls may be unavailable from Telegram.", SafeFix: "set a valid HTTPS Mini App URL or localhost dev URL", ManualFix: "host docs/miniapp/index.html and update telegram.mini_app_url", FilesTouched: []string{"config.yaml"}, Retry: "onibi config --set telegram.mini_app_url <url>", Blocks: []string{"encrypted controls"}}
 }
 
 func secureButtonRepairSpec(_, detail string) repairSpec {
@@ -663,6 +669,35 @@ func (r *runner) checkSessionRuntime() {
 		} else {
 			r.add("terminal launcher", Warn, "auto fallback will print tmux attach command")
 		}
+	}
+}
+
+var updateCheckRun = updatecheck.Check
+
+func (r *runner) checkUpdate() {
+	if buildinfo.Version == "v2-dev" && buildinfo.Commit == "unknown" {
+		r.add("update", Pass, "skipped; build metadata unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
+	defer cancel()
+	res := updateCheckRun(ctx, updatecheck.Options{
+		CurrentVersion: buildinfo.Version,
+		CurrentCommit:  buildinfo.Commit,
+		CheckGitHub:    !r.opts.Offline,
+		Timeout:        2 * time.Second,
+	})
+	switch res.Status {
+	case updatecheck.StatusOutdated:
+		detail := res.Detail
+		if res.Command != "" {
+			detail += "; next: " + res.Command
+		}
+		r.add("update", Warn, detail)
+	case updatecheck.StatusCurrent:
+		r.add("update", Pass, res.Detail)
+	default:
+		r.add("update", Pass, res.Detail)
 	}
 }
 

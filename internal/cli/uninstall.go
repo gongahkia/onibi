@@ -129,14 +129,14 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 
 func uninstallHookInspectCommands(allHooks bool, agent, sh string) []string {
 	if allHooks {
-		return []string{"onibi hooks show --all"}
+		return []string{"onibi hooks --show --all"}
 	}
 	var out []string
 	if agent != "" {
-		out = append(out, "onibi hooks show --agent "+agent)
+		out = append(out, "onibi hooks --show --agent "+agent)
 	}
 	if sh != "" {
-		out = append(out, "onibi hooks show --shell "+sh)
+		out = append(out, "onibi hooks --show --shell "+sh)
 	}
 	return out
 }

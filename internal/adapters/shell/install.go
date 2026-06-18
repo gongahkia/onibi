@@ -150,7 +150,7 @@ func Preview(name, notifyBin string, minMS int64) (PreviewInfo, error) {
 		Block:              block,
 		MinMS:              normalizedMinMS(minMS),
 		CompatibilityNotes: compatibilityNotes(name),
-		EditCommand:        "onibi config set shell.min_duration <duration>; onibi install-hooks --shell " + name,
+		EditCommand:        "onibi config --set shell.min_duration <duration>; onibi install-hooks --shell " + name,
 	}, nil
 }
 

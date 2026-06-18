@@ -220,7 +220,7 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 
 func printSetupNextActions(cmd *cobra.Command) {
 	fmt.Fprintln(cmd.OutOrStdout(), "\nNext:")
-	fmt.Fprintln(cmd.OutOrStdout(), "  onibi demo approval")
+	fmt.Fprintln(cmd.OutOrStdout(), "  onibi demo --approval")
 	fmt.Fprintln(cmd.OutOrStdout(), "  /menu")
 	fmt.Fprintln(cmd.OutOrStdout(), "  /project add <alias> <path>")
 	fmt.Fprintln(cmd.OutOrStdout(), "  /new --visible --project <alias> shell")

@@ -18,6 +18,27 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
+func runHooks(cmd *cobra.Command, args []string) error {
+	action, err := selectedActionFlag(cmd, "show", "matrix")
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "show":
+		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
+			return err
+		}
+		return runHooksShow(cmd, args)
+	case "matrix":
+		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
+			return err
+		}
+		return runHooksMatrix(cmd, args)
+	default:
+		return showActionHelp(cmd, args, "show", "matrix")
+	}
+}
+
 // runInstallHooks implements `onibi install-hooks --agent <name>`.
 func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")

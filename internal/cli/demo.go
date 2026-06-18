@@ -10,6 +10,22 @@ import (
 	"github.com/gongahkia/onibi/internal/intake"
 )
 
+func runDemo(cmd *cobra.Command, args []string) error {
+	action, err := selectedActionFlag(cmd, "approval")
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "approval":
+		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
+			return err
+		}
+		return runDemoApproval(cmd, args)
+	default:
+		return showActionHelp(cmd, args, "approval")
+	}
+}
+
 func runDemoApproval(cmd *cobra.Command, _ []string) error {
 	tool, _ := cmd.Flags().GetString("tool")
 	inputJSON, _ := cmd.Flags().GetString("input")

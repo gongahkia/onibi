@@ -107,39 +107,67 @@ func rotateTokenCmd() *cobra.Command {
 	}
 }
 
+func updateCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "update-check",
+		Aliases: []string{"check-update"},
+		Short:   "Check whether Onibi has an available update",
+		RunE:    runUpdateCheck,
+	}
+	cmd.Flags().String("repo", "", "local Onibi repo path")
+	cmd.Flags().Bool("no-github", false, "skip GitHub release check")
+	cmd.Flags().Bool("json", false, "print JSON")
+	return cmd
+}
+
 func demoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "demo",
 		Short: "Run guided local demos",
+		RunE:  runDemo,
 	}
+	cmd.Flags().Bool("approval", false, "send a test approval to Telegram")
+	addDemoApprovalFlags(cmd)
 	approval := &cobra.Command{
+		Hidden: true,
 		Use:   "approval",
 		Short: "Send a test approval to Telegram",
 		RunE:  runDemoApproval,
 	}
-	approval.Flags().String("tool", "Bash", "demo tool name")
-	approval.Flags().String("input", `{"command":"echo onibi demo approval"}`, "demo tool input JSON")
+	addDemoApprovalFlags(approval)
 	cmd.AddCommand(approval)
 	return cmd
+}
+
+func addDemoApprovalFlags(cmd *cobra.Command) {
+	cmd.Flags().String("tool", "Bash", "demo tool name")
+	cmd.Flags().String("input", `{"command":"echo onibi demo approval"}`, "demo tool input JSON")
 }
 
 func projectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
 		Short: "Manage project aliases",
+		RunE:  runProject,
 	}
+	cmd.Flags().Bool("list", false, "list project aliases")
+	cmd.Flags().Bool("add", false, "add a project alias")
+	cmd.Flags().Bool("forget", false, "forget a project alias")
 	list := &cobra.Command{
+		Hidden: true,
 		Use:   "list",
 		Short: "List project aliases",
 		RunE:  runProjectList,
 	}
 	add := &cobra.Command{
+		Hidden: true,
 		Use:   "add here | add <alias> <path>",
 		Short: "Add a project alias",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runProjectAdd,
 	}
 	forget := &cobra.Command{
+		Hidden:  true,
 		Use:     "forget <alias>",
 		Aliases: []string{"remove", "delete", "del"},
 		Short:   "Forget a project alias",
@@ -195,8 +223,16 @@ func hooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hooks",
 		Short: "Inspect installed hooks",
+		RunE:  runHooks,
 	}
+	cmd.Flags().Bool("show", false, "show hook config, records, backups, and drift")
+	cmd.Flags().Bool("matrix", false, "show hook compatibility matrix")
+	cmd.Flags().String("agent", "", "agent name")
+	cmd.Flags().String("shell", "", "shell name")
+	cmd.Flags().Bool("all", false, "show every supported agent and shell hook with --show")
+	cmd.Flags().Bool("json", false, "print JSON")
 	show := &cobra.Command{
+		Hidden: true,
 		Use:   "show",
 		Short: "Show hook config, records, backups, and drift",
 		RunE:  runHooksShow,
@@ -206,6 +242,7 @@ func hooksCmd() *cobra.Command {
 	show.Flags().Bool("all", false, "show every supported agent and shell hook")
 	show.Flags().Bool("json", false, "print JSON")
 	matrix := &cobra.Command{
+		Hidden: true,
 		Use:   "matrix",
 		Short: "Show hook compatibility matrix",
 		RunE:  runHooksMatrix,

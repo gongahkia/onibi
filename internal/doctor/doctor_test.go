@@ -15,12 +15,14 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/auth"
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
+	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
 type okRunner struct{}
@@ -190,6 +192,29 @@ func TestDoctorOfflinePassesRequiredChecks(t *testing.T) {
 	if report.Failed() {
 		t.Fatalf("unexpected fail: %#v", report.Checks)
 	}
+}
+
+func TestDoctorWarnsOnOutdatedUpdateCheck(t *testing.T) {
+	oldRun := updateCheckRun
+	oldVersion, oldCommit := buildinfo.Version, buildinfo.Commit
+	updateCheckRun = func(context.Context, updatecheck.Options) updatecheck.Result {
+		return updatecheck.Result{Status: updatecheck.StatusOutdated, Detail: "local source abc differs from installed def", Command: "make -C repo install && onibi up"}
+	}
+	buildinfo.Version, buildinfo.Commit = "v1.0.0", "def"
+	t.Cleanup(func() {
+		updateCheckRun = oldRun
+		buildinfo.Version, buildinfo.Commit = oldVersion, oldCommit
+	})
+	report := Run(context.Background(), Options{Paths: doctorPaths(t), Offline: true, PreferDotenv: true, Mode: "preflight"})
+	for _, c := range report.Checks {
+		if c.Name == "update" {
+			if c.Status != Warn || !strings.Contains(c.Detail, "next: make -C repo install") {
+				t.Fatalf("update check = %#v", c)
+			}
+			return
+		}
+	}
+	t.Fatal("missing update check")
 }
 
 func TestDoctorFailsMissingOwner(t *testing.T) {

@@ -16,6 +16,32 @@ import (
 
 const cliProjectAliasPrefix = "project_alias:"
 
+func runProject(cmd *cobra.Command, args []string) error {
+	action, err := selectedActionFlag(cmd, "list", "add", "forget")
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "list":
+		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
+			return err
+		}
+		return runProjectList(cmd, args)
+	case "add":
+		if err := cobra.MinimumNArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		return runProjectAdd(cmd, args)
+	case "forget":
+		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		return runProjectForget(cmd, args)
+	default:
+		return showActionHelp(cmd, args, "list", "add", "forget")
+	}
+}
+
 func runProjectList(cmd *cobra.Command, _ []string) error {
 	db, closeDB, err := openProjectDB()
 	if err != nil {
@@ -88,7 +114,7 @@ func parseCLIProjectAdd(args []string) (string, string, error) {
 		return alias, cwd, nil
 	}
 	if len(args) < 2 {
-		return "", "", errors.New("usage: onibi project add here | onibi project add <alias> <path>")
+		return "", "", errors.New("usage: onibi project --add here | onibi project --add <alias> <path>")
 	}
 	alias := cliSanitizeProjectAlias(args[0])
 	if alias == "" {

@@ -40,6 +40,7 @@ Confirm the binaries are available:
 
 ```bash
 onibi version
+onibi update-check
 onibi-notify --help
 ```
 
@@ -59,6 +60,7 @@ After the Homebrew tap is published, the release path is:
 ```bash
 brew install --cask gongahkia/onibi/onibi
 onibi version
+onibi update-check
 ```
 
 ## 3. Create The Telegram Bot
