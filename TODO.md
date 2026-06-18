@@ -820,7 +820,7 @@ Needed:
 
 ## User Flow Map
 
-### Install From Source
+### Install From Source [DONE 2026-06-18]
 
 Flow:
 1. `git clone`

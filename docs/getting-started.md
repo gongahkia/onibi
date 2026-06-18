@@ -43,6 +43,17 @@ onibi version
 onibi-notify --help
 ```
 
+If install or first boot fails, run the repair-plan view before changing files:
+
+```bash
+onibi doctor --explain
+```
+
+Common blockers are missing Go/toolchain binaries, `onibi-notify` not on PATH,
+state directory permissions, unavailable keychain, missing Telegram token,
+unpaired owner, tmux missing, service install failure, or agent hook trust
+still pending.
+
 After the Homebrew tap is published, the release path is:
 
 ```bash
