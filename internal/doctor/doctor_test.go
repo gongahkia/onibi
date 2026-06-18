@@ -593,6 +593,11 @@ func TestDoctorAfterUpgradeCatchesLegacyMetadataAndGeminiTimeout(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
+	codexPath := filepath.Join(hookDir, "codex-hooks.json")
+	writeJSONFile(t, codexPath, map[string]any{
+		"hooks":                   map[string]any{},
+		"onibiIntegrationVersion": "1.0.0",
+	})
 	geminiPath := filepath.Join(hookDir, "gemini-settings.json")
 	legacy := map[string]any{
 		"hooks": map[string]any{
@@ -613,6 +618,9 @@ func TestDoctorAfterUpgradeCatchesLegacyMetadataAndGeminiTimeout(t *testing.T) {
 	}
 	writeJSONFile(t, geminiPath, legacy)
 	report := Run(context.Background(), Options{Paths: paths, Offline: true, PreferDotenv: true, AfterUpgrade: true})
+	if !hasCheck(report, "after-upgrade hook codex", Fail, "legacy Onibi metadata fields") {
+		t.Fatalf("legacy Codex metadata check missing: %+v", report.Checks)
+	}
 	if !hasCheck(report, "after-upgrade hook gemini", Fail, "legacy Onibi metadata fields") {
 		t.Fatalf("legacy metadata check missing: %+v", report.Checks)
 	}
