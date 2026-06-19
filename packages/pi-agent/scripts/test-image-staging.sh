@@ -43,6 +43,7 @@ test -x "$root/usr/local/sbin/kelp-pi-validate-allow-outbound-reload" || fail "a
 test -x "$root/usr/local/sbin/kelp-pi-validate-dns-egress" || fail "DNS egress validator missing"
 test -x "$root/usr/local/sbin/kelp-pi-validate-ap-isolation" || fail "AP isolation validator missing"
 test -x "$root/usr/local/sbin/kelp-pi-validate-field-acceptance" || fail "field acceptance validator missing"
+test -x "$root/usr/local/sbin/kelp-pi-validate-ollama-load" || fail "Ollama load validator missing"
 test -x "$root/opt/kelp-pi/bin/nuclei" || fail "nuclei binary missing"
 grep -q '"binary_sha256":"6b6f19f038f959c2ec90d9f3e3f039256987d1eb78d5c292d7ec9a384513e27f"' "$root/etc/kelp-pi/nuclei-binary.json" || fail "nuclei manifest missing binary hash"
 grep -qx 'key-mgmt=sae' "$root/etc/NetworkManager/system-connections/kelp-pi-ap.nmconnection" || fail "WPA3 profile missing"

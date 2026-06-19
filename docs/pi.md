@@ -526,8 +526,8 @@ Reference renderer:
 - `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
   `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`,
   `kelp-pi-validate-allow-outbound-reload`, `kelp-pi-validate-dns-egress`,
-  `kelp-pi-validate-ap-isolation`, and `kelp-pi-validate-field-acceptance` into
-  `<image-root>/usr/local/sbin`.
+  `kelp-pi-validate-ap-isolation`, `kelp-pi-validate-field-acceptance`, and
+  `kelp-pi-validate-ollama-load` into `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
@@ -572,6 +572,9 @@ Reference renderer:
   acceptance subset for host identity/service hardening, scanner sandboxing, nft
   reload continuity, upstream DNS egress, and AP client isolation, writing one log per
   check plus a summary file.
+- `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
+  to load the configured 3B-class model; `--expect-refuse` requires the guard to refuse
+  before invoking Ollama on an undersized Pi.
 
 Audit & forensics:
 
