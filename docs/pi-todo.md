@@ -13,7 +13,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 - [x] Migrate IDEA and TODO into `kelp/docs/pi.md` and `kelp/docs/pi-todo.md` → success: both files live under `kelp/docs/`; `bloob/` reduced to a stub pointer (full deletion deferred to the operator's git workflow).
 - [x] Update kelp top-level README to mention the Pi target in one paragraph → success: README contains a "Kelp Pi (in design)" section linking to `docs/pi.md` and `docs/pi-todo.md`.
-- [ ] Write a one-page threat model summary as `docs/pi-threat-model.md` → success: file exists; covers physical capture, hostile LAN, malicious corpus, and audit-log tamper attempts.
 
 ## P1 — Rust agent foundation
 
