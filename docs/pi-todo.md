@@ -97,7 +97,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Write `kelp/docs/pi.md` operator quickstart: flash, scope, scan, bundle, verify → success: a new operator following the doc produces a signed bundle from a fixture target in under 30 minutes.
 - [ ] Add a sample vulnerable Docker target and a sample engagement walkthrough that exercises Pi end-to-end → success: walkthrough produces a complete bundle that verifies and demonstrates each P1-P10 capability.
 - [ ] Record a short demo: SSH into Pi, declare scope, run a scan, retrieve a citation, export bundle → success: demo asset (cast or gif) committed under `kelp/docs/assets/`.
-- [ ] Open a tracking issue on the kelp repo to coordinate P1-P11 → success: issue exists with checklist linking to this file.
 
 ## Acceptance gate (block release until all checked)
 
