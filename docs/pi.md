@@ -658,8 +658,11 @@ Reference guard:
 - `kelp-pi-agent ollama check --enable-ollama --model llama3.2:3b` reports whether
   optional local synthesis is allowed on the current host. Raspberry Pi devices below
   the 16GB class are refused before model load; non-Pi developer hosts are allowed for
-  integration testing. The guard is a readiness gate only; model-load validation still
-  requires a Pi with Ollama installed.
+  integration testing.
+- `kelp-pi-agent ollama load-check --enable-ollama --model llama3.2:3b` runs the same
+  guard, then calls `ollama run <model> ""` to force an Ollama model preload. The
+  command is for P8 hardware validation; success still requires a Pi with Ollama
+  installed and the model available locally or pullable under operator control.
 
 **P9** — Eval & determinism: gold Q/A regression set, reproducible chunk-ID test,
 audit bundle replay, scanner output stability harness.

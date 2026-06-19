@@ -1,7 +1,7 @@
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
@@ -2548,11 +2548,12 @@ fn load_current_policy_pack(data_dir: &Path) -> Result<Option<StoredPolicyPack>,
 
 fn ollama_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
-        eprintln!("usage: kelp-pi-agent ollama check [--enable-ollama] [--model MODEL]");
+        eprintln!("usage: kelp-pi-agent ollama <check|load-check> [--enable-ollama] [--model MODEL] [--ollama-bin PATH]");
         return Err(ExitCode::from(64));
     };
     match subcommand.as_str() {
         "check" => ollama_check_command(args[1..].to_vec()),
+        "load-check" => ollama_load_check_command(args[1..].to_vec()),
         other => {
             eprintln!("unknown ollama command: {other}");
             Err(ExitCode::from(64))
@@ -2595,6 +2596,104 @@ fn ollama_check_command(args: Vec<String>) -> Result<(), ExitCode> {
         Ok(())
     } else {
         Err(ExitCode::from(77))
+    }
+}
+
+fn ollama_load_check_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut enable_ollama = false;
+    let mut model = DEFAULT_OLLAMA_MODEL.to_string();
+    let mut ollama_bin = "ollama".to_string();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--enable-ollama" => {
+                enable_ollama = true;
+                index += 1;
+            }
+            "--model" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--model requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                model = value.to_string();
+                index += 2;
+            }
+            "--ollama-bin" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--ollama-bin requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                ollama_bin = value.to_string();
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let guard = evaluate_ollama_guard(enable_ollama, &model);
+    if !matches!(guard.decision, kelp_pi_agent::OllamaDecision::Allow) {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "guard": guard,
+                "load": {
+                    "status": "skipped",
+                    "reason": guard.reason
+                }
+            }))
+            .expect("serialize ollama load check")
+        );
+        return Err(ExitCode::from(77));
+    }
+
+    let output = match Command::new(&ollama_bin)
+        .args(["run", model.as_str(), ""])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "guard": guard,
+                    "load": {
+                        "status": "failed",
+                        "model": model,
+                        "ollama_bin": ollama_bin,
+                        "error": error.to_string()
+                    }
+                }))
+                .expect("serialize ollama load check")
+            );
+            return Err(ExitCode::from(78));
+        }
+    };
+    let load = serde_json::json!({
+        "status": if output.status.success() { "loaded" } else { "failed" },
+        "model": model,
+        "ollama_bin": ollama_bin,
+        "command": ["run", model.as_str(), ""],
+        "exit_code": output.status.code(),
+        "stdout": String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        "stderr": String::from_utf8_lossy(&output.stderr).trim().to_string()
+    });
+    let ok = output.status.success();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "guard": guard,
+            "load": load
+        }))
+        .expect("serialize ollama load check")
+    );
+    if ok {
+        Ok(())
+    } else {
+        Err(ExitCode::from(78))
     }
 }
 
@@ -4694,6 +4793,7 @@ fn print_usage() {
         "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
     eprintln!("usage: kelp-pi-agent ollama check [--enable-ollama] [--model MODEL]");
+    eprintln!("usage: kelp-pi-agent ollama load-check [--enable-ollama] [--model MODEL] [--ollama-bin PATH]");
     eprintln!(
         "usage: kelp-pi-agent outbox enqueue --kind KIND --payload-json JSON [--msg-id ID] [--data-dir PATH] [--key-dir PATH]"
     );
