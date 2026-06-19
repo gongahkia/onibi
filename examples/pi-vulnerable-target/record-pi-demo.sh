@@ -3,10 +3,12 @@ set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 asset="$repo_root/docs/assets/kelp-pi-fixture-demo.cast"
+run_dir="$repo_root/.kelpclaw/pi-vulnerable-target-field"
 walkthrough="$repo_root/examples/pi-vulnerable-target/pi-field-walkthrough.sh"
+verifier="$repo_root/scripts/verify-pi-launch-evidence.sh"
 
 usage() {
-  printf '%s\n' "usage: $0 [--asset PATH] --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339"
+  printf '%s\n' "usage: $0 [--asset PATH] [--out DIR] --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339"
 }
 
 fail() {
@@ -30,6 +32,14 @@ while [ $# -gt 0 ]; do
       asset="$2"
       shift 2
       ;;
+    --out)
+      [ $# -ge 2 ] || fail "--out requires a value"
+      run_dir="$2"
+      walkthrough_args="${walkthrough_args:+$walkthrough_args
+}--out
+$2"
+      shift 2
+      ;;
     *)
       walkthrough_args="${walkthrough_args:+$walkthrough_args
 }$1"
@@ -45,6 +55,7 @@ done
 need asciinema
 need dirname
 need mkdir
+need node
 
 mkdir -p "$(dirname "$asset")"
 set -- "$walkthrough"
@@ -59,4 +70,5 @@ if [ -n "$walkthrough_args" ]; then
 fi
 
 asciinema rec "$asset" --overwrite --command "$*"
+"$verifier" --demo-asset "$asset" "$run_dir"
 printf '%s\n' "$asset"

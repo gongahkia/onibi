@@ -16,18 +16,20 @@ decisions, answers `/ask` with cited local chunks, and exports signed audit bund
 that reviewers can verify later. It is designed for small teams that need a portable
 evidence appliance, not a covert implant or general internet scanner.
 
-## Demo GIF Script
+## Demo Cast Script
 
 Target length: 20-30 seconds.
 
-1. SSH into the Pi and run `kelp-pi-agent check-data-dir --data-dir /var/lib/kelp-pi`.
-2. Show `kelp-pi-agent policy-check --gate scanner-invocation --dry-run`.
-3. Run `kelp-pi-agent eval gold` to show deterministic cited retrieval passing.
-4. Query `/ask` through `scripts/kelp-pi-ask --json` and show citation chunk IDs.
-5. End on `kelp-pi-agent verify-audit-log --log-file /var/lib/kelp-pi/audit/agent.jsonl`.
+1. Start `examples/pi-vulnerable-target/record-pi-demo.sh` against the freshly
+   flashed Pi and private fixture target.
+2. The recorded walkthrough SSHes into the Pi, declares fixture scope, approves the
+   scanner gate, runs pinned Nuclei through the sandbox, runs field acceptance,
+   assembles/fetches the bundle, and verifies the reviewer bundle.
+3. End only after `scripts/verify-pi-launch-evidence.sh` accepts the cast, fetched
+   bundle, field-acceptance logs, and signed bundle verifier output.
 
-Do not show scanner execution or bundle export in this GIF until those TODOs are
-implemented and verified on real hardware.
+Do not commit a demo cast from an unverified run. The default committed asset path is
+`docs/assets/kelp-pi-fixture-demo.cast`.
 
 ## Honest Non-Goals
 

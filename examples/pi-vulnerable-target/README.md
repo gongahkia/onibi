@@ -62,3 +62,5 @@ $ examples/pi-vulnerable-target/record-pi-demo.sh \
 ```
 
 The default output is `docs/assets/kelp-pi-fixture-demo.cast`.
+The recorder fails unless the captured cast and matching field artifacts pass
+`scripts/verify-pi-launch-evidence.sh`.
