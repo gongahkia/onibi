@@ -26,7 +26,7 @@ Target length: 20-30 seconds.
    scanner gate, runs pinned Nuclei through the sandbox, runs field acceptance,
    assembles/fetches the bundle, and verifies the reviewer bundle.
 3. End only after `scripts/verify-pi-launch-evidence.sh` accepts the cast, fetched
-   bundle, field-acceptance logs, and signed bundle verifier output.
+   bundle, field-acceptance logs, full-run timing, and signed bundle verifier output.
 
 Do not commit a demo cast from an unverified run. The default committed asset path is
 `docs/assets/kelp-pi-fixture-demo.cast`.

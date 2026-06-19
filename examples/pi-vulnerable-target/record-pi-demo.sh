@@ -8,7 +8,7 @@ walkthrough="$repo_root/examples/pi-vulnerable-target/pi-field-walkthrough.sh"
 verifier="$repo_root/scripts/verify-pi-launch-evidence.sh"
 
 usage() {
-  printf '%s\n' "usage: $0 [--asset PATH] [--out DIR] --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--ollama-check load|refuse] [--readonly-root]"
+  printf '%s\n' "usage: $0 [--asset PATH] [--out DIR] --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--max-seconds N] [--ollama-check load|refuse] [--readonly-root]"
 }
 
 fail() {

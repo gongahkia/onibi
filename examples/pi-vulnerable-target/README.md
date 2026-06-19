@@ -44,7 +44,8 @@ $ scripts/verify-pi-launch-evidence.sh .kelpclaw/pi-vulnerable-target-field
 ```
 
 The field walkthrough writes scope, approval, scan, index, ask, field-acceptance,
-fetch, and verification artifacts under `.kelpclaw/pi-vulnerable-target-field/`.
+fetch, verification, and top-level timing artifacts under
+`.kelpclaw/pi-vulnerable-target-field/`.
 Add `--ollama-check load` on a 16GB Pi, `--ollama-check refuse` on an 8GB Pi, and
 `--readonly-root` on images configured with a read-only root volume.
 

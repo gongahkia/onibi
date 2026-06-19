@@ -35,6 +35,14 @@ json_has_citation() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.exit(data.no_answer == null && Array.isArray(data.citations) && data.citations.length > 0 ? 0 : 1);' "$1"
 }
 
+timing_ok() {
+  awk -F= '
+    /^duration_seconds=/ { duration=$2 }
+    /^max_seconds=/ { max=$2 }
+    END { exit !(duration != "" && max != "" && duration <= max) }
+  ' "$1"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --help|-h)
@@ -56,6 +64,7 @@ done
 
 [ -n "$run_dir" ] || fail "requires RUN_DIR"
 [ -d "$run_dir" ] || fail "run dir missing: $run_dir"
+need awk
 need node
 [ -x "$field_verifier" ] || fail "field verifier missing: $field_verifier"
 
@@ -70,6 +79,7 @@ for file in \
   assembly.json \
   fetch.json \
   verification.json \
+  timing.txt \
   field-verification.log
 do
   [ -s "$run_dir/$file" ] || fail "missing or empty $run_dir/$file"
@@ -81,6 +91,7 @@ json_true "$run_dir/index.json" || fail "index.json is not ok"
 json_has_citation "$run_dir/ask.json" || fail "ask.json has no citation"
 json_true "$run_dir/fetch.json" || fail "fetch.json is not ok"
 json_true "$run_dir/verification.json" || fail "verification.json is not ok"
+timing_ok "$run_dir/timing.txt" || fail "field walkthrough timing exceeded max or is incomplete"
 
 [ -d "$run_dir/fetched-bundle" ] || fail "fetched bundle missing"
 [ -s "$run_dir/fetched-bundle/manifest.json" ] || fail "fetched bundle manifest missing"

@@ -27,9 +27,10 @@ ollama_model=""
 readonly_root=0
 readonly_data_dir="$data_dir"
 readonly_data_dir_explicit=0
+max_seconds=1800
 
 usage() {
-  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR] [--ollama-check load|refuse] [--readonly-root]"
+  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR] [--max-seconds N] [--ollama-check load|refuse] [--readonly-root]"
 }
 
 fail() {
@@ -169,6 +170,11 @@ while [ $# -gt 0 ]; do
       readonly_data_dir_explicit=1
       shift 2
       ;;
+    --max-seconds)
+      [ $# -ge 2 ] || fail "--max-seconds requires a value"
+      max_seconds="$2"
+      shift 2
+      ;;
     *)
       printf 'unknown argument: %s\n' "$1" >&2
       usage >&2
@@ -188,14 +194,22 @@ done
 [ -n "$until" ] || fail "requires --until"
 [ -z "$ollama_model" ] || [ -n "$ollama_check" ] || fail "--ollama-model requires --ollama-check"
 [ "$readonly_root" = "1" ] || [ "$readonly_data_dir_explicit" = "0" ] || fail "--readonly-data-dir requires --readonly-root"
+case "$max_seconds" in
+  ''|*[!0-9]*)
+    fail "--max-seconds must be a non-negative integer"
+    ;;
+esac
 
 need node
 need pnpm
 need "$ssh_bin"
 need "$scp_bin"
+need date
 
 rm -rf "$out"
 mkdir -p "$out"
+start_epoch="$(date -u '+%s')"
+started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 agent_wrapper="$out/kelp-pi-agent-ssh"
 cat >"$agent_wrapper" <<EOF
 #!/usr/bin/env sh
@@ -272,7 +286,7 @@ set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
   --ssh-user "$client_ssh_user" \
   --upstream-interface "$upstream_interface" \
   --dns-probe-command "$dns_probe_command" \
-  --max-seconds 1800
+  --max-seconds "$max_seconds"
 [ -z "$wan_forbidden_ip" ] || set -- "$@" --forbidden-ip "$wan_forbidden_ip"
 [ -z "$ollama_check" ] || set -- "$@" "--ollama-expect-$ollama_check"
 [ -z "$ollama_model" ] || set -- "$@" --ollama-model "$ollama_model"
@@ -297,5 +311,15 @@ node "$cli" verify-audit-bundle "$bundle_dir" --profile reviewer >"$out/verifica
 mkdir -p "$field_dir"
 "$scp_bin" -r "$pi_user@$pi_host:$remote_field_dir/." "$field_dir/" >/dev/null
 "$repo_root/scripts/verify-pi-field-acceptance.sh" "$field_dir" >"$out/field-verification.log"
+
+end_epoch="$(date -u '+%s')"
+duration_seconds=$((end_epoch - start_epoch))
+{
+  printf 'started_at=%s\n' "$started_at"
+  printf 'finished_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'duration_seconds=%s\n' "$duration_seconds"
+  printf 'max_seconds=%s\n' "$max_seconds"
+} >"$out/timing.txt"
+[ "$duration_seconds" -le "$max_seconds" ] || fail "field walkthrough exceeded ${max_seconds}s"
 
 printf '%s\n' "$out"
