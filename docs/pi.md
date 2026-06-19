@@ -516,6 +516,9 @@ Reference renderer:
 - `pnpm --filter @kelpclaw/pi-agent stage:image-root -- <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   stages the agent binary, systemd files, network hardening files, boot hardening,
   field validator, and pinned Nuclei binary into the mounted image root.
+- `pnpm --filter @kelpclaw/pi-agent test:image-staging` cross-builds the agent,
+  stages a temporary image root, and verifies the expected files, hashes, and rendered
+  hardening artifacts without needing a Pi.
 - `pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>` stages the
   cross-built `kelp-pi-agent` binary into `<image-root>/usr/local/bin`.
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages

@@ -13,6 +13,7 @@
     "install:systemd": "scripts/install-systemd.sh",
     "stage:image-root": "scripts/stage-image-root.sh",
     "test": "cargo test",
+    "test:image-staging": "scripts/test-image-staging.sh",
     "test:quota-fill": "scripts/test-storage-quota-fill.sh",
     "typecheck": "cargo check",
     "validate:pi-node": "scripts/validate-pi-node.sh"
