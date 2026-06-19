@@ -16,6 +16,7 @@ pub const APPSEC_AGENT_BASELINE_VERSION: &str = "1.0.0";
 pub const CURRENT_POLICY_FILE: &str = "current-policy.json";
 pub const KELP_PI_REVIEW_FILE_MUTATION_RULE_ID: &str = "kelp-pi-review-file-mutation";
 pub const KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID: &str = "kelp-pi-deny-outbound-network";
+pub const KELP_PI_REVIEW_SYNTHESIS_RULE_ID: &str = "kelp-pi-review-synthesis";
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -48,6 +49,7 @@ pub enum PiPolicyGate {
     ScannerInvocation,
     FileOperation,
     OutboundNetworkRequest,
+    SynthesisRequest,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,6 +207,7 @@ impl PiPolicyGate {
             PiPolicyGate::ScannerInvocation => "scanner-invocation",
             PiPolicyGate::FileOperation => "file-operation",
             PiPolicyGate::OutboundNetworkRequest => "outbound-network-request",
+            PiPolicyGate::SynthesisRequest => "synthesis-request",
         }
     }
 }
@@ -240,6 +243,7 @@ impl FromStr for PiPolicyGate {
             "scanner-invocation" => Ok(PiPolicyGate::ScannerInvocation),
             "file-operation" => Ok(PiPolicyGate::FileOperation),
             "outbound-network-request" => Ok(PiPolicyGate::OutboundNetworkRequest),
+            "synthesis-request" => Ok(PiPolicyGate::SynthesisRequest),
             other => Err(PiPolicyVocabularyError::UnknownGate(other.to_string())),
         }
     }
@@ -414,6 +418,15 @@ fn enforce_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision
             matched_rule_ids: vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()],
             reason: "outbound destination is not allowlisted".to_string(),
             approver_role: None,
+        },
+        PiPolicyGate::SynthesisRequest => PiLocalPolicyDecision {
+            gate: request.gate,
+            mode: PiPolicyMode::Enforce,
+            action: PiPolicyAction::RequireApproval,
+            would_action: None,
+            matched_rule_ids: vec![KELP_PI_REVIEW_SYNTHESIS_RULE_ID.to_string()],
+            reason: "LLM synthesis requires explicit policy approval".to_string(),
+            approver_role: Some("appsec-reviewer".to_string()),
         },
         _ => PiLocalPolicyDecision {
             gate: request.gate,
@@ -788,6 +801,20 @@ mod tests {
         assert_eq!(
             outbound.matched_rule_ids,
             vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()]
+        );
+
+        let synthesis = evaluate_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::SynthesisRequest,
+            command: Some("ask --synthesize".to_string()),
+            path: None,
+            host: None,
+            mutating: false,
+            allowed: true,
+        });
+        assert_eq!(synthesis.action, PiPolicyAction::RequireApproval);
+        assert_eq!(
+            synthesis.matched_rule_ids,
+            vec![KELP_PI_REVIEW_SYNTHESIS_RULE_ID.to_string()]
         );
     }
 

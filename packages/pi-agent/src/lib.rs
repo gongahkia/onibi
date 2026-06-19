@@ -64,7 +64,7 @@ pub use policy::{
     PolicyPushReceipt, PolicyPushTrustEntry, PolicyTrustState, StoredPolicyPack,
     TrustedControlPlaneKey, APPSEC_AGENT_BASELINE_PACK_ID, APPSEC_AGENT_BASELINE_RULES,
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,
-    KELP_PI_REVIEW_FILE_MUTATION_RULE_ID,
+    KELP_PI_REVIEW_FILE_MUTATION_RULE_ID, KELP_PI_REVIEW_SYNTHESIS_RULE_ID,
 };
 pub use selfcheck::{
     run_selfcheck, selfcheck_report_payload, validate_selfcheck_target, SelfcheckCheck,

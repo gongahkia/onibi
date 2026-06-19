@@ -13,7 +13,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::{answer_query, apply_index_schema, AskResponse};
+use crate::{
+    answer_query, apply_index_schema, evaluate_and_audit_local_policy, AskResponse,
+    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
+};
 
 pub const DEFAULT_ASK_BIND: &str = "127.0.0.1:8765";
 pub const DEFAULT_ASK_MAX_CONCURRENT: usize = 8;
@@ -35,6 +38,7 @@ struct AskHttpRequest {
     q: String,
     top_k: Option<usize>,
     no_answer_threshold: Option<f64>,
+    synthesize: Option<bool>,
 }
 
 impl AskHttpState {
@@ -150,6 +154,22 @@ async fn ask_handler(
     let Some(_permit) = state.try_acquire_concurrency() else {
         return json_error(StatusCode::TOO_MANY_REQUESTS, "concurrency limit exceeded");
     };
+    if request.synthesize.unwrap_or(false) {
+        let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::SynthesisRequest,
+            command: Some("/ask synthesize".to_string()),
+            path: None,
+            host: None,
+            mutating: false,
+            allowed: true,
+        });
+        if decision.action != PiPolicyAction::Allow {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                format!("synthesis refused by policy: {}", decision.reason),
+            );
+        }
+    }
 
     let db_path = state.db_path.clone();
     let query = query.to_string();
@@ -174,6 +194,7 @@ fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn default_ask_bind_is_loopback() {
@@ -189,6 +210,14 @@ mod tests {
             crate::DEFAULT_NO_ANSWER_THRESHOLD,
         );
         assert_eq!(state.top_k, 1);
+    }
+
+    #[test]
+    fn default_ask_request_leaves_synthesis_off() {
+        let request: AskHttpRequest =
+            serde_json::from_value(json!({ "q": "admin login" })).expect("parse request");
+
+        assert_eq!(request.synthesize, None);
     }
 
     #[test]

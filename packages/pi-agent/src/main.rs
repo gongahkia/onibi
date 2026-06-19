@@ -334,7 +334,7 @@ fn approval_request_command(args: Vec<String>) -> Result<(), ExitCode> {
                     return Err(ExitCode::from(64));
                 };
                 let Ok(parsed) = value.parse::<PiPolicyGate>() else {
-                    eprintln!("--gate must be scanner-invocation, file-operation, or outbound-network-request");
+                    eprintln!("--gate must be scanner-invocation, file-operation, outbound-network-request, or synthesis-request");
                     return Err(ExitCode::from(64));
                 };
                 gate = Some(parsed);
@@ -485,6 +485,7 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut db_path = None;
     let mut top_k = 5_usize;
     let mut no_answer_threshold = DEFAULT_NO_ANSWER_THRESHOLD;
+    let mut synthesize = false;
     let mut query_parts = Vec::new();
     let mut index = 0;
 
@@ -526,6 +527,10 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
                 no_answer_threshold = parse_non_negative_f64("--no-answer-threshold", value)?;
                 index += 2;
             }
+            "--synthesize" => {
+                synthesize = true;
+                index += 1;
+            }
             other => {
                 query_parts.push(other.to_string());
                 index += 1;
@@ -540,6 +545,21 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
 
     let query = query_parts.join(" ");
     let db_path = db_path.unwrap_or_else(|| index_db_path(&data_dir));
+    if synthesize {
+        init_checked_audit(&data_dir)?;
+        let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::SynthesisRequest,
+            command: Some("ask --synthesize".to_string()),
+            path: None,
+            host: None,
+            mutating: false,
+            allowed: true,
+        });
+        if decision.action != PiPolicyAction::Allow {
+            eprintln!("synthesis refused by policy: {}", decision.reason);
+            return Err(ExitCode::from(77));
+        }
+    }
     match Connection::open(&db_path).and_then(|connection| {
         apply_index_schema(&connection)?;
         answer_query(&connection, &query, top_k, no_answer_threshold)
@@ -585,7 +605,7 @@ fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
                     return Err(ExitCode::from(64));
                 };
                 let Ok(parsed) = value.parse::<PiPolicyGate>() else {
-                    eprintln!("--gate must be scanner-invocation, file-operation, or outbound-network-request");
+                    eprintln!("--gate must be scanner-invocation, file-operation, outbound-network-request, or synthesis-request");
                     return Err(ExitCode::from(64));
                 };
                 gate = Some(parsed);
@@ -1217,7 +1237,7 @@ fn decode_hex_nibble(byte: u8) -> Result<u8, String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N] [--no-answer-threshold FLOAT]"
+        "usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N] [--no-answer-threshold FLOAT] [--synthesize]"
     );
     eprintln!(
         "usage: kelp-pi-agent approval-request --gate GATE [--scope-id ID] [--ttl-seconds N] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"

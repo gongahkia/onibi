@@ -70,6 +70,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--no-answer-threshold", type=float, default=None)
+    parser.add_argument("--synthesize", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
@@ -85,6 +86,8 @@ def main(argv: list[str]) -> int:
             print("--no-answer-threshold must be non-negative", file=sys.stderr)
             return 64
         payload["no_answer_threshold"] = args.no_answer_threshold
+    if args.synthesize:
+        payload["synthesize"] = True
 
     url = build_url(args.pi, args.port)
     try:
