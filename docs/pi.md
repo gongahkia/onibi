@@ -288,6 +288,12 @@ Package pin and upgrade flow:
   limit, passes Nuclei `-rate-limit`/`-bulk-size`, passes Nmap
   `--max-rate`/`--max-hostgroup`/`--host-timeout`, and refuses unsupported ZAP rate or
   multi-target concurrency requests.
+- `kelp-pi-agent scan --sandbox` and signed `scan.request.options.sandbox=true` wrap
+  scanner execution in `systemd-run --wait --pipe --collect` with the dedicated
+  `kelp-pi-scanner` user, empty capabilities, `NoNewPrivileges`, private tmp/devices,
+  strict system paths, and a `KELP_PI_NFT_MARK` value for the image-level nftables
+  policy. Hardware validation still has to prove that marked scanner traffic reaches
+  only in-scope targets and cannot reach the control plane or public internet.
 - Active scans persist a JSON run marker under `/var/lib/kelp-pi/runs`.
   `kelp-pi-agent scan --run-id <id>` and signed `scan.request.run_id` write
   `running` before the scanner process starts, then `succeeded` or `failed` after it

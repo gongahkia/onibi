@@ -21,12 +21,14 @@ use kelp_pi_agent::{
     wipe_data_dir, write_network_hardening_files, write_nuclei_findings_document, AskHttpState,
     IdentityKey, NmapVersion, NucleiTemplatesPin, OutboundEndpoint, PiEnvelopeKind,
     PiEnvelopeSender, PiLocalPolicyRequest, PiNetworkHardeningConfig, PiPolicyAction, PiPolicyGate,
-    PiPolicyMode, PiWireEnvelope, PolicyTrustState, ScannerLimits, ScopeError, ScopeTarget,
-    ScopeTargetType, StorageQuotaError, StorageQuotaScope, StoredPolicyPack, ThermalScanDecision,
-    TrustedControlPlaneKey, UnsignedPiWireEnvelope, ZapDecision, CURRENT_POLICY_FILE,
-    DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
-    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
-    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    PiPolicyMode, PiWireEnvelope, PolicyTrustState, ScannerLimits, ScannerSandboxConfig,
+    ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError, StorageQuotaScope,
+    StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey, UnsignedPiWireEnvelope,
+    ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS,
+    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
+    DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK, DEFAULT_SCANNER_SANDBOX_USER,
+    DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -615,6 +617,24 @@ fn scan_request_responses(
     }
     let scanner_bin = scan_option_string(&payload.options, "scanner_bin")
         .unwrap_or_else(|| payload.scanner.clone());
+    let scanner_sandbox = match scan_sandbox_from_options(&payload.options) {
+        Ok(value) => value,
+        Err(error) => {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error),
+                    metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+                },
+            )?);
+            return Ok(responses);
+        }
+    };
     let nmap_version = if payload.scanner == "nmap" {
         match probe_pinned_nmap_version(&scanner_bin) {
             Ok(version) => Some(version),
@@ -746,6 +766,7 @@ fn scan_request_responses(
         &scanner_args,
         &target_values,
         limits,
+        scanner_sandbox.as_ref(),
     ) {
         Ok(outcome) => outcome,
         Err(error) => {
@@ -1080,6 +1101,21 @@ fn scan_option_u64(options: &Map<String, Value>, key: &str) -> Result<Option<u64
 
 fn scan_request_min_free_bytes(options: &Map<String, Value>) -> Result<Option<u64>, String> {
     scan_option_u64(options, "min_free_bytes")
+}
+
+fn scan_sandbox_from_options(
+    options: &Map<String, Value>,
+) -> Result<Option<ScannerSandboxConfig>, String> {
+    if !scan_option_bool(options, "sandbox") {
+        return Ok(None);
+    }
+    Ok(Some(ScannerSandboxConfig {
+        systemd_run_bin: scan_option_string(options, "systemd_run_bin")
+            .unwrap_or_else(|| DEFAULT_SCANNER_SYSTEMD_RUN_BIN.to_string()),
+        user: scan_option_string(options, "scanner_user")
+            .unwrap_or_else(|| DEFAULT_SCANNER_SANDBOX_USER.to_string()),
+        nft_mark: scan_option_u32(options, "nft_mark")?.unwrap_or(DEFAULT_SCANNER_NFT_MARK),
+    }))
 }
 
 fn scan_limits_from_options(options: &Map<String, Value>) -> Result<ScannerLimits, String> {
@@ -2449,6 +2485,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut quota_config_path = None;
     let mut min_free_bytes = None;
     let mut limits = ScannerLimits::default();
+    let mut sandbox_enabled = false;
+    let mut scanner_user = DEFAULT_SCANNER_SANDBOX_USER.to_string();
+    let mut systemd_run_bin = DEFAULT_SCANNER_SYSTEMD_RUN_BIN.to_string();
+    let mut nft_mark = DEFAULT_SCANNER_NFT_MARK;
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
     let mut index = 0;
@@ -2513,6 +2553,34 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             "--enable-zap" => {
                 enable_zap = true;
                 index += 1;
+            }
+            "--sandbox" => {
+                sandbox_enabled = true;
+                index += 1;
+            }
+            "--scanner-user" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--scanner-user requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                scanner_user = value.to_string();
+                index += 2;
+            }
+            "--systemd-run-bin" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--systemd-run-bin requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                systemd_run_bin = value.to_string();
+                index += 2;
+            }
+            "--nft-mark" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--nft-mark requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                nft_mark = parse_positive_u32("--nft-mark", value)?;
+                index += 2;
             }
             "--templates-sha" => {
                 let Some(value) = args.get(index + 1) else {
@@ -2667,6 +2735,11 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         None
     };
     let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
+    let scanner_sandbox = sandbox_enabled.then_some(ScannerSandboxConfig {
+        systemd_run_bin,
+        user: scanner_user,
+        nft_mark,
+    });
     let nmap_version = if scanner == "nmap" {
         match probe_pinned_nmap_version(&scanner_bin) {
             Ok(version) => Some(version),
@@ -2759,6 +2832,11 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                     "max_scan_duration_seconds": limits.max_scan_duration_seconds
                 },
                 "enforced_args": enforced_args,
+                "sandbox": scanner_sandbox.as_ref().map(|sandbox| serde_json::json!({
+                    "systemd_run_bin": sandbox.systemd_run_bin.as_str(),
+                    "scanner_user": sandbox.user.as_str(),
+                    "nft_mark": sandbox.nft_mark
+                })),
                 "scope_id": scope.payload.scope_id,
                 "targets": targets
             }))
@@ -2797,31 +2875,37 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             .unwrap_or(""),
         targets = targets.join(",")
     );
-    let outcome =
-        match run_scanner_with_limits(&scanner, &scanner_bin, &scanner_args, &targets, limits) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                tracing::warn!(
-                    event = "scan.invocation.failed",
-                    msg = "scanner process failed to start",
-                    msg_id = "scan-invocation-failed",
-                    scanner = scanner.as_str(),
-                    scanner_bin = scanner_bin.as_str(),
-                    reason = error.to_string().as_str()
-                );
-                eprintln!("scanner refused: {error}");
-                run_state.mark_failed(Some(error.to_string()));
-                write_scan_run_state(&data_dir, &run_state).map_err(|state_error| {
-                    eprintln!("scan run state write failed: {state_error}");
-                    ExitCode::from(78)
-                })?;
-                return if matches!(error, kelp_pi_agent::ScannerRunError::Limit(_)) {
-                    Err(ExitCode::from(77))
-                } else {
-                    Err(ExitCode::from(69))
-                };
-            }
-        };
+    let outcome = match run_scanner_with_limits(
+        &scanner,
+        &scanner_bin,
+        &scanner_args,
+        &targets,
+        limits,
+        scanner_sandbox.as_ref(),
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            tracing::warn!(
+                event = "scan.invocation.failed",
+                msg = "scanner process failed to start",
+                msg_id = "scan-invocation-failed",
+                scanner = scanner.as_str(),
+                scanner_bin = scanner_bin.as_str(),
+                reason = error.to_string().as_str()
+            );
+            eprintln!("scanner refused: {error}");
+            run_state.mark_failed(Some(error.to_string()));
+            write_scan_run_state(&data_dir, &run_state).map_err(|state_error| {
+                eprintln!("scan run state write failed: {state_error}");
+                ExitCode::from(78)
+            })?;
+            return if matches!(error, kelp_pi_agent::ScannerRunError::Limit(_)) {
+                Err(ExitCode::from(77))
+            } else {
+                Err(ExitCode::from(69))
+            };
+        }
+    };
     let status = outcome.status;
     if outcome.timed_out {
         run_state.mark_failed(Some(format!(
@@ -2852,6 +2936,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             .map(|pin| pin.revision)
             .unwrap_or(""),
         scanner_enforced_args = outcome.enforced_args.join(" "),
+        scanner_sandboxed = outcome.sandboxed,
         timed_out = outcome.timed_out,
         status = status.code().unwrap_or(-1) as i64
     );
@@ -4307,7 +4392,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--run-id ID] [--dry-run] [--enable-zap] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--run-id ID] [--dry-run] [--enable-zap] [--sandbox] [--scanner-user USER] [--systemd-run-bin PATH] [--nft-mark N] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"

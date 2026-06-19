@@ -119,8 +119,9 @@ pub use quota::{
     DEFAULT_AGENT_CONFIG_PATH, DEFAULT_MIN_FREE_BYTES,
 };
 pub use scanner::{
-    run_scanner_with_limits, scanner_enforced_args, ScannerLimitError, ScannerLimits,
-    ScannerRunError, ScannerRunOutcome,
+    run_scanner_with_limits, scanner_command, scanner_enforced_args, ScannerCommand,
+    ScannerLimitError, ScannerLimits, ScannerRunError, ScannerRunOutcome, ScannerSandboxConfig,
+    DEFAULT_SCANNER_NFT_MARK, DEFAULT_SCANNER_SANDBOX_USER, DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
 };
 pub use scope::{
     active_scope_path, apply_scope_set, ensure_targets_in_scope, load_active_scope,

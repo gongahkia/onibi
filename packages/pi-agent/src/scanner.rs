@@ -4,11 +4,29 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
+pub const DEFAULT_SCANNER_SANDBOX_USER: &str = "kelp-pi-scanner";
+pub const DEFAULT_SCANNER_SYSTEMD_RUN_BIN: &str = "systemd-run";
+pub const DEFAULT_SCANNER_NFT_MARK: u32 = 0x4b45_4c50;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ScannerLimits {
     pub max_requests_per_second: Option<u32>,
     pub max_concurrent_targets: Option<usize>,
     pub max_scan_duration_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScannerSandboxConfig {
+    pub systemd_run_bin: String,
+    pub user: String,
+    pub nft_mark: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScannerCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub sandboxed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +48,17 @@ pub struct ScannerRunOutcome {
     pub status: ExitStatus,
     pub timed_out: bool,
     pub enforced_args: Vec<String>,
+    pub sandboxed: bool,
+}
+
+impl Default for ScannerSandboxConfig {
+    fn default() -> Self {
+        Self {
+            systemd_run_bin: DEFAULT_SCANNER_SYSTEMD_RUN_BIN.to_string(),
+            user: DEFAULT_SCANNER_SANDBOX_USER.to_string(),
+            nft_mark: DEFAULT_SCANNER_NFT_MARK,
+        }
+    }
 }
 
 impl ScannerLimits {
@@ -97,15 +126,13 @@ pub fn run_scanner_with_limits(
     scanner_args: &[String],
     targets: &[String],
     limits: ScannerLimits,
+    sandbox: Option<&ScannerSandboxConfig>,
 ) -> Result<ScannerRunOutcome, ScannerRunError> {
     let limits = limits.validate()?;
     limits.enforce_target_count(targets.len())?;
     let enforced_args = scanner_enforced_args(scanner, &limits)?;
-    let mut child = Command::new(scanner_bin)
-        .args(scanner_args)
-        .args(&enforced_args)
-        .args(targets)
-        .spawn()?;
+    let command = scanner_command(scanner_bin, scanner_args, &enforced_args, targets, sandbox);
+    let mut child = Command::new(&command.program).args(&command.args).spawn()?;
 
     if let Some(seconds) = limits.max_scan_duration_seconds {
         let timeout = Duration::from_secs(seconds);
@@ -116,6 +143,7 @@ pub fn run_scanner_with_limits(
                     status,
                     timed_out: false,
                     enforced_args,
+                    sandboxed: command.sandboxed,
                 });
             }
             if started.elapsed() >= timeout {
@@ -125,6 +153,7 @@ pub fn run_scanner_with_limits(
                     status,
                     timed_out: true,
                     enforced_args,
+                    sandboxed: command.sandboxed,
                 });
             }
             thread::sleep(Duration::from_millis(25));
@@ -136,7 +165,58 @@ pub fn run_scanner_with_limits(
         status,
         timed_out: false,
         enforced_args,
+        sandboxed: command.sandboxed,
     })
+}
+
+pub fn scanner_command(
+    scanner_bin: &str,
+    scanner_args: &[String],
+    enforced_args: &[String],
+    targets: &[String],
+    sandbox: Option<&ScannerSandboxConfig>,
+) -> ScannerCommand {
+    let scanner_argv = scanner_args
+        .iter()
+        .chain(enforced_args)
+        .chain(targets)
+        .cloned()
+        .collect::<Vec<_>>();
+    let Some(sandbox) = sandbox else {
+        return ScannerCommand {
+            program: scanner_bin.to_string(),
+            args: scanner_argv,
+            sandboxed: false,
+        };
+    };
+    let mut args = vec![
+        "--wait".to_string(),
+        "--pipe".to_string(),
+        "--collect".to_string(),
+        "--quiet".to_string(),
+        format!("--property=User={}", sandbox.user),
+        "--property=NoNewPrivileges=yes".to_string(),
+        "--property=PrivateTmp=yes".to_string(),
+        "--property=PrivateDevices=yes".to_string(),
+        "--property=ProtectSystem=strict".to_string(),
+        "--property=ProtectHome=yes".to_string(),
+        "--property=CapabilityBoundingSet=".to_string(),
+        "--property=AmbientCapabilities=".to_string(),
+        "--property=RestrictSUIDSGID=yes".to_string(),
+        "--property=RestrictRealtime=yes".to_string(),
+        "--property=LockPersonality=yes".to_string(),
+        "--property=SystemCallArchitectures=native".to_string(),
+        "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6".to_string(),
+        format!("--setenv=KELP_PI_NFT_MARK={}", sandbox.nft_mark),
+        "--".to_string(),
+        scanner_bin.to_string(),
+    ];
+    args.extend(scanner_argv);
+    ScannerCommand {
+        program: sandbox.systemd_run_bin.clone(),
+        args,
+        sandboxed: true,
+    }
 }
 
 impl Display for ScannerLimitError {
@@ -256,6 +336,7 @@ mod tests {
                 max_scan_duration_seconds: Some(1),
                 ..ScannerLimits::default()
             },
+            None,
         )
         .expect("run scanner");
 
@@ -288,10 +369,12 @@ mod tests {
                 max_concurrent_targets: Some(1),
                 ..ScannerLimits::default()
             },
+            None,
         )
         .expect("run scanner");
 
         assert!(outcome.status.success());
+        assert!(!outcome.sandboxed);
         assert_eq!(
             outcome.enforced_args,
             vec!["-rate-limit", "3", "-bulk-size", "1"]
@@ -309,6 +392,52 @@ mod tests {
             ]
         );
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn scanner_sandbox_wraps_command_with_systemd_run() {
+        let sandbox = ScannerSandboxConfig {
+            systemd_run_bin: "systemd-run-test".to_string(),
+            user: "kelp-pi-scanner-test".to_string(),
+            nft_mark: 4242,
+        };
+        let command = scanner_command(
+            "/usr/local/bin/nuclei",
+            &["-jsonl".to_string()],
+            &["-rate-limit".to_string(), "3".to_string()],
+            &["https://app.example.test".to_string()],
+            Some(&sandbox),
+        );
+
+        assert_eq!(command.program, "systemd-run-test");
+        assert!(command.sandboxed);
+        assert!(command
+            .args
+            .contains(&"--property=User=kelp-pi-scanner-test".to_string()));
+        assert!(command
+            .args
+            .contains(&"--property=NoNewPrivileges=yes".to_string()));
+        assert!(command
+            .args
+            .contains(&"--property=PrivateDevices=yes".to_string()));
+        assert!(command
+            .args
+            .contains(&"--setenv=KELP_PI_NFT_MARK=4242".to_string()));
+        let scanner_start = command
+            .args
+            .iter()
+            .position(|arg| arg == "/usr/local/bin/nuclei")
+            .expect("scanner argv");
+        assert_eq!(
+            &command.args[scanner_start..],
+            [
+                "/usr/local/bin/nuclei",
+                "-jsonl",
+                "-rate-limit",
+                "3",
+                "https://app.example.test"
+            ]
+        );
     }
 
     fn temp_root(name: &str) -> std::path::PathBuf {
