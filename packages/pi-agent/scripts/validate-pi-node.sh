@@ -114,7 +114,7 @@ for line in \
   dtoverlay=vc4-kms-v3d,noaudio \
   dtparam=i2c_arm=off \
   dtparam=spi=off \
-  hdmi_blanking=2
+  hdmi_blanking=1
 do
   grep -qx "$line" "$boot_config" || fail "boot config missing $line"
 done

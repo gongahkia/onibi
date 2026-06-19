@@ -548,7 +548,8 @@ Reference renderer:
   reloads the nftables rules through `nft -f -`, so config changes are applied as a
   single nftables transaction.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
-  the reference appliance image. Hardware validation still requires the TODO's
+  the reference appliance image. The HDMI setting uses `hdmi_blanking=1`, matching
+  Raspberry Pi's documented switch-off value. Hardware validation still requires the TODO's
   client-isolation, zero-upstream-DNS, nft egress-denial, and post-boot `dmesg`
   checks on a real Pi.
 

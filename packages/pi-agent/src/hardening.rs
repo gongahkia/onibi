@@ -419,7 +419,7 @@ fn render_network_config_json(
 }
 
 fn render_boot_config_fragment() -> String {
-    "dtoverlay=disable-bt\ndtparam=audio=off\ndtoverlay=vc4-kms-v3d,noaudio\ndtparam=i2c_arm=off\ndtparam=spi=off\nhdmi_blanking=2\n".to_string()
+    "dtoverlay=disable-bt\ndtparam=audio=off\ndtoverlay=vc4-kms-v3d,noaudio\ndtparam=i2c_arm=off\ndtparam=spi=off\nhdmi_blanking=1\n".to_string()
 }
 
 fn safe_interface_name(value: &str) -> bool {
@@ -531,7 +531,7 @@ mod tests {
         let boot = contents(&files, "boot/firmware/config.txt.kelp-pi-fragment");
         assert!(boot.contains("dtoverlay=disable-bt"));
         assert!(boot.contains("dtparam=audio=off"));
-        assert!(boot.contains("hdmi_blanking=2"));
+        assert!(boot.contains("hdmi_blanking=1"));
     }
 
     #[test]
