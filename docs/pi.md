@@ -345,6 +345,9 @@ Retrieval chunking:
 - `/ask` returns `no_answer` when FTS5 finds no matching chunks or when the maximum
   higher-is-better `-bm25(...)` score is below the configurable threshold. Default
   threshold: `0.000001`.
+- `/ask` responses include a top-level `citations` array. Each citation is
+  `{path, heading_path, chunk_id, start_byte, end_byte}` and maps directly to a
+  returned chunk.
 
 Physical capture assumptions:
 

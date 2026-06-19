@@ -28,8 +28,8 @@ pub use chunking::{
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
 pub use index::{
-    answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, NoAnswer,
-    RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,
+    answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, Citation,
+    NoAnswer, RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,
 };
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,

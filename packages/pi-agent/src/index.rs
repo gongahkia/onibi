@@ -9,6 +9,7 @@ pub struct AskResponse {
     pub query: String,
     pub top_k: usize,
     pub no_answer: Option<NoAnswer>,
+    pub citations: Vec<Citation>,
     pub results: Vec<RetrievedChunk>,
 }
 
@@ -17,6 +18,15 @@ pub struct NoAnswer {
     pub reason: String,
     pub threshold: f64,
     pub max_score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Citation {
+    pub path: String,
+    pub heading_path: Vec<String>,
+    pub chunk_id: String,
+    pub start_byte: usize,
+    pub end_byte: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -96,6 +106,16 @@ pub fn search_chunks(
     rows.collect()
 }
 
+pub fn citation_for_chunk(chunk: &RetrievedChunk) -> Citation {
+    Citation {
+        path: chunk.path.clone(),
+        heading_path: chunk.heading_path.clone(),
+        chunk_id: chunk.chunk_id.clone(),
+        start_byte: chunk.start_byte,
+        end_byte: chunk.end_byte,
+    }
+}
+
 pub fn answer_query(
     connection: &Connection,
     query: &str,
@@ -121,9 +141,16 @@ pub fn answer_query(
         Some(_) => None,
     };
 
+    let citations = if no_answer.is_some() {
+        Vec::new()
+    } else {
+        results.iter().map(citation_for_chunk).collect()
+    };
+
     Ok(AskResponse {
         query: query.to_string(),
         top_k: top_k.max(1),
+        citations,
         results: if no_answer.is_some() {
             Vec::new()
         } else {
@@ -255,6 +282,50 @@ mod tests {
         assert_eq!(
             response.no_answer.expect("no answer").reason,
             "no matching chunks"
+        );
+        assert!(response.citations.is_empty());
+    }
+
+    #[test]
+    fn answer_query_returns_top_level_citations_for_results() {
+        let connection = Connection::open_in_memory().expect("open sqlite");
+        apply_index_schema(&connection).expect("apply schema");
+        connection
+            .execute(
+                "INSERT INTO chunks (id, path, heading_path, start_byte, end_byte, content_hash, content, ingested_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    "chunk-1",
+                    "docs/guide.md",
+                    "[\"Guide\", \"Login\"]",
+                    7_i64,
+                    25_i64,
+                    "hash-1",
+                    "admin login portal",
+                    "2026-06-19T00:00:00Z"
+                ],
+            )
+            .expect("insert chunk");
+        let rowid = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO chunks_fts (rowid, content) VALUES (?1, ?2)",
+                params![rowid, "admin login portal"],
+            )
+            .expect("insert fts row");
+
+        let response = answer_query(&connection, "admin", 5, DEFAULT_NO_ANSWER_THRESHOLD)
+            .expect("answer query");
+
+        assert!(response.no_answer.is_none());
+        assert_eq!(
+            response.citations,
+            vec![Citation {
+                path: "docs/guide.md".to_string(),
+                heading_path: vec!["Guide".to_string(), "Login".to_string()],
+                chunk_id: "chunk-1".to_string(),
+                start_byte: 7,
+                end_byte: 25,
+            }]
         );
     }
 }
