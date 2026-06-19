@@ -42,6 +42,10 @@ need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 missing"
 }
 
+step() {
+  printf 'Kelp Pi demo: %s\n' "$*"
+}
+
 json_field() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const value=process.argv.slice(1).reduce((acc,key)=>acc && acc[key], data); if (typeof value !== "string") process.exit(1); process.stdout.write(value);' "$1"
 }
@@ -226,6 +230,7 @@ remote_field_dir="$data_dir/bundles/$run_id-field-acceptance"
 remote_workspace="$data_dir/evidence/$run_id"
 remote_raw="$remote_workspace/raw/nuclei.jsonl"
 
+step "declaring fixture scope"
 node "$cli" pi scope set \
   --url "$fixture_url" \
   --scope-id "$scope_id" \
@@ -233,6 +238,7 @@ node "$cli" pi scope set \
   --data-dir "$data_dir" \
   --agent-bin "$agent_wrapper" >"$out/scope.json"
 
+step "requesting scanner approval"
 "$ssh_bin" "$pi_user@$pi_host" \
   kelp-pi-agent approval-request \
     --data-dir "$data_dir" \
@@ -245,6 +251,7 @@ approval_token="$(json_field token <"$out/approval-request.json")"
 node "$cli" pi approve "$approval_token" --data-dir "$data_dir" --agent-bin "$agent_wrapper" >"$out/approval.json"
 
 "$ssh_bin" "$pi_user@$pi_host" mkdir -p "$remote_workspace/raw"
+step "running scoped Nuclei scan"
 "$ssh_bin" "$pi_user@$pi_host" \
   kelp-pi-agent scan nuclei \
     --data-dir "$data_dir" \
@@ -267,12 +274,14 @@ node "$cli" pi approve "$approval_token" --data-dir "$data_dir" --agent-bin "$ag
     --data-dir "$data_dir" \
     --input "$remote_workspace/normalized/findings.json" \
     --path "evidence/$run_id/normalized-findings.json" >"$out/index.json"
+step "asking cited local retrieval"
 "$ssh_bin" "$pi_user@$pi_host" \
   kelp-pi-agent ask \
     --data-dir "$data_dir" \
     --top-k 1 \
     default admin marker >"$out/ask.json"
 
+step "running field acceptance"
 set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
   --output-dir "$remote_field_dir" \
   --target-ip "$fixture_ip" \
@@ -294,6 +303,7 @@ set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
 [ "$readonly_root" = "0" ] || set -- "$@" --readonly-root --readonly-data-dir "$readonly_data_dir"
 "$@" >"$out/field-acceptance.log" 2>&1
 
+step "exporting reviewer bundle"
 "$ssh_bin" "$pi_user@$pi_host" \
   kelp-pi-agent bundle assemble \
     --data-dir "$data_dir" \
@@ -313,6 +323,7 @@ mkdir -p "$field_dir"
 "$scp_bin" -r "$pi_user@$pi_host:$remote_field_dir/." "$field_dir/" >/dev/null
 "$repo_root/scripts/verify-pi-field-acceptance.sh" "$field_dir" >"$out/field-verification.log"
 
+step "verifying launch evidence"
 end_epoch="$(date -u '+%s')"
 duration_seconds=$((end_epoch - start_epoch))
 {

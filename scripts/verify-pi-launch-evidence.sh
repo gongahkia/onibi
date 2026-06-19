@@ -35,6 +35,10 @@ cast_header_ok() {
   node -e 'const fs=require("node:fs"); const first=fs.readFileSync(process.argv[1],"utf8").split(/\n/u)[0]; const data=JSON.parse(first); process.exit(Number.isInteger(data.version) ? 0 : 1);' "$1"
 }
 
+cast_contains() {
+  grep -q "$2" "$1"
+}
+
 json_has_citation() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.exit(data.no_answer == null && Array.isArray(data.citations) && data.citations.length > 0 ? 0 : 1);' "$1"
 }
@@ -112,5 +116,14 @@ grep -q '^OK field acceptance artifact verified:' "$run_dir/field-verification.l
 
 [ -s "$demo_asset" ] || fail "demo asset missing or empty: $demo_asset"
 cast_header_ok "$demo_asset" || fail "demo asset is not an asciinema cast: $demo_asset"
+for cast_line in \
+  'Kelp Pi demo: declaring fixture scope' \
+  'Kelp Pi demo: running scoped Nuclei scan' \
+  'Kelp Pi demo: asking cited local retrieval' \
+  'Kelp Pi demo: exporting reviewer bundle' \
+  'Kelp Pi demo: verifying launch evidence'
+do
+  cast_contains "$demo_asset" "$cast_line" || fail "demo asset missing cast proof: $cast_line"
+done
 
 pass "Pi launch evidence verified: $run_dir"
