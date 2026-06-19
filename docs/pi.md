@@ -412,11 +412,13 @@ Package pin and upgrade flow:
      apply the candidate package lock.
   3. Reboot once, then run `kelp-pi-agent selfcheck --data-dir /var/lib/kelp-pi` and
      `kelp-pi-agent verify-audit-log --data-dir /var/lib/kelp-pi`.
-  4. Run the scoped scanner/retrieval smoke on the fixture target and export a bundle.
-  5. Promote the candidate only if selfcheck is clean, audit-log verification passes,
+  4. Run `KELP_PI_RUN_DISK_FILL_TEST=1 pnpm --filter @kelpclaw/pi-agent test:quota-fill -- <small-mount>/kelp-pi-quota`
+     on a throwaway filesystem with no more than 1 GiB free.
+  5. Run the scoped scanner/retrieval smoke on the fixture target and export a bundle.
+  6. Promote the candidate only if selfcheck is clean, audit-log verification passes,
      the fixture bundle verifies unchanged on the laptop, and the new `os-lock.json`
      diff is reviewed.
-  6. Rollback is a reflash to the previous pinned image plus the previous
+  7. Rollback is a reflash to the previous pinned image plus the previous
      `os-lock.json`; no in-place downgrade is supported.
 
 ## Signing key custody

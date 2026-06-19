@@ -8,6 +8,7 @@
     "build:pi": "scripts/build-aarch64-linux.sh",
     "fetch:nuclei-arm64": "scripts/fetch-nuclei-arm64.sh",
     "test": "cargo test",
+    "test:quota-fill": "scripts/test-storage-quota-fill.sh",
     "typecheck": "cargo check",
     "validate:pi-node": "scripts/validate-pi-node.sh"
   }
