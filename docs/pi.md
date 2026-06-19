@@ -73,6 +73,7 @@ $ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-net
   --output <image-root> \
   --wpa3-passphrase <operator-ap-passphrase> \
   --allow-outbound <control-plane-host>:443
+$ pnpm --filter @kelpclaw/pi-agent apply:boot-fragment -- <image-root>
 $ pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>
 ```
 
@@ -527,6 +528,8 @@ Reference renderer:
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
   and boot-config peripheral disable fragment.
+- `pnpm --filter @kelpclaw/pi-agent apply:boot-fragment -- <image-root>` applies the
+  generated boot fragment to `<image-root>/boot/firmware/config.txt` idempotently.
 - `pnpm --filter @kelpclaw/pi-agent validate:pi-node` runs the Pi-side validation
   harness for agent version, systemd health/security score, pinned Nuclei binary,
   NetworkManager AP profile, dnsmasq sinkhole config, kernel forwarding, nftables

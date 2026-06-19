@@ -6,6 +6,7 @@
   "scripts": {
     "build": "cargo build",
     "build:pi": "scripts/build-aarch64-linux.sh",
+    "apply:boot-fragment": "scripts/apply-boot-fragment.sh",
     "fetch:nuclei-arm64": "scripts/fetch-nuclei-arm64.sh",
     "test": "cargo test",
     "test:quota-fill": "scripts/test-storage-quota-fill.sh",
