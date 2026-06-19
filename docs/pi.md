@@ -527,8 +527,8 @@ Reference renderer:
   `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`,
   `kelp-pi-validate-allow-outbound-reload`, `kelp-pi-validate-dns-egress`,
   `kelp-pi-validate-ap-isolation`, `kelp-pi-validate-field-acceptance`,
-  `kelp-pi-validate-ollama-load`, and `kelp-pi-validate-readonly-root` into
-  `<image-root>/usr/local/sbin`.
+  `kelp-pi-validate-ollama-load`, `kelp-pi-validate-readonly-root`, and
+  `kelp-pi-validate-nuclei-scan` into `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
@@ -578,6 +578,9 @@ Reference renderer:
   before invoking Ollama on an undersized Pi.
 - `kelp-pi-validate-readonly-root --data-dir /var/lib/kelp-pi` requires `/` to be
   mounted read-only and the Pi data directory to be writable from a non-root mount.
+- `kelp-pi-validate-nuclei-scan --target <scope-target> --approval-token <token> -- <nuclei-args>`
+  verifies the pinned `/opt/kelp-pi/bin/nuclei` manifest and runs an actual
+  `kelp-pi-agent scan nuclei` invocation through that binary.
 
 Audit & forensics:
 
