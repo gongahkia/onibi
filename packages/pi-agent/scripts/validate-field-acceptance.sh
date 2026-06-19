@@ -4,6 +4,8 @@ set -eu
 output_dir=""
 target_ip=""
 target_url=""
+nuclei_target=""
+nuclei_approval_token=""
 control_url=""
 current_config=""
 updated_config=""
@@ -15,6 +17,7 @@ portal_ip="${KELP_PI_PORTAL_IP:-10.42.0.1}"
 upstream_interface=""
 dns_probe_command=""
 forbidden_ips=""
+nuclei_args=""
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -62,6 +65,16 @@ while [ $# -gt 0 ]; do
     --target-url)
       [ $# -ge 2 ] || fail "--target-url requires a value"
       target_url="$2"
+      shift 2
+      ;;
+    --nuclei-target)
+      [ $# -ge 2 ] || fail "--nuclei-target requires a value"
+      nuclei_target="$2"
+      shift 2
+      ;;
+    --nuclei-approval-token)
+      [ $# -ge 2 ] || fail "--nuclei-approval-token requires a value"
+      nuclei_approval_token="$2"
       shift 2
       ;;
     --control-url)
@@ -119,6 +132,12 @@ while [ $# -gt 0 ]; do
       append_forbidden_ip "$2"
       shift 2
       ;;
+    --nuclei-arg)
+      [ $# -ge 2 ] || fail "--nuclei-arg requires a value"
+      nuclei_args="${nuclei_args:+$nuclei_args
+}$2"
+      shift 2
+      ;;
     *)
       printf 'unknown argument: %s\n' "$1" >&2
       exit 64
@@ -130,6 +149,8 @@ done
 [ -n "$output_dir" ] || fail "requires --output-dir"
 [ -n "$target_ip" ] || fail "requires --target-ip"
 [ -n "$target_url" ] || fail "requires --target-url"
+[ -n "$nuclei_target" ] || nuclei_target="$target_url"
+[ -n "$nuclei_approval_token" ] || fail "requires --nuclei-approval-token"
 [ -n "$control_url" ] || fail "requires --control-url"
 [ -n "$current_config" ] || fail "requires --current-config"
 [ -n "$updated_config" ] || fail "requires --updated-config"
@@ -145,6 +166,7 @@ need kelp-pi-validate-scanner-sandbox
 need kelp-pi-validate-allow-outbound-reload
 need kelp-pi-validate-dns-egress
 need kelp-pi-validate-ap-isolation
+need kelp-pi-validate-nuclei-scan
 need mkdir
 need sed
 need tee
@@ -164,6 +186,19 @@ run_check scanner-sandbox \
   --target-ip "$target_ip" \
   --target-url "$target_url" \
   --control-url "$control_url"
+
+set -- kelp-pi-validate-nuclei-scan --target "$nuclei_target" --approval-token "$nuclei_approval_token"
+if [ -n "$nuclei_args" ]; then
+  set -- "$@" --
+  old_ifs="$IFS"
+  IFS='
+'
+  for nuclei_arg in $nuclei_args; do
+    set -- "$@" "$nuclei_arg"
+  done
+  IFS="$old_ifs"
+fi
+run_check nuclei-scan "$@"
 
 run_check allow-outbound-reload \
   kelp-pi-validate-allow-outbound-reload \

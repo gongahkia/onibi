@@ -569,10 +569,10 @@ Reference renderer:
 - `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user>`
   SSHes to two AP clients, verifies both can ping the Pi portal IP, and fails if either
   client can ping the other client or any supplied `--forbidden-ip`.
-- `kelp-pi-validate-field-acceptance --output-dir <dir> ...` runs the strict Pi-side
-  acceptance subset for host identity/service hardening, scanner sandboxing, nft
-  reload continuity, upstream DNS egress, and AP client isolation, writing one log per
-  check plus a summary file.
+- `kelp-pi-validate-field-acceptance --output-dir <dir> ... --nuclei-approval-token <token>`
+  runs the strict Pi-side acceptance subset for host identity/service hardening,
+  scanner sandboxing, pinned Nuclei execution, nft reload continuity, upstream DNS
+  egress, and AP client isolation, writing one log per check plus a summary file.
 - `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
   to load the configured 3B-class model; `--expect-refuse` requires the guard to refuse
   before invoking Ollama on an undersized Pi.
