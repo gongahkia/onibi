@@ -87,9 +87,10 @@ printf 'systemctl status %s:\n' "$service"
 systemctl status "$service" --no-pager --lines=20
 printf 'systemctl is-active %s=%s\n' "$service" "$active_state"
 systemctl show "$service" -p ActiveState -p SubState -p MainPID -p ExecMainStatus -p FragmentPath
-systemd_hardening_properties="$(systemctl show "$service" -p User -p ProtectSystem -p ProtectHome -p PrivateTmp -p NoNewPrivileges)"
+systemd_hardening_properties="$(systemctl show "$service" -p User -p Group -p ProtectSystem -p ProtectHome -p PrivateTmp -p NoNewPrivileges)"
 printf 'systemd hardening properties:\n%s\n' "$systemd_hardening_properties"
 property_matches User kelp-pi || fail "$service User is not kelp-pi"
+property_matches Group kelp-pi || fail "$service Group is not kelp-pi"
 property_matches ProtectSystem strict || fail "$service ProtectSystem is not strict"
 property_matches ProtectHome 'true|yes' || fail "$service ProtectHome is not true"
 property_matches PrivateTmp 'true|yes' || fail "$service PrivateTmp is not true"

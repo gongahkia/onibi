@@ -634,7 +634,7 @@ Reference renderer:
   egress, AP client isolation, and the 30-minute timing ceiling, writing one log per
   check plus summary and timing files. The repo-side verifier parses the node log for
   Pi 5/aarch64 proof, aarch64 ELF proof for `/usr/local/bin/kelp-pi-agent`,
-  `systemctl status` active output, exact `systemctl show` hardening properties,
+  `systemctl status` active output, exact `systemctl show` user/group hardening properties,
   `systemd-analyze` score `<3.0`, and the `nft list ruleset` output chain showing
   default-drop plus established-session handling. Optional flags `--ollama-expect-load`,
   `--ollama-expect-refuse`, and `--readonly-root` add those evidence logs to the same
