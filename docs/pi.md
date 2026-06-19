@@ -61,8 +61,7 @@ Install the cross-built agent, systemd units, network hardening files, and pinne
 binary into the mounted image or first-boot staging root:
 
 ```console
-$ install -m 0755 packages/pi-agent/target/aarch64-unknown-linux-gnu/release/kelp-pi-agent \
-  <image-root>/usr/local/bin/kelp-pi-agent
+$ pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>
 $ pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>
 $ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-network \
   --output <image-root> \
@@ -519,6 +518,8 @@ Network perimeter discipline:
 
 Reference renderer:
 
+- `pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>` stages the
+  cross-built `kelp-pi-agent` binary into `<image-root>/usr/local/bin`.
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
