@@ -118,6 +118,10 @@ importers:
         specifier: ^6.38.0
         version: 6.38.0(zod@4.4.3)
 
+  packages/pi-agent: {}
+
+  packages/pi-cli: {}
+
   packages/policy:
     dependencies:
       '@kelpclaw/workflow-spec':

@@ -1,6 +1,8 @@
 packages:
   - "packages/evidence"
   - "packages/policy"
+  - "packages/pi-agent"
+  - "packages/pi-cli"
   - "packages/agent-hooks"
   - "packages/nanoclaw"
   - "packages/codegen"
