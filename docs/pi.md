@@ -288,6 +288,12 @@ Package pin and upgrade flow:
   limit, passes Nuclei `-rate-limit`/`-bulk-size`, passes Nmap
   `--max-rate`/`--max-hostgroup`/`--host-timeout`, and refuses unsupported ZAP rate or
   multi-target concurrency requests.
+- Active scans persist a JSON run marker under `/var/lib/kelp-pi/runs`.
+  `kelp-pi-agent scan --run-id <id>` and signed `scan.request.run_id` write
+  `running` before the scanner process starts, then `succeeded` or `failed` after it
+  exits. If the agent is terminated before completion, the next `kelp-pi-agent start`
+  preflight marks the run `resumable` and records `scan.run.resumable` in the audit
+  log.
 - `kelp-pi-agent bundle assemble --run-id <id> --workspace <evidence-workspace> --output <audit-bundle> --data-dir <dir>`
   emits the same verifier-facing audit bundle contract as the laptop path:
   `index.html`, `result.json`,

@@ -28,7 +28,7 @@ use kelp_pi_agent::{
     DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::io::{self, BufRead};
@@ -723,6 +723,20 @@ fn scan_request_responses(
         return Ok(responses);
     }
 
+    if !safe_scan_run_id(&payload.run_id) {
+        return Err(
+            "scan.request run_id must use only ASCII letters, numbers, dot, dash, or underscore"
+                .to_string(),
+        );
+    }
+    let mut run_state = ScanRunState::running(
+        payload.run_id.clone(),
+        payload.scanner.clone(),
+        scope.payload.scope_id.clone(),
+        target_values.clone(),
+        started_at.clone(),
+    );
+    write_scan_run_state(data_dir, &run_state).map_err(|error| error.to_string())?;
     let scanner_args = scan_option_strings(&payload.options, "args");
     let outcome = match run_scanner_with_limits(
         &payload.scanner,
@@ -733,6 +747,8 @@ fn scan_request_responses(
     ) {
         Ok(outcome) => outcome,
         Err(error) => {
+            run_state.mark_failed(Some(error.to_string()));
+            write_scan_run_state(data_dir, &run_state).map_err(|error| error.to_string())?;
             responses.push(signed_scan_complete_from_draft(
                 envelope,
                 identity,
@@ -749,6 +765,17 @@ fn scan_request_responses(
         }
     };
     let status = outcome.status;
+    if status.success() {
+        run_state.mark_succeeded();
+    } else if outcome.timed_out {
+        run_state.mark_failed(Some(format!(
+            "scanner timed out after {} seconds",
+            limits.max_scan_duration_seconds.unwrap_or_default()
+        )));
+    } else {
+        run_state.mark_failed(Some(format!("scanner exited with {status}")));
+    }
+    write_scan_run_state(data_dir, &run_state).map_err(|error| error.to_string())?;
     responses.push(signed_scan_complete_from_draft(
         envelope,
         identity,
@@ -2243,6 +2270,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut scanner = None;
     let mut scanner_bin = None;
     let mut approval_token = None;
+    let mut run_id = None;
     let mut dry_run = false;
     let mut enable_zap = false;
     let mut templates_sha = None;
@@ -2290,6 +2318,20 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                     return Err(ExitCode::from(64));
                 };
                 approval_token = Some(value.to_string());
+                index += 2;
+            }
+            "--run-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--run-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                if !safe_scan_run_id(value) {
+                    eprintln!(
+                        "--run-id must use only ASCII letters, numbers, dot, dash, or underscore"
+                    );
+                    return Err(ExitCode::from(64));
+                }
+                run_id = Some(value.to_string());
                 index += 2;
             }
             "--dry-run" => {
@@ -2553,6 +2595,19 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         return Ok(());
     }
 
+    let started_at = rfc3339_now();
+    let run_id = run_id.unwrap_or_else(|| format!("scan-{}", unix_millis_now()));
+    let mut run_state = ScanRunState::running(
+        run_id,
+        scanner.clone(),
+        scope.payload.scope_id.clone(),
+        targets.clone(),
+        started_at,
+    );
+    write_scan_run_state(&data_dir, &run_state).map_err(|error| {
+        eprintln!("scan run state write failed: {error}");
+        ExitCode::from(78)
+    })?;
     tracing::info!(
         event = "scan.invocation.started",
         msg = "scanner process starting",
@@ -2570,24 +2625,46 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             .unwrap_or(""),
         targets = targets.join(",")
     );
-    let outcome = run_scanner_with_limits(&scanner, &scanner_bin, &scanner_args, &targets, limits)
-        .map_err(|error| {
-            tracing::warn!(
-                event = "scan.invocation.failed",
-                msg = "scanner process failed to start",
-                msg_id = "scan-invocation-failed",
-                scanner = scanner.as_str(),
-                scanner_bin = scanner_bin.as_str(),
-                reason = error.to_string().as_str()
-            );
-            eprintln!("scanner refused: {error}");
-            if matches!(error, kelp_pi_agent::ScannerRunError::Limit(_)) {
-                ExitCode::from(77)
-            } else {
-                ExitCode::from(69)
+    let outcome =
+        match run_scanner_with_limits(&scanner, &scanner_bin, &scanner_args, &targets, limits) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                tracing::warn!(
+                    event = "scan.invocation.failed",
+                    msg = "scanner process failed to start",
+                    msg_id = "scan-invocation-failed",
+                    scanner = scanner.as_str(),
+                    scanner_bin = scanner_bin.as_str(),
+                    reason = error.to_string().as_str()
+                );
+                eprintln!("scanner refused: {error}");
+                run_state.mark_failed(Some(error.to_string()));
+                write_scan_run_state(&data_dir, &run_state).map_err(|state_error| {
+                    eprintln!("scan run state write failed: {state_error}");
+                    ExitCode::from(78)
+                })?;
+                return if matches!(error, kelp_pi_agent::ScannerRunError::Limit(_)) {
+                    Err(ExitCode::from(77))
+                } else {
+                    Err(ExitCode::from(69))
+                };
             }
-        })?;
+        };
     let status = outcome.status;
+    if outcome.timed_out {
+        run_state.mark_failed(Some(format!(
+            "scanner timed out after {} seconds",
+            limits.max_scan_duration_seconds.unwrap_or_default()
+        )));
+    } else if status.success() {
+        run_state.mark_succeeded();
+    } else {
+        run_state.mark_failed(Some(format!("scanner exited with {status}")));
+    }
+    write_scan_run_state(&data_dir, &run_state).map_err(|error| {
+        eprintln!("scan run state write failed: {error}");
+        ExitCode::from(78)
+    })?;
     tracing::info!(
         event = "scan.invocation.completed",
         msg = "scanner process completed",
@@ -2638,6 +2715,135 @@ fn scan_scope_error_reason(error: &ScopeError) -> String {
         ScopeError::OutOfScope { target, reason } => format!("{target}: {reason}"),
         other => other.to_string(),
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ScanRunState {
+    schema_version: String,
+    run_id: String,
+    scanner: String,
+    scope_id: String,
+    targets: Vec<String>,
+    status: String,
+    resumable: bool,
+    started_at: String,
+    updated_at: String,
+    resume_reason: Option<String>,
+    error: Option<String>,
+}
+
+impl ScanRunState {
+    fn running(
+        run_id: String,
+        scanner: String,
+        scope_id: String,
+        targets: Vec<String>,
+        started_at: String,
+    ) -> Self {
+        Self {
+            schema_version: "kelp.pi.scan-run.v1".to_string(),
+            run_id,
+            scanner,
+            scope_id,
+            targets,
+            status: "running".to_string(),
+            resumable: false,
+            updated_at: started_at.clone(),
+            started_at,
+            resume_reason: None,
+            error: None,
+        }
+    }
+
+    fn mark_succeeded(&mut self) {
+        self.status = "succeeded".to_string();
+        self.resumable = false;
+        self.updated_at = rfc3339_now();
+        self.resume_reason = None;
+        self.error = None;
+    }
+
+    fn mark_failed(&mut self, error: Option<String>) {
+        self.status = "failed".to_string();
+        self.resumable = false;
+        self.updated_at = rfc3339_now();
+        self.resume_reason = None;
+        self.error = error;
+    }
+
+    fn mark_resumable(&mut self) {
+        self.status = "resumable".to_string();
+        self.resumable = true;
+        self.updated_at = rfc3339_now();
+        self.resume_reason = Some("previous scanner process ended before completion".to_string());
+        self.error = None;
+    }
+}
+
+fn safe_scan_run_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
+fn scan_run_state_path(data_dir: &Path, run_id: &str) -> Result<PathBuf, io::Error> {
+    if !safe_scan_run_id(run_id) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "scan run id contains unsafe characters",
+        ));
+    }
+    Ok(data_dir.join("runs").join(format!("{run_id}.json")))
+}
+
+fn write_scan_run_state(data_dir: &Path, state: &ScanRunState) -> Result<(), io::Error> {
+    let path = scan_run_state_path(data_dir, &state.run_id)?;
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "scan run path has no parent")
+    })?;
+    fs::create_dir_all(parent)?;
+    let temp_path = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    fs::write(&temp_path, bytes)?;
+    fs::rename(temp_path, path)
+}
+
+fn mark_resumable_scan_runs(data_dir: &Path) -> Result<usize, io::Error> {
+    let runs_dir = data_dir.join("runs");
+    let entries = match fs::read_dir(&runs_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    let mut marked = 0_usize;
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = fs::read(&path)?;
+        let mut state: ScanRunState = serde_json::from_slice(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        if state.status != "running" {
+            continue;
+        }
+        state.mark_resumable();
+        write_scan_run_state(data_dir, &state)?;
+        marked += 1;
+        tracing::warn!(
+            event = "scan.run.resumable",
+            msg = "scan run marked resumable",
+            msg_id = "scan-run-resumable",
+            run_id = state.run_id.as_str(),
+            scanner = state.scanner.as_str(),
+            scope_id = state.scope_id.as_str(),
+            targets = state.targets.join(",")
+        );
+    }
+    Ok(marked)
 }
 
 fn init_checked_audit(data_dir: &Path) -> Result<(), ExitCode> {
@@ -3600,6 +3806,10 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
             msg_id = "agent-preflight-ok",
             data_dir = %data_dir.display()
         );
+        if let Err(error) = mark_resumable_scan_runs(&data_dir) {
+            eprintln!("scan run resume check failed: {error}");
+            return Err(ExitCode::from(78));
+        }
         Some(panic_hook)
     } else {
         None
@@ -3921,7 +4131,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--run-id ID] [--dry-run] [--enable-zap] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
