@@ -20,12 +20,26 @@
       "enum": ["pi", "cp"]
     },
     "kind": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+      "enum": [
+        "hello",
+        "welcome",
+        "policy.pull",
+        "policy.push",
+        "scope.set",
+        "scan.request",
+        "scan.event",
+        "scan.complete",
+        "evidence.append",
+        "bundle.export",
+        "bundle.fetch",
+        "ask.query",
+        "ask.result",
+        "selfcheck.run",
+        "selfcheck.report"
+      ]
     },
     "payload": {
+      "description": "Payload object matching the schema in payloads.schema.json for this envelope kind.",
       "$ref": "#/$defs/jsonRecord"
     },
     "sig": {

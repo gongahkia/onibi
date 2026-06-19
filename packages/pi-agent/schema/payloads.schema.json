@@ -1,0 +1,503 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kelpclaw.dev/schemas/pi/payloads.v1.schema.json",
+  "title": "Kelp Pi wire payloads v1",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/welcome" },
+    { "$ref": "#/$defs/policy.pull" },
+    { "$ref": "#/$defs/policy.push" },
+    { "$ref": "#/$defs/scope.set" },
+    { "$ref": "#/$defs/scan.request" },
+    { "$ref": "#/$defs/scan.event" },
+    { "$ref": "#/$defs/scan.complete" },
+    { "$ref": "#/$defs/evidence.append" },
+    { "$ref": "#/$defs/bundle.export" },
+    { "$ref": "#/$defs/bundle.fetch" },
+    { "$ref": "#/$defs/ask.query" },
+    { "$ref": "#/$defs/ask.result" },
+    { "$ref": "#/$defs/selfcheck.run" },
+    { "$ref": "#/$defs/selfcheck.report" }
+  ],
+  "$defs": {
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "keyState": {
+      "enum": ["trusted", "retiring", "revoked"]
+    },
+    "jsonValue": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonRecord": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "target": {
+      "type": "object",
+      "required": ["type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["cidr", "host", "ip", "url"] },
+        "value": { "type": "string", "minLength": 1 },
+        "ports": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "required": ["path", "heading_path", "chunk_id", "start_byte", "end_byte"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "heading_path": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "chunk_id": { "type": "string", "minLength": 1 },
+        "start_byte": { "type": "integer", "minimum": 0 },
+        "end_byte": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "hello": {
+      "description": "Pi-to-control-plane handshake with device identity and agent capabilities.",
+      "type": "object",
+      "required": ["protocol_version", "device_id", "key_id", "agent_version", "capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": { "const": "1.0.0" },
+        "device_id": { "type": "string", "minLength": 1 },
+        "key_id": { "$ref": "#/$defs/sha256" },
+        "agent_version": { "type": "string", "minLength": 1 },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "examples": [
+        {
+          "protocol_version": "1.0.0",
+          "device_id": "pi-field-01",
+          "key_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "agent_version": "0.1.0",
+          "capabilities": ["scan.nuclei", "scan.nmap", "ask.fts5"]
+        }
+      ]
+    },
+    "welcome": {
+      "description": "Control-plane handshake response with trust-list epoch and accepted key ID.",
+      "type": "object",
+      "required": [
+        "protocol_version",
+        "control_plane_id",
+        "accepted_key_id",
+        "trust_epoch",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": { "const": "1.0.0" },
+        "control_plane_id": { "type": "string", "minLength": 1 },
+        "accepted_key_id": { "$ref": "#/$defs/sha256" },
+        "trust_epoch": { "type": "integer", "minimum": 0 },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "examples": [
+        {
+          "protocol_version": "1.0.0",
+          "control_plane_id": "cp-local",
+          "accepted_key_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "trust_epoch": 7,
+          "capabilities": ["policy.push", "bundle.fetch"]
+        }
+      ]
+    },
+    "policy.pull": {
+      "description": "Pi request for the latest signed policy packs and trust-list state.",
+      "type": "object",
+      "required": ["device_id", "known_policy_packs", "trust_epoch"],
+      "additionalProperties": false,
+      "properties": {
+        "device_id": { "type": "string", "minLength": 1 },
+        "known_policy_packs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "trust_epoch": { "type": "integer", "minimum": 0 }
+      },
+      "examples": [
+        {
+          "device_id": "pi-field-01",
+          "known_policy_packs": ["appsec-agent-baseline@2026-06-19"],
+          "trust_epoch": 7
+        }
+      ]
+    },
+    "policy.push": {
+      "description": "Control-plane delivery of a signed policy pack summary and trust-list state.",
+      "type": "object",
+      "required": ["policy_pack_id", "policy_hash", "trust_epoch", "issued_at", "trust_list"],
+      "additionalProperties": false,
+      "properties": {
+        "policy_pack_id": { "type": "string", "minLength": 1 },
+        "policy_hash": { "$ref": "#/$defs/sha256" },
+        "trust_epoch": { "type": "integer", "minimum": 0 },
+        "issued_at": { "$ref": "#/$defs/dateTime" },
+        "trust_list": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key_id", "device_id", "state"],
+            "additionalProperties": false,
+            "properties": {
+              "key_id": { "$ref": "#/$defs/sha256" },
+              "device_id": { "type": "string", "minLength": 1 },
+              "state": { "$ref": "#/$defs/keyState" }
+            }
+          }
+        },
+        "policy": { "$ref": "#/$defs/jsonRecord" }
+      },
+      "examples": [
+        {
+          "policy_pack_id": "appsec-agent-baseline@2026-06-19",
+          "policy_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "trust_epoch": 8,
+          "issued_at": "2026-06-19T06:00:00Z",
+          "trust_list": [
+            {
+              "key_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "device_id": "pi-field-01",
+              "state": "trusted"
+            }
+          ],
+          "policy": { "mode": "enforce" }
+        }
+      ]
+    },
+    "scope.set": {
+      "description": "Signed engagement scope pushed from the control plane to the Pi.",
+      "type": "object",
+      "required": ["scope_id", "issued_at", "valid_from", "valid_until", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "scope_id": { "type": "string", "minLength": 1 },
+        "issued_at": { "$ref": "#/$defs/dateTime" },
+        "valid_from": { "$ref": "#/$defs/dateTime" },
+        "valid_until": { "$ref": "#/$defs/dateTime" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/target" }
+        }
+      },
+      "examples": [
+        {
+          "scope_id": "scope-2026-06-19-a",
+          "issued_at": "2026-06-19T06:00:00Z",
+          "valid_from": "2026-06-19T07:00:00Z",
+          "valid_until": "2026-06-19T11:00:00Z",
+          "targets": [{ "type": "cidr", "value": "192.0.2.0/29", "ports": [80, 443] }]
+        }
+      ]
+    },
+    "scan.request": {
+      "description": "Control-plane request to start a scoped scanner job.",
+      "type": "object",
+      "required": ["run_id", "scope_id", "scanner", "targets", "options"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "scope_id": { "type": "string", "minLength": 1 },
+        "scanner": { "enum": ["nuclei", "nmap", "zap"] },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "options": { "$ref": "#/$defs/jsonRecord" }
+      },
+      "examples": [
+        {
+          "run_id": "scan-01",
+          "scope_id": "scope-2026-06-19-a",
+          "scanner": "nuclei",
+          "targets": [{ "type": "url", "value": "https://app.example.test" }],
+          "options": { "templates": ["cves/"] }
+        }
+      ]
+    },
+    "scan.event": {
+      "description": "Scanner lifecycle, progress, output, or policy event.",
+      "type": "object",
+      "required": ["run_id", "seq", "phase", "ts"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "seq": { "type": "integer", "minimum": 0 },
+        "phase": {
+          "enum": [
+            "queued",
+            "started",
+            "stdout",
+            "stderr",
+            "finding",
+            "progress",
+            "policy-decision"
+          ]
+        },
+        "ts": { "$ref": "#/$defs/dateTime" },
+        "message": { "type": "string" },
+        "data": { "$ref": "#/$defs/jsonRecord" }
+      },
+      "examples": [
+        {
+          "run_id": "scan-01",
+          "seq": 3,
+          "phase": "progress",
+          "ts": "2026-06-19T07:10:00Z",
+          "message": "nuclei templates loaded",
+          "data": { "template_count": 42 }
+        }
+      ]
+    },
+    "scan.complete": {
+      "description": "Terminal scanner job state with evidence references.",
+      "type": "object",
+      "required": ["run_id", "status", "started_at", "finished_at", "evidence_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["succeeded", "failed", "cancelled", "refused"] },
+        "started_at": { "$ref": "#/$defs/dateTime" },
+        "finished_at": { "$ref": "#/$defs/dateTime" },
+        "evidence_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "output_hash": { "$ref": "#/$defs/sha256" },
+        "error": { "type": "string" }
+      },
+      "examples": [
+        {
+          "run_id": "scan-01",
+          "status": "succeeded",
+          "started_at": "2026-06-19T07:09:00Z",
+          "finished_at": "2026-06-19T07:12:00Z",
+          "evidence_ids": ["evidence-nuclei-01"],
+          "output_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      ]
+    },
+    "evidence.append": {
+      "description": "Append normalized scanner output into the Pi evidence workspace.",
+      "type": "object",
+      "required": ["run_id", "evidence_id", "source", "evidence_kind", "content_hash", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "evidence_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "evidence_kind": { "enum": ["sarif", "nuclei", "zap", "nmap", "manual"] },
+        "content_hash": { "$ref": "#/$defs/sha256" },
+        "payload": { "$ref": "#/$defs/jsonRecord" }
+      },
+      "examples": [
+        {
+          "run_id": "scan-01",
+          "evidence_id": "evidence-nuclei-01",
+          "source": "nuclei.jsonl",
+          "evidence_kind": "nuclei",
+          "content_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "payload": { "finding_count": 1 }
+        }
+      ]
+    },
+    "bundle.export": {
+      "description": "Pi notification that an audit bundle is ready to send or fetch.",
+      "type": "object",
+      "required": ["run_id", "bundle_id", "manifest_hash", "size_bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "bundle_id": { "type": "string", "minLength": 1 },
+        "manifest_hash": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "uri": { "type": "string", "minLength": 1 }
+      },
+      "examples": [
+        {
+          "run_id": "scan-01",
+          "bundle_id": "bundle-01",
+          "manifest_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "size_bytes": 65536,
+          "uri": "file:///var/lib/kelp-pi/bundles/bundle-01"
+        }
+      ]
+    },
+    "bundle.fetch": {
+      "description": "Control-plane request to retrieve a completed bundle by ID.",
+      "type": "object",
+      "required": ["request_id", "bundle_id"],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": { "type": "string", "minLength": 1 },
+        "bundle_id": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string", "minLength": 1 }
+      },
+      "examples": [
+        {
+          "request_id": "fetch-01",
+          "bundle_id": "bundle-01",
+          "run_id": "scan-01"
+        }
+      ]
+    },
+    "ask.query": {
+      "description": "Citation-first retrieval query against the Pi local corpus.",
+      "type": "object",
+      "required": ["query_id", "q", "top_k"],
+      "additionalProperties": false,
+      "properties": {
+        "query_id": { "type": "string", "minLength": 1 },
+        "q": { "type": "string", "minLength": 1 },
+        "top_k": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "corpus": { "type": "string", "minLength": 1 }
+      },
+      "examples": [
+        {
+          "query_id": "ask-01",
+          "q": "Which endpoints expose admin login?",
+          "top_k": 5,
+          "corpus": "engagement"
+        }
+      ]
+    },
+    "ask.result": {
+      "description": "Retrieval result with citations or explicit no-answer state.",
+      "type": "object",
+      "required": ["query_id", "status", "citations"],
+      "additionalProperties": false,
+      "properties": {
+        "query_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["answered", "no_answer", "error"] },
+        "citations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/citation" }
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["chunk_id", "score", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "chunk_id": { "type": "string", "minLength": 1 },
+              "score": { "type": "number" },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "reason": { "type": "string" }
+      },
+      "examples": [
+        {
+          "query_id": "ask-01",
+          "status": "answered",
+          "citations": [
+            {
+              "path": "notes/admin.md",
+              "heading_path": ["Findings"],
+              "chunk_id": "abc123",
+              "start_byte": 0,
+              "end_byte": 120
+            }
+          ],
+          "results": [
+            { "chunk_id": "abc123", "score": 12.5, "content": "Admin login is at /admin." }
+          ]
+        }
+      ]
+    },
+    "selfcheck.run": {
+      "description": "Request for the Pi to report local health and network posture.",
+      "type": "object",
+      "required": ["check_id", "requested_checks"],
+      "additionalProperties": false,
+      "properties": {
+        "check_id": { "type": "string", "minLength": 1 },
+        "requested_checks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "target": { "type": "string", "minLength": 1 }
+      },
+      "examples": [
+        {
+          "check_id": "selfcheck-01",
+          "requested_checks": ["ap", "disk", "audit-log"],
+          "target": "127.0.0.1"
+        }
+      ]
+    },
+    "selfcheck.report": {
+      "description": "Signed Pi self-check report.",
+      "type": "object",
+      "required": ["check_id", "generated_at", "status", "checks"],
+      "additionalProperties": false,
+      "properties": {
+        "check_id": { "type": "string", "minLength": 1 },
+        "generated_at": { "$ref": "#/$defs/dateTime" },
+        "status": { "enum": ["pass", "warn", "fail"] },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["pass", "warn", "fail"] },
+              "message": { "type": "string" },
+              "value": { "$ref": "#/$defs/jsonValue" }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "check_id": "selfcheck-01",
+          "generated_at": "2026-06-19T07:00:00Z",
+          "status": "pass",
+          "checks": [
+            { "name": "audit-log", "status": "pass", "value": { "verified": true } },
+            { "name": "free-disk", "status": "pass", "value": { "bytes": 200000000000 } }
+          ]
+        }
+      ]
+    }
+  }
+}

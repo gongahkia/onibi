@@ -11,7 +11,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P0 — Scoping, absorption, and contracts
 
-- [ ] Enumerate v1 wire-protocol `kind` values: `hello`, `welcome`, `policy.pull`, `policy.push`, `scope.set`, `scan.request`, `scan.event`, `scan.complete`, `evidence.append`, `bundle.export`, `bundle.fetch`, `ask.query`, `ask.result`, `selfcheck.run`, `selfcheck.report` → success: each kind has a documented payload schema and example.
 - [ ] Choose transport: TCP+TLS, Unix socket on Pi, or SSH-tunneled stdio → success: decision recorded; client/server reference implementations described.
 - [ ] Define on-Pi data directory layout: `/var/lib/kelp-pi/{corpus,evidence,bundles,index,audit,keys,policy,scope}` → success: layout documented; agent refuses to start if any path is world-writable.
 - [ ] Define on-Pi quota defaults: corpus, uploads, index, audit log size caps → success: quotas listed with default values and configuration override mechanism.
