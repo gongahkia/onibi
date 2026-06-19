@@ -15,10 +15,15 @@ use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
+mod chunking;
 mod doctor;
 mod keys;
 mod wire;
 
+pub use chunking::{
+    default_chunking_config, deterministic_token_windows, ChunkingConfig,
+    DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
+};
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,

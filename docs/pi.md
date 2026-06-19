@@ -332,6 +332,17 @@ Audit & forensics:
 - Chunk IDs in the retrieval index are content-hashed and deterministic: identical
   corpus inputs produce identical IDs across rebuilds, on Pi or laptop.
 
+Retrieval chunking:
+
+- Default chunking is heading-aware deterministic token windows: target 512 tokens,
+  64-token overlap, stable whitespace tokenization, and no model-dependent tokenizer.
+- Markdown chunking keeps the current heading path with each chunk and starts a new
+  window at heading boundaries when possible before applying the 512/64 window.
+- Plain text chunking is paragraph-aware first, then falls back to the same token
+  window rule when a paragraph exceeds the target.
+- PDF ingest uses external `pdftotext` sidecars only; sidecar text follows the plain
+  text path and keeps a `derived_from: pdf` source marker.
+
 Physical capture assumptions:
 
 - Powered-off capture model: attacker must recover the operator passphrase or defeat
