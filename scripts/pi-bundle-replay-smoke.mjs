@@ -12,6 +12,8 @@ const bundleDir = join(root, "pi-bundle");
 const stagedBundleDir = join(dataDir, "bundles", "pi-bundle-replay-smoke");
 const laptopBundleDir = join(root, "laptop", "pi-bundle");
 const fetchedBundleDir = join(root, "laptop", "fetched-pi-bundle");
+const importedBundleDir = join(root, "laptop", "imported-pi-bundle");
+const exportEnvelope = join(root, "bundle-export-envelope.json");
 const cpKey = join(root, "cp-key.json");
 const agentBin = join(repoRoot, "packages/pi-agent/target/debug/kelp-pi-agent");
 const requiredDataDirs = [
@@ -146,7 +148,35 @@ try {
   if (fetchResult.verified !== true || fetchResult.verification?.ok !== true) {
     throw new Error(`bundle fetch verification failed\n${JSON.stringify(fetchResult, null, 2)}`);
   }
+  const exportPayload = run("cargo", [
+    ...pi,
+    "bundle",
+    "export",
+    "--data-dir",
+    dataDir,
+    "--bundle-id",
+    "pi-bundle-replay-smoke",
+    "--run-id",
+    "pi-bundle-replay-smoke"
+  ]);
+  await writeFile(exportEnvelope, `${exportPayload}\n`, "utf8");
+  const importResult = JSON.parse(
+    run(process.execPath, [
+      "packages/cli/dist/index.js",
+      "pi",
+      "bundle",
+      "import",
+      "--input",
+      exportEnvelope,
+      "--out",
+      importedBundleDir
+    ])
+  );
+  if (importResult.verified !== true || importResult.verification?.ok !== true) {
+    throw new Error(`bundle import verification failed\n${JSON.stringify(importResult, null, 2)}`);
+  }
   await readFile(join(fetchedBundleDir, "audit-log.jsonl"), "utf8");
+  await readFile(join(importedBundleDir, "audit-log.jsonl"), "utf8");
   await readFile(join(laptopBundleDir, "audit-log.jsonl"), "utf8");
   console.log("Pi bundle replay smoke passed.");
 } finally {

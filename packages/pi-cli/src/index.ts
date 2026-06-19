@@ -44,6 +44,10 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
             "kelp-claw pi bundle fetch --bundle-id ID --out PATH [--run-id ID] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
         },
         {
+          name: "bundle import",
+          usage: "kelp-claw pi bundle import --input ENVELOPE --out PATH"
+        },
+        {
           name: "scope set",
           usage:
             "kelp-claw pi scope set (--cidr CIDR|--host HOST|--ip IP|--url URL)... --until RFC3339 [--port PORT...] [--scope-id ID] [--from RFC3339] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
@@ -94,10 +98,13 @@ async function wipeCommand(args: readonly string[]): Promise<JsonRecord> {
 
 async function bundleCommand(args: readonly string[]): Promise<JsonRecord> {
   const [command, ...rest] = args;
-  if (command !== "fetch") {
-    throw new Error("Usage: kelp-claw pi bundle fetch --bundle-id ID --out PATH");
+  if (command === "fetch") {
+    return bundleFetchCommand(rest);
   }
-  return bundleFetchCommand(rest);
+  if (command === "import") {
+    return bundleImportCommand(rest);
+  }
+  throw new Error("Usage: kelp-claw pi bundle <fetch|import> ...");
 }
 
 async function bundleFetchCommand(args: readonly string[]): Promise<JsonRecord> {
@@ -147,26 +154,7 @@ async function bundleFetchCommand(args: readonly string[]): Promise<JsonRecord> 
   if (!isRecord(payload)) {
     throw new Error(`${agentBin} returned bundle.fetch without object payload`);
   }
-  const files = payload.files;
-  if (!Array.isArray(files)) {
-    throw new Error(`${agentBin} returned bundle.fetch without files`);
-  }
-  await mkdir(outDir, { recursive: true });
-  const written: string[] = [];
-  for (const file of files) {
-    if (!isRecord(file)) {
-      throw new Error("bundle.fetch file entry is not an object");
-    }
-    const path = stringField(file, "path");
-    const contentBase64 = stringField(file, "content_base64");
-    if (!path || !contentBase64 || !isSafeBundlePath(path)) {
-      throw new Error(`unsafe or incomplete bundle.fetch file entry: ${path ?? "<missing>"}`);
-    }
-    const absolutePath = join(outDir, ...path.split("/"));
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, Buffer.from(contentBase64, "base64"));
-    written.push(path);
-  }
+  const written = await writeBundlePayloadFiles(payload, outDir, "bundle.fetch");
   const responseRunId = stringField(payload, "run_id");
   return {
     ok: true,
@@ -177,6 +165,31 @@ async function bundleFetchCommand(args: readonly string[]): Promise<JsonRecord> 
     sizeBytes: numberField(payload, "size_bytes") ?? 0,
     files: written,
     response
+  };
+}
+
+async function bundleImportCommand(args: readonly string[]): Promise<JsonRecord> {
+  const input = option(args, "--input");
+  const outDir = option(args, "--out");
+  if (!input || !outDir) {
+    throw new Error("Usage: kelp-claw pi bundle import --input ENVELOPE --out PATH");
+  }
+  const envelope = JSON.parse(await readFile(input, "utf8")) as unknown;
+  if (!isRecord(envelope) || envelope.kind !== "bundle.export" || !isRecord(envelope.payload)) {
+    throw new Error(`${input} is not a bundle.export envelope`);
+  }
+  const payload = envelope.payload;
+  const written = await writeBundlePayloadFiles(payload, outDir, "bundle.export");
+  const responseRunId = stringField(payload, "run_id");
+  return {
+    ok: true,
+    bundleId: stringField(payload, "bundle_id") ?? "",
+    ...(responseRunId ? { runId: responseRunId } : {}),
+    bundleDir: outDir,
+    manifestHash: stringField(payload, "manifest_hash") ?? "",
+    sizeBytes: numberField(payload, "size_bytes") ?? 0,
+    files: written,
+    response: envelope
   };
 }
 
@@ -316,6 +329,34 @@ function parseWireResponse(stdout: string, kind: string): JsonRecord {
     }
   }
   throw new Error(`wire response did not include ${kind}`);
+}
+
+async function writeBundlePayloadFiles(
+  payload: JsonRecord,
+  outDir: string,
+  kind: string
+): Promise<readonly string[]> {
+  const files = payload.files;
+  if (!Array.isArray(files)) {
+    throw new Error(`${kind} payload does not contain files`);
+  }
+  await mkdir(outDir, { recursive: true });
+  const written: string[] = [];
+  for (const file of files) {
+    if (!isRecord(file)) {
+      throw new Error(`${kind} file entry is not an object`);
+    }
+    const path = stringField(file, "path");
+    const contentBase64 = stringField(file, "content_base64");
+    if (!path || !contentBase64 || !isSafeBundlePath(path)) {
+      throw new Error(`unsafe or incomplete ${kind} file entry: ${path ?? "<missing>"}`);
+    }
+    const absolutePath = join(outDir, ...path.split("/"));
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, Buffer.from(contentBase64, "base64"));
+    written.push(path);
+  }
+  return written;
 }
 
 function requiredPositional(args: readonly string[], index: number, usage: string): string {

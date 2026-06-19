@@ -28,6 +28,17 @@
       "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$"
     },
+    "bundleFile": {
+      "type": "object",
+      "required": ["path", "size_bytes", "sha256", "content_base64"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "content_base64": { "type": "string", "minLength": 1 }
+      }
+    },
     "keyState": {
       "enum": ["trusted", "retiring", "revoked"]
     },
@@ -338,16 +349,20 @@
       ]
     },
     "bundle.export": {
-      "description": "Pi notification that an audit bundle is ready to send or fetch.",
+      "description": "Pi notification carrying a completed audit bundle to the control plane.",
       "type": "object",
-      "required": ["run_id", "bundle_id", "manifest_hash", "size_bytes"],
+      "required": ["run_id", "bundle_id", "manifest_hash", "size_bytes", "files"],
       "additionalProperties": false,
       "properties": {
         "run_id": { "type": "string", "minLength": 1 },
         "bundle_id": { "type": "string", "minLength": 1 },
         "manifest_hash": { "$ref": "#/$defs/sha256" },
         "size_bytes": { "type": "integer", "minimum": 0 },
-        "uri": { "type": "string", "minLength": 1 }
+        "uri": { "type": "string", "minLength": 1 },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/bundleFile" }
+        }
       },
       "examples": [
         {
@@ -355,7 +370,15 @@
           "bundle_id": "bundle-01",
           "manifest_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
           "size_bytes": 65536,
-          "uri": "file:///var/lib/kelp-pi/bundles/bundle-01"
+          "uri": "file:///var/lib/kelp-pi/bundles/bundle-01",
+          "files": [
+            {
+              "path": "manifest.json",
+              "size_bytes": 1024,
+              "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+              "content_base64": "e30="
+            }
+          ]
         }
       ]
     },
@@ -372,17 +395,7 @@
         "size_bytes": { "type": "integer", "minimum": 0 },
         "files": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["path", "size_bytes", "sha256", "content_base64"],
-            "additionalProperties": false,
-            "properties": {
-              "path": { "type": "string", "minLength": 1 },
-              "size_bytes": { "type": "integer", "minimum": 0 },
-              "sha256": { "$ref": "#/$defs/sha256" },
-              "content_base64": { "type": "string", "minLength": 1 }
-            }
-          }
+          "items": { "$ref": "#/$defs/bundleFile" }
         }
       },
       "examples": [

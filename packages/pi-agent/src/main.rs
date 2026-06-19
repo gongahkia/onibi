@@ -1368,16 +1368,105 @@ fn approve_command(args: Vec<String>) -> Result<(), ExitCode> {
 
 fn bundle_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
-        eprintln!("usage: kelp-pi-agent bundle assemble --run-id ID --workspace PATH --output PATH [--data-dir PATH] [--key-dir PATH]");
+        eprintln!("usage: kelp-pi-agent bundle <assemble|export> ...");
         return Err(ExitCode::from(64));
     };
     match subcommand.as_str() {
         "assemble" => bundle_assemble_command(args[1..].to_vec()),
+        "export" => bundle_export_command(args[1..].to_vec()),
         other => {
             eprintln!("unknown bundle command: {other}");
             Err(ExitCode::from(64))
         }
     }
+}
+
+fn bundle_export_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut bundle_id = None;
+    let mut run_id = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--bundle-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--bundle-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                bundle_id = Some(value.to_string());
+                index += 2;
+            }
+            "--run-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--run-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                run_id = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(bundle_id) = bundle_id else {
+        eprintln!("bundle export requires --bundle-id");
+        return Err(ExitCode::from(64));
+    };
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    let identity = load_or_generate_identity_key(&key_dir, DEFAULT_KEY_LABEL).map_err(|error| {
+        eprintln!("identity key unavailable: {error}");
+        ExitCode::from(78)
+    })?;
+    let transfer =
+        load_pi_bundle_transfer(&data_dir, &bundle_id, run_id.as_deref()).map_err(|error| {
+            eprintln!("bundle export failed: {error}");
+            ExitCode::from(65)
+        })?;
+    let payload = serde_json::to_value(&transfer)
+        .expect("serialize bundle transfer")
+        .as_object()
+        .expect("bundle transfer object")
+        .clone();
+    let envelope = sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: format!("bundle.export.{}.{}", bundle_id, unix_millis_now()),
+            ts: rfc3339_now(),
+            sender: PiEnvelopeSender::Pi,
+            kind: PiEnvelopeKind::BundleExport,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| {
+        eprintln!("bundle export signing failed: {error}");
+        ExitCode::from(78)
+    })?;
+    println!(
+        "{}",
+        serde_json::to_string(&envelope).expect("serialize bundle export envelope")
+    );
+    Ok(())
 }
 
 fn bundle_assemble_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -3154,6 +3243,7 @@ fn print_usage() {
     );
     eprintln!("usage: kelp-pi-agent approve TOKEN [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent bundle assemble --run-id ID --workspace PATH --output PATH [--data-dir PATH] [--key-dir PATH]");
+    eprintln!("usage: kelp-pi-agent bundle export --bundle-id ID [--run-id ID] [--data-dir PATH] [--key-dir PATH]");
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!(

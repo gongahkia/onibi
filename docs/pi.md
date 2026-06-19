@@ -297,6 +297,9 @@ Package pin and upgrade flow:
   `bundle.fetch` request over `kelp-pi-agent wire --stdio`, reconstructs the returned
   bundle files on the laptop, and verifies the result through
   `kelp-claw verify-audit-bundle --profile reviewer`.
+- `kelp-pi-agent bundle export --bundle-id <id>` emits a signed `bundle.export`
+  envelope containing the staged bundle files. `kelp-claw pi bundle import --input <envelope> --out <audit-bundle>`
+  reconstructs and verifies that control-plane copy.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

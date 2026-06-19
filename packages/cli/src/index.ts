@@ -390,6 +390,14 @@ export async function runPiCommand(args: readonly string[] = []): Promise<JsonRe
       verification
     };
   }
+  if (args[0] === "bundle" && args[1] === "import" && typeof result.bundleDir === "string") {
+    const verification = await verifyAuditBundle([result.bundleDir, "--profile", "reviewer"]);
+    return {
+      ...result,
+      verified: verification.ok,
+      verification
+    };
+  }
   return result;
 }
 
