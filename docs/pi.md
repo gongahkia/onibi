@@ -366,6 +366,9 @@ Retrieval chunking:
 - `policy.push` accepts only `cp` envelopes whose Ed25519 signature verifies against
   a trusted control-plane key, verifies the embedded policy hash, and persists the
   accepted pack under `/var/lib/kelp-pi/policy/current-policy.json`.
+- Local policy evaluation covers scanner invocation, file operation, and outbound
+  network gates; `evaluate_and_audit_local_policy` emits a hash-chained
+  `policy-decision` audit event for each decision.
 
 Physical capture assumptions:
 

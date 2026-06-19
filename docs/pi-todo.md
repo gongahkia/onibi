@@ -51,7 +51,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P5 — Policy gates on Pi
 
-- [ ] Implement local policy evaluation for scanner invocations, file operations, and outbound network requests → success: every gated action produces a `policy-decision` audit entry.
 - [ ] Implement operator-approval flow for `require-approval` decisions: the agent prints a one-time approval token to a local TTY; operator runs `kelp-claw pi approve <token>` over SSH to confirm → success: an integration test demonstrates a scan that is blocked until approved and then proceeds.
 - [ ] Make approvals time-limited (default 15 min) and scope-bound → success: an expired approval token is rejected; an approval issued for one scope cannot authorize a different scope's scan.
 - [ ] Add a policy `dry-run` mode that logs decisions without acting → success: operators can rehearse an engagement and review the policy decisions before live runs.

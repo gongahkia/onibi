@@ -14,6 +14,8 @@ use crate::{verify_envelope, EnvelopeError, PiEnvelopeKind, PiEnvelopeSender, Pi
 pub const APPSEC_AGENT_BASELINE_PACK_ID: &str = "appsec-agent-baseline";
 pub const APPSEC_AGENT_BASELINE_VERSION: &str = "1.0.0";
 pub const CURRENT_POLICY_FILE: &str = "current-policy.json";
+pub const KELP_PI_REVIEW_FILE_MUTATION_RULE_ID: &str = "kelp-pi-review-file-mutation";
+pub const KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID: &str = "kelp-pi-deny-outbound-network";
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -36,6 +38,37 @@ pub struct PiPolicyRule {
 pub struct PiPolicyDecision {
     pub action: PiPolicyAction,
     pub matched_rule_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approver_role: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PiPolicyGate {
+    ScannerInvocation,
+    FileOperation,
+    OutboundNetworkRequest,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PiLocalPolicyRequest {
+    pub gate: PiPolicyGate,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub mutating: bool,
+    pub allowed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PiLocalPolicyDecision {
+    pub gate: PiPolicyGate,
+    pub action: PiPolicyAction,
+    pub matched_rule_ids: Vec<String>,
+    pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approver_role: Option<String>,
 }
@@ -154,6 +187,16 @@ impl PiPolicyAction {
     }
 }
 
+impl PiPolicyGate {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PiPolicyGate::ScannerInvocation => "scanner-invocation",
+            PiPolicyGate::FileOperation => "file-operation",
+            PiPolicyGate::OutboundNetworkRequest => "outbound-network-request",
+        }
+    }
+}
+
 impl FromStr for PiPolicyAction {
     type Err = PiPolicyVocabularyError;
 
@@ -169,6 +212,12 @@ impl FromStr for PiPolicyAction {
 }
 
 impl Display for PiPolicyAction {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl Display for PiPolicyGate {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.as_str())
     }
@@ -262,6 +311,58 @@ pub fn recognize_appsec_agent_baseline_decision(
             .collect(),
         approver_role,
     })
+}
+
+pub fn evaluate_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision {
+    match request.gate {
+        PiPolicyGate::ScannerInvocation => PiLocalPolicyDecision {
+            gate: request.gate,
+            action: PiPolicyAction::RequireApproval,
+            matched_rule_ids: vec!["appsec-agent-review-active-scanner".to_string()],
+            reason: "active scanner invocation requires operator approval".to_string(),
+            approver_role: Some("appsec-reviewer".to_string()),
+        },
+        PiPolicyGate::FileOperation if request.mutating => PiLocalPolicyDecision {
+            gate: request.gate,
+            action: PiPolicyAction::RequireApproval,
+            matched_rule_ids: vec![KELP_PI_REVIEW_FILE_MUTATION_RULE_ID.to_string()],
+            reason: "mutating file operation requires operator approval".to_string(),
+            approver_role: Some("appsec-reviewer".to_string()),
+        },
+        PiPolicyGate::OutboundNetworkRequest if !request.allowed => PiLocalPolicyDecision {
+            gate: request.gate,
+            action: PiPolicyAction::Deny,
+            matched_rule_ids: vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()],
+            reason: "outbound destination is not allowlisted".to_string(),
+            approver_role: None,
+        },
+        _ => PiLocalPolicyDecision {
+            gate: request.gate,
+            action: PiPolicyAction::Allow,
+            matched_rule_ids: Vec::new(),
+            reason: "local policy allows action".to_string(),
+            approver_role: None,
+        },
+    }
+}
+
+pub fn evaluate_and_audit_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision {
+    let decision = evaluate_local_policy(request);
+    tracing::info!(
+        event = "policy-decision",
+        msg = "local policy decision",
+        msg_id = "policy-decision-local",
+        gate = decision.gate.as_str(),
+        action = decision.action.as_str(),
+        matched_rule_ids = decision.matched_rule_ids.join(","),
+        reason = decision.reason.as_str(),
+        command = request.command.as_deref().unwrap_or(""),
+        path = request.path.as_deref().unwrap_or(""),
+        host = request.host.as_deref().unwrap_or(""),
+        mutating = request.mutating,
+        allowed = request.allowed
+    );
+    decision
 }
 
 pub fn apply_policy_push(
@@ -396,9 +497,10 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand_core::OsRng;
     use serde_json::{json, Value};
-    use std::fs;
+    use std::fs::{self, OpenOptions};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
     fn policy_actions_match_typescript_vocabulary() {
@@ -532,6 +634,86 @@ mod tests {
         let error = apply_policy_push(&root, &envelope, &[trusted_key]).expect_err("reject");
 
         assert!(matches!(error, PolicyDeliveryError::HashMismatch { .. }));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn local_policy_evaluates_scanner_file_and_network_gates() {
+        let scanner = evaluate_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::ScannerInvocation,
+            command: Some("nuclei -u http://target.local".to_string()),
+            path: None,
+            host: None,
+            mutating: false,
+            allowed: true,
+        });
+        assert_eq!(scanner.action, PiPolicyAction::RequireApproval);
+        assert_eq!(
+            scanner.matched_rule_ids,
+            vec!["appsec-agent-review-active-scanner".to_string()]
+        );
+
+        let file_write = evaluate_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::FileOperation,
+            command: None,
+            path: Some("corpus/guide.txt".to_string()),
+            host: None,
+            mutating: true,
+            allowed: true,
+        });
+        assert_eq!(file_write.action, PiPolicyAction::RequireApproval);
+        assert_eq!(
+            file_write.matched_rule_ids,
+            vec![KELP_PI_REVIEW_FILE_MUTATION_RULE_ID.to_string()]
+        );
+
+        let outbound = evaluate_local_policy(&PiLocalPolicyRequest {
+            gate: PiPolicyGate::OutboundNetworkRequest,
+            command: None,
+            path: None,
+            host: Some("example.com:443".to_string()),
+            mutating: false,
+            allowed: false,
+        });
+        assert_eq!(outbound.action, PiPolicyAction::Deny);
+        assert_eq!(
+            outbound.matched_rule_ids,
+            vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()]
+        );
+    }
+
+    #[test]
+    fn local_policy_decision_is_audited() {
+        let root = temp_root("policy-audit");
+        fs::create_dir_all(root.join("audit")).expect("create audit dir");
+        let log_path = crate::audit_log_path(&root);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .expect("open audit log");
+        let subscriber = tracing_subscriber::registry().with(crate::AuditJsonLayer::new(file));
+
+        tracing::subscriber::with_default(subscriber, || {
+            evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
+                gate: PiPolicyGate::OutboundNetworkRequest,
+                command: None,
+                path: None,
+                host: Some("example.com:443".to_string()),
+                mutating: false,
+                allowed: false,
+            });
+        });
+
+        let content = fs::read_to_string(log_path).expect("read audit log");
+        let entry: Value = serde_json::from_str(content.lines().next().expect("audit entry"))
+            .expect("parse audit");
+        assert_eq!(entry["event"], "policy-decision");
+        assert_eq!(entry["action"], "deny");
+        assert_eq!(
+            entry["matched_rule_ids"],
+            KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID
+        );
         fs::remove_dir_all(root).ok();
     }
 
