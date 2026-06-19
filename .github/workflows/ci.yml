@@ -104,6 +104,21 @@ jobs:
       - name: Build Pi agent
         run: cross build --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
 
+      - name: Install ARM64 binutils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-aarch64-linux-gnu
+
+      - name: Check Pi agent stripped size
+        run: |
+          binary="packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent"
+          stripped="${RUNNER_TEMP}/kelp-pi-agent-stripped"
+          max_bytes=$((20 * 1024 * 1024))
+          aarch64-linux-gnu-objcopy --strip-all "$binary" "$stripped"
+          size_bytes=$(stat -c%s "$stripped")
+          echo "stripped_size_bytes=${size_bytes}"
+          test "$size_bytes" -le "$max_bytes"
+
       - name: Clippy Pi agent
         run: cross clippy --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }} -- -D warnings
 
