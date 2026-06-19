@@ -353,8 +353,8 @@ Package pin and upgrade flow:
   and rejects accidental `bookworm`, `forky`, `testing`, or `unstable` pulls.
 - The lock must include every installed package matching `raspberrypi-*`,
   `raspi-*`, `linux-image-*`, `linux-headers-*`, `network-manager`, `dnsmasq`,
-  `nftables`, `openssh-*`, `nmap`, and `nuclei`; image builds fail if those package
-  versions drift without a lock update.
+  `nftables`, `openssh-*`, and `nmap`; image builds fail if those package versions
+  drift without a lock update.
 - The system Nmap baseline is Debian Trixie `nmap` package `7.95+dfsg-3`;
   `kelp-pi-agent scan nmap` refuses runtime `nmap --version` output other than
   `7.95`.
@@ -369,7 +369,10 @@ Package pin and upgrade flow:
   asset `nuclei_3.9.0_linux_arm64.zip`, SHA-256
   `733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850`.
   `pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>` installs it
-  at `/opt/kelp-pi/bin/nuclei`; `kelp-pi-agent scan nuclei` defaults to that path.
+  at `/opt/kelp-pi/bin/nuclei`; the installed binary SHA-256 is
+  `6b6f19f038f959c2ec90d9f3e3f039256987d1eb78d5c292d7ec9a384513e27f`, recorded
+  in `/etc/kelp-pi/nuclei-binary.json`, and checked by `validate:pi-node`.
+  `kelp-pi-agent scan nuclei` defaults to that path.
 - Scanner limits are operator-declared on every active scan. `kelp-pi-agent scan`
   accepts `--max-requests-per-second`, `--max-concurrent-targets`, and
   `--max-scan-duration-seconds`; signed `scan.request` supports the same values as

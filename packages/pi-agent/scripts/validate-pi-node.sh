@@ -4,6 +4,11 @@ set -eu
 agent_bin="${KELP_PI_AGENT_BIN:-/usr/local/bin/kelp-pi-agent}"
 service="${KELP_PI_SERVICE:-kelp-pi-agent.service}"
 network_config="${KELP_PI_NETWORK_CONFIG:-/etc/kelp-pi/network-hardening.json}"
+nuclei_bin="${KELP_PI_NUCLEI_BIN:-/opt/kelp-pi/bin/nuclei}"
+nuclei_manifest="${KELP_PI_NUCLEI_MANIFEST:-/etc/kelp-pi/nuclei-binary.json}"
+nuclei_version="v3.9.0"
+nuclei_asset_sha256="733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850"
+nuclei_binary_sha256="6b6f19f038f959c2ec90d9f3e3f039256987d1eb78d5c292d7ec9a384513e27f"
 portal_ip="${KELP_PI_PORTAL_IP:-10.42.0.1}"
 egress_probe="${KELP_PI_EGRESS_PROBE:-https://example.com}"
 
@@ -20,6 +25,14 @@ need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 missing"
 }
 
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
 [ "$(id -u)" = "0" ] || fail "run as root on the Pi"
 
 need "$agent_bin"
@@ -27,6 +40,7 @@ need systemctl
 need systemd-analyze
 need nft
 need curl
+need awk
 
 "$agent_bin" version | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
 pass "agent version"
@@ -46,6 +60,14 @@ score="$(systemd-analyze security "$service" --no-pager | awk '/Overall exposure
 [ -n "$score" ] || fail "systemd security score missing"
 awk -v score="$score" 'BEGIN { exit !(score < 3.0) }' || fail "systemd security score $score >= 3.0"
 pass "systemd security score $score"
+
+[ -x "$nuclei_bin" ] || fail "$nuclei_bin missing or not executable"
+[ -f "$nuclei_manifest" ] || fail "$nuclei_manifest missing"
+grep -q "\"version\":\"$nuclei_version\"" "$nuclei_manifest" || fail "nuclei manifest version mismatch"
+grep -q "\"sha256\":\"$nuclei_asset_sha256\"" "$nuclei_manifest" || fail "nuclei asset sha256 mismatch"
+grep -q "\"binary_sha256\":\"$nuclei_binary_sha256\"" "$nuclei_manifest" || fail "nuclei binary sha256 mismatch"
+[ "$(hash_file "$nuclei_bin")" = "$nuclei_binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
+pass "nuclei pinned binary"
 
 [ -f "$network_config" ] || fail "$network_config missing"
 "$agent_bin" hardening apply-network --config "$network_config"

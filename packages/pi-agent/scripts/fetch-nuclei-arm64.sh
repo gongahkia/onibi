@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
+[ "${1:-}" = "--" ] && shift
 root="${1:-${KELP_PI_IMAGE_ROOT:-}}"
 version="v3.9.0"
 asset="nuclei_3.9.0_linux_arm64.zip"
@@ -45,7 +46,8 @@ actual="$(hash_file "$zip")"
 
 unzip -q "$zip" -d "$tmp/unzip"
 test -x "$tmp/unzip/nuclei"
+binary_sha256="$(hash_file "$tmp/unzip/nuclei")"
 install -d "$root/opt/kelp-pi/bin" "$root/etc/kelp-pi"
 install -m 0755 "$tmp/unzip/nuclei" "$root/opt/kelp-pi/bin/nuclei"
-printf '{"version":"%s","asset":"%s","sha256":"%s","path":"/opt/kelp-pi/bin/nuclei"}\n' "$version" "$asset" "$sha256" > "$root/etc/kelp-pi/nuclei-binary.json"
+printf '{"version":"%s","asset":"%s","sha256":"%s","binary_sha256":"%s","path":"/opt/kelp-pi/bin/nuclei"}\n' "$version" "$asset" "$sha256" "$binary_sha256" > "$root/etc/kelp-pi/nuclei-binary.json"
 printf '%s\n' "$root/opt/kelp-pi/bin/nuclei"
