@@ -25,21 +25,21 @@ signature, attestation, and reviewer profile. It does not satisfy the hardware
 walkthrough TODO by itself; that still requires the real Pi AP, scanner sandbox,
 network hardening, retrieval, and bundle fetch flow.
 
-Pi flow sketch:
+Run the hardware-backed Pi walkthrough:
 
 ```console
-$ kelp-claw pi scope set --host fixture.local --port 8080 --until 2026-06-20T00:00:00Z
-$ ssh kelp-pi@<pi-host> \
-  kelp-pi-agent scan nuclei \
-    --sandbox \
-    --target http://fixture.local:8080 \
-    --scanner-target-ip <fixture-ip> \
-    --run-id fixture-target
-$ ssh kelp-pi@<pi-host> \
-  kelp-pi-agent bundle assemble \
-  --run-id fixture-target \
-  --workspace /var/lib/kelp-pi/evidence/fixture-target \
-  --output /var/lib/kelp-pi/bundles/fixture-target
-$ kelp-claw pi bundle fetch --bundle-id fixture-target --out .kelpclaw/pi/fixture-target
-$ kelp-claw verify-audit-bundle .kelpclaw/pi/fixture-target --profile reviewer
+$ examples/pi-vulnerable-target/pi-field-walkthrough.sh \
+  --pi-host <pi-host> \
+  --fixture-ip <fixture-ip> \
+  --control-url https://<control-plane-host>:443/health \
+  --client-a <ap-client-a-ip> \
+  --client-b <ap-client-b-ip> \
+  --client-ssh-user <client-ssh-user> \
+  --upstream-interface <wan-iface> \
+  --updated-config <updated-network-hardening.json> \
+  --until 2026-06-20T00:00:00Z
+$ jq .ok .kelpclaw/pi-vulnerable-target-field/verification.json
 ```
+
+The field walkthrough writes scope, approval, scan, field-acceptance, fetch, and
+verification artifacts under `.kelpclaw/pi-vulnerable-target-field/`.
