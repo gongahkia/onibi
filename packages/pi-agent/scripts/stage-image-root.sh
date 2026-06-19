@@ -107,6 +107,7 @@ done < "$allow_file"
 
 "$script_dir/install-agent-binary.sh" "$root"
 "$script_dir/install-systemd.sh" "$root"
+"$script_dir/install-field-tools.sh" "$root"
 cargo run --manifest-path "$repo_root/packages/pi-agent/Cargo.toml" --quiet -- hardening render-network "$@"
 "$script_dir/apply-boot-fragment.sh" "$root"
 "$script_dir/fetch-nuclei-arm64.sh" "$root"

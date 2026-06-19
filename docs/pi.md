@@ -73,7 +73,7 @@ $ sudo systemd-sysusers /usr/lib/sysusers.d/kelp-pi-agent.conf
 $ sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/kelp-pi-agent.conf
 $ sudo -u kelp-pi kelp-pi-agent keygen --key-dir /var/lib/kelp-pi/keys --label <device-id>
 $ sudo systemctl enable --now kelp-pi-agent.service
-$ sudo ./packages/pi-agent/scripts/validate-pi-node.sh
+$ sudo kelp-pi-validate-node
 ```
 
 Declare scope from the laptop, then run a scoped scan on the Pi:
@@ -515,11 +515,13 @@ Reference renderer:
 
 - `pnpm --filter @kelpclaw/pi-agent stage:image-root -- <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   stages the agent binary, systemd files, network hardening files, boot hardening,
-  and pinned Nuclei binary into the mounted image root.
+  field validator, and pinned Nuclei binary into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>` stages the
   cross-built `kelp-pi-agent` binary into `<image-root>/usr/local/bin`.
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
+- `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
+  `kelp-pi-validate-node` into `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,

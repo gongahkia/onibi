@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+
+[ "${1:-}" = "--" ] && shift
+root="${1:-${KELP_PI_IMAGE_ROOT:-}}"
+script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+
+[ -n "$root" ] || {
+  printf 'usage: %s IMAGE_ROOT\n' "$0" >&2
+  exit 64
+}
+
+install -d "$root/usr/local/sbin"
+install -m 0755 "$script_dir/validate-pi-node.sh" "$root/usr/local/sbin/kelp-pi-validate-node"
+printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-node"
