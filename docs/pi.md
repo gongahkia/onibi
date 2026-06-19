@@ -279,6 +279,11 @@ Package pin and upgrade flow:
   operator-visible code/config update: fetch the desired upstream commit, update this
   pinned SHA and the agent constant in one review, rebuild the Pi image, then run the
   `kelp-pi-agent eval scanner-stability` test before promotion.
+- The Nuclei binary baseline is `projectdiscovery/nuclei` `v3.9.0` for Linux ARM64,
+  asset `nuclei_3.9.0_linux_arm64.zip`, SHA-256
+  `733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850`.
+  `pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>` installs it
+  at `/opt/kelp-pi/bin/nuclei`; `kelp-pi-agent scan nuclei` defaults to that path.
 - Scanner limits are operator-declared on every active scan. `kelp-pi-agent scan`
   accepts `--max-requests-per-second`, `--max-concurrent-targets`, and
   `--max-scan-duration-seconds`; signed `scan.request` supports the same values as

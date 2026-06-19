@@ -27,8 +27,8 @@ use kelp_pi_agent::{
     ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS,
     DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
     DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
-    DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK, DEFAULT_SCANNER_SANDBOX_USER,
-    DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
+    DEFAULT_NUCLEI_BINARY_PATH, DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK,
+    DEFAULT_SCANNER_SANDBOX_USER, DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -616,7 +616,7 @@ fn scan_request_responses(
         }
     }
     let scanner_bin = scan_option_string(&payload.options, "scanner_bin")
-        .unwrap_or_else(|| payload.scanner.clone());
+        .unwrap_or_else(|| default_scanner_bin(&payload.scanner));
     let scanner_sandbox = match scan_sandbox_from_options(&payload.options) {
         Ok(value) => value,
         Err(error) => {
@@ -1058,6 +1058,14 @@ fn scan_option_strings(options: &Map<String, Value>, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn default_scanner_bin(scanner: &str) -> String {
+    if scanner == "nuclei" {
+        DEFAULT_NUCLEI_BINARY_PATH.to_string()
+    } else {
+        scanner.to_string()
+    }
 }
 
 fn scan_option_u32(options: &Map<String, Value>, key: &str) -> Result<Option<u32>, String> {
@@ -2734,7 +2742,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     } else {
         None
     };
-    let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
+    let scanner_bin = scanner_bin.unwrap_or_else(|| default_scanner_bin(&scanner));
     let scanner_sandbox = sandbox_enabled.then_some(ScannerSandboxConfig {
         systemd_run_bin,
         user: scanner_user,

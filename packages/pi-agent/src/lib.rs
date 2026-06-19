@@ -100,7 +100,8 @@ pub use nmap::{
 };
 pub use nuclei::{
     enforce_nuclei_templates_pin, NucleiTemplatesError, NucleiTemplatesPin,
-    PINNED_NUCLEI_TEMPLATES_REVISION,
+    DEFAULT_NUCLEI_BINARY_PATH, PINNED_NUCLEI_BINARY_VERSION, PINNED_NUCLEI_LINUX_ARM64_ASSET,
+    PINNED_NUCLEI_LINUX_ARM64_SHA256, PINNED_NUCLEI_TEMPLATES_REVISION,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
