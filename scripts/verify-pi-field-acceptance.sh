@@ -60,8 +60,12 @@ grep -q 'scanner sandbox blocked control-plane probe' "$artifact_dir/scanner-san
 grep -q 'scanner sandbox blocked public probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block public internet"
 grep -q 'pinned Nuclei binary sha256=' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei binary hash proof missing"
 grep -q 'pinned Nuclei scan ran' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei scan proof missing"
+grep -q 'current nftables config applied' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound current config proof missing"
+grep -q 'control-plane session established' "$artifact_dir/allow-outbound-reload.log" || fail "control-plane session setup proof missing"
 grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound reload proof missing"
+grep -q 'DNS probe output contained portal IP' "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing"
 grep -q 'zero upstream DNS egress observed' "$artifact_dir/dns-egress.log" || fail "DNS egress proof missing"
+grep -q 'both clients reached portal' "$artifact_dir/ap-isolation.log" || fail "AP portal reachability proof missing"
 grep -q 'AP clients cannot ping each other' "$artifact_dir/ap-isolation.log" || fail "AP isolation proof missing"
 
 if grep -q '^OK ollama-load ' "$summary"; then

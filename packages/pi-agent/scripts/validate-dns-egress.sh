@@ -8,6 +8,7 @@ domains="captive.apple.com connectivitycheck.gstatic.com clients3.google.com"
 duration_seconds=3
 probe_command=""
 capture_file=""
+probe_output=""
 tcpdump_pid=""
 
 fail() {
@@ -29,6 +30,7 @@ cleanup() {
     wait "$tcpdump_pid" >/dev/null 2>&1 || true
   fi
   [ -z "$capture_file" ] || rm -f "$capture_file"
+  [ -z "$probe_output" ] || rm -f "$probe_output"
 }
 trap cleanup EXIT INT TERM
 
@@ -101,7 +103,11 @@ kill -0 "$tcpdump_pid" >/dev/null 2>&1 || fail "tcpdump did not start on $upstre
 pass "watching DNS egress on $upstream_interface"
 
 if [ -n "$probe_command" ]; then
-  sh -c "$probe_command"
+  probe_output="$(mktemp)"
+  sh -c "$probe_command" >"$probe_output"
+  sed -n '1,20p' "$probe_output"
+  grep -Fq "$portal_ip" "$probe_output" || fail "DNS probe output did not contain portal IP $portal_ip"
+  pass "DNS probe output contained portal IP $portal_ip"
 else
   need dig
   for domain in $domains; do
