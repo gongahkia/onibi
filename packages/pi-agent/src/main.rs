@@ -13,13 +13,16 @@ use kelp_pi_agent::{
     run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval, selfcheck_report_payload,
     sign_envelope, unix_millis_now, validate_data_dir, validate_selfcheck_target,
     verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
-    PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScopeError, ThermalScanDecision,
-    UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
-    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
-    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    wipe_data_dir, AskHttpState, IdentityKey, PiEnvelopeKind, PiEnvelopeSender,
+    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScopeError,
+    ScopeTarget, ScopeTargetType, ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision,
+    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
+    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
+use serde::Deserialize;
+use serde_json::{Map, Value};
 use std::io::{self, BufRead};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -127,6 +130,7 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
             eprintln!("identity key unavailable: {error}");
             ExitCode::from(78)
         })?;
+    let mut audit_started = false;
 
     for line in io::stdin().lock().lines() {
         let line = line.map_err(|error| {
@@ -148,7 +152,7 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
             eprintln!("wire envelope sender must be cp");
             return Err(ExitCode::from(77));
         }
-        let response = match envelope.kind {
+        let responses = match envelope.kind {
             PiEnvelopeKind::SelfcheckRun => {
                 let check_id = envelope
                     .payload
@@ -169,7 +173,7 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                 }
                 let generated_at = rfc3339_now();
                 let report = run_selfcheck(&data_dir);
-                sign_envelope(
+                vec![sign_envelope(
                     UnsignedPiWireEnvelope {
                         msg_id: format!("{}.report", envelope.msg_id),
                         ts: generated_at.clone(),
@@ -182,14 +186,14 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                 .map_err(|error| {
                     eprintln!("selfcheck.report signing failed: {error}");
                     ExitCode::from(78)
-                })?
+                })?]
             }
             PiEnvelopeKind::ScopeSet => {
                 apply_scope_set(&data_dir, &envelope, &trusted_cp_key).map_err(|error| {
                     eprintln!("scope.set refused: {error}");
                     ExitCode::from(77)
                 })?;
-                sign_envelope(
+                vec![sign_envelope(
                     UnsignedPiWireEnvelope {
                         msg_id: format!("{}.accepted", envelope.msg_id),
                         ts: rfc3339_now(),
@@ -202,6 +206,16 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                 .map_err(|error| {
                     eprintln!("scope.set receipt signing failed: {error}");
                     ExitCode::from(78)
+                })?]
+            }
+            PiEnvelopeKind::ScanRequest => {
+                if !audit_started {
+                    init_checked_audit(&data_dir)?;
+                    audit_started = true;
+                }
+                scan_request_responses(&data_dir, &envelope, &identity).map_err(|error| {
+                    eprintln!("scan.request failed: {error}");
+                    ExitCode::from(65)
                 })?
             }
             other => {
@@ -209,10 +223,12 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                 return Err(ExitCode::from(65));
             }
         };
-        println!(
-            "{}",
-            serde_json::to_string(&response).expect("serialize wire response")
-        );
+        for response in responses {
+            println!(
+                "{}",
+                serde_json::to_string(&response).expect("serialize wire response")
+            );
+        }
     }
     Ok(())
 }
@@ -231,6 +247,380 @@ fn refuse_selfcheck_target(data_dir: &Path, target: &str, reason: &str) -> Resul
     }
     eprintln!("selfcheck target refused: {reason}");
     Err(ExitCode::from(77))
+}
+
+#[derive(Debug, Deserialize)]
+struct WireScanRequestPayload {
+    run_id: String,
+    scope_id: String,
+    scanner: String,
+    targets: Vec<ScopeTarget>,
+    #[serde(default)]
+    options: Map<String, Value>,
+}
+
+fn scan_request_responses(
+    data_dir: &Path,
+    envelope: &PiWireEnvelope,
+    identity: &IdentityKey,
+) -> Result<Vec<PiWireEnvelope>, String> {
+    let payload: WireScanRequestPayload =
+        serde_json::from_value(Value::Object(envelope.payload.clone()))
+            .map_err(|error| error.to_string())?;
+    if !matches!(payload.scanner.as_str(), "nuclei" | "nmap" | "zap") {
+        return Err("scan.request scanner must be nuclei, nmap, or zap".to_string());
+    }
+    let started_at = rfc3339_now();
+    let mut seq = 0_u64;
+    let mut responses = Vec::new();
+    responses.push(signed_scan_event(
+        envelope,
+        identity,
+        ScanEventDraft {
+            run_id: &payload.run_id,
+            seq: next_seq(&mut seq),
+            phase: "queued",
+            ts: &started_at,
+            message: "scan request queued",
+            data: Map::new(),
+        },
+    )?);
+
+    let target_values = scan_request_target_values(&payload.targets);
+    let scope = match load_active_scope(data_dir) {
+        Ok(scope) => scope,
+        Err(error) => {
+            responses.push(signed_scan_complete(
+                envelope,
+                identity,
+                &payload.run_id,
+                "refused",
+                &started_at,
+                &rfc3339_now(),
+                Some(error.to_string()),
+            )?);
+            return Ok(responses);
+        }
+    };
+    if scope.payload.scope_id != payload.scope_id {
+        responses.push(signed_scan_complete(
+            envelope,
+            identity,
+            &payload.run_id,
+            "refused",
+            &started_at,
+            &rfc3339_now(),
+            Some(format!(
+                "active scope {} does not match request scope {}",
+                scope.payload.scope_id, payload.scope_id
+            )),
+        )?);
+        return Ok(responses);
+    }
+    if let Err(error) = ensure_targets_in_scope(&scope, &target_values, unix_millis_now()) {
+        tracing::warn!(
+            event = "scope.violation",
+            msg = "scan target refused by scope",
+            msg_id = "scope-violation",
+            scanner = payload.scanner.as_str(),
+            targets = target_values.join(","),
+            reason = scan_scope_error_reason(&error).as_str()
+        );
+        responses.push(signed_scan_complete(
+            envelope,
+            identity,
+            &payload.run_id,
+            "refused",
+            &started_at,
+            &rfc3339_now(),
+            Some(scan_scope_error_reason(&error)),
+        )?);
+        return Ok(responses);
+    }
+    let thermal_guard = evaluate_scan_thermal_guard();
+    if thermal_guard.decision == ThermalScanDecision::Refuse {
+        responses.push(signed_scan_complete(
+            envelope,
+            identity,
+            &payload.run_id,
+            "refused",
+            &started_at,
+            &rfc3339_now(),
+            Some(thermal_guard.reason),
+        )?);
+        return Ok(responses);
+    }
+    if payload.scanner == "zap" {
+        let zap_guard = evaluate_zap_guard(scan_option_bool(&payload.options, "enable_zap"));
+        if zap_guard.decision == ZapDecision::Refuse {
+            responses.push(signed_scan_complete(
+                envelope,
+                identity,
+                &payload.run_id,
+                "refused",
+                &started_at,
+                &rfc3339_now(),
+                Some(zap_guard.reason),
+            )?);
+            return Ok(responses);
+        }
+    }
+
+    responses.push(signed_scan_event(
+        envelope,
+        identity,
+        ScanEventDraft {
+            run_id: &payload.run_id,
+            seq: next_seq(&mut seq),
+            phase: "started",
+            ts: &started_at,
+            message: "scan request started",
+            data: scan_event_data(&payload.scanner, &target_values),
+        },
+    )?);
+    let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
+        gate: PiPolicyGate::ScannerInvocation,
+        command: Some(format!(
+            "scan {} {}",
+            payload.scanner,
+            target_values.join(" ")
+        )),
+        path: None,
+        host: Some(target_values.join(",")),
+        mutating: false,
+        allowed: true,
+    });
+    let decision = if let Some(token) = scan_option_string(&payload.options, "approval_token") {
+        decision_after_approval(data_dir, &decision, &scope.payload.scope_id, &token)
+            .map_err(|error| error.to_string())?
+    } else {
+        decision
+    };
+    responses.push(signed_scan_event(
+        envelope,
+        identity,
+        ScanEventDraft {
+            run_id: &payload.run_id,
+            seq: next_seq(&mut seq),
+            phase: "policy-decision",
+            ts: &rfc3339_now(),
+            message: decision.reason.as_str(),
+            data: policy_event_data(&decision),
+        },
+    )?);
+    if decision.action != PiPolicyAction::Allow {
+        tracing::warn!(
+            event = "scan.policy.refused",
+            msg = "scan refused by policy",
+            msg_id = "scan-policy-refused",
+            scanner = payload.scanner.as_str(),
+            scope_id = scope.payload.scope_id.as_str(),
+            action = decision.action.as_str(),
+            reason = decision.reason.as_str()
+        );
+        responses.push(signed_scan_complete(
+            envelope,
+            identity,
+            &payload.run_id,
+            "refused",
+            &started_at,
+            &rfc3339_now(),
+            Some(decision.reason),
+        )?);
+        return Ok(responses);
+    }
+    if scan_option_bool(&payload.options, "dry_run") {
+        responses.push(signed_scan_complete(
+            envelope,
+            identity,
+            &payload.run_id,
+            "succeeded",
+            &started_at,
+            &rfc3339_now(),
+            None,
+        )?);
+        return Ok(responses);
+    }
+
+    let scanner_bin = scan_option_string(&payload.options, "scanner_bin")
+        .unwrap_or_else(|| payload.scanner.clone());
+    let scanner_args = scan_option_strings(&payload.options, "args");
+    let status = Command::new(&scanner_bin)
+        .args(scanner_args)
+        .args(&target_values)
+        .status()
+        .map_err(|error| error.to_string())?;
+    responses.push(signed_scan_complete(
+        envelope,
+        identity,
+        &payload.run_id,
+        if status.success() {
+            "succeeded"
+        } else {
+            "failed"
+        },
+        &started_at,
+        &rfc3339_now(),
+        if status.success() {
+            None
+        } else {
+            Some(format!("scanner exited with {status}"))
+        },
+    )?);
+    Ok(responses)
+}
+
+fn next_seq(seq: &mut u64) -> u64 {
+    let current = *seq;
+    *seq = seq.saturating_add(1);
+    current
+}
+
+struct ScanEventDraft<'a> {
+    run_id: &'a str,
+    seq: u64,
+    phase: &'a str,
+    ts: &'a str,
+    message: &'a str,
+    data: Map<String, Value>,
+}
+
+fn signed_scan_event(
+    request: &PiWireEnvelope,
+    identity: &IdentityKey,
+    event: ScanEventDraft<'_>,
+) -> Result<PiWireEnvelope, String> {
+    let mut payload = Map::new();
+    payload.insert(
+        "run_id".to_string(),
+        Value::String(event.run_id.to_string()),
+    );
+    payload.insert("seq".to_string(), Value::from(event.seq));
+    payload.insert("phase".to_string(), Value::String(event.phase.to_string()));
+    payload.insert("ts".to_string(), Value::String(event.ts.to_string()));
+    payload.insert(
+        "message".to_string(),
+        Value::String(event.message.to_string()),
+    );
+    payload.insert("data".to_string(), Value::Object(event.data));
+    sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: format!("{}.event.{}", request.msg_id, event.seq),
+            ts: event.ts.to_string(),
+            sender: PiEnvelopeSender::Pi,
+            kind: PiEnvelopeKind::ScanEvent,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn signed_scan_complete(
+    request: &PiWireEnvelope,
+    identity: &IdentityKey,
+    run_id: &str,
+    status: &str,
+    started_at: &str,
+    finished_at: &str,
+    error: Option<String>,
+) -> Result<PiWireEnvelope, String> {
+    let mut payload = Map::new();
+    payload.insert("run_id".to_string(), Value::String(run_id.to_string()));
+    payload.insert("status".to_string(), Value::String(status.to_string()));
+    payload.insert(
+        "started_at".to_string(),
+        Value::String(started_at.to_string()),
+    );
+    payload.insert(
+        "finished_at".to_string(),
+        Value::String(finished_at.to_string()),
+    );
+    payload.insert("evidence_ids".to_string(), Value::Array(Vec::new()));
+    if let Some(error) = error {
+        payload.insert("error".to_string(), Value::String(error));
+    }
+    sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: format!("{}.complete", request.msg_id),
+            ts: finished_at.to_string(),
+            sender: PiEnvelopeSender::Pi,
+            kind: PiEnvelopeKind::ScanComplete,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn scan_request_target_values(targets: &[ScopeTarget]) -> Vec<String> {
+    let mut values = Vec::new();
+    for target in targets {
+        match target.ports.as_deref() {
+            Some(ports)
+                if matches!(
+                    target.target_type,
+                    ScopeTargetType::Host | ScopeTargetType::Ip
+                ) =>
+            {
+                values.extend(ports.iter().map(|port| format!("{}:{port}", target.value)));
+            }
+            _ => values.push(target.value.clone()),
+        }
+    }
+    values
+}
+
+fn scan_event_data(scanner: &str, targets: &[String]) -> Map<String, Value> {
+    let mut data = Map::new();
+    data.insert("scanner".to_string(), Value::String(scanner.to_string()));
+    data.insert(
+        "targets".to_string(),
+        Value::Array(targets.iter().cloned().map(Value::String).collect()),
+    );
+    data
+}
+
+fn policy_event_data(decision: &kelp_pi_agent::PiLocalPolicyDecision) -> Map<String, Value> {
+    let mut data = Map::new();
+    data.insert(
+        "action".to_string(),
+        Value::String(decision.action.as_str().to_string()),
+    );
+    data.insert(
+        "matched_rule_ids".to_string(),
+        Value::Array(
+            decision
+                .matched_rule_ids
+                .iter()
+                .cloned()
+                .map(Value::String)
+                .collect(),
+        ),
+    );
+    data
+}
+
+fn scan_option_bool(options: &Map<String, Value>, key: &str) -> bool {
+    options.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn scan_option_string(options: &Map<String, Value>, key: &str) -> Option<String> {
+    options.get(key)?.as_str().map(str::to_string)
+}
+
+fn scan_option_strings(options: &Map<String, Value>, key: &str) -> Vec<String> {
+    options
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn eval_command(args: Vec<String>) -> Result<(), ExitCode> {
