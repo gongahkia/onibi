@@ -220,9 +220,10 @@ Override mechanism:
   `kelp-pi-agent quota-defaults`.
 - Lowering a quota below current usage refuses new writes for that scope; it does not
   delete existing evidence.
-- `kelp-pi-agent scan` and `kelp-pi-agent normalize nuclei --data-dir <dir>` refuse
-  before starting scanner or evidence writes if free disk is below `min_free_bytes`;
-  signed `scan.request` can also carry `options.min_free_bytes` for test and
+- `kelp-pi-agent scan`, `kelp-pi-agent normalize nuclei --data-dir <dir>`, and
+  `kelp-pi-agent upload accept --data-dir <dir>` refuse before starting scanner,
+  evidence writes, or upload staging if free disk is below `min_free_bytes`; signed
+  `scan.request` can also carry `options.min_free_bytes` for test and
   engagement-specific overrides.
 - The agent records effective quotas and a SHA-256 hash of the config file in the
   startup audit entry.

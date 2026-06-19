@@ -1,3 +1,4 @@
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -65,6 +66,7 @@ fn run() -> Result<(), ExitCode> {
         "scan" => scan_command(args.collect()),
         "serve-ask" => serve_ask_command(args.collect()),
         "selfcheck" => selfcheck_command(args.collect()),
+        "upload" => upload_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
         "wipe" => wipe_command(args.collect()),
         "wire" => wire_command(args.collect()),
@@ -2516,6 +2518,151 @@ fn normalize_nuclei_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn upload_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent upload accept --input PATH [--name NAME] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "accept" => upload_accept_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown upload command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn upload_accept_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut quota_config_path = None;
+    let mut min_free_bytes = None;
+    let mut input = None;
+    let mut name = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--quota-config" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--quota-config requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                quota_config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--min-free-bytes" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--min-free-bytes requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                min_free_bytes = Some(parse_positive_u64("--min-free-bytes", value)?);
+                index += 2;
+            }
+            "--input" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--input requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                input = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--name" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--name requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                name = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(input) = input else {
+        eprintln!("upload accept requires --input");
+        return Err(ExitCode::from(64));
+    };
+    let upload_name = match name {
+        Some(value) => safe_upload_name(&value)?,
+        None => input
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| {
+                eprintln!("upload accept input must have a file name or --name");
+                ExitCode::from(64)
+            })
+            .and_then(safe_upload_name)?,
+    };
+
+    init_checked_audit(&data_dir)?;
+    if let Err(error) = enforce_command_storage_quota(
+        &data_dir,
+        StorageQuotaScope::Upload,
+        quota_config_path.as_deref(),
+        min_free_bytes,
+    ) {
+        audit_storage_quota_refusal(StorageQuotaScope::Upload, &error);
+        eprintln!("upload accept refused by storage quota: {error}");
+        return Err(ExitCode::from(75));
+    }
+
+    let upload_dir = data_dir.join("evidence").join("uploads");
+    if let Err(error) = fs::create_dir_all(&upload_dir) {
+        eprintln!("upload accept failed to create upload dir: {error}");
+        return Err(ExitCode::from(74));
+    }
+    let output = upload_dir.join(&upload_name);
+    let size_bytes = match fs::copy(&input, &output) {
+        Ok(size) => size,
+        Err(error) => {
+            eprintln!("upload accept failed: {error}");
+            return Err(ExitCode::from(74));
+        }
+    };
+    tracing::info!(
+        event = "upload.accepted",
+        msg = "upload accepted",
+        msg_id = "upload-accepted",
+        name = upload_name.as_str(),
+        size_bytes = size_bytes
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "ok": true,
+            "name": upload_name,
+            "path": output.display().to_string(),
+            "size_bytes": size_bytes
+        }))
+        .expect("serialize upload response")
+    );
+    Ok(())
+}
+
+fn safe_upload_name(value: &str) -> Result<String, ExitCode> {
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains('/')
+        || value.contains('\\')
+    {
+        eprintln!("upload name must be a single safe file name");
+        return Err(ExitCode::from(64));
+    }
+    Ok(value.to_string())
+}
+
 fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut log_file = None;
@@ -2981,6 +3128,9 @@ fn print_usage() {
         "usage: kelp-pi-agent selfcheck [--data-dir PATH] [--target TARGET] [--signed-envelope] [--check-id ID]"
     );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
+    eprintln!(
+        "usage: kelp-pi-agent upload accept --input PATH [--name NAME] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
+    );
     eprintln!("usage: kelp-pi-agent version");
     eprintln!(
         "usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--key-dir PATH] [--log-file PATH]"

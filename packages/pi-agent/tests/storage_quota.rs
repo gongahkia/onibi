@@ -82,6 +82,81 @@ fn normalize_refuses_when_free_disk_floor_is_not_met() {
     fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn upload_refuses_when_free_disk_floor_is_not_met() {
+    let root = temp_root("quota-upload");
+    let input = root.join("raw-upload.txt");
+    let floor = u64::MAX.to_string();
+    create_layout(&root);
+    fs::write(&input, b"upload bytes").expect("write upload");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "upload",
+            "accept",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--input",
+            input.to_str().expect("input path utf8"),
+            "--name",
+            "raw-upload.txt",
+            "--min-free-bytes",
+            floor.as_str(),
+        ])
+        .output()
+        .expect("run upload command");
+
+    assert_eq!(output.status.code(), Some(75));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("upload accept refused by storage quota"),
+        "{stderr}"
+    );
+    assert!(!root
+        .join("evidence")
+        .join("uploads")
+        .join("raw-upload.txt")
+        .exists());
+    let audit_log =
+        fs::read_to_string(root.join("audit").join("agent.jsonl")).expect("read audit log");
+    assert!(audit_log.contains("\"event\":\"storage.quota.refused\""));
+    assert!(audit_log.contains("\"scope\":\"upload\""));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn upload_accept_stages_file_when_quota_allows() {
+    let root = temp_root("quota-upload-ok");
+    let input = root.join("raw-upload.txt");
+    create_layout(&root);
+    fs::write(&input, b"upload bytes").expect("write upload");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "upload",
+            "accept",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--input",
+            input.to_str().expect("input path utf8"),
+            "--name",
+            "raw-upload.txt",
+            "--min-free-bytes",
+            "1",
+        ])
+        .output()
+        .expect("run upload command");
+
+    assert!(output.status.success());
+    let staged = root.join("evidence").join("uploads").join("raw-upload.txt");
+    assert_eq!(fs::read(&staged).expect("read staged"), b"upload bytes");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"ok\": true"), "{stdout}");
+
+    fs::remove_dir_all(root).ok();
+}
+
 fn create_layout(root: &Path) {
     fs::create_dir_all(root).expect("create root");
     for name in REQUIRED_DATA_DIRS {
