@@ -17,7 +17,7 @@ use rand_core::OsRng;
 use serde_json::Value;
 
 #[test]
-fn sigterm_during_scan_marks_run_resumable_on_next_start() {
+fn killed_mid_scan_verifies_audit_log_and_marks_run_resumable_on_next_start() {
     let root = temp_root("scan-resume");
     create_layout(&root);
     let mut rng = OsRng;
@@ -50,10 +50,7 @@ fn sigterm_during_scan_marks_run_resumable_on_next_start() {
 
     let run_state = root.join("runs").join("sigterm-resume.json");
     wait_for_running_state(&run_state);
-    Command::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()
-        .expect("send SIGTERM");
+    child.kill().expect("kill wire process");
     child.wait().expect("wait for killed scan");
     kill_fake_scanner(&root);
 
@@ -81,6 +78,22 @@ fn sigterm_during_scan_marks_run_resumable_on_next_start() {
     assert!(
         audit.contains("\"event\":\"scan.run.resumable\""),
         "{audit}"
+    );
+    let verify = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "verify-audit-log",
+            "--log-file",
+            root.join("audit")
+                .join("agent.jsonl")
+                .to_str()
+                .expect("audit path utf8"),
+        ])
+        .output()
+        .expect("verify audit log");
+    assert!(
+        verify.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&verify.stderr)
     );
 
     fs::remove_dir_all(root).ok();
