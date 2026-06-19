@@ -23,6 +23,7 @@ mod approval;
 mod chunking;
 mod doctor;
 mod eval;
+mod evidence;
 mod http;
 mod index;
 mod keys;
@@ -49,6 +50,11 @@ pub use eval::{
     default_gold_fixture_dir, gold_chunk_id_lines, run_gold_eval, run_synthesis_eval,
     GoldEvalCaseResult, GoldEvalError, GoldEvalReport, GoldEvalStatus, SynthesisEvalCaseResult,
     SynthesisEvalReport, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
+};
+pub use evidence::{
+    normalize_nuclei_jsonl, normalize_nuclei_jsonl_file, write_nuclei_findings_document,
+    EvidenceAffectedInstance, EvidenceFindingsDocument, EvidenceNormalizeError, EvidenceSnippet,
+    EvidenceSourceReference, NormalizedEvidenceFinding, EVIDENCE_FINDINGS_SCHEMA_VERSION,
 };
 pub use http::{
     ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,

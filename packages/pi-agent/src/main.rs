@@ -13,12 +13,12 @@ use kelp_pi_agent::{
     run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval, selfcheck_report_payload,
     sign_envelope, unix_millis_now, validate_data_dir, validate_selfcheck_target,
     verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, AskHttpState, IdentityKey, PiEnvelopeKind, PiEnvelopeSender,
-    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScopeError,
-    ScopeTarget, ScopeTargetType, ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision,
-    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
-    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
-    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    wipe_data_dir, write_nuclei_findings_document, AskHttpState, IdentityKey, PiEnvelopeKind,
+    PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
+    PiWireEnvelope, ScopeError, ScopeTarget, ScopeTargetType, ThermalScanDecision,
+    UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
+    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
+    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -49,6 +49,7 @@ fn run() -> Result<(), ExitCode> {
         "eval" => eval_command(args.collect()),
         "firmware-update" => firmware_update_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
+        "normalize" => normalize_command(args.collect()),
         "policy-check" => policy_check_command(args.collect()),
         "quota-defaults" => {
             print_quota_defaults();
@@ -1727,6 +1728,98 @@ fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn normalize_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!(
+            "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH]"
+        );
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "nuclei" => normalize_nuclei_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown normalize command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn normalize_nuclei_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut input = None;
+    let mut workspace = None;
+    let mut raw_path = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--input" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--input requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                input = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--workspace" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--workspace requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                workspace = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--raw-path" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--raw-path requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                raw_path = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(input) = input else {
+        eprintln!("normalize nuclei requires --input");
+        return Err(ExitCode::from(64));
+    };
+    let Some(workspace) = workspace else {
+        eprintln!("normalize nuclei requires --workspace");
+        return Err(ExitCode::from(64));
+    };
+    let raw_path = raw_path.unwrap_or_else(|| {
+        input
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("nuclei.jsonl")
+            .to_string()
+    });
+    let output = workspace.join("normalized").join("findings.json");
+    match write_nuclei_findings_document(&input, &output, &raw_path) {
+        Ok(document) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": true,
+                    "format": "nuclei",
+                    "findings": document.findings.len(),
+                    "output": output.display().to_string()
+                }))
+                .expect("serialize normalize summary")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("normalize nuclei failed: {error}");
+            Err(ExitCode::from(65))
+        }
+    }
+}
+
 fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut log_file = None;
@@ -2173,6 +2266,9 @@ fn print_usage() {
         "usage: kelp-pi-agent firmware-update --bundle-dir PATH --trusted-public-key-hex HEX [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
+    eprintln!(
+        "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH]"
+    );
     eprintln!(
         "usage: kelp-pi-agent policy-check --gate GATE [--mode enforce|dry-run] [--dry-run] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
     );
