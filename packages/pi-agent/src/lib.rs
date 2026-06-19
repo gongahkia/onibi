@@ -31,6 +31,7 @@ mod index;
 mod keys;
 mod nmap;
 mod nuclei;
+mod ollama;
 mod policy;
 mod quota;
 mod scanner;
@@ -102,6 +103,10 @@ pub use nuclei::{
     enforce_nuclei_templates_pin, NucleiTemplatesError, NucleiTemplatesPin,
     DEFAULT_NUCLEI_BINARY_PATH, PINNED_NUCLEI_BINARY_VERSION, PINNED_NUCLEI_LINUX_ARM64_ASSET,
     PINNED_NUCLEI_LINUX_ARM64_SHA256, PINNED_NUCLEI_TEMPLATES_REVISION,
+};
+pub use ollama::{
+    evaluate_ollama_guard, OllamaDecision, OllamaGuard, OllamaStatus, DEFAULT_OLLAMA_MODEL,
+    OLLAMA_MEMINFO_PATH_ENV, OLLAMA_MODEL_PATH_ENV, OLLAMA_PI_MIN_RAM_BYTES,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,

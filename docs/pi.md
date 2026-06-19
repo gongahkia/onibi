@@ -560,6 +560,14 @@ over the wire protocol; offline-tolerant with replay-after-reconnect.
 **P8** — Optional LLM synthesis: Ollama on Pi for retrieval-then-generate with strict
 no-answer behavior; gated behind a flag; never default.
 
+Reference guard:
+
+- `kelp-pi-agent ollama check --enable-ollama --model llama3.2:3b` reports whether
+  optional local synthesis is allowed on the current host. Raspberry Pi devices below
+  the 16GB class are refused before model load; non-Pi developer hosts are allowed for
+  integration testing. The guard is a readiness gate only; model-load validation still
+  requires a Pi with Ollama installed.
+
 **P9** — Eval & determinism: gold Q/A regression set, reproducible chunk-ID test,
 audit bundle replay, scanner output stability harness.
 

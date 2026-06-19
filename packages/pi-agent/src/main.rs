@@ -10,25 +10,26 @@ use kelp_pi_agent::{
     decision_after_approval, default_gold_fixture_dir, default_scanner_stability_fixture_dir,
     enforce_nuclei_templates_pin, enforce_storage_quota, ensure_targets_in_scope,
     evaluate_and_audit_local_policy, evaluate_and_audit_local_policy_with_mode,
-    evaluate_scan_thermal_guard, evaluate_zap_guard, gold_chunk_id_lines, index_db_path,
-    init_audit_tracing, install_panic_audit_hook, load_active_scope, load_network_hardening_config,
-    load_or_generate_identity_key, load_pi_bundle_transfer, load_storage_quota_config,
-    probe_pinned_nmap_version, request_operator_approval, rotate_audit_log, run_doctor,
-    run_gold_eval, run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck,
-    run_synthesis_eval, scanner_enforced_args, selfcheck_report_payload, sign_envelope,
-    unix_millis_now, validate_data_dir, validate_selfcheck_target,
-    verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, write_network_hardening_files, write_nuclei_findings_document, AskHttpState,
-    IdentityKey, NmapVersion, NucleiTemplatesPin, OutboundEndpoint, PiEnvelopeKind,
-    PiEnvelopeSender, PiLocalPolicyRequest, PiNetworkHardeningConfig, PiPolicyAction, PiPolicyGate,
-    PiPolicyMode, PiWireEnvelope, PolicyTrustState, ScannerLimits, ScannerSandboxConfig,
-    ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError, StorageQuotaScope,
-    StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey, UnsignedPiWireEnvelope,
-    ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS,
-    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
-    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
-    DEFAULT_NUCLEI_BINARY_PATH, DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK,
-    DEFAULT_SCANNER_SANDBOX_USER, DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
+    evaluate_ollama_guard, evaluate_scan_thermal_guard, evaluate_zap_guard, gold_chunk_id_lines,
+    index_db_path, init_audit_tracing, install_panic_audit_hook, load_active_scope,
+    load_network_hardening_config, load_or_generate_identity_key, load_pi_bundle_transfer,
+    load_storage_quota_config, probe_pinned_nmap_version, request_operator_approval,
+    rotate_audit_log, run_doctor, run_gold_eval, run_scanner_stability_eval,
+    run_scanner_with_limits, run_selfcheck, run_synthesis_eval, scanner_enforced_args,
+    selfcheck_report_payload, sign_envelope, unix_millis_now, validate_data_dir,
+    validate_selfcheck_target, verify_and_stage_firmware_update, verify_audit_log,
+    verify_audit_log_chain, verify_envelope, wipe_data_dir, write_network_hardening_files,
+    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin,
+    OutboundEndpoint, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
+    PiNetworkHardeningConfig, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
+    PolicyTrustState, ScannerLimits, ScannerSandboxConfig, ScopeError, ScopeTarget,
+    ScopeTargetType, StorageQuotaError, StorageQuotaScope, StoredPolicyPack, ThermalScanDecision,
+    TrustedControlPlaneKey, UnsignedPiWireEnvelope, ZapDecision, CURRENT_POLICY_FILE,
+    DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
+    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
+    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_NUCLEI_BINARY_PATH,
+    DEFAULT_OLLAMA_MODEL, DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK, DEFAULT_SCANNER_SANDBOX_USER,
+    DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,7 @@ fn run() -> Result<(), ExitCode> {
         "hardening" => hardening_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "normalize" => normalize_command(args.collect()),
+        "ollama" => ollama_command(args.collect()),
         "outbox" => outbox_command(args.collect()),
         "policy" => policy_command(args.collect()),
         "policy-check" => policy_check_command(args.collect()),
@@ -2366,6 +2368,58 @@ fn load_current_policy_pack(data_dir: &Path) -> Result<Option<StoredPolicyPack>,
     }
 }
 
+fn ollama_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent ollama check [--enable-ollama] [--model MODEL]");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "check" => ollama_check_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown ollama command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn ollama_check_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut enable_ollama = false;
+    let mut model = DEFAULT_OLLAMA_MODEL.to_string();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--enable-ollama" => {
+                enable_ollama = true;
+                index += 1;
+            }
+            "--model" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--model requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                model = value.to_string();
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let guard = evaluate_ollama_guard(enable_ollama, &model);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&guard).expect("serialize ollama guard")
+    );
+    if matches!(guard.decision, kelp_pi_agent::OllamaDecision::Allow) {
+        Ok(())
+    } else {
+        Err(ExitCode::from(77))
+    }
+}
+
 fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut gate = None;
@@ -4387,6 +4441,7 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
+    eprintln!("usage: kelp-pi-agent ollama check [--enable-ollama] [--model MODEL]");
     eprintln!(
         "usage: kelp-pi-agent outbox enqueue --kind KIND --payload-json JSON [--msg-id ID] [--data-dir PATH] [--key-dir PATH]"
     );
