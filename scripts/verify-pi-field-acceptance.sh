@@ -44,6 +44,7 @@ host="$artifact_dir/host.txt"
 
 grep -q '^uname=.*aarch64' "$host" || fail "host uname is not aarch64"
 grep -q 'Raspberry Pi 5 aarch64 host:' "$artifact_dir/node.log" || fail "node log missing Raspberry Pi 5 aarch64 proof"
+grep -Eq 'agent binary file=.*ELF 64-bit.*(ARM aarch64|aarch64)' "$artifact_dir/node.log" || fail "node log missing aarch64 agent binary proof"
 
 for check in \
   node \

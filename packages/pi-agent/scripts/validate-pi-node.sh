@@ -45,6 +45,7 @@ need systemd-analyze
 need nft
 need curl
 need awk
+need file
 need grep
 need sed
 need sysctl
@@ -60,6 +61,10 @@ case "$model" in
   *) fail "host model is not Raspberry Pi 5: $model" ;;
 esac
 pass "Raspberry Pi 5 aarch64 host: $model"
+
+agent_file="$(file "$agent_bin")"
+printf 'agent binary file=%s\n' "$agent_file"
+printf '%s\n' "$agent_file" | grep -Eq 'ELF 64-bit.*(ARM aarch64|aarch64)' || fail "agent binary is not an aarch64 ELF"
 
 agent_version="$("$agent_bin" version)"
 printf '%s\n' "$agent_version" | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
