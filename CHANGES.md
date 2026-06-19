@@ -1,5 +1,11 @@
 # Changes
 
+## Kelp Pi Target Introduction
+
+- Added Kelp Pi design docs and task tracking for a Raspberry Pi 5 AppSec field unit.
+- Added the Rust `kelp-pi-agent` foundation with data-dir checks, audit logging, key generation, signed envelopes, retrieval chunking, `/ask`, and policy primitives.
+- Added README coverage for the Pi target with a control-plane/Pi-data-plane diagram.
+
 ## AppSec Harness Pivot
 
 - Repositioned KelpClaw as a reproducible AppSec agent harness.
