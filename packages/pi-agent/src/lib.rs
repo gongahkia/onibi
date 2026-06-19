@@ -65,7 +65,9 @@ pub use policy::{
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,
     KELP_PI_REVIEW_FILE_MUTATION_RULE_ID,
 };
-pub use selfcheck::{run_selfcheck, SelfcheckCheck, SelfcheckReport, SelfcheckStatus};
+pub use selfcheck::{
+    run_selfcheck, selfcheck_report_payload, SelfcheckCheck, SelfcheckReport, SelfcheckStatus,
+};
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
     PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,

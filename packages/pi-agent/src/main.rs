@@ -2,18 +2,23 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, approve_operator_token, ask_bind_is_loopback, ask_router,
     audit_log_path, default_gold_fixture_dir, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, gold_chunk_id_lines, index_db_path,
     init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, validate_data_dir,
-    verify_audit_log, AskHttpState, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
-    PiPolicyMode, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
-    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
-    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, selfcheck_report_payload,
+    sign_envelope, validate_data_dir, verify_audit_log, verify_envelope, AskHttpState,
+    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
+    PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS,
+    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
+    DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
+use std::io::{self, BufRead};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() -> ExitCode {
     match run() {
@@ -45,6 +50,7 @@ fn run() -> Result<(), ExitCode> {
         "serve-ask" => serve_ask_command(args.collect()),
         "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
+        "wire" => wire_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
         "version" | "--version" | "-V" => {
             println!("kelp-pi-agent {}", env!("CARGO_PKG_VERSION"));
@@ -60,6 +66,119 @@ fn run() -> Result<(), ExitCode> {
             Err(ExitCode::from(64))
         }
     }
+}
+
+fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut stdio = false;
+    let mut trusted_cp_public_key_hex = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--stdio" => {
+                stdio = true;
+                index += 1;
+            }
+            "--trusted-cp-public-key-hex" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--trusted-cp-public-key-hex requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                trusted_cp_public_key_hex = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    if !stdio {
+        eprintln!("wire requires --stdio");
+        return Err(ExitCode::from(64));
+    }
+    let Some(trusted_cp_public_key_hex) = trusted_cp_public_key_hex else {
+        eprintln!("wire requires --trusted-cp-public-key-hex");
+        return Err(ExitCode::from(64));
+    };
+    let trusted_cp_key = verifying_key_from_hex(&trusted_cp_public_key_hex).map_err(|error| {
+        eprintln!("invalid trusted control-plane key: {error}");
+        ExitCode::from(64)
+    })?;
+    let identity = load_or_generate_identity_key(&data_dir.join("keys"), DEFAULT_KEY_LABEL)
+        .map_err(|error| {
+            eprintln!("identity key unavailable: {error}");
+            ExitCode::from(78)
+        })?;
+
+    for line in io::stdin().lock().lines() {
+        let line = line.map_err(|error| {
+            eprintln!("wire read failed: {error}");
+            ExitCode::from(74)
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let envelope: PiWireEnvelope = serde_json::from_str(&line).map_err(|error| {
+            eprintln!("wire envelope JSON invalid: {error}");
+            ExitCode::from(65)
+        })?;
+        verify_envelope(&envelope, &trusted_cp_key).map_err(|error| {
+            eprintln!("wire envelope signature invalid: {error}");
+            ExitCode::from(77)
+        })?;
+        if envelope.sender != PiEnvelopeSender::Cp {
+            eprintln!("wire envelope sender must be cp");
+            return Err(ExitCode::from(77));
+        }
+        let response = match envelope.kind {
+            PiEnvelopeKind::SelfcheckRun => {
+                let check_id = envelope
+                    .payload
+                    .get("check_id")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        eprintln!("selfcheck.run payload missing check_id");
+                        ExitCode::from(65)
+                    })?;
+                let generated_at = rfc3339_now();
+                let report = run_selfcheck(&data_dir);
+                sign_envelope(
+                    UnsignedPiWireEnvelope {
+                        msg_id: format!("{}.report", envelope.msg_id),
+                        ts: generated_at.clone(),
+                        sender: PiEnvelopeSender::Pi,
+                        kind: PiEnvelopeKind::SelfcheckReport,
+                        payload: selfcheck_report_payload(check_id, &generated_at, &report),
+                    },
+                    &identity.signing_key,
+                )
+                .map_err(|error| {
+                    eprintln!("selfcheck.report signing failed: {error}");
+                    ExitCode::from(78)
+                })?
+            }
+            other => {
+                eprintln!("unsupported wire envelope kind: {other:?}");
+                return Err(ExitCode::from(65));
+            }
+        };
+        println!(
+            "{}",
+            serde_json::to_string(&response).expect("serialize wire response")
+        );
+    }
+    Ok(())
 }
 
 fn eval_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -706,6 +825,8 @@ fn doctor_command(args: Vec<String>) -> Result<(), ExitCode> {
 
 fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut signed_envelope = false;
+    let mut check_id = "selfcheck-cli".to_string();
     let mut index = 0;
 
     while index < args.len() {
@@ -718,6 +839,18 @@ fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
                 data_dir = PathBuf::from(value);
                 index += 2;
             }
+            "--signed-envelope" => {
+                signed_envelope = true;
+                index += 1;
+            }
+            "--check-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--check-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                check_id = value.to_string();
+                index += 2;
+            }
             other => {
                 eprintln!("unknown argument: {other}");
                 return Err(ExitCode::from(64));
@@ -726,10 +859,37 @@ fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 
     let report = run_selfcheck(&data_dir);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&report).expect("serialize selfcheck report")
-    );
+    if signed_envelope {
+        let generated_at = rfc3339_now();
+        let identity = load_or_generate_identity_key(&data_dir.join("keys"), DEFAULT_KEY_LABEL)
+            .map_err(|error| {
+                eprintln!("identity key unavailable: {error}");
+                ExitCode::from(78)
+            })?;
+        let envelope = sign_envelope(
+            UnsignedPiWireEnvelope {
+                msg_id: format!("{check_id}.report"),
+                ts: generated_at.clone(),
+                sender: PiEnvelopeSender::Pi,
+                kind: PiEnvelopeKind::SelfcheckReport,
+                payload: selfcheck_report_payload(&check_id, &generated_at, &report),
+            },
+            &identity.signing_key,
+        )
+        .map_err(|error| {
+            eprintln!("selfcheck envelope signing failed: {error}");
+            ExitCode::from(78)
+        })?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).expect("serialize selfcheck envelope")
+        );
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("serialize selfcheck report")
+        );
+    }
     if report.ok {
         Ok(())
     } else {
@@ -959,6 +1119,62 @@ async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
     Ok(())
 }
 
+fn rfc3339_now() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let day = seconds / 86_400;
+    let seconds_of_day = seconds % 86_400;
+    let (year, month, day_of_month) = civil_from_unix_day(day as i64);
+    let hour = seconds_of_day / 3600;
+    let minute = (seconds_of_day % 3600) / 60;
+    let second = seconds_of_day % 60;
+    format!("{year:04}-{month:02}-{day_of_month:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn civil_from_unix_day(day: i64) -> (i64, u32, u32) {
+    let day = day + 719_468;
+    let era = if day >= 0 { day } else { day - 146_096 } / 146_097;
+    let day_of_era = day - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day_of_month = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    (year, month as u32, day_of_month as u32)
+}
+
+fn verifying_key_from_hex(hex: &str) -> Result<VerifyingKey, String> {
+    let bytes = decode_hex(hex)?;
+    VerifyingKey::try_from(bytes.as_slice()).map_err(|error| error.to_string())
+}
+
+fn decode_hex(text: &str) -> Result<Vec<u8>, String> {
+    if !text.len().is_multiple_of(2) {
+        return Err("hex length is odd".to_string());
+    }
+    let mut bytes = Vec::with_capacity(text.len() / 2);
+    for pair in text.as_bytes().chunks_exact(2) {
+        let high = decode_hex_nibble(pair[0])?;
+        let low = decode_hex_nibble(pair[1])?;
+        bytes.push((high << 4) | low);
+    }
+    Ok(bytes)
+}
+
+fn decode_hex_nibble(byte: u8) -> Result<u8, String> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err("invalid hex byte".to_string()),
+    }
+}
+
 fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N] [--no-answer-threshold FLOAT]"
@@ -980,10 +1196,15 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );
-    eprintln!("usage: kelp-pi-agent selfcheck [--data-dir PATH]");
+    eprintln!(
+        "usage: kelp-pi-agent selfcheck [--data-dir PATH] [--signed-envelope] [--check-id ID]"
+    );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent version");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
+    eprintln!(
+        "usage: kelp-pi-agent wire --stdio --trusted-cp-public-key-hex HEX [--data-dir PATH]"
+    );
 }
 
 fn parse_non_negative_f64(flag: &str, value: &str) -> Result<f64, ExitCode> {

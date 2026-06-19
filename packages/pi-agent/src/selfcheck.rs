@@ -1,18 +1,35 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::CString;
 use std::fs;
+use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use rusqlite::Connection;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
-use crate::{apply_index_schema, index_db_path};
+use crate::{apply_index_schema, audit_log_path, index_db_path, verify_audit_log};
+
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SelfcheckReport {
     pub ok: bool,
     pub data_dir: String,
     pub stale_index: bool,
+    pub ap_state: Value,
+    pub ssid: Value,
+    pub ip: Value,
+    pub isolation_rule_presence: Value,
+    pub allowlist: Value,
+    pub listening_ports: Value,
+    pub free_disk: Value,
+    pub ram: Value,
+    pub cpu_temperature: Value,
+    pub microsd_wear: Value,
+    pub audit_log: Value,
     pub checks: Vec<SelfcheckCheck>,
     pub warnings: Vec<String>,
 }
@@ -35,7 +52,29 @@ pub enum SelfcheckStatus {
 }
 
 pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
-    let checks = vec![stale_index_check(data_dir)];
+    let (ap_state, ssid, ip) = network_posture_checks();
+    let isolation_rule_presence = isolation_rule_check();
+    let allowlist = allowlist_check();
+    let listening_ports = listening_ports_check();
+    let free_disk = free_disk_check(data_dir);
+    let ram = ram_check();
+    let cpu_temperature = cpu_temperature_check();
+    let microsd_wear = microsd_wear_check();
+    let audit_log = audit_log_check(data_dir);
+    let checks = vec![
+        ap_state.clone(),
+        ssid.clone(),
+        ip.clone(),
+        isolation_rule_presence.clone(),
+        allowlist.clone(),
+        listening_ports.clone(),
+        free_disk.clone(),
+        ram.clone(),
+        cpu_temperature.clone(),
+        microsd_wear.clone(),
+        audit_log.clone(),
+        stale_index_check(data_dir),
+    ];
     let ok = checks
         .iter()
         .all(|check| !matches!(check.status, SelfcheckStatus::Fail));
@@ -52,8 +91,354 @@ pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
         ok,
         data_dir: data_dir.display().to_string(),
         stale_index,
+        ap_state: check_value(&ap_state),
+        ssid: check_value(&ssid),
+        ip: check_value(&ip),
+        isolation_rule_presence: check_value(&isolation_rule_presence),
+        allowlist: check_value(&allowlist),
+        listening_ports: check_value(&listening_ports),
+        free_disk: check_value(&free_disk),
+        ram: check_value(&ram),
+        cpu_temperature: check_value(&cpu_temperature),
+        microsd_wear: check_value(&microsd_wear),
+        audit_log: check_value(&audit_log),
         checks,
         warnings,
+    }
+}
+
+pub fn selfcheck_report_payload(
+    check_id: &str,
+    generated_at: &str,
+    report: &SelfcheckReport,
+) -> Map<String, Value> {
+    let mut payload = Map::new();
+    payload.insert("check_id".to_string(), json!(check_id));
+    payload.insert("generated_at".to_string(), json!(generated_at));
+    payload.insert("status".to_string(), json!(overall_status(report)));
+    payload.insert(
+        "checks".to_string(),
+        Value::Array(report.checks.iter().map(check_payload).collect()),
+    );
+    payload
+}
+
+fn network_posture_checks() -> (SelfcheckCheck, SelfcheckCheck, SelfcheckCheck) {
+    let nmcli = run_command(
+        "nmcli",
+        &[
+            "-t",
+            "-f",
+            "GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS",
+            "device",
+            "show",
+            "wlan0",
+        ],
+    );
+    let iw = run_command("iw", &["dev", "wlan0", "info"]);
+
+    if nmcli.is_err() && iw.is_err() {
+        let reason = format!(
+            "nmcli: {}; iw: {}",
+            nmcli.err().unwrap_or_else(|| "unavailable".to_string()),
+            iw.err().unwrap_or_else(|| "unavailable".to_string())
+        );
+        let mut details = BTreeMap::new();
+        details.insert("interface".to_string(), json!("wlan0"));
+        details.insert("available".to_string(), json!(false));
+        details.insert("reason".to_string(), json!(reason));
+        let unavailable = warn_with_details(
+            "ap-state",
+            "AP state probe unavailable on this host",
+            details.clone(),
+        );
+        return (
+            unavailable,
+            warn_with_details(
+                "ssid",
+                "SSID probe unavailable on this host",
+                details.clone(),
+            ),
+            warn_with_details("ip", "IP probe unavailable on this host", details),
+        );
+    }
+
+    let nmcli_fields = nmcli.as_deref().map(parse_nmcli_fields).unwrap_or_default();
+    let iw_fields = iw.as_deref().map(parse_iw_fields).unwrap_or_default();
+    let iw_type = iw_fields.get("type").cloned();
+    let ap_mode = iw_type.as_deref() == Some("AP");
+    let state = nmcli_fields.get("GENERAL.STATE").cloned();
+    let ssid = iw_fields
+        .get("ssid")
+        .cloned()
+        .or_else(|| nmcli_fields.get("GENERAL.CONNECTION").cloned())
+        .filter(|value| !value.is_empty() && value != "--");
+    let addresses: Vec<String> = nmcli_fields
+        .iter()
+        .filter(|(key, value)| key.starts_with("IP4.ADDRESS") && !value.is_empty())
+        .map(|(_, value)| value.clone())
+        .collect();
+
+    let mut ap_details = BTreeMap::new();
+    ap_details.insert("interface".to_string(), json!("wlan0"));
+    ap_details.insert("state".to_string(), json!(state));
+    ap_details.insert("iw_type".to_string(), json!(iw_type));
+    ap_details.insert("ap_mode".to_string(), json!(ap_mode));
+    let ap_check = if ap_mode {
+        pass_with_details("ap-state", "wlan0 is in AP mode", ap_details)
+    } else {
+        fail_with_details("ap-state", "wlan0 is not in AP mode", ap_details)
+    };
+
+    let mut ssid_details = BTreeMap::new();
+    ssid_details.insert("interface".to_string(), json!("wlan0"));
+    ssid_details.insert("ssid".to_string(), json!(ssid));
+    let ssid_check = if ssid_details.get("ssid").and_then(Value::as_str).is_some() {
+        pass_with_details("ssid", "SSID probe succeeded", ssid_details)
+    } else {
+        fail_with_details("ssid", "SSID probe returned no value", ssid_details)
+    };
+
+    let mut ip_details = BTreeMap::new();
+    ip_details.insert("interface".to_string(), json!("wlan0"));
+    ip_details.insert("addresses".to_string(), json!(addresses));
+    let ip_check = if ip_details
+        .get("addresses")
+        .and_then(Value::as_array)
+        .is_some_and(|addresses| !addresses.is_empty())
+    {
+        pass_with_details("ip", "wlan0 has IPv4 address data", ip_details)
+    } else {
+        fail_with_details("ip", "wlan0 has no IPv4 address data", ip_details)
+    };
+
+    (ap_check, ssid_check, ip_check)
+}
+
+fn isolation_rule_check() -> SelfcheckCheck {
+    match run_command("nft", &["list", "ruleset"]) {
+        Ok(output) => {
+            let present = output.contains("wlan0")
+                && output.contains("drop")
+                && (output.contains("iifname") || output.contains("oifname"));
+            let mut details = BTreeMap::new();
+            details.insert("present".to_string(), json!(present));
+            if present {
+                pass_with_details(
+                    "isolation-rule-presence",
+                    "nftables wlan0 isolation rule appears present",
+                    details,
+                )
+            } else {
+                fail_with_details(
+                    "isolation-rule-presence",
+                    "nftables wlan0 isolation rule was not found",
+                    details,
+                )
+            }
+        }
+        Err(error) => {
+            let mut details = BTreeMap::new();
+            details.insert("available".to_string(), json!(false));
+            details.insert("reason".to_string(), json!(error));
+            warn_with_details(
+                "isolation-rule-presence",
+                "nftables probe unavailable on this host",
+                details,
+            )
+        }
+    }
+}
+
+fn allowlist_check() -> SelfcheckCheck {
+    let path = Path::new("/etc/kelp-pi/agent.json");
+    match fs::read_to_string(path) {
+        Ok(content) => match serde_json::from_str::<Value>(&content) {
+            Ok(value) => {
+                let entries = value
+                    .get("allow-outbound")
+                    .or_else(|| value.get("allow_outbound"))
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                let mut details = BTreeMap::new();
+                details.insert("path".to_string(), json!(path.display().to_string()));
+                details.insert("entries".to_string(), entries);
+                pass_with_details("allowlist", "allowlist config loaded", details)
+            }
+            Err(error) => {
+                let mut details = BTreeMap::new();
+                details.insert("path".to_string(), json!(path.display().to_string()));
+                details.insert("reason".to_string(), json!(error.to_string()));
+                fail_with_details("allowlist", "allowlist config is invalid JSON", details)
+            }
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let mut details = BTreeMap::new();
+            details.insert("path".to_string(), json!(path.display().to_string()));
+            details.insert("entries".to_string(), json!([]));
+            details.insert("available".to_string(), json!(false));
+            warn_with_details("allowlist", "allowlist config is not present", details)
+        }
+        Err(error) => {
+            let mut details = BTreeMap::new();
+            details.insert("path".to_string(), json!(path.display().to_string()));
+            details.insert("reason".to_string(), json!(error.to_string()));
+            fail_with_details("allowlist", "allowlist config could not be read", details)
+        }
+    }
+}
+
+fn listening_ports_check() -> SelfcheckCheck {
+    match run_command("ss", &["-H", "-lntu"]) {
+        Ok(output) => {
+            let ports: Vec<String> = output
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+            let mut details = BTreeMap::new();
+            details.insert("ports".to_string(), json!(ports));
+            pass_with_details("listening-ports", "listening port probe succeeded", details)
+        }
+        Err(error) => {
+            let mut details = BTreeMap::new();
+            details.insert("available".to_string(), json!(false));
+            details.insert("reason".to_string(), json!(error));
+            warn_with_details(
+                "listening-ports",
+                "listening port probe unavailable on this host",
+                details,
+            )
+        }
+    }
+}
+
+fn free_disk_check(data_dir: &Path) -> SelfcheckCheck {
+    match free_disk_bytes(data_dir) {
+        Ok(bytes) if bytes > 0 => {
+            let mut details = BTreeMap::new();
+            details.insert("bytes".to_string(), json!(bytes));
+            pass_with_details("free-disk", "free disk probe succeeded", details)
+        }
+        Ok(_) => fail("free-disk", "free disk probe returned zero available bytes"),
+        Err(error) => fail("free-disk", format!("free disk probe failed: {error}")),
+    }
+}
+
+fn ram_check() -> SelfcheckCheck {
+    match fs::read_to_string("/proc/meminfo") {
+        Ok(content) => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "mem_total_kib".to_string(),
+                json!(parse_meminfo_kib(&content, "MemTotal")),
+            );
+            details.insert(
+                "mem_available_kib".to_string(),
+                json!(parse_meminfo_kib(&content, "MemAvailable")),
+            );
+            pass_with_details("ram", "RAM probe succeeded", details)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let mut details = BTreeMap::new();
+            details.insert("available".to_string(), json!(false));
+            details.insert("reason".to_string(), json!("missing /proc/meminfo"));
+            warn_with_details("ram", "RAM probe unavailable on this host", details)
+        }
+        Err(error) => fail("ram", format!("RAM probe failed: {error}")),
+    }
+}
+
+fn cpu_temperature_check() -> SelfcheckCheck {
+    let path = Path::new("/sys/class/thermal/thermal_zone0/temp");
+    match fs::read_to_string(path) {
+        Ok(raw) => match raw.trim().parse::<f64>() {
+            Ok(millicelsius) => {
+                let mut details = BTreeMap::new();
+                details.insert("celsius".to_string(), json!(millicelsius / 1000.0));
+                pass_with_details(
+                    "cpu-temperature",
+                    "CPU temperature probe succeeded",
+                    details,
+                )
+            }
+            Err(error) => fail(
+                "cpu-temperature",
+                format!("CPU temperature probe returned invalid data: {error}"),
+            ),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let mut details = BTreeMap::new();
+            details.insert("available".to_string(), json!(false));
+            details.insert("path".to_string(), json!(path.display().to_string()));
+            warn_with_details(
+                "cpu-temperature",
+                "CPU temperature probe unavailable on this host",
+                details,
+            )
+        }
+        Err(error) => fail(
+            "cpu-temperature",
+            format!("CPU temperature probe failed: {error}"),
+        ),
+    }
+}
+
+fn microsd_wear_check() -> SelfcheckCheck {
+    let paths = [
+        "/sys/block/mmcblk0/device/life_time",
+        "/sys/block/mmcblk0/device/pre_eol_info",
+    ];
+    let mut values = BTreeMap::new();
+    for path in paths {
+        if let Ok(raw) = fs::read_to_string(path) {
+            values.insert(path.to_string(), raw.trim().to_string());
+        }
+    }
+    let mut details = BTreeMap::new();
+    details.insert("values".to_string(), json!(values));
+    if details
+        .get("values")
+        .and_then(Value::as_object)
+        .is_some_and(|values| !values.is_empty())
+    {
+        pass_with_details("microsd-wear", "microSD wear probe succeeded", details)
+    } else {
+        details.insert("available".to_string(), json!(false));
+        warn_with_details(
+            "microsd-wear",
+            "microSD wear estimate unavailable on this host",
+            details,
+        )
+    }
+}
+
+fn audit_log_check(data_dir: &Path) -> SelfcheckCheck {
+    let path = audit_log_path(data_dir);
+    match verify_audit_log(&path) {
+        Ok(result) => {
+            let mut details = BTreeMap::new();
+            details.insert("verified".to_string(), json!(true));
+            details.insert("entries".to_string(), json!(result.entries));
+            details.insert("head_hash".to_string(), json!(result.head_hash));
+            pass_with_details("audit-log", "audit log verifies", details)
+        }
+        Err(error) if matches!(error, crate::AuditLogVerifyError::Io(ref io_error) if io_error.kind() == io::ErrorKind::NotFound) =>
+        {
+            let mut details = BTreeMap::new();
+            details.insert("verified".to_string(), json!(false));
+            details.insert("path".to_string(), json!(path.display().to_string()));
+            details.insert("reason".to_string(), json!("audit log is not present"));
+            warn_with_details("audit-log", "audit log is not present", details)
+        }
+        Err(error) => {
+            let mut details = BTreeMap::new();
+            details.insert("verified".to_string(), json!(false));
+            details.insert("path".to_string(), json!(path.display().to_string()));
+            details.insert("reason".to_string(), json!(error.to_string()));
+            fail_with_details("audit-log", "audit log verification failed", details)
+        }
     }
 }
 
@@ -131,12 +516,141 @@ fn relative_source_path(root: &Path, path: &Path) -> Result<String, String> {
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
+fn check_payload(check: &SelfcheckCheck) -> Value {
+    let mut payload = Map::new();
+    payload.insert("name".to_string(), json!(check.id));
+    payload.insert("status".to_string(), json!(status_name(&check.status)));
+    payload.insert("message".to_string(), json!(check.message));
+    if let Some(details) = &check.details {
+        payload.insert(
+            "value".to_string(),
+            serde_json::to_value(details).unwrap_or(Value::Null),
+        );
+    }
+    Value::Object(payload)
+}
+
+fn overall_status(report: &SelfcheckReport) -> &'static str {
+    if report
+        .checks
+        .iter()
+        .any(|check| matches!(check.status, SelfcheckStatus::Fail))
+    {
+        "fail"
+    } else if report
+        .checks
+        .iter()
+        .any(|check| matches!(check.status, SelfcheckStatus::Warn))
+    {
+        "warn"
+    } else {
+        "pass"
+    }
+}
+
+fn status_name(status: &SelfcheckStatus) -> &'static str {
+    match status {
+        SelfcheckStatus::Pass => "pass",
+        SelfcheckStatus::Warn => "warn",
+        SelfcheckStatus::Fail => "fail",
+    }
+}
+
+fn check_value(check: &SelfcheckCheck) -> Value {
+    check
+        .details
+        .as_ref()
+        .map(|details| serde_json::to_value(details).unwrap_or(Value::Null))
+        .unwrap_or(Value::Null)
+}
+
+fn parse_nmcli_fields(output: &str) -> BTreeMap<String, String> {
+    output
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
+fn parse_iw_fields(output: &str) -> BTreeMap<String, String> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .split_once(' ')
+                .map(|(key, value)| (key.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn parse_meminfo_kib(content: &str, key: &str) -> Option<u64> {
+    content.lines().find_map(|line| {
+        let (name, rest) = line.split_once(':')?;
+        if name != key {
+            return None;
+        }
+        rest.split_whitespace().next()?.parse::<u64>().ok()
+    })
+}
+
+fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("{program} exited with {}", output.status)
+        } else {
+            stderr
+        })
+    }
+}
+
+#[cfg(unix)]
+fn free_disk_bytes(path: &Path) -> io::Result<u64> {
+    let raw_path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL byte"))?;
+    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    let result = unsafe { libc::statvfs(raw_path.as_ptr(), stat.as_mut_ptr()) };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stat = unsafe { stat.assume_init() };
+    Ok(u64::from(stat.f_bavail).saturating_mul(stat.f_frsize))
+}
+
+#[cfg(not(unix))]
+fn free_disk_bytes(_path: &Path) -> io::Result<u64> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "statvfs is unavailable on this platform",
+    ))
+}
+
 fn pass(id: &str, message: impl Into<String>) -> SelfcheckCheck {
     SelfcheckCheck {
         id: id.to_string(),
         status: SelfcheckStatus::Pass,
         message: message.into(),
         details: None,
+    }
+}
+
+fn pass_with_details(
+    id: &str,
+    message: impl Into<String>,
+    details: BTreeMap<String, Value>,
+) -> SelfcheckCheck {
+    SelfcheckCheck {
+        id: id.to_string(),
+        status: SelfcheckStatus::Pass,
+        message: message.into(),
+        details: Some(details),
     }
 }
 
@@ -159,6 +673,19 @@ fn fail(id: &str, message: impl Into<String>) -> SelfcheckCheck {
         status: SelfcheckStatus::Fail,
         message: message.into(),
         details: None,
+    }
+}
+
+fn fail_with_details(
+    id: &str,
+    message: impl Into<String>,
+    details: BTreeMap<String, Value>,
+) -> SelfcheckCheck {
+    SelfcheckCheck {
+        id: id.to_string(),
+        status: SelfcheckStatus::Fail,
+        message: message.into(),
+        details: Some(details),
     }
 }
 
@@ -185,7 +712,7 @@ mod tests {
             .iter()
             .any(|warning| warning.contains("stale-index")));
         assert_eq!(
-            report.checks[0]
+            check_by_id(&report, "stale-index")
                 .details
                 .as_ref()
                 .expect("details")
@@ -213,8 +740,65 @@ mod tests {
 
         assert!(report.ok);
         assert!(!report.stale_index);
-        assert!(report.warnings.is_empty());
-        assert_eq!(report.checks[0].status, SelfcheckStatus::Pass);
+        assert_eq!(
+            check_by_id(&report, "stale-index").status,
+            SelfcheckStatus::Pass
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selfcheck_report_contains_required_posture_fields() {
+        let root = temp_root("posture-fields");
+        create_layout(&root);
+
+        let report = run_selfcheck(&root);
+        let ids: BTreeSet<_> = report
+            .checks
+            .iter()
+            .map(|check| check.id.as_str())
+            .collect();
+
+        for id in [
+            "ap-state",
+            "ssid",
+            "ip",
+            "isolation-rule-presence",
+            "allowlist",
+            "listening-ports",
+            "free-disk",
+            "ram",
+            "cpu-temperature",
+            "microsd-wear",
+            "audit-log",
+        ] {
+            assert!(ids.contains(id), "missing {id}");
+        }
+        assert!(report.free_disk.get("bytes").is_some());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selfcheck_payload_matches_wire_schema_shape() {
+        let root = temp_root("payload");
+        create_layout(&root);
+        let report = run_selfcheck(&root);
+
+        let payload = selfcheck_report_payload("selfcheck-01", "2026-06-19T00:00:00Z", &report);
+
+        assert_eq!(payload.get("check_id"), Some(&json!("selfcheck-01")));
+        assert_eq!(
+            payload.get("generated_at"),
+            Some(&json!("2026-06-19T00:00:00Z"))
+        );
+        assert!(matches!(
+            payload.get("status").and_then(Value::as_str),
+            Some("pass" | "warn" | "fail")
+        ));
+        assert!(payload
+            .get("checks")
+            .and_then(Value::as_array)
+            .is_some_and(|checks| !checks.is_empty()));
         fs::remove_dir_all(root).ok();
     }
 
@@ -234,5 +818,13 @@ mod tests {
             "kelp-pi-selfcheck-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    fn check_by_id<'a>(report: &'a SelfcheckReport, id: &str) -> &'a SelfcheckCheck {
+        report
+            .checks
+            .iter()
+            .find(|check| check.id == id)
+            .unwrap_or_else(|| panic!("missing {id}"))
     }
 }
