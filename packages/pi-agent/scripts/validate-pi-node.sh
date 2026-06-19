@@ -46,6 +46,7 @@ need nft
 need curl
 need awk
 need grep
+need sed
 need sysctl
 need tr
 need uname
@@ -141,12 +142,15 @@ pass "disabled bus/audio peripherals absent from dmesg"
 
 [ -f "$network_config" ] || fail "$network_config missing"
 "$agent_bin" hardening apply-network --config "$network_config"
-nft list ruleset | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing"
-nft list ruleset | grep -q 'policy drop' || fail "nftables default drop missing"
-nft list ruleset | grep -q 'ct state established,related accept' || fail "nftables established-session rule missing"
-nft list ruleset | grep -q 'set scanner_users' || fail "scanner_users set missing"
-nft list ruleset | grep -q 'set scanner_ipv4_targets' || fail "scanner_ipv4_targets set missing"
-nft list ruleset | grep -q 'meta skuid @scanner_users drop' || fail "scanner drop rule missing"
+ruleset="$(nft list ruleset)"
+printf '%s\n' "$ruleset" | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing"
+printf '%s\n' "$ruleset" | grep -q 'policy drop' || fail "nftables default drop missing"
+printf '%s\n' "$ruleset" | grep -q 'ct state established,related accept' || fail "nftables established-session rule missing"
+printf '%s\n' "$ruleset" | grep -q 'set scanner_users' || fail "scanner_users set missing"
+printf '%s\n' "$ruleset" | grep -q 'set scanner_ipv4_targets' || fail "scanner_ipv4_targets set missing"
+printf '%s\n' "$ruleset" | grep -q 'meta skuid @scanner_users drop' || fail "scanner drop rule missing"
+printf '%s\n' 'nft ruleset output chain:'
+printf '%s\n' "$ruleset" | sed -n '/chain output/,/}/p'
 pass "nftables loaded"
 
 if curl -fsS --max-time 5 "$egress_probe" >/dev/null 2>&1; then

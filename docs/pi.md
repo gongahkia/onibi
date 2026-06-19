@@ -633,7 +633,8 @@ Reference renderer:
   scanner sandboxing, pinned Nuclei execution, nft reload continuity, upstream DNS
   egress, AP client isolation, and the 30-minute timing ceiling, writing one log per
   check plus summary and timing files. The repo-side verifier parses the node log for
-  Pi 5/aarch64 proof and `systemd-analyze` score `<3.0`. Optional flags
+  Pi 5/aarch64 proof, `systemd-analyze` score `<3.0`, and the `nft list ruleset`
+  output chain showing default-drop plus established-session handling. Optional flags
   `--ollama-expect-load`, `--ollama-expect-refuse`, and `--readonly-root` add those
   evidence logs to the same artifact directory.
 - `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
