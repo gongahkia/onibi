@@ -10,6 +10,8 @@ apps/*/test-results
 apps/*/dist
 packages/*/dist
 *.tsbuildinfo
+__pycache__/
+*.pyc
 .playwright-cli
 .kelpclaw
 .kelpclaw/datasets/
