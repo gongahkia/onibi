@@ -69,6 +69,49 @@ pub fn chunk_markdown(path: &str, markdown: &str, config: ChunkingConfig) -> Vec
     chunks
 }
 
+pub fn chunk_plain_text(path: &str, text: &str, config: ChunkingConfig) -> Vec<ContentChunk> {
+    let target = config.target_tokens.max(1);
+    let mut chunks = Vec::new();
+    let mut current_start = None;
+    let mut current_end = 0;
+    let mut current_tokens = 0;
+
+    for paragraph in paragraph_ranges(text) {
+        let paragraph_tokens = token_spans(&text[paragraph.0..paragraph.1], paragraph.0).len();
+        if paragraph_tokens > target {
+            if let Some(start) = current_start.take() {
+                chunks.push(exact_content_chunk(path, text, start, current_end));
+            }
+            for (start, end) in split_long_exact_range(text, paragraph, target) {
+                chunks.push(exact_content_chunk(path, text, start, end));
+            }
+            current_end = paragraph.1;
+            current_tokens = 0;
+            continue;
+        }
+
+        if let Some(start) = current_start {
+            if current_tokens > 0 && current_tokens + paragraph_tokens > target {
+                chunks.push(exact_content_chunk(path, text, start, current_end));
+                current_start = Some(paragraph.0);
+                current_tokens = paragraph_tokens;
+            } else {
+                current_tokens += paragraph_tokens;
+            }
+        } else {
+            current_start = Some(paragraph.0);
+            current_tokens = paragraph_tokens;
+        }
+        current_end = paragraph.1;
+    }
+
+    if let Some(start) = current_start {
+        chunks.push(exact_content_chunk(path, text, start, current_end));
+    }
+
+    chunks
+}
+
 struct MarkdownSection {
     start: usize,
     end: usize,
@@ -115,6 +158,26 @@ fn markdown_sections(markdown: &str) -> Vec<MarkdownSection> {
     sections
 }
 
+fn paragraph_ranges(text: &str) -> Vec<(usize, usize)> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    for (line_start, line_end) in line_ranges(text) {
+        let line = &text[line_start..line_end];
+        if line.trim().is_empty() && line_end > start {
+            ranges.push((start, line_end));
+            start = line_end;
+        }
+    }
+    if start < text.len() {
+        ranges.push((start, text.len()));
+    }
+    ranges
+}
+
 fn line_ranges(text: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut start = 0;
@@ -126,6 +189,36 @@ fn line_ranges(text: &str) -> Vec<(usize, usize)> {
     if start < text.len() {
         ranges.push((start, text.len()));
     }
+    ranges
+}
+
+fn split_long_exact_range(
+    source: &str,
+    range: (usize, usize),
+    target_tokens: usize,
+) -> Vec<(usize, usize)> {
+    let token_spans = token_spans(&source[range.0..range.1], range.0);
+    if token_spans.is_empty() {
+        return vec![range];
+    }
+
+    let target = target_tokens.max(1);
+    let mut ranges = Vec::new();
+    let mut start_index = 0;
+    let mut start_byte = range.0;
+
+    while start_index < token_spans.len() {
+        let end_index = (start_index + target).min(token_spans.len());
+        let end_byte = if end_index == token_spans.len() {
+            range.1
+        } else {
+            token_spans[end_index].start
+        };
+        ranges.push((start_byte, end_byte));
+        start_byte = end_byte;
+        start_index = end_index;
+    }
+
     ranges
 }
 
@@ -204,6 +297,28 @@ fn chunk_token_spans(
     }
 
     chunks
+}
+
+fn exact_content_chunk(
+    path: &str,
+    source: &str,
+    start_byte: usize,
+    end_byte: usize,
+) -> ContentChunk {
+    let content = source[start_byte..end_byte].to_string();
+    let chunk_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+    let chunk_id_seed = format!("{path}:{chunk_hash}");
+    let chunk_id = blake3::hash(chunk_id_seed.as_bytes()).to_hex()[..16].to_string();
+
+    ContentChunk {
+        path: path.to_string(),
+        heading_path: Vec::new(),
+        start_byte,
+        end_byte,
+        chunk_hash,
+        chunk_id,
+        content,
+    }
 }
 
 fn content_chunk(
@@ -286,5 +401,28 @@ mod tests {
             blake3::hash(child.content.as_bytes()).to_hex().to_string()
         );
         assert_eq!(child.chunk_id.len(), 16);
+    }
+
+    #[test]
+    fn plain_text_chunks_reconstruct_losslessly() {
+        let text = "First paragraph has a few words.\n\nSecond paragraph is longer and should split by paragraph before the target is exceeded.\nStill second paragraph.\n\nThird.";
+        let config = ChunkingConfig {
+            target_tokens: 10,
+            overlap_tokens: 2,
+            heading_aware: false,
+        };
+
+        let chunks = chunk_plain_text("notes.txt", text, config);
+        let reconstructed = chunks
+            .iter()
+            .map(|chunk| chunk.content.as_str())
+            .collect::<String>();
+
+        assert_eq!(reconstructed, text);
+        assert!(chunks.len() > 1);
+        assert!(chunks
+            .windows(2)
+            .all(|window| window[0].end_byte == window[1].start_byte));
+        assert!(chunks.iter().all(|chunk| chunk.heading_path.is_empty()));
     }
 }
