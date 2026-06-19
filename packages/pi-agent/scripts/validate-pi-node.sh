@@ -4,6 +4,8 @@ set -eu
 agent_bin="${KELP_PI_AGENT_BIN:-/usr/local/bin/kelp-pi-agent}"
 service="${KELP_PI_SERVICE:-kelp-pi-agent.service}"
 network_config="${KELP_PI_NETWORK_CONFIG:-/etc/kelp-pi/network-hardening.json}"
+nm_profile="${KELP_PI_NM_PROFILE:-/etc/NetworkManager/system-connections/kelp-pi-ap.nmconnection}"
+dnsmasq_config="${KELP_PI_DNSMASQ_CONFIG:-/etc/dnsmasq.d/kelp-pi-captive.conf}"
 nuclei_bin="${KELP_PI_NUCLEI_BIN:-/opt/kelp-pi/bin/nuclei}"
 nuclei_manifest="${KELP_PI_NUCLEI_MANIFEST:-/etc/kelp-pi/nuclei-binary.json}"
 nuclei_version="v3.9.0"
@@ -41,6 +43,8 @@ need systemd-analyze
 need nft
 need curl
 need awk
+need grep
+need sysctl
 
 "$agent_bin" version | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
 pass "agent version"
@@ -69,10 +73,32 @@ grep -q "\"binary_sha256\":\"$nuclei_binary_sha256\"" "$nuclei_manifest" || fail
 [ "$(hash_file "$nuclei_bin")" = "$nuclei_binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
 pass "nuclei pinned binary"
 
+[ -f "$nm_profile" ] || fail "$nm_profile missing"
+grep -qx 'mode=ap' "$nm_profile" || fail "NetworkManager AP mode missing"
+grep -qx 'ap-isolation=1' "$nm_profile" || fail "NetworkManager AP client isolation missing"
+grep -qx 'key-mgmt=sae' "$nm_profile" || fail "NetworkManager WPA3 SAE missing"
+grep -qx 'pmf=3' "$nm_profile" || fail "NetworkManager PMF required missing"
+grep -qx 'never-default=true' "$nm_profile" || fail "NetworkManager never-default missing"
+grep -qx 'ignore-auto-dns=true' "$nm_profile" || fail "NetworkManager ignore-auto-dns missing"
+pass "NetworkManager AP profile"
+
+[ -f "$dnsmasq_config" ] || fail "$dnsmasq_config missing"
+grep -qx 'no-resolv' "$dnsmasq_config" || fail "dnsmasq no-resolv missing"
+grep -qx 'no-poll' "$dnsmasq_config" || fail "dnsmasq no-poll missing"
+for domain in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do
+  grep -qx "address=/$domain/$portal_ip" "$dnsmasq_config" || fail "dnsmasq sinkhole missing for $domain"
+done
+pass "dnsmasq captive sinkhole config"
+
+[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || fail "IPv4 forwarding enabled"
+[ "$(sysctl -n net.ipv6.conf.all.forwarding)" = "0" ] || fail "IPv6 forwarding enabled"
+pass "kernel forwarding disabled"
+
 [ -f "$network_config" ] || fail "$network_config missing"
 "$agent_bin" hardening apply-network --config "$network_config"
 nft list ruleset | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing"
 nft list ruleset | grep -q 'policy drop' || fail "nftables default drop missing"
+nft list ruleset | grep -q 'ct state established,related accept' || fail "nftables established-session rule missing"
 nft list ruleset | grep -q 'set scanner_users' || fail "scanner_users set missing"
 nft list ruleset | grep -q 'set scanner_ipv4_targets' || fail "scanner_ipv4_targets set missing"
 nft list ruleset | grep -q 'meta skuid @scanner_users drop' || fail "scanner drop rule missing"

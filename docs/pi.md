@@ -528,9 +528,10 @@ Reference renderer:
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
   and boot-config peripheral disable fragment.
 - `pnpm --filter @kelpclaw/pi-agent validate:pi-node` runs the Pi-side validation
-  harness for agent version, systemd health/security score, nftables reload, outbound
-  denial, and captive DNS sinkhole checks. It must run as root on a flashed Pi; it is
-  not a substitute for the two-client AP isolation test.
+  harness for agent version, systemd health/security score, pinned Nuclei binary,
+  NetworkManager AP profile, dnsmasq sinkhole config, kernel forwarding, nftables
+  reload, outbound denial, and captive DNS sinkhole checks. It must run as root on a
+  flashed Pi; it is not a substitute for the two-client AP isolation test.
 - The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
   management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
   maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
