@@ -1,21 +1,37 @@
 flowchart LR
   user["App owner / security reviewer"]
-  appsec["kelp-claw appsec audit"]
-  dockerfile["Dockerfile target"]
-  docker["Docker build metadata\nstdout, stderr, image id"]
-  scanner["Passive scanner imports\nSARIF, Nuclei, ZAP, Nmap, Burp, Nessus"]
-  evidence["Evidence workspace\nnormalized findings + source refs"]
-  policy["Policy pack\nappsec-agent-baseline"]
-  agent["Triage assistant\n--agent-command"]
-  triage["AppSec triage JSON\nsummary, findings, next steps, limitations"]
-  sarif["SARIF output"]
-  bundle["Signed audit bundle\nmanifest, signature, attestation"]
   reviewer["Static reviewer handoff\nindex.html + logs"]
 
-  user --> appsec
+  subgraph control["Control plane\nlaptop / server"]
+    cli["kelp-claw CLI\nappsec + pi commands"]
+    appsec["appsec audit"]
+    dockerfile["Dockerfile target"]
+    docker["Docker build metadata\nstdout, stderr, image id"]
+    scannerImport["Passive scanner imports\nSARIF, Nuclei, ZAP, Nmap, Burp, Nessus"]
+    evidence["Evidence workspace\nnormalized findings + source refs"]
+    policy["Policy packs\nappsec-agent-baseline + Pi trust list"]
+    agent["Triage assistant\n--agent-command"]
+    triage["AppSec triage JSON\nsummary, findings, next steps, limitations"]
+    sarif["SARIF output"]
+    bundle["Laptop signed audit bundle\nmanifest, signature, attestation"]
+    verifier["verify-audit-bundle"]
+  end
+
+  subgraph pi["Pi data plane\nRaspberry Pi 5 field unit"]
+    piAgent["kelp-pi-agent\nRust daemon / stdio server"]
+    piScope["Signed scope + policy cache\n/var/lib/kelp-pi/scope policy"]
+    piScanners["Scoped scanner runners\nNuclei, Nmap, ZAP opt-in"]
+    piEvidence["Pi evidence workspace\n/var/lib/kelp-pi/evidence"]
+    piIndex["Offline retrieval index\nSQLite FTS5 + citations"]
+    piAudit["Hash-chained audit log\n/var/lib/kelp-pi/audit"]
+    piBundle["Pi signed audit bundle\n/var/lib/kelp-pi/bundles"]
+  end
+
+  user --> cli
   dockerfile --> appsec
+  cli --> appsec
   appsec --> docker
-  scanner --> evidence
+  scannerImport --> evidence
   appsec --> evidence
   policy --> appsec
   evidence --> agent
@@ -28,16 +44,17 @@ flowchart LR
   evidence --> bundle
   triage --> bundle
   sarif --> bundle
-  bundle --> reviewer
+  bundle --> verifier
+  verifier --> reviewer
 
-  subgraph safety["Default safety boundary"]
-    policy
-  end
-
-  subgraph artifacts["Reproducible evidence"]
-    docker
-    evidence
-    triage
-    sarif
-    bundle
-  end
+  cli <-->|"SSH-tunneled stdio\nsigned JSONL envelopes"| piAgent
+  policy -->|"policy.push / policy.pull"| piAgent
+  cli -->|"scope.set\nscan.request\nask.query\nbundle.fetch"| piAgent
+  piAgent --> piScope
+  piAgent --> piScanners
+  piScanners --> piEvidence
+  piEvidence --> piIndex
+  piEvidence --> piBundle
+  piAudit --> piBundle
+  piIndex -->|"ask.result\ncitations"| piAgent
+  piBundle --> verifier
