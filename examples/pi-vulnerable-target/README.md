@@ -12,6 +12,19 @@ $ docker build -t kelp-pi-vulnerable-target examples/pi-vulnerable-target
 $ docker run --rm -p 8080:8080 kelp-pi-vulnerable-target
 ```
 
+Build a local fixture audit bundle and verify it with the same reviewer verifier used
+for Pi exports:
+
+```console
+$ examples/pi-vulnerable-target/walkthrough.sh
+$ jq .ok .kelpclaw/pi-vulnerable-target-walkthrough/verification.json
+```
+
+This local walkthrough validates the fixture evidence, Pi bundle layout, manifest
+signature, attestation, and reviewer profile. It does not satisfy the hardware
+walkthrough TODO by itself; that still requires the real Pi AP, scanner sandbox,
+network hardening, retrieval, and bundle fetch flow.
+
 Pi flow sketch:
 
 ```console
