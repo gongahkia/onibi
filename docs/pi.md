@@ -91,7 +91,11 @@ Declare scope from the laptop, then run a scoped scan on the Pi:
 ```console
 $ kelp-claw pi scope set --host fixture.local --port 80 --until 2026-06-20T00:00:00Z
 $ ssh kelp-pi@<pi-host> \
-  kelp-pi-agent scan nuclei --sandbox --target http://fixture.local --run-id fixture-nuclei
+  kelp-pi-agent scan nuclei \
+    --sandbox \
+    --target http://fixture.local \
+    --scanner-target-ip <fixture-ip> \
+    --run-id fixture-nuclei
 ```
 
 Assemble, fetch, and verify the bundle:
@@ -381,8 +385,9 @@ Package pin and upgrade flow:
   strict system paths, and `NFTSet=user:inet:kelp_pi_filter:scanner_users`.
   The image-level nftables policy creates `scanner_users` and `scanner_ipv4_targets`;
   scanner traffic from `scanner_users` is dropped unless its IPv4 destination appears
-  in `scanner_ipv4_targets`. `kelp-pi-agent hardening apply-scanner-targets --target-ip <ip>`
-  atomically reloads the scanner target set before a sandboxed run. Hardware validation
+  in `scanner_ipv4_targets`. `scan --sandbox` derives this set from IPv4 literal
+  targets or from explicit `--scanner-target-ip <ip>` values for hostname/URL targets,
+  then atomically reloads it before the scanner process starts. Hardware validation
   still has to prove that scanner traffic reaches only in-scope targets and cannot
   reach the control plane or public internet.
 - Active scans persist a JSON run marker under `/var/lib/kelp-pi/runs`.

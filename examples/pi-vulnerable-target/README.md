@@ -30,7 +30,11 @@ Pi flow sketch:
 ```console
 $ kelp-claw pi scope set --host fixture.local --port 8080 --until 2026-06-20T00:00:00Z
 $ ssh kelp-pi@<pi-host> \
-  kelp-pi-agent scan nuclei --sandbox --target http://fixture.local:8080 --run-id fixture-target
+  kelp-pi-agent scan nuclei \
+    --sandbox \
+    --target http://fixture.local:8080 \
+    --scanner-target-ip <fixture-ip> \
+    --run-id fixture-target
 $ ssh kelp-pi@<pi-host> \
   kelp-pi-agent bundle assemble \
   --run-id fixture-target \

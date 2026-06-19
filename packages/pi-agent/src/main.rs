@@ -637,6 +637,28 @@ fn scan_request_responses(
             return Ok(responses);
         }
     };
+    let scanner_target_ips = match scanner_target_ips_from_options(
+        &payload.options,
+        &target_values,
+        scanner_sandbox.is_some(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error),
+                    metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+                },
+            )?);
+            return Ok(responses);
+        }
+    };
     let nmap_version = if payload.scanner == "nmap" {
         match probe_pinned_nmap_version(&scanner_bin) {
             Ok(version) => Some(version),
@@ -745,6 +767,35 @@ fn scan_request_responses(
             },
         )?);
         return Ok(responses);
+    }
+    if scanner_sandbox.is_some() {
+        if let Err(error) = apply_scanner_target_rules(Path::new("nft"), &scanner_target_ips) {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error.to_string()),
+                    metadata: scanner_metadata(nmap_version.as_ref(), nuclei_templates.as_ref()),
+                },
+            )?);
+            return Ok(responses);
+        }
+        tracing::info!(
+            event = "scan.sandbox.targets",
+            msg = "scanner nft target set applied",
+            msg_id = "scan-sandbox-targets",
+            scanner = payload.scanner.as_str(),
+            scope_id = scope.payload.scope_id.as_str(),
+            target_ips = scanner_target_ips
+                .iter()
+                .map(Ipv4Addr::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
     }
 
     if !safe_scan_run_id(&payload.run_id) {
@@ -1062,6 +1113,28 @@ fn scan_option_strings(options: &Map<String, Value>, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn scan_option_ipv4_addresses(
+    options: &Map<String, Value>,
+    key: &str,
+) -> Result<Vec<Ipv4Addr>, String> {
+    let Some(value) = options.get(key) else {
+        return Ok(Vec::new());
+    };
+    let Some(values) = value.as_array() else {
+        return Err(format!("{key} must be an array of IPv4 strings"));
+    };
+    values
+        .iter()
+        .map(|value| {
+            let Some(raw) = value.as_str() else {
+                return Err(format!("{key} must be an array of IPv4 strings"));
+            };
+            raw.parse::<Ipv4Addr>()
+                .map_err(|_| format!("{key} contains invalid IPv4 address: {raw}"))
+        })
+        .collect()
+}
+
 fn default_scanner_bin(scanner: &str) -> String {
     if scanner == "nuclei" {
         DEFAULT_NUCLEI_BINARY_PATH.to_string()
@@ -1126,6 +1199,64 @@ fn scan_sandbox_from_options(
             .unwrap_or_else(|| DEFAULT_SCANNER_SANDBOX_USER.to_string()),
         nft_mark: scan_option_u32(options, "nft_mark")?.unwrap_or(DEFAULT_SCANNER_NFT_MARK),
     }))
+}
+
+fn scanner_target_ips_from_options(
+    options: &Map<String, Value>,
+    targets: &[String],
+    sandboxed: bool,
+) -> Result<Vec<Ipv4Addr>, String> {
+    let explicit = scan_option_ipv4_addresses(options, "scanner_target_ips")?;
+    scanner_target_ips_for_sandbox(targets, &explicit, sandboxed)
+}
+
+fn scanner_target_ips_for_sandbox(
+    targets: &[String],
+    explicit: &[Ipv4Addr],
+    sandboxed: bool,
+) -> Result<Vec<Ipv4Addr>, String> {
+    if !sandboxed {
+        return Ok(Vec::new());
+    }
+    let mut ips = explicit.to_vec();
+    if ips.is_empty() {
+        ips.extend(
+            targets
+                .iter()
+                .filter_map(|target| target_ipv4_literal(target)),
+        );
+    }
+    ips.sort();
+    ips.dedup();
+    if ips.is_empty() {
+        Err(
+            "sandboxed scans require an IPv4 literal target or explicit scanner_target_ips"
+                .to_string(),
+        )
+    } else {
+        Ok(ips)
+    }
+}
+
+fn target_ipv4_literal(target: &str) -> Option<Ipv4Addr> {
+    let without_scheme = target
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(target);
+    let authority = without_scheme
+        .split(&['/', '?', '#'][..])
+        .next()
+        .unwrap_or(without_scheme);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    let host = if host.matches(':').count() == 1 {
+        host.rsplit_once(':').map(|(host, _)| host).unwrap_or(host)
+    } else {
+        host
+    };
+    host.parse::<Ipv4Addr>().ok()
 }
 
 fn scan_limits_from_options(options: &Map<String, Value>) -> Result<ScannerLimits, String> {
@@ -2598,6 +2729,8 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut scanner_user = DEFAULT_SCANNER_SANDBOX_USER.to_string();
     let mut systemd_run_bin = DEFAULT_SCANNER_SYSTEMD_RUN_BIN.to_string();
     let mut nft_mark = DEFAULT_SCANNER_NFT_MARK;
+    let mut nft_bin = PathBuf::from("nft");
+    let mut scanner_target_ips = Vec::<Ipv4Addr>::new();
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
     let mut index = 0;
@@ -2667,6 +2800,18 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 sandbox_enabled = true;
                 index += 1;
             }
+            "--scanner-target-ip" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--scanner-target-ip requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<Ipv4Addr>() else {
+                    eprintln!("--scanner-target-ip must be an IPv4 address");
+                    return Err(ExitCode::from(64));
+                };
+                scanner_target_ips.push(parsed);
+                index += 2;
+            }
             "--scanner-user" => {
                 let Some(value) = args.get(index + 1) else {
                     eprintln!("--scanner-user requires a value");
@@ -2689,6 +2834,14 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                     return Err(ExitCode::from(64));
                 };
                 nft_mark = parse_positive_u32("--nft-mark", value)?;
+                index += 2;
+            }
+            "--nft-bin" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--nft-bin requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                nft_bin = PathBuf::from(value);
                 index += 2;
             }
             "--templates-sha" => {
@@ -2849,6 +3002,23 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         user: scanner_user,
         nft_mark,
     });
+    let scanner_target_ips =
+        match scanner_target_ips_for_sandbox(&targets, &scanner_target_ips, sandbox_enabled) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
+                    event = "scan.sandbox.refused",
+                    msg = "scanner sandbox refused",
+                    msg_id = "scan-sandbox-refused",
+                    scanner = scanner.as_str(),
+                    scope_id = scope.payload.scope_id.as_str(),
+                    targets = targets.join(","),
+                    reason = error.as_str()
+                );
+                eprintln!("scan sandbox refused: {error}");
+                return Err(ExitCode::from(77));
+            }
+        };
     let nmap_version = if scanner == "nmap" {
         match probe_pinned_nmap_version(&scanner_bin) {
             Ok(version) => Some(version),
@@ -2946,6 +3116,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                     "scanner_user": sandbox.user.as_str(),
                     "nft_mark": sandbox.nft_mark
                 })),
+                "scanner_target_ips": scanner_target_ips.iter().map(Ipv4Addr::to_string).collect::<Vec<_>>(),
                 "scope_id": scope.payload.scope_id,
                 "targets": targets
             }))
@@ -2956,6 +3127,37 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
 
     let started_at = rfc3339_now();
     let run_id = run_id.unwrap_or_else(|| format!("scan-{}", unix_millis_now()));
+    if scanner_sandbox.is_some() {
+        if let Err(error) = apply_scanner_target_rules(&nft_bin, &scanner_target_ips) {
+            tracing::warn!(
+                event = "scan.sandbox.targets.failed",
+                msg = "scanner nft target set failed",
+                msg_id = "scan-sandbox-targets-failed",
+                scanner = scanner.as_str(),
+                scope_id = scope.payload.scope_id.as_str(),
+                target_ips = scanner_target_ips
+                    .iter()
+                    .map(Ipv4Addr::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                reason = error.to_string().as_str()
+            );
+            eprintln!("scan sandbox target reload failed: {error}");
+            return Err(ExitCode::from(78));
+        }
+        tracing::info!(
+            event = "scan.sandbox.targets",
+            msg = "scanner nft target set applied",
+            msg_id = "scan-sandbox-targets",
+            scanner = scanner.as_str(),
+            scope_id = scope.payload.scope_id.as_str(),
+            target_ips = scanner_target_ips
+                .iter()
+                .map(Ipv4Addr::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
     let mut run_state = ScanRunState::running(
         run_id,
         scanner.clone(),
@@ -4505,7 +4707,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--run-id ID] [--dry-run] [--enable-zap] [--sandbox] [--scanner-user USER] [--systemd-run-bin PATH] [--nft-mark N] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--run-id ID] [--dry-run] [--enable-zap] [--sandbox] [--scanner-target-ip IPv4...] [--scanner-user USER] [--systemd-run-bin PATH] [--nft-bin PATH] [--nft-mark N] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
