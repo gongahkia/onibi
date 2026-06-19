@@ -27,6 +27,10 @@ json_true() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.exit(data.ok === true ? 0 : 1);' "$1"
 }
 
+json_string_field() {
+  node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=data[process.argv[2]]; process.exit(typeof value === "string" && value.length > 0 ? 0 : 1);' "$1" "$2"
+}
+
 cast_header_ok() {
   node -e 'const fs=require("node:fs"); const first=fs.readFileSync(process.argv[1],"utf8").split(/\n/u)[0]; const data=JSON.parse(first); process.exit(Number.isInteger(data.version) ? 0 : 1);' "$1"
 }
@@ -77,6 +81,7 @@ for file in \
   index.json \
   ask.json \
   assembly.json \
+  field-acceptance.log \
   fetch.json \
   verification.json \
   timing.txt \
@@ -86,10 +91,14 @@ do
 done
 
 json_true "$run_dir/scope.json" || fail "scope.json is not ok"
+json_string_field "$run_dir/approval-request.json" token || fail "approval-request.json missing approval token"
 json_true "$run_dir/approval.json" || fail "approval.json is not ok"
+json_true "$run_dir/normalize.json" || fail "normalize.json is not ok"
 json_true "$run_dir/index.json" || fail "index.json is not ok"
 json_has_citation "$run_dir/ask.json" || fail "ask.json has no citation"
+json_true "$run_dir/assembly.json" || fail "assembly.json is not ok"
 json_true "$run_dir/fetch.json" || fail "fetch.json is not ok"
+json_string_field "$run_dir/fetch.json" bundleDir || fail "fetch.json missing bundleDir"
 json_true "$run_dir/verification.json" || fail "verification.json is not ok"
 timing_ok "$run_dir/timing.txt" || fail "field walkthrough timing exceeded max or is incomplete"
 
