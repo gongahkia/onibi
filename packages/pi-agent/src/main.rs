@@ -6,7 +6,8 @@ use kelp_pi_agent::{
     answer_query, apply_index_schema, ask_bind_is_loopback, ask_router, audit_log_path,
     index_db_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
     run_doctor, validate_data_dir, verify_audit_log, AskHttpState, DEFAULT_ASK_BIND,
-    DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
+    DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 
@@ -132,6 +133,8 @@ fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut bind: SocketAddr = DEFAULT_ASK_BIND.parse().expect("default ask bind parses");
     let mut top_k = 5_usize;
     let mut no_answer_threshold = DEFAULT_NO_ANSWER_THRESHOLD;
+    let mut max_concurrent = DEFAULT_ASK_MAX_CONCURRENT;
+    let mut rate_limit_per_minute = DEFAULT_ASK_RATE_LIMIT_PER_MINUTE;
     let mut allow_non_loopback = false;
     let mut index = 0;
 
@@ -185,6 +188,22 @@ fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
                 no_answer_threshold = parse_non_negative_f64("--no-answer-threshold", value)?;
                 index += 2;
             }
+            "--max-concurrent" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--max-concurrent requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                max_concurrent = parse_positive_usize("--max-concurrent", value)?;
+                index += 2;
+            }
+            "--rate-limit-per-minute" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--rate-limit-per-minute requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                rate_limit_per_minute = parse_positive_usize("--rate-limit-per-minute", value)?;
+                index += 2;
+            }
             "--allow-non-loopback" => {
                 allow_non_loopback = true;
                 index += 1;
@@ -217,13 +236,22 @@ fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
         })?;
         let local_addr = listener.local_addr().unwrap_or(bind);
         println!("ask server listening on http://{local_addr}");
-        let state = AskHttpState::new(db_path, top_k, no_answer_threshold);
-        axum::serve(listener, ask_router(state))
-            .await
-            .map_err(|error| {
-                eprintln!("ask server failed: {error}");
-                ExitCode::from(69)
-            })
+        let state = AskHttpState::with_limits(
+            db_path,
+            top_k,
+            no_answer_threshold,
+            max_concurrent,
+            rate_limit_per_minute,
+        );
+        axum::serve(
+            listener,
+            ask_router(state).into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .map_err(|error| {
+            eprintln!("ask server failed: {error}");
+            ExitCode::from(69)
+        })
     })
 }
 
@@ -434,7 +462,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!(
-        "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--allow-non-loopback]"
+        "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
@@ -447,6 +475,18 @@ fn parse_non_negative_f64(flag: &str, value: &str) -> Result<f64, ExitCode> {
     };
     if !parsed.is_finite() || parsed < 0.0 {
         eprintln!("{flag} must be a finite non-negative number");
+        return Err(ExitCode::from(64));
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, ExitCode> {
+    let Ok(parsed) = value.parse::<usize>() else {
+        eprintln!("{flag} must be a positive integer");
+        return Err(ExitCode::from(64));
+    };
+    if parsed == 0 {
+        eprintln!("{flag} must be a positive integer");
         return Err(ExitCode::from(64));
     }
     Ok(parsed)

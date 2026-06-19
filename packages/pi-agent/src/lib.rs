@@ -28,7 +28,10 @@ pub use chunking::{
     ContentChunk, IngestRefusal, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
-pub use http::{ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND};
+pub use http::{
+    ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+};
 pub use index::{
     answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, Citation,
     NoAnswer, RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,

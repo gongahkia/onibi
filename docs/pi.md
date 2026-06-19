@@ -350,6 +350,8 @@ Retrieval chunking:
   returned chunk.
 - The Pi agent serves `/ask` with `kelp-pi-agent serve-ask`. Default bind is
   `127.0.0.1:8765`; non-loopback binds require `--allow-non-loopback`.
+- `/ask` applies per-IP rate limiting and an in-flight request cap before retrieval.
+  Defaults: `60` requests/minute per IP and `8` concurrent requests.
 
 Physical capture assumptions:
 

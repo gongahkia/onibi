@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Add per-IP rate limit and concurrency cap on `/ask` → success: a load test of 100 concurrent queries does not exhaust memory; excess requests get HTTP 429.
 - [ ] Implement single-file Python client `kelp-pi-ask` that talks to `/ask` over LAN → success: `kelp-pi-ask "question" --pi pi.local` prints cited results to stdout.
 - [ ] Add `--json` flag to the Python client → success: machine-readable JSON output suitable for scripting.
 - [ ] Implement re-ingest detection: if any source file's mtime or hash changed, the chunk rows for that file are replaced atomically → success: an integration test edits a file, re-ingests, and the prior chunk IDs for the unchanged sections remain stable.
