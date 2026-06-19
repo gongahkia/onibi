@@ -524,7 +524,8 @@ Reference renderer:
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
-  `kelp-pi-validate-node` into `<image-root>/usr/local/sbin`.
+  `kelp-pi-validate-node` and `kelp-pi-validate-scanner-sandbox` into
+  `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
@@ -551,6 +552,10 @@ Reference renderer:
   the reference appliance image. The HDMI setting uses `hdmi_blanking=1`, matching
   Raspberry Pi's documented switch-off value. Hardware validation still requires the
   TODO's client-isolation, zero-upstream-DNS, and nft egress-denial checks on a real Pi.
+- `kelp-pi-validate-scanner-sandbox --target-ip <fixture-ip> --target-url <fixture-url> --control-url <control-plane-url>`
+  reloads the scanner nft target set, runs `curl` through the same `systemd-run`
+  sandbox properties used by scanner execution, and verifies that the sandbox reaches
+  only the in-scope target while blocking the control-plane and public probes.
 
 Audit & forensics:
 

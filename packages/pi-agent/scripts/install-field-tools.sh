@@ -12,4 +12,6 @@ script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 install -d "$root/usr/local/sbin"
 install -m 0755 "$script_dir/validate-pi-node.sh" "$root/usr/local/sbin/kelp-pi-validate-node"
+install -m 0755 "$script_dir/validate-scanner-sandbox.sh" "$root/usr/local/sbin/kelp-pi-validate-scanner-sandbox"
 printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-node"
+printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-scanner-sandbox"
