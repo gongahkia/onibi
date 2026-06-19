@@ -61,14 +61,9 @@ Install the cross-built agent, systemd units, network hardening files, and pinne
 binary into the mounted image or first-boot staging root:
 
 ```console
-$ pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>
-$ pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>
-$ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-network \
-  --output <image-root> \
+$ pnpm --filter @kelpclaw/pi-agent stage:image-root -- <image-root> \
   --wpa3-passphrase <operator-ap-passphrase> \
   --allow-outbound <control-plane-host>:443
-$ pnpm --filter @kelpclaw/pi-agent apply:boot-fragment -- <image-root>
-$ pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>
 ```
 
 On the Pi, bootstrap the data directory, key, service, and Pi-side validation harness:
@@ -518,6 +513,9 @@ Network perimeter discipline:
 
 Reference renderer:
 
+- `pnpm --filter @kelpclaw/pi-agent stage:image-root -- <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
+  stages the agent binary, systemd files, network hardening files, boot hardening,
+  and pinned Nuclei binary into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:agent -- <image-root>` stages the
   cross-built `kelp-pi-agent` binary into `<image-root>/usr/local/bin`.
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages

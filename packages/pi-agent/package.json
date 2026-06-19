@@ -10,6 +10,7 @@
     "fetch:nuclei-arm64": "scripts/fetch-nuclei-arm64.sh",
     "install:agent": "scripts/install-agent-binary.sh",
     "install:systemd": "scripts/install-systemd.sh",
+    "stage:image-root": "scripts/stage-image-root.sh",
     "test": "cargo test",
     "test:quota-fill": "scripts/test-storage-quota-fill.sh",
     "typecheck": "cargo check",
