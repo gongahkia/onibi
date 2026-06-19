@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
+use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -69,6 +70,12 @@ pub enum AuditTracingError {
     Io(io::Error),
     Verify(AuditLogVerifyError),
     Subscriber(tracing::subscriber::SetGlobalDefaultError),
+}
+
+type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+pub struct PanicAuditHookGuard {
+    previous: Option<PanicHook>,
 }
 
 #[derive(Debug)]
@@ -248,6 +255,27 @@ pub fn verify_audit_log(path: &Path) -> Result<AuditLogVerification, AuditLogVer
     })
 }
 
+pub fn install_panic_audit_hook() -> PanicAuditHookGuard {
+    let previous = panic::take_hook();
+    panic::set_hook(Box::new(|info| {
+        let (file, line) = info
+            .location()
+            .map(|location| (location.file(), location.line()))
+            .unwrap_or(("<unknown>", 0));
+        tracing::error!(
+            event = "panic",
+            msg = "agent panic",
+            msg_id = "agent-panic",
+            panic_payload = panic_payload(info),
+            panic_file = file,
+            panic_line = u64::from(line)
+        );
+    }));
+    PanicAuditHookGuard {
+        previous: Some(previous),
+    }
+}
+
 fn load_audit_log_head(path: &Path) -> Result<String, AuditLogVerifyError> {
     if !path.exists() {
         return Ok(AUDIT_LOG_GENESIS_HASH.to_string());
@@ -286,6 +314,24 @@ pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
         Ok(())
     } else {
         Err(issues)
+    }
+}
+
+fn panic_payload(info: &PanicHookInfo<'_>) -> String {
+    if let Some(message) = info.payload().downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+    if let Some(message) = info.payload().downcast_ref::<String>() {
+        return message.clone();
+    }
+    "<non-string panic payload>".to_string()
+}
+
+impl Drop for PanicAuditHookGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            panic::set_hook(previous);
+        }
     }
 }
 
@@ -571,6 +617,32 @@ mod tests {
             error,
             AuditLogVerifyError::HashMismatch { line: 2, .. }
         ));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn panic_hook_writes_verifiable_panic_entry() {
+        let root = temp_root("panic-hook");
+        create_layout(&root);
+        init_audit_tracing(&root).expect("init audit tracing");
+        let hook = install_panic_audit_hook();
+
+        let result = std::panic::catch_unwind(|| {
+            panic!("induced panic");
+        });
+
+        drop(hook);
+        assert!(result.is_err());
+
+        let verification = verify_audit_log(&audit_log_path(&root)).expect("verify audit log");
+        assert_eq!(verification.entries, 1);
+
+        let content = fs::read_to_string(audit_log_path(&root)).expect("read audit log");
+        let entry: Value =
+            serde_json::from_str(content.lines().next().expect("panic entry")).expect("parse JSON");
+        assert_eq!(entry["event"], "panic");
+        assert_eq!(entry["msg_id"], "agent-panic");
 
         fs::remove_dir_all(root).expect("cleanup");
     }

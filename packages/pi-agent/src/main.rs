@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    audit_log_path, init_audit_tracing, load_or_generate_identity_key, run_doctor,
-    validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_QUOTAS,
+    audit_log_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
+    run_doctor, validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL,
+    DEFAULT_QUOTAS,
 };
 
 fn main() -> ExitCode {
@@ -209,18 +210,22 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
         return Err(ExitCode::from(78));
     }
 
-    if start_mode {
+    let _panic_hook = if start_mode {
         if let Err(error) = init_audit_tracing(&data_dir) {
             eprintln!("audit tracing init failed: {error}");
             return Err(ExitCode::from(78));
         }
+        let panic_hook = install_panic_audit_hook();
         tracing::info!(
             event = "agent.preflight.ok",
             msg = "data dir preflight passed",
             msg_id = "agent-preflight-ok",
             data_dir = %data_dir.display()
         );
-    }
+        Some(panic_hook)
+    } else {
+        None
+    };
 
     if start_mode && !check_only {
         tracing::error!(
