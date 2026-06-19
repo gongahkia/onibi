@@ -17,6 +17,7 @@ tokio = { version = "=1.52.3", features = ["fs", "io-util", "macros", "process",
 axum = { version = "=0.8.9" } # HTTP router for loopback-only /ask
 rusqlite = { version = "=0.39.0", features = ["bundled"] } # SQLite wrapper; bundled SQLite lets doctor verify FTS5 consistently
 ed25519-dalek = { version = "=2.2.0", features = ["pem", "pkcs8", "rand_core"] } # stable Ed25519 for envelope, audit, and bundle signatures
+base64ct = { version = "=1.8.3", features = ["alloc"] } # schema-required base64url-unpadded envelope signatures
 blake3 = { version = "=1.8.5" } # deterministic content, chunk, and audit-chain hashing
 rand_core = { version = "=0.6.4", features = ["getrandom"] } # OS CSPRNG source for Ed25519 keygen
 sha2 = { version = "=0.10.9" } # SHA-256 key IDs for control-plane trust lists

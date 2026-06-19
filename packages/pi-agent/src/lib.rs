@@ -15,10 +15,15 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 mod keys;
+mod wire;
 
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
+};
+pub use wire::{
+    canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
+    PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,
 };
 
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
