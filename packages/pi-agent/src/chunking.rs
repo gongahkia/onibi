@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 pub const DEFAULT_CHUNK_TARGET_TOKENS: usize = 512;
 pub const DEFAULT_CHUNK_OVERLAP_TOKENS: usize = 64;
 
@@ -21,11 +23,43 @@ pub struct ChunkingConfig {
     pub heading_aware: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IngestRefusal {
+    ExecutableExtension,
+    ExecutableMagic,
+    BinaryContent,
+}
+
 pub fn default_chunking_config() -> ChunkingConfig {
     ChunkingConfig {
         target_tokens: DEFAULT_CHUNK_TARGET_TOKENS,
         overlap_tokens: DEFAULT_CHUNK_OVERLAP_TOKENS,
         heading_aware: true,
+    }
+}
+
+pub fn validate_ingest_source(path: &str, bytes: &[u8]) -> Result<(), IngestRefusal> {
+    let refusal = if path.to_ascii_lowercase().ends_with(".exe") {
+        Some(IngestRefusal::ExecutableExtension)
+    } else if bytes.starts_with(b"\x7fELF") {
+        Some(IngestRefusal::ExecutableMagic)
+    } else if bytes.contains(&0) || std::str::from_utf8(bytes).is_err() {
+        Some(IngestRefusal::BinaryContent)
+    } else {
+        None
+    };
+
+    if let Some(refusal) = refusal {
+        tracing::warn!(
+            event = "ingest.refused",
+            msg = "source file refused",
+            msg_id = "ingest-refused",
+            path = path,
+            reason = refusal.as_str()
+        );
+        Err(refusal)
+    } else {
+        Ok(())
     }
 }
 
@@ -369,9 +403,47 @@ fn content_chunk(
     }
 }
 
+impl IngestRefusal {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IngestRefusal::ExecutableExtension => "executable-extension",
+            IngestRefusal::ExecutableMagic => "executable-magic",
+            IngestRefusal::BinaryContent => "binary-content",
+        }
+    }
+}
+
+impl Display for IngestRefusal {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::error::Error for IngestRefusal {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{audit_log_path, verify_audit_log, AuditJsonLayer};
+    use std::fs::{self, OpenOptions};
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "kelp-pi-agent-chunking-{name}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn create_audit_dir(root: &Path) {
+        fs::create_dir_all(root.join("audit")).expect("create audit dir");
+    }
 
     #[test]
     fn token_windows_are_deterministic_with_default_parameters() {
@@ -476,5 +548,36 @@ mod tests {
         assert!(chunks
             .iter()
             .all(|chunk| chunk.sidecar_path.as_deref() == Some("reports/input.pdf.txt")));
+    }
+
+    #[test]
+    fn binary_and_executable_ingest_is_logged_and_rejected() {
+        let root = temp_root("ingest-refusal");
+        create_audit_dir(&root);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_log_path(&root))
+            .expect("open audit log");
+        let subscriber = tracing_subscriber::registry().with(AuditJsonLayer::new(file));
+
+        tracing::subscriber::with_default(subscriber, || {
+            assert_eq!(
+                validate_ingest_source("sample.elf", b"\x7fELF\x02\x01"),
+                Err(IngestRefusal::ExecutableMagic)
+            );
+            assert_eq!(
+                validate_ingest_source("sample.exe", b"MZ"),
+                Err(IngestRefusal::ExecutableExtension)
+            );
+        });
+
+        let verification = verify_audit_log(&audit_log_path(&root)).expect("verify audit log");
+        assert_eq!(verification.entries, 2);
+        let audit_log = fs::read_to_string(audit_log_path(&root)).expect("read audit log");
+        assert!(audit_log.contains("ingest.refused"));
+        assert!(audit_log.contains("sample.exe"));
+
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }
