@@ -78,6 +78,7 @@ grep -q 'systemd hardening properties verified' "$artifact_dir/node.log" || fail
 grep -q 'nft ruleset output chain:' "$artifact_dir/node.log" || fail "node log missing nft ruleset output proof"
 grep -q 'policy drop' "$artifact_dir/node.log" || fail "node log missing nft default drop proof"
 grep -q 'ct state established,related accept' "$artifact_dir/node.log" || fail "node log missing nft established-session proof"
+grep -q 'outbound denial probe url=' "$artifact_dir/node.log" || fail "node log missing outbound denial probe proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
 grep -q 'boot peripheral disable config:' "$artifact_dir/node.log" || fail "node log missing boot peripheral config proof"
 for boot_line in \

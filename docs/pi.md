@@ -605,7 +605,8 @@ Reference renderer:
   default-drop policy, scanner UID/target sets, and outbound accepts only for rendered
   `allow_outbound` `host:port` endpoints. `kelp-pi-agent hardening apply-network --config /etc/kelp-pi/network-hardening.json`
   reloads the nftables rules through `nft -f -`, so config changes are applied as a
-  single nftables transaction.
+  single nftables transaction. Node validation logs the blocked outbound `curl` probe
+  URL, exit code, and stderr before accepting default outbound denial.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
   the reference appliance image. The HDMI setting uses `hdmi_blanking=1`, matching
   Raspberry Pi's documented switch-off value. Hardware validation logs the exact boot
