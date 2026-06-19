@@ -17,9 +17,10 @@ use kelp_pi_agent::{
     run_scanner_with_limits, run_selfcheck, run_synthesis_eval, scanner_enforced_args,
     selfcheck_report_payload, sign_envelope, unix_millis_now, validate_data_dir,
     validate_selfcheck_target, verify_and_stage_firmware_update, verify_audit_log,
-    verify_audit_log_chain, verify_envelope, wipe_data_dir, write_nuclei_findings_document,
-    AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender,
-    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
+    verify_audit_log_chain, verify_envelope, wipe_data_dir, write_network_hardening_files,
+    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin,
+    OutboundEndpoint, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
+    PiNetworkHardeningConfig, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
     PolicyTrustState, ScannerLimits, ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError,
     StorageQuotaScope, StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey,
     UnsignedPiWireEnvelope, ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH,
@@ -57,6 +58,7 @@ fn run() -> Result<(), ExitCode> {
         "doctor" => doctor_command(args.collect()),
         "eval" => eval_command(args.collect()),
         "firmware-update" => firmware_update_command(args.collect()),
+        "hardening" => hardening_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "normalize" => normalize_command(args.collect()),
         "outbox" => outbox_command(args.collect()),
@@ -1464,6 +1466,129 @@ fn approve_command(args: Vec<String>) -> Result<(), ExitCode> {
         "{}",
         serde_json::to_string_pretty(&approval).expect("serialize approval")
     );
+    Ok(())
+}
+
+fn hardening_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent hardening render-network ...");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "render-network" => hardening_render_network_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown hardening subcommand: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn hardening_render_network_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut config = PiNetworkHardeningConfig::default();
+    let mut output = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--output" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--output requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                output = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--ap-interface" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--ap-interface requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                config.ap_interface = value.to_string();
+                index += 2;
+            }
+            "--ssid" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--ssid requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                config.ssid = value.to_string();
+                index += 2;
+            }
+            "--wpa3-passphrase" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--wpa3-passphrase requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                config.wpa3_passphrase = value.to_string();
+                index += 2;
+            }
+            "--ap-address" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--ap-address requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse() else {
+                    eprintln!("--ap-address must be an IPv4 address");
+                    return Err(ExitCode::from(64));
+                };
+                config.ap_address = parsed;
+                index += 2;
+            }
+            "--dhcp-start" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--dhcp-start requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse() else {
+                    eprintln!("--dhcp-start must be an IPv4 address");
+                    return Err(ExitCode::from(64));
+                };
+                config.dhcp_start = parsed;
+                index += 2;
+            }
+            "--dhcp-end" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--dhcp-end requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse() else {
+                    eprintln!("--dhcp-end must be an IPv4 address");
+                    return Err(ExitCode::from(64));
+                };
+                config.dhcp_end = parsed;
+                index += 2;
+            }
+            "--allow-outbound" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--allow-outbound requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                config
+                    .allow_outbound
+                    .push(OutboundEndpoint::parse(value).map_err(|error| {
+                        eprintln!("invalid --allow-outbound: {error}");
+                        ExitCode::from(64)
+                    })?);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(output) = output else {
+        eprintln!("hardening render-network requires --output");
+        return Err(ExitCode::from(64));
+    };
+    let written = write_network_hardening_files(&output, &config).map_err(|error| {
+        eprintln!("hardening render-network failed: {error}");
+        ExitCode::from(78)
+    })?;
+    for path in written {
+        println!("{}", path.display());
+    }
     Ok(())
 }
 
@@ -4113,6 +4238,9 @@ fn print_usage() {
     );
     eprintln!(
         "usage: kelp-pi-agent firmware-update --bundle-dir PATH --trusted-public-key-hex HEX [--data-dir PATH]"
+    );
+    eprintln!(
+        "usage: kelp-pi-agent hardening render-network --output DIR --wpa3-passphrase PASS [--ssid SSID] [--ap-interface IFACE] [--ap-address IPv4] [--dhcp-start IPv4] [--dhcp-end IPv4] [--allow-outbound HOST:PORT]"
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!(

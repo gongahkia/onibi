@@ -25,6 +25,7 @@ mod chunking;
 mod doctor;
 mod eval;
 mod evidence;
+mod hardening;
 mod http;
 mod index;
 mod keys;
@@ -71,6 +72,12 @@ pub use evidence::{
     normalize_nuclei_jsonl, normalize_nuclei_jsonl_file, write_nuclei_findings_document,
     EvidenceAffectedInstance, EvidenceFindingsDocument, EvidenceNormalizeError, EvidenceSnippet,
     EvidenceSourceReference, NormalizedEvidenceFinding, EVIDENCE_FINDINGS_SCHEMA_VERSION,
+};
+pub use hardening::{
+    default_captive_domains, render_network_hardening_files, write_network_hardening_files,
+    NetworkHardeningError, OutboundEndpoint, PiNetworkHardeningConfig, RenderedHardeningFile,
+    DEFAULT_AP_ADDRESS, DEFAULT_AP_INTERFACE, DEFAULT_AP_PREFIX, DEFAULT_AP_SSID, DEFAULT_DHCP_END,
+    DEFAULT_DHCP_LEASE, DEFAULT_DHCP_START,
 };
 pub use http::{
     ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,

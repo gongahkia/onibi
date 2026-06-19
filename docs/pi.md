@@ -414,6 +414,25 @@ Network perimeter discipline:
 - DNS sinkhole intercepts captive-portal connectivity check domains and returns the
   Pi's portal IP only; no upstream DNS resolution by default.
 
+Reference renderer:
+
+- `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
+  emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
+  nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
+  and boot-config peripheral disable fragment.
+- The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
+  management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
+  maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
+  and `clients3.google.com` to the Pi portal IP.
+- The nftables file installs an `inet kelp_pi_filter` table with input/forward/output
+  default-drop policy and outbound accepts only for rendered `allow_outbound`
+  endpoints. Image install scripts must load the generated rules atomically with
+  `nft -f`.
+- The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
+  the reference appliance image. Hardware validation still requires the TODO's
+  client-isolation, zero-upstream-DNS, nft egress-denial, and post-boot `dmesg`
+  checks on a real Pi.
+
 Audit & forensics:
 
 - Every scanner invocation, policy decision, and `/ask` query is appended to a
