@@ -54,6 +54,8 @@ grep -q 'agent version: kelp-pi-agent ' "$artifact_dir/node.log" || fail "node l
 grep -q 'systemctl is-active kelp-pi-agent.service=active' "$artifact_dir/node.log" || fail "node log missing active systemd proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
 grep -q 'disabled bus/audio peripherals absent from dmesg' "$artifact_dir/node.log" || fail "node log missing disabled peripheral proof"
+grep -q 'scanner sandbox user=' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox user proof missing"
+grep -q 'scanner sandbox properties:' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox property proof missing"
 grep -q 'scanner sandbox blocked control-plane probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block control plane"
 grep -q 'scanner sandbox blocked public probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block public internet"
 grep -q 'pinned Nuclei binary sha256=' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei binary hash proof missing"

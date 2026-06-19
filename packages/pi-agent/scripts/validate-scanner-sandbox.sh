@@ -61,9 +61,15 @@ need "$agent_bin"
 need "$systemd_run_bin"
 need "$nft_bin"
 need curl
+need id
+
+scanner_uid="$(id -u "$scanner_user")"
+[ "$scanner_uid" != "0" ] || fail "scanner user must not be root"
+pass "scanner sandbox user=$scanner_user uid=$scanner_uid"
 
 "$agent_bin" hardening apply-scanner-targets --target-ip "$target_ip" --nft-bin "$nft_bin" >/dev/null
-pass "scanner target set loaded"
+pass "scanner nft target set loaded for $target_ip"
+pass "scanner sandbox properties: User=$scanner_user NoNewPrivileges PrivateTmp PrivateDevices ProtectSystem=strict NFTSet=user:inet:kelp_pi_filter:scanner_users"
 
 run_scanner_curl() {
   "$systemd_run_bin" \

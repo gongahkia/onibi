@@ -613,7 +613,8 @@ Reference renderer:
 - `kelp-pi-validate-scanner-sandbox --target-ip <fixture-ip> --target-url <fixture-url> --control-url <control-plane-url>`
   reloads the scanner nft target set, runs `curl` through the same `systemd-run`
   sandbox properties used by scanner execution, and verifies that the sandbox reaches
-  only the in-scope target while blocking the control-plane and public probes.
+  only the in-scope target while blocking the control-plane and public probes. Its log
+  records the unprivileged scanner UID and the core `systemd-run` sandbox properties.
 - `kelp-pi-validate-allow-outbound-reload --current-config <json> --updated-config <json> --session-command '<long-running-control-session>'`
   applies the current nftables hardening config, starts the supplied control-plane
   session command, reapplies the updated config, and fails if the session exits during
