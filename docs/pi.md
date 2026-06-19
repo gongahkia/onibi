@@ -63,12 +63,7 @@ binary into the mounted image or first-boot staging root:
 ```console
 $ install -m 0755 packages/pi-agent/target/aarch64-unknown-linux-gnu/release/kelp-pi-agent \
   <image-root>/usr/local/bin/kelp-pi-agent
-$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.service \
-  <image-root>/etc/systemd/system/kelp-pi-agent.service
-$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.sysusers.conf \
-  <image-root>/usr/lib/sysusers.d/kelp-pi-agent.conf
-$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.tmpfiles.conf \
-  <image-root>/usr/lib/tmpfiles.d/kelp-pi-agent.conf
+$ pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>
 $ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-network \
   --output <image-root> \
   --wpa3-passphrase <operator-ap-passphrase> \
@@ -524,6 +519,8 @@ Network perimeter discipline:
 
 Reference renderer:
 
+- `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages
+  `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
