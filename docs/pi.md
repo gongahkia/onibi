@@ -639,6 +639,8 @@ Reference renderer:
   to load the configured 3B-class model on Raspberry Pi hardware with
   `ram_bytes >= min_pi_ram_bytes`; `--expect-refuse` requires the guard to refuse
   before invoking Ollama on an undersized Pi with `ram_bytes < min_pi_ram_bytes`.
+- `scripts/verify-pi-p8-evidence.sh --load-field-dir <16gb-field-acceptance> --refuse-field-dir <8gb-field-acceptance>`
+  verifies the two separate P8 hardware evidence runs together.
 - `kelp-pi-validate-readonly-root --data-dir /var/lib/kelp-pi` requires `/` to be
   mounted read-only and the Pi data directory to be writable from a non-root mount,
   logging both mount option sets.
