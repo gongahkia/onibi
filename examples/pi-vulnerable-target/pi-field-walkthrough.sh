@@ -248,5 +248,6 @@ node "$cli" verify-audit-bundle "$bundle_dir" --profile reviewer >"$out/verifica
 
 mkdir -p "$field_dir"
 "$scp_bin" -r "$pi_user@$pi_host:$remote_field_dir/." "$field_dir/" >/dev/null
+"$repo_root/scripts/verify-pi-field-acceptance.sh" "$field_dir" >"$out/field-verification.log"
 
 printf '%s\n' "$out"
