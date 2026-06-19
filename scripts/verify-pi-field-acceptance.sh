@@ -17,6 +17,19 @@ need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 missing"
 }
 
+node_security_score_ok() {
+  awk '
+    /systemd security score/ {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^[0-9]+(\.[0-9]+)?$/) {
+          score=$i
+        }
+      }
+    }
+    END { exit !(score != "" && score < 3.0) }
+  ' "$1"
+}
+
 [ -n "$artifact_dir" ] || fail "usage: $0 FIELD_ACCEPTANCE_DIR"
 [ -d "$artifact_dir" ] || fail "field acceptance dir missing: $artifact_dir"
 need awk
@@ -30,7 +43,7 @@ host="$artifact_dir/host.txt"
 [ -f "$host" ] || fail "host missing: $host"
 
 grep -q '^uname=.*aarch64' "$host" || fail "host uname is not aarch64"
-grep -q 'Raspberry Pi' "$artifact_dir/node.log" || fail "node log missing Raspberry Pi proof"
+grep -q 'Raspberry Pi 5 aarch64 host:' "$artifact_dir/node.log" || fail "node log missing Raspberry Pi 5 aarch64 proof"
 
 for check in \
   node \
@@ -49,7 +62,7 @@ duration_seconds="$(awk -F= '/^duration_seconds=/ { print $2 }' "$timing" | tail
 awk -v duration="$duration_seconds" -v max="$max_seconds" 'BEGIN { exit !(duration <= max) }' || fail "duration $duration_seconds exceeds $max_seconds"
 grep -q "^OK duration_seconds=$duration_seconds " "$summary" || fail "duration summary missing"
 
-grep -q 'systemd security score' "$artifact_dir/node.log" || fail "node log missing systemd security score"
+node_security_score_ok "$artifact_dir/node.log" || fail "node log missing systemd security score below 3.0"
 grep -q 'agent version: kelp-pi-agent ' "$artifact_dir/node.log" || fail "node log missing agent version proof"
 grep -q 'systemctl is-active kelp-pi-agent.service=active' "$artifact_dir/node.log" || fail "node log missing active systemd proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
