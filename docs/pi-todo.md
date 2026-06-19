@@ -35,8 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Add a `stale-index` flag in selfcheck when source files exist that have never been ingested → success: dropping a new file into the corpus dir surfaces a warning in the next selfcheck.
-
 ## P4 — Scanner integration
 
 - [ ] Embed Nuclei as a pinned ARM64 binary in the Pi image → success: `kelp-pi-agent scan nuclei --target ...` runs without external `nuclei` install.

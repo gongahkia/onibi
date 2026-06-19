@@ -358,6 +358,8 @@ Retrieval chunking:
 - Ingest records source file `mtime`, size, and content hash in SQLite. Changed
   sources replace that file's chunk rows in one transaction; unchanged chunks keep
   stable content-derived chunk IDs.
+- `kelp-pi-agent selfcheck` reports `stale_index: true` when a regular file under
+  `/var/lib/kelp-pi/corpus` has no matching `source_files` index row.
 
 Physical capture assumptions:
 

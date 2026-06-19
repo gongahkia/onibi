@@ -20,6 +20,7 @@ mod doctor;
 mod http;
 mod index;
 mod keys;
+mod selfcheck;
 mod wire;
 
 pub use chunking::{
@@ -41,6 +42,7 @@ pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
 };
+pub use selfcheck::{run_selfcheck, SelfcheckCheck, SelfcheckReport, SelfcheckStatus};
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
     PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,

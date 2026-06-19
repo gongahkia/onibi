@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, ask_bind_is_loopback, ask_router, audit_log_path,
     index_db_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    run_doctor, validate_data_dir, verify_audit_log, AskHttpState, DEFAULT_ASK_BIND,
+    run_doctor, run_selfcheck, validate_data_dir, verify_audit_log, AskHttpState, DEFAULT_ASK_BIND,
     DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
     DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
@@ -35,6 +35,7 @@ fn run() -> Result<(), ExitCode> {
             Ok(())
         }
         "serve-ask" => serve_ask_command(args.collect()),
+        "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
         "-h" | "--help" | "help" => {
@@ -288,6 +289,39 @@ fn doctor_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let report = run_selfcheck(&data_dir);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("serialize selfcheck report")
+    );
+    if report.ok {
+        Ok(())
+    } else {
+        Err(ExitCode::from(78))
+    }
+}
+
 fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut key_dir = None;
@@ -464,6 +498,7 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );
+    eprintln!("usage: kelp-pi-agent selfcheck [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
 }
