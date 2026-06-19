@@ -17,6 +17,7 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 mod chunking;
 mod doctor;
+mod index;
 mod keys;
 mod wire;
 
@@ -26,6 +27,7 @@ pub use chunking::{
     ContentChunk, IngestRefusal, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
+pub use index::apply_index_schema;
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,

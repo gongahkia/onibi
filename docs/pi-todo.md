@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Implement SQLite schema for `chunks(id, path, heading_path, start_byte, end_byte, content_hash, content, ingested_at)` plus FTS5 virtual table over `content` → success: schema migration applies idempotently.
 - [ ] Implement BM25 retrieval via FTS5 with configurable top-k → success: `kelp-pi-agent ask "..."` returns top-k chunks with scores.
 - [ ] Define no-answer rule: if top-k max BM25 score is below a configurable threshold, return `no_answer` with reason → success: a query unrelated to the corpus returns `no_answer`; threshold default is documented.
 - [ ] Define citation format: `{path, heading_path, chunk_id, start_byte, end_byte}` → success: every `/ask` response contains a `citations` array matching this shape.
