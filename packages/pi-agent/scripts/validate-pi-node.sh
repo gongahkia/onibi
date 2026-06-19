@@ -6,6 +6,7 @@ service="${KELP_PI_SERVICE:-kelp-pi-agent.service}"
 network_config="${KELP_PI_NETWORK_CONFIG:-/etc/kelp-pi/network-hardening.json}"
 nm_profile="${KELP_PI_NM_PROFILE:-/etc/NetworkManager/system-connections/kelp-pi-ap.nmconnection}"
 dnsmasq_config="${KELP_PI_DNSMASQ_CONFIG:-/etc/dnsmasq.d/kelp-pi-captive.conf}"
+boot_config="${KELP_PI_BOOT_CONFIG:-/boot/firmware/config.txt}"
 nuclei_bin="${KELP_PI_NUCLEI_BIN:-/opt/kelp-pi/bin/nuclei}"
 nuclei_manifest="${KELP_PI_NUCLEI_MANIFEST:-/etc/kelp-pi/nuclei-binary.json}"
 nuclei_version="v3.9.0"
@@ -93,6 +94,19 @@ pass "dnsmasq captive sinkhole config"
 [ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || fail "IPv4 forwarding enabled"
 [ "$(sysctl -n net.ipv6.conf.all.forwarding)" = "0" ] || fail "IPv6 forwarding enabled"
 pass "kernel forwarding disabled"
+
+[ -f "$boot_config" ] || fail "$boot_config missing"
+for line in \
+  dtoverlay=disable-bt \
+  dtparam=audio=off \
+  dtoverlay=vc4-kms-v3d,noaudio \
+  dtparam=i2c_arm=off \
+  dtparam=spi=off \
+  hdmi_blanking=2
+do
+  grep -qx "$line" "$boot_config" || fail "boot config missing $line"
+done
+pass "boot peripheral disables"
 
 [ -f "$network_config" ] || fail "$network_config missing"
 "$agent_bin" hardening apply-network --config "$network_config"
