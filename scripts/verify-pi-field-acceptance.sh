@@ -79,6 +79,21 @@ grep -q 'nft ruleset output chain:' "$artifact_dir/node.log" || fail "node log m
 grep -q 'policy drop' "$artifact_dir/node.log" || fail "node log missing nft default drop proof"
 grep -q 'ct state established,related accept' "$artifact_dir/node.log" || fail "node log missing nft established-session proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
+grep -q 'boot peripheral disable config:' "$artifact_dir/node.log" || fail "node log missing boot peripheral config proof"
+for boot_line in \
+  dtoverlay=disable-bt \
+  dtparam=audio=off \
+  dtoverlay=vc4-kms-v3d,noaudio \
+  dtparam=i2c_arm=off \
+  dtparam=spi=off \
+  hdmi_blanking=1
+do
+  grep -qx "$boot_line" "$artifact_dir/node.log" || fail "node log missing boot config proof: $boot_line"
+done
+grep -q 'dmesg disabled subsystem absence patterns:' "$artifact_dir/node.log" || fail "node log missing dmesg pattern proof"
+for dmesg_pattern in Bluetooth hci_uart snd_bcm2835 i2c-bcm2835 spi-bcm2835; do
+  grep -qx "$dmesg_pattern" "$artifact_dir/node.log" || fail "node log missing dmesg absence proof: $dmesg_pattern"
+done
 grep -q 'disabled bus/audio peripherals absent from dmesg' "$artifact_dir/node.log" || fail "node log missing disabled peripheral proof"
 grep -q 'scanner sandbox user=' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox user proof missing"
 grep -q 'scanner sandbox properties:' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox property proof missing"

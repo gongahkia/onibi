@@ -134,6 +134,7 @@ pass "dnsmasq captive sinkhole config"
 pass "kernel forwarding disabled"
 
 [ -f "$boot_config" ] || fail "$boot_config missing"
+printf '%s\n' 'boot peripheral disable config:'
 for line in \
   dtoverlay=disable-bt \
   dtparam=audio=off \
@@ -143,11 +144,13 @@ for line in \
   hdmi_blanking=1
 do
   grep -qx "$line" "$boot_config" || fail "boot config missing $line"
+  printf '%s\n' "$line"
 done
 pass "boot peripheral disables"
 
 dmesg_output="$(dmesg 2>/dev/null || true)"
 [ -n "$dmesg_output" ] || fail "dmesg output unavailable"
+printf '%s\n' 'dmesg disabled subsystem absence patterns:'
 for pattern in \
   Bluetooth \
   hci_uart \
@@ -156,6 +159,7 @@ for pattern in \
   spi-bcm2835
 do
   printf '%s\n' "$dmesg_output" | grep -qi "$pattern" && fail "disabled subsystem initialized in dmesg: $pattern"
+  printf '%s\n' "$pattern"
 done
 pass "disabled bus/audio peripherals absent from dmesg"
 

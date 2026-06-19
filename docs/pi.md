@@ -608,8 +608,9 @@ Reference renderer:
   single nftables transaction.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
   the reference appliance image. The HDMI setting uses `hdmi_blanking=1`, matching
-  Raspberry Pi's documented switch-off value. Hardware validation still requires the
-  TODO's client-isolation, zero-upstream-DNS, and nft egress-denial checks on a real Pi.
+  Raspberry Pi's documented switch-off value. Hardware validation logs the exact boot
+  config lines plus the dmesg absence patterns it checked. It still requires the TODO's
+  client-isolation, zero-upstream-DNS, and nft egress-denial checks on a real Pi.
 - `kelp-pi-validate-scanner-sandbox --target-ip <fixture-ip> --target-url <fixture-url> --control-url <control-plane-url>`
   reloads the scanner nft target set, runs `curl` through the same `systemd-run`
   sandbox properties used by scanner execution, and verifies that the sandbox reaches
