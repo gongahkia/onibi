@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "cargo build",
+    "build:pi": "scripts/build-aarch64-linux.sh",
     "test": "cargo test",
     "typecheck": "cargo check"
   }
