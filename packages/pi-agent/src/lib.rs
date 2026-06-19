@@ -1,9 +1,11 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 #[cfg(unix)]
@@ -14,6 +16,8 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
 pub const AUDIT_LOG_FILE: &str = "agent.jsonl";
+pub const AUDIT_LOG_GENESIS_HASH: &str =
+    "0000000000000000000000000000000000000000000000000000000000000000";
 pub const REQUIRED_DATA_DIRS: [&str; 8] = [
     "corpus", "evidence", "bundles", "index", "audit", "keys", "policy", "scope",
 ];
@@ -49,7 +53,37 @@ pub struct DataDirIssue {
 #[derive(Debug)]
 pub enum AuditTracingError {
     Io(io::Error),
+    Verify(AuditLogVerifyError),
     Subscriber(tracing::subscriber::SetGlobalDefaultError),
+}
+
+#[derive(Debug)]
+pub enum AuditLogVerifyError {
+    Io(io::Error),
+    InvalidJson {
+        line: usize,
+        source: serde_json::Error,
+    },
+    InvalidRecord {
+        line: usize,
+        reason: String,
+    },
+    PrevHashMismatch {
+        line: usize,
+        expected: String,
+        found: String,
+    },
+    HashMismatch {
+        line: usize,
+        expected: String,
+        found: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditLogVerification {
+    pub entries: usize,
+    pub head_hash: String,
 }
 
 impl Display for DataDirIssue {
@@ -67,16 +101,60 @@ impl Display for AuditTracingError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AuditTracingError::Io(error) => write!(formatter, "{error}"),
+            AuditTracingError::Verify(error) => write!(formatter, "{error}"),
             AuditTracingError::Subscriber(error) => write!(formatter, "{error}"),
         }
     }
 }
 
+impl Display for AuditLogVerifyError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuditLogVerifyError::Io(error) => write!(formatter, "{error}"),
+            AuditLogVerifyError::InvalidJson { line, source } => {
+                write!(formatter, "line {line}: invalid JSON: {source}")
+            }
+            AuditLogVerifyError::InvalidRecord { line, reason } => {
+                write!(formatter, "line {line}: invalid audit record: {reason}")
+            }
+            AuditLogVerifyError::PrevHashMismatch {
+                line,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "line {line}: prev_hash mismatch: expected {expected}, found {found}"
+            ),
+            AuditLogVerifyError::HashMismatch {
+                line,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "line {line}: hash mismatch: expected {expected}, found {found}"
+            ),
+        }
+    }
+}
+
 impl std::error::Error for AuditTracingError {}
+impl std::error::Error for AuditLogVerifyError {}
 
 impl From<io::Error> for AuditTracingError {
     fn from(error: io::Error) -> Self {
         AuditTracingError::Io(error)
+    }
+}
+
+impl From<AuditLogVerifyError> for AuditTracingError {
+    fn from(error: AuditLogVerifyError) -> Self {
+        AuditTracingError::Verify(error)
+    }
+}
+
+impl From<io::Error> for AuditLogVerifyError {
+    fn from(error: io::Error) -> Self {
+        AuditLogVerifyError::Io(error)
     }
 }
 
@@ -92,12 +170,75 @@ pub fn audit_log_path(root: &Path) -> PathBuf {
 }
 
 pub fn init_audit_tracing(root: &Path) -> Result<(), AuditTracingError> {
+    let head_hash = load_audit_log_head(&audit_log_path(root))?;
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(audit_log_path(root))?;
-    let subscriber = tracing_subscriber::registry().with(AuditJsonLayer::new(file));
+    let subscriber =
+        tracing_subscriber::registry().with(AuditJsonLayer::with_prev_hash(file, head_hash));
     tracing::subscriber::set_global_default(subscriber).map_err(AuditTracingError::Subscriber)
+}
+
+pub fn verify_audit_log(path: &Path) -> Result<AuditLogVerification, AuditLogVerifyError> {
+    let file = fs::File::open(path)?;
+    let mut expected_prev_hash = AUDIT_LOG_GENESIS_HASH.to_string();
+    let mut entries = 0;
+
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: Value =
+            serde_json::from_str(&line).map_err(|source| AuditLogVerifyError::InvalidJson {
+                line: line_number,
+                source,
+            })?;
+        let Value::Object(record) = value else {
+            return Err(AuditLogVerifyError::InvalidRecord {
+                line: line_number,
+                reason: "record is not a JSON object".to_string(),
+            });
+        };
+        let prev_hash = required_text_field(&record, line_number, "prev_hash")
+            .map(|value| value.to_string())?;
+        let found_hash =
+            required_text_field(&record, line_number, "hash").map(|value| value.to_string())?;
+
+        if prev_hash != expected_prev_hash {
+            return Err(AuditLogVerifyError::PrevHashMismatch {
+                line: line_number,
+                expected: expected_prev_hash,
+                found: prev_hash,
+            });
+        }
+
+        let expected_hash = audit_record_hash(&record);
+        if found_hash != expected_hash {
+            return Err(AuditLogVerifyError::HashMismatch {
+                line: line_number,
+                expected: expected_hash,
+                found: found_hash,
+            });
+        }
+
+        expected_prev_hash = found_hash;
+        entries += 1;
+    }
+
+    Ok(AuditLogVerification {
+        entries,
+        head_hash: expected_prev_hash,
+    })
+}
+
+fn load_audit_log_head(path: &Path) -> Result<String, AuditLogVerifyError> {
+    if !path.exists() {
+        return Ok(AUDIT_LOG_GENESIS_HASH.to_string());
+    }
+    verify_audit_log(path).map(|verification| verification.head_hash)
 }
 
 pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
@@ -135,13 +276,22 @@ pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
 }
 
 pub struct AuditJsonLayer<W> {
-    writer: Mutex<W>,
+    state: Mutex<AuditJsonState<W>>,
+}
+
+struct AuditJsonState<W> {
+    writer: W,
+    prev_hash: String,
 }
 
 impl<W> AuditJsonLayer<W> {
     pub fn new(writer: W) -> Self {
+        Self::with_prev_hash(writer, AUDIT_LOG_GENESIS_HASH.to_string())
+    }
+
+    pub fn with_prev_hash(writer: W, prev_hash: String) -> Self {
         Self {
-            writer: Mutex::new(writer),
+            state: Mutex::new(AuditJsonState { writer, prev_hash }),
         }
     }
 }
@@ -178,10 +328,20 @@ where
             record.insert(key, value);
         }
 
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = serde_json::to_writer(&mut *writer, &Value::Object(record));
-            let _ = writer.write_all(b"\n");
-            let _ = writer.flush();
+        if let Ok(mut state) = self.state.lock() {
+            record.insert(
+                "prev_hash".to_string(),
+                Value::String(state.prev_hash.clone()),
+            );
+            let hash = audit_record_hash(&record);
+            record.insert("hash".to_string(), Value::String(hash.clone()));
+            let wrote_record = serde_json::to_writer(&mut state.writer, &Value::Object(record))
+                .is_ok()
+                && state.writer.write_all(b"\n").is_ok()
+                && state.writer.flush().is_ok();
+            if wrote_record {
+                state.prev_hash = hash;
+            }
         }
     }
 }
@@ -224,6 +384,31 @@ fn take_text_field(fields: &mut Map<String, Value>, name: &str) -> Option<String
         Value::String(text) => text,
         other => other.to_string(),
     })
+}
+
+fn required_text_field<'a>(
+    record: &'a Map<String, Value>,
+    line: usize,
+    name: &str,
+) -> Result<&'a str, AuditLogVerifyError> {
+    record
+        .get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| AuditLogVerifyError::InvalidRecord {
+            line,
+            reason: format!("{name} missing or non-string"),
+        })
+}
+
+fn audit_record_hash(record: &Map<String, Value>) -> String {
+    let mut canonical = BTreeMap::new();
+    for (key, value) in record {
+        if key != "hash" {
+            canonical.insert(key, value);
+        }
+    }
+    let encoded = serde_json::to_vec(&canonical).expect("serialize audit record");
+    blake3::hash(&encoded).to_hex().to_string()
 }
 
 fn unix_millis() -> u64 {
@@ -327,6 +512,51 @@ mod tests {
         assert_eq!(parsed["msg"], "test message");
         assert_eq!(parsed["msg_id"], "msg-1");
         assert_eq!(parsed["corpus_bytes"], 42);
+        assert_eq!(parsed["prev_hash"], AUDIT_LOG_GENESIS_HASH);
+        assert!(parsed["hash"].as_str().is_some());
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn audit_log_verifier_detects_tampering() {
+        let root = temp_root("audit-chain");
+        create_layout(&root);
+        let path = audit_log_path(&root);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .expect("open audit log");
+        let subscriber = tracing_subscriber::registry().with(AuditJsonLayer::new(file));
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(
+                event = "agent.first",
+                msg = "first message",
+                msg_id = "msg-1"
+            );
+            tracing::info!(
+                event = "agent.second",
+                msg = "second message",
+                msg_id = "msg-2"
+            );
+        });
+
+        let verification = verify_audit_log(&path).expect("valid audit chain");
+        assert_eq!(verification.entries, 2);
+        assert_ne!(verification.head_hash, AUDIT_LOG_GENESIS_HASH);
+
+        let tampered = fs::read_to_string(&path)
+            .expect("read audit log")
+            .replace("second message", "tampered message");
+        fs::write(&path, tampered).expect("write tampered audit log");
+
+        let error = verify_audit_log(&path).expect_err("tampering rejected");
+        assert!(matches!(
+            error,
+            AuditLogVerifyError::HashMismatch { line: 2, .. }
+        ));
 
         fs::remove_dir_all(root).expect("cleanup");
     }

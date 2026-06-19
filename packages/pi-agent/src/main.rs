@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use kelp_pi_agent::{init_audit_tracing, validate_data_dir, DEFAULT_DATA_DIR, DEFAULT_QUOTAS};
+use kelp_pi_agent::{
+    audit_log_path, init_audit_tracing, validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR,
+    DEFAULT_QUOTAS,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -23,6 +26,7 @@ fn run() -> Result<(), ExitCode> {
             print_quota_defaults();
             Ok(())
         }
+        "verify-audit-log" => verify_audit_log_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
         "-h" | "--help" | "help" => {
             print_usage();
@@ -32,6 +36,52 @@ fn run() -> Result<(), ExitCode> {
             eprintln!("unknown command: {command}");
             print_usage();
             Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut log_file = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--log-file" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--log-file requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                log_file = Some(PathBuf::from(value));
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let path = log_file.unwrap_or_else(|| audit_log_path(&data_dir));
+    match verify_audit_log(&path) {
+        Ok(result) => {
+            println!(
+                "audit log ok: entries={} head_hash={}",
+                result.entries, result.head_hash
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("audit log invalid: {error}");
+            Err(ExitCode::from(65))
         }
     }
 }
@@ -100,6 +150,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
+    eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
 }
 
 fn print_quota_defaults() {
