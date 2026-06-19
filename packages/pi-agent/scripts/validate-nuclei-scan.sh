@@ -104,6 +104,7 @@ done
 need "$agent_bin"
 need awk
 need date
+need file
 need grep
 need mktemp
 need rm
@@ -116,6 +117,9 @@ need sed
 grep -q "\"binary_sha256\":\"$binary_sha256\"" "$nuclei_manifest" || fail "nuclei manifest binary hash mismatch"
 installed_nuclei_sha256="$(hash_file "$nuclei_bin")"
 [ "$installed_nuclei_sha256" = "$binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
+nuclei_file="$(file "$nuclei_bin")"
+printf 'pinned Nuclei binary file=%s\n' "$nuclei_file"
+printf '%s\n' "$nuclei_file" | grep -Eq 'ELF 64-bit.*(ARM aarch64|aarch64)' || fail "pinned Nuclei binary is not an aarch64 ELF"
 pass "pinned Nuclei binary sha256=$installed_nuclei_sha256"
 
 output_file="$(mktemp)"

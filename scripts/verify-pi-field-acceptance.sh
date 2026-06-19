@@ -109,6 +109,7 @@ grep -q '^NFTSet=user:inet:kelp_pi_filter:scanner_users$' "$artifact_dir/scanner
 grep -q 'scanner sandbox reached in-scope target' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox target reachability proof missing"
 grep -q 'scanner sandbox blocked control-plane probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block control plane"
 grep -q 'scanner sandbox blocked public probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block public internet"
+grep -Eq 'pinned Nuclei binary file=.*ELF 64-bit.*(ARM aarch64|aarch64)' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei ARM64 binary proof missing"
 grep -q 'pinned Nuclei binary sha256=' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei binary hash proof missing"
 grep -q 'pinned Nuclei scan ran' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei scan proof missing"
 grep -q 'current nftables config applied' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound current config proof missing"

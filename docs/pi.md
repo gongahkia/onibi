@@ -654,7 +654,7 @@ Reference renderer:
 - `kelp-pi-validate-nuclei-scan --target <scope-target> --approval-token <token> -- <nuclei-args>`
   verifies the pinned `/opt/kelp-pi/bin/nuclei` manifest and runs an actual
   `kelp-pi-agent scan nuclei` invocation through that binary. Its log records the
-  installed Nuclei binary SHA-256 before the scan runs.
+  installed Nuclei ARM64 ELF proof and SHA-256 before the scan runs.
 - `kelp-pi-agent index ingest --input <file> --path <logical-path> --data-dir /var/lib/kelp-pi`
   chunks a UTF-8 text/Markdown source into SQLite FTS5, refuses binary/executable
   inputs, and makes the source available to `kelp-pi-agent ask` and `/ask`.
