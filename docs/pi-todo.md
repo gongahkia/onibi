@@ -16,7 +16,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P1 — Rust agent foundation
 
-- [ ] Initialize Rust crate `kelp-pi-agent` with edition 2021 → success: `cargo build` passes on host.
 - [ ] Pick crate set: `tokio`, `axum`, `rusqlite` with FTS5 feature, `ed25519-dalek`, `blake3`, `tracing`, `serde`, `serde_json`, `clap` → success: dependency list pinned in `Cargo.toml` with rationale comments.
 - [ ] Cross-compile to `aarch64-unknown-linux-gnu` via `cross` or `cargo-zigbuild` → success: a `kelp-pi-agent` binary runs on a real Pi 5 and prints version.
 - [ ] Establish target binary size budget: 20MB stripped → success: CI fails if `objcopy --strip-all` output exceeds 20MB.
