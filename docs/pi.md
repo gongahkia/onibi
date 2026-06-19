@@ -277,6 +277,15 @@ Package pin and upgrade flow:
   limit, passes Nuclei `-rate-limit`/`-bulk-size`, passes Nmap
   `--max-rate`/`--max-hostgroup`/`--host-timeout`, and refuses unsupported ZAP rate or
   multi-target concurrency requests.
+- `kelp-pi-agent bundle assemble --run-id <id> --workspace <evidence-workspace> --output <audit-bundle> --data-dir <dir>`
+  emits the same verifier-facing audit bundle contract as the laptop path:
+  `index.html`, `result.json`,
+  `compatibility.json`, `policy-decisions.json`, `redaction-report.json`,
+  `findings.sarif`, `manifest.json`, `manifest.sig`, `manifest.pub.json`,
+  `attestation.json`, and `attestation.sig`. The Pi bundle also includes
+  `normalized-findings.json`, `audit-log.jsonl`, and `audit-chain.json`; assembly
+  verifies the local hash-chained audit log before signing the bundle with the Pi
+  Ed25519 key.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

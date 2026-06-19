@@ -5,23 +5,24 @@ use std::process::ExitCode;
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
-    ask_bind_is_loopback, ask_router, decision_after_approval, default_gold_fixture_dir,
-    default_scanner_stability_fixture_dir, enforce_nuclei_templates_pin, ensure_targets_in_scope,
-    evaluate_and_audit_local_policy, evaluate_and_audit_local_policy_with_mode,
-    evaluate_scan_thermal_guard, evaluate_zap_guard, gold_chunk_id_lines, index_db_path,
-    init_audit_tracing, install_panic_audit_hook, load_active_scope, load_or_generate_identity_key,
-    probe_pinned_nmap_version, request_operator_approval, rotate_audit_log, run_doctor,
-    run_gold_eval, run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck,
-    run_synthesis_eval, scanner_enforced_args, selfcheck_report_payload, sign_envelope,
-    unix_millis_now, validate_data_dir, validate_selfcheck_target,
-    verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion,
-    NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
-    PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScannerLimits, ScopeError, ScopeTarget,
-    ScopeTargetType, ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision,
-    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
-    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
-    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    ask_bind_is_loopback, ask_router, assemble_pi_audit_bundle, decision_after_approval,
+    default_gold_fixture_dir, default_scanner_stability_fixture_dir, enforce_nuclei_templates_pin,
+    ensure_targets_in_scope, evaluate_and_audit_local_policy,
+    evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, evaluate_zap_guard,
+    gold_chunk_id_lines, index_db_path, init_audit_tracing, install_panic_audit_hook,
+    load_active_scope, load_or_generate_identity_key, probe_pinned_nmap_version,
+    request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval,
+    run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck, run_synthesis_eval,
+    scanner_enforced_args, selfcheck_report_payload, sign_envelope, unix_millis_now,
+    validate_data_dir, validate_selfcheck_target, verify_and_stage_firmware_update,
+    verify_audit_log, verify_audit_log_chain, verify_envelope, wipe_data_dir,
+    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin,
+    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
+    PiPolicyMode, PiWireEnvelope, ScannerLimits, ScopeError, ScopeTarget, ScopeTargetType,
+    ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS,
+    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
+    DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -47,6 +48,7 @@ fn run() -> Result<(), ExitCode> {
         "approve" => approve_command(args.collect()),
         "approval-request" => approval_request_command(args.collect()),
         "ask" => ask_command(args.collect()),
+        "bundle" => bundle_command(args.collect()),
         "check-data-dir" => check_data_dir(args.collect(), false),
         "doctor" => doctor_command(args.collect()),
         "eval" => eval_command(args.collect()),
@@ -1266,6 +1268,113 @@ fn approve_command(args: Vec<String>) -> Result<(), ExitCode> {
         serde_json::to_string_pretty(&approval).expect("serialize approval")
     );
     Ok(())
+}
+
+fn bundle_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent bundle assemble --run-id ID --workspace PATH --output PATH [--data-dir PATH] [--key-dir PATH]");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "assemble" => bundle_assemble_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown bundle command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn bundle_assemble_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut workspace = None;
+    let mut output = None;
+    let mut run_id = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--workspace" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--workspace requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                workspace = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--output" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--output requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                output = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--run-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--run-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                run_id = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(workspace) = workspace else {
+        eprintln!("bundle assemble requires --workspace");
+        return Err(ExitCode::from(64));
+    };
+    let Some(output) = output else {
+        eprintln!("bundle assemble requires --output");
+        return Err(ExitCode::from(64));
+    };
+    let Some(run_id) = run_id else {
+        eprintln!("bundle assemble requires --run-id");
+        return Err(ExitCode::from(64));
+    };
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    match assemble_pi_audit_bundle(&data_dir, &key_dir, &workspace, &output, &run_id) {
+        Ok(assembly) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": true,
+                    "run_id": assembly.run_id,
+                    "bundle_dir": assembly.bundle_dir.display().to_string(),
+                    "files": assembly.files,
+                    "manifest": assembly.manifest,
+                    "manifest_sha256": assembly.manifest_sha256
+                }))
+                .expect("serialize bundle assembly")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("bundle assemble failed: {error}");
+            Err(ExitCode::from(65))
+        }
+    }
 }
 
 fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -2703,6 +2812,7 @@ fn print_usage() {
         "usage: kelp-pi-agent approval-request --gate GATE [--scope-id ID] [--ttl-seconds N] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent approve TOKEN [--data-dir PATH]");
+    eprintln!("usage: kelp-pi-agent bundle assemble --run-id ID --workspace PATH --output PATH [--data-dir PATH] [--key-dir PATH]");
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!(

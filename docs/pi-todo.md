@@ -41,11 +41,7 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P6 — Audit bundle parity
 
-- [ ] Define on-Pi audit bundle directory layout matching `kelp/packages/evidence` expectations → success: a bundle exported by the Pi has the same top-level files (`audit-bundle/index.html`, `manifest.json`, `signature`, `attestation`, `findings.sarif`, etc.) as a laptop-produced bundle.
-- [ ] Implement bundle assembly in Rust using the same manifest schema as the TS code → success: a bundle exported by the Pi passes `kelp-claw verify-audit-bundle` with no Pi-specific flags or shims.
 - [ ] Add a cross-implementation test in CI that produces a bundle from a fixture run on both the TS path and the Rust path and asserts equivalence (modulo timestamps and signatures) → success: this test exists and is green.
-- [ ] Implement static `index.html` generation for the Pi-produced bundle → success: opening the file in a browser shows findings, evidence sources, policy decisions, and a chain-of-custody section.
-- [ ] Include the hash-chained audit log in the bundle → success: bundle contains the relevant audit-log slice and the chain verifies against the Pi's public key.
 
 ## P7 — Control plane sync
 

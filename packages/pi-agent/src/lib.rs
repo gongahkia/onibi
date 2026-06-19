@@ -20,6 +20,7 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 mod approval;
+mod bundle;
 mod chunking;
 mod doctor;
 mod eval;
@@ -42,6 +43,14 @@ pub use approval::{
     approve_operator_token, decision_after_approval, read_approval_record,
     request_operator_approval, ApprovalError, ApprovalRecord, ApprovalStatus, APPROVALS_DIR,
     DEFAULT_APPROVAL_TTL_SECONDS,
+};
+pub use bundle::{
+    assemble_pi_audit_bundle, PiBundleAssembly, PiBundleError, PI_AUDIT_BUNDLE_DIR,
+    PI_BUNDLE_ATTESTATION_FILE, PI_BUNDLE_ATTESTATION_SIG_FILE, PI_BUNDLE_AUDIT_CHAIN_FILE,
+    PI_BUNDLE_AUDIT_LOG_FILE, PI_BUNDLE_COMPATIBILITY_FILE, PI_BUNDLE_FINDINGS_FILE,
+    PI_BUNDLE_INDEX_FILE, PI_BUNDLE_MANIFEST_FILE, PI_BUNDLE_MANIFEST_PUB_FILE,
+    PI_BUNDLE_MANIFEST_SIG_FILE, PI_BUNDLE_NORMALIZED_FINDINGS_FILE, PI_BUNDLE_POLICY_FILE,
+    PI_BUNDLE_REDACTION_FILE, PI_BUNDLE_RESULT_FILE,
 };
 pub use chunking::{
     canonical_chunk_path, chunk_id_for, chunk_markdown, chunk_pdf_sidecar, chunk_plain_text,
