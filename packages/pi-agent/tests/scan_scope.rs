@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ed25519_dalek::SigningKey;
 use kelp_pi_agent::{
     apply_scope_set, sign_envelope, PiEnvelopeKind, PiEnvelopeSender, ScopeSetPayload, ScopeTarget,
-    ScopeTargetType, UnsignedPiWireEnvelope, REQUIRED_DATA_DIRS,
+    ScopeTargetType, UnsignedPiWireEnvelope, DEFAULT_NUCLEI_BINARY_PATH,
+    PINNED_NUCLEI_TEMPLATES_REVISION, REQUIRED_DATA_DIRS,
 };
 use rand_core::OsRng;
 use serde_json::Value;
@@ -39,6 +40,89 @@ fn out_of_scope_scan_is_blocked_and_audited() {
     assert!(audit_log.contains("https://evil.example.test"));
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn nuclei_dry_run_uses_pinned_image_binary_by_default() {
+    let root = temp_root("nuclei-default-bin");
+    create_layout(&root);
+    apply_test_scope(&root);
+    let token = approved_scanner_token(&root);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "scan",
+            "nuclei",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--target",
+            "allowed.example.test",
+            "--dry-run",
+            "--approval-token",
+            &token,
+        ])
+        .output()
+        .expect("run scan command");
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value = serde_json::from_slice(&output.stdout).expect("dry-run json");
+    assert_eq!(response["scanner"], "nuclei");
+    assert_eq!(response["scanner_bin"], DEFAULT_NUCLEI_BINARY_PATH);
+    assert_eq!(
+        response["nuclei_templates_revision"],
+        PINNED_NUCLEI_TEMPLATES_REVISION
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+fn approved_scanner_token(root: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "approval-request",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--gate",
+            "scanner-invocation",
+            "--scope-id",
+            "scope-a",
+            "--command",
+            "scan nuclei allowed.example.test",
+            "--host",
+            "allowed.example.test",
+            "--allowed",
+        ])
+        .output()
+        .expect("request approval");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request: Value = serde_json::from_slice(&output.stdout).expect("approval request json");
+    let token = request["token"]
+        .as_str()
+        .expect("approval token")
+        .to_string();
+    let approval = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "approve",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            &token,
+        ])
+        .output()
+        .expect("approve token");
+    assert!(
+        approval.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&approval.stderr)
+    );
+    token
 }
 
 fn apply_test_scope(root: &Path) {
