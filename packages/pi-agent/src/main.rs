@@ -1,21 +1,23 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
-    answer_query, apply_index_schema, approve_operator_token, ask_bind_is_loopback, ask_router,
-    default_gold_fixture_dir, evaluate_and_audit_local_policy,
+    answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
+    ask_bind_is_loopback, ask_router, decision_after_approval, default_gold_fixture_dir,
+    ensure_targets_in_scope, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, gold_chunk_id_lines, index_db_path,
-    init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
+    init_audit_tracing, install_panic_audit_hook, load_active_scope, load_or_generate_identity_key,
     request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval, run_selfcheck,
-    run_synthesis_eval, selfcheck_report_payload, sign_envelope, validate_data_dir,
-    validate_selfcheck_target, verify_and_stage_firmware_update, verify_audit_log,
-    verify_audit_log_chain, verify_envelope, wipe_data_dir, AskHttpState, PiEnvelopeKind,
-    PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
-    PiWireEnvelope, UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
-    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
-    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    run_synthesis_eval, selfcheck_report_payload, sign_envelope, unix_millis_now,
+    validate_data_dir, validate_selfcheck_target, verify_and_stage_firmware_update,
+    verify_audit_log, verify_audit_log_chain, verify_envelope, wipe_data_dir, AskHttpState,
+    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
+    PiPolicyMode, PiWireEnvelope, ScopeError, UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS,
+    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
+    DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use std::io::{self, BufRead};
@@ -50,6 +52,7 @@ fn run() -> Result<(), ExitCode> {
             Ok(())
         }
         "rotate-audit-log" => rotate_audit_log_command(args.collect()),
+        "scan" => scan_command(args.collect()),
         "serve-ask" => serve_ask_command(args.collect()),
         "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
@@ -178,6 +181,26 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                 )
                 .map_err(|error| {
                     eprintln!("selfcheck.report signing failed: {error}");
+                    ExitCode::from(78)
+                })?
+            }
+            PiEnvelopeKind::ScopeSet => {
+                apply_scope_set(&data_dir, &envelope, &trusted_cp_key).map_err(|error| {
+                    eprintln!("scope.set refused: {error}");
+                    ExitCode::from(77)
+                })?;
+                sign_envelope(
+                    UnsignedPiWireEnvelope {
+                        msg_id: format!("{}.accepted", envelope.msg_id),
+                        ts: rfc3339_now(),
+                        sender: PiEnvelopeSender::Pi,
+                        kind: PiEnvelopeKind::ScopeSet,
+                        payload: envelope.payload.clone(),
+                    },
+                    &identity.signing_key,
+                )
+                .map_err(|error| {
+                    eprintln!("scope.set receipt signing failed: {error}");
                     ExitCode::from(78)
                 })?
             }
@@ -750,6 +773,209 @@ fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
         serde_json::to_string_pretty(&decision).expect("serialize policy decision")
     );
     Ok(())
+}
+
+fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut scanner = None;
+    let mut scanner_bin = None;
+    let mut approval_token = None;
+    let mut dry_run = false;
+    let mut targets = Vec::new();
+    let mut scanner_args = Vec::new();
+    let mut index = 0;
+
+    if args.first().is_some_and(|value| !value.starts_with('-')) {
+        scanner = args.first().cloned();
+        index = 1;
+    }
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--target" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--target requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                targets.push(value.to_string());
+                index += 2;
+            }
+            "--scanner-bin" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--scanner-bin requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                scanner_bin = Some(value.to_string());
+                index += 2;
+            }
+            "--approval-token" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--approval-token requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                approval_token = Some(value.to_string());
+                index += 2;
+            }
+            "--dry-run" => {
+                dry_run = true;
+                index += 1;
+            }
+            "--" => {
+                scanner_args.extend(args[index + 1..].iter().cloned());
+                break;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(scanner) = scanner else {
+        eprintln!("scan requires scanner name: nuclei, nmap, or zap");
+        return Err(ExitCode::from(64));
+    };
+    if !matches!(scanner.as_str(), "nuclei" | "nmap" | "zap") {
+        eprintln!("scan scanner must be nuclei, nmap, or zap");
+        return Err(ExitCode::from(64));
+    }
+    if targets.is_empty() {
+        eprintln!("scan requires at least one --target");
+        return Err(ExitCode::from(64));
+    }
+
+    init_checked_audit(&data_dir)?;
+    let scope = match load_active_scope(&data_dir) {
+        Ok(scope) => scope,
+        Err(error) => return refuse_scan_scope(&scanner, &targets, &error.to_string()),
+    };
+    if let Err(error) = ensure_targets_in_scope(&scope, &targets, unix_millis_now()) {
+        return refuse_scan_scope(&scanner, &targets, &scan_scope_error_reason(&error));
+    }
+
+    let command = format!("scan {scanner} {}", targets.join(" "));
+    let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
+        gate: PiPolicyGate::ScannerInvocation,
+        command: Some(command.clone()),
+        path: None,
+        host: Some(targets.join(",")),
+        mutating: false,
+        allowed: true,
+    });
+    let decision = if let Some(token) = approval_token.as_deref() {
+        decision_after_approval(&data_dir, &decision, &scope.payload.scope_id, token).map_err(
+            |error| {
+                tracing::warn!(
+                    event = "scan.policy.refused",
+                    msg = "scan refused by policy",
+                    msg_id = "scan-policy-refused",
+                    scanner = scanner.as_str(),
+                    scope_id = scope.payload.scope_id.as_str(),
+                    reason = error.to_string().as_str()
+                );
+                eprintln!("scan approval refused: {error}");
+                ExitCode::from(77)
+            },
+        )?
+    } else {
+        decision
+    };
+    if decision.action != PiPolicyAction::Allow {
+        tracing::warn!(
+            event = "scan.policy.refused",
+            msg = "scan refused by policy",
+            msg_id = "scan-policy-refused",
+            scanner = scanner.as_str(),
+            scope_id = scope.payload.scope_id.as_str(),
+            action = decision.action.as_str(),
+            reason = decision.reason.as_str()
+        );
+        eprintln!("scan refused by policy: {}", decision.reason);
+        return Err(ExitCode::from(77));
+    }
+
+    let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
+    if dry_run {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": "ready",
+                "scanner": scanner,
+                "scanner_bin": scanner_bin,
+                "scope_id": scope.payload.scope_id,
+                "targets": targets
+            }))
+            .expect("serialize scan dry-run")
+        );
+        return Ok(());
+    }
+
+    tracing::info!(
+        event = "scan.invocation.started",
+        msg = "scanner process starting",
+        msg_id = "scan-invocation-started",
+        scanner = scanner.as_str(),
+        scanner_bin = scanner_bin.as_str(),
+        scope_id = scope.payload.scope_id.as_str(),
+        targets = targets.join(",")
+    );
+    let status = Command::new(&scanner_bin)
+        .args(&scanner_args)
+        .args(&targets)
+        .status()
+        .map_err(|error| {
+            tracing::warn!(
+                event = "scan.invocation.failed",
+                msg = "scanner process failed to start",
+                msg_id = "scan-invocation-failed",
+                scanner = scanner.as_str(),
+                scanner_bin = scanner_bin.as_str(),
+                reason = error.to_string().as_str()
+            );
+            eprintln!("scanner failed to start: {error}");
+            ExitCode::from(69)
+        })?;
+    tracing::info!(
+        event = "scan.invocation.completed",
+        msg = "scanner process completed",
+        msg_id = "scan-invocation-completed",
+        scanner = scanner.as_str(),
+        scanner_bin = scanner_bin.as_str(),
+        status = status.code().unwrap_or(-1) as i64
+    );
+    if status.success() {
+        Ok(())
+    } else {
+        Err(ExitCode::from(65))
+    }
+}
+
+fn refuse_scan_scope(scanner: &str, targets: &[String], reason: &str) -> Result<(), ExitCode> {
+    tracing::warn!(
+        event = "scope.violation",
+        msg = "scan target refused by scope",
+        msg_id = "scope-violation",
+        scanner = scanner,
+        targets = targets.join(","),
+        reason = reason
+    );
+    eprintln!("scan refused by scope: {reason}");
+    Err(ExitCode::from(77))
+}
+
+fn scan_scope_error_reason(error: &ScopeError) -> String {
+    match error {
+        ScopeError::OutOfScope { target, reason } => format!("{target}: {reason}"),
+        other => other.to_string(),
+    }
 }
 
 fn init_checked_audit(data_dir: &Path) -> Result<(), ExitCode> {
@@ -1522,6 +1748,9 @@ fn print_usage() {
     );
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
+    eprintln!(
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--data-dir PATH] [-- SCANNER_ARG...]"
+    );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );

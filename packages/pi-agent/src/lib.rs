@@ -27,6 +27,7 @@ mod http;
 mod index;
 mod keys;
 mod policy;
+mod scope;
 mod selfcheck;
 mod synthesis;
 mod wire;
@@ -71,6 +72,11 @@ pub use policy::{
     TrustedControlPlaneKey, APPSEC_AGENT_BASELINE_PACK_ID, APPSEC_AGENT_BASELINE_RULES,
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,
     KELP_PI_REVIEW_FILE_MUTATION_RULE_ID, KELP_PI_REVIEW_SYNTHESIS_RULE_ID,
+};
+pub use scope::{
+    active_scope_path, apply_scope_set, ensure_targets_in_scope, load_active_scope,
+    unix_millis_now, ScopeError, ScopeMatch, ScopeSetPayload, ScopeSetReceipt, ScopeTarget,
+    ScopeTargetType, StoredScope, CURRENT_SCOPE_FILE,
 };
 pub use selfcheck::{
     run_selfcheck, selfcheck_report_payload, validate_selfcheck_target, SelfcheckCheck,
