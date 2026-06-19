@@ -51,8 +51,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P5 — Policy gates on Pi
 
-- [ ] Make approvals time-limited (default 15 min) and scope-bound → success: an expired approval token is rejected; an approval issued for one scope cannot authorize a different scope's scan.
-
 ## P6 — Audit bundle parity
 
 - [ ] Define on-Pi audit bundle directory layout matching `kelp/packages/evidence` expectations → success: a bundle exported by the Pi has the same top-level files (`audit-bundle/index.html`, `manifest.json`, `signature`, `attestation`, `findings.sarif`, etc.) as a laptop-produced bundle.
