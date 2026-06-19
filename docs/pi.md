@@ -352,6 +352,8 @@ Retrieval chunking:
   `127.0.0.1:8765`; non-loopback binds require `--allow-non-loopback`.
 - `/ask` applies per-IP rate limiting and an in-flight request cap before retrieval.
   Defaults: `60` requests/minute per IP and `8` concurrent requests.
+- Operators can query over LAN with the single-file Python client:
+  `scripts/kelp-pi-ask "question" --pi pi.local`.
 
 Physical capture assumptions:
 
