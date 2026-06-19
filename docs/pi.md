@@ -524,9 +524,9 @@ Reference renderer:
 - `pnpm --filter @kelpclaw/pi-agent install:systemd -- <image-root>` stages
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
-  `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`, and
-  `kelp-pi-validate-allow-outbound-reload`, and `kelp-pi-validate-dns-egress` into
-  `<image-root>/usr/local/sbin`.
+  `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`,
+  `kelp-pi-validate-allow-outbound-reload`, `kelp-pi-validate-dns-egress`, and
+  `kelp-pi-validate-ap-isolation` into `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
@@ -564,6 +564,9 @@ Reference renderer:
 - `kelp-pi-validate-dns-egress --upstream-interface <iface> --probe-command '<client-probe-command>'`
   runs `tcpdump` on the upstream interface while captive-probe DNS traffic is generated
   and fails if any TCP or UDP port 53 packet leaves the Pi.
+- `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user>`
+  SSHes to two AP clients, verifies both can ping the Pi portal IP, and fails if either
+  client can ping the other client or any supplied `--forbidden-ip`.
 
 Audit & forensics:
 
