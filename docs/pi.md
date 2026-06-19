@@ -378,9 +378,13 @@ Package pin and upgrade flow:
 - `kelp-pi-agent scan --sandbox` and signed `scan.request.options.sandbox=true` wrap
   scanner execution in `systemd-run --wait --pipe --collect` with the dedicated
   `kelp-pi-scanner` user, empty capabilities, `NoNewPrivileges`, private tmp/devices,
-  strict system paths, and a `KELP_PI_NFT_MARK` value for the image-level nftables
-  policy. Hardware validation still has to prove that marked scanner traffic reaches
-  only in-scope targets and cannot reach the control plane or public internet.
+  strict system paths, and `NFTSet=user:inet:kelp_pi_filter:scanner_users`.
+  The image-level nftables policy creates `scanner_users` and `scanner_ipv4_targets`;
+  scanner traffic from `scanner_users` is dropped unless its IPv4 destination appears
+  in `scanner_ipv4_targets`. `kelp-pi-agent hardening apply-scanner-targets --target-ip <ip>`
+  atomically reloads the scanner target set before a sandboxed run. Hardware validation
+  still has to prove that scanner traffic reaches only in-scope targets and cannot
+  reach the control plane or public internet.
 - Active scans persist a JSON run marker under `/var/lib/kelp-pi/runs`.
   `kelp-pi-agent scan --run-id <id>` and signed `scan.request.run_id` write
   `running` before the scanner process starts, then `succeeded` or `failed` after it
@@ -524,8 +528,8 @@ Reference renderer:
   maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
   and `clients3.google.com` to the Pi portal IP.
 - The nftables file installs an `inet kelp_pi_filter` table with input/forward/output
-  default-drop policy and outbound accepts only for rendered `allow_outbound`
-  `host:port` endpoints. `kelp-pi-agent hardening apply-network --config /etc/kelp-pi/network-hardening.json`
+  default-drop policy, scanner UID/target sets, and outbound accepts only for rendered
+  `allow_outbound` `host:port` endpoints. `kelp-pi-agent hardening apply-network --config /etc/kelp-pi/network-hardening.json`
   reloads the nftables rules through `nft -f -`, so config changes are applied as a
   single nftables transaction.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for

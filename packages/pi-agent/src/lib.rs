@@ -75,11 +75,12 @@ pub use evidence::{
     EvidenceSourceReference, NormalizedEvidenceFinding, EVIDENCE_FINDINGS_SCHEMA_VERSION,
 };
 pub use hardening::{
-    apply_nftables_rules, default_captive_domains, load_network_hardening_config,
-    render_network_hardening_files, write_network_hardening_files, NetworkHardeningError,
-    OutboundEndpoint, PiNetworkHardeningConfig, RenderedHardeningFile, DEFAULT_AP_ADDRESS,
-    DEFAULT_AP_INTERFACE, DEFAULT_AP_PREFIX, DEFAULT_AP_SSID, DEFAULT_DHCP_END, DEFAULT_DHCP_LEASE,
-    DEFAULT_DHCP_START,
+    apply_nftables_rules, apply_scanner_target_rules, default_captive_domains,
+    load_network_hardening_config, render_network_hardening_files, render_scanner_target_rules,
+    write_network_hardening_files, NetworkHardeningError, OutboundEndpoint,
+    PiNetworkHardeningConfig, RenderedHardeningFile, DEFAULT_AP_ADDRESS, DEFAULT_AP_INTERFACE,
+    DEFAULT_AP_PREFIX, DEFAULT_AP_SSID, DEFAULT_DHCP_END, DEFAULT_DHCP_LEASE, DEFAULT_DHCP_START,
+    SCANNER_IPV4_TARGETS_SET, SCANNER_USERS_SET,
 };
 pub use http::{
     ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,

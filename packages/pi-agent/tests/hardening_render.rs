@@ -98,6 +98,55 @@ fn hardening_apply_network_loads_config_and_feeds_nft_stdin() {
     fs::remove_dir_all(root).ok();
 }
 
+#[cfg(unix)]
+#[test]
+fn hardening_apply_scanner_targets_feeds_nft_stdin() {
+    let root = temp_root("hardening-scanner-targets");
+    fs::create_dir_all(&root).expect("create temp");
+    let nft_stdin = root.join("nft.stdin");
+    let fake_nft = root.join("fake-nft.sh");
+    fs::write(
+        &fake_nft,
+        "#!/usr/bin/env sh\ntest \"$1\" = \"-f\"\ntest \"$2\" = \"-\"\ncat > \"$KELP_PI_FAKE_NFT_STDIN\"\n",
+    )
+    .expect("write fake nft");
+    let mut permissions = fs::metadata(&fake_nft)
+        .expect("fake nft metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_nft, permissions).expect("chmod fake nft");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "hardening",
+            "apply-scanner-targets",
+            "--target-ip",
+            "10.42.0.21",
+            "--target-ip",
+            "10.42.0.20",
+            "--target-ip",
+            "10.42.0.20",
+            "--nft-bin",
+            fake_nft.to_str().expect("fake nft path utf8"),
+        ])
+        .env("KELP_PI_FAKE_NFT_STDIN", &nft_stdin)
+        .output()
+        .expect("run hardening apply scanner targets");
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let applied = fs::read_to_string(nft_stdin).expect("read nft stdin");
+    assert!(applied.contains("flush set inet kelp_pi_filter scanner_ipv4_targets"));
+    assert!(applied.contains(
+        "add element inet kelp_pi_filter scanner_ipv4_targets { 10.42.0.20, 10.42.0.21 }"
+    ));
+
+    fs::remove_dir_all(root).ok();
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)

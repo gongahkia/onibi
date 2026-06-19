@@ -51,6 +51,9 @@ pass "systemd security score $score"
 "$agent_bin" hardening apply-network --config "$network_config"
 nft list ruleset | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing"
 nft list ruleset | grep -q 'policy drop' || fail "nftables default drop missing"
+nft list ruleset | grep -q 'set scanner_users' || fail "scanner_users set missing"
+nft list ruleset | grep -q 'set scanner_ipv4_targets' || fail "scanner_ipv4_targets set missing"
+nft list ruleset | grep -q 'meta skuid @scanner_users drop' || fail "scanner drop rule missing"
 pass "nftables loaded"
 
 if curl -fsS --max-time 5 "$egress_probe" >/dev/null 2>&1; then

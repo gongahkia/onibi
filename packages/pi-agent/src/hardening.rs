@@ -16,6 +16,8 @@ pub const DEFAULT_AP_PREFIX: u8 = 24;
 pub const DEFAULT_DHCP_START: Ipv4Addr = Ipv4Addr::new(10, 42, 0, 20);
 pub const DEFAULT_DHCP_END: Ipv4Addr = Ipv4Addr::new(10, 42, 0, 200);
 pub const DEFAULT_DHCP_LEASE: &str = "12h";
+pub const SCANNER_USERS_SET: &str = "scanner_users";
+pub const SCANNER_IPV4_TARGETS_SET: &str = "scanner_ipv4_targets";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PiNetworkHardeningConfig {
@@ -258,6 +260,47 @@ pub fn apply_nftables_rules(
     Ok(())
 }
 
+pub fn render_scanner_target_rules(targets: &[Ipv4Addr]) -> String {
+    let mut output = format!("flush set inet kelp_pi_filter {SCANNER_IPV4_TARGETS_SET}\n");
+    if !targets.is_empty() {
+        let elements = targets
+            .iter()
+            .map(Ipv4Addr::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!(
+            "add element inet kelp_pi_filter {SCANNER_IPV4_TARGETS_SET} {{ {elements} }}\n"
+        ));
+    }
+    output
+}
+
+pub fn apply_scanner_target_rules(
+    nft_bin: &Path,
+    targets: &[Ipv4Addr],
+) -> Result<(), NetworkHardeningError> {
+    let rules = render_scanner_target_rules(targets);
+    let mut child = Command::new(nft_bin)
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(io_error)?;
+    child
+        .stdin
+        .take()
+        .expect("nft stdin piped")
+        .write_all(rules.as_bytes())
+        .map_err(io_error)?;
+    let output = child.wait_with_output().map_err(io_error)?;
+    if !output.status.success() {
+        return Err(NetworkHardeningError::NftFailed(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_config(config: &PiNetworkHardeningConfig) -> Result<(), NetworkHardeningError> {
     if !safe_interface_name(&config.ap_interface) {
         return Err(NetworkHardeningError::InvalidInterface(
@@ -326,7 +369,7 @@ fn render_dnsmasq(config: &PiNetworkHardeningConfig) -> String {
 
 fn render_nftables(config: &PiNetworkHardeningConfig) -> String {
     let mut output = format!(
-        "flush table inet kelp_pi_filter\n\ntable inet kelp_pi_filter {{\n  chain input {{\n    type filter hook input priority filter; policy drop;\n    iifname \"lo\" accept\n    ct state established,related accept\n    iifname \"{}\" udp dport {{ 53, 67 }} accept\n    iifname \"{}\" tcp dport {{ 80, 443, 8080 }} accept\n    iifname \"{}\" ip protocol icmp accept\n  }}\n\n  chain forward {{\n    type filter hook forward priority filter; policy drop;\n  }}\n\n  chain output {{\n    type filter hook output priority filter; policy drop;\n    oifname \"lo\" accept\n    ct state established,related accept\n",
+        "flush table inet kelp_pi_filter\n\ntable inet kelp_pi_filter {{\n  set {SCANNER_USERS_SET} {{\n    typeof meta skuid\n  }}\n\n  set {SCANNER_IPV4_TARGETS_SET} {{\n    type ipv4_addr\n  }}\n\n  chain input {{\n    type filter hook input priority filter; policy drop;\n    iifname \"lo\" accept\n    ct state established,related accept\n    iifname \"{}\" udp dport {{ 53, 67 }} accept\n    iifname \"{}\" tcp dport {{ 80, 443, 8080 }} accept\n    iifname \"{}\" ip protocol icmp accept\n  }}\n\n  chain forward {{\n    type filter hook forward priority filter; policy drop;\n  }}\n\n  chain output {{\n    type filter hook output priority filter; policy drop;\n    oifname \"lo\" accept\n    ct state established,related accept\n    meta skuid @{SCANNER_USERS_SET} ip daddr @{SCANNER_IPV4_TARGETS_SET} accept\n    meta skuid @{SCANNER_USERS_SET} drop\n",
         config.ap_interface, config.ap_interface, config.ap_interface
     );
     for endpoint in &config.allow_outbound {
@@ -477,6 +520,11 @@ mod tests {
         assert!(dnsmasq.contains("address=/captive.apple.com/10.42.0.1"));
         assert!(dnsmasq.contains("address=/connectivitycheck.gstatic.com/10.42.0.1"));
         let nft = contents(&files, "etc/nftables.d/kelp-pi.nft");
+        assert!(nft.contains("set scanner_users"));
+        assert!(nft.contains("typeof meta skuid"));
+        assert!(nft.contains("set scanner_ipv4_targets"));
+        assert!(nft.contains("meta skuid @scanner_users ip daddr @scanner_ipv4_targets accept"));
+        assert!(nft.contains("meta skuid @scanner_users drop"));
         assert!(nft.contains("chain output"));
         assert!(nft.contains("policy drop;"));
         assert!(nft.contains("ip daddr cp.example.test tcp dport 443 accept"));
@@ -498,6 +546,19 @@ mod tests {
         ));
         assert!(OutboundEndpoint::parse("bad host:443").is_err());
         assert!(OutboundEndpoint::parse("cp.example.test:0").is_err());
+    }
+
+    #[test]
+    fn renders_scanner_target_set_reload() {
+        let rules = render_scanner_target_rules(&[
+            Ipv4Addr::new(10, 42, 0, 20),
+            Ipv4Addr::new(10, 42, 0, 21),
+        ]);
+
+        assert!(rules.contains("flush set inet kelp_pi_filter scanner_ipv4_targets"));
+        assert!(rules.contains(
+            "add element inet kelp_pi_filter scanner_ipv4_targets { 10.42.0.20, 10.42.0.21 }"
+        ));
     }
 
     fn contents<'a>(files: &'a [RenderedHardeningFile], path: &str) -> &'a str {

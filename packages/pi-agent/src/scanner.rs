@@ -4,6 +4,8 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::SCANNER_USERS_SET;
+
 pub const DEFAULT_SCANNER_SANDBOX_USER: &str = "kelp-pi-scanner";
 pub const DEFAULT_SCANNER_SYSTEMD_RUN_BIN: &str = "systemd-run";
 pub const DEFAULT_SCANNER_NFT_MARK: u32 = 0x4b45_4c50;
@@ -207,6 +209,7 @@ pub fn scanner_command(
         "--property=LockPersonality=yes".to_string(),
         "--property=SystemCallArchitectures=native".to_string(),
         "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6".to_string(),
+        format!("--property=NFTSet=user:inet:kelp_pi_filter:{SCANNER_USERS_SET}"),
         format!("--setenv=KELP_PI_NFT_MARK={}", sandbox.nft_mark),
         "--".to_string(),
         scanner_bin.to_string(),
@@ -420,6 +423,9 @@ mod tests {
         assert!(command
             .args
             .contains(&"--property=PrivateDevices=yes".to_string()));
+        assert!(command
+            .args
+            .contains(&"--property=NFTSet=user:inet:kelp_pi_filter:scanner_users".to_string()));
         assert!(command
             .args
             .contains(&"--setenv=KELP_PI_NFT_MARK=4242".to_string()));
