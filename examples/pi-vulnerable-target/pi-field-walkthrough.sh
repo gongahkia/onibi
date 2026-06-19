@@ -22,9 +22,14 @@ client_ssh_user=""
 upstream_interface=""
 dns_probe_command="dig @10.42.0.1 captive.apple.com"
 wan_forbidden_ip=""
+ollama_check=""
+ollama_model=""
+readonly_root=0
+readonly_data_dir="$data_dir"
+readonly_data_dir_explicit=0
 
 usage() {
-  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR]"
+  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR] [--ollama-check load|refuse] [--readonly-root]"
 }
 
 fail() {
@@ -64,6 +69,7 @@ while [ $# -gt 0 ]; do
     --data-dir)
       [ $# -ge 2 ] || fail "--data-dir requires a value"
       data_dir="$2"
+      readonly_data_dir="$2"
       shift 2
       ;;
     --run-id)
@@ -136,6 +142,33 @@ while [ $# -gt 0 ]; do
       wan_forbidden_ip="$2"
       shift 2
       ;;
+    --ollama-check)
+      [ $# -ge 2 ] || fail "--ollama-check requires a value"
+      case "$2" in
+        load|refuse)
+          ollama_check="$2"
+          ;;
+        *)
+          fail "--ollama-check must be load or refuse"
+          ;;
+      esac
+      shift 2
+      ;;
+    --ollama-model)
+      [ $# -ge 2 ] || fail "--ollama-model requires a value"
+      ollama_model="$2"
+      shift 2
+      ;;
+    --readonly-root)
+      readonly_root=1
+      shift
+      ;;
+    --readonly-data-dir)
+      [ $# -ge 2 ] || fail "--readonly-data-dir requires a value"
+      readonly_data_dir="$2"
+      readonly_data_dir_explicit=1
+      shift 2
+      ;;
     *)
       printf 'unknown argument: %s\n' "$1" >&2
       usage >&2
@@ -153,6 +186,8 @@ done
 [ -n "$upstream_interface" ] || fail "requires --upstream-interface"
 [ -n "$updated_config" ] || fail "requires --updated-config"
 [ -n "$until" ] || fail "requires --until"
+[ -z "$ollama_model" ] || [ -n "$ollama_check" ] || fail "--ollama-model requires --ollama-check"
+[ "$readonly_root" = "1" ] || [ "$readonly_data_dir_explicit" = "0" ] || fail "--readonly-data-dir requires --readonly-root"
 
 need node
 need pnpm
@@ -239,6 +274,9 @@ set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
   --dns-probe-command "$dns_probe_command" \
   --max-seconds 1800
 [ -z "$wan_forbidden_ip" ] || set -- "$@" --forbidden-ip "$wan_forbidden_ip"
+[ -z "$ollama_check" ] || set -- "$@" "--ollama-expect-$ollama_check"
+[ -z "$ollama_model" ] || set -- "$@" --ollama-model "$ollama_model"
+[ "$readonly_root" = "0" ] || set -- "$@" --readonly-root --readonly-data-dir "$readonly_data_dir"
 "$@" >"$out/field-acceptance.log" 2>&1
 
 "$ssh_bin" "$pi_user@$pi_host" \

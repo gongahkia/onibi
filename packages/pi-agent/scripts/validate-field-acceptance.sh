@@ -18,6 +18,11 @@ upstream_interface=""
 dns_probe_command=""
 forbidden_ips=""
 nuclei_args=""
+ollama_expect=""
+ollama_model=""
+readonly_root=0
+readonly_data_dir="${KELP_PI_DATA_DIR:-/var/lib/kelp-pi}"
+readonly_data_dir_explicit=0
 max_seconds=1800
 
 fail() {
@@ -139,6 +144,29 @@ while [ $# -gt 0 ]; do
 }$2"
       shift 2
       ;;
+    --ollama-expect-load)
+      ollama_expect="load"
+      shift
+      ;;
+    --ollama-expect-refuse)
+      ollama_expect="refuse"
+      shift
+      ;;
+    --ollama-model)
+      [ $# -ge 2 ] || fail "--ollama-model requires a value"
+      ollama_model="$2"
+      shift 2
+      ;;
+    --readonly-root)
+      readonly_root=1
+      shift
+      ;;
+    --readonly-data-dir)
+      [ $# -ge 2 ] || fail "--readonly-data-dir requires a value"
+      readonly_data_dir="$2"
+      readonly_data_dir_explicit=1
+      shift 2
+      ;;
     --max-seconds)
       [ $# -ge 2 ] || fail "--max-seconds requires a value"
       max_seconds="$2"
@@ -165,6 +193,8 @@ done
 [ -n "$client_b" ] || fail "requires --client-b"
 [ -n "$upstream_interface" ] || fail "requires --upstream-interface"
 [ -n "$dns_probe_command" ] || fail "requires --dns-probe-command"
+[ -z "$ollama_model" ] || [ -n "$ollama_expect" ] || fail "--ollama-model requires --ollama-expect-load or --ollama-expect-refuse"
+[ "$readonly_root" = "1" ] || [ "$readonly_data_dir_explicit" = "0" ] || fail "--readonly-data-dir requires --readonly-root"
 
 need date
 need kelp-pi-validate-node
@@ -173,6 +203,8 @@ need kelp-pi-validate-allow-outbound-reload
 need kelp-pi-validate-dns-egress
 need kelp-pi-validate-ap-isolation
 need kelp-pi-validate-nuclei-scan
+[ -z "$ollama_expect" ] || need kelp-pi-validate-ollama-load
+[ "$readonly_root" = "0" ] || need kelp-pi-validate-readonly-root
 need mkdir
 need sed
 need tee
@@ -225,6 +257,20 @@ for forbidden_ip in $forbidden_ips; do
   set -- "$@" --forbidden-ip "$forbidden_ip"
 done
 run_check ap-isolation "$@"
+
+if [ "$ollama_expect" = "load" ]; then
+  set -- kelp-pi-validate-ollama-load --expect-load
+  [ -z "$ollama_model" ] || set -- "$@" --model "$ollama_model"
+  run_check ollama-load "$@"
+elif [ "$ollama_expect" = "refuse" ]; then
+  set -- kelp-pi-validate-ollama-load --expect-refuse
+  [ -z "$ollama_model" ] || set -- "$@" --model "$ollama_model"
+  run_check ollama-refuse "$@"
+fi
+
+if [ "$readonly_root" = "1" ]; then
+  run_check readonly-root kelp-pi-validate-readonly-root --data-dir "$readonly_data_dir"
+fi
 
 end_epoch="$(date -u '+%s')"
 duration_seconds=$((end_epoch - start_epoch))

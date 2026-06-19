@@ -59,4 +59,18 @@ grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/al
 grep -q 'zero upstream DNS egress observed' "$artifact_dir/dns-egress.log" || fail "DNS egress proof missing"
 grep -q 'AP clients cannot ping each other' "$artifact_dir/ap-isolation.log" || fail "AP isolation proof missing"
 
+if grep -q '^OK ollama-load ' "$summary"; then
+  [ -s "$artifact_dir/ollama-load.log" ] || fail "Ollama load log missing or empty"
+  grep -q 'Ollama loaded' "$artifact_dir/ollama-load.log" || fail "Ollama load proof missing"
+fi
+if grep -q '^OK ollama-refuse ' "$summary"; then
+  [ -s "$artifact_dir/ollama-refuse.log" ] || fail "Ollama refusal log missing or empty"
+  grep -q 'Ollama refused' "$artifact_dir/ollama-refuse.log" || fail "Ollama refusal proof missing"
+fi
+if grep -q '^OK readonly-root ' "$summary"; then
+  [ -s "$artifact_dir/readonly-root.log" ] || fail "read-only root log missing or empty"
+  grep -q 'root filesystem mounted read-only' "$artifact_dir/readonly-root.log" || fail "read-only root proof missing"
+  grep -q 'writable outside read-only root' "$artifact_dir/readonly-root.log" || fail "writable data-dir proof missing"
+fi
+
 pass "field acceptance artifact verified: $artifact_dir"

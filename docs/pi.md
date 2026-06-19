@@ -139,6 +139,9 @@ $ ssh kelp-pi@<pi-host> sudo kelp-pi-validate-field-acceptance \
   --max-seconds 1800
 ```
 
+Add `--ollama-expect-load` on a 16GB Pi, `--ollama-expect-refuse` on an 8GB Pi, and
+`--readonly-root` only when those optional acceptance surfaces are configured.
+
 Assemble, fetch, and verify the bundle:
 
 ```console
@@ -624,7 +627,9 @@ Reference renderer:
   runs the strict Pi-side acceptance subset for host identity/service hardening,
   scanner sandboxing, pinned Nuclei execution, nft reload continuity, upstream DNS
   egress, AP client isolation, and the 30-minute timing ceiling, writing one log per
-  check plus summary and timing files.
+  check plus summary and timing files. Optional flags `--ollama-expect-load`,
+  `--ollama-expect-refuse`, and `--readonly-root` add those evidence logs to the same
+  artifact directory.
 - `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
   to load the configured 3B-class model; `--expect-refuse` requires the guard to refuse
   before invoking Ollama on an undersized Pi.
