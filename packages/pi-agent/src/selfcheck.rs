@@ -50,6 +50,16 @@ pub struct SelfcheckCheck {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct ListeningPort {
+    protocol: String,
+    state: String,
+    local_address: String,
+    port: Option<u16>,
+    exposed: bool,
+    raw: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SelfcheckStatus {
     Pass,
@@ -457,17 +467,7 @@ fn allowlist_check() -> SelfcheckCheck {
 
 fn listening_ports_check() -> SelfcheckCheck {
     match run_command("ss", &["-H", "-lntu"]) {
-        Ok(output) => {
-            let ports: Vec<String> = output
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
-            let mut details = BTreeMap::new();
-            details.insert("ports".to_string(), json!(ports));
-            pass_with_details("listening-ports", "listening port probe succeeded", details)
-        }
+        Ok(output) => listening_ports_check_from_output(&output),
         Err(error) => {
             let mut details = BTreeMap::new();
             details.insert("available".to_string(), json!(false));
@@ -479,6 +479,100 @@ fn listening_ports_check() -> SelfcheckCheck {
             )
         }
     }
+}
+
+fn listening_ports_check_from_output(output: &str) -> SelfcheckCheck {
+    let ports = parse_listening_ports(output);
+    let unexpected: Vec<_> = ports
+        .iter()
+        .filter(|port| is_unexpected_listener(port))
+        .cloned()
+        .collect();
+    let mut details = BTreeMap::new();
+    details.insert("ports".to_string(), json!(ports));
+    details.insert("unexpected".to_string(), json!(unexpected));
+    if details
+        .get("unexpected")
+        .and_then(Value::as_array)
+        .is_some_and(|ports| ports.is_empty())
+    {
+        pass_with_details(
+            "listening-ports",
+            "no unexpected listening ports detected",
+            details,
+        )
+    } else {
+        fail_with_details(
+            "listening-ports",
+            "unexpected listening ports detected",
+            details,
+        )
+    }
+}
+
+fn parse_listening_ports(output: &str) -> Vec<ListeningPort> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(parse_listening_port_line)
+        .collect()
+}
+
+fn parse_listening_port_line(line: &str) -> Option<ListeningPort> {
+    let columns: Vec<_> = line.split_whitespace().collect();
+    let protocol = columns.first()?.to_string();
+    let state = columns.get(1).copied().unwrap_or("").to_string();
+    let local = columns
+        .iter()
+        .skip(3)
+        .find_map(|column| parse_socket(column))
+        .or_else(|| columns.iter().find_map(|column| parse_socket(column)))?;
+    Some(ListeningPort {
+        protocol,
+        state,
+        exposed: is_exposed_address(&local.0),
+        local_address: local.0,
+        port: local.1,
+        raw: line.to_string(),
+    })
+}
+
+fn parse_socket(value: &str) -> Option<(String, Option<u16>)> {
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, port) = rest.split_once("]:")?;
+        return Some((strip_scope_id(host).to_string(), parse_port(port)));
+    }
+    let (host, port) = value.rsplit_once(':')?;
+    Some((strip_scope_id(host).to_string(), parse_port(port)))
+}
+
+fn parse_port(value: &str) -> Option<u16> {
+    if value == "*" {
+        None
+    } else {
+        value.parse().ok()
+    }
+}
+
+fn strip_scope_id(host: &str) -> &str {
+    host.split_once('%')
+        .map(|(address, _)| address)
+        .unwrap_or(host)
+}
+
+fn is_exposed_address(host: &str) -> bool {
+    !(host == "localhost" || host == "::1" || host.starts_with("127."))
+}
+
+fn is_unexpected_listener(port: &ListeningPort) -> bool {
+    if !port.exposed {
+        return false;
+    }
+    !matches!(
+        (port.protocol.as_str(), port.port),
+        ("tcp", Some(22)) | ("udp", Some(53)) | ("udp", Some(67)) | ("tcp", Some(80))
+    )
 }
 
 fn free_disk_check(data_dir: &Path) -> SelfcheckCheck {
@@ -1091,6 +1185,48 @@ mod tests {
 
         assert_eq!(error.target, "8.8.8.8");
         assert!(error.reason.contains("outside 127.0.0.0/8"));
+    }
+
+    #[test]
+    fn listening_port_check_passes_expected_and_loopback_listeners() {
+        let output = "\
+tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*
+tcp LISTEN 0 128 127.0.0.1:8080 0.0.0.0:*
+udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*
+";
+
+        let check = listening_ports_check_from_output(output);
+
+        assert_eq!(check.status, SelfcheckStatus::Pass);
+        let details = check.details.expect("details");
+        assert_eq!(
+            details
+                .get("unexpected")
+                .and_then(Value::as_array)
+                .expect("unexpected")
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn listening_port_check_flags_unexpected_exposed_listener() {
+        let output = "\
+tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*
+tcp LISTEN 0 128 [::1]:9090 [::]:*
+udp UNCONN 0 0 0.0.0.0:67 0.0.0.0:*
+";
+
+        let check = listening_ports_check_from_output(output);
+
+        assert_eq!(check.status, SelfcheckStatus::Fail);
+        let details = check.details.expect("details");
+        let unexpected = details
+            .get("unexpected")
+            .and_then(Value::as_array)
+            .expect("unexpected");
+        assert_eq!(unexpected.len(), 1);
+        assert_eq!(unexpected[0]["port"], 8080);
     }
 
     #[test]
