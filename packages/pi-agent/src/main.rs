@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    audit_log_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    run_doctor, validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL,
-    DEFAULT_QUOTAS,
+    apply_index_schema, audit_log_path, index_db_path, init_audit_tracing,
+    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, search_chunks,
+    validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_QUOTAS,
 };
+use rusqlite::Connection;
 
 fn main() -> ExitCode {
     match run() {
@@ -22,6 +23,7 @@ fn run() -> Result<(), ExitCode> {
     };
 
     match command.as_str() {
+        "ask" => ask_command(args.collect()),
         "check-data-dir" => check_data_dir(args.collect(), false),
         "doctor" => doctor_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
@@ -39,6 +41,80 @@ fn run() -> Result<(), ExitCode> {
             eprintln!("unknown command: {command}");
             print_usage();
             Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut db_path = None;
+    let mut top_k = 5_usize;
+    let mut query_parts = Vec::new();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--db" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--db requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                db_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--top-k" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--top-k requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<usize>() else {
+                    eprintln!("--top-k must be a positive integer");
+                    return Err(ExitCode::from(64));
+                };
+                top_k = parsed.max(1);
+                index += 2;
+            }
+            other => {
+                query_parts.push(other.to_string());
+                index += 1;
+            }
+        }
+    }
+
+    if query_parts.is_empty() {
+        eprintln!("ask requires a query");
+        return Err(ExitCode::from(64));
+    }
+
+    let query = query_parts.join(" ");
+    let db_path = db_path.unwrap_or_else(|| index_db_path(&data_dir));
+    match Connection::open(&db_path).and_then(|connection| {
+        apply_index_schema(&connection)?;
+        search_chunks(&connection, &query, top_k)
+    }) {
+        Ok(results) => {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "query": query,
+                    "top_k": top_k,
+                    "results": results
+                }))
+                .expect("serialize ask response")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("ask failed: {error}");
+            Err(ExitCode::from(65))
         }
     }
 }
@@ -242,6 +318,7 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
 }
 
 fn print_usage() {
+    eprintln!("usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N]");
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
