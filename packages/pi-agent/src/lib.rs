@@ -8,9 +8,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::BTreeMap;
 
+use base64ct::{Base64UrlUnpadded, Encoding};
+use ed25519_dalek::{Signature, Signer, VerifyingKey};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
@@ -53,8 +56,9 @@ pub use index::{
     DEFAULT_NO_ANSWER_THRESHOLD,
 };
 pub use keys::{
-    identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
-    IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
+    identity_key_paths, load_identity_key, load_identity_public_metadata,
+    load_or_generate_identity_key, verifying_key_from_metadata, IdentityKey, IdentityKeyError,
+    IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
@@ -79,6 +83,8 @@ pub use wire::{
 
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
 pub const AUDIT_LOG_FILE: &str = "agent.jsonl";
+pub const AUDIT_SEGMENT_MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const AUDIT_SEGMENT_MANIFEST_SUFFIX: &str = ".manifest.json";
 pub const AUDIT_LOG_GENESIS_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 pub const REQUIRED_DATA_DIRS: [&str; 8] = [
@@ -117,6 +123,7 @@ pub struct DataDirIssue {
 pub enum AuditTracingError {
     Io(io::Error),
     Verify(AuditLogVerifyError),
+    Chain(AuditLogChainVerifyError),
     Subscriber(tracing::subscriber::SetGlobalDefaultError),
 }
 
@@ -155,6 +162,68 @@ pub struct AuditLogVerification {
     pub head_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditLogSegmentManifest {
+    pub schema_version: u32,
+    pub created_at_unix_ms: u64,
+    pub segment_file: String,
+    pub entries: usize,
+    pub prev_hash: String,
+    pub head_hash: String,
+    pub segment_blake3: String,
+    pub signer_key_id: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditLogRotation {
+    pub active_log_path: PathBuf,
+    pub segment_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub manifest: AuditLogSegmentManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditLogChainVerification {
+    pub segments: usize,
+    pub segment_entries: usize,
+    pub active_entries: usize,
+    pub entries: usize,
+    pub head_hash: String,
+}
+
+#[derive(Debug)]
+pub enum AuditLogChainVerifyError {
+    Io(io::Error),
+    Json {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    Log {
+        path: PathBuf,
+        source: AuditLogVerifyError,
+    },
+    Identity(IdentityKeyError),
+    InvalidManifest {
+        path: PathBuf,
+        reason: String,
+    },
+    Signature {
+        path: PathBuf,
+        reason: String,
+    },
+}
+
+#[derive(Debug)]
+pub enum AuditLogRotateError {
+    Io(io::Error),
+    Json(serde_json::Error),
+    Chain(AuditLogChainVerifyError),
+    Identity(IdentityKeyError),
+    EmptyActiveLog,
+    Signature(String),
+}
+
 impl Display for DataDirIssue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let reason = match self.kind {
@@ -171,6 +240,7 @@ impl Display for AuditTracingError {
         match self {
             AuditTracingError::Io(error) => write!(formatter, "{error}"),
             AuditTracingError::Verify(error) => write!(formatter, "{error}"),
+            AuditTracingError::Chain(error) => write!(formatter, "{error}"),
             AuditTracingError::Subscriber(error) => write!(formatter, "{error}"),
         }
     }
@@ -206,8 +276,54 @@ impl Display for AuditLogVerifyError {
     }
 }
 
+impl Display for AuditLogChainVerifyError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuditLogChainVerifyError::Io(error) => write!(formatter, "{error}"),
+            AuditLogChainVerifyError::Json { path, source } => {
+                write!(
+                    formatter,
+                    "{}: invalid manifest JSON: {source}",
+                    path.display()
+                )
+            }
+            AuditLogChainVerifyError::Log { path, source } => {
+                write!(formatter, "{}: {source}", path.display())
+            }
+            AuditLogChainVerifyError::Identity(error) => write!(formatter, "{error}"),
+            AuditLogChainVerifyError::InvalidManifest { path, reason } => {
+                write!(formatter, "{}: invalid manifest: {reason}", path.display())
+            }
+            AuditLogChainVerifyError::Signature { path, reason } => {
+                write!(
+                    formatter,
+                    "{}: invalid manifest signature: {reason}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl Display for AuditLogRotateError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuditLogRotateError::Io(error) => write!(formatter, "{error}"),
+            AuditLogRotateError::Json(error) => write!(formatter, "{error}"),
+            AuditLogRotateError::Chain(error) => write!(formatter, "{error}"),
+            AuditLogRotateError::Identity(error) => write!(formatter, "{error}"),
+            AuditLogRotateError::EmptyActiveLog => {
+                write!(formatter, "active audit log has no entries to rotate")
+            }
+            AuditLogRotateError::Signature(reason) => write!(formatter, "{reason}"),
+        }
+    }
+}
+
 impl std::error::Error for AuditTracingError {}
 impl std::error::Error for AuditLogVerifyError {}
+impl std::error::Error for AuditLogChainVerifyError {}
+impl std::error::Error for AuditLogRotateError {}
 
 impl From<io::Error> for AuditTracingError {
     fn from(error: io::Error) -> Self {
@@ -221,9 +337,51 @@ impl From<AuditLogVerifyError> for AuditTracingError {
     }
 }
 
+impl From<AuditLogChainVerifyError> for AuditTracingError {
+    fn from(error: AuditLogChainVerifyError) -> Self {
+        AuditTracingError::Chain(error)
+    }
+}
+
 impl From<io::Error> for AuditLogVerifyError {
     fn from(error: io::Error) -> Self {
         AuditLogVerifyError::Io(error)
+    }
+}
+
+impl From<io::Error> for AuditLogChainVerifyError {
+    fn from(error: io::Error) -> Self {
+        AuditLogChainVerifyError::Io(error)
+    }
+}
+
+impl From<IdentityKeyError> for AuditLogChainVerifyError {
+    fn from(error: IdentityKeyError) -> Self {
+        AuditLogChainVerifyError::Identity(error)
+    }
+}
+
+impl From<io::Error> for AuditLogRotateError {
+    fn from(error: io::Error) -> Self {
+        AuditLogRotateError::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for AuditLogRotateError {
+    fn from(error: serde_json::Error) -> Self {
+        AuditLogRotateError::Json(error)
+    }
+}
+
+impl From<AuditLogChainVerifyError> for AuditLogRotateError {
+    fn from(error: AuditLogChainVerifyError) -> Self {
+        AuditLogRotateError::Chain(error)
+    }
+}
+
+impl From<IdentityKeyError> for AuditLogRotateError {
+    fn from(error: IdentityKeyError) -> Self {
+        AuditLogRotateError::Identity(error)
     }
 }
 
@@ -239,7 +397,7 @@ pub fn audit_log_path(root: &Path) -> PathBuf {
 }
 
 pub fn init_audit_tracing(root: &Path) -> Result<(), AuditTracingError> {
-    let head_hash = load_audit_log_head(&audit_log_path(root))?;
+    let head_hash = load_audit_log_head(root)?;
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -249,9 +407,77 @@ pub fn init_audit_tracing(root: &Path) -> Result<(), AuditTracingError> {
     tracing::subscriber::set_global_default(subscriber).map_err(AuditTracingError::Subscriber)
 }
 
+pub fn rotate_audit_log(
+    root: &Path,
+    key_dir: &Path,
+) -> Result<AuditLogRotation, AuditLogRotateError> {
+    let chain = verify_audit_log_chain_state(root, key_dir, true)?;
+    if chain.active_entries == 0 {
+        return Err(AuditLogRotateError::EmptyActiveLog);
+    }
+
+    let active_log_path = audit_log_path(root);
+    let audit_dir = root.join("audit");
+    fs::create_dir_all(&audit_dir)?;
+    let active_bytes = fs::read(&active_log_path)?;
+    let segment_hash = blake3::hash(&active_bytes).to_hex().to_string();
+    let created_at_unix_ms = unix_millis();
+    let head_prefix = chain.head_hash.get(0..16).unwrap_or(&chain.head_hash);
+    let segment_file = format!("agent-{created_at_unix_ms}-{head_prefix}.jsonl");
+    let segment_path = audit_dir.join(&segment_file);
+    let manifest_path = audit_dir.join(format!("{segment_file}{AUDIT_SEGMENT_MANIFEST_SUFFIX}"));
+    let identity = load_or_generate_identity_key(key_dir, DEFAULT_KEY_LABEL)?;
+    let mut manifest = AuditLogSegmentManifest {
+        schema_version: AUDIT_SEGMENT_MANIFEST_SCHEMA_VERSION,
+        created_at_unix_ms,
+        segment_file,
+        entries: chain.active_entries,
+        prev_hash: chain.active_start_hash,
+        head_hash: chain.head_hash.clone(),
+        segment_blake3: segment_hash,
+        signer_key_id: identity.metadata.key_id.clone(),
+        signature: String::new(),
+    };
+    manifest.signature = sign_audit_segment_manifest(&manifest, &identity.signing_key)?;
+    let tmp_manifest_path =
+        manifest_path.with_extension(format!("manifest.json.tmp.{}", std::process::id()));
+    write_json_new(&tmp_manifest_path, &manifest, 0o644)?;
+    fs::rename(&active_log_path, &segment_path)?;
+    fs::rename(&tmp_manifest_path, &manifest_path)?;
+    write_new_empty_file(&active_log_path, 0o600)?;
+
+    Ok(AuditLogRotation {
+        active_log_path,
+        segment_path,
+        manifest_path,
+        manifest,
+    })
+}
+
+pub fn verify_audit_log_chain(
+    root: &Path,
+    key_dir: &Path,
+) -> Result<AuditLogChainVerification, AuditLogChainVerifyError> {
+    let state = verify_audit_log_chain_state(root, key_dir, false)?;
+    Ok(AuditLogChainVerification {
+        segments: state.segments,
+        segment_entries: state.segment_entries,
+        active_entries: state.active_entries,
+        entries: state.segment_entries + state.active_entries,
+        head_hash: state.head_hash,
+    })
+}
+
 pub fn verify_audit_log(path: &Path) -> Result<AuditLogVerification, AuditLogVerifyError> {
+    verify_audit_log_from(path, AUDIT_LOG_GENESIS_HASH.to_string())
+}
+
+fn verify_audit_log_from(
+    path: &Path,
+    initial_prev_hash: String,
+) -> Result<AuditLogVerification, AuditLogVerifyError> {
     let file = fs::File::open(path)?;
-    let mut expected_prev_hash = AUDIT_LOG_GENESIS_HASH.to_string();
+    let mut expected_prev_hash = initial_prev_hash;
     let mut entries = 0;
 
     for (index, line) in BufReader::new(file).lines().enumerate() {
@@ -324,11 +550,134 @@ pub fn install_panic_audit_hook() -> PanicAuditHookGuard {
     }
 }
 
-fn load_audit_log_head(path: &Path) -> Result<String, AuditLogVerifyError> {
-    if !path.exists() {
-        return Ok(AUDIT_LOG_GENESIS_HASH.to_string());
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuditLogChainState {
+    segments: usize,
+    segment_entries: usize,
+    active_entries: usize,
+    active_start_hash: String,
+    head_hash: String,
+}
+
+fn load_audit_log_head(root: &Path) -> Result<String, AuditLogChainVerifyError> {
+    verify_audit_log_chain_state(root, &root.join("keys"), true).map(|state| state.head_hash)
+}
+
+fn verify_audit_log_chain_state(
+    root: &Path,
+    key_dir: &Path,
+    active_missing_ok: bool,
+) -> Result<AuditLogChainState, AuditLogChainVerifyError> {
+    let manifest_paths = audit_segment_manifest_paths(root)?;
+    let active_log_path = audit_log_path(root);
+
+    if manifest_paths.is_empty() {
+        if !active_log_path.exists() {
+            if active_missing_ok {
+                return Ok(AuditLogChainState {
+                    segments: 0,
+                    segment_entries: 0,
+                    active_entries: 0,
+                    active_start_hash: AUDIT_LOG_GENESIS_HASH.to_string(),
+                    head_hash: AUDIT_LOG_GENESIS_HASH.to_string(),
+                });
+            }
+            return Err(AuditLogChainVerifyError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} not found", active_log_path.display()),
+            )));
+        }
+        let active = verify_audit_log_from(&active_log_path, AUDIT_LOG_GENESIS_HASH.to_string())
+            .map_err(|source| AuditLogChainVerifyError::Log {
+                path: active_log_path,
+                source,
+            })?;
+        return Ok(AuditLogChainState {
+            segments: 0,
+            segment_entries: 0,
+            active_entries: active.entries,
+            active_start_hash: AUDIT_LOG_GENESIS_HASH.to_string(),
+            head_hash: active.head_hash,
+        });
     }
-    verify_audit_log(path).map(|verification| verification.head_hash)
+
+    let public_metadata = load_identity_public_metadata(key_dir)?;
+    let verifying_key = verifying_key_from_metadata(&public_metadata)?;
+    let mut expected_prev_hash = AUDIT_LOG_GENESIS_HASH.to_string();
+    let mut segment_entries = 0;
+
+    for manifest_path in &manifest_paths {
+        let manifest = read_audit_segment_manifest(manifest_path)?;
+        verify_audit_segment_manifest_signature(manifest_path, &manifest, &verifying_key)?;
+        if manifest.schema_version != AUDIT_SEGMENT_MANIFEST_SCHEMA_VERSION {
+            return Err(AuditLogChainVerifyError::InvalidManifest {
+                path: manifest_path.clone(),
+                reason: format!("unsupported schema version {}", manifest.schema_version),
+            });
+        }
+        if manifest.signer_key_id != public_metadata.key_id {
+            return Err(AuditLogChainVerifyError::InvalidManifest {
+                path: manifest_path.clone(),
+                reason: "signer key id does not match public key".to_string(),
+            });
+        }
+        if manifest.prev_hash != expected_prev_hash {
+            return Err(AuditLogChainVerifyError::InvalidManifest {
+                path: manifest_path.clone(),
+                reason: format!(
+                    "prev_hash mismatch: expected {}, found {}",
+                    expected_prev_hash, manifest.prev_hash
+                ),
+            });
+        }
+        let segment_path = root.join("audit").join(&manifest.segment_file);
+        let segment_bytes = fs::read(&segment_path)?;
+        let segment_hash = blake3::hash(&segment_bytes).to_hex().to_string();
+        if segment_hash != manifest.segment_blake3 {
+            return Err(AuditLogChainVerifyError::InvalidManifest {
+                path: manifest_path.clone(),
+                reason: "segment_blake3 does not match segment file".to_string(),
+            });
+        }
+        let segment =
+            verify_audit_log_from(&segment_path, expected_prev_hash.clone()).map_err(|source| {
+                AuditLogChainVerifyError::Log {
+                    path: segment_path.clone(),
+                    source,
+                }
+            })?;
+        if segment.entries != manifest.entries || segment.head_hash != manifest.head_hash {
+            return Err(AuditLogChainVerifyError::InvalidManifest {
+                path: manifest_path.clone(),
+                reason: "manifest entry count or head hash does not match segment".to_string(),
+            });
+        }
+        expected_prev_hash = manifest.head_hash;
+        segment_entries += manifest.entries;
+    }
+
+    let active_start_hash = expected_prev_hash.clone();
+    let active = if active_log_path.exists() {
+        verify_audit_log_from(&active_log_path, expected_prev_hash).map_err(|source| {
+            AuditLogChainVerifyError::Log {
+                path: active_log_path.clone(),
+                source,
+            }
+        })?
+    } else {
+        AuditLogVerification {
+            entries: 0,
+            head_hash: active_start_hash.clone(),
+        }
+    };
+
+    Ok(AuditLogChainState {
+        segments: manifest_paths.len(),
+        segment_entries,
+        active_entries: active.entries,
+        active_start_hash,
+        head_hash: active.head_hash,
+    })
 }
 
 pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
@@ -508,6 +857,106 @@ fn required_text_field<'a>(
         })
 }
 
+fn audit_segment_manifest_paths(root: &Path) -> Result<Vec<PathBuf>, io::Error> {
+    let audit_dir = root.join("audit");
+    let mut paths = Vec::new();
+    let entries = match fs::read_dir(&audit_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(paths),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(AUDIT_SEGMENT_MANIFEST_SUFFIX))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn read_audit_segment_manifest(
+    path: &Path,
+) -> Result<AuditLogSegmentManifest, AuditLogChainVerifyError> {
+    serde_json::from_slice(&fs::read(path)?).map_err(|source| AuditLogChainVerifyError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn sign_audit_segment_manifest(
+    manifest: &AuditLogSegmentManifest,
+    signing_key: &ed25519_dalek::SigningKey,
+) -> Result<String, AuditLogRotateError> {
+    let canonical = canonical_audit_segment_manifest_bytes(manifest)?;
+    let signature: Signature = signing_key.sign(&canonical);
+    Ok(Base64UrlUnpadded::encode_string(&signature.to_bytes()))
+}
+
+fn verify_audit_segment_manifest_signature(
+    path: &Path,
+    manifest: &AuditLogSegmentManifest,
+    verifying_key: &VerifyingKey,
+) -> Result<(), AuditLogChainVerifyError> {
+    let canonical = canonical_audit_segment_manifest_bytes(manifest).map_err(|source| {
+        AuditLogChainVerifyError::Json {
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
+    let signature_bytes = Base64UrlUnpadded::decode_vec(&manifest.signature).map_err(|error| {
+        AuditLogChainVerifyError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        }
+    })?;
+    let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|error| {
+        AuditLogChainVerifyError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        }
+    })?;
+    verifying_key
+        .verify_strict(&canonical, &signature)
+        .map_err(|error| AuditLogChainVerifyError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        })
+}
+
+fn canonical_audit_segment_manifest_bytes(
+    manifest: &AuditLogSegmentManifest,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut value = serde_json::to_value(manifest)?;
+    if let Value::Object(map) = &mut value {
+        map.remove("signature");
+    }
+    serde_json::to_vec(&canonical_json_value(value))
+}
+
+fn canonical_json_value(value: Value) -> Value {
+    match value {
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(canonical_json_value).collect())
+        }
+        Value::Object(map) => {
+            let mut entries: Vec<_> = map.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut sorted = Map::new();
+            for (key, value) in entries {
+                sorted.insert(key, canonical_json_value(value));
+            }
+            Value::Object(sorted)
+        }
+        other => other,
+    }
+}
+
 fn audit_record_hash(record: &Map<String, Value>) -> String {
     let mut canonical = BTreeMap::new();
     for (key, value) in record {
@@ -517,6 +966,31 @@ fn audit_record_hash(record: &Map<String, Value>) -> String {
     }
     let encoded = serde_json::to_vec(&canonical).expect("serialize audit record");
     blake3::hash(&encoded).to_hex().to_string()
+}
+
+fn write_json_new<T: Serialize>(
+    path: &Path,
+    value: &T,
+    mode: u32,
+) -> Result<(), AuditLogRotateError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(mode);
+    let mut file = options.open(path)?;
+    serde_json::to_writer_pretty(&mut file, value)?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn write_new_empty_file(path: &Path, mode: u32) -> Result<(), io::Error> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(mode);
+    let file = options.open(path)?;
+    file.sync_all()
 }
 
 fn unix_millis() -> u64 {
@@ -665,6 +1139,80 @@ mod tests {
             error,
             AuditLogVerifyError::HashMismatch { line: 2, .. }
         ));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn audit_log_rotation_writes_signed_segment_and_verifies_chain() {
+        let root = temp_root("audit-rotation");
+        create_layout(&root);
+        let path = audit_log_path(&root);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .expect("open audit log");
+        let subscriber = tracing_subscriber::registry().with(AuditJsonLayer::new(file));
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(
+                event = "agent.first",
+                msg = "first message",
+                msg_id = "msg-1"
+            );
+            tracing::info!(
+                event = "agent.second",
+                msg = "second message",
+                msg_id = "msg-2"
+            );
+        });
+
+        let rotation = rotate_audit_log(&root, &root.join("keys")).expect("rotate audit log");
+        assert!(rotation.segment_path.exists());
+        assert!(rotation.manifest_path.exists());
+        assert!(rotation.active_log_path.exists());
+        assert_eq!(
+            fs::read_to_string(&rotation.active_log_path).expect("read active"),
+            ""
+        );
+        assert_eq!(rotation.manifest.entries, 2);
+        assert_eq!(rotation.manifest.prev_hash, AUDIT_LOG_GENESIS_HASH);
+
+        let chain = verify_audit_log_chain(&root, &root.join("keys")).expect("verify chain");
+        assert_eq!(chain.segments, 1);
+        assert_eq!(chain.segment_entries, 2);
+        assert_eq!(chain.active_entries, 0);
+        assert_eq!(chain.entries, 2);
+        assert_eq!(chain.head_hash, rotation.manifest.head_hash);
+
+        let file = OpenOptions::new()
+            .append(true)
+            .open(&rotation.active_log_path)
+            .expect("open active");
+        let subscriber = tracing_subscriber::registry().with(AuditJsonLayer::with_prev_hash(
+            file,
+            rotation.manifest.head_hash.clone(),
+        ));
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(
+                event = "agent.third",
+                msg = "third message",
+                msg_id = "msg-3"
+            );
+        });
+
+        let chain = verify_audit_log_chain(&root, &root.join("keys")).expect("verify continued");
+        assert_eq!(chain.segments, 1);
+        assert_eq!(chain.segment_entries, 2);
+        assert_eq!(chain.active_entries, 1);
+        assert_eq!(chain.entries, 3);
+
+        let tampered_segment = fs::read_to_string(&rotation.segment_path)
+            .expect("read segment")
+            .replace("second message", "tampered message");
+        fs::write(&rotation.segment_path, tampered_segment).expect("tamper segment");
+        assert!(verify_audit_log_chain(&root, &root.join("keys")).is_err());
 
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -109,6 +109,23 @@ pub fn load_identity_key(key_dir: &Path) -> Result<IdentityKey, IdentityKeyError
         signing_key,
         metadata: private_file.metadata,
     })
+}
+
+pub fn load_identity_public_metadata(
+    key_dir: &Path,
+) -> Result<IdentityKeyMetadata, IdentityKeyError> {
+    let (_, public_path) = identity_key_paths(key_dir);
+    let metadata: IdentityKeyMetadata = serde_json::from_slice(&fs::read(&public_path)?)?;
+    validate_metadata_shape(&metadata)?;
+    Ok(metadata)
+}
+
+pub fn verifying_key_from_metadata(
+    metadata: &IdentityKeyMetadata,
+) -> Result<VerifyingKey, IdentityKeyError> {
+    let public_key = decode_hex(&metadata.public_key_raw_hex)?;
+    VerifyingKey::try_from(public_key.as_slice())
+        .map_err(|error| IdentityKeyError::Crypto(error.to_string()))
 }
 
 fn generate_identity_key(key_dir: &Path, label: &str) -> Result<IdentityKey, IdentityKeyError> {

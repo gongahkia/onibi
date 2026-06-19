@@ -11,7 +11,10 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
-use crate::{apply_index_schema, audit_log_path, index_db_path, verify_audit_log};
+use crate::{
+    apply_index_schema, audit_log_path, index_db_path, verify_audit_log_chain,
+    AuditLogChainVerifyError,
+};
 
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
@@ -659,15 +662,19 @@ fn parse_wear_readings(raw: &str) -> Vec<u8> {
 
 fn audit_log_check(data_dir: &Path) -> SelfcheckCheck {
     let path = audit_log_path(data_dir);
-    match verify_audit_log(&path) {
+    match verify_audit_log_chain(data_dir, &data_dir.join("keys")) {
         Ok(result) => {
             let mut details = BTreeMap::new();
             details.insert("verified".to_string(), json!(true));
             details.insert("entries".to_string(), json!(result.entries));
+            details.insert("segments".to_string(), json!(result.segments));
+            details.insert("segment_entries".to_string(), json!(result.segment_entries));
+            details.insert("active_entries".to_string(), json!(result.active_entries));
             details.insert("head_hash".to_string(), json!(result.head_hash));
             pass_with_details("audit-log", "audit log verifies", details)
         }
-        Err(error) if matches!(error, crate::AuditLogVerifyError::Io(ref io_error) if io_error.kind() == io::ErrorKind::NotFound) =>
+        Err(AuditLogChainVerifyError::Io(ref io_error))
+            if io_error.kind() == io::ErrorKind::NotFound =>
         {
             let mut details = BTreeMap::new();
             details.insert("verified".to_string(), json!(false));

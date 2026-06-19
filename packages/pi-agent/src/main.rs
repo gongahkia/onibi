@@ -5,16 +5,17 @@ use std::process::ExitCode;
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, approve_operator_token, ask_bind_is_loopback, ask_router,
-    audit_log_path, default_gold_fixture_dir, evaluate_and_audit_local_policy,
+    default_gold_fixture_dir, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, gold_chunk_id_lines, index_db_path,
     init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval,
-    selfcheck_report_payload, sign_envelope, validate_data_dir, validate_selfcheck_target,
-    verify_audit_log, verify_envelope, AskHttpState, PiEnvelopeKind, PiEnvelopeSender,
-    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
-    UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
-    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
-    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval, run_selfcheck,
+    run_synthesis_eval, selfcheck_report_payload, sign_envelope, validate_data_dir,
+    validate_selfcheck_target, verify_audit_log, verify_audit_log_chain, verify_envelope,
+    AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
+    PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
+    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
+    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use std::io::{self, BufRead};
@@ -47,6 +48,7 @@ fn run() -> Result<(), ExitCode> {
             print_quota_defaults();
             Ok(())
         }
+        "rotate-audit-log" => rotate_audit_log_command(args.collect()),
         "serve-ask" => serve_ask_command(args.collect()),
         "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
@@ -1070,6 +1072,7 @@ fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
 fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut log_file = None;
+    let mut key_dir = None;
     let mut index = 0;
 
     while index < args.len() {
@@ -1090,6 +1093,14 @@ fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
                 log_file = Some(PathBuf::from(value));
                 index += 2;
             }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
             other => {
                 eprintln!("unknown argument: {other}");
                 return Err(ExitCode::from(64));
@@ -1097,17 +1108,84 @@ fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
         }
     }
 
-    let path = log_file.unwrap_or_else(|| audit_log_path(&data_dir));
-    match verify_audit_log(&path) {
+    if let Some(path) = log_file {
+        return match verify_audit_log(&path) {
+            Ok(result) => {
+                println!(
+                    "audit log ok: entries={} head_hash={}",
+                    result.entries, result.head_hash
+                );
+                Ok(())
+            }
+            Err(error) => {
+                eprintln!("audit log invalid: {error}");
+                Err(ExitCode::from(65))
+            }
+        };
+    }
+
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    match verify_audit_log_chain(&data_dir, &key_dir) {
         Ok(result) => {
             println!(
-                "audit log ok: entries={} head_hash={}",
-                result.entries, result.head_hash
+                "audit log ok: segments={} segment_entries={} active_entries={} entries={} head_hash={}",
+                result.segments,
+                result.segment_entries,
+                result.active_entries,
+                result.entries,
+                result.head_hash
             );
             Ok(())
         }
         Err(error) => {
             eprintln!("audit log invalid: {error}");
+            Err(ExitCode::from(65))
+        }
+    }
+}
+
+fn rotate_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    match rotate_audit_log(&data_dir, &key_dir) {
+        Ok(rotation) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&rotation.manifest)
+                    .expect("serialize audit rotation manifest")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("audit log rotation failed: {error}");
             Err(ExitCode::from(65))
         }
     }
@@ -1308,6 +1386,7 @@ fn print_usage() {
         "usage: kelp-pi-agent policy-check --gate GATE [--mode enforce|dry-run] [--dry-run] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent quota-defaults");
+    eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );
@@ -1316,7 +1395,9 @@ fn print_usage() {
     );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent version");
-    eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
+    eprintln!(
+        "usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--key-dir PATH] [--log-file PATH]"
+    );
     eprintln!(
         "usage: kelp-pi-agent wire --stdio --trusted-cp-public-key-hex HEX [--data-dir PATH]"
     );
