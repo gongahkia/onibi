@@ -38,8 +38,8 @@ pub use chunking::{
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
 pub use eval::{
-    default_gold_fixture_dir, run_gold_eval, GoldEvalCaseResult, GoldEvalError, GoldEvalReport,
-    GoldEvalStatus, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
+    default_gold_fixture_dir, gold_chunk_id_lines, run_gold_eval, GoldEvalCaseResult,
+    GoldEvalError, GoldEvalReport, GoldEvalStatus, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
 };
 pub use http::{
     ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,

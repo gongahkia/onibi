@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     answer_query, chunk_markdown, chunk_plain_text, default_chunking_config, ingest_source_chunks,
-    SourceFileMetadata,
+    ContentChunk, SourceFileMetadata,
 };
 
 pub const GOLD_FIXTURE_DIR: &str = "fixtures/gold";
@@ -190,20 +190,30 @@ pub fn run_gold_eval(
     })
 }
 
+pub fn gold_chunk_id_lines(fixture_dir: &Path) -> Result<Vec<String>, GoldEvalError> {
+    let gold: GoldQaSet = serde_json::from_slice(&fs::read(fixture_dir.join("gold-qa.json"))?)?;
+    let mut lines = Vec::new();
+    for corpus in &gold.corpus {
+        for chunk in gold_corpus_chunks(fixture_dir, corpus)? {
+            lines.push(format!(
+                "{}\t{}\t{}",
+                chunk.chunk_id,
+                chunk.path,
+                serde_json::to_string(&chunk.heading_path)?
+            ));
+        }
+    }
+    lines.sort();
+    Ok(lines)
+}
+
 fn ingest_gold_corpus_file(
     connection: &mut Connection,
     fixture_dir: &Path,
     corpus: &GoldCorpusFile,
 ) -> Result<(), GoldEvalError> {
-    let file_path = fixture_dir.join(&corpus.file);
-    let content = fs::read_to_string(&file_path)?;
-    let chunks = if corpus.path.ends_with(".md") {
-        chunk_markdown(&corpus.path, &content, default_chunking_config())
-    } else if corpus.path.ends_with(".txt") {
-        chunk_plain_text(&corpus.path, &content, default_chunking_config())
-    } else {
-        return Err(GoldEvalError::UnsupportedCorpusFile(corpus.path.clone()));
-    };
+    let content = fs::read_to_string(fixture_dir.join(&corpus.file))?;
+    let chunks = gold_chunks_for_content(corpus, &content)?;
     let metadata = SourceFileMetadata {
         path: corpus.path.clone(),
         content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
@@ -213,6 +223,35 @@ fn ingest_gold_corpus_file(
     };
     ingest_source_chunks(connection, &metadata, &chunks)?;
     Ok(())
+}
+
+fn gold_corpus_chunks(
+    fixture_dir: &Path,
+    corpus: &GoldCorpusFile,
+) -> Result<Vec<ContentChunk>, GoldEvalError> {
+    let content = fs::read_to_string(fixture_dir.join(&corpus.file))?;
+    gold_chunks_for_content(corpus, &content)
+}
+
+fn gold_chunks_for_content(
+    corpus: &GoldCorpusFile,
+    content: &str,
+) -> Result<Vec<ContentChunk>, GoldEvalError> {
+    if corpus.path.ends_with(".md") {
+        Ok(chunk_markdown(
+            &corpus.path,
+            content,
+            default_chunking_config(),
+        ))
+    } else if corpus.path.ends_with(".txt") {
+        Ok(chunk_plain_text(
+            &corpus.path,
+            content,
+            default_chunking_config(),
+        ))
+    } else {
+        Err(GoldEvalError::UnsupportedCorpusFile(corpus.path.clone()))
+    }
 }
 
 fn retrieval_query_for_question(question: &str) -> String {
@@ -251,5 +290,16 @@ mod tests {
         assert!(report.ok());
         assert_eq!(report.cases, 34);
         assert_eq!(report.failed, 0);
+    }
+
+    #[test]
+    fn bundled_gold_chunk_ids_match_manifest() {
+        let expected = include_str!("../fixtures/gold/chunk-ids.txt")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let actual = gold_chunk_id_lines(&default_gold_fixture_dir()).expect("chunk id lines");
+
+        assert_eq!(actual, expected);
     }
 }

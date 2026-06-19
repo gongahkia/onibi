@@ -124,3 +124,52 @@ jobs:
 
       - name: Test Pi agent
         run: cross test --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
+
+  pi-chunk-determinism:
+    name: Pi Chunk IDs (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-host
+            os: ubuntu-latest
+            mode: cargo
+          - name: macos-host
+            os: macos-latest
+            mode: cargo
+          - name: arm64-qemu
+            os: ubuntu-latest
+            mode: cross
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Set up QEMU
+        if: matrix.mode == 'cross'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install cross
+        if: matrix.mode == 'cross'
+        run: |
+          if ! command -v cross >/dev/null 2>&1; then
+            cargo install cross --locked
+          fi
+
+      - name: Diff regenerated chunk IDs
+        shell: bash
+        run: |
+          if [ "${{ matrix.mode }}" = "cross" ]; then
+            cross run --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }} -- eval chunk-ids > "${RUNNER_TEMP}/chunk-ids.txt"
+          else
+            cargo run --manifest-path packages/pi-agent/Cargo.toml -- eval chunk-ids > "${RUNNER_TEMP}/chunk-ids.txt"
+          fi
+          diff -u packages/pi-agent/fixtures/gold/chunk-ids.txt "${RUNNER_TEMP}/chunk-ids.txt"
