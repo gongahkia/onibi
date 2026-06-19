@@ -602,14 +602,24 @@ fn microsd_wear_check() -> SelfcheckCheck {
             values.insert(path.to_string(), raw.trim().to_string());
         }
     }
+    microsd_wear_check_from_values(values)
+}
+
+fn microsd_wear_check_from_values(values: BTreeMap<String, String>) -> SelfcheckCheck {
     let mut details = BTreeMap::new();
+    let wear_warning = microsd_wear_warning(&values);
     details.insert("values".to_string(), json!(values));
+    details.insert("wear_warning".to_string(), json!(wear_warning));
     if details
         .get("values")
         .and_then(Value::as_object)
         .is_some_and(|values| !values.is_empty())
     {
-        pass_with_details("microsd-wear", "microSD wear probe succeeded", details)
+        if wear_warning {
+            warn_with_details("microsd-wear", "microSD wear exceeds threshold", details)
+        } else {
+            pass_with_details("microsd-wear", "microSD wear probe succeeded", details)
+        }
     } else {
         details.insert("available".to_string(), json!(false));
         warn_with_details(
@@ -618,6 +628,33 @@ fn microsd_wear_check() -> SelfcheckCheck {
             details,
         )
     }
+}
+
+fn microsd_wear_warning(values: &BTreeMap<String, String>) -> bool {
+    values.iter().any(|(path, raw)| {
+        let readings = parse_wear_readings(raw);
+        if path.ends_with("pre_eol_info") {
+            readings.iter().any(|value| *value >= 0x02)
+        } else if path.ends_with("life_time") {
+            readings.iter().any(|value| *value >= 0x0a)
+        } else {
+            false
+        }
+    })
+}
+
+fn parse_wear_readings(raw: &str) -> Vec<u8> {
+    raw.split_whitespace()
+        .filter_map(|token| {
+            token
+                .strip_prefix("0x")
+                .or_else(|| token.strip_prefix("0X"))
+                .map_or_else(
+                    || token.parse::<u8>().ok(),
+                    |hex| u8::from_str_radix(hex, 16).ok(),
+                )
+        })
+        .collect()
 }
 
 fn audit_log_check(data_dir: &Path) -> SelfcheckCheck {
@@ -1047,6 +1084,39 @@ mod tests {
 
         assert_eq!(error.target, "8.8.8.8");
         assert!(error.reason.contains("outside 127.0.0.0/8"));
+    }
+
+    #[test]
+    fn microsd_wear_warns_when_threshold_exceeded() {
+        let mut values = BTreeMap::new();
+        values.insert(
+            "/sys/block/mmcblk0/device/life_time".to_string(),
+            "0x01 0x0a".to_string(),
+        );
+
+        let check = microsd_wear_check_from_values(values);
+
+        assert_eq!(check.status, SelfcheckStatus::Warn);
+        assert_eq!(
+            check
+                .details
+                .as_ref()
+                .and_then(|details| details.get("wear_warning")),
+            Some(&json!(true))
+        );
+    }
+
+    #[test]
+    fn microsd_wear_passes_when_under_threshold() {
+        let mut values = BTreeMap::new();
+        values.insert(
+            "/sys/block/mmcblk0/device/pre_eol_info".to_string(),
+            "0x01".to_string(),
+        );
+
+        let check = microsd_wear_check_from_values(values);
+
+        assert_eq!(check.status, SelfcheckStatus::Pass);
     }
 
     fn create_layout(root: &Path) {
