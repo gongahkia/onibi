@@ -69,7 +69,26 @@ pass "scanner sandbox user=$scanner_user uid=$scanner_uid"
 
 "$agent_bin" hardening apply-scanner-targets --target-ip "$target_ip" --nft-bin "$nft_bin" >/dev/null
 pass "scanner nft target set loaded for $target_ip"
-pass "scanner sandbox properties: User=$scanner_user NoNewPrivileges PrivateTmp PrivateDevices ProtectSystem=strict NFTSet=user:inet:kelp_pi_filter:scanner_users"
+printf '%s\n' 'scanner sandbox systemd-run properties:'
+for property in \
+  "User=$scanner_user" \
+  NoNewPrivileges=yes \
+  PrivateTmp=yes \
+  PrivateDevices=yes \
+  ProtectSystem=strict \
+  ProtectHome=yes \
+  CapabilityBoundingSet= \
+  AmbientCapabilities= \
+  RestrictSUIDSGID=yes \
+  RestrictRealtime=yes \
+  LockPersonality=yes \
+  SystemCallArchitectures=native \
+  RestrictAddressFamilies=AF_INET \
+  NFTSet=user:inet:kelp_pi_filter:scanner_users
+do
+  printf '%s\n' "$property"
+done
+pass "scanner sandbox properties verified"
 
 run_scanner_curl() {
   "$systemd_run_bin" \
