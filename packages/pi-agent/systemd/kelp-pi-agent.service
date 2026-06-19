@@ -1,0 +1,43 @@
+[Unit]
+Description=Kelp Pi Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kelp-pi
+Group=kelp-pi
+WorkingDirectory=/var/lib/kelp-pi
+ExecStart=/usr/local/bin/kelp-pi-agent start --data-dir /var/lib/kelp-pi
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+StateDirectory=kelp-pi
+StateDirectoryMode=0750
+ConfigurationDirectory=kelp-pi
+ConfigurationDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/kelp-pi
+ReadOnlyPaths=/etc/kelp-pi
+
+[Install]
+WantedBy=multi-user.target

@@ -889,16 +889,73 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
     };
 
     if start_mode && !check_only {
-        tracing::error!(
-            event = "agent.start.unimplemented",
-            msg = "daemon runtime is not implemented",
-            msg_id = "agent-start-unimplemented"
-        );
-        eprintln!("daemon runtime is not implemented; rerun with --check-only for preflight");
-        return Err(ExitCode::from(69));
+        return run_daemon(&data_dir);
     }
 
     println!("data dir ok: {}", data_dir.display());
+    Ok(())
+}
+
+fn run_daemon(data_dir: &Path) -> Result<(), ExitCode> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            eprintln!("daemon runtime init failed: {error}");
+            ExitCode::from(69)
+        })?;
+    runtime.block_on(wait_for_shutdown(data_dir))
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut sigterm = signal(SignalKind::terminate()).map_err(|error| {
+        eprintln!("SIGTERM handler init failed: {error}");
+        ExitCode::from(69)
+    })?;
+    let mut sigint = signal(SignalKind::interrupt()).map_err(|error| {
+        eprintln!("SIGINT handler init failed: {error}");
+        ExitCode::from(69)
+    })?;
+    tracing::info!(
+        event = "agent.daemon.started",
+        msg = "daemon started",
+        msg_id = "agent-daemon-started",
+        data_dir = %data_dir.display()
+    );
+    let shutdown_signal = tokio::select! {
+        _ = sigterm.recv() => "SIGTERM",
+        _ = sigint.recv() => "SIGINT",
+    };
+    tracing::info!(
+        event = "agent.daemon.stopped",
+        msg = "daemon stopped",
+        msg_id = "agent-daemon-stopped",
+        shutdown_signal = shutdown_signal
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
+    tracing::info!(
+        event = "agent.daemon.started",
+        msg = "daemon started",
+        msg_id = "agent-daemon-started",
+        data_dir = %data_dir.display()
+    );
+    tokio::signal::ctrl_c().await.map_err(|error| {
+        eprintln!("shutdown handler failed: {error}");
+        ExitCode::from(69)
+    })?;
+    tracing::info!(
+        event = "agent.daemon.stopped",
+        msg = "daemon stopped",
+        msg_id = "agent-daemon-stopped",
+        shutdown_signal = "ctrl_c"
+    );
     Ok(())
 }
 
