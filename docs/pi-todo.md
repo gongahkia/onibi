@@ -57,8 +57,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P9 — Eval and determinism
 
-- [ ] Implement bundle-replay test: a Pi-produced bundle can be re-verified end-to-end on a laptop with no Pi present → success: CI runs this as a regression.
-
 ## P10 — Field ops
 
 - [ ] Implement storage quota enforcement: refuse to ingest, scan, or accept uploads when free disk falls below a configurable floor → success: integration test fills disk and confirms graceful refusal with operator-readable error.

@@ -18,6 +18,7 @@
     "postinstall": "node scripts/link-cli-bin.mjs",
     "pretest": "pnpm -r --if-present build",
     "test": "pnpm -r --if-present test",
+    "test:pi-bundle-replay": "pnpm --filter @kelpclaw/cli... build && node scripts/pi-bundle-replay-smoke.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "validate:fixtures": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/validate-workflow-fixtures.mjs",
     "check:codegen-policy": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/check-codegen-policy.mjs",
