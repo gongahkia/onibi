@@ -142,6 +142,33 @@ Rationale:
 Ubuntu Server ARM64 remains a compatibility target for later CI or non-Pi hosts, not
 the reference field image.
 
+## Signing key custody
+
+Decision: v1 uses an on-Pi Ed25519 private key stored as an encrypted file under
+`/var/lib/kelp-pi/keys/`. The operator unlocks it with a passphrase during bootstrap
+or daemon start; the agent keeps the decrypted key only in process memory.
+
+Rejected custody options:
+
+- HSM: rejects Kelp Pi's default offline posture and adds network dependency.
+- OS keychain: weak fit for Raspberry Pi OS Lite headless operation and harder to
+  reproduce across flash images.
+- YubiKey: useful later for operator approval or control-plane signing, but v1 needs
+  unattended envelope, audit-log, and bundle signing on the Pi. Ed25519 through
+  YubiKey PIV also depends on newer token/PKCS#11 support.
+
+File custody rules:
+
+- Key file mode must be `0600`, parent directory mode must be `0700`, owner must be
+  the dedicated `kelp-pi` user, and the agent refuses to start otherwise.
+- Private key material is encrypted at rest with an Argon2id-derived passphrase key
+  and AEAD; salt, KDF params, public key, key ID, creation time, and rotation counter
+  are stored beside the ciphertext.
+- Public keys are non-secret and may be copied into audit bundles and control-plane
+  trust lists.
+- Control-plane trust lists can revoke a Pi key by key ID; revocation means later
+  envelopes and bundles from that key are refused.
+
 ## Threat model
 
 Two axes are in scope: **network perimeter discipline** and **audit & forensics**.
@@ -165,6 +192,16 @@ Audit & forensics:
   `verify-audit-bundle` without modification.
 - Chunk IDs in the retrieval index are content-hashed and deterministic: identical
   corpus inputs produce identical IDs across rebuilds, on Pi or laptop.
+
+Physical capture assumptions:
+
+- Powered-off capture model: attacker must recover the operator passphrase or defeat
+  the at-rest encryption before using the Pi private key.
+- Powered-on capture of an unlocked agent is a key-compromise event: the attacker may
+  sign with that Pi key until the operator revokes it or the process stops.
+- After suspected capture, the control plane must revoke the Pi key ID and distrust
+  envelopes after the last operator-confirmed good timestamp.
+- Kelp Pi does not claim tamper-resistant hardware custody in v1.
 
 Out of scope (explicit non-goals):
 
