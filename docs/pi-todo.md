@@ -11,7 +11,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P0 — Scoping, absorption, and contracts
 
-- [ ] Define on-Pi quota defaults: corpus, uploads, index, audit log size caps → success: quotas listed with default values and configuration override mechanism.
 - [ ] Create `packages/pi-agent` and `packages/pi-cli` skeletons in `kelp/` → success: pnpm workspace recognizes both, basic builds pass.
 - [ ] Add `kelp-claw pi` parent subcommand stub in `packages/cli` → success: `kelp-claw pi --help` prints a placeholder.
 - [x] Migrate IDEA and TODO into `kelp/docs/pi.md` and `kelp/docs/pi-todo.md` → success: both files live under `kelp/docs/`; `bloob/` reduced to a stub pointer (full deletion deferred to the operator's git workflow).

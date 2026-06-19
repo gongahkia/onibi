@@ -9,6 +9,21 @@ pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
 pub const REQUIRED_DATA_DIRS: [&str; 8] = [
     "corpus", "evidence", "bundles", "index", "audit", "keys", "policy", "scope",
 ];
+pub const GIB: u64 = 1024 * 1024 * 1024;
+pub const DEFAULT_QUOTAS: QuotaDefaults = QuotaDefaults {
+    corpus_bytes: 20 * GIB,
+    uploads_bytes: 8 * GIB,
+    index_bytes: 8 * GIB,
+    audit_log_bytes: GIB,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuotaDefaults {
+    pub corpus_bytes: u64,
+    pub uploads_bytes: u64,
+    pub index_bytes: u64,
+    pub audit_log_bytes: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataDirIssueKind {

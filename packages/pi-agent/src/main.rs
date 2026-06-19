@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use kelp_pi_agent::{validate_data_dir, DEFAULT_DATA_DIR};
+use kelp_pi_agent::{validate_data_dir, DEFAULT_DATA_DIR, DEFAULT_QUOTAS};
 
 fn main() -> ExitCode {
     match run() {
@@ -19,6 +19,10 @@ fn run() -> Result<(), ExitCode> {
 
     match command.as_str() {
         "check-data-dir" => check_data_dir(args.collect(), false),
+        "quota-defaults" => {
+            print_quota_defaults();
+            Ok(())
+        }
         "start" => check_data_dir(args.collect(), true),
         "-h" | "--help" | "help" => {
             print_usage();
@@ -76,5 +80,16 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
 
 fn print_usage() {
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
+    eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
+}
+
+fn print_quota_defaults() {
+    println!(
+        "{{\"corpus_bytes\":{},\"uploads_bytes\":{},\"index_bytes\":{},\"audit_log_bytes\":{}}}",
+        DEFAULT_QUOTAS.corpus_bytes,
+        DEFAULT_QUOTAS.uploads_bytes,
+        DEFAULT_QUOTAS.index_bytes,
+        DEFAULT_QUOTAS.audit_log_bytes
+    );
 }

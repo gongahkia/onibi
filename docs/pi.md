@@ -185,6 +185,30 @@ Startup preflight:
 - `kelp-pi-agent start --data-dir <path> --check-only` runs the same preflight used
   before daemon startup.
 
+## Quota defaults
+
+Defaults target the 64GB floor while leaving room for OS, evidence workspaces, and
+audit bundles. NVMe reference units can raise these values through config.
+
+| Scope     | Default | Applies to                                                                 |
+| --------- | ------: | -------------------------------------------------------------------------- |
+| Corpus    |  20 GiB | `/var/lib/kelp-pi/corpus` source files and derived text sidecars.          |
+| Uploads   |   8 GiB | Pending operator uploads staged under `/var/lib/kelp-pi/evidence/uploads`. |
+| Index     |   8 GiB | `/var/lib/kelp-pi/index` SQLite, FTS5, and ingest metadata.                |
+| Audit log |   1 GiB | `/var/lib/kelp-pi/audit` hash-chain segments before rotation/export.       |
+
+Override mechanism:
+
+- `/etc/kelp-pi/agent.json` may define `quotas.corpus_bytes`,
+  `quotas.uploads_bytes`, `quotas.index_bytes`, and `quotas.audit_log_bytes`.
+- Override values are byte counts and must be positive integers.
+- Missing override keys keep the compiled defaults reported by
+  `kelp-pi-agent quota-defaults`.
+- Lowering a quota below current usage refuses new writes for that scope; it does not
+  delete existing evidence.
+- The agent records effective quotas and a SHA-256 hash of the config file in the
+  startup audit entry.
+
 ## OS image base
 
 Reference image: **Raspberry Pi OS Lite 64-bit, Debian Trixie**. As of 2026-06-19,
