@@ -132,6 +132,7 @@ grep -q 'control-plane session established' "$artifact_dir/allow-outbound-reload
 grep -q 'allow-outbound ruleset output chain after reload:' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound ruleset proof missing"
 grep -q 'policy drop' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound default drop proof missing"
 grep -q 'ct state established,related accept' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound established-session proof missing"
+grep -Eq 'ip daddr .+ tcp dport [0-9]+ accept' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound tcp dport accept proof missing"
 grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound reload proof missing"
 for domain in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do
   grep -q "$domain" "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing for $domain"

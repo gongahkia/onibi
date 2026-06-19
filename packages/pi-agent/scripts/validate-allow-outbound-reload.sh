@@ -98,6 +98,7 @@ ruleset="$("$nft_bin" list ruleset)"
 printf '%s\n' "$ruleset" | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing after reload"
 printf '%s\n' "$ruleset" | grep -q 'policy drop' || fail "nftables default drop missing after reload"
 printf '%s\n' "$ruleset" | grep -q 'ct state established,related accept' || fail "nftables established-session rule missing after reload"
+printf '%s\n' "$ruleset" | grep -Eq 'ip daddr .+ tcp dport [0-9]+ accept' || fail "allow-outbound tcp dport accept missing after reload"
 printf '%s\n' 'allow-outbound ruleset output chain after reload:'
 printf '%s\n' "$ruleset" | sed -n '/chain output/,/}/p'
 sleep "$settle_seconds"

@@ -623,7 +623,8 @@ Reference renderer:
   applies the current nftables hardening config, starts the supplied control-plane
   session command, reapplies the updated config, and fails if the session exits during
   the allowlist reload. Its log records current-config application, session setup,
-  post-reload `nft list ruleset` output-chain proof, and survival after reload.
+  post-reload `nft list ruleset` output-chain proof with an allowlisted `tcp dport`
+  accept rule, and survival after reload.
 - `kelp-pi-validate-dns-egress --upstream-interface <iface> --probe-command '<client-probe-command>'`
   runs `tcpdump` on the upstream interface while captive-probe DNS traffic is generated
   and fails if any TCP or UDP port 53 packet leaves the Pi. With a custom probe
