@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Implement `/ask` HTTP endpoint on the Pi loopback (no external bind by default) → success: `curl http://127.0.0.1:PORT/ask -d '{"q":"..."}'` returns JSON with citations or `no_answer`.
 - [ ] Add per-IP rate limit and concurrency cap on `/ask` → success: a load test of 100 concurrent queries does not exhaust memory; excess requests get HTTP 429.
 - [ ] Implement single-file Python client `kelp-pi-ask` that talks to `/ask` over LAN → success: `kelp-pi-ask "question" --pi pi.local` prints cited results to stdout.
 - [ ] Add `--json` flag to the Python client → success: machine-readable JSON output suitable for scripting.

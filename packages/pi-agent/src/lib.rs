@@ -17,6 +17,7 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 mod chunking;
 mod doctor;
+mod http;
 mod index;
 mod keys;
 mod wire;
@@ -27,6 +28,7 @@ pub use chunking::{
     ContentChunk, IngestRefusal, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
+pub use http::{ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND};
 pub use index::{
     answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, Citation,
     NoAnswer, RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,

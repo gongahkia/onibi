@@ -1,11 +1,12 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    answer_query, apply_index_schema, audit_log_path, index_db_path, init_audit_tracing,
-    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, validate_data_dir,
-    verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
-    DEFAULT_QUOTAS,
+    answer_query, apply_index_schema, ask_bind_is_loopback, ask_router, audit_log_path,
+    index_db_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
+    run_doctor, validate_data_dir, verify_audit_log, AskHttpState, DEFAULT_ASK_BIND,
+    DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 
@@ -32,6 +33,7 @@ fn run() -> Result<(), ExitCode> {
             print_quota_defaults();
             Ok(())
         }
+        "serve-ask" => serve_ask_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
         "-h" | "--help" | "help" => {
@@ -89,15 +91,7 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
                     eprintln!("--no-answer-threshold requires a value");
                     return Err(ExitCode::from(64));
                 };
-                let Ok(parsed) = value.parse::<f64>() else {
-                    eprintln!("--no-answer-threshold must be a finite number");
-                    return Err(ExitCode::from(64));
-                };
-                if !parsed.is_finite() || parsed < 0.0 {
-                    eprintln!("--no-answer-threshold must be a finite non-negative number");
-                    return Err(ExitCode::from(64));
-                }
-                no_answer_threshold = parsed;
+                no_answer_threshold = parse_non_negative_f64("--no-answer-threshold", value)?;
                 index += 2;
             }
             other => {
@@ -130,6 +124,107 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
             Err(ExitCode::from(65))
         }
     }
+}
+
+fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut db_path = None;
+    let mut bind: SocketAddr = DEFAULT_ASK_BIND.parse().expect("default ask bind parses");
+    let mut top_k = 5_usize;
+    let mut no_answer_threshold = DEFAULT_NO_ANSWER_THRESHOLD;
+    let mut allow_non_loopback = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--db" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--db requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                db_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--bind" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--bind requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<SocketAddr>() else {
+                    eprintln!("--bind must be IP:PORT");
+                    return Err(ExitCode::from(64));
+                };
+                bind = parsed;
+                index += 2;
+            }
+            "--top-k" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--top-k requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<usize>() else {
+                    eprintln!("--top-k must be a positive integer");
+                    return Err(ExitCode::from(64));
+                };
+                top_k = parsed.max(1);
+                index += 2;
+            }
+            "--no-answer-threshold" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--no-answer-threshold requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                no_answer_threshold = parse_non_negative_f64("--no-answer-threshold", value)?;
+                index += 2;
+            }
+            "--allow-non-loopback" => {
+                allow_non_loopback = true;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    if !ask_bind_is_loopback(&bind) && !allow_non_loopback {
+        eprintln!("--bind must be loopback unless --allow-non-loopback is set");
+        return Err(ExitCode::from(64));
+    }
+
+    let db_path = db_path.unwrap_or_else(|| index_db_path(&data_dir));
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            eprintln!("tokio runtime init failed: {error}");
+            ExitCode::from(70)
+        })?;
+
+    runtime.block_on(async move {
+        let listener = tokio::net::TcpListener::bind(bind).await.map_err(|error| {
+            eprintln!("ask bind failed: {error}");
+            ExitCode::from(69)
+        })?;
+        let local_addr = listener.local_addr().unwrap_or(bind);
+        println!("ask server listening on http://{local_addr}");
+        let state = AskHttpState::new(db_path, top_k, no_answer_threshold);
+        axum::serve(listener, ask_router(state))
+            .await
+            .map_err(|error| {
+                eprintln!("ask server failed: {error}");
+                ExitCode::from(69)
+            })
+    })
 }
 
 fn doctor_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -338,8 +433,23 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!("usage: kelp-pi-agent quota-defaults");
+    eprintln!(
+        "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--allow-non-loopback]"
+    );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
+}
+
+fn parse_non_negative_f64(flag: &str, value: &str) -> Result<f64, ExitCode> {
+    let Ok(parsed) = value.parse::<f64>() else {
+        eprintln!("{flag} must be a finite number");
+        return Err(ExitCode::from(64));
+    };
+    if !parsed.is_finite() || parsed < 0.0 {
+        eprintln!("{flag} must be a finite non-negative number");
+        return Err(ExitCode::from(64));
+    }
+    Ok(parsed)
 }
 
 fn print_quota_defaults() {

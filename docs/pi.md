@@ -348,6 +348,8 @@ Retrieval chunking:
 - `/ask` responses include a top-level `citations` array. Each citation is
   `{path, heading_path, chunk_id, start_byte, end_byte}` and maps directly to a
   returned chunk.
+- The Pi agent serves `/ask` with `kelp-pi-agent serve-ask`. Default bind is
+  `127.0.0.1:8765`; non-loopback binds require `--allow-non-loopback`.
 
 Physical capture assumptions:
 
