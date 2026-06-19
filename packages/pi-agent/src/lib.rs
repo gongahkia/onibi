@@ -12,6 +12,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{Signature, Signer, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use tracing::field::{Field, Visit};
@@ -85,6 +86,8 @@ pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
 pub const AUDIT_LOG_FILE: &str = "agent.jsonl";
 pub const AUDIT_SEGMENT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const AUDIT_SEGMENT_MANIFEST_SUFFIX: &str = ".manifest.json";
+pub const FIRMWARE_UPDATE_MANIFEST_FILE: &str = "manifest.json";
+pub const FIRMWARE_UPDATE_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const AUDIT_LOG_GENESIS_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 pub const REQUIRED_DATA_DIRS: [&str; 8] = [
@@ -112,6 +115,28 @@ pub struct WipeReport {
     pub files_zeroed: usize,
     pub bytes_zeroed: u64,
     pub entries_removed: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FirmwareUpdateManifest {
+    pub schema_version: u32,
+    pub update_id: String,
+    pub version: String,
+    pub created_at_unix_ms: u64,
+    pub payload_file: String,
+    pub payload_blake3: String,
+    pub signer_key_id: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FirmwareUpdateReceipt {
+    pub update_id: String,
+    pub version: String,
+    pub staged_dir: String,
+    pub payload_file: String,
+    pub payload_blake3: String,
+    pub signer_key_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,6 +263,26 @@ pub enum WipeError {
     UnsafePath(PathBuf),
 }
 
+#[derive(Debug)]
+pub enum FirmwareUpdateError {
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
+    Json {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    InvalidManifest {
+        path: PathBuf,
+        reason: String,
+    },
+    Signature {
+        path: PathBuf,
+        reason: String,
+    },
+}
+
 impl Display for DataDirIssue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let reason = match self.kind {
@@ -345,11 +390,39 @@ impl Display for WipeError {
     }
 }
 
+impl Display for FirmwareUpdateError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FirmwareUpdateError::Io { path, source } => {
+                write!(formatter, "{}: {source}", path.display())
+            }
+            FirmwareUpdateError::Json { path, source } => {
+                write!(formatter, "{}: invalid JSON: {source}", path.display())
+            }
+            FirmwareUpdateError::InvalidManifest { path, reason } => {
+                write!(
+                    formatter,
+                    "{}: invalid firmware update manifest: {reason}",
+                    path.display()
+                )
+            }
+            FirmwareUpdateError::Signature { path, reason } => {
+                write!(
+                    formatter,
+                    "{}: invalid firmware update signature: {reason}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
 impl std::error::Error for AuditTracingError {}
 impl std::error::Error for AuditLogVerifyError {}
 impl std::error::Error for AuditLogChainVerifyError {}
 impl std::error::Error for AuditLogRotateError {}
 impl std::error::Error for WipeError {}
+impl std::error::Error for FirmwareUpdateError {}
 
 impl From<io::Error> for AuditTracingError {
     fn from(error: io::Error) -> Self {
@@ -738,6 +811,225 @@ pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
     } else {
         Err(issues)
     }
+}
+
+pub fn verify_and_stage_firmware_update(
+    root: &Path,
+    bundle_dir: &Path,
+    trusted_key: &VerifyingKey,
+) -> Result<FirmwareUpdateReceipt, FirmwareUpdateError> {
+    let manifest_path = bundle_dir.join(FIRMWARE_UPDATE_MANIFEST_FILE);
+    let manifest: FirmwareUpdateManifest =
+        serde_json::from_slice(&fs::read(&manifest_path).map_err(|source| {
+            FirmwareUpdateError::Io {
+                path: manifest_path.clone(),
+                source,
+            }
+        })?)
+        .map_err(|source| FirmwareUpdateError::Json {
+            path: manifest_path.clone(),
+            source,
+        })?;
+    validate_firmware_manifest_shape(&manifest_path, &manifest, trusted_key)?;
+    verify_firmware_manifest_signature(&manifest_path, &manifest, trusted_key)?;
+
+    let payload_rel = safe_relative_path(&manifest.payload_file).ok_or_else(|| {
+        FirmwareUpdateError::InvalidManifest {
+            path: manifest_path.clone(),
+            reason: "payload_file must be a relative path without '..'".to_string(),
+        }
+    })?;
+    let payload_path = bundle_dir.join(&payload_rel);
+    let payload_bytes = fs::read(&payload_path).map_err(|source| FirmwareUpdateError::Io {
+        path: payload_path.clone(),
+        source,
+    })?;
+    let payload_hash = blake3::hash(&payload_bytes).to_hex().to_string();
+    if payload_hash != manifest.payload_blake3 {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: manifest_path,
+            reason: format!(
+                "payload_blake3 mismatch: expected {}, found {}",
+                manifest.payload_blake3, payload_hash
+            ),
+        });
+    }
+
+    let staged_dir = root.join("updates").join(&manifest.update_id);
+    if staged_dir.exists() {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: staged_dir,
+            reason: "update is already staged".to_string(),
+        });
+    }
+    let staged_payload = staged_dir.join(&payload_rel);
+    if let Some(parent) = staged_payload.parent() {
+        fs::create_dir_all(parent).map_err(|source| FirmwareUpdateError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    fs::write(&staged_payload, payload_bytes).map_err(|source| FirmwareUpdateError::Io {
+        path: staged_payload.clone(),
+        source,
+    })?;
+    fs::write(
+        staged_dir.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+        serde_json::to_vec_pretty(&manifest).map_err(|source| FirmwareUpdateError::Json {
+            path: staged_dir.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+            source,
+        })?,
+    )
+    .map_err(|source| FirmwareUpdateError::Io {
+        path: staged_dir.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+        source,
+    })?;
+
+    let receipt = FirmwareUpdateReceipt {
+        update_id: manifest.update_id,
+        version: manifest.version,
+        staged_dir: staged_dir.display().to_string(),
+        payload_file: payload_rel.display().to_string(),
+        payload_blake3: manifest.payload_blake3,
+        signer_key_id: manifest.signer_key_id,
+    };
+    let receipt_path = staged_dir.join("receipt.json");
+    fs::write(
+        &receipt_path,
+        serde_json::to_vec_pretty(&receipt).map_err(|source| FirmwareUpdateError::Json {
+            path: receipt_path.clone(),
+            source,
+        })?,
+    )
+    .map_err(|source| FirmwareUpdateError::Io {
+        path: receipt_path,
+        source,
+    })?;
+    Ok(receipt)
+}
+
+fn validate_firmware_manifest_shape(
+    path: &Path,
+    manifest: &FirmwareUpdateManifest,
+    trusted_key: &VerifyingKey,
+) -> Result<(), FirmwareUpdateError> {
+    if manifest.schema_version != FIRMWARE_UPDATE_MANIFEST_SCHEMA_VERSION {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: path.to_path_buf(),
+            reason: format!("unsupported schema version {}", manifest.schema_version),
+        });
+    }
+    if !is_safe_update_id(&manifest.update_id) {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: path.to_path_buf(),
+            reason: "update_id must contain only ASCII letters, digits, '.', '_', or '-'"
+                .to_string(),
+        });
+    }
+    if manifest.version.trim().is_empty() {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: path.to_path_buf(),
+            reason: "version is required".to_string(),
+        });
+    }
+    if manifest.payload_blake3.len() != 64
+        || !manifest
+            .payload_blake3
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: path.to_path_buf(),
+            reason: "payload_blake3 must be 64 hex characters".to_string(),
+        });
+    }
+    let key_id = key_id_for_verifying_key(trusted_key);
+    if manifest.signer_key_id != key_id {
+        return Err(FirmwareUpdateError::InvalidManifest {
+            path: path.to_path_buf(),
+            reason: "signer_key_id does not match trusted key".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn verify_firmware_manifest_signature(
+    path: &Path,
+    manifest: &FirmwareUpdateManifest,
+    trusted_key: &VerifyingKey,
+) -> Result<(), FirmwareUpdateError> {
+    let canonical = canonical_firmware_update_manifest_bytes(manifest).map_err(|source| {
+        FirmwareUpdateError::Json {
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
+    let signature_bytes = Base64UrlUnpadded::decode_vec(&manifest.signature).map_err(|error| {
+        FirmwareUpdateError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        }
+    })?;
+    let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|error| {
+        FirmwareUpdateError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        }
+    })?;
+    trusted_key
+        .verify_strict(&canonical, &signature)
+        .map_err(|error| FirmwareUpdateError::Signature {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        })
+}
+
+fn canonical_firmware_update_manifest_bytes(
+    manifest: &FirmwareUpdateManifest,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut value = serde_json::to_value(manifest)?;
+    if let Value::Object(map) = &mut value {
+        map.remove("signature");
+    }
+    serde_json::to_vec(&canonical_json_value(value))
+}
+
+fn key_id_for_verifying_key(key: &VerifyingKey) -> String {
+    let digest = Sha256::digest(key.as_bytes());
+    format!("sha256:{}", encode_hex(digest))
+}
+
+fn encode_hex(bytes: impl AsRef<[u8]>) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let bytes = bytes.as_ref();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn safe_relative_path(path: &str) -> Option<PathBuf> {
+    let path = Path::new(path);
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        return None;
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => normalized.push(part),
+            _ => return None,
+        }
+    }
+    Some(normalized)
+}
+
+fn is_safe_update_id(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 pub fn wipe_data_dir(root: &Path) -> Result<WipeReport, WipeError> {
@@ -1133,6 +1425,8 @@ fn is_world_writable(metadata: &fs::Metadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand_core::OsRng;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[cfg(unix)]
@@ -1156,6 +1450,29 @@ mod tests {
         }
     }
 
+    fn signed_firmware_manifest(
+        signing_key: &SigningKey,
+        update_id: &str,
+        payload_file: &str,
+        payload_bytes: &[u8],
+    ) -> FirmwareUpdateManifest {
+        let mut manifest = FirmwareUpdateManifest {
+            schema_version: FIRMWARE_UPDATE_MANIFEST_SCHEMA_VERSION,
+            update_id: update_id.to_string(),
+            version: "2026.06.19-test".to_string(),
+            created_at_unix_ms: 1,
+            payload_file: payload_file.to_string(),
+            payload_blake3: blake3::hash(payload_bytes).to_hex().to_string(),
+            signer_key_id: key_id_for_verifying_key(&signing_key.verifying_key()),
+            signature: String::new(),
+        };
+        let canonical =
+            canonical_firmware_update_manifest_bytes(&manifest).expect("canonical manifest");
+        let signature = signing_key.sign(&canonical);
+        manifest.signature = Base64UrlUnpadded::encode_string(&signature.to_bytes());
+        manifest
+    }
+
     #[test]
     fn accepts_non_world_writable_layout() {
         let root = temp_root("valid");
@@ -1177,6 +1494,86 @@ mod tests {
         assert!(issues.iter().any(|issue| {
             issue.path == root.join("corpus") && issue.kind == DataDirIssueKind::WorldWritable
         }));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn firmware_update_stages_only_after_signature_and_hash_verify() {
+        let root = temp_root("firmware-ok");
+        create_layout(&root);
+        let bundle = root.join("bundle");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        let payload = b"firmware payload";
+        fs::write(bundle.join("payload.tar"), payload).expect("write payload");
+        let mut rng = OsRng;
+        let signing_key = SigningKey::generate(&mut rng);
+        let manifest = signed_firmware_manifest(&signing_key, "update-1", "payload.tar", payload);
+        fs::write(
+            bundle.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+            serde_json::to_vec_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("write manifest");
+
+        let receipt =
+            verify_and_stage_firmware_update(&root, &bundle, &signing_key.verifying_key())
+                .expect("stage firmware update");
+
+        assert_eq!(receipt.update_id, "update-1");
+        assert_eq!(receipt.payload_blake3, manifest.payload_blake3);
+        assert_eq!(
+            fs::read(root.join("updates").join("update-1").join("payload.tar"))
+                .expect("read staged payload"),
+            payload
+        );
+        assert!(root
+            .join("updates")
+            .join("update-1")
+            .join("receipt.json")
+            .exists());
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn firmware_update_rejects_wrong_key_and_unsigned_bundle() {
+        let root = temp_root("firmware-refuse");
+        create_layout(&root);
+        let payload = b"firmware payload";
+        let mut rng = OsRng;
+        let signing_key = SigningKey::generate(&mut rng);
+        let wrong_key = SigningKey::generate(&mut rng);
+
+        let wrong_key_bundle = root.join("wrong-key");
+        fs::create_dir_all(&wrong_key_bundle).expect("create wrong-key bundle");
+        fs::write(wrong_key_bundle.join("payload.tar"), payload).expect("write payload");
+        let manifest =
+            signed_firmware_manifest(&signing_key, "update-wrong-key", "payload.tar", payload);
+        fs::write(
+            wrong_key_bundle.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+            serde_json::to_vec_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("write manifest");
+        let error =
+            verify_and_stage_firmware_update(&root, &wrong_key_bundle, &wrong_key.verifying_key())
+                .expect_err("wrong key refused");
+        assert!(matches!(error, FirmwareUpdateError::InvalidManifest { .. }));
+
+        let unsigned_bundle = root.join("unsigned");
+        fs::create_dir_all(&unsigned_bundle).expect("create unsigned bundle");
+        fs::write(unsigned_bundle.join("payload.tar"), payload).expect("write payload");
+        let mut unsigned =
+            signed_firmware_manifest(&signing_key, "update-unsigned", "payload.tar", payload);
+        unsigned.signature.clear();
+        fs::write(
+            unsigned_bundle.join(FIRMWARE_UPDATE_MANIFEST_FILE),
+            serde_json::to_vec_pretty(&unsigned).expect("serialize manifest"),
+        )
+        .expect("write manifest");
+        let error =
+            verify_and_stage_firmware_update(&root, &unsigned_bundle, &signing_key.verifying_key())
+                .expect_err("unsigned bundle refused");
+        assert!(matches!(error, FirmwareUpdateError::Signature { .. }));
 
         fs::remove_dir_all(root).expect("cleanup");
     }

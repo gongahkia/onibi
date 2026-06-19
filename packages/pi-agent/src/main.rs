@@ -10,12 +10,12 @@ use kelp_pi_agent::{
     init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
     request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval, run_selfcheck,
     run_synthesis_eval, selfcheck_report_payload, sign_envelope, validate_data_dir,
-    validate_selfcheck_target, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
-    PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
-    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
-    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
-    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    validate_selfcheck_target, verify_and_stage_firmware_update, verify_audit_log,
+    verify_audit_log_chain, verify_envelope, wipe_data_dir, AskHttpState, PiEnvelopeKind,
+    PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
+    PiWireEnvelope, UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
+    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
+    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use std::io::{self, BufRead};
@@ -42,6 +42,7 @@ fn run() -> Result<(), ExitCode> {
         "check-data-dir" => check_data_dir(args.collect(), false),
         "doctor" => doctor_command(args.collect()),
         "eval" => eval_command(args.collect()),
+        "firmware-update" => firmware_update_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "policy-check" => policy_check_command(args.collect()),
         "quota-defaults" => {
@@ -1192,6 +1193,90 @@ fn rotate_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn firmware_update_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut bundle_dir = None;
+    let mut trusted_public_key_hex = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--bundle-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--bundle-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                bundle_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--trusted-public-key-hex" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--trusted-public-key-hex requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                trusted_public_key_hex = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(bundle_dir) = bundle_dir else {
+        eprintln!("firmware-update requires --bundle-dir");
+        return Err(ExitCode::from(64));
+    };
+    let Some(trusted_public_key_hex) = trusted_public_key_hex else {
+        eprintln!("firmware-update requires --trusted-public-key-hex");
+        return Err(ExitCode::from(64));
+    };
+    let trusted_key = verifying_key_from_hex(&trusted_public_key_hex).map_err(|error| {
+        eprintln!("invalid trusted public key: {error}");
+        ExitCode::from(64)
+    })?;
+
+    init_checked_audit(&data_dir)?;
+
+    match verify_and_stage_firmware_update(&data_dir, &bundle_dir, &trusted_key) {
+        Ok(receipt) => {
+            tracing::info!(
+                event = "firmware.update.staged",
+                msg = "firmware update staged",
+                msg_id = "firmware-update-staged",
+                update_id = receipt.update_id.as_str(),
+                version = receipt.version.as_str(),
+                staged_dir = receipt.staged_dir.as_str()
+            );
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&receipt).expect("serialize firmware update receipt")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            tracing::warn!(
+                event = "firmware.update.refused",
+                msg = "firmware update refused",
+                msg_id = "firmware-update-refused",
+                bundle_dir = %bundle_dir.display(),
+                reason = error.to_string().as_str()
+            );
+            eprintln!("firmware update refused: {error}");
+            Err(ExitCode::from(65))
+        }
+    }
+}
+
 fn wipe_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut force = false;
@@ -1427,6 +1512,9 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!(
         "usage: kelp-pi-agent eval <gold|synthesis|chunk-ids> [--fixture-dir PATH] [--top-k N] [--no-answer-threshold FLOAT]"
+    );
+    eprintln!(
+        "usage: kelp-pi-agent firmware-update --bundle-dir PATH --trusted-public-key-hex HEX [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!(
