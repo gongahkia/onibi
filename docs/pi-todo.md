@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 ## P4 — Scanner integration
 
 - [ ] Embed Nuclei as a pinned ARM64 binary in the Pi image → success: `kelp-pi-agent scan nuclei --target ...` runs without external `nuclei` install.
-- [ ] Implement rate limits per target: max requests/sec, max concurrent targets, max scan duration → success: limits enforced; an integration test confirms they are respected.
 - [ ] Implement scanner sandboxing: each scanner runs as an unprivileged user under systemd-run with no network access except to in-scope targets via nftables marks → success: a scanner invocation cannot reach the control plane or the public internet.
 
 ## P5 — Policy gates on Pi

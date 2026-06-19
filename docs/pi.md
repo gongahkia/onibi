@@ -268,6 +268,15 @@ Package pin and upgrade flow:
   operator-visible code/config update: fetch the desired upstream commit, update this
   pinned SHA and the agent constant in one review, rebuild the Pi image, then run the
   `kelp-pi-agent eval scanner-stability` test before promotion.
+- Scanner limits are operator-declared on every active scan. `kelp-pi-agent scan`
+  accepts `--max-requests-per-second`, `--max-concurrent-targets`, and
+  `--max-scan-duration-seconds`; signed `scan.request` supports the same values as
+  `max_requests_per_second`, `max_concurrent_targets`, and
+  `max_scan_duration_seconds`. The agent refuses zero values, refuses batches larger
+  than the target concurrency limit, kills scanner processes that exceed the duration
+  limit, passes Nuclei `-rate-limit`/`-bulk-size`, passes Nmap
+  `--max-rate`/`--max-hostgroup`/`--host-timeout`, and refuses unsupported ZAP rate or
+  multi-target concurrency requests.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

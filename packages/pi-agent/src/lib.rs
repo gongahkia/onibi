@@ -30,6 +30,7 @@ mod keys;
 mod nmap;
 mod nuclei;
 mod policy;
+mod scanner;
 mod scope;
 mod selfcheck;
 mod synthesis;
@@ -92,6 +93,10 @@ pub use policy::{
     TrustedControlPlaneKey, APPSEC_AGENT_BASELINE_PACK_ID, APPSEC_AGENT_BASELINE_RULES,
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,
     KELP_PI_REVIEW_FILE_MUTATION_RULE_ID, KELP_PI_REVIEW_SYNTHESIS_RULE_ID,
+};
+pub use scanner::{
+    run_scanner_with_limits, scanner_enforced_args, ScannerLimitError, ScannerLimits,
+    ScannerRunError, ScannerRunOutcome,
 };
 pub use scope::{
     active_scope_path, apply_scope_set, ensure_targets_in_scope, load_active_scope,

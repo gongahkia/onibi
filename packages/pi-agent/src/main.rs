@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
@@ -11,13 +11,14 @@ use kelp_pi_agent::{
     evaluate_scan_thermal_guard, evaluate_zap_guard, gold_chunk_id_lines, index_db_path,
     init_audit_tracing, install_panic_audit_hook, load_active_scope, load_or_generate_identity_key,
     probe_pinned_nmap_version, request_operator_approval, rotate_audit_log, run_doctor,
-    run_gold_eval, run_scanner_stability_eval, run_selfcheck, run_synthesis_eval,
-    selfcheck_report_payload, sign_envelope, unix_millis_now, validate_data_dir,
-    validate_selfcheck_target, verify_and_stage_firmware_update, verify_audit_log,
-    verify_audit_log_chain, verify_envelope, wipe_data_dir, write_nuclei_findings_document,
-    AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender,
-    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScopeError,
-    ScopeTarget, ScopeTargetType, ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision,
+    run_gold_eval, run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck,
+    run_synthesis_eval, scanner_enforced_args, selfcheck_report_payload, sign_envelope,
+    unix_millis_now, validate_data_dir, validate_selfcheck_target,
+    verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
+    wipe_data_dir, write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion,
+    NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
+    PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScannerLimits, ScopeError, ScopeTarget,
+    ScopeTargetType, ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision,
     DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
     DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
     DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
@@ -277,6 +278,39 @@ fn scan_request_responses(
     let mut seq = 0_u64;
     let mut responses = Vec::new();
     let target_values = scan_request_target_values(&payload.targets);
+    let limits = match scan_limits_from_options(&payload.options) {
+        Ok(limits) => limits,
+        Err(error) => {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error),
+                    metadata: Map::new(),
+                },
+            )?);
+            return Ok(responses);
+        }
+    };
+    if let Err(error) = validate_scanner_limits(&payload.scanner, target_values.len(), limits) {
+        responses.push(signed_scan_complete_from_draft(
+            envelope,
+            identity,
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(error),
+                metadata: Map::new(),
+            },
+        )?);
+        return Ok(responses);
+    }
     let nuclei_templates = if payload.scanner == "nuclei" {
         match enforce_nuclei_templates_pin(
             scan_option_string(&payload.options, "templates_sha").as_deref(),
@@ -522,11 +556,31 @@ fn scan_request_responses(
     }
 
     let scanner_args = scan_option_strings(&payload.options, "args");
-    let status = Command::new(&scanner_bin)
-        .args(scanner_args)
-        .args(&target_values)
-        .status()
-        .map_err(|error| error.to_string())?;
+    let outcome = match run_scanner_with_limits(
+        &payload.scanner,
+        &scanner_bin,
+        &scanner_args,
+        &target_values,
+        limits,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error.to_string()),
+                    metadata: scanner_metadata(nmap_version.as_ref(), nuclei_templates.as_ref()),
+                },
+            )?);
+            return Ok(responses);
+        }
+    };
+    let status = outcome.status;
     responses.push(signed_scan_complete_from_draft(
         envelope,
         identity,
@@ -541,6 +595,11 @@ fn scan_request_responses(
             finished_at: &rfc3339_now(),
             error: if status.success() {
                 None
+            } else if outcome.timed_out {
+                Some(format!(
+                    "scanner timed out after {} seconds",
+                    limits.max_scan_duration_seconds.unwrap_or_default()
+                ))
             } else {
                 Some(format!("scanner exited with {status}"))
             },
@@ -781,6 +840,66 @@ fn scan_option_strings(options: &Map<String, Value>, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn scan_option_u32(options: &Map<String, Value>, key: &str) -> Result<Option<u32>, String> {
+    let Some(value) = options.get(key) else {
+        return Ok(None);
+    };
+    let Some(raw) = value.as_u64() else {
+        return Err(format!("{key} must be a positive integer"));
+    };
+    if raw == 0 || raw > u32::MAX as u64 {
+        return Err(format!("{key} must be a positive 32-bit integer"));
+    }
+    Ok(Some(raw as u32))
+}
+
+fn scan_option_usize(options: &Map<String, Value>, key: &str) -> Result<Option<usize>, String> {
+    let Some(value) = options.get(key) else {
+        return Ok(None);
+    };
+    let Some(raw) = value.as_u64() else {
+        return Err(format!("{key} must be a positive integer"));
+    };
+    if raw == 0 || raw > usize::MAX as u64 {
+        return Err(format!("{key} must be a positive integer"));
+    }
+    Ok(Some(raw as usize))
+}
+
+fn scan_option_u64(options: &Map<String, Value>, key: &str) -> Result<Option<u64>, String> {
+    let Some(value) = options.get(key) else {
+        return Ok(None);
+    };
+    let Some(raw) = value.as_u64() else {
+        return Err(format!("{key} must be a positive integer"));
+    };
+    if raw == 0 {
+        return Err(format!("{key} must be a positive integer"));
+    }
+    Ok(Some(raw))
+}
+
+fn scan_limits_from_options(options: &Map<String, Value>) -> Result<ScannerLimits, String> {
+    ScannerLimits {
+        max_requests_per_second: scan_option_u32(options, "max_requests_per_second")?,
+        max_concurrent_targets: scan_option_usize(options, "max_concurrent_targets")?,
+        max_scan_duration_seconds: scan_option_u64(options, "max_scan_duration_seconds")?,
+    }
+    .validate()
+    .map_err(|error| error.to_string())
+}
+
+fn validate_scanner_limits(
+    scanner: &str,
+    target_count: usize,
+    limits: ScannerLimits,
+) -> Result<Vec<String>, String> {
+    limits
+        .enforce_target_count(target_count)
+        .map_err(|error| error.to_string())?;
+    scanner_enforced_args(scanner, &limits).map_err(|error| error.to_string())
 }
 
 fn eval_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -1370,6 +1489,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut dry_run = false;
     let mut enable_zap = false;
     let mut templates_sha = None;
+    let mut limits = ScannerLimits::default();
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
     let mut index = 0;
@@ -1429,6 +1549,33 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 templates_sha = Some(value.to_string());
                 index += 2;
             }
+            "--max-requests-per-second" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--max-requests-per-second requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                limits.max_requests_per_second =
+                    Some(parse_positive_u32("--max-requests-per-second", value)?);
+                index += 2;
+            }
+            "--max-concurrent-targets" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--max-concurrent-targets requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                limits.max_concurrent_targets =
+                    Some(parse_positive_usize("--max-concurrent-targets", value)?);
+                index += 2;
+            }
+            "--max-scan-duration-seconds" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--max-scan-duration-seconds requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                limits.max_scan_duration_seconds =
+                    Some(parse_positive_u64("--max-scan-duration-seconds", value)?);
+                index += 2;
+            }
             "--" => {
                 scanner_args.extend(args[index + 1..].iter().cloned());
                 break;
@@ -1448,6 +1595,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         eprintln!("scan scanner must be nuclei, nmap, or zap");
         return Err(ExitCode::from(64));
     }
+    limits = limits.validate().map_err(|error| {
+        eprintln!("scan limit refused: {error}");
+        ExitCode::from(64)
+    })?;
     if targets.is_empty() {
         eprintln!("scan requires at least one --target");
         return Err(ExitCode::from(64));
@@ -1538,6 +1689,20 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     } else {
         None
     };
+    let enforced_args =
+        validate_scanner_limits(&scanner, targets.len(), limits).map_err(|error| {
+            tracing::warn!(
+                event = "scan.limits.refused",
+                msg = "scanner limits refused",
+                msg_id = "scan-limits-refused",
+                scanner = scanner.as_str(),
+                scope_id = scope.payload.scope_id.as_str(),
+                targets = targets.join(","),
+                reason = error.as_str()
+            );
+            eprintln!("scan limit refused: {error}");
+            ExitCode::from(77)
+        })?;
 
     let command = format!("scan {scanner} {}", targets.join(" "));
     let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
@@ -1589,6 +1754,12 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 "scanner_bin": scanner_bin,
                 "nmap_version": nmap_version.as_ref().map(|version| version.runtime_version.as_str()),
                 "nuclei_templates_revision": nuclei_templates.as_ref().map(|pin| pin.revision),
+                "limits": {
+                    "max_requests_per_second": limits.max_requests_per_second,
+                    "max_concurrent_targets": limits.max_concurrent_targets,
+                    "max_scan_duration_seconds": limits.max_scan_duration_seconds
+                },
+                "enforced_args": enforced_args,
                 "scope_id": scope.payload.scope_id,
                 "targets": targets
             }))
@@ -1614,10 +1785,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             .unwrap_or(""),
         targets = targets.join(",")
     );
-    let status = Command::new(&scanner_bin)
-        .args(&scanner_args)
-        .args(&targets)
-        .status()
+    let outcome = run_scanner_with_limits(&scanner, &scanner_bin, &scanner_args, &targets, limits)
         .map_err(|error| {
             tracing::warn!(
                 event = "scan.invocation.failed",
@@ -1627,9 +1795,14 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 scanner_bin = scanner_bin.as_str(),
                 reason = error.to_string().as_str()
             );
-            eprintln!("scanner failed to start: {error}");
-            ExitCode::from(69)
+            eprintln!("scanner refused: {error}");
+            if matches!(error, kelp_pi_agent::ScannerRunError::Limit(_)) {
+                ExitCode::from(77)
+            } else {
+                ExitCode::from(69)
+            }
         })?;
+    let status = outcome.status;
     tracing::info!(
         event = "scan.invocation.completed",
         msg = "scanner process completed",
@@ -1644,8 +1817,17 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             .as_ref()
             .map(|pin| pin.revision)
             .unwrap_or(""),
+        scanner_enforced_args = outcome.enforced_args.join(" "),
+        timed_out = outcome.timed_out,
         status = status.code().unwrap_or(-1) as i64
     );
+    if outcome.timed_out {
+        eprintln!(
+            "scanner timed out after {} seconds",
+            limits.max_scan_duration_seconds.unwrap_or_default()
+        );
+        return Err(ExitCode::from(124));
+    }
     if status.success() {
         Ok(())
     } else {
@@ -2539,7 +2721,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
@@ -2572,6 +2754,18 @@ fn parse_non_negative_f64(flag: &str, value: &str) -> Result<f64, ExitCode> {
 
 fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, ExitCode> {
     let Ok(parsed) = value.parse::<usize>() else {
+        eprintln!("{flag} must be a positive integer");
+        return Err(ExitCode::from(64));
+    };
+    if parsed == 0 {
+        eprintln!("{flag} must be a positive integer");
+        return Err(ExitCode::from(64));
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_u32(flag: &str, value: &str) -> Result<u32, ExitCode> {
+    let Ok(parsed) = value.parse::<u32>() else {
         eprintln!("{flag} must be a positive integer");
         return Err(ExitCode::from(64));
     };
