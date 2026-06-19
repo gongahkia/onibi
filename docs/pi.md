@@ -110,8 +110,10 @@ All kinds map to existing kelp packages where possible. New kinds (`scope.set`,
 - **Minimum**: Raspberry Pi 5, 8GB RAM, 64GB A2 microSD, active cooler, 20Ah USB-C PD bank.
 - **Recommended**: Raspberry Pi 5, 16GB RAM, 256GB NVMe via PCIe HAT, active cooler,
   20Ah USB-C PD bank, rugged case.
-- 4GB Pi 5 is not supported because ZAP (Java, ~1.5GB working set) and concurrent
-  scanner + retrieval would thrash. Document this constraint clearly.
+- 4GB Pi 5 is not supported because ZAP's JVM heap and scan state must share memory
+  with Nuclei/Nmap jobs, SQLite FTS5 retrieval, audit signing, and bundle staging.
+  The 8GB floor leaves headroom for concurrent scanner + retrieval work without
+  relying on swap; 16GB is reserved for ZAP-heavy or optional local synthesis profiles.
 - Optional: e-ink status panel (v2), USB-Ethernet adapter for wired scope, GPS HAT for
   signed location attestation (v2).
 
