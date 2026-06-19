@@ -11,8 +11,8 @@ use kelp_pi_agent::{
     request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval, run_selfcheck,
     run_synthesis_eval, selfcheck_report_payload, sign_envelope, validate_data_dir,
     validate_selfcheck_target, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
-    PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
+    wipe_data_dir, AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
+    PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
     DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
     DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
     DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
@@ -52,6 +52,7 @@ fn run() -> Result<(), ExitCode> {
         "serve-ask" => serve_ask_command(args.collect()),
         "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
+        "wipe" => wipe_command(args.collect()),
         "wire" => wire_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
         "version" | "--version" | "-V" => {
@@ -1191,6 +1192,52 @@ fn rotate_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn wipe_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut force = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--force" => {
+                force = true;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    if !force {
+        eprintln!("wipe requires --force");
+        return Err(ExitCode::from(64));
+    }
+
+    match wipe_data_dir(&data_dir) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).expect("serialize wipe report")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("wipe failed: {error}");
+            Err(ExitCode::from(65))
+        }
+    }
+}
+
 fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut check_only = false;
@@ -1398,6 +1445,7 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--key-dir PATH] [--log-file PATH]"
     );
+    eprintln!("usage: kelp-pi-agent wipe --force [--data-dir PATH]");
     eprintln!(
         "usage: kelp-pi-agent wire --stdio --trusted-cp-public-key-hex HEX [--data-dir PATH]"
     );

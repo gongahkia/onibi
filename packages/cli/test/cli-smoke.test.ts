@@ -68,8 +68,11 @@ describe("kelp-claw smoke commands", () => {
       await expect(runPiCommand(["--help"])).resolves.toMatchObject({
         ok: true,
         name: "kelp-claw pi",
-        description: "Manage local Kelp Pi approval tokens.",
-        commands: expect.arrayContaining([expect.objectContaining({ name: "approve" })])
+        description: "Manage local Kelp Pi operator commands.",
+        commands: expect.arrayContaining([
+          expect.objectContaining({ name: "approve" }),
+          expect.objectContaining({ name: "wipe" })
+        ])
       });
 
       const doctor = await runDoctorCommand([
@@ -92,6 +95,33 @@ describe("kelp-claw smoke commands", () => {
       expect(doctor.recommendations).toEqual(
         expect.arrayContaining(["Install or pass --codex-bin for live Codex CLI wrapper demos."])
       );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards Kelp Pi wipe to the agent with explicit force", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-pi-wipe-"));
+    const agentBin = join(tempDir, "fake-agent.mjs");
+    await writeFile(
+      agentBin,
+      `#!/usr/bin/env node
+console.log(JSON.stringify({ ok: true, args: process.argv.slice(2) }));
+`,
+      "utf8"
+    );
+    await chmod(agentBin, 0o755);
+
+    try {
+      await expect(
+        runPiCommand(["wipe", "--data-dir", tempDir, "--agent-bin", agentBin])
+      ).rejects.toThrow("Usage: kelp-claw pi wipe --force");
+      await expect(
+        runPiCommand(["wipe", "--force", "--data-dir", tempDir, "--agent-bin", agentBin])
+      ).resolves.toMatchObject({
+        ok: true,
+        args: ["wipe", "--force", "--data-dir", tempDir]
+      });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

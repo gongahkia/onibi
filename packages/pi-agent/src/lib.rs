@@ -106,6 +106,14 @@ pub struct QuotaDefaults {
     pub audit_log_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WipeReport {
+    pub data_dir: String,
+    pub files_zeroed: usize,
+    pub bytes_zeroed: u64,
+    pub entries_removed: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataDirIssueKind {
     Missing,
@@ -224,6 +232,12 @@ pub enum AuditLogRotateError {
     Signature(String),
 }
 
+#[derive(Debug)]
+pub enum WipeError {
+    Io { path: PathBuf, source: io::Error },
+    UnsafePath(PathBuf),
+}
+
 impl Display for DataDirIssue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let reason = match self.kind {
@@ -320,10 +334,22 @@ impl Display for AuditLogRotateError {
     }
 }
 
+impl Display for WipeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WipeError::Io { path, source } => write!(formatter, "{}: {source}", path.display()),
+            WipeError::UnsafePath(path) => {
+                write!(formatter, "{} is not safe to wipe", path.display())
+            }
+        }
+    }
+}
+
 impl std::error::Error for AuditTracingError {}
 impl std::error::Error for AuditLogVerifyError {}
 impl std::error::Error for AuditLogChainVerifyError {}
 impl std::error::Error for AuditLogRotateError {}
+impl std::error::Error for WipeError {}
 
 impl From<io::Error> for AuditTracingError {
     fn from(error: io::Error) -> Self {
@@ -714,6 +740,97 @@ pub fn validate_data_dir(root: &Path) -> Result<(), Vec<DataDirIssue>> {
     }
 }
 
+pub fn wipe_data_dir(root: &Path) -> Result<WipeReport, WipeError> {
+    let metadata = fs::symlink_metadata(root).map_err(|source| WipeError::Io {
+        path: root.to_path_buf(),
+        source,
+    })?;
+    let canonical = fs::canonicalize(root).map_err(|source| WipeError::Io {
+        path: root.to_path_buf(),
+        source,
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() || is_unsafe_wipe_path(&canonical) {
+        return Err(WipeError::UnsafePath(root.to_path_buf()));
+    }
+
+    let mut report = WipeReport {
+        data_dir: canonical.display().to_string(),
+        files_zeroed: 0,
+        bytes_zeroed: 0,
+        entries_removed: 0,
+    };
+    wipe_entry(&canonical, &mut report)?;
+    Ok(report)
+}
+
+fn wipe_entry(path: &Path, report: &mut WipeReport) -> Result<(), WipeError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| WipeError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        let entries = fs::read_dir(path).map_err(|source| WipeError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| WipeError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            wipe_entry(&entry.path(), report)?;
+        }
+        fs::remove_dir(path).map_err(|source| WipeError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        report.entries_removed += 1;
+        return Ok(());
+    }
+
+    if metadata.is_file() {
+        zero_file(path, metadata.len(), report)?;
+    }
+    fs::remove_file(path).map_err(|source| WipeError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    report.entries_removed += 1;
+    Ok(())
+}
+
+fn zero_file(path: &Path, len: u64, report: &mut WipeReport) -> Result<(), WipeError> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|source| WipeError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    let zeros = [0_u8; 8192];
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk_len = remaining.min(zeros.len() as u64) as usize;
+        file.write_all(&zeros[..chunk_len])
+            .map_err(|source| WipeError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        remaining -= chunk_len as u64;
+    }
+    file.sync_all().map_err(|source| WipeError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    report.files_zeroed += 1;
+    report.bytes_zeroed += len;
+    Ok(())
+}
+
+fn is_unsafe_wipe_path(path: &Path) -> bool {
+    path.parent().is_none() || path == Path::new("/")
+}
+
 fn panic_payload(info: &PanicHookInfo<'_>) -> String {
     if let Some(message) = info.payload().downcast_ref::<&str>() {
         return (*message).to_string();
@@ -1062,6 +1179,26 @@ mod tests {
         }));
 
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn wipe_data_dir_zeros_files_and_forces_rebootstrap() {
+        let root = temp_root("wipe");
+        create_layout(&root);
+        fs::write(root.join("corpus").join("notes.md"), b"engagement notes").expect("write file");
+        fs::create_dir_all(root.join("evidence").join("uploads")).expect("create nested");
+        fs::write(
+            root.join("evidence").join("uploads").join("raw.bin"),
+            b"scanner bytes",
+        )
+        .expect("write nested file");
+
+        let report = wipe_data_dir(&root).expect("wipe data dir");
+
+        assert_eq!(report.files_zeroed, 2);
+        assert_eq!(report.bytes_zeroed, 29);
+        assert!(!root.exists());
+        assert!(validate_data_dir(&root).is_err());
     }
 
     #[test]

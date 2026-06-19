@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 type JsonRecord = Record<string, unknown>;
 
 export function piCliHelp(): string {
-  return "Manage local Kelp Pi approval tokens.";
+  return "Manage local Kelp Pi operator commands.";
 }
 
 export async function runPiCliCommand(args: readonly string[] = []): Promise<JsonRecord> {
@@ -18,6 +18,10 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
         {
           name: "approve",
           usage: "kelp-claw pi approve TOKEN [--data-dir PATH] [--agent-bin PATH]"
+        },
+        {
+          name: "wipe",
+          usage: "kelp-claw pi wipe --force [--data-dir PATH] [--agent-bin PATH]"
         }
       ]
     };
@@ -25,14 +29,31 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "approve") {
     return approveCommand(rest);
   }
-  throw new Error("Usage: kelp-claw pi <approve|--help>");
+  if (command === "wipe") {
+    return wipeCommand(rest);
+  }
+  throw new Error("Usage: kelp-claw pi <approve|wipe|--help>");
 }
 
 async function approveCommand(args: readonly string[]): Promise<JsonRecord> {
-  const token = requiredPositional(args, 0);
+  const token = requiredPositional(
+    args,
+    0,
+    "Usage: kelp-claw pi approve TOKEN [--data-dir PATH] [--agent-bin PATH]"
+  );
   const dataDir = option(args, "--data-dir");
   const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
   const forwarded = ["approve", token, ...(dataDir ? ["--data-dir", dataDir] : [])];
+  return runAgent(agentBin, forwarded);
+}
+
+async function wipeCommand(args: readonly string[]): Promise<JsonRecord> {
+  if (!hasFlag(args, "--force")) {
+    throw new Error("Usage: kelp-claw pi wipe --force [--data-dir PATH] [--agent-bin PATH]");
+  }
+  const dataDir = option(args, "--data-dir");
+  const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
+  const forwarded = ["wipe", "--force", ...(dataDir ? ["--data-dir", dataDir] : [])];
   return runAgent(agentBin, forwarded);
 }
 
@@ -73,7 +94,7 @@ function runChild(
   });
 }
 
-function requiredPositional(args: readonly string[], index: number): string {
+function requiredPositional(args: readonly string[], index: number, usage: string): string {
   const positional = args.filter((value, valueIndex) => {
     if (value.startsWith("-")) {
       return false;
@@ -83,7 +104,7 @@ function requiredPositional(args: readonly string[], index: number): string {
   });
   const value = positional[index];
   if (!value) {
-    throw new Error("Usage: kelp-claw pi approve TOKEN [--data-dir PATH] [--agent-bin PATH]");
+    throw new Error(usage);
   }
   return value;
 }
@@ -98,6 +119,10 @@ function option(args: readonly string[], name: string): string | undefined {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function hasFlag(args: readonly string[], name: string): boolean {
+  return args.includes(name);
 }
 
 function isRecord(value: unknown): value is JsonRecord {

@@ -80,7 +80,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Implement storage quota enforcement: refuse to ingest, scan, or accept uploads when free disk falls below a configurable floor → success: integration test fills disk and confirms graceful refusal with operator-readable error.
 - [ ] Implement a `kelp-claw pi flash` command that writes a configured image to an SD card or NVMe → success: command writes a verified image and pre-seeds the operator's public key for SSH.
 - [ ] Implement signed firmware-update path: agent verifies update bundle signature before applying → success: an unsigned or wrong-key update is refused and logged.
-- [ ] Add a `kelp-claw pi wipe` command for secure end-of-engagement decommission → success: command zeros the data dir and the agent refuses to start without re-bootstrap.
 
 ## P11 — Docs, demo, launch
 
