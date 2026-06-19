@@ -6,8 +6,10 @@ import {
   sign as signBytes
 } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
 
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonRecord;
 type JsonRecord = { readonly [key: string]: JsonValue };
@@ -49,6 +51,11 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
           usage: "kelp-claw pi bundle import --input ENVELOPE --out PATH"
         },
         {
+          name: "flash",
+          usage:
+            "kelp-claw pi flash --image PATH --image-sha256 SHA256 --device PATH --ssh-public-key PATH --boot-seed-dir PATH --yes"
+        },
+        {
           name: "policy sync",
           usage:
             "kelp-claw pi policy sync --policy-pack-id ID (--policy-file PATH|--policy-json JSON) [--trust-epoch N] [--device-id ID] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
@@ -71,6 +78,9 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "bundle") {
     return bundleCommand(rest);
   }
+  if (command === "flash") {
+    return flashCommand(rest);
+  }
   if (command === "policy") {
     return policyCommand(rest);
   }
@@ -80,7 +90,7 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "wipe") {
     return wipeCommand(rest);
   }
-  throw new Error("Usage: kelp-claw pi <approve|bundle|policy|scope|wipe|--help>");
+  throw new Error("Usage: kelp-claw pi <approve|bundle|flash|policy|scope|wipe|--help>");
 }
 
 async function approveCommand(args: readonly string[]): Promise<JsonRecord> {
@@ -199,6 +209,56 @@ async function bundleImportCommand(args: readonly string[]): Promise<JsonRecord>
     sizeBytes: numberField(payload, "size_bytes") ?? 0,
     files: written,
     response: envelope
+  };
+}
+
+async function flashCommand(args: readonly string[]): Promise<JsonRecord> {
+  const image = option(args, "--image");
+  const expectedSha256 = normalizeSha256(option(args, "--image-sha256"));
+  const device = option(args, "--device");
+  const sshPublicKeyPath = option(args, "--ssh-public-key");
+  const bootSeedDir = option(args, "--boot-seed-dir");
+  if (!image || !expectedSha256 || !device || !sshPublicKeyPath || !bootSeedDir) {
+    throw new Error(
+      "Usage: kelp-claw pi flash --image PATH --image-sha256 SHA256 --device PATH --ssh-public-key PATH --boot-seed-dir PATH --yes"
+    );
+  }
+  if (!hasFlag(args, "--yes")) {
+    throw new Error("kelp-claw pi flash requires --yes before writing a device");
+  }
+  if (image === device) {
+    throw new Error("--image and --device must not be the same path");
+  }
+  const foundSha256 = await sha256File(image);
+  if (foundSha256 !== expectedSha256) {
+    throw new Error(
+      `image hash mismatch: expected sha256:${expectedSha256}, found sha256:${foundSha256}`
+    );
+  }
+  const sshPublicKey = (await readFile(sshPublicKeyPath, "utf8")).trim();
+  if (!isSshPublicKey(sshPublicKey)) {
+    throw new Error("--ssh-public-key must contain an SSH public key");
+  }
+  await mkdir(bootSeedDir, { recursive: true });
+  await pipeline(createReadStream(image), createWriteStream(device, { flags: "w", mode: 0o600 }));
+  await writeFile(join(bootSeedDir, "ssh"), "", { mode: 0o644 });
+  await writeFile(join(bootSeedDir, "authorized_keys"), `${sshPublicKey}\n`, {
+    mode: 0o600
+  });
+  await writeJson(join(bootSeedDir, "kelp-pi-flash.json"), {
+    schemaVersion: "kelpclaw.pi.flash.v1",
+    image,
+    device,
+    imageSha256: `sha256:${foundSha256}`,
+    sshAuthorizedKeys: "authorized_keys"
+  });
+  return {
+    ok: true,
+    image,
+    device,
+    imageSha256: `sha256:${foundSha256}`,
+    bootSeedDir,
+    seededFiles: ["ssh", "authorized_keys", "kelp-pi-flash.json"]
   };
 }
 
@@ -468,6 +528,10 @@ async function readPolicyInput(args: readonly string[]): Promise<JsonRecord> {
   return parsed;
 }
 
+async function writeJson(path: string, value: JsonRecord): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 function requiredPositional(args: readonly string[], index: number, usage: string): string {
   const positional = args.filter((value, valueIndex) => {
     if (value.startsWith("-")) {
@@ -538,6 +602,31 @@ function numberOption(args: readonly string[], name: string): number | undefined
     throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
+}
+
+function normalizeSha256(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    throw new Error("--image-sha256 must be sha256:<64 hex chars> or 64 hex chars");
+  }
+  return normalized;
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
+}
+
+function isSshPublicKey(value: string): boolean {
+  return /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521) [A-Za-z0-9+/=]+(?: .*)?$/u.test(
+    value
+  );
 }
 
 function arrayOfStrings(value: JsonValue | undefined): readonly string[] {

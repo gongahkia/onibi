@@ -260,6 +260,9 @@ Package pin and upgrade flow:
 - The image build writes `/etc/kelp-pi/os-lock.json` with `image_release`,
   `image_sha256`, `debian_codename`, `kernel_release`, and a sorted `dpkg-query -W`
   package lock from the promoted staging unit.
+- `kelp-claw pi flash --image <img> --image-sha256 <sha256> --device <sd-or-nvme> --ssh-public-key <id.pub> --boot-seed-dir <boot> --yes`
+  verifies the image SHA-256 before writing, then seeds SSH enablement and the
+  operator public key into the mounted boot seed directory.
 - `/etc/apt/preferences.d/kelp-pi` pins `trixie` packages as the only allowed release
   and rejects accidental `bookworm`, `forky`, `testing`, or `unstable` pulls.
 - The lock must include every installed package matching `raspberrypi-*`,

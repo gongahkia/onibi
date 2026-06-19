@@ -8,6 +8,7 @@ import {
   rm,
   writeFile
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +72,7 @@ describe("kelp-claw smoke commands", () => {
         description: "Manage local Kelp Pi operator commands.",
         commands: expect.arrayContaining([
           expect.objectContaining({ name: "approve" }),
+          expect.objectContaining({ name: "flash" }),
           expect.objectContaining({ name: "scope set" }),
           expect.objectContaining({ name: "wipe" })
         ])
@@ -123,6 +125,70 @@ console.log(JSON.stringify({ ok: true, args: process.argv.slice(2) }));
         ok: true,
         args: ["wipe", "--force", "--data-dir", tempDir]
       });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("flashes a verified Pi image and seeds SSH public key files", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-pi-flash-"));
+    const image = join(tempDir, "pi.img");
+    const device = join(tempDir, "sdcard.img");
+    const bootSeedDir = join(tempDir, "boot");
+    const sshPublicKey = join(tempDir, "id_ed25519.pub");
+    const imageBytes = Buffer.from("kelp pi image bytes\n", "utf8");
+    await writeFile(image, imageBytes);
+    await writeFile(
+      sshPublicKey,
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKelpClawTestKey operator\n",
+      "utf8"
+    );
+    const imageSha256 = createHash("sha256").update(imageBytes).digest("hex");
+
+    try {
+      await expect(
+        runPiCommand([
+          "flash",
+          "--image",
+          image,
+          "--image-sha256",
+          `sha256:${imageSha256}`,
+          "--device",
+          device,
+          "--ssh-public-key",
+          sshPublicKey,
+          "--boot-seed-dir",
+          bootSeedDir
+        ])
+      ).rejects.toThrow("requires --yes");
+      await expect(
+        runPiCommand([
+          "flash",
+          "--image",
+          image,
+          "--image-sha256",
+          imageSha256,
+          "--device",
+          device,
+          "--ssh-public-key",
+          sshPublicKey,
+          "--boot-seed-dir",
+          bootSeedDir,
+          "--yes"
+        ])
+      ).resolves.toMatchObject({
+        ok: true,
+        image,
+        device,
+        imageSha256: `sha256:${imageSha256}`,
+        bootSeedDir,
+        seededFiles: ["ssh", "authorized_keys", "kelp-pi-flash.json"]
+      });
+      await expect(readFile(device)).resolves.toEqual(imageBytes);
+      await expect(readFile(join(bootSeedDir, "authorized_keys"), "utf8")).resolves.toContain(
+        "ssh-ed25519"
+      );
+      await expect(readFile(join(bootSeedDir, "ssh"), "utf8")).resolves.toBe("");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
