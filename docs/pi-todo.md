@@ -68,8 +68,6 @@ conventions. Then start at the first unchecked P0 task below.
 ## P8 — Optional LLM synthesis
 
 - [ ] Add a feature-flagged Ollama integration on the Pi (16GB only) → success: a 3B-class model can be loaded; loading on 8GB Pi is refused with a clear error.
-- [ ] Implement retrieval-then-generate flow with citation enforcement: every generated sentence must reference at least one citation in the prompt context or the entire generation is rejected → success: a unit test confirms citation-free generations are rejected.
-- [ ] Implement strict no-answer escalation: if retrieval returns no-answer, generation is skipped entirely → success: an unrelated query never produces generated text.
 - [ ] Keep synthesis off by default; require an explicit `--synthesize` flag on the client and a policy decision on the Pi → success: default `/ask` response contains citations only, no generated prose.
 - [ ] Add a synthesis-eval harness: a small Q/A set with expected citations and gold answers tracks regression in no-answer behavior and citation faithfulness → success: harness runs in CI as a nightly job.
 

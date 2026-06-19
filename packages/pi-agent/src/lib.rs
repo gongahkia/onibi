@@ -24,6 +24,7 @@ mod index;
 mod keys;
 mod policy;
 mod selfcheck;
+mod synthesis;
 mod wire;
 
 pub use approval::{
@@ -69,6 +70,7 @@ pub use selfcheck::{
     run_selfcheck, selfcheck_report_payload, validate_selfcheck_target, SelfcheckCheck,
     SelfcheckReport, SelfcheckStatus, SelfcheckTargetError,
 };
+pub use synthesis::{synthesize_with_citation_guard, SynthesisAnswer, SynthesisError};
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
     PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,
