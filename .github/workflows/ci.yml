@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
@@ -181,3 +183,18 @@ jobs:
             cargo run --manifest-path packages/pi-agent/Cargo.toml -- eval chunk-ids > "${RUNNER_TEMP}/chunk-ids.txt"
           fi
           diff -u packages/pi-agent/fixtures/gold/chunk-ids.txt "${RUNNER_TEMP}/chunk-ids.txt"
+
+  pi-synthesis-eval:
+    name: Pi Synthesis Eval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Run synthesis eval
+        run: cargo run --manifest-path packages/pi-agent/Cargo.toml -- eval synthesis

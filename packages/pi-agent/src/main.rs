@@ -8,13 +8,13 @@ use kelp_pi_agent::{
     audit_log_path, default_gold_fixture_dir, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, gold_chunk_id_lines, index_db_path,
     init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, selfcheck_report_payload,
-    sign_envelope, validate_data_dir, validate_selfcheck_target, verify_audit_log, verify_envelope,
-    AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
-    PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
-    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
-    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
-    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval,
+    selfcheck_report_payload, sign_envelope, validate_data_dir, validate_selfcheck_target,
+    verify_audit_log, verify_envelope, AskHttpState, PiEnvelopeKind, PiEnvelopeSender,
+    PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
+    UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
+    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
+    DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use std::io::{self, BufRead};
@@ -208,12 +208,13 @@ fn refuse_selfcheck_target(data_dir: &Path, target: &str, reason: &str) -> Resul
 
 fn eval_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
-        eprintln!("usage: kelp-pi-agent eval <gold|chunk-ids> [--fixture-dir PATH] [--top-k N] [--no-answer-threshold FLOAT]");
+        eprintln!("usage: kelp-pi-agent eval <gold|synthesis|chunk-ids> [--fixture-dir PATH] [--top-k N] [--no-answer-threshold FLOAT]");
         return Err(ExitCode::from(64));
     };
     match subcommand.as_str() {
         "chunk-ids" => eval_chunk_ids_command(args[1..].to_vec()),
         "gold" => eval_gold_command(args[1..].to_vec()),
+        "synthesis" => eval_synthesis_command(args[1..].to_vec()),
         other => {
             eprintln!("unknown eval command: {other}");
             Err(ExitCode::from(64))
@@ -250,6 +251,60 @@ fn eval_chunk_ids_command(args: Vec<String>) -> Result<(), ExitCode> {
         println!("{line}");
     }
     Ok(())
+}
+
+fn eval_synthesis_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut fixture_dir = default_gold_fixture_dir();
+    let mut top_k = DEFAULT_GOLD_TOP_K;
+    let mut no_answer_threshold = DEFAULT_NO_ANSWER_THRESHOLD;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--fixture-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--fixture-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                fixture_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--top-k" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--top-k requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                top_k = parse_positive_usize("--top-k", value)?;
+                index += 2;
+            }
+            "--no-answer-threshold" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--no-answer-threshold requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                no_answer_threshold = parse_non_negative_f64("--no-answer-threshold", value)?;
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let report = run_synthesis_eval(&fixture_dir, top_k, no_answer_threshold).map_err(|error| {
+        eprintln!("synthesis eval failed: {error}");
+        ExitCode::from(65)
+    })?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("serialize synthesis eval")
+    );
+    if report.ok() {
+        Ok(())
+    } else {
+        Err(ExitCode::from(65))
+    }
 }
 
 fn eval_gold_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -1246,7 +1301,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent eval <gold|chunk-ids> [--fixture-dir PATH] [--top-k N] [--no-answer-threshold FLOAT]"
+        "usage: kelp-pi-agent eval <gold|synthesis|chunk-ids> [--fixture-dir PATH] [--top-k N] [--no-answer-threshold FLOAT]"
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!(

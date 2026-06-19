@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     answer_query, chunk_markdown, chunk_plain_text, default_chunking_config, ingest_source_chunks,
-    ContentChunk, SourceFileMetadata,
+    synthesize_with_citation_guard, ContentChunk, SourceFileMetadata, SynthesisError,
 };
 
 pub const GOLD_FIXTURE_DIR: &str = "fixtures/gold";
@@ -35,6 +35,29 @@ pub struct GoldEvalCaseResult {
     pub missing_chunk_ids: Vec<String>,
     pub expected_no_answer: bool,
     pub got_no_answer: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SynthesisEvalReport {
+    pub fixture_dir: String,
+    pub cases: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub results: Vec<SynthesisEvalCaseResult>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SynthesisEvalCaseResult {
+    pub id: String,
+    pub status: GoldEvalStatus,
+    pub question: String,
+    pub expected_no_answer: bool,
+    pub got_no_answer: bool,
+    pub generated_text: Option<String>,
+    pub citation_chunk_ids: Vec<String>,
+    pub missing_chunk_ids: Vec<String>,
+    pub missing_answer_terms: Vec<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -70,10 +93,18 @@ struct GoldQaCase {
     question: String,
     expected_chunk_ids: Vec<String>,
     #[serde(default)]
+    expected_answer_contains: Vec<String>,
+    #[serde(default)]
     expected_no_answer: bool,
 }
 
 impl GoldEvalReport {
+    pub fn ok(&self) -> bool {
+        self.failed == 0
+    }
+}
+
+impl SynthesisEvalReport {
     pub fn ok(&self) -> bool {
         self.failed == 0
     }
@@ -182,6 +213,111 @@ pub fn run_gold_eval(
         .count();
     let failed = results.len() - passed;
     Ok(GoldEvalReport {
+        fixture_dir: fixture_dir.display().to_string(),
+        cases: results.len(),
+        passed,
+        failed,
+        results,
+    })
+}
+
+pub fn run_synthesis_eval(
+    fixture_dir: &Path,
+    top_k: usize,
+    no_answer_threshold: f64,
+) -> Result<SynthesisEvalReport, GoldEvalError> {
+    let gold: GoldQaSet = serde_json::from_slice(&fs::read(fixture_dir.join("gold-qa.json"))?)?;
+    let mut connection = Connection::open_in_memory()?;
+
+    for corpus in &gold.corpus {
+        ingest_gold_corpus_file(&mut connection, fixture_dir, corpus)?;
+    }
+
+    let mut results = Vec::with_capacity(gold.cases.len());
+    for case in gold.cases {
+        let retrieval_query = retrieval_query_for_question(&case.question);
+        let response = answer_query(
+            &connection,
+            &retrieval_query,
+            top_k.max(1),
+            no_answer_threshold,
+        )?;
+        let got_no_answer = response.no_answer.is_some();
+        let citation_chunk_ids: Vec<String> = response
+            .citations
+            .iter()
+            .map(|citation| citation.chunk_id.clone())
+            .collect();
+        let citation_set: BTreeSet<&str> = citation_chunk_ids
+            .iter()
+            .map(|chunk_id| chunk_id.as_str())
+            .collect();
+        let missing_chunk_ids: Vec<String> = case
+            .expected_chunk_ids
+            .iter()
+            .filter(|chunk_id| !citation_set.contains(chunk_id.as_str()))
+            .cloned()
+            .collect();
+        let generated_seed = if case.expected_answer_contains.is_empty() {
+            "cited answer".to_string()
+        } else {
+            case.expected_answer_contains.join("; ")
+        };
+        let citation_id = case
+            .expected_chunk_ids
+            .iter()
+            .find(|chunk_id| citation_set.contains(chunk_id.as_str()))
+            .or_else(|| citation_chunk_ids.first())
+            .cloned()
+            .unwrap_or_default();
+        let synthesis = synthesize_with_citation_guard(&response, |_| {
+            format!("{generated_seed} [{citation_id}].")
+        });
+        let (generated_text, missing_answer_terms, error) = match synthesis {
+            Ok(answer) => {
+                let missing_terms = case
+                    .expected_answer_contains
+                    .iter()
+                    .filter(|term| !answer.text.contains(term.as_str()))
+                    .cloned()
+                    .collect();
+                (Some(answer.text), missing_terms, None)
+            }
+            Err(error) => (None, case.expected_answer_contains.clone(), Some(error)),
+        };
+        let passed = if case.expected_no_answer {
+            got_no_answer && matches!(error, Some(SynthesisError::NoAnswer))
+        } else {
+            !got_no_answer
+                && missing_chunk_ids.is_empty()
+                && missing_answer_terms.is_empty()
+                && error.is_none()
+        };
+
+        results.push(SynthesisEvalCaseResult {
+            id: case.id,
+            status: if passed {
+                GoldEvalStatus::Pass
+            } else {
+                GoldEvalStatus::Fail
+            },
+            question: case.question,
+            expected_no_answer: case.expected_no_answer,
+            got_no_answer,
+            generated_text,
+            citation_chunk_ids,
+            missing_chunk_ids,
+            missing_answer_terms,
+            error: error.map(|error| error.to_string()),
+        });
+    }
+
+    let passed = results
+        .iter()
+        .filter(|result| result.status == GoldEvalStatus::Pass)
+        .count();
+    let failed = results.len() - passed;
+    Ok(SynthesisEvalReport {
         fixture_dir: fixture_dir.display().to_string(),
         cases: results.len(),
         passed,
@@ -301,5 +437,19 @@ mod tests {
         let actual = gold_chunk_id_lines(&default_gold_fixture_dir()).expect("chunk id lines");
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn bundled_synthesis_eval_passes() {
+        let report = run_synthesis_eval(
+            &default_gold_fixture_dir(),
+            DEFAULT_GOLD_TOP_K,
+            DEFAULT_NO_ANSWER_THRESHOLD,
+        )
+        .expect("synthesis eval");
+
+        assert!(report.ok());
+        assert_eq!(report.cases, 34);
+        assert_eq!(report.failed, 0);
     }
 }

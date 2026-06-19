@@ -68,7 +68,6 @@ conventions. Then start at the first unchecked P0 task below.
 ## P8 — Optional LLM synthesis
 
 - [ ] Add a feature-flagged Ollama integration on the Pi (16GB only) → success: a 3B-class model can be loaded; loading on 8GB Pi is refused with a clear error.
-- [ ] Add a synthesis-eval harness: a small Q/A set with expected citations and gold answers tracks regression in no-answer behavior and citation faithfulness → success: harness runs in CI as a nightly job.
 
 ## P9 — Eval and determinism
 

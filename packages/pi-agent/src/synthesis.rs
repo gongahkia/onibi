@@ -66,10 +66,25 @@ fn validate_generated_citations(
 }
 
 fn generated_sentences(text: &str) -> Vec<&str> {
-    text.split_terminator(['.', '!', '?'])
-        .map(str::trim)
-        .filter(|sentence| !sentence.is_empty())
-        .collect()
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    for (index, character) in text.char_indices() {
+        if matches!(character, '.' | '!' | '?') {
+            let next = text[index + character.len_utf8()..].chars().next();
+            if next.is_none_or(char::is_whitespace) {
+                let sentence = text[start..index].trim();
+                if !sentence.is_empty() {
+                    sentences.push(sentence);
+                }
+                start = index + character.len_utf8();
+            }
+        }
+    }
+    let sentence = text[start..].trim();
+    if !sentence.is_empty() {
+        sentences.push(sentence);
+    }
+    sentences
 }
 
 fn bracket_citations(sentence: &str) -> Vec<String> {
