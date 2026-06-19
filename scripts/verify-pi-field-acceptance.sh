@@ -78,7 +78,7 @@ grep -q 'systemd hardening properties verified' "$artifact_dir/node.log" || fail
 grep -q 'nft ruleset output chain:' "$artifact_dir/node.log" || fail "node log missing nft ruleset output proof"
 grep -q 'policy drop' "$artifact_dir/node.log" || fail "node log missing nft default drop proof"
 grep -q 'ct state established,related accept' "$artifact_dir/node.log" || fail "node log missing nft established-session proof"
-grep -q 'outbound denial probe url=' "$artifact_dir/node.log" || fail "node log missing outbound denial probe proof"
+grep -Eq 'outbound denial probe url=.* exit=[1-9][0-9]*' "$artifact_dir/node.log" || fail "node log missing outbound denial nonzero-exit proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
 grep -q 'NetworkManager AP profile proof:' "$artifact_dir/node.log" || fail "node log missing NetworkManager AP profile proof"
 for nm_line in mode=ap ap-isolation=1 key-mgmt=sae pmf=3 never-default=true ignore-auto-dns=true; do

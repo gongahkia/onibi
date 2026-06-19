@@ -189,8 +189,9 @@ pass "nftables loaded"
 
 if curl_output="$(curl -fsS --max-time 5 "$egress_probe" 2>&1 >/dev/null)"; then
   fail "unexpected outbound access to $egress_probe"
+else
+  curl_status="$?"
 fi
-curl_status="$?"
 printf 'outbound denial probe url=%s exit=%s\n' "$egress_probe" "$curl_status"
 [ -z "$curl_output" ] || printf 'outbound denial stderr:\n%s\n' "$curl_output"
 pass "default outbound denial"
