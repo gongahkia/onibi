@@ -57,7 +57,7 @@ $ kelp-claw pi flash \
   --yes
 ```
 
-Install the cross-built agent, systemd unit, network hardening files, and pinned Nuclei
+Install the cross-built agent, systemd units, network hardening files, and pinned Nuclei
 binary into the mounted image or first-boot staging root:
 
 ```console
@@ -65,6 +65,10 @@ $ install -m 0755 packages/pi-agent/target/aarch64-unknown-linux-gnu/release/kel
   <image-root>/usr/local/bin/kelp-pi-agent
 $ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.service \
   <image-root>/etc/systemd/system/kelp-pi-agent.service
+$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.sysusers.conf \
+  <image-root>/usr/lib/sysusers.d/kelp-pi-agent.conf
+$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.tmpfiles.conf \
+  <image-root>/usr/lib/tmpfiles.d/kelp-pi-agent.conf
 $ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-network \
   --output <image-root> \
   --wpa3-passphrase <operator-ap-passphrase> \
@@ -75,7 +79,8 @@ $ pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>
 On the Pi, bootstrap the data directory, key, service, and Pi-side validation harness:
 
 ```console
-$ sudo install -d -o kelp-pi -g kelp-pi -m 0750 /var/lib/kelp-pi
+$ sudo systemd-sysusers /usr/lib/sysusers.d/kelp-pi-agent.conf
+$ sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/kelp-pi-agent.conf
 $ sudo -u kelp-pi kelp-pi-agent keygen --key-dir /var/lib/kelp-pi/keys --label <device-id>
 $ sudo systemctl enable --now kelp-pi-agent.service
 $ sudo ./packages/pi-agent/scripts/validate-pi-node.sh

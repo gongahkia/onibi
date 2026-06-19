@@ -33,6 +33,9 @@ pass "agent version"
 
 id kelp-pi >/dev/null 2>&1 || fail "kelp-pi user missing"
 pass "kelp-pi user"
+id kelp-pi-scanner >/dev/null 2>&1 || fail "kelp-pi-scanner user missing"
+id -nG kelp-pi-scanner | tr ' ' '\n' | grep -qx kelp-pi || fail "kelp-pi-scanner missing kelp-pi group"
+pass "kelp-pi-scanner user"
 
 systemctl start "$service"
 systemctl is-active --quiet "$service" || fail "$service not active"
