@@ -113,12 +113,18 @@ installed_nuclei_sha256="$(hash_file "$nuclei_bin")"
 pass "nuclei pinned binary sha256=$installed_nuclei_sha256"
 
 [ -f "$nm_profile" ] || fail "$nm_profile missing"
-grep -qx 'mode=ap' "$nm_profile" || fail "NetworkManager AP mode missing"
-grep -qx 'ap-isolation=1' "$nm_profile" || fail "NetworkManager AP client isolation missing"
-grep -qx 'key-mgmt=sae' "$nm_profile" || fail "NetworkManager WPA3 SAE missing"
-grep -qx 'pmf=3' "$nm_profile" || fail "NetworkManager PMF required missing"
-grep -qx 'never-default=true' "$nm_profile" || fail "NetworkManager never-default missing"
-grep -qx 'ignore-auto-dns=true' "$nm_profile" || fail "NetworkManager ignore-auto-dns missing"
+printf '%s\n' 'NetworkManager AP profile proof:'
+for line in \
+  mode=ap \
+  ap-isolation=1 \
+  key-mgmt=sae \
+  pmf=3 \
+  never-default=true \
+  ignore-auto-dns=true
+do
+  grep -qx "$line" "$nm_profile" || fail "NetworkManager AP profile missing $line"
+  printf '%s\n' "$line"
+done
 pass "NetworkManager AP profile"
 
 [ -f "$dnsmasq_config" ] || fail "$dnsmasq_config missing"

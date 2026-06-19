@@ -598,9 +598,10 @@ Reference renderer:
   `systemctl is-active kelp-pi-agent.service=active`. It must run as root on a
   flashed Pi; it is not a substitute for the two-client AP isolation test.
 - The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
-  management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
-  maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
-  and `clients3.google.com` to the Pi portal IP.
+  management frames, and AP client isolation. Node validation logs the exact AP profile
+  lines it accepts. The dnsmasq file uses `no-resolv` and maps captive-check domains
+  such as `captive.apple.com`, `connectivitycheck.gstatic.com`, and `clients3.google.com`
+  to the Pi portal IP.
 - The nftables file installs an `inet kelp_pi_filter` table with input/forward/output
   default-drop policy, scanner UID/target sets, and outbound accepts only for rendered
   `allow_outbound` `host:port` endpoints. `kelp-pi-agent hardening apply-network --config /etc/kelp-pi/network-hardening.json`

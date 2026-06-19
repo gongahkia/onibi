@@ -80,6 +80,10 @@ grep -q 'policy drop' "$artifact_dir/node.log" || fail "node log missing nft def
 grep -q 'ct state established,related accept' "$artifact_dir/node.log" || fail "node log missing nft established-session proof"
 grep -q 'outbound denial probe url=' "$artifact_dir/node.log" || fail "node log missing outbound denial probe proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
+grep -q 'NetworkManager AP profile proof:' "$artifact_dir/node.log" || fail "node log missing NetworkManager AP profile proof"
+for nm_line in mode=ap ap-isolation=1 key-mgmt=sae pmf=3 never-default=true ignore-auto-dns=true; do
+  grep -qx "$nm_line" "$artifact_dir/node.log" || fail "node log missing NetworkManager AP proof: $nm_line"
+done
 grep -q 'boot peripheral disable config:' "$artifact_dir/node.log" || fail "node log missing boot peripheral config proof"
 for boot_line in \
   dtoverlay=disable-bt \
