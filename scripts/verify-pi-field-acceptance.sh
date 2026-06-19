@@ -84,6 +84,16 @@ grep -q 'NetworkManager AP profile proof:' "$artifact_dir/node.log" || fail "nod
 for nm_line in mode=ap ap-isolation=1 key-mgmt=sae pmf=3 never-default=true ignore-auto-dns=true; do
   grep -qx "$nm_line" "$artifact_dir/node.log" || fail "node log missing NetworkManager AP proof: $nm_line"
 done
+grep -q 'dnsmasq captive sinkhole config proof:' "$artifact_dir/node.log" || fail "node log missing dnsmasq config proof"
+for dnsmasq_line in \
+  no-resolv \
+  no-poll \
+  address=/captive.apple.com/10.42.0.1 \
+  address=/connectivitycheck.gstatic.com/10.42.0.1 \
+  address=/clients3.google.com/10.42.0.1
+do
+  grep -qx "$dnsmasq_line" "$artifact_dir/node.log" || fail "node log missing dnsmasq proof: $dnsmasq_line"
+done
 grep -q 'boot peripheral disable config:' "$artifact_dir/node.log" || fail "node log missing boot peripheral config proof"
 for boot_line in \
   dtoverlay=disable-bt \

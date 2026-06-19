@@ -128,10 +128,15 @@ done
 pass "NetworkManager AP profile"
 
 [ -f "$dnsmasq_config" ] || fail "$dnsmasq_config missing"
-grep -qx 'no-resolv' "$dnsmasq_config" || fail "dnsmasq no-resolv missing"
-grep -qx 'no-poll' "$dnsmasq_config" || fail "dnsmasq no-poll missing"
+printf '%s\n' 'dnsmasq captive sinkhole config proof:'
+for line in no-resolv no-poll; do
+  grep -qx "$line" "$dnsmasq_config" || fail "dnsmasq config missing $line"
+  printf '%s\n' "$line"
+done
 for domain in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do
-  grep -qx "address=/$domain/$portal_ip" "$dnsmasq_config" || fail "dnsmasq sinkhole missing for $domain"
+  line="address=/$domain/$portal_ip"
+  grep -qx "$line" "$dnsmasq_config" || fail "dnsmasq sinkhole missing for $domain"
+  printf '%s\n' "$line"
 done
 pass "dnsmasq captive sinkhole config"
 
