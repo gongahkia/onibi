@@ -525,7 +525,7 @@ Reference renderer:
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
   `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`, and
-  `kelp-pi-validate-allow-outbound-reload` into
+  `kelp-pi-validate-allow-outbound-reload`, and `kelp-pi-validate-dns-egress` into
   `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
@@ -561,6 +561,9 @@ Reference renderer:
   applies the current nftables hardening config, starts the supplied control-plane
   session command, reapplies the updated config, and fails if the session exits during
   the allowlist reload.
+- `kelp-pi-validate-dns-egress --upstream-interface <iface> --probe-command '<client-probe-command>'`
+  runs `tcpdump` on the upstream interface while captive-probe DNS traffic is generated
+  and fails if any TCP or UDP port 53 packet leaves the Pi.
 
 Audit & forensics:
 
