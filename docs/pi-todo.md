@@ -93,7 +93,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Out-of-scope scan attempts are blocked and audited.
 - [ ] Reproducible-chunk-ID test passes across Pi, laptop, and CI.
 - [ ] Power-loss-mid-scan test passes: audit log verifies on next boot; run is marked resumable.
-- [ ] Threat model in `docs/pi-threat-model.md` matches what the code actually enforces.
 
 ## Rename note
 

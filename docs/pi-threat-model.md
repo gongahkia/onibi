@@ -2,45 +2,76 @@
 
 ## Scope
 
-Kelp Pi is a Raspberry Pi 5 field data plane for scoped AppSec triage. It runs local
-scanner jobs, stores evidence, serves offline cited retrieval, and exports signed audit
-bundles to the KelpClaw control plane over SSH-tunneled stdio. v1 does not claim
-tamper-resistant hardware custody, covert operation, exploit execution, or scanning
-outside an operator-declared scope.
+Kelp Pi is a Raspberry Pi 5 field data plane for scoped AppSec triage. Current code
+implements the Rust agent foundation, signed wire primitives, local policy checks,
+loopback `/ask`, deterministic retrieval fixtures, selfcheck posture checks,
+hash-chained audit logs with signed rotation manifests, signed firmware-update
+staging, and destructive data-dir wipe. Scanner execution, Pi-produced audit bundles,
+AP/DNS/nftables hardening, quota enforcement, thermal scan refusal, and control-plane
+bundle sync remain TODOs in [`pi-todo.md`](./pi-todo.md).
+
+Kelp Pi does not claim tamper-resistant hardware custody, covert operation, exploit
+execution, internet scanning, or scanning outside an operator-declared scope.
+
+## Current Enforced Controls
+
+- `kelp-pi-agent wire --stdio` verifies signed control-plane envelopes before handling
+  `selfcheck.run`; malformed JSON, wrong sender, bad signatures, and unsupported kinds
+  are refused.
+- `policy.push` accepts only trusted control-plane signatures, verifies the embedded
+  policy hash, and persists the accepted pack under `policy/current-policy.json`.
+- Local policy evaluation covers scanner invocation, file operation, outbound network,
+  and synthesis gates, and writes `policy-decision` audit events when called through
+  the audited paths.
+- `selfcheck --target` and signed `selfcheck.run` refuse targets outside loopback, the
+  configured AP CIDR, or the configured allowlist; refusal is logged.
+- `serve-ask` binds to loopback by default; non-loopback requires
+  `--allow-non-loopback`.
+- Retrieval returns `no_answer` below threshold. Optional synthesis is gated by an
+  audited policy check and every generated sentence must cite retrieved chunks.
+- Binary and executable ingest inputs are refused by `validate_ingest_source` and
+  logged when the audited ingest validator is used.
+- Audit entries are hash-chained. `verify-audit-log --data-dir` verifies rotated
+  segment manifests, signatures, and the active log chain.
+- `firmware-update` stages a bundle only after the manifest signature, signer key ID,
+  relative payload path, and payload hash verify. Unsigned or wrong-key bundles are
+  refused and logged.
+- `wipe --force` zeros regular files before deleting the data dir; the agent then
+  refuses to start until the data-dir layout is recreated.
 
 ## Physical Capture
 
-The Pi private key is an encrypted file under `/var/lib/kelp-pi/keys/`, unlocked by an
-operator passphrase at bootstrap or daemon start. Powered-off capture requires the
-attacker to recover that passphrase or defeat the at-rest encryption before using the
-Pi key. Powered-on capture of an unlocked agent is treated as key compromise: the
-attacker may sign envelopes until the process stops or the key is revoked. The control
-plane must revoke the Pi key ID after suspected capture and distrust envelopes after
-the last operator-confirmed good timestamp.
+Current `keygen` stores the Pi Ed25519 private key as a local JSON file with `0600`
+permissions under the configured key directory. At-rest passphrase encryption is not
+implemented yet, so powered-off capture of that file is a key-compromise event unless
+the operator protects the storage layer externally. Powered-on capture of an unlocked
+agent is also a key-compromise event: the attacker may sign envelopes until the
+operator revokes the key or the process stops. The control plane must revoke the Pi
+key ID after suspected capture and distrust envelopes after the last
+operator-confirmed good timestamp.
 
 ## Hostile LAN
 
-The Pi assumes the local network may be monitored or hostile. v1 remote control uses
-SSH-tunneled stdio, so the agent does not expose a custom TCP control port. Every
-protocol envelope is still signed at the Kelp Pi layer; SSH only carries the transport.
-The Pi should deny outbound traffic except declared control-plane endpoints, isolate AP
-clients, sinkhole captive-portal DNS checks locally, and refuse selfcheck targets
-outside loopback, the Pi AP CIDR, or the configured allowlist.
+The Pi assumes the local network may be monitored or hostile. The implemented remote
+control path is SSH-tunneled stdio with Kelp Pi Ed25519 envelope signatures at the
+protocol layer. The agent does not expose a custom TCP control port. AP client
+isolation, outbound nftables allowlisting, and captive-portal DNS sinkholing are
+planned controls and are not enforced by current code.
 
 ## Malicious Corpus
 
-Corpus files, scanner sidecars, and imported prior bundles are untrusted input. Ingest
-must refuse binaries and executable files, cap upload/corpus/index sizes, derive chunk
-IDs from canonical path plus content hash, and avoid executing corpus content. PDF
-ingest uses external text sidecars only. Retrieval answers must cite stored chunks; if
-retrieval score is below threshold, the result is `no_answer`.
+Corpus files, scanner sidecars, and imported prior bundles are untrusted input.
+Current code refuses binary and executable ingest inputs, derives chunk IDs from
+canonical path plus content hash, avoids executing corpus content, and supports
+PDF-derived text only through sidecar text. Upload/corpus/index quota enforcement is
+planned and not enforced yet.
 
 ## Audit-Log Tamper Attempts
 
-Every scanner invocation, policy decision, evidence append, `/ask` query, and bundle
-export is appended to a hash-chained audit log. Each entry includes the previous entry
-hash; rotation emits signed segment manifests. Verification must fail at the first
-modified, deleted, reordered, or inserted entry. Pi-produced audit bundles include the
-relevant audit-log slice, the manifest, signatures, public key metadata, and enough
-context for `kelp-claw verify-audit-bundle` to verify the bundle without Pi-specific
-flags.
+Current audited events include data-dir preflight, daemon start/stop, panic, local
+policy decisions, approval requests, selfcheck target refusals, binary ingest refusals,
+firmware update staging/refusal, and signed audit-log rotation. Verification fails on
+modified, deleted, reordered, or inserted active-log entries and on tampered segment
+files or manifests. Scanner invocation, evidence append, `/ask` query, bundle export,
+and Pi-produced bundle verification are planned audit surfaces and are not fully
+implemented yet.
