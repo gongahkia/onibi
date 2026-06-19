@@ -258,6 +258,9 @@ Package pin and upgrade flow:
   `raspi-*`, `linux-image-*`, `linux-headers-*`, `network-manager`, `dnsmasq`,
   `nftables`, `openssh-*`, `nmap`, and `nuclei`; image builds fail if those package
   versions drift without a lock update.
+- The system Nmap baseline is Debian Trixie `nmap` package `7.95+dfsg-3`;
+  `kelp-pi-agent scan nmap` refuses runtime `nmap --version` output other than
+  `7.95`.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

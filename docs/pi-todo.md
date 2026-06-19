@@ -36,7 +36,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 - [ ] Embed Nuclei as a pinned ARM64 binary in the Pi image → success: `kelp-pi-agent scan nuclei --target ...` runs without external `nuclei` install.
 - [ ] Pin a Nuclei templates revision (git SHA) and document update flow → success: the agent records the templates SHA in every scan envelope; updates are explicit operator action.
-- [ ] Embed or depend on system Nmap with a pinned version → success: agent records nmap version in every scan envelope; refuses to run if version mismatch is critical.
 - [ ] Implement rate limits per target: max requests/sec, max concurrent targets, max scan duration → success: limits enforced; an integration test confirms they are respected.
 - [ ] Implement scanner sandboxing: each scanner runs as an unprivileged user under systemd-run with no network access except to in-scope targets via nftables marks → success: a scanner invocation cannot reach the control plane or the public internet.
 

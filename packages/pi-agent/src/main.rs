@@ -9,11 +9,12 @@ use kelp_pi_agent::{
     ensure_targets_in_scope, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, evaluate_zap_guard,
     gold_chunk_id_lines, index_db_path, init_audit_tracing, install_panic_audit_hook,
-    load_active_scope, load_or_generate_identity_key, request_operator_approval, rotate_audit_log,
-    run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval, selfcheck_report_payload,
-    sign_envelope, unix_millis_now, validate_data_dir, validate_selfcheck_target,
-    verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
-    wipe_data_dir, write_nuclei_findings_document, AskHttpState, IdentityKey, PiEnvelopeKind,
+    load_active_scope, load_or_generate_identity_key, probe_pinned_nmap_version,
+    request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval, run_selfcheck,
+    run_synthesis_eval, selfcheck_report_payload, sign_envelope, unix_millis_now,
+    validate_data_dir, validate_selfcheck_target, verify_and_stage_firmware_update,
+    verify_audit_log, verify_audit_log_chain, verify_envelope, wipe_data_dir,
+    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, PiEnvelopeKind,
     PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
     PiWireEnvelope, ScopeError, ScopeTarget, ScopeTargetType, ThermalScanDecision,
     UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
@@ -366,6 +367,27 @@ fn scan_request_responses(
             return Ok(responses);
         }
     }
+    let scanner_bin = scan_option_string(&payload.options, "scanner_bin")
+        .unwrap_or_else(|| payload.scanner.clone());
+    let nmap_version = if payload.scanner == "nmap" {
+        match probe_pinned_nmap_version(&scanner_bin) {
+            Ok(version) => Some(version),
+            Err(error) => {
+                responses.push(signed_scan_complete(
+                    envelope,
+                    identity,
+                    &payload.run_id,
+                    "refused",
+                    &started_at,
+                    &rfc3339_now(),
+                    Some(error.to_string()),
+                )?);
+                return Ok(responses);
+            }
+        }
+    } else {
+        None
+    };
 
     responses.push(signed_scan_event(
         envelope,
@@ -376,7 +398,7 @@ fn scan_request_responses(
             phase: "started",
             ts: &started_at,
             message: "scan request started",
-            data: scan_event_data(&payload.scanner, &target_values),
+            data: scan_event_data(&payload.scanner, &target_values, nmap_version.as_ref()),
         },
     )?);
     let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
@@ -443,8 +465,6 @@ fn scan_request_responses(
         return Ok(responses);
     }
 
-    let scanner_bin = scan_option_string(&payload.options, "scanner_bin")
-        .unwrap_or_else(|| payload.scanner.clone());
     let scanner_args = scan_option_strings(&payload.options, "args");
     let status = Command::new(&scanner_bin)
         .args(scanner_args)
@@ -572,13 +592,27 @@ fn scan_request_target_values(targets: &[ScopeTarget]) -> Vec<String> {
     values
 }
 
-fn scan_event_data(scanner: &str, targets: &[String]) -> Map<String, Value> {
+fn scan_event_data(
+    scanner: &str,
+    targets: &[String],
+    nmap_version: Option<&NmapVersion>,
+) -> Map<String, Value> {
     let mut data = Map::new();
     data.insert("scanner".to_string(), Value::String(scanner.to_string()));
     data.insert(
         "targets".to_string(),
         Value::Array(targets.iter().cloned().map(Value::String).collect()),
     );
+    if let Some(nmap_version) = nmap_version {
+        data.insert(
+            "nmap_runtime_version".to_string(),
+            Value::String(nmap_version.runtime_version.clone()),
+        );
+        data.insert(
+            "nmap_debian_package_version".to_string(),
+            Value::String(nmap_version.debian_package_version.to_string()),
+        );
+    }
     data
 }
 
@@ -1291,6 +1325,28 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             return Err(ExitCode::from(77));
         }
     }
+    let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
+    let nmap_version = if scanner == "nmap" {
+        match probe_pinned_nmap_version(&scanner_bin) {
+            Ok(version) => Some(version),
+            Err(error) => {
+                tracing::warn!(
+                    event = "scan.nmap.refused",
+                    msg = "Nmap scan refused",
+                    msg_id = "scan-nmap-refused",
+                    scanner = scanner.as_str(),
+                    scanner_bin = scanner_bin.as_str(),
+                    scope_id = scope.payload.scope_id.as_str(),
+                    targets = targets.join(","),
+                    reason = error.to_string().as_str()
+                );
+                eprintln!("Nmap scan refused: {error}");
+                return Err(ExitCode::from(77));
+            }
+        }
+    } else {
+        None
+    };
 
     let command = format!("scan {scanner} {}", targets.join(" "));
     let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
@@ -1333,7 +1389,6 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         return Err(ExitCode::from(77));
     }
 
-    let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
     if dry_run {
         println!(
             "{}",
@@ -1341,6 +1396,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 "status": "ready",
                 "scanner": scanner,
                 "scanner_bin": scanner_bin,
+                "nmap_version": nmap_version.as_ref().map(|version| version.runtime_version.as_str()),
                 "scope_id": scope.payload.scope_id,
                 "targets": targets
             }))
@@ -1356,6 +1412,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         scanner = scanner.as_str(),
         scanner_bin = scanner_bin.as_str(),
         scope_id = scope.payload.scope_id.as_str(),
+        nmap_version = nmap_version
+            .as_ref()
+            .map(|version| version.runtime_version.as_str())
+            .unwrap_or(""),
         targets = targets.join(",")
     );
     let status = Command::new(&scanner_bin)
@@ -1380,6 +1440,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         msg_id = "scan-invocation-completed",
         scanner = scanner.as_str(),
         scanner_bin = scanner_bin.as_str(),
+        nmap_version = nmap_version
+            .as_ref()
+            .map(|version| version.runtime_version.as_str())
+            .unwrap_or(""),
         status = status.code().unwrap_or(-1) as i64
     );
     if status.success() {

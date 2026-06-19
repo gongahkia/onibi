@@ -27,6 +27,7 @@ mod evidence;
 mod http;
 mod index;
 mod keys;
+mod nmap;
 mod policy;
 mod scope;
 mod selfcheck;
@@ -69,6 +70,10 @@ pub use keys::{
     identity_key_paths, load_identity_key, load_identity_public_metadata,
     load_or_generate_identity_key, verifying_key_from_metadata, IdentityKey, IdentityKeyError,
     IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
+};
+pub use nmap::{
+    probe_pinned_nmap_version, NmapVersion, NmapVersionError, PINNED_NMAP_DEBIAN_PACKAGE_VERSION,
+    PINNED_NMAP_RUNTIME_VERSION,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
