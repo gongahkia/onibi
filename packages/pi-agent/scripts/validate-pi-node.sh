@@ -37,6 +37,10 @@ hash_file() {
   fi
 }
 
+property_matches() {
+  printf '%s\n' "$systemd_hardening_properties" | grep -Eq "^$1=($2)$"
+}
+
 [ "$(id -u)" = "0" ] || fail "run as root on the Pi"
 
 need "$agent_bin"
@@ -82,6 +86,14 @@ active_state="$(systemctl is-active "$service" 2>/dev/null || true)"
 systemctl status "$service" --no-pager --lines=5 >/dev/null
 printf 'systemctl is-active %s=%s\n' "$service" "$active_state"
 systemctl show "$service" -p ActiveState -p SubState -p MainPID -p ExecMainStatus -p FragmentPath
+systemd_hardening_properties="$(systemctl show "$service" -p User -p ProtectSystem -p ProtectHome -p PrivateTmp -p NoNewPrivileges)"
+printf 'systemd hardening properties:\n%s\n' "$systemd_hardening_properties"
+property_matches User kelp-pi || fail "$service User is not kelp-pi"
+property_matches ProtectSystem strict || fail "$service ProtectSystem is not strict"
+property_matches ProtectHome 'true|yes' || fail "$service ProtectHome is not true"
+property_matches PrivateTmp 'true|yes' || fail "$service PrivateTmp is not true"
+property_matches NoNewPrivileges 'true|yes' || fail "$service NoNewPrivileges is not true"
+pass "systemd hardening properties verified"
 pass "service active: $service"
 
 score="$(systemd-analyze security "$service" --no-pager | awk '/Overall exposure level/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+(\.[0-9]+)?$/) print $i }' | tail -n 1)"
