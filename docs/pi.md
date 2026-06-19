@@ -525,8 +525,9 @@ Reference renderer:
   `kelp-pi-agent.service`, sysusers, and tmpfiles files into the mounted image root.
 - `pnpm --filter @kelpclaw/pi-agent install:field-tools -- <image-root>` stages
   `kelp-pi-validate-node`, `kelp-pi-validate-scanner-sandbox`,
-  `kelp-pi-validate-allow-outbound-reload`, `kelp-pi-validate-dns-egress`, and
-  `kelp-pi-validate-ap-isolation` into `<image-root>/usr/local/sbin`.
+  `kelp-pi-validate-allow-outbound-reload`, `kelp-pi-validate-dns-egress`,
+  `kelp-pi-validate-ap-isolation`, and `kelp-pi-validate-field-acceptance` into
+  `<image-root>/usr/local/sbin`.
 - `kelp-pi-agent hardening render-network --output <image-root> --wpa3-passphrase <pass> --allow-outbound <host:port>`
   emits the reference NetworkManager AP keyfile, dnsmasq captive-probe sinkhole,
   nftables default-drop ruleset, sysctl forwarding guard, `/etc/kelp-pi/network-hardening.json`,
@@ -567,6 +568,10 @@ Reference renderer:
 - `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user>`
   SSHes to two AP clients, verifies both can ping the Pi portal IP, and fails if either
   client can ping the other client or any supplied `--forbidden-ip`.
+- `kelp-pi-validate-field-acceptance --output-dir <dir> ...` runs the strict Pi-side
+  acceptance subset for host identity/service hardening, scanner sandboxing, nft
+  reload continuity, upstream DNS egress, and AP client isolation, writing one log per
+  check plus a summary file.
 
 Audit & forensics:
 
