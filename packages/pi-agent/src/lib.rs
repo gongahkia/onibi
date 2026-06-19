@@ -44,9 +44,12 @@ pub use keys::{
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
 };
 pub use policy::{
-    appsec_agent_baseline_rule, recognize_appsec_agent_baseline_decision, PiPolicyAction,
-    PiPolicyDecision, PiPolicyRule, PiPolicyVocabularyError, APPSEC_AGENT_BASELINE_PACK_ID,
-    APPSEC_AGENT_BASELINE_RULES, APPSEC_AGENT_BASELINE_VERSION,
+    apply_policy_push, appsec_agent_baseline_rule, policy_sha256,
+    recognize_appsec_agent_baseline_decision, PiPolicyAction, PiPolicyDecision, PiPolicyRule,
+    PiPolicyVocabularyError, PolicyDeliveryError, PolicyPushPayload, PolicyPushReceipt,
+    PolicyPushTrustEntry, PolicyTrustState, StoredPolicyPack, TrustedControlPlaneKey,
+    APPSEC_AGENT_BASELINE_PACK_ID, APPSEC_AGENT_BASELINE_RULES, APPSEC_AGENT_BASELINE_VERSION,
+    CURRENT_POLICY_FILE,
 };
 pub use selfcheck::{run_selfcheck, SelfcheckCheck, SelfcheckReport, SelfcheckStatus};
 pub use wire::{

@@ -363,6 +363,9 @@ Retrieval chunking:
 - The Rust agent recognizes the `appsec-agent-baseline` action vocabulary
   (`allow`, `deny`, `require-approval`, `log-only`) and all v1 rule IDs from the
   TypeScript policy pack.
+- `policy.push` accepts only `cp` envelopes whose Ed25519 signature verifies against
+  a trusted control-plane key, verifies the embedded policy hash, and persists the
+  accepted pack under `/var/lib/kelp-pi/policy/current-policy.json`.
 
 Physical capture assumptions:
 
