@@ -51,7 +51,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P5 — Policy gates on Pi
 
-- [ ] Port `appsec-agent-baseline` decision vocabulary into the Rust agent → success: same decision names (`allow`, `deny`, `require-approval`) and same rule IDs are recognized.
 - [ ] Implement signed policy-pack delivery via `policy.push` → success: the agent loads only policy packs signed by a key on its trust list.
 - [ ] Implement local policy evaluation for scanner invocations, file operations, and outbound network requests → success: every gated action produces a `policy-decision` audit entry.
 - [ ] Implement operator-approval flow for `require-approval` decisions: the agent prints a one-time approval token to a local TTY; operator runs `kelp-claw pi approve <token>` over SSH to confirm → success: an integration test demonstrates a scan that is blocked until approved and then proceeds.

@@ -360,6 +360,9 @@ Retrieval chunking:
   stable content-derived chunk IDs.
 - `kelp-pi-agent selfcheck` reports `stale_index: true` when a regular file under
   `/var/lib/kelp-pi/corpus` has no matching `source_files` index row.
+- The Rust agent recognizes the `appsec-agent-baseline` action vocabulary
+  (`allow`, `deny`, `require-approval`, `log-only`) and all v1 rule IDs from the
+  TypeScript policy pack.
 
 Physical capture assumptions:
 

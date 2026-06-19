@@ -20,6 +20,7 @@ mod doctor;
 mod http;
 mod index;
 mod keys;
+mod policy;
 mod selfcheck;
 mod wire;
 
@@ -41,6 +42,11 @@ pub use index::{
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
+};
+pub use policy::{
+    appsec_agent_baseline_rule, recognize_appsec_agent_baseline_decision, PiPolicyAction,
+    PiPolicyDecision, PiPolicyRule, PiPolicyVocabularyError, APPSEC_AGENT_BASELINE_PACK_ID,
+    APPSEC_AGENT_BASELINE_RULES, APPSEC_AGENT_BASELINE_VERSION,
 };
 pub use selfcheck::{run_selfcheck, SelfcheckCheck, SelfcheckReport, SelfcheckStatus};
 pub use wire::{
