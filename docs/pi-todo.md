@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Implement deterministic chunk ID rule: `blake3(canonical_path || ":" || chunk_hash)[:16]` → success: rebuilding the index on Pi and on laptop from the same corpus produces identical chunk IDs (regression test).
 - [ ] Implement SQLite schema for `chunks(id, path, heading_path, start_byte, end_byte, content_hash, content, ingested_at)` plus FTS5 virtual table over `content` → success: schema migration applies idempotently.
 - [ ] Implement BM25 retrieval via FTS5 with configurable top-k → success: `kelp-pi-agent ask "..."` returns top-k chunks with scores.
 - [ ] Define no-answer rule: if top-k max BM25 score is below a configurable threshold, return `no_answer` with reason → success: a query unrelated to the corpus returns `no_answer`; threshold default is documented.

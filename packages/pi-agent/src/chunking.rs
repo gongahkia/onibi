@@ -164,6 +164,35 @@ pub fn chunk_pdf_sidecar(
         .collect()
 }
 
+pub fn canonical_chunk_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let absolute = normalized.starts_with('/');
+    let mut parts = Vec::new();
+
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+
+    let joined = parts.join("/");
+    if absolute {
+        format!("/{joined}")
+    } else {
+        joined
+    }
+}
+
+pub fn chunk_id_for(path: &str, chunk_hash: &str) -> String {
+    let canonical_path = canonical_chunk_path(path);
+    let chunk_id_seed = format!("{canonical_path}:{chunk_hash}");
+    blake3::hash(chunk_id_seed.as_bytes()).to_hex()[..16].to_string()
+}
+
 struct MarkdownSection {
     start: usize,
     end: usize,
@@ -359,11 +388,11 @@ fn exact_content_chunk(
 ) -> ContentChunk {
     let content = source[start_byte..end_byte].to_string();
     let chunk_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-    let chunk_id_seed = format!("{path}:{chunk_hash}");
-    let chunk_id = blake3::hash(chunk_id_seed.as_bytes()).to_hex()[..16].to_string();
+    let canonical_path = canonical_chunk_path(path);
+    let chunk_id = chunk_id_for(&canonical_path, &chunk_hash);
 
     ContentChunk {
-        path: path.to_string(),
+        path: canonical_path,
         heading_path: Vec::new(),
         start_byte,
         end_byte,
@@ -387,11 +416,11 @@ fn content_chunk(
         .collect::<Vec<_>>()
         .join(" ");
     let chunk_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-    let chunk_id_seed = format!("{path}:{chunk_hash}");
-    let chunk_id = blake3::hash(chunk_id_seed.as_bytes()).to_hex()[..16].to_string();
+    let canonical_path = canonical_chunk_path(path);
+    let chunk_id = chunk_id_for(&canonical_path, &chunk_hash);
 
     ContentChunk {
-        path: path.to_string(),
+        path: canonical_path,
         heading_path: heading_path.to_vec(),
         start_byte: token_spans.first().expect("non-empty token window").start,
         end_byte: token_spans.last().expect("non-empty token window").end,
@@ -579,5 +608,29 @@ mod tests {
         assert!(audit_log.contains("sample.exe"));
 
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn chunk_id_uses_canonical_path_and_chunk_hash_only() {
+        let text = "alpha beta gamma\n\n";
+        let config = ChunkingConfig {
+            target_tokens: 512,
+            overlap_tokens: 64,
+            heading_aware: false,
+        };
+
+        let pi_chunks = chunk_plain_text("docs/guide.txt", text, config);
+        let laptop_chunks = chunk_plain_text("./docs\\section/../guide.txt", text, config);
+
+        assert_eq!(pi_chunks.len(), 1);
+        assert_eq!(laptop_chunks.len(), 1);
+        assert_eq!(pi_chunks[0].path, "docs/guide.txt");
+        assert_eq!(laptop_chunks[0].path, "docs/guide.txt");
+        assert_eq!(pi_chunks[0].chunk_hash, laptop_chunks[0].chunk_hash);
+        assert_eq!(pi_chunks[0].chunk_id, laptop_chunks[0].chunk_id);
+        assert_eq!(
+            pi_chunks[0].chunk_id,
+            chunk_id_for("docs/guide.txt", &pi_chunks[0].chunk_hash)
+        );
     }
 }
