@@ -45,6 +45,8 @@ See [`docs/appsec-harness.md`](docs/appsec-harness.md) for the agent I/O contrac
 
 Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened, reproducible AppSec field drop-box: policy-gated scanning under operator-declared scope, signed audit bundles compatible with `kelp-claw verify-audit-bundle`, offline cited retrieval via `/ask`, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 8GB RAM; 4GB boards are excluded because scanner state, SQLite FTS5 retrieval, audit signing, and bundle staging must run without swap-heavy thrash. Control plane stays in this TS monorepo; the Rust agent lives in `packages/pi-agent`. See [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and the full architecture diagram in [`docs/architecture.mmd`](docs/architecture.mmd).
 
+Kelp Pi non-goals: operator anonymity, covert use, evasion, cellular or phone replacement features, always-listening voice, internet-scale scanning, scanning outside declared scope, target persistence, lateral movement, credential exfiltration, general self-hosting, and uncited generated answers.
+
 ```mermaid
 flowchart LR
   cli["kelp-claw CLI"] <-->|"SSH-tunneled signed envelopes"| agent["kelp-pi-agent"]
