@@ -63,7 +63,6 @@ conventions. Then start at the first unchecked P0 task below.
 ## P9 — Eval and determinism
 
 - [ ] Implement bundle-replay test: a Pi-produced bundle can be re-verified end-to-end on a laptop with no Pi present → success: CI runs this as a regression.
-- [ ] Implement scanner-output stability test: same target, same templates, same nmap version produces structurally identical evidence rows modulo timing → success: drift detection alerts on any new field or removed field.
 
 ## P10 — Field ops
 

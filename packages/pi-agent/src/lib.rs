@@ -49,9 +49,11 @@ pub use chunking::{
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
 pub use eval::{
-    default_gold_fixture_dir, gold_chunk_id_lines, run_gold_eval, run_synthesis_eval,
-    GoldEvalCaseResult, GoldEvalError, GoldEvalReport, GoldEvalStatus, SynthesisEvalCaseResult,
-    SynthesisEvalReport, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
+    default_gold_fixture_dir, default_scanner_stability_fixture_dir, gold_chunk_id_lines,
+    run_gold_eval, run_scanner_stability_eval, run_synthesis_eval, GoldEvalCaseResult,
+    GoldEvalError, GoldEvalReport, GoldEvalStatus, ScannerStabilityError, ScannerStabilityReport,
+    SynthesisEvalCaseResult, SynthesisEvalReport, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
+    SCANNER_STABILITY_FIXTURE_DIR,
 };
 pub use evidence::{
     normalize_nuclei_jsonl, normalize_nuclei_jsonl_file, write_nuclei_findings_document,

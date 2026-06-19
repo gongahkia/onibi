@@ -267,7 +267,7 @@ Package pin and upgrade flow:
   scan lifecycle envelopes record the accepted revision. Updating templates is an
   operator-visible code/config update: fetch the desired upstream commit, update this
   pinned SHA and the agent constant in one review, rebuild the Pi image, then run the
-  scanner-output stability test before promotion.
+  `kelp-pi-agent eval scanner-stability` test before promotion.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

@@ -6,13 +6,17 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     answer_query, chunk_markdown, chunk_plain_text, default_chunking_config, ingest_source_chunks,
-    synthesize_with_citation_guard, ContentChunk, SourceFileMetadata, SynthesisError,
+    normalize_nuclei_jsonl_file, synthesize_with_citation_guard, ContentChunk,
+    EvidenceFindingsDocument, EvidenceNormalizeError, SourceFileMetadata, SynthesisError,
+    PINNED_NMAP_RUNTIME_VERSION, PINNED_NUCLEI_TEMPLATES_REVISION,
 };
 
 pub const GOLD_FIXTURE_DIR: &str = "fixtures/gold";
+pub const SCANNER_STABILITY_FIXTURE_DIR: &str = "fixtures/scanner-stability";
 pub const DEFAULT_GOLD_TOP_K: usize = 8;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -47,6 +51,18 @@ pub struct SynthesisEvalReport {
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ScannerStabilityReport {
+    pub fixture_dir: String,
+    pub target: String,
+    pub nmap_runtime_version: String,
+    pub nuclei_templates_revision: String,
+    pub findings: usize,
+    pub passed: bool,
+    pub failures: Vec<String>,
+    pub fingerprint: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct SynthesisEvalCaseResult {
     pub id: String,
     pub status: GoldEvalStatus,
@@ -75,6 +91,13 @@ pub enum GoldEvalError {
     UnsupportedCorpusFile(String),
 }
 
+#[derive(Debug)]
+pub enum ScannerStabilityError {
+    Io(io::Error),
+    Json(serde_json::Error),
+    Normalize(EvidenceNormalizeError),
+}
+
 #[derive(Debug, Deserialize)]
 struct GoldQaSet {
     corpus: Vec<GoldCorpusFile>,
@@ -98,6 +121,17 @@ struct GoldQaCase {
     expected_no_answer: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct ScannerStabilityCase {
+    schema_version: u32,
+    target: String,
+    nmap_runtime_version: String,
+    nuclei_templates_revision: String,
+    nuclei_input: String,
+    raw_path: String,
+    expected_fingerprint: String,
+}
+
 impl GoldEvalReport {
     pub fn ok(&self) -> bool {
         self.failed == 0
@@ -107,6 +141,12 @@ impl GoldEvalReport {
 impl SynthesisEvalReport {
     pub fn ok(&self) -> bool {
         self.failed == 0
+    }
+}
+
+impl ScannerStabilityReport {
+    pub fn ok(&self) -> bool {
+        self.passed
     }
 }
 
@@ -124,6 +164,18 @@ impl Display for GoldEvalError {
 }
 
 impl std::error::Error for GoldEvalError {}
+
+impl Display for ScannerStabilityError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScannerStabilityError::Io(error) => write!(formatter, "{error}"),
+            ScannerStabilityError::Json(error) => write!(formatter, "{error}"),
+            ScannerStabilityError::Normalize(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ScannerStabilityError {}
 
 impl From<io::Error> for GoldEvalError {
     fn from(error: io::Error) -> Self {
@@ -143,8 +195,30 @@ impl From<rusqlite::Error> for GoldEvalError {
     }
 }
 
+impl From<io::Error> for ScannerStabilityError {
+    fn from(error: io::Error) -> Self {
+        ScannerStabilityError::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for ScannerStabilityError {
+    fn from(error: serde_json::Error) -> Self {
+        ScannerStabilityError::Json(error)
+    }
+}
+
+impl From<EvidenceNormalizeError> for ScannerStabilityError {
+    fn from(error: EvidenceNormalizeError) -> Self {
+        ScannerStabilityError::Normalize(error)
+    }
+}
+
 pub fn default_gold_fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(GOLD_FIXTURE_DIR)
+}
+
+pub fn default_scanner_stability_fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SCANNER_STABILITY_FIXTURE_DIR)
 }
 
 pub fn run_gold_eval(
@@ -218,6 +292,61 @@ pub fn run_gold_eval(
         passed,
         failed,
         results,
+    })
+}
+
+pub fn run_scanner_stability_eval(
+    fixture_dir: &Path,
+) -> Result<ScannerStabilityReport, ScannerStabilityError> {
+    let case: ScannerStabilityCase =
+        serde_json::from_slice(&fs::read(fixture_dir.join("case.json"))?)?;
+    let first = normalize_nuclei_jsonl_file(&fixture_dir.join(&case.nuclei_input), &case.raw_path)?;
+    let second =
+        normalize_nuclei_jsonl_file(&fixture_dir.join(&case.nuclei_input), &case.raw_path)?;
+    let first_value = canonical_scanner_stability_value(&first)?;
+    let second_value = canonical_scanner_stability_value(&second)?;
+    let fingerprint = structural_fingerprint(&first_value);
+    let expected_fingerprint: Vec<String> =
+        serde_json::from_slice(&fs::read(fixture_dir.join(&case.expected_fingerprint))?)?;
+    let mut failures = Vec::new();
+
+    if case.schema_version != 1 {
+        failures.push(format!(
+            "case schema_version mismatch: expected 1, found {}",
+            case.schema_version
+        ));
+    }
+    if case.nmap_runtime_version != PINNED_NMAP_RUNTIME_VERSION {
+        failures.push(format!(
+            "nmap runtime mismatch: expected {}, found {}",
+            PINNED_NMAP_RUNTIME_VERSION, case.nmap_runtime_version
+        ));
+    }
+    if case.nuclei_templates_revision != PINNED_NUCLEI_TEMPLATES_REVISION {
+        failures.push(format!(
+            "nuclei templates mismatch: expected {}, found {}",
+            PINNED_NUCLEI_TEMPLATES_REVISION, case.nuclei_templates_revision
+        ));
+    }
+    if first_value != second_value {
+        failures.push(
+            "normalized evidence changed across identical scanner inputs after timing normalization"
+                .to_string(),
+        );
+    }
+    if fingerprint != expected_fingerprint {
+        failures.extend(fingerprint_diff(&fingerprint, &expected_fingerprint));
+    }
+
+    Ok(ScannerStabilityReport {
+        fixture_dir: fixture_dir.display().to_string(),
+        target: case.target,
+        nmap_runtime_version: case.nmap_runtime_version,
+        nuclei_templates_revision: case.nuclei_templates_revision,
+        findings: first.findings.len(),
+        passed: failures.is_empty(),
+        failures,
+        fingerprint,
     })
 }
 
@@ -324,6 +453,108 @@ pub fn run_synthesis_eval(
         failed,
         results,
     })
+}
+
+fn canonical_scanner_stability_value(
+    document: &EvidenceFindingsDocument,
+) -> Result<Value, serde_json::Error> {
+    let mut value = serde_json::to_value(document)?;
+    normalize_timing_fields(&mut value);
+    Ok(value)
+}
+
+fn normalize_timing_fields(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                normalize_timing_fields(value);
+            }
+        }
+        Value::Object(map) => {
+            for (key, value) in map {
+                if matches!(key.as_str(), "firstSeen" | "lastSeen") {
+                    *value = Value::String("<timing>".to_string());
+                } else {
+                    normalize_timing_fields(value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn structural_fingerprint(value: &Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    collect_structural_fingerprint("$", value, &mut lines);
+    lines.sort();
+    lines.dedup();
+    lines
+}
+
+fn collect_structural_fingerprint(path: &str, value: &Value, lines: &mut Vec<String>) {
+    match value {
+        Value::Null => lines.push(format!("{path}:null")),
+        Value::Bool(_) => lines.push(format!("{path}:bool")),
+        Value::Number(_) => lines.push(format!("{path}:number")),
+        Value::String(_) => lines.push(format!("{path}:string")),
+        Value::Array(values) => {
+            lines.push(format!("{path}:array[{}]", values.len()));
+            for (index, value) in values.iter().enumerate() {
+                collect_structural_fingerprint(&format!("{path}[{index}]"), value, lines);
+            }
+        }
+        Value::Object(map) => {
+            let mut keys = map.keys().cloned().collect::<Vec<_>>();
+            keys.sort();
+            lines.push(format!("{path}:object{{{}}}", keys.join(",")));
+            for key in keys {
+                let child = map.get(&key).expect("key collected from map");
+                collect_structural_fingerprint(
+                    &format!("{path}{}", path_segment(&key)),
+                    child,
+                    lines,
+                );
+            }
+        }
+    }
+}
+
+fn path_segment(key: &str) -> String {
+    if key
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        format!(".{key}")
+    } else {
+        format!(
+            "[{}]",
+            serde_json::to_string(key).expect("serialize JSON path segment")
+        )
+    }
+}
+
+fn fingerprint_diff(actual: &[String], expected: &[String]) -> Vec<String> {
+    let actual_set = actual.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let expected_set = expected.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let missing = expected_set
+        .difference(&actual_set)
+        .copied()
+        .collect::<Vec<_>>();
+    let unexpected = actual_set
+        .difference(&expected_set)
+        .copied()
+        .collect::<Vec<_>>();
+    let mut failures = Vec::new();
+    if !missing.is_empty() {
+        failures.push(format!("fingerprint missing paths: {}", missing.join(", ")));
+    }
+    if !unexpected.is_empty() {
+        failures.push(format!(
+            "fingerprint unexpected paths: {}",
+            unexpected.join(", ")
+        ));
+    }
+    failures
 }
 
 pub fn gold_chunk_id_lines(fixture_dir: &Path) -> Result<Vec<String>, GoldEvalError> {
@@ -451,5 +682,18 @@ mod tests {
         assert!(report.ok());
         assert_eq!(report.cases, 34);
         assert_eq!(report.failed, 0);
+    }
+
+    #[test]
+    fn bundled_scanner_stability_eval_passes() {
+        let report = run_scanner_stability_eval(&default_scanner_stability_fixture_dir())
+            .expect("scanner stability eval");
+
+        assert!(
+            report.ok(),
+            "{}",
+            serde_json::to_string_pretty(&report).expect("serialize report")
+        );
+        assert_eq!(report.findings, 2);
     }
 }
