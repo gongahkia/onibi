@@ -37,7 +37,7 @@ $ examples/pi-vulnerable-target/pi-field-walkthrough.sh \
   --client-ssh-user <client-ssh-user> \
   --upstream-interface <wan-iface> \
   --updated-config <updated-network-hardening.json> \
-  --until 2026-06-20T00:00:00Z
+  --until <scope-expiry-rfc3339>
 $ jq .ok .kelpclaw/pi-vulnerable-target-field/verification.json
 $ scripts/verify-pi-field-acceptance.sh .kelpclaw/pi-vulnerable-target-field/field-acceptance
 $ scripts/verify-pi-launch-evidence.sh .kelpclaw/pi-vulnerable-target-field
@@ -60,7 +60,7 @@ $ examples/pi-vulnerable-target/record-pi-demo.sh \
   --client-ssh-user <client-ssh-user> \
   --upstream-interface <wan-iface> \
   --updated-config <updated-network-hardening.json> \
-  --until 2026-06-20T00:00:00Z
+  --until <scope-expiry-rfc3339>
 ```
 
 The default output is `docs/assets/kelp-pi-fixture-demo.cast`.

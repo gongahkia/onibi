@@ -79,7 +79,7 @@ $ sudo kelp-pi-validate-node
 Declare scope from the laptop, approve the active scan, then run it on the Pi:
 
 ```console
-$ kelp-claw pi scope set --host fixture.local --port 80 --until 2026-06-20T00:00:00Z
+$ kelp-claw pi scope set --host fixture.local --port 80 --until <scope-expiry-rfc3339>
 $ approval_token="$(
   ssh kelp-pi@<pi-host> \
     kelp-pi-agent approval-request \
