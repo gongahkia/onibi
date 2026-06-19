@@ -83,7 +83,8 @@ pass "kelp-pi-scanner user"
 systemctl start "$service"
 active_state="$(systemctl is-active "$service" 2>/dev/null || true)"
 [ "$active_state" = "active" ] || fail "$service not active: $active_state"
-systemctl status "$service" --no-pager --lines=5 >/dev/null
+printf 'systemctl status %s:\n' "$service"
+systemctl status "$service" --no-pager --lines=20
 printf 'systemctl is-active %s=%s\n' "$service" "$active_state"
 systemctl show "$service" -p ActiveState -p SubState -p MainPID -p ExecMainStatus -p FragmentPath
 systemd_hardening_properties="$(systemctl show "$service" -p User -p ProtectSystem -p ProtectHome -p PrivateTmp -p NoNewPrivileges)"

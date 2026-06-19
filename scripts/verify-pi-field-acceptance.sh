@@ -65,6 +65,8 @@ grep -q "^OK duration_seconds=$duration_seconds " "$summary" || fail "duration s
 
 node_security_score_ok "$artifact_dir/node.log" || fail "node log missing systemd security score below 3.0"
 grep -q 'agent version: kelp-pi-agent ' "$artifact_dir/node.log" || fail "node log missing agent version proof"
+grep -q 'systemctl status kelp-pi-agent.service:' "$artifact_dir/node.log" || fail "node log missing systemctl status proof"
+grep -Eq 'Active:[[:space:]]+active' "$artifact_dir/node.log" || fail "node log missing active status proof"
 grep -q 'systemctl is-active kelp-pi-agent.service=active' "$artifact_dir/node.log" || fail "node log missing active systemd proof"
 grep -q 'systemd hardening properties verified' "$artifact_dir/node.log" || fail "node log missing systemd hardening proof"
 grep -q 'nft ruleset output chain:' "$artifact_dir/node.log" || fail "node log missing nft ruleset output proof"
