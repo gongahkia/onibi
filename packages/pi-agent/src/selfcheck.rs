@@ -29,6 +29,7 @@ pub struct SelfcheckReport {
     pub listening_ports: Value,
     pub free_disk: Value,
     pub ram: Value,
+    pub battery_state: Value,
     pub cpu_temperature: Value,
     pub microsd_wear: Value,
     pub audit_log: Value,
@@ -66,6 +67,7 @@ pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
     let listening_ports = listening_ports_check();
     let free_disk = free_disk_check(data_dir);
     let ram = ram_check();
+    let battery_state = battery_state_check();
     let cpu_temperature = cpu_temperature_check();
     let microsd_wear = microsd_wear_check();
     let audit_log = audit_log_check(data_dir);
@@ -78,6 +80,7 @@ pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
         listening_ports.clone(),
         free_disk.clone(),
         ram.clone(),
+        battery_state.clone(),
         cpu_temperature.clone(),
         microsd_wear.clone(),
         audit_log.clone(),
@@ -107,6 +110,7 @@ pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
         listening_ports: check_value(&listening_ports),
         free_disk: check_value(&free_disk),
         ram: check_value(&ram),
+        battery_state: check_value(&battery_state),
         cpu_temperature: check_value(&cpu_temperature),
         microsd_wear: check_value(&microsd_wear),
         audit_log: check_value(&audit_log),
@@ -510,6 +514,48 @@ fn ram_check() -> SelfcheckCheck {
     }
 }
 
+fn battery_state_check() -> SelfcheckCheck {
+    let power_supply = Path::new("/sys/class/power_supply");
+    let Ok(entries) = fs::read_dir(power_supply) else {
+        let mut details = BTreeMap::new();
+        details.insert("percentage".to_string(), Value::Null);
+        details.insert("status".to_string(), Value::Null);
+        details.insert("available".to_string(), json!(false));
+        return warn_with_details(
+            "battery-state",
+            "battery state unavailable on this host",
+            details,
+        );
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let supply_type = read_trimmed(path.join("type"));
+        let capacity: Option<u8> =
+            read_trimmed(path.join("capacity")).and_then(|value| value.parse().ok());
+        if supply_type.as_deref() == Some("Battery") || capacity.is_some() {
+            let mut details = BTreeMap::new();
+            details.insert("percentage".to_string(), json!(capacity));
+            details.insert(
+                "status".to_string(),
+                json!(read_trimmed(path.join("status"))),
+            );
+            details.insert("source".to_string(), json!(path.display().to_string()));
+            return pass_with_details("battery-state", "battery state probe succeeded", details);
+        }
+    }
+
+    let mut details = BTreeMap::new();
+    details.insert("percentage".to_string(), Value::Null);
+    details.insert("status".to_string(), Value::Null);
+    details.insert("available".to_string(), json!(false));
+    warn_with_details(
+        "battery-state",
+        "battery state unavailable on this host",
+        details,
+    )
+}
+
 fn cpu_temperature_check() -> SelfcheckCheck {
     let path = Path::new("/sys/class/thermal/thermal_zone0/temp");
     match fs::read_to_string(path) {
@@ -754,6 +800,13 @@ fn parse_meminfo_kib(content: &str, key: &str) -> Option<u64> {
     })
 }
 
+fn read_trimmed(path: impl AsRef<Path>) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(program)
         .args(args)
@@ -928,6 +981,7 @@ mod tests {
             "listening-ports",
             "free-disk",
             "ram",
+            "battery-state",
             "cpu-temperature",
             "microsd-wear",
             "audit-log",
@@ -935,6 +989,7 @@ mod tests {
             assert!(ids.contains(id), "missing {id}");
         }
         assert!(report.free_disk.get("bytes").is_some());
+        assert!(report.battery_state.get("percentage").is_some());
         fs::remove_dir_all(root).ok();
     }
 

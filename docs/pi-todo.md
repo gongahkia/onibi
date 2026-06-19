@@ -80,7 +80,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P10 — Field ops
 
-- [ ] Read Pi battery state (via USB-C PD or HAT) if present and surface in selfcheck → success: selfcheck report includes battery percentage when available, null otherwise.
 - [ ] Read CPU temperature and throttle state; refuse to start new scans when thermal-throttled → success: starting a scan at >80C logs a refusal and waits or aborts per config.
 - [ ] Implement storage quota enforcement: refuse to ingest, scan, or accept uploads when free disk falls below a configurable floor → success: integration test fills disk and confirms graceful refusal with operator-readable error.
 - [ ] Implement audit log rotation with signed segment manifests → success: rotation produces a new segment file; the chain across segments verifies.
