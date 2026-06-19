@@ -76,16 +76,48 @@ $ sudo systemctl enable --now kelp-pi-agent.service
 $ sudo kelp-pi-validate-node
 ```
 
-Declare scope from the laptop, then run a scoped scan on the Pi:
+Declare scope from the laptop, approve the active scan, then run it on the Pi:
 
 ```console
 $ kelp-claw pi scope set --host fixture.local --port 80 --until 2026-06-20T00:00:00Z
+$ approval_token="$(
+  ssh kelp-pi@<pi-host> \
+    kelp-pi-agent approval-request \
+      --data-dir /var/lib/kelp-pi \
+      --gate scanner-invocation \
+      --scope-id <scope-id> \
+      --command 'scan nuclei http://fixture.local' \
+      --host http://fixture.local \
+      --allowed | jq -r .token
+)"
+$ ssh kelp-pi@<pi-host> kelp-pi-agent approve --data-dir /var/lib/kelp-pi "$approval_token"
 $ ssh kelp-pi@<pi-host> \
   kelp-pi-agent scan nuclei \
     --sandbox \
     --target http://fixture.local \
     --scanner-target-ip <fixture-ip> \
+    --approval-token "$approval_token" \
     --run-id fixture-nuclei
+```
+
+Capture hardware/network evidence for the open acceptance tasks:
+
+```console
+$ ssh kelp-pi@<pi-host> sudo kelp-pi-validate-field-acceptance \
+  --output-dir /var/lib/kelp-pi/bundles/fixture-nuclei-field-acceptance \
+  --target-ip <fixture-ip> \
+  --target-url http://fixture.local \
+  --nuclei-approval-token "$approval_token" \
+  --control-url https://<control-plane-host>:443/health \
+  --current-config /etc/kelp-pi/network-hardening.json \
+  --updated-config <updated-network-hardening.json> \
+  --session-command 'while sleep 5; do curl -fsS --max-time 5 https://<control-plane-host>:443/health >/dev/null || exit 1; done' \
+  --client-a <ap-client-a-ip> \
+  --client-b <ap-client-b-ip> \
+  --ssh-user <client-ssh-user> \
+  --upstream-interface <wan-iface> \
+  --dns-probe-command 'dig @10.42.0.1 captive.apple.com' \
+  --max-seconds 1800
 ```
 
 Assemble, fetch, and verify the bundle:
