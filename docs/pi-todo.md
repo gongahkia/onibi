@@ -27,7 +27,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Disable upstream DNS by default; install a local dnsmasq with sinkhole rules for captive-portal probes → success: clients connecting see the local portal IP for `captive.apple.com`, `connectivitycheck.gstatic.com`, `clients3.google.com`, etc., and zero upstream DNS queries leave the Pi.
 - [ ] Configure nftables outbound allowlist: deny all egress except declared control-plane endpoints → success: `nft list ruleset` shows the allowlist; `curl https://example.com` from the Pi fails with no route.
 - [ ] Add an `allow-outbound` config field that takes a list of `host:port` pairs and rewrites the nftables rules atomically → success: changing the config and reloading does not drop the existing control-plane session.
-- [ ] Make `selfcheck` refuse any target outside `127.0.0.0/8`, the Pi's own AP CIDR, and the configured allowlist → success: attempting to point selfcheck at `8.8.8.8` is logged and refused with an explicit error.
 - [ ] Disable Bluetooth, audio, HDMI, and any unused peripheral via boot config → success: `dmesg` post-boot does not show the disabled subsystems initialized.
 - [ ] Optional: configure read-only root with a writable overlay for `/var/lib/kelp-pi` → success: an integration test pulls the SD card during write activity, reboots, and the agent comes up cleanly.
 

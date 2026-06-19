@@ -9,12 +9,12 @@ use kelp_pi_agent::{
     evaluate_and_audit_local_policy_with_mode, gold_chunk_id_lines, index_db_path,
     init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
     request_operator_approval, run_doctor, run_gold_eval, run_selfcheck, selfcheck_report_payload,
-    sign_envelope, validate_data_dir, verify_audit_log, verify_envelope, AskHttpState,
-    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
-    PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS,
-    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
-    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
-    DEFAULT_QUOTAS,
+    sign_envelope, validate_data_dir, validate_selfcheck_target, verify_audit_log, verify_envelope,
+    AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
+    PiPolicyGate, PiPolicyMode, PiWireEnvelope, UnsignedPiWireEnvelope,
+    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
+    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 use std::io::{self, BufRead};
@@ -151,6 +151,15 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                         eprintln!("selfcheck.run payload missing check_id");
                         ExitCode::from(65)
                     })?;
+                if let Some(target) = envelope
+                    .payload
+                    .get("target")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    if let Err(error) = validate_selfcheck_target(&data_dir, target) {
+                        return refuse_selfcheck_target(&data_dir, target, &error.to_string());
+                    }
+                }
                 let generated_at = rfc3339_now();
                 let report = run_selfcheck(&data_dir);
                 sign_envelope(
@@ -179,6 +188,22 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
         );
     }
     Ok(())
+}
+
+fn refuse_selfcheck_target(data_dir: &Path, target: &str, reason: &str) -> Result<(), ExitCode> {
+    if let Err(error) = init_audit_tracing(data_dir) {
+        eprintln!("audit log init failed while recording selfcheck refusal: {error}");
+    } else {
+        tracing::warn!(
+            event = "selfcheck.target.refused",
+            msg = "selfcheck target refused",
+            msg_id = "selfcheck-target-refused",
+            target = target,
+            reason = reason
+        );
+    }
+    eprintln!("selfcheck target refused: {reason}");
+    Err(ExitCode::from(77))
 }
 
 fn eval_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -827,6 +852,7 @@ fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut signed_envelope = false;
     let mut check_id = "selfcheck-cli".to_string();
+    let mut target = None;
     let mut index = 0;
 
     while index < args.len() {
@@ -851,10 +877,24 @@ fn selfcheck_command(args: Vec<String>) -> Result<(), ExitCode> {
                 check_id = value.to_string();
                 index += 2;
             }
+            "--target" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--target requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                target = Some(value.to_string());
+                index += 2;
+            }
             other => {
                 eprintln!("unknown argument: {other}");
                 return Err(ExitCode::from(64));
             }
+        }
+    }
+
+    if let Some(target) = target.as_deref() {
+        if let Err(error) = validate_selfcheck_target(&data_dir, target) {
+            return refuse_selfcheck_target(&data_dir, target, &error.to_string());
         }
     }
 
@@ -1197,7 +1237,7 @@ fn print_usage() {
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
     );
     eprintln!(
-        "usage: kelp-pi-agent selfcheck [--data-dir PATH] [--signed-envelope] [--check-id ID]"
+        "usage: kelp-pi-agent selfcheck [--data-dir PATH] [--target TARGET] [--signed-envelope] [--check-id ID]"
     );
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent version");

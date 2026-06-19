@@ -66,7 +66,8 @@ pub use policy::{
     KELP_PI_REVIEW_FILE_MUTATION_RULE_ID,
 };
 pub use selfcheck::{
-    run_selfcheck, selfcheck_report_payload, SelfcheckCheck, SelfcheckReport, SelfcheckStatus,
+    run_selfcheck, selfcheck_report_payload, validate_selfcheck_target, SelfcheckCheck,
+    SelfcheckReport, SelfcheckStatus, SelfcheckTargetError,
 };
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,

@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
+use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::process::Command;
 
@@ -49,6 +51,12 @@ pub enum SelfcheckStatus {
     Pass,
     Warn,
     Fail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelfcheckTargetError {
+    pub target: String,
+    pub reason: String,
 }
 
 pub fn run_selfcheck(data_dir: &Path) -> SelfcheckReport {
@@ -122,6 +130,158 @@ pub fn selfcheck_report_payload(
     );
     payload
 }
+
+pub fn validate_selfcheck_target(
+    data_dir: &Path,
+    target: &str,
+) -> Result<(), SelfcheckTargetError> {
+    let config = load_selfcheck_target_config(data_dir);
+    validate_selfcheck_target_with_config(target, &config)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SelfcheckTargetConfig {
+    ap_cidrs: Vec<String>,
+    allowlist: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetParts {
+    host: String,
+    port: Option<u16>,
+}
+
+fn load_selfcheck_target_config(_data_dir: &Path) -> SelfcheckTargetConfig {
+    let path = Path::new("/etc/kelp-pi/agent.json");
+    let Ok(content) = fs::read_to_string(path) else {
+        return SelfcheckTargetConfig::default();
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&content) else {
+        return SelfcheckTargetConfig::default();
+    };
+    SelfcheckTargetConfig {
+        ap_cidrs: string_values(&value, &["ap-cidr", "ap_cidr", "ap-cidrs", "ap_cidrs"]),
+        allowlist: string_values(&value, &["allow-outbound", "allow_outbound", "allowlist"]),
+    }
+}
+
+fn validate_selfcheck_target_with_config(
+    target: &str,
+    config: &SelfcheckTargetConfig,
+) -> Result<(), SelfcheckTargetError> {
+    let parts = parse_target(target).ok_or_else(|| SelfcheckTargetError {
+        target: target.to_string(),
+        reason: "target is empty or malformed".to_string(),
+    })?;
+
+    if let Ok(ip) = parts.host.parse::<Ipv4Addr>() {
+        if ip.octets()[0] == 127 {
+            return Ok(());
+        }
+        if config.ap_cidrs.iter().any(|cidr| ipv4_in_cidr(ip, cidr)) {
+            return Ok(());
+        }
+    }
+
+    if config
+        .allowlist
+        .iter()
+        .any(|entry| allowlist_entry_matches(&parts, entry))
+    {
+        return Ok(());
+    }
+
+    Err(SelfcheckTargetError {
+        target: target.to_string(),
+        reason: "outside 127.0.0.0/8, configured AP CIDR, and allowlist".to_string(),
+    })
+}
+
+fn parse_target(target: &str) -> Option<TargetParts> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let authority = if let Some((_, rest)) = trimmed.split_once("://") {
+        rest.split(['/', '?', '#']).next().unwrap_or(rest)
+    } else {
+        trimmed.split(['/', '?', '#']).next().unwrap_or(trimmed)
+    };
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    if authority.starts_with('[') {
+        return None;
+    }
+    let mut host = authority;
+    let mut port = None;
+    if authority.matches(':').count() == 1 {
+        let (candidate_host, candidate_port) = authority.rsplit_once(':')?;
+        if !candidate_port.is_empty() {
+            if let Ok(parsed_port) = candidate_port.parse::<u16>() {
+                host = candidate_host;
+                port = Some(parsed_port);
+            }
+        }
+    }
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(TargetParts { host, port })
+}
+
+fn allowlist_entry_matches(target: &TargetParts, entry: &str) -> bool {
+    let Some(allowed) = parse_target(entry) else {
+        return false;
+    };
+    allowed.host.eq_ignore_ascii_case(&target.host)
+        && allowed.port.is_none_or(|port| target.port == Some(port))
+}
+
+fn ipv4_in_cidr(ip: Ipv4Addr, cidr: &str) -> bool {
+    let Some((base, prefix)) = cidr.split_once('/') else {
+        return ip.to_string() == cidr;
+    };
+    let Ok(base) = base.parse::<Ipv4Addr>() else {
+        return false;
+    };
+    let Ok(prefix) = prefix.parse::<u32>() else {
+        return false;
+    };
+    if prefix > 32 {
+        return false;
+    }
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    (u32::from(ip) & mask) == (u32::from(base) & mask)
+}
+
+fn string_values(value: &Value, keys: &[&str]) -> Vec<String> {
+    for key in keys {
+        if let Some(value) = value.get(*key) {
+            return match value {
+                Value::String(text) => vec![text.to_string()],
+                Value::Array(values) => values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                _ => Vec::new(),
+            };
+        }
+    }
+    Vec::new()
+}
+
+impl Display for SelfcheckTargetError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.target, self.reason)
+    }
+}
+
+impl std::error::Error for SelfcheckTargetError {}
 
 fn network_posture_checks() -> (SelfcheckCheck, SelfcheckCheck, SelfcheckCheck) {
     let nmcli = run_command(
@@ -800,6 +960,38 @@ mod tests {
             .and_then(Value::as_array)
             .is_some_and(|checks| !checks.is_empty()));
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selfcheck_target_validation_allows_loopback() {
+        let config = SelfcheckTargetConfig::default();
+
+        validate_selfcheck_target_with_config("127.9.8.7", &config).expect("loopback allowed");
+        validate_selfcheck_target_with_config("http://127.0.0.1:8080/health", &config)
+            .expect("loopback URL allowed");
+    }
+
+    #[test]
+    fn selfcheck_target_validation_allows_ap_cidr_and_allowlist() {
+        let config = SelfcheckTargetConfig {
+            ap_cidrs: vec!["10.42.0.0/24".to_string()],
+            allowlist: vec!["cp.example.test:443".to_string()],
+        };
+
+        validate_selfcheck_target_with_config("10.42.0.9", &config).expect("AP CIDR allowed");
+        validate_selfcheck_target_with_config("https://cp.example.test:443/status", &config)
+            .expect("allowlist host:port allowed");
+    }
+
+    #[test]
+    fn selfcheck_target_validation_rejects_public_ip() {
+        let config = SelfcheckTargetConfig::default();
+
+        let error = validate_selfcheck_target_with_config("8.8.8.8", &config)
+            .expect_err("public IP rejected");
+
+        assert_eq!(error.target, "8.8.8.8");
+        assert!(error.reason.contains("outside 127.0.0.0/8"));
     }
 
     fn create_layout(root: &Path) {
