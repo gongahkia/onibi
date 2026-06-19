@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Implement chunker for Markdown with heading-path metadata → success: chunks include `path`, `heading_path`, `start_byte`, `end_byte`, `chunk_hash` (Blake3 of normalized content), and `chunk_id` derived only from content and path.
 - [ ] Implement chunker for plain text with paragraph-aware splits → success: round-trip test reconstructs the file from chunks losslessly.
 - [ ] Implement PDF-derived text ingest (assume external `pdftotext` produced .txt sidecars) → success: a PDF with a sidecar produces chunks tagged `derived_from: pdf` and a reference to the sidecar.
 - [ ] Refuse to ingest binary or executable files → success: attempted ingest of an ELF binary or `.exe` is logged and rejected.

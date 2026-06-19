@@ -21,8 +21,8 @@ mod keys;
 mod wire;
 
 pub use chunking::{
-    default_chunking_config, deterministic_token_windows, ChunkingConfig,
-    DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
+    chunk_markdown, default_chunking_config, deterministic_token_windows, ChunkingConfig,
+    ContentChunk, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
 pub use keys::{
