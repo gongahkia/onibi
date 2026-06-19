@@ -30,6 +30,7 @@ mod policy;
 mod scope;
 mod selfcheck;
 mod synthesis;
+mod thermal;
 mod wire;
 
 pub use approval::{
@@ -83,6 +84,11 @@ pub use selfcheck::{
     SelfcheckReport, SelfcheckStatus, SelfcheckTargetError,
 };
 pub use synthesis::{synthesize_with_citation_guard, SynthesisAnswer, SynthesisError};
+pub use thermal::{
+    evaluate_scan_thermal_guard, evaluate_scan_thermal_guard_with_limit, ThermalScanDecision,
+    ThermalScanGuard, ThermalStatus, DEFAULT_SCAN_THERMAL_MAX_CELSIUS, THERMAL_TEMP_PATH_ENV,
+    THROTTLED_PATH_ENV,
+};
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
     PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,

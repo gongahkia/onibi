@@ -73,7 +73,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P10 — Field ops
 
-- [ ] Read CPU temperature and throttle state; refuse to start new scans when thermal-throttled → success: starting a scan at >80C logs a refusal and waits or aborts per config.
 - [ ] Implement storage quota enforcement: refuse to ingest, scan, or accept uploads when free disk falls below a configurable floor → success: integration test fills disk and confirms graceful refusal with operator-readable error.
 - [ ] Implement a `kelp-claw pi flash` command that writes a configured image to an SD card or NVMe → success: command writes a verified image and pre-seeds the operator's public key for SSH.
 
