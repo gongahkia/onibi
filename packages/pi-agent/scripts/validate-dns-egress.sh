@@ -106,12 +106,16 @@ if [ -n "$probe_command" ]; then
   probe_output="$(mktemp)"
   sh -c "$probe_command" >"$probe_output"
   sed -n '1,20p' "$probe_output"
-  grep -Fq "$portal_ip" "$probe_output" || fail "DNS probe output did not contain portal IP $portal_ip"
-  pass "DNS probe output contained portal IP $portal_ip"
+  for domain in $domains; do
+    grep -Fq "$domain" "$probe_output" || fail "DNS probe output did not contain $domain"
+    grep -F "$domain" "$probe_output" | grep -Fq "$portal_ip" || fail "DNS probe output did not map $domain to $portal_ip"
+  done
+  pass "DNS probe output mapped captive domains to portal IP $portal_ip"
 else
   need dig
   for domain in $domains; do
     dig +short "@$portal_ip" "$domain" | grep -qx "$portal_ip" || fail "$domain did not resolve to $portal_ip"
+    printf 'DNS probe %s %s\n' "$domain" "$portal_ip"
   done
   pass "local captive DNS probes resolved to $portal_ip"
 fi

@@ -89,7 +89,10 @@ grep -q 'pinned Nuclei scan ran' "$artifact_dir/nuclei-scan.log" || fail "pinned
 grep -q 'current nftables config applied' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound current config proof missing"
 grep -q 'control-plane session established' "$artifact_dir/allow-outbound-reload.log" || fail "control-plane session setup proof missing"
 grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound reload proof missing"
-grep -q 'DNS probe output contained portal IP' "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing"
+for domain in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do
+  grep -q "$domain" "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing for $domain"
+done
+grep -Eq 'DNS probe output mapped captive domains to portal IP|local captive DNS probes resolved to' "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing"
 grep -q 'zero upstream DNS egress observed' "$artifact_dir/dns-egress.log" || fail "DNS egress proof missing"
 grep -q 'AP isolation clients client_a=' "$artifact_dir/ap-isolation.log" || fail "AP client identity proof missing"
 grep -q 'both clients reached portal' "$artifact_dir/ap-isolation.log" || fail "AP portal reachability proof missing"

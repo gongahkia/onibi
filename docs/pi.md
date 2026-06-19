@@ -135,7 +135,7 @@ $ ssh kelp-pi@<pi-host> sudo kelp-pi-validate-field-acceptance \
   --client-b <ap-client-b-ip> \
   --ssh-user <client-ssh-user> \
   --upstream-interface <wan-iface> \
-  --dns-probe-command 'dig @10.42.0.1 captive.apple.com' \
+  --dns-probe-command 'for d in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do printf "%s " "$d"; dig +short @10.42.0.1 "$d"; done' \
   --max-seconds 1800
 ```
 
@@ -623,8 +623,9 @@ Reference renderer:
 - `kelp-pi-validate-dns-egress --upstream-interface <iface> --probe-command '<client-probe-command>'`
   runs `tcpdump` on the upstream interface while captive-probe DNS traffic is generated
   and fails if any TCP or UDP port 53 packet leaves the Pi. With a custom probe
-  command, stdout must include the portal IP so the artifact proves local sinkhole
-  resolution as well as zero upstream DNS egress.
+  command, stdout must include `captive.apple.com`, `connectivitycheck.gstatic.com`,
+  and `clients3.google.com` lines that each include the portal IP so the artifact proves
+  local sinkhole resolution as well as zero upstream DNS egress.
 - `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user> --forbidden-ip <non-portal-ip>`
   SSHes to two AP clients, verifies both can ping the Pi portal IP, and requires at
   least one `--forbidden-ip` that neither client may reach.
