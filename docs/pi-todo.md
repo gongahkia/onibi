@@ -87,7 +87,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Implement reproducible-chunk-ID regression: same corpus must produce same chunk IDs across Pi, laptop, and CI runners → success: a CI job rebuilds the index on three environments and diffs the chunk-ID set, failing on any drift.
 - [ ] Implement bundle-replay test: a Pi-produced bundle can be re-verified end-to-end on a laptop with no Pi present → success: CI runs this as a regression.
 - [ ] Implement scanner-output stability test: same target, same templates, same nmap version produces structurally identical evidence rows modulo timing → success: drift detection alerts on any new field or removed field.
-- [ ] Add an audit-log forensics test: deliberately mutate a log entry and confirm verification fails at the expected position → success: test is green and fails fast if the verify-audit-log routine regresses.
 
 ## P10 — Field ops
 
