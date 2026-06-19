@@ -30,6 +30,83 @@ A reproducible AppSec triage device you carry. Signed audit bundles, policy-gate
 scanning, offline retrieval with citations, no cloud dependency, no exploit execution
 by default.
 
+## Operator Quickstart
+
+Status: draft runbook. It lists the intended flash, scope, scan, bundle, and verify
+path, but the 30-minute cold-start acceptance task remains open until a new operator
+repeats it on a freshly flashed Pi.
+
+Prepare the laptop:
+
+```console
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm --filter @kelpclaw/cli build
+$ pnpm --filter @kelpclaw/pi-agent build:pi
+```
+
+Flash the pinned Pi image and seed SSH:
+
+```console
+$ kelp-claw pi flash \
+  --image 2026-06-18-raspios-trixie-arm64-lite.img.xz \
+  --image-sha256 acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3 \
+  --device /dev/rdiskX \
+  --ssh-public-key ~/.ssh/id_ed25519.pub \
+  --boot-seed-dir /Volumes/bootfs \
+  --yes
+```
+
+Install the cross-built agent, systemd unit, network hardening files, and pinned Nuclei
+binary into the mounted image or first-boot staging root:
+
+```console
+$ install -m 0755 packages/pi-agent/target/aarch64-unknown-linux-gnu/release/kelp-pi-agent \
+  <image-root>/usr/local/bin/kelp-pi-agent
+$ install -m 0644 packages/pi-agent/systemd/kelp-pi-agent.service \
+  <image-root>/etc/systemd/system/kelp-pi-agent.service
+$ cargo run --manifest-path packages/pi-agent/Cargo.toml -- hardening render-network \
+  --output <image-root> \
+  --wpa3-passphrase <operator-ap-passphrase> \
+  --allow-outbound <control-plane-host>:443
+$ pnpm --filter @kelpclaw/pi-agent fetch:nuclei-arm64 -- <image-root>
+```
+
+On the Pi, bootstrap the data directory, key, service, and Pi-side validation harness:
+
+```console
+$ sudo install -d -o kelp-pi -g kelp-pi -m 0750 /var/lib/kelp-pi
+$ sudo -u kelp-pi kelp-pi-agent keygen --key-dir /var/lib/kelp-pi/keys --label <device-id>
+$ sudo systemctl enable --now kelp-pi-agent.service
+$ sudo ./packages/pi-agent/scripts/validate-pi-node.sh
+```
+
+Declare scope from the laptop, then run a scoped scan on the Pi:
+
+```console
+$ kelp-claw pi scope set --host fixture.local --port 80 --until 2026-06-20T00:00:00Z
+$ ssh kelp-pi@<pi-host> \
+  kelp-pi-agent scan nuclei --sandbox --target http://fixture.local --run-id fixture-nuclei
+```
+
+Assemble, fetch, and verify the bundle:
+
+```console
+$ ssh kelp-pi@<pi-host> \
+  kelp-pi-agent bundle assemble \
+  --run-id fixture-nuclei \
+  --workspace /var/lib/kelp-pi/evidence/fixture-nuclei \
+  --output /var/lib/kelp-pi/bundles/fixture-nuclei
+$ kelp-claw pi bundle fetch --bundle-id fixture-nuclei --out .kelpclaw/pi/fixture-nuclei
+$ kelp-claw verify-audit-bundle .kelpclaw/pi/fixture-nuclei --profile reviewer
+```
+
+Query local retrieval:
+
+```console
+$ scripts/kelp-pi-ask "what did the fixture scan find?" --pi <pi-host> --json
+```
+
 ## Concept
 
 KelpClaw already produces reproducible AppSec triage on a laptop: scoped Docker target
