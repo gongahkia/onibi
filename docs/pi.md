@@ -163,6 +163,28 @@ Reference server implementation:
 - Optional: e-ink status panel (v2), USB-Ethernet adapter for wired scope, GPS HAT for
   signed location attestation (v2).
 
+## Data directory layout
+
+Root: `/var/lib/kelp-pi`, owned by the dedicated `kelp-pi` user.
+
+| Path                        | Purpose                                                                             |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `/var/lib/kelp-pi/corpus`   | Operator-provided docs, scanner sidecars, and prior bundle text used for retrieval. |
+| `/var/lib/kelp-pi/evidence` | Normalized scanner evidence before bundle export.                                   |
+| `/var/lib/kelp-pi/bundles`  | Completed audit bundles staged for fetch or sync.                                   |
+| `/var/lib/kelp-pi/index`    | SQLite FTS5 index, chunk metadata, and ingest state.                                |
+| `/var/lib/kelp-pi/audit`    | Hash-chained audit-log segments and rotation manifests.                             |
+| `/var/lib/kelp-pi/keys`     | Encrypted Pi private key files and public key metadata.                             |
+| `/var/lib/kelp-pi/policy`   | Last-good signed policy packs and trust lists.                                      |
+| `/var/lib/kelp-pi/scope`    | Active and historical signed engagement scopes.                                     |
+
+Startup preflight:
+
+- The root and every required child path must exist and be directories.
+- Any world-writable required path is a hard startup failure.
+- `kelp-pi-agent start --data-dir <path> --check-only` runs the same preflight used
+  before daemon startup.
+
 ## OS image base
 
 Reference image: **Raspberry Pi OS Lite 64-bit, Debian Trixie**. As of 2026-06-19,

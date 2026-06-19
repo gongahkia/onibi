@@ -1,4 +1,5 @@
 /target
+packages/*/target
 /dist
 /.zig-cache
 /zig-out

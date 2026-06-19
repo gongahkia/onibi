@@ -1,0 +1,13 @@
+[package]
+name = "kelp-pi-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "kelp_pi_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kelp-pi-agent"
+path = "src/main.rs"
