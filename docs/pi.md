@@ -169,6 +169,53 @@ File custody rules:
 - Control-plane trust lists can revoke a Pi key by key ID; revocation means later
   envelopes and bundles from that key are refused.
 
+## Ed25519 key bootstrap
+
+Bootstrap procedure:
+
+1. Flash the pinned Raspberry Pi OS Lite image and create the dedicated `kelp-pi`
+   user before the first agent start.
+2. Create `/var/lib/kelp-pi/keys/` as `kelp-pi:kelp-pi` with mode `0700`.
+3. Run `kelp-pi-agent keygen --key-dir /var/lib/kelp-pi/keys --label <device-id>`
+   on the Pi console or over SSH. The command prompts for the operator passphrase
+   twice and refuses empty passphrases.
+4. `keygen` writes `pi-ed25519.key.json` with mode `0600` and
+   `pi-ed25519.pub.json` with mode `0644`.
+5. `pi-ed25519.key.json` contains schema version, key ID, creation timestamp,
+   rotation counter, Argon2id params, salt, nonce, and AEAD ciphertext over the
+   Ed25519 private key bytes.
+6. `pi-ed25519.pub.json` contains schema version, key ID, algorithm, device label,
+   public key, creation timestamp, and rotation counter.
+7. Enroll the public key on the control plane with
+   `kelp-claw pi trust add --public-key pi-ed25519.pub.json --device <device-id>`.
+8. First daemon start unlocks the private key, emits a signed `hello` envelope with
+   the key ID, and refuses all sync until the control plane returns a signed
+   `welcome` that includes the same trusted key ID.
+
+Rotation path:
+
+1. Generate a replacement key with
+   `kelp-pi-agent key rotate --key-dir /var/lib/kelp-pi/keys --reason <reason>`.
+2. The agent signs a rotation statement containing old key ID, new key ID, reason,
+   timestamp, and monotonic rotation counter with both the old and new keys when the
+   old key is still available.
+3. The control plane adds the new key as `trusted`, marks the old key as
+   `retiring`, and accepts both during a bounded overlap window.
+4. After the next successful bundle export or operator confirmation, the control
+   plane marks the old key `revoked`; later envelopes from it fail verification.
+
+Revocation mechanism:
+
+- Trust state lives in a signed control-plane trust list keyed by Ed25519 key ID.
+- Valid states are `trusted`, `retiring`, and `revoked`.
+- A revocation record contains key ID, device ID, revocation timestamp, reason, and
+  optional last-known-good envelope timestamp.
+- The control plane refuses `revoked` keys immediately. The Pi consumes the same
+  trust list on `policy.pull`; if its active key is revoked, it stops scanner,
+  bundle, and sync work until re-bootstrap.
+- Emergency rotation after suspected capture starts from a clean flashed image and a
+  fresh `keygen`; the old key is never reused.
+
 ## Threat model
 
 Two axes are in scope: **network perimeter discipline** and **audit & forensics**.
