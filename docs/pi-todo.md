@@ -19,7 +19,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Cross-compile to `aarch64-unknown-linux-gnu` via `cross` or `cargo-zigbuild` → success: a `kelp-pi-agent` binary runs on a real Pi 5 and prints version.
 - [ ] Provide a systemd unit file `kelp-pi-agent.service` → success: `systemctl start kelp-pi-agent` brings up the daemon and `status` shows healthy.
 - [ ] Configure systemd unit with `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, dedicated user → success: `systemd-analyze security kelp-pi-agent.service` scores below 3.0 (lower is better).
-- [ ] Implement a `kelp-pi-agent doctor` subcommand mirroring `kelp-claw doctor` → success: checks key presence, data dir permissions, disk space, SQLite version (must include FTS5), and exits non-zero on any problem.
 - [ ] Implement panic handling that flushes the audit log before exit → success: induced panic produces a final audit entry tagged `panic` and the log verifies.
 - [ ] Implement graceful shutdown on SIGTERM that drains in-flight work or marks it resumable → success: integration test kills the daemon during a scan and the next start marks the run resumable.
 

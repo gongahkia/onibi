@@ -582,6 +582,7 @@ dependencies = [
  "blake3",
  "clap",
  "ed25519-dalek",
+ "libc",
  "rand_core",
  "rusqlite",
  "serde",
