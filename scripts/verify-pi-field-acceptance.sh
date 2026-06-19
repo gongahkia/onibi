@@ -94,6 +94,9 @@ for dnsmasq_line in \
 do
   grep -qx "$dnsmasq_line" "$artifact_dir/node.log" || fail "node log missing dnsmasq proof: $dnsmasq_line"
 done
+grep -qx 'sysctl net.ipv4.ip_forward=0' "$artifact_dir/node.log" || fail "node log missing IPv4 forwarding proof"
+grep -qx 'sysctl net.ipv6.conf.all.forwarding=0' "$artifact_dir/node.log" || fail "node log missing IPv6 forwarding proof"
+grep -q 'kernel forwarding disabled' "$artifact_dir/node.log" || fail "node log missing kernel forwarding proof"
 grep -q 'boot peripheral disable config:' "$artifact_dir/node.log" || fail "node log missing boot peripheral config proof"
 for boot_line in \
   dtoverlay=disable-bt \

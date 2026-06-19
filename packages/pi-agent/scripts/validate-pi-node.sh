@@ -140,8 +140,12 @@ for domain in captive.apple.com connectivitycheck.gstatic.com clients3.google.co
 done
 pass "dnsmasq captive sinkhole config"
 
-[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || fail "IPv4 forwarding enabled"
-[ "$(sysctl -n net.ipv6.conf.all.forwarding)" = "0" ] || fail "IPv6 forwarding enabled"
+ipv4_forward="$(sysctl -n net.ipv4.ip_forward)"
+[ "$ipv4_forward" = "0" ] || fail "IPv4 forwarding enabled"
+printf 'sysctl net.ipv4.ip_forward=%s\n' "$ipv4_forward"
+ipv6_forward="$(sysctl -n net.ipv6.conf.all.forwarding)"
+[ "$ipv6_forward" = "0" ] || fail "IPv6 forwarding enabled"
+printf 'sysctl net.ipv6.conf.all.forwarding=%s\n' "$ipv6_forward"
 pass "kernel forwarding disabled"
 
 [ -f "$boot_config" ] || fail "$boot_config missing"
