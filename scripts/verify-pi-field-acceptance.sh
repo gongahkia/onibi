@@ -81,8 +81,10 @@ grep -q 'control-plane session established' "$artifact_dir/allow-outbound-reload
 grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound reload proof missing"
 grep -q 'DNS probe output contained portal IP' "$artifact_dir/dns-egress.log" || fail "DNS portal response proof missing"
 grep -q 'zero upstream DNS egress observed' "$artifact_dir/dns-egress.log" || fail "DNS egress proof missing"
+grep -q 'AP isolation clients client_a=' "$artifact_dir/ap-isolation.log" || fail "AP client identity proof missing"
 grep -q 'both clients reached portal' "$artifact_dir/ap-isolation.log" || fail "AP portal reachability proof missing"
 grep -q 'AP clients cannot ping each other' "$artifact_dir/ap-isolation.log" || fail "AP isolation proof missing"
+grep -q 'clients cannot reach forbidden IP probes' "$artifact_dir/ap-isolation.log" || fail "AP forbidden-IP proof missing"
 
 if grep -q '^OK ollama-load ' "$summary"; then
   [ -s "$artifact_dir/ollama-load.log" ] || fail "Ollama load log missing or empty"

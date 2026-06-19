@@ -191,6 +191,7 @@ done
 [ -n "$session_command" ] || fail "requires --session-command"
 [ -n "$client_a" ] || fail "requires --client-a"
 [ -n "$client_b" ] || fail "requires --client-b"
+[ -n "$forbidden_ips" ] || fail "requires --forbidden-ip"
 [ -n "$upstream_interface" ] || fail "requires --upstream-interface"
 [ -n "$dns_probe_command" ] || fail "requires --dns-probe-command"
 [ -z "$ollama_model" ] || [ -n "$ollama_expect" ] || fail "--ollama-model requires --ollama-expect-load or --ollama-expect-refuse"

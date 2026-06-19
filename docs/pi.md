@@ -625,9 +625,9 @@ Reference renderer:
   and fails if any TCP or UDP port 53 packet leaves the Pi. With a custom probe
   command, stdout must include the portal IP so the artifact proves local sinkhole
   resolution as well as zero upstream DNS egress.
-- `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user>`
-  SSHes to two AP clients, verifies both can ping the Pi portal IP, and fails if either
-  client can ping the other client or any supplied `--forbidden-ip`.
+- `kelp-pi-validate-ap-isolation --client-a <ip> --client-b <ip> --ssh-user <user> --forbidden-ip <non-portal-ip>`
+  SSHes to two AP clients, verifies both can ping the Pi portal IP, and requires at
+  least one `--forbidden-ip` that neither client may reach.
 - `kelp-pi-validate-field-acceptance --output-dir <dir> ... --nuclei-approval-token <token>`
   runs the strict Pi-side acceptance subset for host identity/service hardening,
   scanner sandboxing, pinned Nuclei execution, nft reload continuity, upstream DNS

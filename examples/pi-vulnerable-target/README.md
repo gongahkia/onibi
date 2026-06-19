@@ -35,6 +35,7 @@ $ examples/pi-vulnerable-target/pi-field-walkthrough.sh \
   --client-a <ap-client-a-ip> \
   --client-b <ap-client-b-ip> \
   --client-ssh-user <client-ssh-user> \
+  --wan-forbidden-ip <non-portal-probe-ip> \
   --upstream-interface <wan-iface> \
   --updated-config <updated-network-hardening.json> \
   --until <scope-expiry-rfc3339>
@@ -59,6 +60,7 @@ $ examples/pi-vulnerable-target/record-pi-demo.sh \
   --client-a <ap-client-a-ip> \
   --client-b <ap-client-b-ip> \
   --client-ssh-user <client-ssh-user> \
+  --wan-forbidden-ip <non-portal-probe-ip> \
   --upstream-interface <wan-iface> \
   --updated-config <updated-network-hardening.json> \
   --until <scope-expiry-rfc3339>

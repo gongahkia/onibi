@@ -30,7 +30,7 @@ readonly_data_dir_explicit=0
 max_seconds=1800
 
 usage() {
-  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR] [--max-seconds N] [--ollama-check load|refuse] [--readonly-root]"
+  printf '%s\n' "usage: $0 --pi-host HOST --fixture-ip IP --control-url URL --client-a IP --client-b IP --client-ssh-user USER --wan-forbidden-ip IP --upstream-interface IFACE --updated-config PATH --until RFC3339 [--out DIR] [--max-seconds N] [--ollama-check load|refuse] [--readonly-root]"
 }
 
 fail() {
@@ -189,6 +189,7 @@ done
 [ -n "$client_a" ] || fail "requires --client-a"
 [ -n "$client_b" ] || fail "requires --client-b"
 [ -n "$client_ssh_user" ] || fail "requires --client-ssh-user"
+[ -n "$wan_forbidden_ip" ] || fail "requires --wan-forbidden-ip"
 [ -n "$upstream_interface" ] || fail "requires --upstream-interface"
 [ -n "$updated_config" ] || fail "requires --updated-config"
 [ -n "$until" ] || fail "requires --until"
@@ -286,8 +287,8 @@ set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
   --ssh-user "$client_ssh_user" \
   --upstream-interface "$upstream_interface" \
   --dns-probe-command "$dns_probe_command" \
+  --forbidden-ip "$wan_forbidden_ip" \
   --max-seconds "$max_seconds"
-[ -z "$wan_forbidden_ip" ] || set -- "$@" --forbidden-ip "$wan_forbidden_ip"
 [ -z "$ollama_check" ] || set -- "$@" "--ollama-expect-$ollama_check"
 [ -z "$ollama_model" ] || set -- "$@" --ollama-model "$ollama_model"
 [ "$readonly_root" = "0" ] || set -- "$@" --readonly-root --readonly-data-dir "$readonly_data_dir"

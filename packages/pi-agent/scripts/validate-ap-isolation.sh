@@ -81,8 +81,10 @@ done
 [ -n "$client_a" ] || fail "requires --client-a"
 [ -n "$client_b" ] || fail "requires --client-b"
 [ "$client_a" != "$client_b" ] || fail "client addresses must differ"
+[ -n "$forbidden_ips" ] || fail "requires at least one --forbidden-ip to prove only the portal IP responds"
 need "$ssh_bin"
 
+pass "AP isolation clients client_a=$client_a client_b=$client_b portal_ip=$portal_ip"
 client_ping "$client_a" "$portal_ip" || fail "$client_a cannot reach portal $portal_ip"
 client_ping "$client_b" "$portal_ip" || fail "$client_b cannot reach portal $portal_ip"
 pass "both clients reached portal $portal_ip"
@@ -103,4 +105,4 @@ for forbidden_ip in $forbidden_ips; do
     fail "$client_b reached forbidden IP $forbidden_ip"
   fi
 done
-[ -z "$forbidden_ips" ] || pass "clients cannot reach forbidden IP probes"
+pass "clients cannot reach forbidden IP probes"
