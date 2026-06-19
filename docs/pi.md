@@ -117,6 +117,31 @@ All kinds map to existing kelp packages where possible. New kinds (`scope.set`,
 - Optional: e-ink status panel (v2), USB-Ethernet adapter for wired scope, GPS HAT for
   signed location attestation (v2).
 
+## OS image base
+
+Reference image: **Raspberry Pi OS Lite 64-bit, Debian Trixie**. As of 2026-06-19,
+the pinned baseline is the 2026-04-21 Lite image, kernel 6.12, Debian 13
+(`trixie`), SHA256
+`4cd31df026fd82243805a326dc0cafd7383f7e3d30c9413e7044d507aae281e2`.
+
+Rationale:
+
+- Raspberry Pi OS is the official supported OS for Pi hardware, and the 64-bit Lite
+  image keeps the field unit headless and small.
+- The image download page publishes release date, kernel version, Debian version,
+  size, and SHA256, so flash artifacts can be pinned and re-verified.
+- Major OS upgrades use fresh images only; no in-place Bookworm-to-Trixie upgrade is
+  part of the supported field path.
+- APT sources and `/etc/apt/preferences.d/kelp-pi` pin package origin and release to
+  Raspberry Pi OS / Debian Trixie repos during image build; scanner binaries and Rust
+  agent builds remain separately pinned by version or digest.
+- Snap is not part of the reference image. `snapd` must remain absent unless a future
+  task explicitly approves it, because snap auto-refresh and alternate package
+  provenance complicate deterministic rebuilds.
+
+Ubuntu Server ARM64 remains a compatibility target for later CI or non-Pi hosts, not
+the reference field image.
+
 ## Threat model
 
 Two axes are in scope: **network perimeter discipline** and **audit & forensics**.
