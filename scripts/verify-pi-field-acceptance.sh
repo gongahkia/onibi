@@ -56,6 +56,7 @@ grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log mis
 grep -q 'disabled bus/audio peripherals absent from dmesg' "$artifact_dir/node.log" || fail "node log missing disabled peripheral proof"
 grep -q 'scanner sandbox blocked control-plane probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block control plane"
 grep -q 'scanner sandbox blocked public probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block public internet"
+grep -q 'pinned Nuclei binary sha256=' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei binary hash proof missing"
 grep -q 'pinned Nuclei scan ran' "$artifact_dir/nuclei-scan.log" || fail "pinned Nuclei scan proof missing"
 grep -q 'control-plane session survived allow-outbound reload' "$artifact_dir/allow-outbound-reload.log" || fail "allow-outbound reload proof missing"
 grep -q 'zero upstream DNS egress observed' "$artifact_dir/dns-egress.log" || fail "DNS egress proof missing"

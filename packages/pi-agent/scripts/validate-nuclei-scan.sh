@@ -27,6 +27,14 @@ need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 missing"
 }
 
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
 cleanup() {
   [ -z "$output_file" ] || rm -f "$output_file"
 }
@@ -94,6 +102,7 @@ done
 [ -n "$approval_token" ] || fail "requires --approval-token"
 
 need "$agent_bin"
+need awk
 need date
 need grep
 need mktemp
@@ -105,6 +114,9 @@ need sed
 [ -x "$nuclei_bin" ] || fail "$nuclei_bin missing or not executable"
 [ -f "$nuclei_manifest" ] || fail "$nuclei_manifest missing"
 grep -q "\"binary_sha256\":\"$binary_sha256\"" "$nuclei_manifest" || fail "nuclei manifest binary hash mismatch"
+installed_nuclei_sha256="$(hash_file "$nuclei_bin")"
+[ "$installed_nuclei_sha256" = "$binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
+pass "pinned Nuclei binary sha256=$installed_nuclei_sha256"
 
 output_file="$(mktemp)"
 "$agent_bin" scan nuclei \
