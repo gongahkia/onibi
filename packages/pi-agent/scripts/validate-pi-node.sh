@@ -3,6 +3,7 @@ set -eu
 
 agent_bin="${KELP_PI_AGENT_BIN:-/usr/local/bin/kelp-pi-agent}"
 service="${KELP_PI_SERVICE:-kelp-pi-agent.service}"
+model_path="${KELP_PI_MODEL_PATH:-/proc/device-tree/model}"
 network_config="${KELP_PI_NETWORK_CONFIG:-/etc/kelp-pi/network-hardening.json}"
 nm_profile="${KELP_PI_NM_PROFILE:-/etc/NetworkManager/system-connections/kelp-pi-ap.nmconnection}"
 dnsmasq_config="${KELP_PI_DNSMASQ_CONFIG:-/etc/dnsmasq.d/kelp-pi-captive.conf}"
@@ -46,6 +47,17 @@ need curl
 need awk
 need grep
 need sysctl
+need tr
+need uname
+
+[ "$(uname -m)" = "aarch64" ] || fail "host architecture is not aarch64"
+[ -f "$model_path" ] || fail "$model_path missing"
+model="$(tr -d '\000' < "$model_path")"
+case "$model" in
+  *"Raspberry Pi 5"*) ;;
+  *) fail "host model is not Raspberry Pi 5: $model" ;;
+esac
+pass "Raspberry Pi 5 aarch64 host"
 
 "$agent_bin" version | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
 pass "agent version"

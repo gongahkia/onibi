@@ -529,11 +529,12 @@ Reference renderer:
 - `pnpm --filter @kelpclaw/pi-agent apply:boot-fragment -- <image-root>` applies the
   generated boot fragment to `<image-root>/boot/firmware/config.txt` idempotently.
 - `pnpm --filter @kelpclaw/pi-agent validate:pi-node` runs the Pi-side validation
-  harness for agent version, systemd health/security score, pinned Nuclei binary,
-  NetworkManager AP profile, dnsmasq sinkhole config, kernel forwarding, nftables
-  reload, boot peripheral-disable config, outbound denial, and captive DNS sinkhole
-  checks. It must run as root on a flashed Pi; it is not a substitute for the
-  two-client AP isolation test or post-boot `dmesg` proof.
+  harness for Raspberry Pi 5/aarch64 host identity, agent version, systemd
+  health/security score, pinned Nuclei binary, NetworkManager AP profile, dnsmasq
+  sinkhole config, kernel forwarding, nftables reload, boot peripheral-disable
+  config, outbound denial, and captive DNS sinkhole checks. It must run as root on a
+  flashed Pi; it is not a substitute for the two-client AP isolation test or post-boot
+  `dmesg` proof.
 - The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
   management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
   maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
