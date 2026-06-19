@@ -39,7 +39,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Embed or depend on system Nmap with a pinned version → success: agent records nmap version in every scan envelope; refuses to run if version mismatch is critical.
 - [ ] Implement rate limits per target: max requests/sec, max concurrent targets, max scan duration → success: limits enforced; an integration test confirms they are respected.
 - [ ] Implement scanner output normalization into the kelp evidence schema → success: a Nuclei JSONL output is converted to evidence rows that pass `kelp/packages/evidence` validation.
-- [ ] Implement ZAP integration as an opt-in feature flag, only enabled on 16GB Pi or non-Pi hosts → success: on 8GB Pi the agent refuses to enable ZAP with an explicit message; on 16GB Pi it works.
 - [ ] Implement scanner job lifecycle: `scan.request → scan.event* → scan.complete` envelopes → success: a control-plane consumer can rebuild a timeline of a scan from envelopes alone.
 - [ ] Implement scanner sandboxing: each scanner runs as an unprivileged user under systemd-run with no network access except to in-scope targets via nftables marks → success: a scanner invocation cannot reach the control plane or the public internet.
 

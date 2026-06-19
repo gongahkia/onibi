@@ -7,15 +7,15 @@ use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
     ask_bind_is_loopback, ask_router, decision_after_approval, default_gold_fixture_dir,
     ensure_targets_in_scope, evaluate_and_audit_local_policy,
-    evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, gold_chunk_id_lines,
-    index_db_path, init_audit_tracing, install_panic_audit_hook, load_active_scope,
-    load_or_generate_identity_key, request_operator_approval, rotate_audit_log, run_doctor,
-    run_gold_eval, run_selfcheck, run_synthesis_eval, selfcheck_report_payload, sign_envelope,
-    unix_millis_now, validate_data_dir, validate_selfcheck_target,
+    evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, evaluate_zap_guard,
+    gold_chunk_id_lines, index_db_path, init_audit_tracing, install_panic_audit_hook,
+    load_active_scope, load_or_generate_identity_key, request_operator_approval, rotate_audit_log,
+    run_doctor, run_gold_eval, run_selfcheck, run_synthesis_eval, selfcheck_report_payload,
+    sign_envelope, unix_millis_now, validate_data_dir, validate_selfcheck_target,
     verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
     wipe_data_dir, AskHttpState, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest,
     PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScopeError, ThermalScanDecision,
-    UnsignedPiWireEnvelope, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
+    UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
     DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
     DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
@@ -781,6 +781,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut scanner_bin = None;
     let mut approval_token = None;
     let mut dry_run = false;
+    let mut enable_zap = false;
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
     let mut index = 0;
@@ -826,6 +827,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             }
             "--dry-run" => {
                 dry_run = true;
+                index += 1;
+            }
+            "--enable-zap" => {
+                enable_zap = true;
                 index += 1;
             }
             "--" => {
@@ -875,6 +880,25 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         );
         eprintln!("scan refused by thermal guard: {}", thermal_guard.reason);
         return Err(ExitCode::from(77));
+    }
+    if scanner == "zap" {
+        let zap_guard = evaluate_zap_guard(enable_zap);
+        if zap_guard.decision == ZapDecision::Refuse {
+            tracing::warn!(
+                event = "scan.zap.refused",
+                msg = "ZAP scan refused",
+                msg_id = "scan-zap-refused",
+                scanner = scanner.as_str(),
+                scope_id = scope.payload.scope_id.as_str(),
+                targets = targets.join(","),
+                reason = zap_guard.reason.as_str(),
+                opt_in = zap_guard.status.opt_in,
+                raspberry_pi = zap_guard.status.raspberry_pi,
+                ram_bytes = zap_guard.status.ram_bytes.unwrap_or(0)
+            );
+            eprintln!("ZAP scan refused: {}", zap_guard.reason);
+            return Err(ExitCode::from(77));
+        }
     }
 
     let command = format!("scan {scanner} {}", targets.join(" "));
@@ -1765,7 +1789,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"

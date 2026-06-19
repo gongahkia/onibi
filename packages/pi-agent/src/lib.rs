@@ -32,6 +32,7 @@ mod selfcheck;
 mod synthesis;
 mod thermal;
 mod wire;
+mod zap;
 
 pub use approval::{
     approve_operator_token, decision_after_approval, read_approval_record,
@@ -92,6 +93,10 @@ pub use thermal::{
 pub use wire::{
     canonical_unsigned_envelope_bytes, sign_envelope, verify_envelope, EnvelopeError,
     PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope, UnsignedPiWireEnvelope,
+};
+pub use zap::{
+    evaluate_zap_guard, ZapDecision, ZapGuard, ZapStatus, ZAP_MEMINFO_PATH_ENV, ZAP_MODEL_PATH_ENV,
+    ZAP_PI_MIN_RAM_BYTES,
 };
 
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
