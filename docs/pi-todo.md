@@ -41,8 +41,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P6 — Audit bundle parity
 
-- [ ] Add a cross-implementation test in CI that produces a bundle from a fixture run on both the TS path and the Rust path and asserts equivalence (modulo timestamps and signatures) → success: this test exists and is green.
-
 ## P7 — Control plane sync
 
 - [ ] Implement offline tolerance: the Pi continues operating with the last good policy and scope if the control plane is unreachable → success: an integration test severs the network mid-engagement and the Pi continues to honor existing scope and policy.

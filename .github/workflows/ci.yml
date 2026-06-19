@@ -58,6 +58,9 @@ jobs:
       - name: Replay Pi audit bundle
         run: pnpm test:pi-bundle-replay
 
+      - name: Compare TS and Rust Pi bundles
+        run: pnpm test:pi-bundle-equivalence
+
       - name: Upload AppSec audit bundle
         if: always()
         uses: actions/upload-artifact@v4
