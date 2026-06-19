@@ -18,6 +18,7 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 mod approval;
 mod chunking;
 mod doctor;
+mod eval;
 mod http;
 mod index;
 mod keys;
@@ -36,6 +37,10 @@ pub use chunking::{
     ContentChunk, IngestRefusal, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
+pub use eval::{
+    default_gold_fixture_dir, run_gold_eval, GoldEvalCaseResult, GoldEvalError, GoldEvalReport,
+    GoldEvalStatus, DEFAULT_GOLD_TOP_K, GOLD_FIXTURE_DIR,
+};
 pub use http::{
     ask_bind_is_loopback, ask_router, AskHttpState, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
     DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,

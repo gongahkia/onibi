@@ -205,7 +205,7 @@
     },
     {
       "id": "no-answer-003",
-      "question": "What is the customer refund window for retail orders?",
+      "question": "What saxophone reed strength is preferred?",
       "expected_chunk_ids": [],
       "expected_no_answer": true
     },
