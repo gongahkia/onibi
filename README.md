@@ -41,6 +41,10 @@ $ kelp-claw verify-audit-bundle .kelpclaw/appsec/local/audit-bundle
 
 See [`docs/appsec-harness.md`](docs/appsec-harness.md) for the agent I/O contract and evidence layout.
 
+## Kelp Pi (in design)
+
+Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened, reproducible AppSec field drop-box: policy-gated scanning under operator-declared scope, signed audit bundles compatible with `kelp-claw verify-audit-bundle`, offline cited retrieval via `/ask`, no cloud dependency, no exploit execution by default. Control plane stays in this TS monorepo; a new Rust agent (`packages/pi-agent`, planned) runs on the Pi. See the design in [`docs/pi.md`](docs/pi.md) and the task list in [`docs/pi-todo.md`](docs/pi-todo.md). Implementation has not started; P0 is the next set of work.
+
 ## Existing Primitives
 
 - `packages/evidence`: evidence workspaces, passive scanner imports, QA, signing, and verification.
