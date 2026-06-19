@@ -2,6 +2,23 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+pub const DEFAULT_NO_ANSWER_THRESHOLD: f64 = 0.000001;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AskResponse {
+    pub query: String,
+    pub top_k: usize,
+    pub no_answer: Option<NoAnswer>,
+    pub results: Vec<RetrievedChunk>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct NoAnswer {
+    pub reason: String,
+    pub threshold: f64,
+    pub max_score: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct RetrievedChunk {
     pub chunk_id: String,
@@ -53,12 +70,12 @@ pub fn search_chunks(
           chunks.heading_path,
           chunks.start_byte,
           chunks.end_byte,
-          bm25(chunks_fts) AS score,
+          -bm25(chunks_fts) AS score,
           chunks.content
         FROM chunks_fts
         JOIN chunks ON chunks_fts.rowid = chunks.rowid
         WHERE chunks_fts MATCH ?1
-        ORDER BY score ASC
+        ORDER BY score DESC
         LIMIT ?2
         "#,
     )?;
@@ -77,6 +94,43 @@ pub fn search_chunks(
     })?;
 
     rows.collect()
+}
+
+pub fn answer_query(
+    connection: &Connection,
+    query: &str,
+    top_k: usize,
+    no_answer_threshold: f64,
+) -> rusqlite::Result<AskResponse> {
+    let results = search_chunks(connection, query, top_k)?;
+    let max_score = results
+        .iter()
+        .map(|result| result.score)
+        .max_by(|left, right| left.total_cmp(right));
+    let no_answer = match max_score {
+        None => Some(NoAnswer {
+            reason: "no matching chunks".to_string(),
+            threshold: no_answer_threshold,
+            max_score: None,
+        }),
+        Some(score) if score < no_answer_threshold => Some(NoAnswer {
+            reason: "max score below threshold".to_string(),
+            threshold: no_answer_threshold,
+            max_score: Some(score),
+        }),
+        Some(_) => None,
+    };
+
+    Ok(AskResponse {
+        query: query.to_string(),
+        top_k: top_k.max(1),
+        results: if no_answer.is_some() {
+            Vec::new()
+        } else {
+            results
+        },
+        no_answer,
+    })
 }
 
 #[cfg(test)]
@@ -165,5 +219,42 @@ mod tests {
         assert!(results
             .iter()
             .all(|result| result.content.contains("admin")));
+    }
+
+    #[test]
+    fn answer_query_returns_no_answer_for_unrelated_query() {
+        let connection = Connection::open_in_memory().expect("open sqlite");
+        apply_index_schema(&connection).expect("apply schema");
+        connection
+            .execute(
+                "INSERT INTO chunks (id, path, heading_path, start_byte, end_byte, content_hash, content, ingested_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    "chunk-1",
+                    "docs/guide.md",
+                    "[]",
+                    0_i64,
+                    18_i64,
+                    "hash-1",
+                    "admin login portal",
+                    "2026-06-19T00:00:00Z"
+                ],
+            )
+            .expect("insert chunk");
+        let rowid = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO chunks_fts (rowid, content) VALUES (?1, ?2)",
+                params![rowid, "admin login portal"],
+            )
+            .expect("insert fts row");
+
+        let response = answer_query(&connection, "unrelated", 5, DEFAULT_NO_ANSWER_THRESHOLD)
+            .expect("answer query");
+
+        assert!(response.results.is_empty());
+        assert_eq!(
+            response.no_answer.expect("no answer").reason,
+            "no matching chunks"
+        );
     }
 }

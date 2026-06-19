@@ -342,6 +342,9 @@ Retrieval chunking:
   window rule when a paragraph exceeds the target.
 - PDF ingest uses external `pdftotext` sidecars only; sidecar text follows the plain
   text path and keeps a `derived_from: pdf` source marker.
+- `/ask` returns `no_answer` when FTS5 finds no matching chunks or when the maximum
+  higher-is-better `-bm25(...)` score is below the configurable threshold. Default
+  threshold: `0.000001`.
 
 Physical capture assumptions:
 

@@ -27,7 +27,10 @@ pub use chunking::{
     ContentChunk, IngestRefusal, DEFAULT_CHUNK_OVERLAP_TOKENS, DEFAULT_CHUNK_TARGET_TOKENS,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport};
-pub use index::{apply_index_schema, index_db_path, search_chunks, RetrievedChunk};
+pub use index::{
+    answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, NoAnswer,
+    RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,
+};
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
     IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,

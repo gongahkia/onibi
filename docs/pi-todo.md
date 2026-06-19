@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Define no-answer rule: if top-k max BM25 score is below a configurable threshold, return `no_answer` with reason → success: a query unrelated to the corpus returns `no_answer`; threshold default is documented.
 - [ ] Define citation format: `{path, heading_path, chunk_id, start_byte, end_byte}` → success: every `/ask` response contains a `citations` array matching this shape.
 - [ ] Implement `/ask` HTTP endpoint on the Pi loopback (no external bind by default) → success: `curl http://127.0.0.1:PORT/ask -d '{"q":"..."}'` returns JSON with citations or `no_answer`.
 - [ ] Add per-IP rate limit and concurrency cap on `/ask` → success: a load test of 100 concurrent queries does not exhaust memory; excess requests get HTTP 429.

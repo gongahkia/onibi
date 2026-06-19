@@ -2,9 +2,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    apply_index_schema, audit_log_path, index_db_path, init_audit_tracing,
-    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, search_chunks,
-    validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_QUOTAS,
+    answer_query, apply_index_schema, audit_log_path, index_db_path, init_audit_tracing,
+    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, validate_data_dir,
+    verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
+    DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 
@@ -49,6 +50,7 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut db_path = None;
     let mut top_k = 5_usize;
+    let mut no_answer_threshold = DEFAULT_NO_ANSWER_THRESHOLD;
     let mut query_parts = Vec::new();
     let mut index = 0;
 
@@ -82,6 +84,22 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
                 top_k = parsed.max(1);
                 index += 2;
             }
+            "--no-answer-threshold" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--no-answer-threshold requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<f64>() else {
+                    eprintln!("--no-answer-threshold must be a finite number");
+                    return Err(ExitCode::from(64));
+                };
+                if !parsed.is_finite() || parsed < 0.0 {
+                    eprintln!("--no-answer-threshold must be a finite non-negative number");
+                    return Err(ExitCode::from(64));
+                }
+                no_answer_threshold = parsed;
+                index += 2;
+            }
             other => {
                 query_parts.push(other.to_string());
                 index += 1;
@@ -98,17 +116,12 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     let db_path = db_path.unwrap_or_else(|| index_db_path(&data_dir));
     match Connection::open(&db_path).and_then(|connection| {
         apply_index_schema(&connection)?;
-        search_chunks(&connection, &query, top_k)
+        answer_query(&connection, &query, top_k, no_answer_threshold)
     }) {
-        Ok(results) => {
+        Ok(response) => {
             println!(
                 "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "query": query,
-                    "top_k": top_k,
-                    "results": results
-                }))
-                .expect("serialize ask response")
+                serde_json::to_string(&response).expect("serialize ask response")
             );
             Ok(())
         }
@@ -318,7 +331,9 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
 }
 
 fn print_usage() {
-    eprintln!("usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N]");
+    eprintln!(
+        "usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N] [--no-answer-threshold FLOAT]"
+    );
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
