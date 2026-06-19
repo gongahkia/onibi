@@ -212,9 +212,10 @@ Override mechanism:
 ## OS image base
 
 Reference image: **Raspberry Pi OS Lite 64-bit, Debian Trixie**. As of 2026-06-19,
-the pinned baseline is the 2026-04-21 Lite image, kernel 6.12, Debian 13
+the pinned baseline is the 2026-06-18 Lite image, kernel 6.18, Debian 13
 (`trixie`), SHA256
-`4cd31df026fd82243805a326dc0cafd7383f7e3d30c9413e7044d507aae281e2`.
+`acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3`.
+Source: official Raspberry Pi OS downloads page.
 
 Rationale:
 
@@ -233,6 +234,33 @@ Rationale:
 
 Ubuntu Server ARM64 remains a compatibility target for later CI or non-Pi hosts, not
 the reference field image.
+
+Package pin and upgrade flow:
+
+- The image build writes `/etc/kelp-pi/os-lock.json` with `image_release`,
+  `image_sha256`, `debian_codename`, `kernel_release`, and a sorted `dpkg-query -W`
+  package lock from the promoted staging unit.
+- `/etc/apt/preferences.d/kelp-pi` pins `trixie` packages as the only allowed release
+  and rejects accidental `bookworm`, `forky`, `testing`, or `unstable` pulls.
+- The lock must include every installed package matching `raspberrypi-*`,
+  `raspi-*`, `linux-image-*`, `linux-headers-*`, `network-manager`, `dnsmasq`,
+  `nftables`, `openssh-*`, `nmap`, and `nuclei`; image builds fail if those package
+  versions drift without a lock update.
+- Routine field units run with those packages held. Operators do not run unattended
+  upgrades on engagement devices.
+- Manual upgrade procedure:
+  1. Download the candidate Raspberry Pi OS Lite 64-bit image from the official
+     Raspberry Pi OS download page and verify its SHA256 before flashing.
+  2. Flash a staging unit, bootstrap `/var/lib/kelp-pi`, install `kelp-pi-agent`, and
+     apply the candidate package lock.
+  3. Reboot once, then run `kelp-pi-agent selfcheck --data-dir /var/lib/kelp-pi` and
+     `kelp-pi-agent verify-audit-log --data-dir /var/lib/kelp-pi`.
+  4. Run the scoped scanner/retrieval smoke on the fixture target and export a bundle.
+  5. Promote the candidate only if selfcheck is clean, audit-log verification passes,
+     the fixture bundle verifies unchanged on the laptop, and the new `os-lock.json`
+     diff is reviewed.
+  6. Rollback is a reflash to the previous pinned image plus the previous
+     `os-lock.json`; no in-place downgrade is supported.
 
 ## Signing key custody
 

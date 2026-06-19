@@ -30,7 +30,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Implement `selfcheck.run` that reports: AP state, SSID, IP, isolation rule presence, allowlist contents, listening ports, free disk, RAM, CPU temperature, microSD wear estimate, audit-log verify result → success: a `selfcheck.report` envelope contains all fields and is signed.
 - [ ] Make `selfcheck` refuse any target outside `127.0.0.0/8`, the Pi's own AP CIDR, and the configured allowlist → success: attempting to point selfcheck at `8.8.8.8` is logged and refused with an explicit error.
 - [ ] Disable Bluetooth, audio, HDMI, and any unused peripheral via boot config → success: `dmesg` post-boot does not show the disabled subsystems initialized.
-- [ ] Pin Pi OS kernel and packages to a known good version; document upgrade procedure → success: `kelp/docs/pi.md` includes the pin and the manual upgrade flow that re-runs selfcheck before promotion.
 - [ ] Optional: configure read-only root with a writable overlay for `/var/lib/kelp-pi` → success: an integration test pulls the SD card during write activity, reboots, and the agent comes up cleanly.
 
 ## P3 — Retrieval foundation
