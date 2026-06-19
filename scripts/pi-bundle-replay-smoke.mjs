@@ -75,6 +75,8 @@ try {
     ...pi,
     "normalize",
     "nuclei",
+    "--data-dir",
+    dataDir,
     "--input",
     rawNuclei,
     "--workspace",

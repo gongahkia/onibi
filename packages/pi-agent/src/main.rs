@@ -7,19 +7,20 @@ use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
     ask_bind_is_loopback, ask_router, assemble_pi_audit_bundle, decision_after_approval,
     default_gold_fixture_dir, default_scanner_stability_fixture_dir, enforce_nuclei_templates_pin,
-    ensure_targets_in_scope, evaluate_and_audit_local_policy,
+    enforce_storage_quota, ensure_targets_in_scope, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, evaluate_zap_guard,
     gold_chunk_id_lines, index_db_path, init_audit_tracing, install_panic_audit_hook,
-    load_active_scope, load_or_generate_identity_key, probe_pinned_nmap_version,
-    request_operator_approval, rotate_audit_log, run_doctor, run_gold_eval,
-    run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck, run_synthesis_eval,
-    scanner_enforced_args, selfcheck_report_payload, sign_envelope, unix_millis_now,
-    validate_data_dir, validate_selfcheck_target, verify_and_stage_firmware_update,
-    verify_audit_log, verify_audit_log_chain, verify_envelope, wipe_data_dir,
-    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin,
-    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
-    PiPolicyMode, PiWireEnvelope, ScannerLimits, ScopeError, ScopeTarget, ScopeTargetType,
-    ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS,
+    load_active_scope, load_or_generate_identity_key, load_storage_quota_config,
+    probe_pinned_nmap_version, request_operator_approval, rotate_audit_log, run_doctor,
+    run_gold_eval, run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck,
+    run_synthesis_eval, scanner_enforced_args, selfcheck_report_payload, sign_envelope,
+    unix_millis_now, validate_data_dir, validate_selfcheck_target,
+    verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
+    wipe_data_dir, write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion,
+    NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction,
+    PiPolicyGate, PiPolicyMode, PiWireEnvelope, ScannerLimits, ScopeError, ScopeTarget,
+    ScopeTargetType, StorageQuotaError, StorageQuotaScope, ThermalScanDecision,
+    UnsignedPiWireEnvelope, ZapDecision, DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS,
     DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
     DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
     DEFAULT_QUOTAS,
@@ -308,6 +309,42 @@ fn scan_request_responses(
                 started_at: &started_at,
                 finished_at: &rfc3339_now(),
                 error: Some(error),
+                metadata: Map::new(),
+            },
+        )?);
+        return Ok(responses);
+    }
+    let min_free_bytes = match scan_request_min_free_bytes(&payload.options) {
+        Ok(value) => value,
+        Err(error) => {
+            responses.push(signed_scan_complete_from_draft(
+                envelope,
+                identity,
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error),
+                    metadata: Map::new(),
+                },
+            )?);
+            return Ok(responses);
+        }
+    };
+    if let Err(error) =
+        enforce_command_storage_quota(data_dir, StorageQuotaScope::Scan, None, min_free_bytes)
+    {
+        audit_storage_quota_refusal(StorageQuotaScope::Scan, &error);
+        responses.push(signed_scan_complete_from_draft(
+            envelope,
+            identity,
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(error.to_string()),
                 metadata: Map::new(),
             },
         )?);
@@ -881,6 +918,10 @@ fn scan_option_u64(options: &Map<String, Value>, key: &str) -> Result<Option<u64
         return Err(format!("{key} must be a positive integer"));
     }
     Ok(Some(raw))
+}
+
+fn scan_request_min_free_bytes(options: &Map<String, Value>) -> Result<Option<u64>, String> {
+    scan_option_u64(options, "min_free_bytes")
 }
 
 fn scan_limits_from_options(options: &Map<String, Value>) -> Result<ScannerLimits, String> {
@@ -1598,6 +1639,8 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut dry_run = false;
     let mut enable_zap = false;
     let mut templates_sha = None;
+    let mut quota_config_path = None;
+    let mut min_free_bytes = None;
     let mut limits = ScannerLimits::default();
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
@@ -1658,6 +1701,22 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 templates_sha = Some(value.to_string());
                 index += 2;
             }
+            "--quota-config" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--quota-config requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                quota_config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--min-free-bytes" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--min-free-bytes requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                min_free_bytes = Some(parse_positive_u64("--min-free-bytes", value)?);
+                index += 2;
+            }
             "--max-requests-per-second" => {
                 let Some(value) = args.get(index + 1) else {
                     eprintln!("--max-requests-per-second requires a value");
@@ -1714,6 +1773,16 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 
     init_checked_audit(&data_dir)?;
+    if let Err(error) = enforce_command_storage_quota(
+        &data_dir,
+        StorageQuotaScope::Scan,
+        quota_config_path.as_deref(),
+        min_free_bytes,
+    ) {
+        audit_storage_quota_refusal(StorageQuotaScope::Scan, &error);
+        eprintln!("scan refused by storage quota: {error}");
+        return Err(ExitCode::from(75));
+    }
     let scope = match load_active_scope(&data_dir) {
         Ok(scope) => scope,
         Err(error) => return refuse_scan_scope(&scanner, &targets, &error.to_string()),
@@ -1976,6 +2045,34 @@ fn init_checked_audit(data_dir: &Path) -> Result<(), ExitCode> {
         return Err(ExitCode::from(78));
     }
     Ok(())
+}
+
+fn enforce_command_storage_quota(
+    data_dir: &Path,
+    scope: StorageQuotaScope,
+    config_path: Option<&Path>,
+    min_free_bytes: Option<u64>,
+) -> Result<(), StorageQuotaError> {
+    let floor = match min_free_bytes {
+        Some(value) => value,
+        None => {
+            load_storage_quota_config(
+                config_path.unwrap_or_else(|| Path::new(DEFAULT_AGENT_CONFIG_PATH)),
+            )?
+            .min_free_bytes
+        }
+    };
+    enforce_storage_quota(data_dir, scope, floor).map(|_| ())
+}
+
+fn audit_storage_quota_refusal(scope: StorageQuotaScope, error: &StorageQuotaError) {
+    tracing::warn!(
+        event = "storage.quota.refused",
+        msg = "storage quota refused operation",
+        msg_id = "storage-quota-refused",
+        scope = scope.as_str(),
+        reason = error.to_string().as_str()
+    );
 }
 
 fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -2286,7 +2383,7 @@ fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
 fn normalize_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
         eprintln!(
-            "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH]"
+            "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
         );
         return Err(ExitCode::from(64));
     };
@@ -2300,6 +2397,9 @@ fn normalize_command(args: Vec<String>) -> Result<(), ExitCode> {
 }
 
 fn normalize_nuclei_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = None;
+    let mut quota_config_path = None;
+    let mut min_free_bytes = None;
     let mut input = None;
     let mut workspace = None;
     let mut raw_path = None;
@@ -2307,6 +2407,30 @@ fn normalize_nuclei_command(args: Vec<String>) -> Result<(), ExitCode> {
 
     while index < args.len() {
         match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--quota-config" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--quota-config requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                quota_config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--min-free-bytes" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--min-free-bytes requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                min_free_bytes = Some(parse_positive_u64("--min-free-bytes", value)?);
+                index += 2;
+            }
             "--input" => {
                 let Some(value) = args.get(index + 1) else {
                     eprintln!("--input requires a value");
@@ -2346,6 +2470,23 @@ fn normalize_nuclei_command(args: Vec<String>) -> Result<(), ExitCode> {
         eprintln!("normalize nuclei requires --workspace");
         return Err(ExitCode::from(64));
     };
+    if (quota_config_path.is_some() || min_free_bytes.is_some()) && data_dir.is_none() {
+        eprintln!("normalize nuclei quota options require --data-dir");
+        return Err(ExitCode::from(64));
+    }
+    if let Some(data_dir) = data_dir.as_deref() {
+        init_checked_audit(data_dir)?;
+        if let Err(error) = enforce_command_storage_quota(
+            data_dir,
+            StorageQuotaScope::Ingest,
+            quota_config_path.as_deref(),
+            min_free_bytes,
+        ) {
+            audit_storage_quota_refusal(StorageQuotaScope::Ingest, &error);
+            eprintln!("normalize nuclei refused by storage quota: {error}");
+            return Err(ExitCode::from(75));
+        }
+    }
     let raw_path = raw_path.unwrap_or_else(|| {
         input
             .file_name()
@@ -2823,7 +2964,7 @@ fn print_usage() {
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!(
-        "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH]"
+        "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
     eprintln!(
         "usage: kelp-pi-agent policy-check --gate GATE [--mode enforce|dry-run] [--dry-run] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
@@ -2831,7 +2972,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--quota-config PATH] [--min-free-bytes N] [--max-requests-per-second N] [--max-concurrent-targets N] [--max-scan-duration-seconds N] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"
@@ -2900,10 +3041,11 @@ fn parse_positive_u64(flag: &str, value: &str) -> Result<u64, ExitCode> {
 
 fn print_quota_defaults() {
     println!(
-        "{{\"corpus_bytes\":{},\"uploads_bytes\":{},\"index_bytes\":{},\"audit_log_bytes\":{}}}",
+        "{{\"corpus_bytes\":{},\"uploads_bytes\":{},\"index_bytes\":{},\"audit_log_bytes\":{},\"min_free_bytes\":{}}}",
         DEFAULT_QUOTAS.corpus_bytes,
         DEFAULT_QUOTAS.uploads_bytes,
         DEFAULT_QUOTAS.index_bytes,
-        DEFAULT_QUOTAS.audit_log_bytes
+        DEFAULT_QUOTAS.audit_log_bytes,
+        DEFAULT_QUOTAS.min_free_bytes
     );
 }

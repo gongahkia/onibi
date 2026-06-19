@@ -208,16 +208,22 @@ audit bundles. NVMe reference units can raise these values through config.
 | Uploads   |   8 GiB | Pending operator uploads staged under `/var/lib/kelp-pi/evidence/uploads`. |
 | Index     |   8 GiB | `/var/lib/kelp-pi/index` SQLite, FTS5, and ingest metadata.                |
 | Audit log |   1 GiB | `/var/lib/kelp-pi/audit` hash-chain segments before rotation/export.       |
+| Free disk |   1 GiB | Minimum filesystem free space before scan or evidence-ingest writes start. |
 
 Override mechanism:
 
 - `/etc/kelp-pi/agent.json` may define `quotas.corpus_bytes`,
-  `quotas.uploads_bytes`, `quotas.index_bytes`, and `quotas.audit_log_bytes`.
+  `quotas.uploads_bytes`, `quotas.index_bytes`, `quotas.audit_log_bytes`, and
+  `quotas.min_free_bytes`.
 - Override values are byte counts and must be positive integers.
 - Missing override keys keep the compiled defaults reported by
   `kelp-pi-agent quota-defaults`.
 - Lowering a quota below current usage refuses new writes for that scope; it does not
   delete existing evidence.
+- `kelp-pi-agent scan` and `kelp-pi-agent normalize nuclei --data-dir <dir>` refuse
+  before starting scanner or evidence writes if free disk is below `min_free_bytes`;
+  signed `scan.request` can also carry `options.min_free_bytes` for test and
+  engagement-specific overrides.
 - The agent records effective quotas and a SHA-256 hash of the config file in the
   startup audit entry.
 

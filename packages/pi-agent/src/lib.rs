@@ -31,6 +31,7 @@ mod keys;
 mod nmap;
 mod nuclei;
 mod policy;
+mod quota;
 mod scanner;
 mod scope;
 mod selfcheck;
@@ -103,6 +104,11 @@ pub use policy::{
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,
     KELP_PI_REVIEW_FILE_MUTATION_RULE_ID, KELP_PI_REVIEW_SYNTHESIS_RULE_ID,
 };
+pub use quota::{
+    enforce_storage_quota, evaluate_storage_quota, free_disk_bytes, load_storage_quota_config,
+    StorageQuotaCheck, StorageQuotaConfig, StorageQuotaError, StorageQuotaScope,
+    DEFAULT_AGENT_CONFIG_PATH, DEFAULT_MIN_FREE_BYTES,
+};
 pub use scanner::{
     run_scanner_with_limits, scanner_enforced_args, ScannerLimitError, ScannerLimits,
     ScannerRunError, ScannerRunOutcome,
@@ -148,6 +154,7 @@ pub const DEFAULT_QUOTAS: QuotaDefaults = QuotaDefaults {
     uploads_bytes: 8 * GIB,
     index_bytes: 8 * GIB,
     audit_log_bytes: GIB,
+    min_free_bytes: GIB,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +163,7 @@ pub struct QuotaDefaults {
     pub uploads_bytes: u64,
     pub index_bytes: u64,
     pub audit_log_bytes: u64,
+    pub min_free_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
