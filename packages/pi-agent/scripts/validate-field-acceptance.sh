@@ -18,6 +18,7 @@ upstream_interface=""
 dns_probe_command=""
 forbidden_ips=""
 nuclei_args=""
+max_seconds=1800
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -138,6 +139,11 @@ while [ $# -gt 0 ]; do
 }$2"
       shift 2
       ;;
+    --max-seconds)
+      [ $# -ge 2 ] || fail "--max-seconds requires a value"
+      max_seconds="$2"
+      shift 2
+      ;;
     *)
       printf 'unknown argument: %s\n' "$1" >&2
       exit 64
@@ -172,6 +178,7 @@ need sed
 need tee
 need uname
 
+start_epoch="$(date -u '+%s')"
 mkdir -p "$output_dir"
 : >"$output_dir/summary.txt"
 {
@@ -218,5 +225,15 @@ for forbidden_ip in $forbidden_ips; do
   set -- "$@" --forbidden-ip "$forbidden_ip"
 done
 run_check ap-isolation "$@"
+
+end_epoch="$(date -u '+%s')"
+duration_seconds=$((end_epoch - start_epoch))
+{
+  printf 'finished_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'duration_seconds=%s\n' "$duration_seconds"
+  printf 'max_seconds=%s\n' "$max_seconds"
+} >"$output_dir/timing.txt"
+printf 'OK duration_seconds=%s max_seconds=%s\n' "$duration_seconds" "$max_seconds" | tee -a "$output_dir/summary.txt"
+[ "$duration_seconds" -le "$max_seconds" ] || fail "field acceptance exceeded ${max_seconds}s"
 
 pass "field acceptance logs written to $output_dir"
