@@ -17,7 +17,6 @@ conventions. Then start at the first unchecked P0 task below.
 ## P1 — Rust agent foundation
 
 - [ ] Cross-compile to `aarch64-unknown-linux-gnu` via `cross` or `cargo-zigbuild` → success: a `kelp-pi-agent` binary runs on a real Pi 5 and prints version.
-- [ ] Implement structured tracing with JSON output to a file under `/var/lib/kelp-pi/audit/` → success: every log line is parseable JSON and includes `ts`, `level`, `event`, `msg_id` where applicable.
 - [ ] Implement hash-chained append-only audit log → success: each log entry contains `prev_hash`; tampering is detected by a `verify-audit-log` subcommand.
 - [ ] Implement Ed25519 key generation, persistence, and loading → success: `kelp-pi-agent keygen` produces keys in `/var/lib/kelp-pi/keys/`; loading is idempotent.
 - [ ] Implement envelope signing and verification using the wire-protocol schema → success: signed envelopes round-trip through a unit test that includes a deliberately corrupted variant which must fail verification.

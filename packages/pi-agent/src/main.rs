@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use kelp_pi_agent::{validate_data_dir, DEFAULT_DATA_DIR, DEFAULT_QUOTAS};
+use kelp_pi_agent::{init_audit_tracing, validate_data_dir, DEFAULT_DATA_DIR, DEFAULT_QUOTAS};
 
 fn main() -> ExitCode {
     match run() {
@@ -69,7 +69,25 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
         return Err(ExitCode::from(78));
     }
 
+    if start_mode {
+        if let Err(error) = init_audit_tracing(&data_dir) {
+            eprintln!("audit tracing init failed: {error}");
+            return Err(ExitCode::from(78));
+        }
+        tracing::info!(
+            event = "agent.preflight.ok",
+            msg = "data dir preflight passed",
+            msg_id = "agent-preflight-ok",
+            data_dir = %data_dir.display()
+        );
+    }
+
     if start_mode && !check_only {
+        tracing::error!(
+            event = "agent.start.unimplemented",
+            msg = "daemon runtime is not implemented",
+            msg_id = "agent-start-unimplemented"
+        );
         eprintln!("daemon runtime is not implemented; rerun with --check-only for preflight");
         return Err(ExitCode::from(69));
     }

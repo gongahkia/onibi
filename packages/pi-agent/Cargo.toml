@@ -19,6 +19,7 @@ rusqlite = { version = "=0.39.0", features = ["bundled"] } # SQLite wrapper; bun
 ed25519-dalek = { version = "=2.2.0", features = ["pem", "pkcs8", "rand_core"] } # stable Ed25519 for envelope, audit, and bundle signatures
 blake3 = { version = "=1.8.5" } # deterministic content, chunk, and audit-chain hashing
 tracing = { version = "=0.1.44" } # structured event API for JSON audit/runtime logging
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] } # file-backed subscriber layer for audit JSONL
 serde = { version = "=1.0.228", features = ["derive"] } # serialization for envelopes, config, and metadata
 serde_json = { version = "=1.0.150" } # JSON codec for wire envelopes and local config
 clap = { version = "=4.6.1", features = ["derive", "env"] } # command parser for keygen, doctor, wire, and field ops
