@@ -98,7 +98,6 @@ conventions. Then start at the first unchecked P0 task below.
 - [ ] Add a sample vulnerable Docker target and a sample engagement walkthrough that exercises Pi end-to-end → success: walkthrough produces a complete bundle that verifies and demonstrates each P1-P10 capability.
 - [ ] Record a short demo: SSH into Pi, declare scope, run a scan, retrieve a citation, export bundle → success: demo asset (cast or gif) committed under `kelp/docs/assets/`.
 - [ ] Open a tracking issue on the kelp repo to coordinate P1-P11 → success: issue exists with checklist linking to this file.
-- [ ] Prepare a Show HN posture: one-line value prop, 30-second README hook, demo gif, honest non-goals, no overclaiming → success: a draft `kelp/docs/pi-launch.md` exists and a teammate (or future-you) signs off.
 
 ## Acceptance gate (block release until all checked)
 
