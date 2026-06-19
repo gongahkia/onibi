@@ -640,7 +640,8 @@ Reference renderer:
   `ram_bytes >= min_pi_ram_bytes`; `--expect-refuse` requires the guard to refuse
   before invoking Ollama on an undersized Pi with `ram_bytes < min_pi_ram_bytes`.
 - `kelp-pi-validate-readonly-root --data-dir /var/lib/kelp-pi` requires `/` to be
-  mounted read-only and the Pi data directory to be writable from a non-root mount.
+  mounted read-only and the Pi data directory to be writable from a non-root mount,
+  logging both mount option sets.
 - `kelp-pi-validate-nuclei-scan --target <scope-target> --approval-token <token> -- <nuclei-args>`
   verifies the pinned `/opt/kelp-pi/bin/nuclei` manifest and runs an actual
   `kelp-pi-agent scan nuclei` invocation through that binary. Its log records the

@@ -82,7 +82,10 @@ if grep -q '^OK ollama-refuse ' "$summary"; then
 fi
 if grep -q '^OK readonly-root ' "$summary"; then
   [ -s "$artifact_dir/readonly-root.log" ] || fail "read-only root log missing or empty"
+  grep -q 'root mount options=' "$artifact_dir/readonly-root.log" || fail "read-only root mount-options proof missing"
   grep -q 'root filesystem mounted read-only' "$artifact_dir/readonly-root.log" || fail "read-only root proof missing"
+  grep -q 'data dir mount target=' "$artifact_dir/readonly-root.log" || fail "read-only data-dir mount proof missing"
+  grep -q 'data dir mount options=' "$artifact_dir/readonly-root.log" || fail "read-only data-dir mount-options proof missing"
   grep -q 'writable outside read-only root' "$artifact_dir/readonly-root.log" || fail "writable data-dir proof missing"
 fi
 

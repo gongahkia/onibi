@@ -46,14 +46,17 @@ need sync
 need tr
 
 root_options="$(findmnt -no OPTIONS /)"
+printf 'root mount options=%s\n' "$root_options"
 printf '%s\n' "$root_options" | tr ',' '\n' | grep -qx ro || fail "root filesystem is not mounted read-only"
 pass "root filesystem mounted read-only"
 
 [ -d "$data_dir" ] || fail "$data_dir missing"
 data_target="$(findmnt -T "$data_dir" -no TARGET | head -n 1)"
 [ -n "$data_target" ] || fail "$data_dir mount not found"
+printf 'data dir mount target=%s\n' "$data_target"
 [ "$data_target" != "/" ] || fail "$data_dir is still backed by root filesystem"
 data_options="$(findmnt -T "$data_dir" -no OPTIONS | head -n 1)"
+printf 'data dir mount options=%s\n' "$data_options"
 printf '%s\n' "$data_options" | tr ',' '\n' | grep -qx rw || fail "$data_dir is not writable"
 
 probe_file="$(mktemp "$data_dir/.kelp-readonly-root.XXXXXX")"
