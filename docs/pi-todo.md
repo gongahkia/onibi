@@ -89,7 +89,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## Acceptance gate (block release until all checked)
 
-- [ ] All P0 decisions recorded and linked from `kelp/docs/pi.md`.
 - [ ] Cold-start engagement demo passes in under 30 minutes from a freshly flashed Pi.
 - [ ] Pi-produced bundle verifies under `kelp-claw verify-audit-bundle` unchanged.
 - [ ] Out-of-scope scan attempts are blocked and audited.

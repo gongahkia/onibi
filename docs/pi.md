@@ -8,9 +8,21 @@ repo on 2026-06-19. Companion task list lives at [`pi-todo.md`](./pi-todo.md). T
 product is **KelpClaw**; the Pi-specific surface is **Kelp Pi**; the agent binary
 is **kelp-pi-agent**; the CLI subcommand family is `kelp-claw pi ...`.
 
-Implementation has not started. P0 in [`pi-todo.md`](./pi-todo.md) is the next set
-of work. Treat the design here as the source of truth; if reality diverges as code
-lands, update this file rather than letting it rot.
+Implementation is in progress. Treat the design here as the source of truth; if
+reality diverges as code lands, update this file rather than letting it rot.
+
+## P0 Decision Ledger
+
+| Decision                      | Record                                                                                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Product naming                | KelpClaw product, Kelp Pi surface, `kelp-pi-agent` binary, and `kelp-claw pi ...` CLI names are fixed in [Status](#status).                                              |
+| Primary persona and non-goals | Operator persona, excluded primary personas, and explicit non-goals are recorded in [Operator persona](#operator-persona) and [Explicit non-goals](#explicit-non-goals). |
+| Control/data-plane split      | TS control plane stays in the monorepo; Rust data-plane agent lives in `packages/pi-agent`, recorded in [Architecture](#architecture-control-plane--data-plane).         |
+| Wire protocol and transport   | Signed JSONL envelopes over SSH-tunneled stdio are recorded in [Wire protocol](#wire-protocol) and [Transport decision](#transport-decision).                            |
+| Hardware floor                | Raspberry Pi 5 with 8GB RAM minimum and 4GB exclusion are recorded in [Pi target hardware](#pi-target-hardware).                                                         |
+| Data layout and quotas        | `/var/lib/kelp-pi` layout and quota defaults are recorded in [Data directory layout](#data-directory-layout) and [Quota defaults](#quota-defaults).                      |
+| OS baseline and upgrade flow  | Raspberry Pi OS Lite 64-bit, package pinning, and reflash-based upgrades are recorded in [OS image base](#os-image-base).                                                |
+| Signing key custody           | On-Pi Ed25519 key custody, rejected alternatives, and rotation/revocation are recorded in [Signing key custody](#signing-key-custody).                                   |
 
 ## One-line pitch
 
@@ -408,7 +420,7 @@ Physical capture assumptions:
   envelopes after the last operator-confirmed good timestamp.
 - Kelp Pi does not claim tamper-resistant hardware custody in v1.
 
-Out of scope (explicit non-goals):
+## Explicit Non-Goals
 
 - Operator anonymity, covert use, evasion of defender detection.
 - Tradecraft hardening beyond the threat model above.
