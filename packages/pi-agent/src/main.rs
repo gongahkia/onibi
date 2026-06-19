@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    audit_log_path, init_audit_tracing, validate_data_dir, verify_audit_log, DEFAULT_DATA_DIR,
-    DEFAULT_QUOTAS,
+    audit_log_path, init_audit_tracing, load_or_generate_identity_key, validate_data_dir,
+    verify_audit_log, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_QUOTAS,
 };
 
 fn main() -> ExitCode {
@@ -22,6 +22,7 @@ fn run() -> Result<(), ExitCode> {
 
     match command.as_str() {
         "check-data-dir" => check_data_dir(args.collect(), false),
+        "keygen" => keygen_command(args.collect()),
         "quota-defaults" => {
             print_quota_defaults();
             Ok(())
@@ -36,6 +37,61 @@ fn run() -> Result<(), ExitCode> {
             eprintln!("unknown command: {command}");
             print_usage();
             Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut label = DEFAULT_KEY_LABEL.to_string();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--label" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--label requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                label = value.to_string();
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    match load_or_generate_identity_key(&key_dir, &label) {
+        Ok(identity) => {
+            println!(
+                "{}",
+                serde_json::to_string(&identity.metadata).expect("serialize key metadata")
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("keygen failed: {error}");
+            Err(ExitCode::from(74))
         }
     }
 }
@@ -148,6 +204,7 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
 
 fn print_usage() {
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
+    eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");

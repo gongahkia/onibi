@@ -14,6 +14,13 @@ use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
+mod keys;
+
+pub use keys::{
+    identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,
+    IdentityKeyError, IdentityKeyMetadata, DEFAULT_KEY_LABEL, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE,
+};
+
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/kelp-pi";
 pub const AUDIT_LOG_FILE: &str = "agent.jsonl";
 pub const AUDIT_LOG_GENESIS_HASH: &str =
