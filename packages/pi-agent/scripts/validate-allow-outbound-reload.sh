@@ -74,6 +74,8 @@ need sh
 need sleep
 need kill
 need mktemp
+need grep
+need sed
 
 status_dir="$(mktemp -d)"
 session_status="$status_dir/session.status"
@@ -92,6 +94,12 @@ kill -0 "$session_pid" >/dev/null 2>&1 || fail "session command exited before re
 pass "control-plane session established"
 
 "$agent_bin" hardening apply-network --config "$updated_config" --nft-bin "$nft_bin" >/dev/null
+ruleset="$("$nft_bin" list ruleset)"
+printf '%s\n' "$ruleset" | grep -q 'table inet kelp_pi_filter' || fail "kelp_pi_filter table missing after reload"
+printf '%s\n' "$ruleset" | grep -q 'policy drop' || fail "nftables default drop missing after reload"
+printf '%s\n' "$ruleset" | grep -q 'ct state established,related accept' || fail "nftables established-session rule missing after reload"
+printf '%s\n' 'allow-outbound ruleset output chain after reload:'
+printf '%s\n' "$ruleset" | sed -n '/chain output/,/}/p'
 sleep "$settle_seconds"
 [ ! -s "$session_status" ] || fail "control-plane session dropped after reload"
 kill -0 "$session_pid" >/dev/null 2>&1 || fail "control-plane session dropped after reload"
