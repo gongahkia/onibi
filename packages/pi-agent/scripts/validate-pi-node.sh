@@ -58,10 +58,11 @@ case "$model" in
   *"Raspberry Pi 5"*) ;;
   *) fail "host model is not Raspberry Pi 5: $model" ;;
 esac
-pass "Raspberry Pi 5 aarch64 host"
+pass "Raspberry Pi 5 aarch64 host: $model"
 
-"$agent_bin" version | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
-pass "agent version"
+agent_version="$("$agent_bin" version)"
+printf '%s\n' "$agent_version" | grep -Eq '^kelp-pi-agent [0-9]+' || fail "agent version failed"
+pass "agent version: $agent_version"
 
 id kelp-pi >/dev/null 2>&1 || fail "kelp-pi user missing"
 pass "kelp-pi user"
@@ -70,9 +71,12 @@ id -nG kelp-pi-scanner | tr ' ' '\n' | grep -qx kelp-pi || fail "kelp-pi-scanner
 pass "kelp-pi-scanner user"
 
 systemctl start "$service"
-systemctl is-active --quiet "$service" || fail "$service not active"
-systemctl status "$service" --no-pager >/dev/null
-pass "service active"
+active_state="$(systemctl is-active "$service" 2>/dev/null || true)"
+[ "$active_state" = "active" ] || fail "$service not active: $active_state"
+systemctl status "$service" --no-pager --lines=5 >/dev/null
+printf 'systemctl is-active %s=%s\n' "$service" "$active_state"
+systemctl show "$service" -p ActiveState -p SubState -p MainPID -p ExecMainStatus -p FragmentPath
+pass "service active: $service"
 
 score="$(systemd-analyze security "$service" --no-pager | awk '/Overall exposure level/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+(\.[0-9]+)?$/) print $i }' | tail -n 1)"
 [ -n "$score" ] || fail "systemd security score missing"
@@ -84,8 +88,9 @@ pass "systemd security score $score"
 grep -q "\"version\":\"$nuclei_version\"" "$nuclei_manifest" || fail "nuclei manifest version mismatch"
 grep -q "\"sha256\":\"$nuclei_asset_sha256\"" "$nuclei_manifest" || fail "nuclei asset sha256 mismatch"
 grep -q "\"binary_sha256\":\"$nuclei_binary_sha256\"" "$nuclei_manifest" || fail "nuclei binary sha256 mismatch"
-[ "$(hash_file "$nuclei_bin")" = "$nuclei_binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
-pass "nuclei pinned binary"
+installed_nuclei_sha256="$(hash_file "$nuclei_bin")"
+[ "$installed_nuclei_sha256" = "$nuclei_binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
+pass "nuclei pinned binary sha256=$installed_nuclei_sha256"
 
 [ -f "$nm_profile" ] || fail "$nm_profile missing"
 grep -qx 'mode=ap' "$nm_profile" || fail "NetworkManager AP mode missing"

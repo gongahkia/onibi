@@ -594,8 +594,9 @@ Reference renderer:
   health/security score, pinned Nuclei binary, NetworkManager AP profile, dnsmasq
   sinkhole config, kernel forwarding, nftables reload, boot peripheral-disable
   config, Bluetooth/audio/I2C/SPI absence in `dmesg`, outbound denial, and captive DNS
-  sinkhole checks. It must run as root on a flashed Pi; it is not a substitute for the
-  two-client AP isolation test.
+  sinkhole checks. Its log records the exact `kelp-pi-agent version` output and
+  `systemctl is-active kelp-pi-agent.service=active`. It must run as root on a
+  flashed Pi; it is not a substitute for the two-client AP isolation test.
 - The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
   management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
   maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,

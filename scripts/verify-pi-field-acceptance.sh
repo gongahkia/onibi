@@ -50,6 +50,8 @@ awk -v duration="$duration_seconds" -v max="$max_seconds" 'BEGIN { exit !(durati
 grep -q "^OK duration_seconds=$duration_seconds " "$summary" || fail "duration summary missing"
 
 grep -q 'systemd security score' "$artifact_dir/node.log" || fail "node log missing systemd security score"
+grep -q 'agent version: kelp-pi-agent ' "$artifact_dir/node.log" || fail "node log missing agent version proof"
+grep -q 'systemctl is-active kelp-pi-agent.service=active' "$artifact_dir/node.log" || fail "node log missing active systemd proof"
 grep -q 'default outbound denial' "$artifact_dir/node.log" || fail "node log missing outbound denial"
 grep -q 'disabled bus/audio peripherals absent from dmesg' "$artifact_dir/node.log" || fail "node log missing disabled peripheral proof"
 grep -q 'scanner sandbox blocked control-plane probe' "$artifact_dir/scanner-sandbox.log" || fail "scanner sandbox did not block control plane"
