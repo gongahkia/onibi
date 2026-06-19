@@ -15,6 +15,7 @@ use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
+mod approval;
 mod chunking;
 mod doctor;
 mod http;
@@ -24,6 +25,11 @@ mod policy;
 mod selfcheck;
 mod wire;
 
+pub use approval::{
+    approve_operator_token, decision_after_approval, read_approval_record,
+    request_operator_approval, ApprovalError, ApprovalRecord, ApprovalStatus, APPROVALS_DIR,
+    DEFAULT_APPROVAL_TTL_SECONDS,
+};
 pub use chunking::{
     canonical_chunk_path, chunk_id_for, chunk_markdown, chunk_pdf_sidecar, chunk_plain_text,
     default_chunking_config, deterministic_token_windows, validate_ingest_source, ChunkingConfig,

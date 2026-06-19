@@ -65,11 +65,11 @@ describe("kelp-claw smoke commands", () => {
           })
         ])
       );
-      expect(runPiCommand(["--help"])).toMatchObject({
+      await expect(runPiCommand(["--help"])).resolves.toMatchObject({
         ok: true,
         name: "kelp-claw pi",
-        placeholder: true,
-        description: "kelp-claw pi commands are not implemented yet."
+        description: "Manage local Kelp Pi approval tokens.",
+        commands: expect.arrayContaining([expect.objectContaining({ name: "approve" })])
       });
 
       const doctor = await runDoctorCommand([

@@ -35,7 +35,7 @@ import {
   type EvidenceSensitivity
 } from "@kelpclaw/evidence";
 import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
-import { piCliHelp } from "@kelpclaw/pi-cli";
+import { piCliHelp, runPiCliCommand } from "@kelpclaw/pi-cli";
 import {
   createWebIntelClient,
   defaultProviderForOperation,
@@ -267,7 +267,7 @@ async function main(argv: readonly string[]): Promise<void> {
     case "appsec":
       return runAppsecCommand(args);
     case "pi":
-      return printJson(runPiCommand(args));
+      return printJson(await runPiCommand(args));
     case "mcp":
       return runMcp(args);
     default:
@@ -380,19 +380,8 @@ export function runHelpCommand(): JsonRecord {
   };
 }
 
-export function runPiCommand(args: readonly string[] = []): JsonRecord {
-  const [command] = args;
-  if (command === undefined || command === "--help" || command === "-h" || command === "help") {
-    return {
-      ok: true,
-      name: "kelp-claw pi",
-      usage: "kelp-claw pi <command> [options]",
-      placeholder: true,
-      description: piCliHelp(),
-      commands: []
-    };
-  }
-  throw new Error("Usage: kelp-claw pi --help");
+export async function runPiCommand(args: readonly string[] = []): Promise<JsonRecord> {
+  return runPiCliCommand(args);
 }
 
 export async function runDoctorCommand(args: readonly string[] = []): Promise<JsonRecord> {

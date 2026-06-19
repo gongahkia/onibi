@@ -1,14 +1,16 @@
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use kelp_pi_agent::{
-    answer_query, apply_index_schema, ask_bind_is_loopback, ask_router, audit_log_path,
-    evaluate_and_audit_local_policy_with_mode, index_db_path, init_audit_tracing,
-    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, run_selfcheck,
-    validate_data_dir, verify_audit_log, AskHttpState, PiLocalPolicyRequest, PiPolicyGate,
-    PiPolicyMode, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
-    DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    answer_query, apply_index_schema, approve_operator_token, ask_bind_is_loopback, ask_router,
+    audit_log_path, evaluate_and_audit_local_policy, evaluate_and_audit_local_policy_with_mode,
+    index_db_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
+    request_operator_approval, run_doctor, run_selfcheck, validate_data_dir, verify_audit_log,
+    AskHttpState, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
+    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL,
+    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 
@@ -27,6 +29,8 @@ fn run() -> Result<(), ExitCode> {
     };
 
     match command.as_str() {
+        "approve" => approve_command(args.collect()),
+        "approval-request" => approval_request_command(args.collect()),
         "ask" => ask_command(args.collect()),
         "check-data-dir" => check_data_dir(args.collect(), false),
         "doctor" => doctor_command(args.collect()),
@@ -50,6 +54,180 @@ fn run() -> Result<(), ExitCode> {
             Err(ExitCode::from(64))
         }
     }
+}
+
+fn approval_request_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut gate = None;
+    let mut scope_id = "default".to_string();
+    let mut ttl_seconds = DEFAULT_APPROVAL_TTL_SECONDS;
+    let mut command = None;
+    let mut path = None;
+    let mut host = None;
+    let mut mutating = false;
+    let mut allowed = true;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--gate" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--gate requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<PiPolicyGate>() else {
+                    eprintln!("--gate must be scanner-invocation, file-operation, or outbound-network-request");
+                    return Err(ExitCode::from(64));
+                };
+                gate = Some(parsed);
+                index += 2;
+            }
+            "--scope-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--scope-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                scope_id = value.to_string();
+                index += 2;
+            }
+            "--ttl-seconds" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--ttl-seconds requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                ttl_seconds = parse_positive_u64("--ttl-seconds", value)?;
+                index += 2;
+            }
+            "--command" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--command requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                command = Some(value.to_string());
+                index += 2;
+            }
+            "--path" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--path requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                path = Some(value.to_string());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--host requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                host = Some(value.to_string());
+                index += 2;
+            }
+            "--mutating" => {
+                mutating = true;
+                index += 1;
+            }
+            "--disallowed" => {
+                allowed = false;
+                index += 1;
+            }
+            "--allowed" => {
+                allowed = true;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(gate) = gate else {
+        eprintln!("approval-request requires --gate");
+        return Err(ExitCode::from(64));
+    };
+    init_checked_audit(&data_dir)?;
+
+    let request = PiLocalPolicyRequest {
+        gate,
+        command,
+        path,
+        host,
+        mutating,
+        allowed,
+    };
+    let decision = evaluate_and_audit_local_policy(&request);
+    if decision.action != PiPolicyAction::RequireApproval {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&decision).expect("serialize policy decision")
+        );
+        return Ok(());
+    }
+    let approval = request_operator_approval(&data_dir, &decision, &scope_id, ttl_seconds)
+        .map_err(|error| {
+            eprintln!("approval request failed: {error}");
+            ExitCode::from(65)
+        })?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&approval).expect("serialize approval")
+    );
+    Ok(())
+}
+
+fn approve_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut token = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            value if value.starts_with('-') => {
+                eprintln!("unknown argument: {value}");
+                return Err(ExitCode::from(64));
+            }
+            value => {
+                if token.is_some() {
+                    eprintln!("approve accepts exactly one token");
+                    return Err(ExitCode::from(64));
+                }
+                token = Some(value.to_string());
+                index += 1;
+            }
+        }
+    }
+
+    let Some(token) = token else {
+        eprintln!("approve requires a token");
+        return Err(ExitCode::from(64));
+    };
+    init_checked_audit(&data_dir)?;
+
+    let approval = approve_operator_token(&data_dir, &token).map_err(|error| {
+        eprintln!("approve failed: {error}");
+        ExitCode::from(65)
+    })?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&approval).expect("serialize approval")
+    );
+    Ok(())
 }
 
 fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -227,16 +405,7 @@ fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
         return Err(ExitCode::from(64));
     };
 
-    if let Err(issues) = validate_data_dir(&data_dir) {
-        for issue in issues {
-            eprintln!("{issue}");
-        }
-        return Err(ExitCode::from(78));
-    }
-    if let Err(error) = init_audit_tracing(&data_dir) {
-        eprintln!("audit tracing init failed: {error}");
-        return Err(ExitCode::from(78));
-    }
+    init_checked_audit(&data_dir)?;
 
     let request = PiLocalPolicyRequest {
         gate,
@@ -251,6 +420,20 @@ fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
         "{}",
         serde_json::to_string_pretty(&decision).expect("serialize policy decision")
     );
+    Ok(())
+}
+
+fn init_checked_audit(data_dir: &Path) -> Result<(), ExitCode> {
+    if let Err(issues) = validate_data_dir(data_dir) {
+        for issue in issues {
+            eprintln!("{issue}");
+        }
+        return Err(ExitCode::from(78));
+    }
+    if let Err(error) = init_audit_tracing(data_dir) {
+        eprintln!("audit tracing init failed: {error}");
+        return Err(ExitCode::from(78));
+    }
     Ok(())
 }
 
@@ -617,6 +800,10 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent ask QUERY [--data-dir PATH] [--db PATH] [--top-k N] [--no-answer-threshold FLOAT]"
     );
+    eprintln!(
+        "usage: kelp-pi-agent approval-request --gate GATE [--scope-id ID] [--ttl-seconds N] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
+    );
+    eprintln!("usage: kelp-pi-agent approve TOKEN [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
@@ -646,6 +833,18 @@ fn parse_non_negative_f64(flag: &str, value: &str) -> Result<f64, ExitCode> {
 
 fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, ExitCode> {
     let Ok(parsed) = value.parse::<usize>() else {
+        eprintln!("{flag} must be a positive integer");
+        return Err(ExitCode::from(64));
+    };
+    if parsed == 0 {
+        eprintln!("{flag} must be a positive integer");
+        return Err(ExitCode::from(64));
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_u64(flag: &str, value: &str) -> Result<u64, ExitCode> {
+    let Ok(parsed) = value.parse::<u64>() else {
         eprintln!("{flag} must be a positive integer");
         return Err(ExitCode::from(64));
     };
