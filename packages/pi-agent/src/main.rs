@@ -46,6 +46,10 @@ fn run() -> Result<(), ExitCode> {
         "selfcheck" => selfcheck_command(args.collect()),
         "verify-audit-log" => verify_audit_log_command(args.collect()),
         "start" => check_data_dir(args.collect(), true),
+        "version" | "--version" | "-V" => {
+            println!("kelp-pi-agent {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -921,6 +925,7 @@ fn print_usage() {
     );
     eprintln!("usage: kelp-pi-agent selfcheck [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
+    eprintln!("usage: kelp-pi-agent version");
     eprintln!("usage: kelp-pi-agent verify-audit-log [--data-dir PATH] [--log-file PATH]");
 }
 
