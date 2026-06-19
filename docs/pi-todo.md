@@ -11,7 +11,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P0 — Scoping, absorption, and contracts
 
-- [ ] Pick reference Pi SKU (board + cooler + PSU + microSD or NVMe) and write a parts list → success: `kelp/docs/pi-hardware.md` lists exact SKUs and vendor links.
 - [ ] Decide on storage media: microSD A2 64GB minimum vs NVMe via PCIe HAT → success: choice recorded in `pi-hardware.md` with read/write IOPS rationale.
 - [ ] Decide on OS image base: Raspberry Pi OS 64-bit vs Ubuntu Server 24.04 ARM64 → success: choice recorded with reproducibility rationale (apt pinning, snap policy).
 - [ ] Decide signing key custody: HSM, OS keychain, file with passphrase, or YubiKey for Pi private keys → success: decision recorded; threat model updated to reflect physical theft assumptions.
