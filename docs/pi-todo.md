@@ -78,7 +78,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P9 — Eval and determinism
 
-- [ ] Build a gold Q/A set against a small fixture corpus → success: 30+ Q/A pairs each with expected chunk IDs and expected `no_answer` cases.
 - [ ] Implement a `kelp-pi-agent eval gold` subcommand that runs the gold set and reports pass/fail per case → success: command exits non-zero if any expected source chunk is missing from retrieved citations.
 - [ ] Implement reproducible-chunk-ID regression: same corpus must produce same chunk IDs across Pi, laptop, and CI runners → success: a CI job rebuilds the index on three environments and diffs the chunk-ID set, failing on any drift.
 - [ ] Implement bundle-replay test: a Pi-produced bundle can be re-verified end-to-end on a laptop with no Pi present → success: CI runs this as a regression.

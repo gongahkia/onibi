@@ -454,6 +454,8 @@ impl std::error::Error for IngestRefusal {}
 mod tests {
     use super::*;
     use crate::{audit_log_path, verify_audit_log, AuditJsonLayer};
+    use serde::Deserialize;
+    use std::collections::HashSet;
     use std::fs::{self, OpenOptions};
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -631,6 +633,73 @@ mod tests {
         assert_eq!(
             pi_chunks[0].chunk_id,
             chunk_id_for("docs/guide.txt", &pi_chunks[0].chunk_hash)
+        );
+    }
+
+    #[test]
+    fn gold_qa_fixture_references_real_chunk_ids() {
+        #[derive(Deserialize)]
+        struct GoldQaSet {
+            cases: Vec<GoldQaCase>,
+        }
+
+        #[derive(Deserialize)]
+        struct GoldQaCase {
+            id: String,
+            expected_chunk_ids: Vec<String>,
+            #[serde(default)]
+            expected_no_answer: bool,
+        }
+
+        let chunks = chunk_markdown(
+            "docs/kelp-pi-field-guide.md",
+            include_str!("../fixtures/gold/corpus/kelp-pi-field-guide.md"),
+            default_chunking_config(),
+        );
+        let known: HashSet<&str> = chunks.iter().map(|chunk| chunk.chunk_id.as_str()).collect();
+        let known_report = chunks
+            .iter()
+            .map(|chunk| format!("{} {:?}", chunk.chunk_id, chunk.heading_path))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let gold: GoldQaSet =
+            serde_json::from_str(include_str!("../fixtures/gold/gold-qa.json")).expect("gold qa");
+        let mut answered = 0;
+        let mut no_answer = 0;
+
+        for case in gold.cases {
+            if case.expected_no_answer {
+                no_answer += 1;
+                assert!(
+                    case.expected_chunk_ids.is_empty(),
+                    "{} no-answer case must not expect chunks",
+                    case.id
+                );
+                continue;
+            }
+
+            answered += 1;
+            assert!(
+                !case.expected_chunk_ids.is_empty(),
+                "{} answered case needs expected chunks; known:\n{}",
+                case.id,
+                known_report
+            );
+            for chunk_id in case.expected_chunk_ids {
+                assert!(
+                    known.contains(chunk_id.as_str()),
+                    "{} references unknown chunk {}; known:\n{}",
+                    case.id,
+                    chunk_id,
+                    known_report
+                );
+            }
+        }
+
+        assert!(answered >= 30, "gold set must keep 30+ answered cases");
+        assert!(
+            no_answer >= 4,
+            "gold set must keep explicit no-answer cases"
         );
     }
 }
