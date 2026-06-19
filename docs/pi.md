@@ -84,8 +84,8 @@ The Pi agent is a single statically-linked binary (~10MB target) cross-compiled 
 
 ### Wire protocol
 
-JSONL over TCP/TLS or local Unix socket. Every envelope is signed by the originating
-side using an Ed25519 key. Envelope shape:
+JSONL over SSH-tunneled stdio. Every envelope is signed by the originating side using
+an Ed25519 key. Envelope shape:
 
 ```
 { "msg_id": "...", "ts": "...", "sender": "pi|cp", "kind": "...", "payload": {...}, "sig": "..." }
@@ -104,6 +104,52 @@ Defined kinds (initial):
 
 All kinds map to existing kelp packages where possible. New kinds (`scope.set`,
 `selfcheck.*`, the bundle transfer pair) are additions to kelp's surface.
+
+### Transport decision
+
+Primary v1 transport: **SSH-tunneled stdio**.
+
+Rationale:
+
+- It exposes no new listening TCP service on the Pi beyond the operator-managed SSH
+  server.
+- It works on hostile LANs where the operator can reach SSH but cannot rely on local
+  DNS, service discovery, or inbound control-plane connectivity.
+- It reuses existing operator SSH key management for session setup while keeping
+  Kelp Pi's Ed25519 envelope signatures as the protocol trust boundary.
+- It keeps the first Rust agent implementation small: line-delimited JSON on stdin
+  and stdout, with stderr reserved for local diagnostics.
+
+Deferred transports:
+
+- TCP+TLS is deferred until the control plane needs always-on push without SSH. It
+  needs certificate enrollment, listener hardening, and a larger exposed surface.
+- A Unix socket is allowed only as a local on-Pi daemon control path, not as the v1
+  laptop-to-Pi transport.
+
+Reference client implementation:
+
+- `kelp-claw pi connect --host <pi>` starts
+  `ssh kelp-pi@<pi> kelp-pi-agent wire --stdio`.
+- The TS client writes one canonical JSON envelope per line to child stdin and reads
+  one envelope per line from child stdout.
+- The TS client validates `envelope.schema.json`, verifies the envelope signature
+  against the current trust list, dispatches by `kind`, and records the raw line hash
+  into the local audit trail.
+- SSH exit status, stderr, and timeout are mapped to transport errors, not protocol
+  payloads.
+
+Reference server implementation:
+
+- `kelp-pi-agent wire --stdio` runs as the SSH forced command or explicit remote
+  command.
+- The Rust server reads newline-delimited JSON from stdin, validates
+  `envelope.schema.json`, verifies the control-plane signature, applies policy/scope
+  checks, and writes signed response envelopes to stdout.
+- Protocol data is stdout-only; stderr is reserved for local operator diagnostics
+  before the protocol is established.
+- The server exits non-zero on malformed JSON, schema failure, signature failure, or
+  revoked key use after writing an audit-log refusal entry when possible.
 
 ## Pi target hardware
 

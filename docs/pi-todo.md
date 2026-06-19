@@ -11,7 +11,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P0 — Scoping, absorption, and contracts
 
-- [ ] Choose transport: TCP+TLS, Unix socket on Pi, or SSH-tunneled stdio → success: decision recorded; client/server reference implementations described.
 - [ ] Define on-Pi data directory layout: `/var/lib/kelp-pi/{corpus,evidence,bundles,index,audit,keys,policy,scope}` → success: layout documented; agent refuses to start if any path is world-writable.
 - [ ] Define on-Pi quota defaults: corpus, uploads, index, audit log size caps → success: quotas listed with default values and configuration override mechanism.
 - [ ] Create `packages/pi-agent` and `packages/pi-cli` skeletons in `kelp/` → success: pnpm workspace recognizes both, basic builds pass.
