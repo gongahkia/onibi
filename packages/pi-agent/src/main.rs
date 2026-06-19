@@ -6,7 +6,7 @@ use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
     ask_bind_is_loopback, ask_router, decision_after_approval, default_gold_fixture_dir,
-    ensure_targets_in_scope, evaluate_and_audit_local_policy,
+    enforce_nuclei_templates_pin, ensure_targets_in_scope, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, evaluate_scan_thermal_guard, evaluate_zap_guard,
     gold_chunk_id_lines, index_db_path, init_audit_tracing, install_panic_audit_hook,
     load_active_scope, load_or_generate_identity_key, probe_pinned_nmap_version,
@@ -14,9 +14,9 @@ use kelp_pi_agent::{
     run_synthesis_eval, selfcheck_report_payload, sign_envelope, unix_millis_now,
     validate_data_dir, validate_selfcheck_target, verify_and_stage_firmware_update,
     verify_audit_log, verify_audit_log_chain, verify_envelope, wipe_data_dir,
-    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, PiEnvelopeKind,
-    PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode,
-    PiWireEnvelope, ScopeError, ScopeTarget, ScopeTargetType, ThermalScanDecision,
+    write_nuclei_findings_document, AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin,
+    PiEnvelopeKind, PiEnvelopeSender, PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate,
+    PiPolicyMode, PiWireEnvelope, ScopeError, ScopeTarget, ScopeTargetType, ThermalScanDecision,
     UnsignedPiWireEnvelope, ZapDecision, DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND,
     DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
     DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
@@ -275,6 +275,28 @@ fn scan_request_responses(
     let started_at = rfc3339_now();
     let mut seq = 0_u64;
     let mut responses = Vec::new();
+    let target_values = scan_request_target_values(&payload.targets);
+    let nuclei_templates = if payload.scanner == "nuclei" {
+        match enforce_nuclei_templates_pin(
+            scan_option_string(&payload.options, "templates_sha").as_deref(),
+        ) {
+            Ok(pin) => Some(pin),
+            Err(error) => {
+                responses.push(signed_scan_complete(
+                    envelope,
+                    identity,
+                    &payload.run_id,
+                    "refused",
+                    &started_at,
+                    &rfc3339_now(),
+                    Some(error.to_string()),
+                )?);
+                return Ok(responses);
+            }
+        }
+    } else {
+        None
+    };
     responses.push(signed_scan_event(
         envelope,
         identity,
@@ -284,38 +306,48 @@ fn scan_request_responses(
             phase: "queued",
             ts: &started_at,
             message: "scan request queued",
-            data: Map::new(),
+            data: scan_event_data(
+                &payload.scanner,
+                &target_values,
+                None,
+                nuclei_templates.as_ref(),
+            ),
         },
     )?);
 
-    let target_values = scan_request_target_values(&payload.targets);
     let scope = match load_active_scope(data_dir) {
         Ok(scope) => scope,
         Err(error) => {
-            responses.push(signed_scan_complete(
+            responses.push(signed_scan_complete_from_draft(
                 envelope,
                 identity,
-                &payload.run_id,
-                "refused",
-                &started_at,
-                &rfc3339_now(),
-                Some(error.to_string()),
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(error.to_string()),
+                    metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+                },
             )?);
             return Ok(responses);
         }
     };
     if scope.payload.scope_id != payload.scope_id {
-        responses.push(signed_scan_complete(
+        responses.push(signed_scan_complete_from_draft(
             envelope,
             identity,
-            &payload.run_id,
-            "refused",
-            &started_at,
-            &rfc3339_now(),
-            Some(format!(
-                "active scope {} does not match request scope {}",
-                scope.payload.scope_id, payload.scope_id
-            )),
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(format!(
+                    "active scope {} does not match request scope {}",
+                    scope.payload.scope_id, payload.scope_id
+                )),
+                metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+            },
         )?);
         return Ok(responses);
     }
@@ -328,41 +360,50 @@ fn scan_request_responses(
             targets = target_values.join(","),
             reason = scan_scope_error_reason(&error).as_str()
         );
-        responses.push(signed_scan_complete(
+        responses.push(signed_scan_complete_from_draft(
             envelope,
             identity,
-            &payload.run_id,
-            "refused",
-            &started_at,
-            &rfc3339_now(),
-            Some(scan_scope_error_reason(&error)),
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(scan_scope_error_reason(&error)),
+                metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+            },
         )?);
         return Ok(responses);
     }
     let thermal_guard = evaluate_scan_thermal_guard();
     if thermal_guard.decision == ThermalScanDecision::Refuse {
-        responses.push(signed_scan_complete(
+        responses.push(signed_scan_complete_from_draft(
             envelope,
             identity,
-            &payload.run_id,
-            "refused",
-            &started_at,
-            &rfc3339_now(),
-            Some(thermal_guard.reason),
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(thermal_guard.reason),
+                metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+            },
         )?);
         return Ok(responses);
     }
     if payload.scanner == "zap" {
         let zap_guard = evaluate_zap_guard(scan_option_bool(&payload.options, "enable_zap"));
         if zap_guard.decision == ZapDecision::Refuse {
-            responses.push(signed_scan_complete(
+            responses.push(signed_scan_complete_from_draft(
                 envelope,
                 identity,
-                &payload.run_id,
-                "refused",
-                &started_at,
-                &rfc3339_now(),
-                Some(zap_guard.reason),
+                ScanCompleteDraft {
+                    run_id: &payload.run_id,
+                    status: "refused",
+                    started_at: &started_at,
+                    finished_at: &rfc3339_now(),
+                    error: Some(zap_guard.reason),
+                    metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+                },
             )?);
             return Ok(responses);
         }
@@ -373,14 +414,17 @@ fn scan_request_responses(
         match probe_pinned_nmap_version(&scanner_bin) {
             Ok(version) => Some(version),
             Err(error) => {
-                responses.push(signed_scan_complete(
+                responses.push(signed_scan_complete_from_draft(
                     envelope,
                     identity,
-                    &payload.run_id,
-                    "refused",
-                    &started_at,
-                    &rfc3339_now(),
-                    Some(error.to_string()),
+                    ScanCompleteDraft {
+                        run_id: &payload.run_id,
+                        status: "refused",
+                        started_at: &started_at,
+                        finished_at: &rfc3339_now(),
+                        error: Some(error.to_string()),
+                        metadata: scanner_metadata(None, nuclei_templates.as_ref()),
+                    },
                 )?);
                 return Ok(responses);
             }
@@ -398,7 +442,12 @@ fn scan_request_responses(
             phase: "started",
             ts: &started_at,
             message: "scan request started",
-            data: scan_event_data(&payload.scanner, &target_values, nmap_version.as_ref()),
+            data: scan_event_data(
+                &payload.scanner,
+                &target_values,
+                nmap_version.as_ref(),
+                nuclei_templates.as_ref(),
+            ),
         },
     )?);
     let decision = evaluate_and_audit_local_policy(&PiLocalPolicyRequest {
@@ -428,7 +477,7 @@ fn scan_request_responses(
             phase: "policy-decision",
             ts: &rfc3339_now(),
             message: decision.reason.as_str(),
-            data: policy_event_data(&decision),
+            data: policy_event_data(&decision, nmap_version.as_ref(), nuclei_templates.as_ref()),
         },
     )?);
     if decision.action != PiPolicyAction::Allow {
@@ -441,26 +490,32 @@ fn scan_request_responses(
             action = decision.action.as_str(),
             reason = decision.reason.as_str()
         );
-        responses.push(signed_scan_complete(
+        responses.push(signed_scan_complete_from_draft(
             envelope,
             identity,
-            &payload.run_id,
-            "refused",
-            &started_at,
-            &rfc3339_now(),
-            Some(decision.reason),
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "refused",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: Some(decision.reason),
+                metadata: scanner_metadata(nmap_version.as_ref(), nuclei_templates.as_ref()),
+            },
         )?);
         return Ok(responses);
     }
     if scan_option_bool(&payload.options, "dry_run") {
-        responses.push(signed_scan_complete(
+        responses.push(signed_scan_complete_from_draft(
             envelope,
             identity,
-            &payload.run_id,
-            "succeeded",
-            &started_at,
-            &rfc3339_now(),
-            None,
+            ScanCompleteDraft {
+                run_id: &payload.run_id,
+                status: "succeeded",
+                started_at: &started_at,
+                finished_at: &rfc3339_now(),
+                error: None,
+                metadata: scanner_metadata(nmap_version.as_ref(), nuclei_templates.as_ref()),
+            },
         )?);
         return Ok(responses);
     }
@@ -471,21 +526,24 @@ fn scan_request_responses(
         .args(&target_values)
         .status()
         .map_err(|error| error.to_string())?;
-    responses.push(signed_scan_complete(
+    responses.push(signed_scan_complete_from_draft(
         envelope,
         identity,
-        &payload.run_id,
-        if status.success() {
-            "succeeded"
-        } else {
-            "failed"
-        },
-        &started_at,
-        &rfc3339_now(),
-        if status.success() {
-            None
-        } else {
-            Some(format!("scanner exited with {status}"))
+        ScanCompleteDraft {
+            run_id: &payload.run_id,
+            status: if status.success() {
+                "succeeded"
+            } else {
+                "failed"
+            },
+            started_at: &started_at,
+            finished_at: &rfc3339_now(),
+            error: if status.success() {
+                None
+            } else {
+                Some(format!("scanner exited with {status}"))
+            },
+            metadata: scanner_metadata(nmap_version.as_ref(), nuclei_templates.as_ref()),
         },
     )?);
     Ok(responses)
@@ -537,6 +595,15 @@ fn signed_scan_event(
     .map_err(|error| error.to_string())
 }
 
+struct ScanCompleteDraft<'a> {
+    run_id: &'a str,
+    status: &'a str,
+    started_at: &'a str,
+    finished_at: &'a str,
+    error: Option<String>,
+    metadata: Map<String, Value>,
+}
+
 fn signed_scan_complete(
     request: &PiWireEnvelope,
     identity: &IdentityKey,
@@ -546,25 +613,53 @@ fn signed_scan_complete(
     finished_at: &str,
     error: Option<String>,
 ) -> Result<PiWireEnvelope, String> {
+    signed_scan_complete_from_draft(
+        request,
+        identity,
+        ScanCompleteDraft {
+            run_id,
+            status,
+            started_at,
+            finished_at,
+            error,
+            metadata: Map::new(),
+        },
+    )
+}
+
+fn signed_scan_complete_from_draft(
+    request: &PiWireEnvelope,
+    identity: &IdentityKey,
+    complete: ScanCompleteDraft<'_>,
+) -> Result<PiWireEnvelope, String> {
     let mut payload = Map::new();
-    payload.insert("run_id".to_string(), Value::String(run_id.to_string()));
-    payload.insert("status".to_string(), Value::String(status.to_string()));
+    payload.insert(
+        "run_id".to_string(),
+        Value::String(complete.run_id.to_string()),
+    );
+    payload.insert(
+        "status".to_string(),
+        Value::String(complete.status.to_string()),
+    );
     payload.insert(
         "started_at".to_string(),
-        Value::String(started_at.to_string()),
+        Value::String(complete.started_at.to_string()),
     );
     payload.insert(
         "finished_at".to_string(),
-        Value::String(finished_at.to_string()),
+        Value::String(complete.finished_at.to_string()),
     );
     payload.insert("evidence_ids".to_string(), Value::Array(Vec::new()));
-    if let Some(error) = error {
+    if !complete.metadata.is_empty() {
+        payload.insert("metadata".to_string(), Value::Object(complete.metadata));
+    }
+    if let Some(error) = complete.error {
         payload.insert("error".to_string(), Value::String(error));
     }
     sign_envelope(
         UnsignedPiWireEnvelope {
             msg_id: format!("{}.complete", request.msg_id),
-            ts: finished_at.to_string(),
+            ts: complete.finished_at.to_string(),
             sender: PiEnvelopeSender::Pi,
             kind: PiEnvelopeKind::ScanComplete,
             payload,
@@ -596,6 +691,7 @@ fn scan_event_data(
     scanner: &str,
     targets: &[String],
     nmap_version: Option<&NmapVersion>,
+    nuclei_templates: Option<&NucleiTemplatesPin>,
 ) -> Map<String, Value> {
     let mut data = Map::new();
     data.insert("scanner".to_string(), Value::String(scanner.to_string()));
@@ -603,6 +699,15 @@ fn scan_event_data(
         "targets".to_string(),
         Value::Array(targets.iter().cloned().map(Value::String).collect()),
     );
+    add_scanner_metadata(&mut data, nmap_version, nuclei_templates);
+    data
+}
+
+fn add_scanner_metadata(
+    data: &mut Map<String, Value>,
+    nmap_version: Option<&NmapVersion>,
+    nuclei_templates: Option<&NucleiTemplatesPin>,
+) {
     if let Some(nmap_version) = nmap_version {
         data.insert(
             "nmap_runtime_version".to_string(),
@@ -613,10 +718,28 @@ fn scan_event_data(
             Value::String(nmap_version.debian_package_version.to_string()),
         );
     }
+    if let Some(nuclei_templates) = nuclei_templates {
+        data.insert(
+            "nuclei_templates_revision".to_string(),
+            Value::String(nuclei_templates.revision.to_string()),
+        );
+    }
+}
+
+fn scanner_metadata(
+    nmap_version: Option<&NmapVersion>,
+    nuclei_templates: Option<&NucleiTemplatesPin>,
+) -> Map<String, Value> {
+    let mut data = Map::new();
+    add_scanner_metadata(&mut data, nmap_version, nuclei_templates);
     data
 }
 
-fn policy_event_data(decision: &kelp_pi_agent::PiLocalPolicyDecision) -> Map<String, Value> {
+fn policy_event_data(
+    decision: &kelp_pi_agent::PiLocalPolicyDecision,
+    nmap_version: Option<&NmapVersion>,
+    nuclei_templates: Option<&NucleiTemplatesPin>,
+) -> Map<String, Value> {
     let mut data = Map::new();
     data.insert(
         "action".to_string(),
@@ -633,6 +756,7 @@ fn policy_event_data(decision: &kelp_pi_agent::PiLocalPolicyDecision) -> Map<Str
                 .collect(),
         ),
     );
+    add_scanner_metadata(&mut data, nmap_version, nuclei_templates);
     data
 }
 
@@ -1207,6 +1331,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut approval_token = None;
     let mut dry_run = false;
     let mut enable_zap = false;
+    let mut templates_sha = None;
     let mut targets = Vec::new();
     let mut scanner_args = Vec::new();
     let mut index = 0;
@@ -1257,6 +1382,14 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             "--enable-zap" => {
                 enable_zap = true;
                 index += 1;
+            }
+            "--templates-sha" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--templates-sha requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                templates_sha = Some(value.to_string());
+                index += 2;
             }
             "--" => {
                 scanner_args.extend(args[index + 1..].iter().cloned());
@@ -1325,6 +1458,26 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
             return Err(ExitCode::from(77));
         }
     }
+    let nuclei_templates = if scanner == "nuclei" {
+        match enforce_nuclei_templates_pin(templates_sha.as_deref()) {
+            Ok(pin) => Some(pin),
+            Err(error) => {
+                tracing::warn!(
+                    event = "scan.nuclei.refused",
+                    msg = "Nuclei scan refused",
+                    msg_id = "scan-nuclei-refused",
+                    scanner = scanner.as_str(),
+                    scope_id = scope.payload.scope_id.as_str(),
+                    targets = targets.join(","),
+                    reason = error.to_string().as_str()
+                );
+                eprintln!("Nuclei scan refused: {error}");
+                return Err(ExitCode::from(77));
+            }
+        }
+    } else {
+        None
+    };
     let scanner_bin = scanner_bin.unwrap_or_else(|| scanner.clone());
     let nmap_version = if scanner == "nmap" {
         match probe_pinned_nmap_version(&scanner_bin) {
@@ -1397,6 +1550,7 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
                 "scanner": scanner,
                 "scanner_bin": scanner_bin,
                 "nmap_version": nmap_version.as_ref().map(|version| version.runtime_version.as_str()),
+                "nuclei_templates_revision": nuclei_templates.as_ref().map(|pin| pin.revision),
                 "scope_id": scope.payload.scope_id,
                 "targets": targets
             }))
@@ -1415,6 +1569,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         nmap_version = nmap_version
             .as_ref()
             .map(|version| version.runtime_version.as_str())
+            .unwrap_or(""),
+        nuclei_templates_revision = nuclei_templates
+            .as_ref()
+            .map(|pin| pin.revision)
             .unwrap_or(""),
         targets = targets.join(",")
     );
@@ -1443,6 +1601,10 @@ fn scan_command(args: Vec<String>) -> Result<(), ExitCode> {
         nmap_version = nmap_version
             .as_ref()
             .map(|version| version.runtime_version.as_str())
+            .unwrap_or(""),
+        nuclei_templates_revision = nuclei_templates
+            .as_ref()
+            .map(|pin| pin.revision)
             .unwrap_or(""),
         status = status.code().unwrap_or(-1) as i64
     );
@@ -2339,7 +2501,7 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!("usage: kelp-pi-agent rotate-audit-log [--data-dir PATH] [--key-dir PATH]");
     eprintln!(
-        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--data-dir PATH] [-- SCANNER_ARG...]"
+        "usage: kelp-pi-agent scan <nuclei|nmap|zap> --target TARGET [--target TARGET...] [--scanner-bin PATH] [--approval-token TOKEN] [--dry-run] [--enable-zap] [--templates-sha SHA] [--data-dir PATH] [-- SCANNER_ARG...]"
     );
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"

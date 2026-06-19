@@ -261,6 +261,13 @@ Package pin and upgrade flow:
 - The system Nmap baseline is Debian Trixie `nmap` package `7.95+dfsg-3`;
   `kelp-pi-agent scan nmap` refuses runtime `nmap --version` output other than
   `7.95`.
+- The Nuclei templates baseline is
+  `projectdiscovery/nuclei-templates@cce82b61d26bed35074cd57bc9d0aebd703a81d3`.
+  `kelp-pi-agent scan nuclei --templates-sha ...` refuses any other revision and
+  scan lifecycle envelopes record the accepted revision. Updating templates is an
+  operator-visible code/config update: fetch the desired upstream commit, update this
+  pinned SHA and the agent constant in one review, rebuild the Pi image, then run the
+  scanner-output stability test before promotion.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

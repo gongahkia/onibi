@@ -28,6 +28,7 @@ mod http;
 mod index;
 mod keys;
 mod nmap;
+mod nuclei;
 mod policy;
 mod scope;
 mod selfcheck;
@@ -74,6 +75,10 @@ pub use keys::{
 pub use nmap::{
     probe_pinned_nmap_version, NmapVersion, NmapVersionError, PINNED_NMAP_DEBIAN_PACKAGE_VERSION,
     PINNED_NMAP_RUNTIME_VERSION,
+};
+pub use nuclei::{
+    enforce_nuclei_templates_pin, NucleiTemplatesError, NucleiTemplatesPin,
+    PINNED_NUCLEI_TEMPLATES_REVISION,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
