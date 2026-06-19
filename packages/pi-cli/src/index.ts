@@ -1,6 +1,25 @@
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign as signBytes
+} from "node:crypto";
 import { spawn } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
-type JsonRecord = Record<string, unknown>;
+type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonRecord;
+type JsonRecord = { readonly [key: string]: JsonValue };
+type ScopeTarget = {
+  readonly type: "cidr" | "host" | "ip" | "url";
+  readonly value: string;
+  readonly ports?: readonly number[];
+};
+type ControlPlaneKey = {
+  readonly algorithm: "ed25519";
+  readonly publicKeyPem: string;
+  readonly privateKeyPem: string;
+};
 
 export function piCliHelp(): string {
   return "Manage local Kelp Pi operator commands.";
@@ -20,6 +39,11 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
           usage: "kelp-claw pi approve TOKEN [--data-dir PATH] [--agent-bin PATH]"
         },
         {
+          name: "scope set",
+          usage:
+            "kelp-claw pi scope set (--cidr CIDR|--host HOST|--ip IP|--url URL)... --until RFC3339 [--port PORT...] [--scope-id ID] [--from RFC3339] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
+        },
+        {
           name: "wipe",
           usage: "kelp-claw pi wipe --force [--data-dir PATH] [--agent-bin PATH]"
         }
@@ -29,10 +53,13 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "approve") {
     return approveCommand(rest);
   }
+  if (command === "scope") {
+    return scopeCommand(rest);
+  }
   if (command === "wipe") {
     return wipeCommand(rest);
   }
-  throw new Error("Usage: kelp-claw pi <approve|wipe|--help>");
+  throw new Error("Usage: kelp-claw pi <approve|scope|wipe|--help>");
 }
 
 async function approveCommand(args: readonly string[]): Promise<JsonRecord> {
@@ -57,6 +84,86 @@ async function wipeCommand(args: readonly string[]): Promise<JsonRecord> {
   return runAgent(agentBin, forwarded);
 }
 
+async function scopeCommand(args: readonly string[]): Promise<JsonRecord> {
+  const [command, ...rest] = args;
+  if (command !== "set") {
+    throw new Error(
+      "Usage: kelp-claw pi scope set (--cidr CIDR|--host HOST|--ip IP|--url URL)... --until RFC3339"
+    );
+  }
+  return scopeSetCommand(rest);
+}
+
+async function scopeSetCommand(args: readonly string[]): Promise<JsonRecord> {
+  const until = option(args, "--until");
+  if (!until) {
+    throw new Error("Usage: kelp-claw pi scope set ... --until RFC3339");
+  }
+  const ports = options(args, "--port").map(parsePort);
+  const targets = [
+    ...options(args, "--cidr").map((value) => scopeTarget("cidr", value, ports)),
+    ...options(args, "--host").map((value) => scopeTarget("host", value, ports)),
+    ...options(args, "--ip").map((value) => scopeTarget("ip", value, ports)),
+    ...options(args, "--url").map((value) => scopeTarget("url", value, ports))
+  ];
+  if (targets.length === 0) {
+    throw new Error("scope set requires at least one --cidr, --host, --ip, or --url");
+  }
+  const issuedAt = rfc3339Seconds(new Date());
+  const validFrom = normalizeRfc3339(option(args, "--from") ?? issuedAt);
+  const validUntil = normalizeRfc3339(until);
+  const scopeId = option(args, "--scope-id") ?? `scope-${issuedAt.replace(/[^0-9TZ]/gu, "")}`;
+  const keyPath = option(args, "--cp-key") ?? ".kelpclaw/pi/control-plane-ed25519.json";
+  const key = await loadOrCreateControlPlaneKey(keyPath);
+  const payload = {
+    scope_id: scopeId,
+    issued_at: issuedAt,
+    valid_from: validFrom,
+    valid_until: validUntil,
+    targets
+  };
+  const envelope = signEnvelope(
+    {
+      msg_id: `scope.set.${scopeId}.${Date.now()}`,
+      ts: issuedAt,
+      sender: "cp",
+      kind: "scope.set",
+      payload
+    },
+    key
+  );
+  const publicKeyHex = publicRawHex(key.publicKeyPem);
+  const dataDir = option(args, "--data-dir");
+  const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
+  const result = await runChild(
+    agentBin,
+    [
+      "wire",
+      "--stdio",
+      "--trusted-cp-public-key-hex",
+      publicKeyHex,
+      ...(dataDir ? ["--data-dir", dataDir] : [])
+    ],
+    `${JSON.stringify(envelope)}\n`
+  );
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || `${agentBin} exited ${result.code}`);
+  }
+  const response = JSON.parse(result.stdout.trim()) as unknown;
+  if (!isRecord(response)) {
+    throw new Error(`${agentBin} returned non-object JSON`);
+  }
+  return {
+    ok: true,
+    scopeId,
+    targetCount: targets.length,
+    validFrom,
+    validUntil,
+    controlPlanePublicKeyHex: publicKeyHex,
+    response
+  };
+}
+
 async function runAgent(command: string, args: readonly string[]): Promise<JsonRecord> {
   const result = await runChild(command, args);
   if (result.code !== 0) {
@@ -75,20 +182,26 @@ async function runAgent(command: string, args: readonly string[]): Promise<JsonR
 
 function runChild(
   command: string,
-  args: readonly string[]
+  args: readonly string[],
+  stdin?: string
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, [...args], {
+      stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"]
+    });
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
+    child.stdout!.setEncoding("utf8");
+    child.stderr!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk: string) => {
       stdout += chunk;
     });
-    child.stderr.on("data", (chunk: string) => {
+    child.stderr!.on("data", (chunk: string) => {
       stderr += chunk;
     });
+    if (stdin !== undefined) {
+      child.stdin!.end(stdin);
+    }
     child.on("error", reject);
     child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
@@ -121,10 +234,121 @@ function option(args: readonly string[], name: string): string | undefined {
   return value;
 }
 
+function options(args: readonly string[], name: string): readonly string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== name) {
+      continue;
+    }
+    const value = args[index + 1];
+    if (!value) {
+      throw new Error(`${name} requires a value`);
+    }
+    values.push(value);
+  }
+  return values;
+}
+
 function hasFlag(args: readonly string[], name: string): boolean {
   return args.includes(name);
 }
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function scopeTarget(
+  type: ScopeTarget["type"],
+  value: string,
+  ports: readonly number[]
+): ScopeTarget {
+  return ports.length > 0 ? { type, value, ports } : { type, value };
+}
+
+function parsePort(value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid --port: ${value}`);
+  }
+  return port;
+}
+
+function normalizeRfc3339(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`invalid RFC3339 date-time: ${value}`);
+  }
+  return rfc3339Seconds(date);
+}
+
+function rfc3339Seconds(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/u, "Z");
+}
+
+async function loadOrCreateControlPlaneKey(path: string): Promise<ControlPlaneKey> {
+  try {
+    const existing = JSON.parse(await readFile(path, "utf8")) as Partial<ControlPlaneKey>;
+    if (
+      existing.algorithm === "ed25519" &&
+      typeof existing.publicKeyPem === "string" &&
+      typeof existing.privateKeyPem === "string"
+    ) {
+      return existing as ControlPlaneKey;
+    }
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, "ENOENT")) {
+      throw error;
+    }
+  }
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  const generated: ControlPlaneKey = {
+    algorithm: "ed25519",
+    publicKeyPem: publicKey,
+    privateKeyPem: privateKey
+  };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(generated, null, 2)}\n`, { mode: 0o600 });
+  return generated;
+}
+
+function signEnvelope(unsigned: JsonRecord, key: ControlPlaneKey): JsonRecord {
+  const canonical = Buffer.from(JSON.stringify(canonicalize(unsigned)));
+  const signature = signBytes(null, canonical, createPrivateKey(key.privateKeyPem));
+  return {
+    ...unsigned,
+    sig: signature.toString("base64url")
+  };
+}
+
+function canonicalize(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalize(child as JsonValue)])
+    );
+  }
+  return value;
+}
+
+function publicRawHex(publicKeyPem: string): string {
+  const publicDer = Buffer.from(
+    createPublicKey(publicKeyPem).export({
+      type: "spki",
+      format: "der"
+    })
+  );
+  return publicDer.subarray(publicDer.length - 32).toString("hex");
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): boolean {
+  return (
+    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === code
+  );
 }

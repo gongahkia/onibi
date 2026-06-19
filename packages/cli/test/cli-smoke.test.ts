@@ -71,6 +71,7 @@ describe("kelp-claw smoke commands", () => {
         description: "Manage local Kelp Pi operator commands.",
         commands: expect.arrayContaining([
           expect.objectContaining({ name: "approve" }),
+          expect.objectContaining({ name: "scope set" }),
           expect.objectContaining({ name: "wipe" })
         ])
       });
@@ -122,6 +123,77 @@ console.log(JSON.stringify({ ok: true, args: process.argv.slice(2) }));
         ok: true,
         args: ["wipe", "--force", "--data-dir", tempDir]
       });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pushes signed Kelp Pi scope envelopes through the local agent wire command", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-pi-scope-"));
+    const agentBin = join(tempDir, "fake-agent.mjs");
+    const cpKey = join(tempDir, "cp-key.json");
+    await writeFile(
+      agentBin,
+      `#!/usr/bin/env node
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  const envelope = JSON.parse(input);
+  console.log(JSON.stringify({
+    ok: true,
+    args: process.argv.slice(2),
+    envelopeKind: envelope.kind,
+    envelopeSender: envelope.sender,
+    signed: typeof envelope.sig === "string" && envelope.sig.length > 0,
+    payload: envelope.payload
+  }));
+});
+`,
+      "utf8"
+    );
+    await chmod(agentBin, 0o755);
+
+    try {
+      await expect(
+        runPiCommand([
+          "scope",
+          "set",
+          "--cidr",
+          "192.0.2.0/29",
+          "--port",
+          "443",
+          "--until",
+          "2099-01-01T00:00:00Z",
+          "--scope-id",
+          "scope-test",
+          "--data-dir",
+          tempDir,
+          "--agent-bin",
+          agentBin,
+          "--cp-key",
+          cpKey
+        ])
+      ).resolves.toMatchObject({
+        ok: true,
+        scopeId: "scope-test",
+        targetCount: 1,
+        response: {
+          ok: true,
+          envelopeKind: "scope.set",
+          envelopeSender: "cp",
+          signed: true,
+          args: expect.arrayContaining(["wire", "--stdio", "--data-dir", tempDir]),
+          payload: {
+            scope_id: "scope-test",
+            valid_until: "2099-01-01T00:00:00Z",
+            targets: [{ type: "cidr", value: "192.0.2.0/29", ports: [443] }]
+          }
+        }
+      });
+      await expect(readFile(cpKey, "utf8")).resolves.toContain('"algorithm": "ed25519"');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
