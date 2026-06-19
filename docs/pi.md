@@ -426,8 +426,9 @@ Reference renderer:
   and `clients3.google.com` to the Pi portal IP.
 - The nftables file installs an `inet kelp_pi_filter` table with input/forward/output
   default-drop policy and outbound accepts only for rendered `allow_outbound`
-  endpoints. Image install scripts must load the generated rules atomically with
-  `nft -f`.
+  `host:port` endpoints. `kelp-pi-agent hardening apply-network --config /etc/kelp-pi/network-hardening.json`
+  reloads the nftables rules through `nft -f -`, so config changes are applied as a
+  single nftables transaction.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
   the reference appliance image. Hardware validation still requires the TODO's
   client-isolation, zero-upstream-DNS, nft egress-denial, and post-boot `dmesg`

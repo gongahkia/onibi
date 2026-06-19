@@ -1,12 +1,13 @@
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::net::Ipv4Addr;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_AP_INTERFACE: &str = "wlan0";
 pub const DEFAULT_AP_SSID: &str = "Kelp-Pi";
@@ -52,7 +53,21 @@ pub enum NetworkHardeningError {
     InvalidDhcpLease(String),
     InvalidDomain(String),
     InvalidEndpoint(String),
+    NftFailed(String),
     Io(String),
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeConfigFile {
+    ap_interface: Option<String>,
+    ssid: Option<String>,
+    ap_address: Option<Ipv4Addr>,
+    ap_prefix: Option<u8>,
+    dhcp_start: Option<Ipv4Addr>,
+    dhcp_end: Option<Ipv4Addr>,
+    dhcp_lease: Option<String>,
+    captive_domains: Option<Vec<String>>,
+    allow_outbound: Option<Vec<String>>,
 }
 
 impl Default for PiNetworkHardeningConfig {
@@ -175,6 +190,74 @@ pub fn write_network_hardening_files(
     Ok(written)
 }
 
+pub fn load_network_hardening_config(
+    path: &Path,
+) -> Result<PiNetworkHardeningConfig, NetworkHardeningError> {
+    let parsed: RuntimeConfigFile =
+        serde_json::from_str(&fs::read_to_string(path).map_err(io_error)?)
+            .map_err(|error| NetworkHardeningError::Io(error.to_string()))?;
+    let mut config = PiNetworkHardeningConfig::default();
+    if let Some(value) = parsed.ap_interface {
+        config.ap_interface = value;
+    }
+    if let Some(value) = parsed.ssid {
+        config.ssid = value;
+    }
+    if let Some(value) = parsed.ap_address {
+        config.ap_address = value;
+    }
+    if let Some(value) = parsed.ap_prefix {
+        config.ap_prefix = value;
+    }
+    if let Some(value) = parsed.dhcp_start {
+        config.dhcp_start = value;
+    }
+    if let Some(value) = parsed.dhcp_end {
+        config.dhcp_end = value;
+    }
+    if let Some(value) = parsed.dhcp_lease {
+        config.dhcp_lease = value;
+    }
+    if let Some(value) = parsed.captive_domains {
+        config.captive_domains = value;
+    }
+    if let Some(values) = parsed.allow_outbound {
+        config.allow_outbound = values
+            .iter()
+            .map(|value| OutboundEndpoint::parse(value))
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    validate_config(&config)?;
+    Ok(config)
+}
+
+pub fn apply_nftables_rules(
+    nft_bin: &Path,
+    config: &PiNetworkHardeningConfig,
+) -> Result<(), NetworkHardeningError> {
+    validate_config(config)?;
+    let rules = render_nftables(config);
+    let mut child = Command::new(nft_bin)
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(io_error)?;
+    child
+        .stdin
+        .take()
+        .expect("nft stdin piped")
+        .write_all(rules.as_bytes())
+        .map_err(io_error)?;
+    let output = child.wait_with_output().map_err(io_error)?;
+    if !output.status.success() {
+        return Err(NetworkHardeningError::NftFailed(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_config(config: &PiNetworkHardeningConfig) -> Result<(), NetworkHardeningError> {
     if !safe_interface_name(&config.ap_interface) {
         return Err(NetworkHardeningError::InvalidInterface(
@@ -272,7 +355,7 @@ fn render_network_config_json(
         dhcp_start: String,
         dhcp_end: String,
         captive_domains: &'a [String],
-        allow_outbound: &'a [OutboundEndpoint],
+        allow_outbound: Vec<String>,
     }
     serde_json::to_string_pretty(&JsonConfig {
         ap_interface: &config.ap_interface,
@@ -282,7 +365,11 @@ fn render_network_config_json(
         dhcp_start: config.dhcp_start.to_string(),
         dhcp_end: config.dhcp_end.to_string(),
         captive_domains: &config.captive_domains,
-        allow_outbound: &config.allow_outbound,
+        allow_outbound: config
+            .allow_outbound
+            .iter()
+            .map(|endpoint| format!("{}:{}", endpoint.host, endpoint.port))
+            .collect(),
     })
     .map(|json| format!("{json}\n"))
     .map_err(|error| NetworkHardeningError::Io(error.to_string()))
@@ -355,6 +442,7 @@ impl Display for NetworkHardeningError {
             NetworkHardeningError::InvalidEndpoint(value) => {
                 write!(formatter, "invalid outbound endpoint: {value}")
             }
+            NetworkHardeningError::NftFailed(value) => write!(formatter, "nft failed: {value}"),
             NetworkHardeningError::Io(value) => write!(formatter, "{value}"),
         }
     }
