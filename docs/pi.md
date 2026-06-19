@@ -535,9 +535,9 @@ Reference renderer:
   harness for Raspberry Pi 5/aarch64 host identity, agent version, systemd
   health/security score, pinned Nuclei binary, NetworkManager AP profile, dnsmasq
   sinkhole config, kernel forwarding, nftables reload, boot peripheral-disable
-  config, outbound denial, and captive DNS sinkhole checks. It must run as root on a
-  flashed Pi; it is not a substitute for the two-client AP isolation test or post-boot
-  `dmesg` proof.
+  config, Bluetooth/audio/I2C/SPI absence in `dmesg`, outbound denial, and captive DNS
+  sinkhole checks. It must run as root on a flashed Pi; it is not a substitute for the
+  two-client AP isolation test.
 - The NetworkManager profile sets AP mode on `wlan0`, WPA3 SAE only, protected
   management frames, and AP client isolation. The dnsmasq file uses `no-resolv` and
   maps captive-check domains such as `captive.apple.com`, `connectivitycheck.gstatic.com`,
@@ -549,9 +549,8 @@ Reference renderer:
   single nftables transaction.
 - The boot fragment disables Bluetooth, onboard audio, HDMI output, I2C, and SPI for
   the reference appliance image. The HDMI setting uses `hdmi_blanking=1`, matching
-  Raspberry Pi's documented switch-off value. Hardware validation still requires the TODO's
-  client-isolation, zero-upstream-DNS, nft egress-denial, and post-boot `dmesg`
-  checks on a real Pi.
+  Raspberry Pi's documented switch-off value. Hardware validation still requires the
+  TODO's client-isolation, zero-upstream-DNS, and nft egress-denial checks on a real Pi.
 
 Audit & forensics:
 

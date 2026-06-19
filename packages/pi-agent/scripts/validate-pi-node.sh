@@ -49,6 +49,7 @@ need grep
 need sysctl
 need tr
 need uname
+need dmesg
 
 [ "$(uname -m)" = "aarch64" ] || fail "host architecture is not aarch64"
 [ -f "$model_path" ] || fail "$model_path missing"
@@ -119,6 +120,19 @@ do
   grep -qx "$line" "$boot_config" || fail "boot config missing $line"
 done
 pass "boot peripheral disables"
+
+dmesg_output="$(dmesg 2>/dev/null || true)"
+[ -n "$dmesg_output" ] || fail "dmesg output unavailable"
+for pattern in \
+  Bluetooth \
+  hci_uart \
+  snd_bcm2835 \
+  i2c-bcm2835 \
+  spi-bcm2835
+do
+  printf '%s\n' "$dmesg_output" | grep -qi "$pattern" && fail "disabled subsystem initialized in dmesg: $pattern"
+done
+pass "disabled bus/audio peripherals absent from dmesg"
 
 [ -f "$network_config" ] || fail "$network_config missing"
 "$agent_bin" hardening apply-network --config "$network_config"
