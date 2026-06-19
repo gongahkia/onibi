@@ -41,9 +41,21 @@ $ kelp-claw verify-audit-bundle .kelpclaw/appsec/local/audit-bundle
 
 See [`docs/appsec-harness.md`](docs/appsec-harness.md) for the agent I/O contract and evidence layout.
 
-## Kelp Pi (in design)
+## Kelp Pi
 
-Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened, reproducible AppSec field drop-box: policy-gated scanning under operator-declared scope, signed audit bundles compatible with `kelp-claw verify-audit-bundle`, offline cited retrieval via `/ask`, no cloud dependency, no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 8GB RAM; 4GB boards are excluded because ZAP's JVM heap and scan state must run alongside Nuclei/Nmap, SQLite FTS5 retrieval, audit signing, and bundle staging without swap-heavy thrash. Control plane stays in this TS monorepo; a new Rust agent (`packages/pi-agent`, planned) runs on the Pi. See the design in [`docs/pi.md`](docs/pi.md) and the task list in [`docs/pi-todo.md`](docs/pi-todo.md). Implementation has not started; P0 is the next set of work.
+Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened, reproducible AppSec field drop-box: policy-gated scanning under operator-declared scope, signed audit bundles compatible with `kelp-claw verify-audit-bundle`, offline cited retrieval via `/ask`, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 8GB RAM; 4GB boards are excluded because scanner state, SQLite FTS5 retrieval, audit signing, and bundle staging must run without swap-heavy thrash. Control plane stays in this TS monorepo; the Rust agent lives in `packages/pi-agent`. See [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and the full architecture diagram in [`docs/architecture.mmd`](docs/architecture.mmd).
+
+```mermaid
+flowchart LR
+  cli["kelp-claw CLI"] <-->|"SSH-tunneled signed envelopes"| agent["kelp-pi-agent"]
+  agent --> policy["signed policy + scope"]
+  agent --> scan["scoped scanner runners"]
+  scan --> evidence["evidence workspace"]
+  evidence --> index["SQLite FTS5 /ask citations"]
+  evidence --> bundle["signed audit bundle"]
+  index --> agent
+  bundle --> verify["verify-audit-bundle"]
+```
 
 ## Existing Primitives
 
