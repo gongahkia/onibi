@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kelpclaw.dev/schemas/pi/envelope.v1.schema.json",
+  "title": "Kelp Pi wire envelope v1",
+  "type": "object",
+  "required": ["msg_id", "ts", "sender", "kind", "payload", "sig"],
+  "additionalProperties": false,
+  "properties": {
+    "msg_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sender": {
+      "enum": ["pi", "cp"]
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+    },
+    "payload": {
+      "$ref": "#/$defs/jsonRecord"
+    },
+    "sig": {
+      "type": "string",
+      "description": "Base64url-encoded Ed25519 signature over the canonical unsigned envelope.",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    }
+  },
+  "$defs": {
+    "jsonValue": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonRecord": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    }
+  }
+}
