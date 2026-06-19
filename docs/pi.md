@@ -636,8 +636,9 @@ Reference renderer:
   `--ollama-expect-refuse`, and `--readonly-root` add those evidence logs to the same
   artifact directory.
 - `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
-  to load the configured 3B-class model; `--expect-refuse` requires the guard to refuse
-  before invoking Ollama on an undersized Pi.
+  to load the configured 3B-class model on Raspberry Pi hardware with
+  `ram_bytes >= min_pi_ram_bytes`; `--expect-refuse` requires the guard to refuse
+  before invoking Ollama on an undersized Pi with `ram_bytes < min_pi_ram_bytes`.
 - `kelp-pi-validate-readonly-root --data-dir /var/lib/kelp-pi` requires `/` to be
   mounted read-only and the Pi data directory to be writable from a non-root mount.
 - `kelp-pi-validate-nuclei-scan --target <scope-target> --approval-token <token> -- <nuclei-args>`

@@ -71,10 +71,14 @@ grep -q 'AP clients cannot ping each other' "$artifact_dir/ap-isolation.log" || 
 if grep -q '^OK ollama-load ' "$summary"; then
   [ -s "$artifact_dir/ollama-load.log" ] || fail "Ollama load log missing or empty"
   grep -q 'Ollama loaded' "$artifact_dir/ollama-load.log" || fail "Ollama load proof missing"
+  grep -q 'Ollama hardware proof raspberry_pi=true ram_bytes=' "$artifact_dir/ollama-load.log" || fail "Ollama load hardware proof missing"
+  grep -q 'on Raspberry Pi ram_bytes=' "$artifact_dir/ollama-load.log" || fail "Ollama load Pi RAM proof missing"
 fi
 if grep -q '^OK ollama-refuse ' "$summary"; then
   [ -s "$artifact_dir/ollama-refuse.log" ] || fail "Ollama refusal log missing or empty"
   grep -q 'Ollama refused' "$artifact_dir/ollama-refuse.log" || fail "Ollama refusal proof missing"
+  grep -q 'Ollama hardware proof raspberry_pi=true ram_bytes=' "$artifact_dir/ollama-refuse.log" || fail "Ollama refusal hardware proof missing"
+  grep -q 'on Raspberry Pi ram_bytes=' "$artifact_dir/ollama-refuse.log" || fail "Ollama refusal Pi RAM proof missing"
 fi
 if grep -q '^OK readonly-root ' "$summary"; then
   [ -s "$artifact_dir/readonly-root.log" ] || fail "read-only root log missing or empty"
