@@ -40,6 +40,7 @@ $ examples/pi-vulnerable-target/pi-field-walkthrough.sh \
   --until 2026-06-20T00:00:00Z
 $ jq .ok .kelpclaw/pi-vulnerable-target-field/verification.json
 $ scripts/verify-pi-field-acceptance.sh .kelpclaw/pi-vulnerable-target-field/field-acceptance
+$ scripts/verify-pi-launch-evidence.sh .kelpclaw/pi-vulnerable-target-field
 ```
 
 The field walkthrough writes scope, approval, scan, field-acceptance, fetch, and
