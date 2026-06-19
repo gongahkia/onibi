@@ -29,6 +29,7 @@ import {
   runEvidenceCommand,
   runDoctorCommand,
   runHelpCommand,
+  runPiCommand,
   runWebCommand,
   runCrossAgentReplaySmoke,
   runOtlpSmoke,
@@ -60,10 +61,16 @@ describe("kelp-claw smoke commands", () => {
         expect.arrayContaining([
           expect.objectContaining({
             group: "adoption",
-            entries: expect.arrayContaining(["doctor", "demo governance"])
+            entries: expect.arrayContaining(["doctor", "demo governance", "pi --help"])
           })
         ])
       );
+      expect(runPiCommand(["--help"])).toMatchObject({
+        ok: true,
+        name: "kelp-claw pi",
+        placeholder: true,
+        description: "kelp-claw pi commands are not implemented yet."
+      });
 
       const doctor = await runDoctorCommand([
         "--root",

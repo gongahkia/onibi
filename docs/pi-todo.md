@@ -11,7 +11,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P0 — Scoping, absorption, and contracts
 
-- [ ] Add `kelp-claw pi` parent subcommand stub in `packages/cli` → success: `kelp-claw pi --help` prints a placeholder.
 - [x] Migrate IDEA and TODO into `kelp/docs/pi.md` and `kelp/docs/pi-todo.md` → success: both files live under `kelp/docs/`; `bloob/` reduced to a stub pointer (full deletion deferred to the operator's git workflow).
 - [x] Update kelp top-level README to mention the Pi target in one paragraph → success: README contains a "Kelp Pi (in design)" section linking to `docs/pi.md` and `docs/pi-todo.md`.
 - [ ] Update kelp top-level architecture diagram to show control-plane / Pi-data-plane split → success: `kelp/docs/architecture.mmd` renders the split.

@@ -35,6 +35,7 @@ import {
   type EvidenceSensitivity
 } from "@kelpclaw/evidence";
 import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
+import { piCliHelp } from "@kelpclaw/pi-cli";
 import {
   createWebIntelClient,
   defaultProviderForOperation,
@@ -265,11 +266,13 @@ async function main(argv: readonly string[]): Promise<void> {
       return printJson(runCrossAgentReplaySmoke());
     case "appsec":
       return runAppsecCommand(args);
+    case "pi":
+      return printJson(runPiCommand(args));
     case "mcp":
       return runMcp(args);
     default:
       throw new Error(
-        "Usage: kelp-claw <help|version|doctor|demo|appsec|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
+        "Usage: kelp-claw <help|version|doctor|demo|appsec|pi|release|verify-release|run-skill|compat|compat-report|policy|governance|web|evidence|inventory|audit-key|export-audit-bundle|export-sarif|verify-audit-bundle|replay-diff|start-recording|record-step|stop-recording|approve-step|deny-step|promote|mcp|audit-verify|audit-anchor|tbom-export|mint-role-token|inspect-role-token|verify-claude-code|otlp-smoke|cross-agent-replay-smoke>"
       );
   }
 }
@@ -339,6 +342,7 @@ export function runHelpCommand(): JsonRecord {
           "version",
           "doctor",
           "appsec audit",
+          "pi --help",
           "demo governance",
           "compat",
           "policy explain"
@@ -374,6 +378,21 @@ export function runHelpCommand(): JsonRecord {
       }
     ]
   };
+}
+
+export function runPiCommand(args: readonly string[] = []): JsonRecord {
+  const [command] = args;
+  if (command === undefined || command === "--help" || command === "-h" || command === "help") {
+    return {
+      ok: true,
+      name: "kelp-claw pi",
+      usage: "kelp-claw pi <command> [options]",
+      placeholder: true,
+      description: piCliHelp(),
+      commands: []
+    };
+  }
+  throw new Error("Usage: kelp-claw pi --help");
 }
 
 export async function runDoctorCommand(args: readonly string[] = []): Promise<JsonRecord> {
