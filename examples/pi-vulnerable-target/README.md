@@ -43,3 +43,20 @@ $ jq .ok .kelpclaw/pi-vulnerable-target-field/verification.json
 
 The field walkthrough writes scope, approval, scan, field-acceptance, fetch, and
 verification artifacts under `.kelpclaw/pi-vulnerable-target-field/`.
+
+Record the launch demo asset from the same hardware flow:
+
+```console
+$ examples/pi-vulnerable-target/record-pi-demo.sh \
+  --pi-host <pi-host> \
+  --fixture-ip <fixture-ip> \
+  --control-url https://<control-plane-host>:443/health \
+  --client-a <ap-client-a-ip> \
+  --client-b <ap-client-b-ip> \
+  --client-ssh-user <client-ssh-user> \
+  --upstream-interface <wan-iface> \
+  --updated-config <updated-network-hardening.json> \
+  --until 2026-06-20T00:00:00Z
+```
+
+The default output is `docs/assets/kelp-pi-fixture-demo.cast`.
