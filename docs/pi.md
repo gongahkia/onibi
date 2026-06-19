@@ -355,6 +355,9 @@ Retrieval chunking:
 - Operators can query over LAN with the single-file Python client:
   `scripts/kelp-pi-ask "question" --pi pi.local`.
 - The client supports `--json` for machine-readable scripting output.
+- Ingest records source file `mtime`, size, and content hash in SQLite. Changed
+  sources replace that file's chunk rows in one transaction; unchanged chunks keep
+  stable content-derived chunk IDs.
 
 Physical capture assumptions:
 

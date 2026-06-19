@@ -33,8 +33,9 @@ pub use http::{
     DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
 };
 pub use index::{
-    answer_query, apply_index_schema, index_db_path, search_chunks, AskResponse, Citation,
-    NoAnswer, RetrievedChunk, DEFAULT_NO_ANSWER_THRESHOLD,
+    answer_query, apply_index_schema, index_db_path, ingest_source_chunks, search_chunks,
+    AskResponse, Citation, NoAnswer, RetrievedChunk, SourceFileMetadata, SourceIngestOutcome,
+    DEFAULT_NO_ANSWER_THRESHOLD,
 };
 pub use keys::{
     identity_key_paths, load_identity_key, load_or_generate_identity_key, IdentityKey,

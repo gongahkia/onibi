@@ -35,7 +35,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P3 — Retrieval foundation
 
-- [ ] Implement re-ingest detection: if any source file's mtime or hash changed, the chunk rows for that file are replaced atomically → success: an integration test edits a file, re-ingests, and the prior chunk IDs for the unchanged sections remain stable.
 - [ ] Add a `stale-index` flag in selfcheck when source files exist that have never been ingested → success: dropping a new file into the corpus dir surfaces a warning in the next selfcheck.
 
 ## P4 — Scanner integration
