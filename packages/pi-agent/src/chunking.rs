@@ -10,6 +10,8 @@ pub struct ContentChunk {
     pub chunk_hash: String,
     pub chunk_id: String,
     pub content: String,
+    pub derived_from: Option<String>,
+    pub sidecar_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,22 @@ pub fn chunk_plain_text(path: &str, text: &str, config: ChunkingConfig) -> Vec<C
     }
 
     chunks
+}
+
+pub fn chunk_pdf_sidecar(
+    pdf_path: &str,
+    sidecar_path: &str,
+    sidecar_text: &str,
+    config: ChunkingConfig,
+) -> Vec<ContentChunk> {
+    chunk_plain_text(pdf_path, sidecar_text, config)
+        .into_iter()
+        .map(|mut chunk| {
+            chunk.derived_from = Some("pdf".to_string());
+            chunk.sidecar_path = Some(sidecar_path.to_string());
+            chunk
+        })
+        .collect()
 }
 
 struct MarkdownSection {
@@ -318,6 +336,8 @@ fn exact_content_chunk(
         chunk_hash,
         chunk_id,
         content,
+        derived_from: None,
+        sidecar_path: None,
     }
 }
 
@@ -344,6 +364,8 @@ fn content_chunk(
         chunk_hash,
         chunk_id,
         content,
+        derived_from: None,
+        sidecar_path: None,
     }
 }
 
@@ -424,5 +446,35 @@ mod tests {
             .windows(2)
             .all(|window| window[0].end_byte == window[1].start_byte));
         assert!(chunks.iter().all(|chunk| chunk.heading_path.is_empty()));
+    }
+
+    #[test]
+    fn pdf_sidecar_chunks_are_tagged_and_reference_sidecar() {
+        let sidecar_text = "PDF title\n\nExtracted body text from pdftotext.\n";
+        let config = ChunkingConfig {
+            target_tokens: 8,
+            overlap_tokens: 0,
+            heading_aware: false,
+        };
+
+        let chunks = chunk_pdf_sidecar(
+            "reports/input.pdf",
+            "reports/input.pdf.txt",
+            sidecar_text,
+            config,
+        );
+        let reconstructed = chunks
+            .iter()
+            .map(|chunk| chunk.content.as_str())
+            .collect::<String>();
+
+        assert_eq!(reconstructed, sidecar_text);
+        assert!(chunks.iter().all(|chunk| chunk.path == "reports/input.pdf"));
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.derived_from.as_deref() == Some("pdf")));
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.sidecar_path.as_deref() == Some("reports/input.pdf.txt")));
     }
 }
