@@ -20,6 +20,8 @@ cargo build --manifest-path "$repo_root/packages/pi-agent/Cargo.toml" --quiet
 "$agent" keygen --data-dir "$data_dir" --label fixture-walkthrough > "$out/key.json"
 "$agent" policy-check --data-dir "$data_dir" --gate outbound-network-request --host fixture.local --allowed > "$out/policy.json"
 "$agent" normalize nuclei --data-dir "$data_dir" --input "$raw" --workspace "$workspace" --raw-path raw/nuclei.jsonl --min-free-bytes 1 > "$out/normalize.json"
+"$agent" index ingest --data-dir "$data_dir" --input "$workspace/normalized/findings.json" --path evidence/fixture-target/normalized-findings.json --min-free-bytes 1 > "$out/index.json"
+"$agent" ask --data-dir "$data_dir" --top-k 1 default admin marker > "$out/ask.json"
 "$agent" bundle assemble --data-dir "$data_dir" --workspace "$workspace" --output "$bundle" --run-id fixture-target > "$out/assembly.json"
 pnpm --filter @kelpclaw/cli... build >/dev/null
 node "$cli" verify-audit-bundle "$bundle" --profile reviewer > "$out/verification.json"

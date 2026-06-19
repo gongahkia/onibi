@@ -31,6 +31,10 @@ cast_header_ok() {
   node -e 'const fs=require("node:fs"); const first=fs.readFileSync(process.argv[1],"utf8").split(/\n/u)[0]; const data=JSON.parse(first); process.exit(Number.isInteger(data.version) ? 0 : 1);' "$1"
 }
 
+json_has_citation() {
+  node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.exit(data.no_answer == null && Array.isArray(data.citations) && data.citations.length > 0 ? 0 : 1);' "$1"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --help|-h)
@@ -61,6 +65,8 @@ for file in \
   approval.json \
   scan.log \
   normalize.json \
+  index.json \
+  ask.json \
   assembly.json \
   fetch.json \
   verification.json \
@@ -71,6 +77,8 @@ done
 
 json_true "$run_dir/scope.json" || fail "scope.json is not ok"
 json_true "$run_dir/approval.json" || fail "approval.json is not ok"
+json_true "$run_dir/index.json" || fail "index.json is not ok"
+json_has_citation "$run_dir/ask.json" || fail "ask.json has no citation"
 json_true "$run_dir/fetch.json" || fail "fetch.json is not ok"
 json_true "$run_dir/verification.json" || fail "verification.json is not ok"
 

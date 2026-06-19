@@ -212,6 +212,16 @@ node "$cli" pi approve "$approval_token" --data-dir "$data_dir" --agent-bin "$ag
     --input "$remote_raw" \
     --workspace "$remote_workspace" \
     --raw-path raw/nuclei.jsonl >"$out/normalize.json"
+"$ssh_bin" "$pi_user@$pi_host" \
+  kelp-pi-agent index ingest \
+    --data-dir "$data_dir" \
+    --input "$remote_workspace/normalized/findings.json" \
+    --path "evidence/$run_id/normalized-findings.json" >"$out/index.json"
+"$ssh_bin" "$pi_user@$pi_host" \
+  kelp-pi-agent ask \
+    --data-dir "$data_dir" \
+    --top-k 1 \
+    default admin marker >"$out/ask.json"
 
 set -- "$ssh_bin" "$pi_user@$pi_host" sudo kelp-pi-validate-field-acceptance \
   --output-dir "$remote_field_dir" \

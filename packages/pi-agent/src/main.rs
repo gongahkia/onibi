@@ -7,29 +7,30 @@ use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_nftables_rules, apply_policy_push,
     apply_scanner_target_rules, apply_scope_set, approve_operator_token, ask_bind_is_loopback,
-    ask_router, assemble_pi_audit_bundle, decision_after_approval, default_gold_fixture_dir,
+    ask_router, assemble_pi_audit_bundle, chunk_markdown, chunk_plain_text,
+    decision_after_approval, default_chunking_config, default_gold_fixture_dir,
     default_scanner_stability_fixture_dir, enforce_nuclei_templates_pin, enforce_storage_quota,
     ensure_targets_in_scope, evaluate_and_audit_local_policy,
     evaluate_and_audit_local_policy_with_mode, evaluate_ollama_guard, evaluate_scan_thermal_guard,
-    evaluate_zap_guard, gold_chunk_id_lines, index_db_path, init_audit_tracing,
-    install_panic_audit_hook, load_active_scope, load_network_hardening_config,
+    evaluate_zap_guard, gold_chunk_id_lines, index_db_path, ingest_source_chunks,
+    init_audit_tracing, install_panic_audit_hook, load_active_scope, load_network_hardening_config,
     load_or_generate_identity_key, load_pi_bundle_transfer, load_storage_quota_config,
     probe_pinned_nmap_version, request_operator_approval, rotate_audit_log, run_doctor,
     run_gold_eval, run_scanner_stability_eval, run_scanner_with_limits, run_selfcheck,
     run_synthesis_eval, scanner_enforced_args, selfcheck_report_payload, sign_envelope,
-    unix_millis_now, validate_data_dir, validate_selfcheck_target,
+    unix_millis_now, validate_data_dir, validate_ingest_source, validate_selfcheck_target,
     verify_and_stage_firmware_update, verify_audit_log, verify_audit_log_chain, verify_envelope,
     wipe_data_dir, write_network_hardening_files, write_nuclei_findings_document, AskHttpState,
     IdentityKey, NmapVersion, NucleiTemplatesPin, OutboundEndpoint, PiEnvelopeKind,
     PiEnvelopeSender, PiLocalPolicyRequest, PiNetworkHardeningConfig, PiPolicyAction, PiPolicyGate,
     PiPolicyMode, PiWireEnvelope, PolicyTrustState, ScannerLimits, ScannerSandboxConfig,
-    ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError, StorageQuotaScope,
-    StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey, UnsignedPiWireEnvelope,
-    ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH, DEFAULT_APPROVAL_TTL_SECONDS,
-    DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
-    DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD,
-    DEFAULT_NUCLEI_BINARY_PATH, DEFAULT_OLLAMA_MODEL, DEFAULT_QUOTAS, DEFAULT_SCANNER_NFT_MARK,
-    DEFAULT_SCANNER_SANDBOX_USER, DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
+    ScopeError, ScopeTarget, ScopeTargetType, SourceFileMetadata, StorageQuotaError,
+    StorageQuotaScope, StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey,
+    UnsignedPiWireEnvelope, ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH,
+    DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
+    DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
+    DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_NUCLEI_BINARY_PATH, DEFAULT_OLLAMA_MODEL, DEFAULT_QUOTAS,
+    DEFAULT_SCANNER_NFT_MARK, DEFAULT_SCANNER_SANDBOX_USER, DEFAULT_SCANNER_SYSTEMD_RUN_BIN,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,7 @@ fn run() -> Result<(), ExitCode> {
         "eval" => eval_command(args.collect()),
         "firmware-update" => firmware_update_command(args.collect()),
         "hardening" => hardening_command(args.collect()),
+        "index" => index_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "normalize" => normalize_command(args.collect()),
         "ollama" => ollama_command(args.collect()),
@@ -2157,6 +2159,168 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn index_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!(
+            "usage: kelp-pi-agent index ingest --input PATH [--path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
+        );
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "ingest" => index_ingest_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown index command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn index_ingest_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut quota_config_path = None;
+    let mut min_free_bytes = None;
+    let mut input = None;
+    let mut logical_path = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--quota-config" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--quota-config requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                quota_config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--min-free-bytes" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--min-free-bytes requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                min_free_bytes = Some(parse_positive_u64("--min-free-bytes", value)?);
+                index += 2;
+            }
+            "--input" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--input requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                input = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--path" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--path requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                logical_path = Some(safe_index_path(value)?);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(input) = input else {
+        eprintln!("index ingest requires --input");
+        return Err(ExitCode::from(64));
+    };
+    let logical_path = match logical_path {
+        Some(path) => path,
+        None => input
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| {
+                eprintln!("index ingest input must have a file name or --path");
+                ExitCode::from(64)
+            })
+            .and_then(safe_index_path)?,
+    };
+
+    init_checked_audit(&data_dir)?;
+    if let Err(error) = enforce_command_storage_quota(
+        &data_dir,
+        StorageQuotaScope::Ingest,
+        quota_config_path.as_deref(),
+        min_free_bytes,
+    ) {
+        audit_storage_quota_refusal(StorageQuotaScope::Ingest, &error);
+        eprintln!("index ingest refused by storage quota: {error}");
+        return Err(ExitCode::from(75));
+    }
+
+    let bytes = fs::read(&input).map_err(|error| {
+        eprintln!("index ingest failed to read input: {error}");
+        ExitCode::from(74)
+    })?;
+    validate_ingest_source(&logical_path, &bytes).map_err(|error| {
+        eprintln!("index ingest refused source: {error}");
+        ExitCode::from(65)
+    })?;
+    let content = String::from_utf8(bytes).map_err(|error| {
+        eprintln!("index ingest input must be UTF-8 text: {error}");
+        ExitCode::from(65)
+    })?;
+    let metadata = fs::metadata(&input).map_err(|error| {
+        eprintln!("index ingest failed to stat input: {error}");
+        ExitCode::from(74)
+    })?;
+    let chunks = if logical_path.ends_with(".md") || logical_path.ends_with(".markdown") {
+        chunk_markdown(&logical_path, &content, default_chunking_config())
+    } else {
+        chunk_plain_text(&logical_path, &content, default_chunking_config())
+    };
+    let db_path = index_db_path(&data_dir);
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            eprintln!("index ingest failed to create index dir: {error}");
+            ExitCode::from(74)
+        })?;
+    }
+    let source = SourceFileMetadata {
+        path: logical_path.clone(),
+        content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
+        mtime_unix_nanos: file_mtime_unix_nanos(&metadata),
+        size_bytes: metadata.len().try_into().unwrap_or(i64::MAX),
+        ingested_at: rfc3339_now(),
+    };
+    let mut connection = Connection::open(&db_path).map_err(|error| {
+        eprintln!("index ingest failed to open index db: {error}");
+        ExitCode::from(65)
+    })?;
+    let outcome = ingest_source_chunks(&mut connection, &source, &chunks).map_err(|error| {
+        eprintln!("index ingest failed: {error}");
+        ExitCode::from(65)
+    })?;
+    let status = match outcome {
+        kelp_pi_agent::SourceIngestOutcome::Unchanged { .. } => "unchanged",
+        kelp_pi_agent::SourceIngestOutcome::Replaced { .. } => "replaced",
+    };
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "ok": true,
+            "path": logical_path,
+            "status": status,
+            "chunks": chunks.len(),
+            "db": db_path.display().to_string()
+        }))
+        .expect("serialize index ingest summary")
+    );
+    Ok(())
+}
+
 fn policy_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
         eprintln!("usage: kelp-pi-agent policy <pull> ...");
@@ -4141,6 +4305,44 @@ fn safe_upload_name(value: &str) -> Result<String, ExitCode> {
     Ok(value.to_string())
 }
 
+fn safe_index_path(value: &str) -> Result<String, ExitCode> {
+    let path = Path::new(value);
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        eprintln!("index path must be relative");
+        return Err(ExitCode::from(64));
+    }
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                let Some(text) = part.to_str() else {
+                    eprintln!("index path must be UTF-8");
+                    return Err(ExitCode::from(64));
+                };
+                parts.push(text.to_string());
+            }
+            _ => {
+                eprintln!("index path must not contain . or ..");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+    if parts.is_empty() {
+        eprintln!("index path must be relative");
+        return Err(ExitCode::from(64));
+    }
+    Ok(parts.join("/"))
+}
+
+fn file_mtime_unix_nanos(metadata: &fs::Metadata) -> i64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| duration.as_nanos().try_into().ok())
+        .unwrap_or(0)
+}
+
 fn verify_audit_log_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut log_file = None;
@@ -4787,6 +4989,9 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent hardening apply-network --config PATH [--nft-bin PATH]");
     eprintln!(
         "usage: kelp-pi-agent hardening apply-scanner-targets [--target-ip IPv4...] [--nft-bin PATH]"
+    );
+    eprintln!(
+        "usage: kelp-pi-agent index ingest --input PATH [--path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
     eprintln!(

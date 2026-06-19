@@ -92,12 +92,31 @@ $ approval_token="$(
 )"
 $ ssh kelp-pi@<pi-host> kelp-pi-agent approve --data-dir /var/lib/kelp-pi "$approval_token"
 $ ssh kelp-pi@<pi-host> \
+  mkdir -p /var/lib/kelp-pi/evidence/fixture-nuclei/raw
+$ ssh kelp-pi@<pi-host> \
   kelp-pi-agent scan nuclei \
+    --data-dir /var/lib/kelp-pi \
     --sandbox \
     --target http://fixture.local \
     --scanner-target-ip <fixture-ip> \
     --approval-token "$approval_token" \
-    --run-id fixture-nuclei
+    --run-id fixture-nuclei \
+    -- \
+    -jsonl \
+    -o /var/lib/kelp-pi/evidence/fixture-nuclei/raw/nuclei.jsonl
+$ ssh kelp-pi@<pi-host> \
+  kelp-pi-agent normalize nuclei \
+    --data-dir /var/lib/kelp-pi \
+    --input /var/lib/kelp-pi/evidence/fixture-nuclei/raw/nuclei.jsonl \
+    --workspace /var/lib/kelp-pi/evidence/fixture-nuclei \
+    --raw-path raw/nuclei.jsonl
+$ ssh kelp-pi@<pi-host> \
+  kelp-pi-agent index ingest \
+    --data-dir /var/lib/kelp-pi \
+    --input /var/lib/kelp-pi/evidence/fixture-nuclei/normalized/findings.json \
+    --path evidence/fixture-nuclei/normalized-findings.json
+$ ssh kelp-pi@<pi-host> \
+  kelp-pi-agent ask --data-dir /var/lib/kelp-pi --top-k 1 default admin marker
 ```
 
 Capture hardware/network evidence for the open acceptance tasks:
@@ -614,6 +633,9 @@ Reference renderer:
 - `kelp-pi-validate-nuclei-scan --target <scope-target> --approval-token <token> -- <nuclei-args>`
   verifies the pinned `/opt/kelp-pi/bin/nuclei` manifest and runs an actual
   `kelp-pi-agent scan nuclei` invocation through that binary.
+- `kelp-pi-agent index ingest --input <file> --path <logical-path> --data-dir /var/lib/kelp-pi`
+  chunks a UTF-8 text/Markdown source into SQLite FTS5, refuses binary/executable
+  inputs, and makes the source available to `kelp-pi-agent ask` and `/ask`.
 
 Audit & forensics:
 

@@ -43,8 +43,8 @@ $ scripts/verify-pi-field-acceptance.sh .kelpclaw/pi-vulnerable-target-field/fie
 $ scripts/verify-pi-launch-evidence.sh .kelpclaw/pi-vulnerable-target-field
 ```
 
-The field walkthrough writes scope, approval, scan, field-acceptance, fetch, and
-verification artifacts under `.kelpclaw/pi-vulnerable-target-field/`.
+The field walkthrough writes scope, approval, scan, index, ask, field-acceptance,
+fetch, and verification artifacts under `.kelpclaw/pi-vulnerable-target-field/`.
 
 Record the launch demo asset from the same hardware flow:
 
