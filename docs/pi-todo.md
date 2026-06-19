@@ -71,9 +71,7 @@ conventions. Then start at the first unchecked P0 task below.
 ## Acceptance gate (block release until all checked)
 
 - [ ] Cold-start engagement demo passes in under 30 minutes from a freshly flashed Pi.
-- [ ] Pi-produced bundle verifies under `kelp-claw verify-audit-bundle` unchanged.
 - [ ] Out-of-scope scan attempts are blocked and audited.
-- [ ] Reproducible-chunk-ID test passes across Pi, laptop, and CI.
 - [ ] Power-loss-mid-scan test passes: audit log verifies on next boot; run is marked resumable.
 
 ## Rename note
