@@ -6,9 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
 use kelp_pi_agent::{
-    policy_sha256, sign_envelope, PiEnvelopeKind, PiEnvelopeSender, PiWireEnvelope,
-    PolicyPushPayload, PolicyPushTrustEntry, PolicyTrustState, UnsignedPiWireEnvelope,
-    CURRENT_POLICY_FILE, REQUIRED_DATA_DIRS,
+    apply_scope_set, policy_sha256, sign_envelope, PiEnvelopeKind, PiEnvelopeSender,
+    PiWireEnvelope, PolicyPushPayload, PolicyPushTrustEntry, PolicyTrustState, ScopeSetPayload,
+    ScopeTarget, ScopeTargetType, UnsignedPiWireEnvelope, CURRENT_POLICY_FILE, REQUIRED_DATA_DIRS,
 };
 use rand_core::OsRng;
 use serde_json::{json, Value};
@@ -136,6 +136,85 @@ fn daemon_policy_pull_applies_rotated_pack_on_interval() {
     fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn offline_policy_source_keeps_last_policy_and_scope() {
+    let root = temp_root("policy-offline");
+    create_layout(&root);
+    let mut rng = OsRng;
+    let signing_key = SigningKey::generate(&mut rng);
+    apply_test_scope(&root, &signing_key);
+    let policy_push_file = root.join("cp-policy-push.json");
+    fs::write(
+        &policy_push_file,
+        serde_json::to_vec(&signed_policy_push(
+            &signing_key,
+            policy_push_payload(
+                "appsec-agent-baseline@offline-1",
+                1,
+                json!({ "mode": "enforce" }),
+            ),
+        ))
+        .expect("policy push json"),
+    )
+    .expect("write policy push");
+
+    let public_key_hex = encode_hex(signing_key.verifying_key().as_bytes());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "start",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--policy-push-file",
+            policy_push_file.to_str().expect("push path utf8"),
+            "--trusted-cp-public-key-hex",
+            public_key_hex.as_str(),
+            "--policy-pull-interval-seconds",
+            "1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn daemon");
+
+    wait_for_policy_pack(&root, "appsec-agent-baseline@offline-1");
+    fs::remove_file(&policy_push_file).expect("remove policy source");
+    wait_for_audit_contains(&root, "\"event\":\"policy.pull.failed\"");
+    terminate_child(&mut child);
+    assert_current_policy_pack(&root, "appsec-agent-baseline@offline-1");
+
+    let policy_refused = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "scan",
+            "nuclei",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--target",
+            "allowed.example.test",
+            "--dry-run",
+        ])
+        .output()
+        .expect("run policy-refused scan");
+    assert_eq!(policy_refused.status.code(), Some(77));
+    assert!(String::from_utf8_lossy(&policy_refused.stderr).contains("requires operator approval"));
+
+    let scope_refused = Command::new(env!("CARGO_BIN_EXE_kelp-pi-agent"))
+        .args([
+            "scan",
+            "nuclei",
+            "--data-dir",
+            root.to_str().expect("temp path utf8"),
+            "--target",
+            "evil.example.test",
+            "--dry-run",
+        ])
+        .output()
+        .expect("run scope-refused scan");
+    assert_eq!(scope_refused.status.code(), Some(77));
+    assert!(String::from_utf8_lossy(&scope_refused.stderr).contains("scan refused by scope"));
+
+    fs::remove_dir_all(root).ok();
+}
+
 fn sync_policy_pack(root: &Path, signing_key: &SigningKey, payload: PolicyPushPayload) {
     let envelope = signed_policy_push(signing_key, payload);
     let public_key_hex = encode_hex(signing_key.verifying_key().as_bytes());
@@ -193,6 +272,36 @@ fn policy_pull(root: &Path) -> PiWireEnvelope {
     serde_json::from_slice(output.stdout.as_slice()).expect("policy pull envelope")
 }
 
+fn apply_test_scope(root: &Path, signing_key: &SigningKey) {
+    let payload = ScopeSetPayload {
+        scope_id: "scope-offline".to_string(),
+        issued_at: "2026-06-19T00:00:00Z".to_string(),
+        valid_from: "2020-01-01T00:00:00Z".to_string(),
+        valid_until: "2100-01-01T00:00:00Z".to_string(),
+        targets: vec![ScopeTarget {
+            target_type: ScopeTargetType::Host,
+            value: "allowed.example.test".to_string(),
+            ports: None,
+        }],
+    };
+    let envelope = sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: "scope-offline-1".to_string(),
+            ts: "2026-06-19T00:00:00Z".to_string(),
+            sender: PiEnvelopeSender::Cp,
+            kind: PiEnvelopeKind::ScopeSet,
+            payload: serde_json::to_value(payload)
+                .expect("scope payload json")
+                .as_object()
+                .expect("scope payload object")
+                .clone(),
+        },
+        signing_key,
+    )
+    .expect("sign scope");
+    apply_scope_set(root, &envelope, &signing_key.verifying_key()).expect("apply scope");
+}
+
 fn policy_push_payload(policy_pack_id: &str, trust_epoch: u64, policy: Value) -> PolicyPushPayload {
     PolicyPushPayload {
         policy_pack_id: policy_pack_id.to_string(),
@@ -247,6 +356,27 @@ fn wait_for_policy_pack(root: &Path, expected: &str) {
         std::thread::sleep(Duration::from_millis(100));
     }
     panic!("policy pack {expected} was not installed");
+}
+
+fn wait_for_audit_contains(root: &Path, expected: &str) {
+    let path = root.join("audit").join("agent.jsonl");
+    for _ in 0..80 {
+        if fs::read_to_string(&path)
+            .map(|content| content.contains(expected))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("audit log did not contain {expected}");
+}
+
+fn assert_current_policy_pack(root: &Path, expected: &str) {
+    let path = root.join("policy").join(CURRENT_POLICY_FILE);
+    let stored: Value =
+        serde_json::from_slice(&fs::read(path).expect("read policy")).expect("policy json");
+    assert_eq!(stored["payload"]["policy_pack_id"], json!(expected));
 }
 
 fn terminate_child(child: &mut Child) {
