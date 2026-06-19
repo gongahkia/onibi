@@ -45,9 +45,10 @@ pub use keys::{
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
-    evaluate_local_policy, policy_sha256, recognize_appsec_agent_baseline_decision,
+    evaluate_and_audit_local_policy_with_mode, evaluate_local_policy,
+    evaluate_local_policy_with_mode, policy_sha256, recognize_appsec_agent_baseline_decision,
     PiLocalPolicyDecision, PiLocalPolicyRequest, PiPolicyAction, PiPolicyDecision, PiPolicyGate,
-    PiPolicyRule, PiPolicyVocabularyError, PolicyDeliveryError, PolicyPushPayload,
+    PiPolicyMode, PiPolicyRule, PiPolicyVocabularyError, PolicyDeliveryError, PolicyPushPayload,
     PolicyPushReceipt, PolicyPushTrustEntry, PolicyTrustState, StoredPolicyPack,
     TrustedControlPlaneKey, APPSEC_AGENT_BASELINE_PACK_ID, APPSEC_AGENT_BASELINE_RULES,
     APPSEC_AGENT_BASELINE_VERSION, CURRENT_POLICY_FILE, KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID,

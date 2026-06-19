@@ -4,10 +4,11 @@ use std::process::ExitCode;
 
 use kelp_pi_agent::{
     answer_query, apply_index_schema, ask_bind_is_loopback, ask_router, audit_log_path,
-    index_db_path, init_audit_tracing, install_panic_audit_hook, load_or_generate_identity_key,
-    run_doctor, run_selfcheck, validate_data_dir, verify_audit_log, AskHttpState, DEFAULT_ASK_BIND,
-    DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR,
-    DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
+    evaluate_and_audit_local_policy_with_mode, index_db_path, init_audit_tracing,
+    install_panic_audit_hook, load_or_generate_identity_key, run_doctor, run_selfcheck,
+    validate_data_dir, verify_audit_log, AskHttpState, PiLocalPolicyRequest, PiPolicyGate,
+    PiPolicyMode, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT, DEFAULT_ASK_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_DATA_DIR, DEFAULT_KEY_LABEL, DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
 };
 use rusqlite::Connection;
 
@@ -30,6 +31,7 @@ fn run() -> Result<(), ExitCode> {
         "check-data-dir" => check_data_dir(args.collect(), false),
         "doctor" => doctor_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
+        "policy-check" => policy_check_command(args.collect()),
         "quota-defaults" => {
             print_quota_defaults();
             Ok(())
@@ -126,6 +128,130 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
             Err(ExitCode::from(65))
         }
     }
+}
+
+fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut gate = None;
+    let mut mode = PiPolicyMode::Enforce;
+    let mut command = None;
+    let mut path = None;
+    let mut host = None;
+    let mut mutating = false;
+    let mut allowed = true;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--gate" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--gate requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<PiPolicyGate>() else {
+                    eprintln!("--gate must be scanner-invocation, file-operation, or outbound-network-request");
+                    return Err(ExitCode::from(64));
+                };
+                gate = Some(parsed);
+                index += 2;
+            }
+            "--mode" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--mode requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<PiPolicyMode>() else {
+                    eprintln!("--mode must be enforce or dry-run");
+                    return Err(ExitCode::from(64));
+                };
+                mode = parsed;
+                index += 2;
+            }
+            "--dry-run" => {
+                mode = PiPolicyMode::DryRun;
+                index += 1;
+            }
+            "--command" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--command requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                command = Some(value.to_string());
+                index += 2;
+            }
+            "--path" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--path requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                path = Some(value.to_string());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--host requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                host = Some(value.to_string());
+                index += 2;
+            }
+            "--mutating" => {
+                mutating = true;
+                index += 1;
+            }
+            "--disallowed" => {
+                allowed = false;
+                index += 1;
+            }
+            "--allowed" => {
+                allowed = true;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    let Some(gate) = gate else {
+        eprintln!("policy-check requires --gate");
+        return Err(ExitCode::from(64));
+    };
+
+    if let Err(issues) = validate_data_dir(&data_dir) {
+        for issue in issues {
+            eprintln!("{issue}");
+        }
+        return Err(ExitCode::from(78));
+    }
+    if let Err(error) = init_audit_tracing(&data_dir) {
+        eprintln!("audit tracing init failed: {error}");
+        return Err(ExitCode::from(78));
+    }
+
+    let request = PiLocalPolicyRequest {
+        gate,
+        command,
+        path,
+        host,
+        mutating,
+        allowed,
+    };
+    let decision = evaluate_and_audit_local_policy_with_mode(&request, mode);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&decision).expect("serialize policy decision")
+    );
+    Ok(())
 }
 
 fn serve_ask_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -494,6 +620,9 @@ fn print_usage() {
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent doctor [--data-dir PATH]");
     eprintln!("usage: kelp-pi-agent keygen [--data-dir PATH] [--key-dir PATH] [--label LABEL]");
+    eprintln!(
+        "usage: kelp-pi-agent policy-check --gate GATE [--mode enforce|dry-run] [--dry-run] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
+    );
     eprintln!("usage: kelp-pi-agent quota-defaults");
     eprintln!(
         "usage: kelp-pi-agent serve-ask [--data-dir PATH] [--db PATH] [--bind IP:PORT] [--top-k N] [--no-answer-threshold FLOAT] [--max-concurrent N] [--rate-limit-per-minute N] [--allow-non-loopback]"

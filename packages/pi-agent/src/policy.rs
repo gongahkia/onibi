@@ -50,6 +50,13 @@ pub enum PiPolicyGate {
     OutboundNetworkRequest,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PiPolicyMode {
+    Enforce,
+    DryRun,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PiLocalPolicyRequest {
     pub gate: PiPolicyGate,
@@ -66,7 +73,10 @@ pub struct PiLocalPolicyRequest {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PiLocalPolicyDecision {
     pub gate: PiPolicyGate,
+    pub mode: PiPolicyMode,
     pub action: PiPolicyAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub would_action: Option<PiPolicyAction>,
     pub matched_rule_ids: Vec<String>,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +86,8 @@ pub struct PiLocalPolicyDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PiPolicyVocabularyError {
     UnknownAction(String),
+    UnknownGate(String),
+    UnknownMode(String),
     UnknownRuleId(String),
 }
 
@@ -197,6 +209,15 @@ impl PiPolicyGate {
     }
 }
 
+impl PiPolicyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PiPolicyMode::Enforce => "enforce",
+            PiPolicyMode::DryRun => "dry-run",
+        }
+    }
+}
+
 impl FromStr for PiPolicyAction {
     type Err = PiPolicyVocabularyError;
 
@@ -207,6 +228,31 @@ impl FromStr for PiPolicyAction {
             "deny" => Ok(PiPolicyAction::Deny),
             "log-only" => Ok(PiPolicyAction::LogOnly),
             other => Err(PiPolicyVocabularyError::UnknownAction(other.to_string())),
+        }
+    }
+}
+
+impl FromStr for PiPolicyGate {
+    type Err = PiPolicyVocabularyError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "scanner-invocation" => Ok(PiPolicyGate::ScannerInvocation),
+            "file-operation" => Ok(PiPolicyGate::FileOperation),
+            "outbound-network-request" => Ok(PiPolicyGate::OutboundNetworkRequest),
+            other => Err(PiPolicyVocabularyError::UnknownGate(other.to_string())),
+        }
+    }
+}
+
+impl FromStr for PiPolicyMode {
+    type Err = PiPolicyVocabularyError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "enforce" => Ok(PiPolicyMode::Enforce),
+            "dry-run" => Ok(PiPolicyMode::DryRun),
+            other => Err(PiPolicyVocabularyError::UnknownMode(other.to_string())),
         }
     }
 }
@@ -223,11 +269,23 @@ impl Display for PiPolicyGate {
     }
 }
 
+impl Display for PiPolicyMode {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 impl Display for PiPolicyVocabularyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PiPolicyVocabularyError::UnknownAction(action) => {
                 write!(formatter, "unknown policy action: {action}")
+            }
+            PiPolicyVocabularyError::UnknownGate(gate) => {
+                write!(formatter, "unknown policy gate: {gate}")
+            }
+            PiPolicyVocabularyError::UnknownMode(mode) => {
+                write!(formatter, "unknown policy mode: {mode}")
             }
             PiPolicyVocabularyError::UnknownRuleId(rule_id) => {
                 write!(formatter, "unknown policy rule id: {rule_id}")
@@ -314,31 +372,54 @@ pub fn recognize_appsec_agent_baseline_decision(
 }
 
 pub fn evaluate_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision {
+    evaluate_local_policy_with_mode(request, PiPolicyMode::Enforce)
+}
+
+pub fn evaluate_local_policy_with_mode(
+    request: &PiLocalPolicyRequest,
+    mode: PiPolicyMode,
+) -> PiLocalPolicyDecision {
+    let decision = enforce_local_policy(request);
+    match mode {
+        PiPolicyMode::Enforce => decision,
+        PiPolicyMode::DryRun => dry_run_local_policy_decision(decision),
+    }
+}
+
+fn enforce_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision {
     match request.gate {
         PiPolicyGate::ScannerInvocation => PiLocalPolicyDecision {
             gate: request.gate,
+            mode: PiPolicyMode::Enforce,
             action: PiPolicyAction::RequireApproval,
+            would_action: None,
             matched_rule_ids: vec!["appsec-agent-review-active-scanner".to_string()],
             reason: "active scanner invocation requires operator approval".to_string(),
             approver_role: Some("appsec-reviewer".to_string()),
         },
         PiPolicyGate::FileOperation if request.mutating => PiLocalPolicyDecision {
             gate: request.gate,
+            mode: PiPolicyMode::Enforce,
             action: PiPolicyAction::RequireApproval,
+            would_action: None,
             matched_rule_ids: vec![KELP_PI_REVIEW_FILE_MUTATION_RULE_ID.to_string()],
             reason: "mutating file operation requires operator approval".to_string(),
             approver_role: Some("appsec-reviewer".to_string()),
         },
         PiPolicyGate::OutboundNetworkRequest if !request.allowed => PiLocalPolicyDecision {
             gate: request.gate,
+            mode: PiPolicyMode::Enforce,
             action: PiPolicyAction::Deny,
+            would_action: None,
             matched_rule_ids: vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()],
             reason: "outbound destination is not allowlisted".to_string(),
             approver_role: None,
         },
         _ => PiLocalPolicyDecision {
             gate: request.gate,
+            mode: PiPolicyMode::Enforce,
             action: PiPolicyAction::Allow,
+            would_action: None,
             matched_rule_ids: Vec::new(),
             reason: "local policy allows action".to_string(),
             approver_role: None,
@@ -346,14 +427,42 @@ pub fn evaluate_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDec
     }
 }
 
+fn dry_run_local_policy_decision(mut decision: PiLocalPolicyDecision) -> PiLocalPolicyDecision {
+    let would_action = decision.action;
+    decision.mode = PiPolicyMode::DryRun;
+    decision.would_action = Some(would_action);
+    decision.action = match would_action {
+        PiPolicyAction::Deny | PiPolicyAction::RequireApproval => PiPolicyAction::LogOnly,
+        PiPolicyAction::Allow | PiPolicyAction::LogOnly => would_action,
+    };
+    decision.reason = format!(
+        "dry-run: would {}; {}",
+        would_action.as_str(),
+        decision.reason
+    );
+    decision
+}
+
 pub fn evaluate_and_audit_local_policy(request: &PiLocalPolicyRequest) -> PiLocalPolicyDecision {
-    let decision = evaluate_local_policy(request);
+    evaluate_and_audit_local_policy_with_mode(request, PiPolicyMode::Enforce)
+}
+
+pub fn evaluate_and_audit_local_policy_with_mode(
+    request: &PiLocalPolicyRequest,
+    mode: PiPolicyMode,
+) -> PiLocalPolicyDecision {
+    let decision = evaluate_local_policy_with_mode(request, mode);
     tracing::info!(
         event = "policy-decision",
         msg = "local policy decision",
         msg_id = "policy-decision-local",
         gate = decision.gate.as_str(),
+        policy_mode = decision.mode.as_str(),
         action = decision.action.as_str(),
+        would_action = decision
+            .would_action
+            .map(PiPolicyAction::as_str)
+            .unwrap_or(""),
         matched_rule_ids = decision.matched_rule_ids.join(","),
         reason = decision.reason.as_str(),
         command = request.command.as_deref().unwrap_or(""),
@@ -683,6 +792,30 @@ mod tests {
     }
 
     #[test]
+    fn local_policy_dry_run_logs_without_blocking() {
+        let decision = evaluate_local_policy_with_mode(
+            &PiLocalPolicyRequest {
+                gate: PiPolicyGate::OutboundNetworkRequest,
+                command: None,
+                path: None,
+                host: Some("example.com:443".to_string()),
+                mutating: false,
+                allowed: false,
+            },
+            PiPolicyMode::DryRun,
+        );
+
+        assert_eq!(decision.mode, PiPolicyMode::DryRun);
+        assert_eq!(decision.action, PiPolicyAction::LogOnly);
+        assert_eq!(decision.would_action, Some(PiPolicyAction::Deny));
+        assert_eq!(
+            decision.matched_rule_ids,
+            vec![KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID.to_string()]
+        );
+        assert!(decision.reason.starts_with("dry-run: would deny; "));
+    }
+
+    #[test]
     fn local_policy_decision_is_audited() {
         let root = temp_root("policy-audit");
         fs::create_dir_all(root.join("audit")).expect("create audit dir");
@@ -710,6 +843,46 @@ mod tests {
             .expect("parse audit");
         assert_eq!(entry["event"], "policy-decision");
         assert_eq!(entry["action"], "deny");
+        assert_eq!(
+            entry["matched_rule_ids"],
+            KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn dry_run_policy_decision_is_audited_with_would_action() {
+        let root = temp_root("policy-dry-run-audit");
+        fs::create_dir_all(root.join("audit")).expect("create audit dir");
+        let log_path = crate::audit_log_path(&root);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .expect("open audit log");
+        let subscriber = tracing_subscriber::registry().with(crate::AuditJsonLayer::new(file));
+
+        tracing::subscriber::with_default(subscriber, || {
+            evaluate_and_audit_local_policy_with_mode(
+                &PiLocalPolicyRequest {
+                    gate: PiPolicyGate::OutboundNetworkRequest,
+                    command: None,
+                    path: None,
+                    host: Some("example.com:443".to_string()),
+                    mutating: false,
+                    allowed: false,
+                },
+                PiPolicyMode::DryRun,
+            );
+        });
+
+        let content = fs::read_to_string(log_path).expect("read audit log");
+        let entry: Value = serde_json::from_str(content.lines().next().expect("audit entry"))
+            .expect("parse audit");
+        assert_eq!(entry["event"], "policy-decision");
+        assert_eq!(entry["policy_mode"], "dry-run");
+        assert_eq!(entry["action"], "log-only");
+        assert_eq!(entry["would_action"], "deny");
         assert_eq!(
             entry["matched_rule_ids"],
             KELP_PI_DENY_OUTBOUND_NETWORK_RULE_ID
