@@ -41,6 +41,10 @@ pub enum PiBundleError {
     AuditChain(crate::AuditLogChainVerifyError),
     Crypto(String),
     MissingFindings(PathBuf),
+    MissingBundle(PathBuf),
+    MissingBundleManifest(PathBuf),
+    InvalidBundleId(String),
+    UnsafeBundlePath(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +54,23 @@ pub struct PiBundleAssembly {
     pub files: Vec<String>,
     pub manifest: String,
     pub manifest_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PiBundleTransfer {
+    pub run_id: String,
+    pub bundle_id: String,
+    pub manifest_hash: String,
+    pub size_bytes: u64,
+    pub files: Vec<PiBundleTransferFile>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PiBundleTransferFile {
+    pub path: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub content_base64: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -303,6 +324,135 @@ pub fn assemble_pi_audit_bundle(
         manifest: PI_BUNDLE_MANIFEST_FILE.to_string(),
         manifest_sha256: format!("sha256:{manifest_hash}"),
     })
+}
+
+pub fn load_pi_bundle_transfer(
+    data_dir: &Path,
+    bundle_id: &str,
+    run_id: Option<&str>,
+) -> Result<PiBundleTransfer, PiBundleError> {
+    validate_bundle_lookup_id(bundle_id)?;
+    if let Some(run_id) = run_id {
+        validate_bundle_lookup_id(run_id)?;
+    }
+    let bundle_dir = staged_bundle_dir(data_dir, bundle_id, run_id)?;
+    let manifest_path = bundle_dir.join(PI_BUNDLE_MANIFEST_FILE);
+    if !manifest_path.exists() {
+        return Err(PiBundleError::MissingBundleManifest(manifest_path));
+    }
+    let manifest: Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let resolved_run_id = run_id
+        .map(str::to_string)
+        .or_else(|| {
+            manifest
+                .get("runId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| bundle_id.to_string());
+    let mut paths = Vec::new();
+    collect_bundle_file_paths(&bundle_dir, &bundle_dir, &mut paths)?;
+    paths.sort();
+    let mut size_bytes = 0_u64;
+    let mut files = Vec::with_capacity(paths.len());
+    for relative_path in paths {
+        let absolute_path = bundle_dir.join(&relative_path);
+        let bytes = fs::read(&absolute_path)?;
+        size_bytes = size_bytes.saturating_add(bytes.len() as u64);
+        files.push(PiBundleTransferFile {
+            path: relative_path,
+            size_bytes: bytes.len() as u64,
+            sha256: format!("sha256:{}", encode_hex(Sha256::digest(&bytes))),
+            content_base64: Base64::encode_string(&bytes),
+        });
+    }
+    Ok(PiBundleTransfer {
+        run_id: resolved_run_id,
+        bundle_id: bundle_id.to_string(),
+        manifest_hash: format!("sha256:{}", sha256_file(&manifest_path)?),
+        size_bytes,
+        files,
+    })
+}
+
+fn staged_bundle_dir(
+    data_dir: &Path,
+    bundle_id: &str,
+    run_id: Option<&str>,
+) -> Result<PathBuf, PiBundleError> {
+    let bundles_dir = data_dir.join("bundles");
+    let bundle_path = bundles_dir.join(bundle_id);
+    if bundle_path.is_dir() {
+        return Ok(bundle_path);
+    }
+    if let Some(run_id) = run_id {
+        let run_path = bundles_dir.join(run_id);
+        if run_path.is_dir() {
+            return Ok(run_path);
+        }
+    }
+    Err(PiBundleError::MissingBundle(bundle_path))
+}
+
+fn validate_bundle_lookup_id(value: &str) -> Result<(), PiBundleError> {
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains('/')
+        || value.contains('\\')
+    {
+        Err(PiBundleError::InvalidBundleId(value.to_string()))
+    } else {
+        Ok(())
+    }
+}
+
+fn collect_bundle_file_paths(
+    root: &Path,
+    dir: &Path,
+    paths: &mut Vec<String>,
+) -> Result<(), PiBundleError> {
+    let mut entries = fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            return Err(PiBundleError::UnsafeBundlePath(path));
+        }
+        if metadata.is_dir() {
+            collect_bundle_file_paths(root, &path, paths)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(PiBundleError::UnsafeBundlePath(path));
+        }
+        let relative_path = path
+            .strip_prefix(root)
+            .map_err(|_| PiBundleError::UnsafeBundlePath(path.clone()))?;
+        paths.push(bundle_relative_path(relative_path)?);
+    }
+    Ok(())
+}
+
+fn bundle_relative_path(path: &Path) -> Result<String, PiBundleError> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(value) => {
+                let Some(part) = value.to_str() else {
+                    return Err(PiBundleError::UnsafeBundlePath(path.to_path_buf()));
+                };
+                parts.push(part.to_string());
+            }
+            _ => return Err(PiBundleError::UnsafeBundlePath(path.to_path_buf())),
+        }
+    }
+    if parts.is_empty() {
+        Err(PiBundleError::UnsafeBundlePath(path.to_path_buf()))
+    } else {
+        Ok(parts.join("/"))
+    }
 }
 
 fn write_json_file(
@@ -610,6 +760,18 @@ impl Display for PiBundleError {
             PiBundleError::MissingFindings(path) => {
                 write!(formatter, "{} is missing", path.display())
             }
+            PiBundleError::MissingBundle(path) => {
+                write!(formatter, "bundle {} is missing", path.display())
+            }
+            PiBundleError::MissingBundleManifest(path) => {
+                write!(formatter, "{} is missing", path.display())
+            }
+            PiBundleError::InvalidBundleId(value) => {
+                write!(formatter, "bundle id is unsafe: {value}")
+            }
+            PiBundleError::UnsafeBundlePath(path) => {
+                write!(formatter, "unsafe bundle path: {}", path.display())
+            }
         }
     }
 }
@@ -722,6 +884,58 @@ mod tests {
             stable_json_string(&manifest).expect("stable json"),
             "{\n  \"algorithm\": \"ed25519\",\n  \"files\": [\n    {\n      \"path\": \"result.json\",\n      \"sha256\": \"ab\",\n      \"size\": 2\n    }\n  ],\n  \"generatedAt\": \"2026-06-19T00:00:00Z\",\n  \"publicKeyId\": \"sha256:test\",\n  \"runId\": \"run-1\",\n  \"schemaVersion\": \"1.0.0\"\n}"
         );
+    }
+
+    #[test]
+    fn bundle_transfer_includes_complete_staged_bundle() {
+        let root = temp_root("bundle-transfer");
+        let data_dir = root.join("data");
+        let workspace = root.join("workspace");
+        let bundle = data_dir.join("bundles").join("bundle-1");
+        create_layout(&data_dir);
+        fs::create_dir_all(workspace.join("raw")).expect("create raw");
+        let raw = workspace.join("raw").join("nuclei.jsonl");
+        fs::write(
+            &raw,
+            r#"{"template-id":"http-missing-security-headers","matched-at":"https://app.example.test","info":{"name":"Missing security header","severity":"medium"}}"#,
+        )
+        .expect("write nuclei");
+        write_nuclei_findings_document(
+            &raw,
+            &workspace.join("normalized").join("findings.json"),
+            "raw/nuclei.jsonl",
+        )
+        .expect("normalize");
+        write_test_audit_entry(&data_dir);
+        assemble_pi_audit_bundle(
+            &data_dir,
+            &data_dir.join("keys"),
+            &workspace,
+            &bundle,
+            "run-1",
+        )
+        .expect("assemble bundle");
+
+        let transfer =
+            load_pi_bundle_transfer(&data_dir, "bundle-1", Some("run-1")).expect("transfer");
+
+        assert_eq!(transfer.bundle_id, "bundle-1");
+        assert_eq!(transfer.run_id, "run-1");
+        assert!(transfer.manifest_hash.starts_with("sha256:"));
+        assert!(transfer.size_bytes > 0);
+        assert!(transfer
+            .files
+            .iter()
+            .any(|file| file.path == PI_BUNDLE_MANIFEST_FILE));
+        assert!(transfer
+            .files
+            .iter()
+            .any(|file| file.path == PI_BUNDLE_MANIFEST_SIG_FILE));
+        assert!(transfer
+            .files
+            .iter()
+            .all(|file| !file.content_base64.is_empty()));
+        fs::remove_dir_all(root).ok();
     }
 
     fn write_test_audit_entry(data_dir: &Path) {

@@ -293,6 +293,10 @@ Package pin and upgrade flow:
   `normalized-findings.json`, `audit-log.jsonl`, and `audit-chain.json`; assembly
   verifies the local hash-chained audit log before signing the bundle with the Pi
   Ed25519 key.
+- `kelp-claw pi bundle fetch --bundle-id <id> --out <audit-bundle>` sends a signed
+  `bundle.fetch` request over `kelp-pi-agent wire --stdio`, reconstructs the returned
+  bundle files on the laptop, and verifies the result through
+  `kelp-claw verify-audit-bundle --profile reviewer`.
 - Routine field units run with those packages held. Operators do not run unattended
   upgrades on engagement devices.
 - Manual upgrade procedure:

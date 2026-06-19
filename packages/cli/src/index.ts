@@ -381,7 +381,16 @@ export function runHelpCommand(): JsonRecord {
 }
 
 export async function runPiCommand(args: readonly string[] = []): Promise<JsonRecord> {
-  return runPiCliCommand(args);
+  const result = await runPiCliCommand(args);
+  if (args[0] === "bundle" && args[1] === "fetch" && typeof result.bundleDir === "string") {
+    const verification = await verifyAuditBundle([result.bundleDir, "--profile", "reviewer"]);
+    return {
+      ...result,
+      verified: verification.ok,
+      verification
+    };
+  }
+  return result;
 }
 
 export async function runDoctorCommand(args: readonly string[] = []): Promise<JsonRecord> {

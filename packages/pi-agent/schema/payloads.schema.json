@@ -360,20 +360,51 @@
       ]
     },
     "bundle.fetch": {
-      "description": "Control-plane request to retrieve a completed bundle by ID.",
+      "description": "Control-plane request to retrieve a completed bundle by ID, or Pi response carrying the bundle files.",
       "type": "object",
       "required": ["request_id", "bundle_id"],
       "additionalProperties": false,
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
         "bundle_id": { "type": "string", "minLength": 1 },
-        "run_id": { "type": "string", "minLength": 1 }
+        "run_id": { "type": "string", "minLength": 1 },
+        "manifest_hash": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "size_bytes", "sha256", "content_base64"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "size_bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "content_base64": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
       },
       "examples": [
         {
           "request_id": "fetch-01",
           "bundle_id": "bundle-01",
           "run_id": "scan-01"
+        },
+        {
+          "request_id": "fetch-01",
+          "bundle_id": "bundle-01",
+          "run_id": "scan-01",
+          "manifest_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "size_bytes": 65536,
+          "files": [
+            {
+              "path": "manifest.json",
+              "size_bytes": 1024,
+              "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+              "content_base64": "e30="
+            }
+          ]
         }
       ]
     },

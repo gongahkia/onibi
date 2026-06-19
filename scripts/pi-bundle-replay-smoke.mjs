@@ -9,7 +9,11 @@ const root = await mkdtemp(join(tmpdir(), "kelp-pi-bundle-replay-"));
 const dataDir = join(root, "pi-data");
 const workspace = join(root, "workspace");
 const bundleDir = join(root, "pi-bundle");
+const stagedBundleDir = join(dataDir, "bundles", "pi-bundle-replay-smoke");
 const laptopBundleDir = join(root, "laptop", "pi-bundle");
+const fetchedBundleDir = join(root, "laptop", "fetched-pi-bundle");
+const cpKey = join(root, "cp-key.json");
+const agentBin = join(repoRoot, "packages/pi-agent/target/debug/kelp-pi-agent");
 const requiredDataDirs = [
   "corpus",
   "evidence",
@@ -97,6 +101,7 @@ try {
     "--run-id",
     "pi-bundle-replay-smoke"
   ]);
+  await cp(bundleDir, stagedBundleDir, { recursive: true });
 
   await mkdir(dirname(laptopBundleDir), { recursive: true });
   await cp(bundleDir, laptopBundleDir, { recursive: true });
@@ -118,6 +123,30 @@ try {
     throw new Error(`${failures.join("; ")}\n${JSON.stringify(verification, null, 2)}`);
   }
 
+  const fetchResult = JSON.parse(
+    run(process.execPath, [
+      "packages/cli/dist/index.js",
+      "pi",
+      "bundle",
+      "fetch",
+      "--bundle-id",
+      "pi-bundle-replay-smoke",
+      "--run-id",
+      "pi-bundle-replay-smoke",
+      "--out",
+      fetchedBundleDir,
+      "--data-dir",
+      dataDir,
+      "--agent-bin",
+      agentBin,
+      "--cp-key",
+      cpKey
+    ])
+  );
+  if (fetchResult.verified !== true || fetchResult.verification?.ok !== true) {
+    throw new Error(`bundle fetch verification failed\n${JSON.stringify(fetchResult, null, 2)}`);
+  }
+  await readFile(join(fetchedBundleDir, "audit-log.jsonl"), "utf8");
   await readFile(join(laptopBundleDir, "audit-log.jsonl"), "utf8");
   console.log("Pi bundle replay smoke passed.");
 } finally {
