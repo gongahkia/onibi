@@ -448,6 +448,13 @@ Retrieval chunking:
 - `policy.push` accepts only `cp` envelopes whose Ed25519 signature verifies against
   a trusted control-plane key, verifies the embedded policy hash, and persists the
   accepted pack under `/var/lib/kelp-pi/policy/current-policy.json`.
+- `kelp-pi-agent policy pull` emits a signed `policy.pull` envelope with the current
+  known policy pack and trust epoch. `kelp-claw pi policy sync` uses that pull
+  request, signs a `policy.push` as the local control plane, delivers it over
+  `wire --stdio`, and logs accepted rotations as `policy.push.accepted`.
+- `kelp-pi-agent start` can also poll a signed control-plane policy-push file at
+  startup and on `--policy-pull-interval-seconds`, applying changed signed packs on
+  the next pull interval.
 - Local policy evaluation covers scanner invocation, file operation, and outbound
   network gates; `evaluate_and_audit_local_policy` emits a hash-chained
   `policy-decision` audit event for each decision.

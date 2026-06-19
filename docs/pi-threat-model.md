@@ -20,6 +20,9 @@ execution, internet scanning, or scanning outside an operator-declared scope.
   are refused.
 - `policy.push` accepts only trusted control-plane signatures, verifies the embedded
   policy hash, and persists the accepted pack under `policy/current-policy.json`.
+- `policy pull` emits signed current-pack requests; local CP sync rotates signed
+  packs through `wire --stdio`, and `start` can poll signed policy-push files at a
+  configured interval. Accepted pulls/pushes are logged.
 - Local policy evaluation covers scanner invocation, file operation, outbound network,
   and synthesis gates, and writes `policy-decision` audit events when called through
   the audited paths.

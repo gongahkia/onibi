@@ -45,7 +45,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P7 — Control plane sync
 
-- [ ] Implement `policy.pull` on Pi: agent requests current signed policy packs at startup and on a configurable interval → success: rotating a pack on the control plane propagates to Pi on next pull and is logged.
 - [ ] Implement offline tolerance: the Pi continues operating with the last good policy and scope if the control plane is unreachable → success: an integration test severs the network mid-engagement and the Pi continues to honor existing scope and policy.
 - [ ] Implement replay-after-reconnect: queued envelopes from Pi to control plane are sent in order when connectivity returns → success: integration test confirms ordered delivery after a disconnection.
 

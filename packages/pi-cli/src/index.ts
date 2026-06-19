@@ -1,4 +1,5 @@
 import {
+  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
@@ -48,6 +49,11 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
           usage: "kelp-claw pi bundle import --input ENVELOPE --out PATH"
         },
         {
+          name: "policy sync",
+          usage:
+            "kelp-claw pi policy sync --policy-pack-id ID (--policy-file PATH|--policy-json JSON) [--trust-epoch N] [--device-id ID] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
+        },
+        {
           name: "scope set",
           usage:
             "kelp-claw pi scope set (--cidr CIDR|--host HOST|--ip IP|--url URL)... --until RFC3339 [--port PORT...] [--scope-id ID] [--from RFC3339] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
@@ -65,13 +71,16 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "bundle") {
     return bundleCommand(rest);
   }
+  if (command === "policy") {
+    return policyCommand(rest);
+  }
   if (command === "scope") {
     return scopeCommand(rest);
   }
   if (command === "wipe") {
     return wipeCommand(rest);
   }
-  throw new Error("Usage: kelp-claw pi <approve|bundle|scope|wipe|--help>");
+  throw new Error("Usage: kelp-claw pi <approve|bundle|policy|scope|wipe|--help>");
 }
 
 async function approveCommand(args: readonly string[]): Promise<JsonRecord> {
@@ -190,6 +199,93 @@ async function bundleImportCommand(args: readonly string[]): Promise<JsonRecord>
     sizeBytes: numberField(payload, "size_bytes") ?? 0,
     files: written,
     response: envelope
+  };
+}
+
+async function policyCommand(args: readonly string[]): Promise<JsonRecord> {
+  const [command, ...rest] = args;
+  if (command === "sync") {
+    return policySyncCommand(rest);
+  }
+  throw new Error("Usage: kelp-claw pi policy sync --policy-pack-id ID ...");
+}
+
+async function policySyncCommand(args: readonly string[]): Promise<JsonRecord> {
+  const policyPackId = option(args, "--policy-pack-id");
+  if (!policyPackId) {
+    throw new Error("Usage: kelp-claw pi policy sync --policy-pack-id ID ...");
+  }
+  const policy = await readPolicyInput(args);
+  const issuedAt = rfc3339Seconds(new Date());
+  const keyPath = option(args, "--cp-key") ?? ".kelpclaw/pi/control-plane-ed25519.json";
+  const key = await loadOrCreateControlPlaneKey(keyPath);
+  const publicKeyHex = publicRawHex(key.publicKeyPem);
+  const dataDir = option(args, "--data-dir");
+  const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
+  const deviceId = option(args, "--device-id");
+  const pull = await runAgent(agentBin, [
+    "policy",
+    "pull",
+    ...(deviceId ? ["--device-id", deviceId] : []),
+    ...(dataDir ? ["--data-dir", dataDir] : [])
+  ]);
+  if (pull.kind !== "policy.pull" || !isRecord(pull.payload)) {
+    throw new Error(`${agentBin} returned invalid policy.pull envelope`);
+  }
+  const pullPayload = pull.payload;
+  const pulledDeviceId = stringField(pullPayload, "device_id") ?? deviceId ?? "";
+  const knownPolicyPacks = arrayOfStrings(pullPayload.known_policy_packs);
+  const priorTrustEpoch = numberField(pullPayload, "trust_epoch") ?? 0;
+  const trustEpoch = numberOption(args, "--trust-epoch") ?? priorTrustEpoch + 1;
+  const policyHash = sha256Json(policy);
+  const payload = {
+    policy_pack_id: policyPackId,
+    policy_hash: policyHash,
+    trust_epoch: trustEpoch,
+    issued_at: issuedAt,
+    trust_list: [
+      {
+        key_id: `sha256:${createHash("sha256").update(Buffer.from(publicKeyHex, "hex")).digest("hex")}`,
+        device_id: pulledDeviceId || "kelp-pi",
+        state: "trusted"
+      }
+    ],
+    policy
+  };
+  const envelope = signEnvelope(
+    {
+      msg_id: `policy.push.${policyPackId}.${Date.now()}`,
+      ts: issuedAt,
+      sender: "cp",
+      kind: "policy.push",
+      payload
+    },
+    key
+  );
+  const result = await runChild(
+    agentBin,
+    [
+      "wire",
+      "--stdio",
+      "--trusted-cp-public-key-hex",
+      publicKeyHex,
+      ...(dataDir ? ["--data-dir", dataDir] : [])
+    ],
+    `${JSON.stringify(envelope)}\n`
+  );
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || `${agentBin} exited ${result.code}`);
+  }
+  const response = parseWireResponse(result.stdout, "policy.push");
+  return {
+    ok: true,
+    policyPackId,
+    policyHash,
+    trustEpoch,
+    knownPolicyPacks,
+    controlPlanePublicKeyHex: publicKeyHex,
+    pull,
+    response
   };
 }
 
@@ -359,6 +455,19 @@ async function writeBundlePayloadFiles(
   return written;
 }
 
+async function readPolicyInput(args: readonly string[]): Promise<JsonRecord> {
+  const policyFile = option(args, "--policy-file");
+  const policyJson = option(args, "--policy-json");
+  if ((policyFile ? 1 : 0) + (policyJson ? 1 : 0) !== 1) {
+    throw new Error("policy sync requires exactly one of --policy-file or --policy-json");
+  }
+  const parsed = JSON.parse(policyFile ? await readFile(policyFile, "utf8") : (policyJson ?? ""));
+  if (!isRecord(parsed)) {
+    throw new Error("policy must be a JSON object");
+  }
+  return parsed;
+}
+
 function requiredPositional(args: readonly string[], index: number, usage: string): string {
   const positional = args.filter((value, valueIndex) => {
     if (value.startsWith("-")) {
@@ -417,6 +526,30 @@ function stringField(record: JsonRecord, key: string): string | undefined {
 function numberField(record: JsonRecord, key: string): number | undefined {
   const value = record[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function numberOption(args: readonly string[], name: string): number | undefined {
+  const value = option(args, name);
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function arrayOfStrings(value: JsonValue | undefined): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function sha256Json(value: JsonRecord): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalize(value)))
+    .digest("hex")}`;
 }
 
 function isSafeBundlePath(value: string): boolean {

@@ -55,6 +55,57 @@ try {
 
   const pi = ["run", "--quiet", "--manifest-path", "packages/pi-agent/Cargo.toml", "--"];
   run("cargo", [...pi, "keygen", "--data-dir", dataDir]);
+  const firstPolicySync = JSON.parse(
+    run(process.execPath, [
+      "packages/cli/dist/index.js",
+      "pi",
+      "policy",
+      "sync",
+      "--policy-pack-id",
+      "appsec-agent-baseline@smoke-1",
+      "--policy-json",
+      JSON.stringify({ mode: "enforce" }),
+      "--data-dir",
+      dataDir,
+      "--agent-bin",
+      agentBin,
+      "--cp-key",
+      cpKey
+    ])
+  );
+  const secondPolicySync = JSON.parse(
+    run(process.execPath, [
+      "packages/cli/dist/index.js",
+      "pi",
+      "policy",
+      "sync",
+      "--policy-pack-id",
+      "appsec-agent-baseline@smoke-2",
+      "--policy-json",
+      JSON.stringify({ mode: "dry-run" }),
+      "--data-dir",
+      dataDir,
+      "--agent-bin",
+      agentBin,
+      "--cp-key",
+      cpKey
+    ])
+  );
+  if (
+    firstPolicySync.ok !== true ||
+    secondPolicySync.ok !== true ||
+    !secondPolicySync.knownPolicyPacks.includes("appsec-agent-baseline@smoke-1")
+  ) {
+    throw new Error(
+      `policy sync failed\n${JSON.stringify({ firstPolicySync, secondPolicySync }, null, 2)}`
+    );
+  }
+  const currentPolicy = JSON.parse(
+    await readFile(join(dataDir, "policy", "current-policy.json"), "utf8")
+  );
+  if (currentPolicy.payload?.policy_pack_id !== "appsec-agent-baseline@smoke-2") {
+    throw new Error(`policy rotation did not persist\n${JSON.stringify(currentPolicy, null, 2)}`);
+  }
   run("cargo", [
     ...pi,
     "policy-check",
@@ -178,6 +229,10 @@ try {
   await readFile(join(fetchedBundleDir, "audit-log.jsonl"), "utf8");
   await readFile(join(importedBundleDir, "audit-log.jsonl"), "utf8");
   await readFile(join(laptopBundleDir, "audit-log.jsonl"), "utf8");
+  const auditLog = await readFile(join(dataDir, "audit", "agent.jsonl"), "utf8");
+  if (!auditLog.includes("policy.push.accepted") || !auditLog.includes("policy.pull.requested")) {
+    throw new Error("policy sync audit events missing");
+  }
   console.log("Pi bundle replay smoke passed.");
 } finally {
   if (process.env.KEEP_KELP_PI_REPLAY_TMP !== "1") {

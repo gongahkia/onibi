@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use ed25519_dalek::VerifyingKey;
 use kelp_pi_agent::{
-    answer_query, apply_index_schema, apply_scope_set, approve_operator_token,
+    answer_query, apply_index_schema, apply_policy_push, apply_scope_set, approve_operator_token,
     ask_bind_is_loopback, ask_router, assemble_pi_audit_bundle, decision_after_approval,
     default_gold_fixture_dir, default_scanner_stability_fixture_dir, enforce_nuclei_templates_pin,
     enforce_storage_quota, ensure_targets_in_scope, evaluate_and_audit_local_policy,
@@ -20,8 +20,9 @@ use kelp_pi_agent::{
     verify_audit_log_chain, verify_envelope, wipe_data_dir, write_nuclei_findings_document,
     AskHttpState, IdentityKey, NmapVersion, NucleiTemplatesPin, PiEnvelopeKind, PiEnvelopeSender,
     PiLocalPolicyRequest, PiPolicyAction, PiPolicyGate, PiPolicyMode, PiWireEnvelope,
-    ScannerLimits, ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError, StorageQuotaScope,
-    ThermalScanDecision, UnsignedPiWireEnvelope, ZapDecision, DEFAULT_AGENT_CONFIG_PATH,
+    PolicyTrustState, ScannerLimits, ScopeError, ScopeTarget, ScopeTargetType, StorageQuotaError,
+    StorageQuotaScope, StoredPolicyPack, ThermalScanDecision, TrustedControlPlaneKey,
+    UnsignedPiWireEnvelope, ZapDecision, CURRENT_POLICY_FILE, DEFAULT_AGENT_CONFIG_PATH,
     DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_ASK_BIND, DEFAULT_ASK_MAX_CONCURRENT,
     DEFAULT_ASK_RATE_LIMIT_PER_MINUTE, DEFAULT_DATA_DIR, DEFAULT_GOLD_TOP_K, DEFAULT_KEY_LABEL,
     DEFAULT_NO_ANSWER_THRESHOLD, DEFAULT_QUOTAS,
@@ -29,8 +30,9 @@ use kelp_pi_agent::{
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::io::{self, BufRead};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> ExitCode {
     match run() {
@@ -57,6 +59,7 @@ fn run() -> Result<(), ExitCode> {
         "firmware-update" => firmware_update_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "normalize" => normalize_command(args.collect()),
+        "policy" => policy_command(args.collect()),
         "policy-check" => policy_check_command(args.collect()),
         "quota-defaults" => {
             print_quota_defaults();
@@ -134,6 +137,16 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
         eprintln!("invalid trusted control-plane key: {error}");
         ExitCode::from(64)
     })?;
+    let trusted_cp_key_id =
+        trusted_key_id_from_raw_hex(&trusted_cp_public_key_hex).map_err(|error| {
+            eprintln!("invalid trusted control-plane key: {error}");
+            ExitCode::from(64)
+        })?;
+    let trusted_cp_delivery_key = TrustedControlPlaneKey {
+        key_id: trusted_cp_key_id,
+        public_key_raw_hex: trusted_cp_public_key_hex.clone(),
+        state: PolicyTrustState::Trusted,
+    };
     let identity = load_or_generate_identity_key(&data_dir.join("keys"), DEFAULT_KEY_LABEL)
         .map_err(|error| {
             eprintln!("identity key unavailable: {error}");
@@ -217,6 +230,22 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
                     ExitCode::from(78)
                 })?]
             }
+            PiEnvelopeKind::PolicyPush => {
+                if !audit_started {
+                    init_checked_audit(&data_dir)?;
+                    audit_started = true;
+                }
+                policy_push_responses(
+                    &data_dir,
+                    &envelope,
+                    &identity,
+                    std::slice::from_ref(&trusted_cp_delivery_key),
+                )
+                .map_err(|error| {
+                    eprintln!("policy.push refused: {error}");
+                    ExitCode::from(77)
+                })?
+            }
             PiEnvelopeKind::ScanRequest => {
                 if !audit_started {
                     init_checked_audit(&data_dir)?;
@@ -245,6 +274,50 @@ fn wire_command(args: Vec<String>) -> Result<(), ExitCode> {
         }
     }
     Ok(())
+}
+
+fn policy_push_responses(
+    data_dir: &Path,
+    envelope: &PiWireEnvelope,
+    identity: &IdentityKey,
+    trusted_keys: &[TrustedControlPlaneKey],
+) -> Result<Vec<PiWireEnvelope>, String> {
+    let receipt = apply_and_audit_policy_push(data_dir, envelope, trusted_keys)?;
+    let payload = serde_json::to_value(&receipt)
+        .map_err(|error| error.to_string())?
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "policy push receipt must be an object".to_string())?;
+    Ok(vec![sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: format!("{}.accepted", envelope.msg_id),
+            ts: rfc3339_now(),
+            sender: PiEnvelopeSender::Pi,
+            kind: PiEnvelopeKind::PolicyPush,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| error.to_string())?])
+}
+
+fn apply_and_audit_policy_push(
+    data_dir: &Path,
+    envelope: &PiWireEnvelope,
+    trusted_keys: &[TrustedControlPlaneKey],
+) -> Result<kelp_pi_agent::PolicyPushReceipt, String> {
+    let receipt =
+        apply_policy_push(data_dir, envelope, trusted_keys).map_err(|error| error.to_string())?;
+    tracing::info!(
+        event = "policy.push.accepted",
+        msg = "policy push accepted",
+        msg_id = "policy-push-accepted",
+        policy_pack_id = receipt.policy_pack_id.as_str(),
+        signer_key_id = receipt.signer_key_id.as_str(),
+        trust_epoch = receipt.trust_epoch,
+        path = receipt.path.as_str()
+    );
+    Ok(receipt)
 }
 
 fn refuse_selfcheck_target(data_dir: &Path, target: &str, reason: &str) -> Result<(), ExitCode> {
@@ -1660,6 +1733,154 @@ fn ask_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+fn policy_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent policy <pull> ...");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "pull" => policy_pull_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown policy command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn policy_pull_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut device_id = None;
+    let mut trust_epoch_override = None;
+    let mut request_id = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--device-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--device-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                device_id = Some(value.to_string());
+                index += 2;
+            }
+            "--trust-epoch" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--trust-epoch requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<u64>() else {
+                    eprintln!("--trust-epoch must be a non-negative integer");
+                    return Err(ExitCode::from(64));
+                };
+                trust_epoch_override = Some(parsed);
+                index += 2;
+            }
+            "--request-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--request-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                request_id = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    init_checked_audit(&data_dir)?;
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    let identity = load_or_generate_identity_key(&key_dir, DEFAULT_KEY_LABEL).map_err(|error| {
+        eprintln!("identity key unavailable: {error}");
+        ExitCode::from(78)
+    })?;
+    let current_policy = load_current_policy_pack(&data_dir).map_err(|error| {
+        eprintln!("current policy unavailable: {error}");
+        ExitCode::from(65)
+    })?;
+    let known_policy_packs: Vec<Value> = current_policy
+        .as_ref()
+        .map(|stored| vec![Value::String(stored.payload.policy_pack_id.clone())])
+        .unwrap_or_default();
+    let trust_epoch = trust_epoch_override
+        .or_else(|| {
+            current_policy
+                .as_ref()
+                .map(|stored| stored.payload.trust_epoch)
+        })
+        .unwrap_or(0);
+    let device_id = device_id.unwrap_or_else(|| identity.metadata.label.clone());
+    let msg_id =
+        request_id.unwrap_or_else(|| format!("policy.pull.{}.{}", device_id, unix_millis_now()));
+    let mut payload = Map::new();
+    payload.insert("device_id".to_string(), Value::String(device_id.clone()));
+    payload.insert(
+        "known_policy_packs".to_string(),
+        Value::Array(known_policy_packs),
+    );
+    payload.insert(
+        "trust_epoch".to_string(),
+        Value::Number(serde_json::Number::from(trust_epoch)),
+    );
+    tracing::info!(
+        event = "policy.pull.requested",
+        msg = "policy pull requested",
+        msg_id = msg_id.as_str(),
+        device_id = device_id.as_str(),
+        trust_epoch = trust_epoch
+    );
+    let envelope = sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id,
+            ts: rfc3339_now(),
+            sender: PiEnvelopeSender::Pi,
+            kind: PiEnvelopeKind::PolicyPull,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| {
+        eprintln!("policy.pull signing failed: {error}");
+        ExitCode::from(78)
+    })?;
+    println!(
+        "{}",
+        serde_json::to_string(&envelope).expect("serialize policy pull envelope")
+    );
+    Ok(())
+}
+
+fn load_current_policy_pack(data_dir: &Path) -> Result<Option<StoredPolicyPack>, std::io::Error> {
+    let path = data_dir.join("policy").join(CURRENT_POLICY_FILE);
+    match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn policy_check_command(args: Vec<String>) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut gate = None;
@@ -3060,6 +3281,9 @@ fn wipe_command(args: Vec<String>) -> Result<(), ExitCode> {
 fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
     let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
     let mut check_only = false;
+    let mut policy_push_file = None;
+    let mut policy_pull_interval_seconds = 300_u64;
+    let mut trusted_cp_public_key_hex = None;
     let mut index = 0;
 
     while index < args.len() {
@@ -3075,6 +3299,38 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
             "--check-only" => {
                 check_only = true;
                 index += 1;
+            }
+            "--policy-push-file" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--policy-push-file requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                policy_push_file = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--policy-pull-interval-seconds" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--policy-pull-interval-seconds requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                let Ok(parsed) = value.parse::<u64>() else {
+                    eprintln!("--policy-pull-interval-seconds must be a positive integer");
+                    return Err(ExitCode::from(64));
+                };
+                if parsed == 0 {
+                    eprintln!("--policy-pull-interval-seconds must be a positive integer");
+                    return Err(ExitCode::from(64));
+                }
+                policy_pull_interval_seconds = parsed;
+                index += 2;
+            }
+            "--trusted-cp-public-key-hex" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--trusted-cp-public-key-hex requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                trusted_cp_public_key_hex = Some(value.to_string());
+                index += 2;
             }
             other => {
                 eprintln!("unknown argument: {other}");
@@ -3107,15 +3363,66 @@ fn check_data_dir(args: Vec<String>, start_mode: bool) -> Result<(), ExitCode> {
         None
     };
 
+    let policy_sync = start_policy_sync_config(
+        policy_push_file,
+        trusted_cp_public_key_hex,
+        policy_pull_interval_seconds,
+    )?;
+
     if start_mode && !check_only {
-        return run_daemon(&data_dir);
+        return run_daemon(&data_dir, policy_sync);
     }
 
     println!("data dir ok: {}", data_dir.display());
     Ok(())
 }
 
-fn run_daemon(data_dir: &Path) -> Result<(), ExitCode> {
+#[derive(Debug, Clone)]
+struct StartPolicySyncConfig {
+    policy_push_file: PathBuf,
+    trusted_keys: Vec<TrustedControlPlaneKey>,
+    interval: Duration,
+}
+
+#[derive(Debug, Default)]
+struct PolicySyncState {
+    last_msg_id: Option<String>,
+}
+
+fn start_policy_sync_config(
+    policy_push_file: Option<PathBuf>,
+    trusted_cp_public_key_hex: Option<String>,
+    interval_seconds: u64,
+) -> Result<Option<StartPolicySyncConfig>, ExitCode> {
+    match (policy_push_file, trusted_cp_public_key_hex) {
+        (None, None) => Ok(None),
+        (Some(_), None) => {
+            eprintln!("--policy-push-file requires --trusted-cp-public-key-hex");
+            Err(ExitCode::from(64))
+        }
+        (None, Some(_)) => {
+            eprintln!("--trusted-cp-public-key-hex requires --policy-push-file");
+            Err(ExitCode::from(64))
+        }
+        (Some(policy_push_file), Some(public_key_raw_hex)) => {
+            let key_id = trusted_key_id_from_raw_hex(&public_key_raw_hex).map_err(|error| {
+                eprintln!("invalid trusted control-plane key: {error}");
+                ExitCode::from(64)
+            })?;
+            Ok(Some(StartPolicySyncConfig {
+                policy_push_file,
+                trusted_keys: vec![TrustedControlPlaneKey {
+                    key_id,
+                    public_key_raw_hex,
+                    state: PolicyTrustState::Trusted,
+                }],
+                interval: Duration::from_secs(interval_seconds),
+            }))
+        }
+    }
+}
+
+fn run_daemon(data_dir: &Path, policy_sync: Option<StartPolicySyncConfig>) -> Result<(), ExitCode> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -3123,11 +3430,14 @@ fn run_daemon(data_dir: &Path) -> Result<(), ExitCode> {
             eprintln!("daemon runtime init failed: {error}");
             ExitCode::from(69)
         })?;
-    runtime.block_on(wait_for_shutdown(data_dir))
+    runtime.block_on(wait_for_shutdown(data_dir, policy_sync))
 }
 
 #[cfg(unix)]
-async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
+async fn wait_for_shutdown(
+    data_dir: &Path,
+    policy_sync: Option<StartPolicySyncConfig>,
+) -> Result<(), ExitCode> {
     use tokio::signal::unix::{signal, SignalKind};
 
     let mut sigterm = signal(SignalKind::terminate()).map_err(|error| {
@@ -3144,10 +3454,15 @@ async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
         msg_id = "agent-daemon-started",
         data_dir = %data_dir.display()
     );
+    let policy_sync_task =
+        policy_sync.map(|config| spawn_policy_sync_loop(data_dir.to_path_buf(), config));
     let shutdown_signal = tokio::select! {
         _ = sigterm.recv() => "SIGTERM",
         _ = sigint.recv() => "SIGINT",
     };
+    if let Some(task) = policy_sync_task {
+        task.abort();
+    }
     tracing::info!(
         event = "agent.daemon.stopped",
         msg = "daemon stopped",
@@ -3158,17 +3473,25 @@ async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
 }
 
 #[cfg(not(unix))]
-async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
+async fn wait_for_shutdown(
+    data_dir: &Path,
+    policy_sync: Option<StartPolicySyncConfig>,
+) -> Result<(), ExitCode> {
     tracing::info!(
         event = "agent.daemon.started",
         msg = "daemon started",
         msg_id = "agent-daemon-started",
         data_dir = %data_dir.display()
     );
+    let policy_sync_task =
+        policy_sync.map(|config| spawn_policy_sync_loop(data_dir.to_path_buf(), config));
     tokio::signal::ctrl_c().await.map_err(|error| {
         eprintln!("shutdown handler failed: {error}");
         ExitCode::from(69)
     })?;
+    if let Some(task) = policy_sync_task {
+        task.abort();
+    }
     tracing::info!(
         event = "agent.daemon.stopped",
         msg = "daemon stopped",
@@ -3176,6 +3499,74 @@ async fn wait_for_shutdown(data_dir: &Path) -> Result<(), ExitCode> {
         shutdown_signal = "ctrl_c"
     );
     Ok(())
+}
+
+fn spawn_policy_sync_loop(
+    data_dir: PathBuf,
+    config: StartPolicySyncConfig,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut state = PolicySyncState::default();
+        policy_sync_tick(&data_dir, &config, &mut state).await;
+        loop {
+            tokio::time::sleep(config.interval).await;
+            policy_sync_tick(&data_dir, &config, &mut state).await;
+        }
+    })
+}
+
+async fn policy_sync_tick(
+    data_dir: &Path,
+    config: &StartPolicySyncConfig,
+    state: &mut PolicySyncState,
+) {
+    let msg_id = format!("policy.pull.daemon.{}", unix_millis_now());
+    tracing::info!(
+        event = "policy.pull.requested",
+        msg = "policy pull requested",
+        msg_id = msg_id.as_str(),
+        trust_source = %config.policy_push_file.display()
+    );
+    let bytes = match tokio::fs::read(&config.policy_push_file).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(
+                event = "policy.pull.failed",
+                msg = "policy pull failed",
+                msg_id = msg_id.as_str(),
+                reason = error.to_string().as_str()
+            );
+            return;
+        }
+    };
+    let envelope: PiWireEnvelope = match serde_json::from_slice(&bytes) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            tracing::warn!(
+                event = "policy.pull.failed",
+                msg = "policy pull failed",
+                msg_id = msg_id.as_str(),
+                reason = error.to_string().as_str()
+            );
+            return;
+        }
+    };
+    if state.last_msg_id.as_deref() == Some(envelope.msg_id.as_str()) {
+        return;
+    }
+    match apply_and_audit_policy_push(data_dir, &envelope, &config.trusted_keys) {
+        Ok(_) => {
+            state.last_msg_id = Some(envelope.msg_id);
+        }
+        Err(error) => {
+            tracing::warn!(
+                event = "policy.push.refused",
+                msg = "policy push refused",
+                msg_id = msg_id.as_str(),
+                reason = error.as_str()
+            );
+        }
+    }
 }
 
 fn rfc3339_now() -> String {
@@ -3210,6 +3601,25 @@ fn civil_from_unix_day(day: i64) -> (i64, u32, u32) {
 fn verifying_key_from_hex(hex: &str) -> Result<VerifyingKey, String> {
     let bytes = decode_hex(hex)?;
     VerifyingKey::try_from(bytes.as_slice()).map_err(|error| error.to_string())
+}
+
+fn trusted_key_id_from_raw_hex(hex: &str) -> Result<String, String> {
+    let bytes = decode_hex(hex)?;
+    if bytes.len() != 32 {
+        return Err("public key must be 32 bytes".to_string());
+    }
+    Ok(format!("sha256:{}", encode_hex(Sha256::digest(bytes))))
+}
+
+fn encode_hex(bytes: impl AsRef<[u8]>) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let bytes = bytes.as_ref();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
 }
 
 fn decode_hex(text: &str) -> Result<Vec<u8>, String> {
@@ -3257,6 +3667,9 @@ fn print_usage() {
         "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
     eprintln!(
+        "usage: kelp-pi-agent policy pull [--data-dir PATH] [--key-dir PATH] [--device-id ID] [--trust-epoch N] [--request-id ID]"
+    );
+    eprintln!(
         "usage: kelp-pi-agent policy-check --gate GATE [--mode enforce|dry-run] [--dry-run] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent quota-defaults");
@@ -3270,7 +3683,9 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent selfcheck [--data-dir PATH] [--target TARGET] [--signed-envelope] [--check-id ID]"
     );
-    eprintln!("usage: kelp-pi-agent start [--data-dir PATH] --check-only");
+    eprintln!(
+        "usage: kelp-pi-agent start [--data-dir PATH] [--check-only] [--policy-push-file PATH --trusted-cp-public-key-hex HEX --policy-pull-interval-seconds N]"
+    );
     eprintln!(
         "usage: kelp-pi-agent upload accept --input PATH [--name NAME] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
