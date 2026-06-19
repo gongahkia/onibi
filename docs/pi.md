@@ -189,6 +189,7 @@ Root: `/var/lib/kelp-pi`, owned by the dedicated `kelp-pi` user.
 | `/var/lib/kelp-pi/keys`     | Encrypted Pi private key files and public key metadata.                             |
 | `/var/lib/kelp-pi/policy`   | Last-good signed policy packs and trust lists.                                      |
 | `/var/lib/kelp-pi/scope`    | Active and historical signed engagement scopes.                                     |
+| `/var/lib/kelp-pi/outbox`   | Offline signed Pi envelopes queued for ordered replay after reconnect.              |
 
 Startup preflight:
 
@@ -455,6 +456,9 @@ Retrieval chunking:
 - `kelp-pi-agent start` can also poll a signed control-plane policy-push file at
   startup and on `--policy-pull-interval-seconds`, applying changed signed packs on
   the next pull interval.
+- `kelp-pi-agent outbox enqueue` stores signed Pi-originated envelopes under
+  `/var/lib/kelp-pi/outbox/queued`; `outbox replay` emits them in sequence order and
+  archives sent envelopes under `outbox/sent`.
 - Local policy evaluation covers scanner invocation, file operation, and outbound
   network gates; `evaluate_and_audit_local_policy` emits a hash-chained
   `policy-decision` audit event for each decision.

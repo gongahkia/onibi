@@ -23,6 +23,8 @@ execution, internet scanning, or scanning outside an operator-declared scope.
 - `policy pull` emits signed current-pack requests; local CP sync rotates signed
   packs through `wire --stdio`, and `start` can poll signed policy-push files at a
   configured interval. Accepted pulls/pushes are logged.
+- Signed Pi-originated envelopes can be queued in `outbox/queued` while disconnected
+  and replayed in sequence order after reconnect; replayed envelopes are archived.
 - Local policy evaluation covers scanner invocation, file operation, outbound network,
   and synthesis gates, and writes `policy-decision` audit events when called through
   the audited paths.

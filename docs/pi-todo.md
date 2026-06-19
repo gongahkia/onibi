@@ -43,8 +43,6 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P7 — Control plane sync
 
-- [ ] Implement replay-after-reconnect: queued envelopes from Pi to control plane are sent in order when connectivity returns → success: integration test confirms ordered delivery after a disconnection.
-
 ## P8 — Optional LLM synthesis
 
 - [ ] Add a feature-flagged Ollama integration on the Pi (16GB only) → success: a 3B-class model can be loaded; loading on 8GB Pi is refused with a clear error.

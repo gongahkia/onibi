@@ -59,6 +59,7 @@ fn run() -> Result<(), ExitCode> {
         "firmware-update" => firmware_update_command(args.collect()),
         "keygen" => keygen_command(args.collect()),
         "normalize" => normalize_command(args.collect()),
+        "outbox" => outbox_command(args.collect()),
         "policy" => policy_command(args.collect()),
         "policy-check" => policy_check_command(args.collect()),
         "quota-defaults" => {
@@ -1745,6 +1746,247 @@ fn policy_command(args: Vec<String>) -> Result<(), ExitCode> {
             Err(ExitCode::from(64))
         }
     }
+}
+
+fn outbox_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        eprintln!("usage: kelp-pi-agent outbox <enqueue|replay> ...");
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "enqueue" => outbox_enqueue_command(args[1..].to_vec()),
+        "replay" => outbox_replay_command(args[1..].to_vec()),
+        other => {
+            eprintln!("unknown outbox command: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn outbox_enqueue_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut kind = None;
+    let mut payload_json = None;
+    let mut msg_id = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--kind" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--kind requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                kind = Some(value.to_string());
+                index += 2;
+            }
+            "--payload-json" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--payload-json requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                payload_json = Some(value.to_string());
+                index += 2;
+            }
+            "--msg-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--msg-id requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                msg_id = Some(value.to_string());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    init_checked_audit(&data_dir)?;
+    let Some(kind) = kind else {
+        eprintln!("outbox enqueue requires --kind");
+        return Err(ExitCode::from(64));
+    };
+    let Some(payload_json) = payload_json else {
+        eprintln!("outbox enqueue requires --payload-json");
+        return Err(ExitCode::from(64));
+    };
+    let kind = parse_outbox_envelope_kind(&kind).map_err(|error| {
+        eprintln!("{error}");
+        ExitCode::from(64)
+    })?;
+    let payload_value: Value = serde_json::from_str(&payload_json).map_err(|error| {
+        eprintln!("--payload-json invalid: {error}");
+        ExitCode::from(65)
+    })?;
+    let payload = payload_value.as_object().cloned().ok_or_else(|| {
+        eprintln!("--payload-json must be a JSON object");
+        ExitCode::from(65)
+    })?;
+    let key_dir = key_dir.unwrap_or_else(|| data_dir.join("keys"));
+    let identity = load_or_generate_identity_key(&key_dir, DEFAULT_KEY_LABEL).map_err(|error| {
+        eprintln!("identity key unavailable: {error}");
+        ExitCode::from(78)
+    })?;
+    let msg_id = msg_id.unwrap_or_else(|| format!("outbox.{}", unix_millis_now()));
+    let envelope = sign_envelope(
+        UnsignedPiWireEnvelope {
+            msg_id: msg_id.clone(),
+            ts: rfc3339_now(),
+            sender: PiEnvelopeSender::Pi,
+            kind,
+            payload,
+        },
+        &identity.signing_key,
+    )
+    .map_err(|error| {
+        eprintln!("outbox envelope signing failed: {error}");
+        ExitCode::from(78)
+    })?;
+    let queued_path = enqueue_outbox_envelope(&data_dir, &envelope).map_err(|error| {
+        eprintln!("outbox enqueue failed: {error}");
+        ExitCode::from(74)
+    })?;
+    tracing::info!(
+        event = "outbox.enqueued",
+        msg = "outbox envelope enqueued",
+        msg_id = msg_id.as_str(),
+        path = %queued_path.display()
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "ok": true,
+            "msg_id": msg_id,
+            "path": queued_path.display().to_string()
+        }))
+        .expect("serialize outbox enqueue")
+    );
+    Ok(())
+}
+
+fn outbox_replay_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+
+    init_checked_audit(&data_dir)?;
+    let replayed = replay_outbox_envelopes(&data_dir).map_err(|error| {
+        eprintln!("outbox replay failed: {error}");
+        ExitCode::from(74)
+    })?;
+    tracing::info!(
+        event = "outbox.replayed",
+        msg = "outbox envelopes replayed",
+        msg_id = "outbox-replayed",
+        count = replayed
+    );
+    Ok(())
+}
+
+fn parse_outbox_envelope_kind(kind: &str) -> Result<PiEnvelopeKind, String> {
+    match kind {
+        "policy.pull" => Ok(PiEnvelopeKind::PolicyPull),
+        "scan.event" => Ok(PiEnvelopeKind::ScanEvent),
+        "scan.complete" => Ok(PiEnvelopeKind::ScanComplete),
+        "evidence.append" => Ok(PiEnvelopeKind::EvidenceAppend),
+        "bundle.export" => Ok(PiEnvelopeKind::BundleExport),
+        "ask.result" => Ok(PiEnvelopeKind::AskResult),
+        "selfcheck.report" => Ok(PiEnvelopeKind::SelfcheckReport),
+        _ => Err("outbox kind must be a Pi-originated envelope kind".to_string()),
+    }
+}
+
+fn enqueue_outbox_envelope(
+    data_dir: &Path,
+    envelope: &PiWireEnvelope,
+) -> Result<PathBuf, std::io::Error> {
+    let outbox_dir = data_dir.join("outbox");
+    let queued_dir = outbox_dir.join("queued");
+    fs::create_dir_all(&queued_dir)?;
+    let sequence = next_outbox_sequence(&outbox_dir)?;
+    let path = queued_dir.join(format!("{sequence:020}.json"));
+    let tmp_path = queued_dir.join(format!("{sequence:020}.json.tmp.{}", std::process::id()));
+    fs::write(&tmp_path, serde_json::to_vec(envelope)?)?;
+    fs::rename(&tmp_path, &path)?;
+    Ok(path)
+}
+
+fn next_outbox_sequence(outbox_dir: &Path) -> Result<u64, std::io::Error> {
+    fs::create_dir_all(outbox_dir)?;
+    let path = outbox_dir.join("next-seq");
+    let current = match fs::read_to_string(&path) {
+        Ok(value) => value.trim().parse::<u64>().unwrap_or(0),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error),
+    };
+    let next = current.saturating_add(1);
+    let tmp_path = outbox_dir.join(format!("next-seq.tmp.{}", std::process::id()));
+    fs::write(&tmp_path, format!("{next}\n"))?;
+    fs::rename(&tmp_path, &path)?;
+    Ok(next)
+}
+
+fn replay_outbox_envelopes(data_dir: &Path) -> Result<usize, std::io::Error> {
+    let outbox_dir = data_dir.join("outbox");
+    let queued_dir = outbox_dir.join("queued");
+    let sent_dir = outbox_dir.join("sent");
+    fs::create_dir_all(&queued_dir)?;
+    fs::create_dir_all(&sent_dir)?;
+    let mut paths = fs::read_dir(&queued_dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut replayed = 0_usize;
+    for path in paths {
+        let bytes = fs::read(&path)?;
+        let envelope: PiWireEnvelope = serde_json::from_slice(&bytes)?;
+        println!(
+            "{}",
+            serde_json::to_string(&envelope).expect("serialize outbox envelope")
+        );
+        let file_name = path.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "outbox file has no name")
+        })?;
+        fs::rename(&path, sent_dir.join(file_name))?;
+        replayed += 1;
+    }
+    Ok(replayed)
 }
 
 fn policy_pull_command(args: Vec<String>) -> Result<(), ExitCode> {
@@ -3666,6 +3908,10 @@ fn print_usage() {
     eprintln!(
         "usage: kelp-pi-agent normalize nuclei --input PATH --workspace PATH [--raw-path PATH] [--data-dir PATH] [--quota-config PATH] [--min-free-bytes N]"
     );
+    eprintln!(
+        "usage: kelp-pi-agent outbox enqueue --kind KIND --payload-json JSON [--msg-id ID] [--data-dir PATH] [--key-dir PATH]"
+    );
+    eprintln!("usage: kelp-pi-agent outbox replay [--data-dir PATH]");
     eprintln!(
         "usage: kelp-pi-agent policy pull [--data-dir PATH] [--key-dir PATH] [--device-id ID] [--trust-epoch N] [--request-id ID]"
     );
