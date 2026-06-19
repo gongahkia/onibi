@@ -60,3 +60,52 @@ jobs:
           name: appsec-audit-bundle
           path: .kelpclaw/appsec/**/audit-bundle
           if-no-files-found: warn
+
+  pi:
+    name: Pi Agent (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/pi-agent/target
+          key: ${{ runner.os }}-cargo-pi-${{ matrix.target }}-${{ hashFiles('packages/pi-agent/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pi-${{ matrix.target }}-
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install cross
+        run: |
+          if ! command -v cross >/dev/null 2>&1; then
+            cargo install cross --locked
+          fi
+
+      - name: Build Pi agent
+        run: cross build --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
+
+      - name: Clippy Pi agent
+        run: cross clippy --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }} -- -D warnings
+
+      - name: Test Pi agent
+        run: cross test --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
