@@ -354,6 +354,7 @@ Retrieval chunking:
   Defaults: `60` requests/minute per IP and `8` concurrent requests.
 - Operators can query over LAN with the single-file Python client:
   `scripts/kelp-pi-ask "question" --pi pi.local`.
+- The client supports `--json` for machine-readable scripting output.
 
 Physical capture assumptions:
 
