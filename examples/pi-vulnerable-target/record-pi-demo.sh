@@ -20,6 +20,12 @@ need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 missing"
 }
 
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 walkthrough_args=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,22 +59,35 @@ done
   exit 64
 }
 need asciinema
+need chmod
 need dirname
+need mktemp
 need mkdir
 need node
+need sed
 
 mkdir -p "$(dirname "$asset")"
-set -- "$walkthrough"
-if [ -n "$walkthrough_args" ]; then
-  old_ifs="$IFS"
-  IFS='
+cmd_file="$(mktemp "${TMPDIR:-/tmp}/kelp-pi-demo.XXXXXX")"
+trap 'rm -f "$cmd_file"' EXIT HUP INT TERM
+{
+  printf '%s\n' "#!/usr/bin/env sh"
+  printf '%s\n' "set -eu"
+  printf '%s' "exec "
+  shell_quote "$walkthrough"
+  if [ -n "$walkthrough_args" ]; then
+    old_ifs="$IFS"
+    IFS='
 '
-  for arg in $walkthrough_args; do
-    set -- "$@" "$arg"
-  done
-  IFS="$old_ifs"
-fi
+    for arg in $walkthrough_args; do
+      printf '%s' " "
+      shell_quote "$arg"
+    done
+    IFS="$old_ifs"
+  fi
+  printf '\n'
+} >"$cmd_file"
+chmod 0755 "$cmd_file"
 
-asciinema rec "$asset" --overwrite --command "$*"
+asciinema rec "$asset" --overwrite --command "$cmd_file"
 "$verifier" --demo-asset "$asset" "$run_dir"
 printf '%s\n' "$asset"
