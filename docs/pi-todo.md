@@ -52,7 +52,9 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P11 — Docs, demo, launch
 
-- [x] Add a curlable headless Pi bootstrap and first-class `kelp-pi` helper CLI → success: `scripts/install-kelp-pi.sh --help` documents the install flow; `kelp-pi` shows status plus next steps; `kelp-pi --help` exposes status, model selection, doctor, logs, service control, network render/apply, and validation commands.
+- [x] Add a curlable headless Pi bootstrap and first-class `kelp-pi` helper CLI → success: `scripts/install-kelp-pi.sh --help` documents the install flow; `kelp-pi` shows first-run setup; `kelp-pi --help` exposes status, version, update, model install/list/remove, doctor, logs, service control, network render/apply, reset, uninstall, and validation commands.
+- [x] Add GitHub release binary path for Kelp Pi → success: `.github/workflows/release.yml` publishes `kelp-pi-agent-aarch64` plus `kelp-pi-agent-aarch64.sha256`; the curl installer defaults to that release asset and verifies the checksum before install.
+- [x] Split Kelp Pi user quickstart from design docs → success: `docs/pi-quickstart.md` contains install, first-run, model, update, hardening, recovery, and real-Pi acceptance commands without requiring the architecture doc.
 - [ ] Write `kelp/docs/pi.md` operator quickstart: flash, scope, scan, bundle, verify → success: a new operator following the doc produces a signed bundle from a fixture target in under 30 minutes.
 - [ ] Add a sample vulnerable Docker target and a sample engagement walkthrough that exercises Pi end-to-end → success: walkthrough produces a complete bundle that verifies and demonstrates each P1-P10 capability.
 - [ ] Record a short demo: SSH into Pi, declare scope, run a scan, retrieve a citation, export bundle → success: demo asset (cast or gif) committed under `kelp/docs/assets/`.

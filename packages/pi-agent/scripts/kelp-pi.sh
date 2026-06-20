@@ -135,11 +135,17 @@ version_info() {
 }
 
 ram_kib() {
-  awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null || printf '0\n'
+  if [ -r /proc/meminfo ]; then
+    awk '/^MemTotal:/ { print $2 }' /proc/meminfo
+  fi
 }
 
 ram_tier() {
   mem="$(ram_kib)"
+  if [ -z "$mem" ]; then
+    printf 'unknown'
+    return
+  fi
   if [ "$mem" -lt 3145728 ]; then
     printf 'unsupported (<3GiB detected)'
   elif [ "$mem" -lt 7340032 ]; then
@@ -151,11 +157,20 @@ ram_tier() {
   fi
 }
 
+ram_line() {
+  mem="$(ram_kib)"
+  if [ -z "$mem" ]; then
+    printf 'unknown'
+  else
+    printf '%s (%s KiB)' "$(ram_tier)" "$mem"
+  fi
+}
+
 storage_line() {
   if [ -d "$data_dir" ]; then
-    df -h "$data_dir" | awk 'NR==2 { printf "%s free on %s", $4, $6 }'
+    df -Pk "$data_dir" | awk 'NR==2 { printf "%d MiB free on %s", int($4 / 1024), $6 }'
   else
-    df -h / | awk 'NR==2 { printf "%s free on %s", $4, $6 }'
+    df -Pk / | awk 'NR==2 { printf "%d MiB free on %s", int($4 / 1024), $6 }'
   fi
 }
 
@@ -173,7 +188,7 @@ setup_wizard() {
   if command -v systemctl >/dev/null 2>&1; then
     ok_line service "$(systemctl is-active "$service" 2>/dev/null || true)"
   fi
-  ok_line ram "$(ram_tier) ($(ram_kib) KiB)"
+  ok_line ram "$(ram_line)"
   ok_line storage "$(storage_line)"
   if [ -x /opt/kelp-pi/bin/nuclei ]; then
     ok_line nuclei "/opt/kelp-pi/bin/nuclei"

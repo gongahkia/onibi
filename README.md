@@ -43,19 +43,18 @@ See [`docs/appsec-harness.md`](docs/appsec-harness.md) for the agent I/O contrac
 
 ## Kelp Pi
 
-Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened, reproducible AppSec field drop-box: policy-gated scanning under operator-declared scope, signed audit bundles compatible with `kelp-claw verify-audit-bundle`, offline cited retrieval via `/ask`, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 4GB RAM and 64GB storage for Nuclei/Nmap, local retrieval, and small model-gated Ollama synthesis; 8GB is recommended for 3B-class local models, and 16GB remains the floor for ZAP-heavy or larger local synthesis profiles. Control plane stays in this TS monorepo; the Rust agent lives in `packages/pi-agent`.
+Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened AppSec field drop-box: scoped scanning, signed audit bundles, offline cited retrieval, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 4GB RAM and 56GB+ usable storage for Nuclei/Nmap, local retrieval, bundles, and small RAM-gated Ollama models.
 
 Headless Pi install:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
 $ kelp-pi
-$ kelp-pi status
-$ kelp-pi models
+$ kelp-pi models install qwen2.5:0.5b
 $ kelp-pi doctor
 ```
 
-The curl installer builds `kelp-pi-agent` on the Pi unless `--agent-url` points at a prebuilt aarch64 binary. Network/AP hardening is explicit so the install does not cut an active SSH session. See [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and the full architecture diagram in [`docs/architecture.mmd`](docs/architecture.mmd).
+The curl installer defaults to the latest GitHub release binary and falls back to source only when explicitly requested with `--build-from-source`. Network/AP hardening is explicit so the install does not cut an active SSH session. Start with [`docs/pi-quickstart.md`](docs/pi-quickstart.md); deeper design lives in [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and [`docs/architecture.mmd`](docs/architecture.mmd).
 
 Kelp Pi non-goals: operator anonymity, covert use, evasion, cellular or phone replacement features, always-listening voice, internet-scale scanning, scanning outside declared scope, target persistence, lateral movement, credential exfiltration, general self-hosting, and uncited generated answers.
 

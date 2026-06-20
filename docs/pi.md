@@ -32,9 +32,10 @@ by default.
 
 ## Operator Quickstart
 
-Status: draft runbook. It lists the intended flash, scope, scan, bundle, and verify
-path, but the 30-minute cold-start acceptance task remains open until a new operator
-repeats it on a freshly flashed Pi.
+Status: draft runbook. Start with the user-facing
+[`pi-quickstart.md`](./pi-quickstart.md). This design doc keeps the full flash, scope,
+scan, bundle, and verify path, but the 30-minute cold-start acceptance task remains
+open until a new operator repeats it on a freshly flashed Pi.
 
 ### Headless Pi bootstrap
 
@@ -43,8 +44,7 @@ Preferred first install on Raspberry Pi OS Lite 64-bit:
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
 $ kelp-pi
-$ kelp-pi status
-$ kelp-pi models
+$ kelp-pi models install qwen2.5:0.5b
 $ kelp-pi doctor
 ```
 
@@ -59,11 +59,17 @@ By default the installer:
 
 - checks for Raspberry Pi 5 aarch64 unless `--allow-non-pi5` is passed;
 - installs OS packages, Nuclei, systemd files, validators, and the `kelp-pi` helper;
-- builds `kelp-pi-agent` from source on the Pi unless `--agent-url` points at a
-  prebuilt aarch64 binary;
+- downloads the latest GitHub release asset `kelp-pi-agent-aarch64` and verifies
+  `kelp-pi-agent-aarch64.sha256`;
 - creates the `kelp-pi` user, `/var/lib/kelp-pi`, and the Pi identity key;
 - enables `kelp-pi-agent.service`;
 - runs `kelp-pi status` and `kelp-pi-agent doctor`.
+
+Source-build install shape:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh -s -- --build-from-source
+```
 
 Release-binary install shape:
 
@@ -87,11 +93,12 @@ $ sudo kelp-pi validate-node
 Daily operator commands:
 
 ```console
-$ kelp-pi status
-$ kelp-pi models
+$ kelp-pi
+$ kelp-pi version
+$ kelp-pi update
+$ kelp-pi models install qwen2.5:0.5b
 $ kelp-pi doctor
 $ kelp-pi logs
-$ kelp-pi next
 ```
 
 ### Image staging path

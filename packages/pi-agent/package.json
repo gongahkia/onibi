@@ -11,6 +11,7 @@
     "install:agent": "scripts/install-agent-binary.sh",
     "install:field-tools": "scripts/install-field-tools.sh",
     "install:systemd": "scripts/install-systemd.sh",
+    "package:release": "scripts/package-release-aarch64.sh",
     "stage:image-root": "scripts/stage-image-root.sh",
     "test": "cargo test",
     "test:image-staging": "scripts/test-image-staging.sh",

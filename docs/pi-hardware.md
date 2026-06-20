@@ -12,7 +12,8 @@ The headless installer supports the 4GB profile:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
-$ kelp-pi models
+$ kelp-pi
+$ kelp-pi models install qwen2.5:0.5b
 ```
 
 ## Parts List

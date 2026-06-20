@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "postinstall": "node scripts/link-cli-bin.mjs",
     "pretest": "pnpm -r --if-present build",
+    "release:pi-agent": "pnpm --filter @kelpclaw/pi-agent package:release",
     "test": "pnpm -r --if-present test",
     "test:pi-bundle-replay": "pnpm --filter @kelpclaw/cli... build && node scripts/pi-bundle-replay-smoke.mjs",
     "test:pi-bundle-equivalence": "pnpm --filter @kelpclaw/cli... build && node scripts/pi-bundle-equivalence-smoke.mjs",
