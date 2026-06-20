@@ -3,6 +3,7 @@ set -eu
 
 script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 crate_dir="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+[ "${1:-}" = "--" ] && shift
 out_dir="${1:-$crate_dir/dist}"
 target="aarch64-unknown-linux-gnu"
 asset="kelp-pi-agent-aarch64"
