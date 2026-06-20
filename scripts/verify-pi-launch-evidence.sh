@@ -31,6 +31,14 @@ json_string_field() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=data[process.argv[2]]; process.exit(typeof value === "string" && value.length > 0 ? 0 : 1);' "$1" "$2"
 }
 
+json_number_gt_zero() {
+  node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=data[process.argv[2]]; process.exit(typeof value === "number" && value > 0 ? 0 : 1);' "$1" "$2"
+}
+
+approval_pair_ok() {
+  node -e 'const fs=require("node:fs"); const request=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const approval=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const ok=typeof request.token==="string" && request.token.length>0 && approval.token===request.token && request.scope_id===approval.scope_id && request.gate==="scanner-invocation" && approval.gate==="scanner-invocation" && request.required_action==="require-approval" && approval.required_action==="require-approval" && request.status==="pending" && approval.status==="approved" && Number.isInteger(approval.approved_at_unix); process.exit(ok ? 0 : 1);' "$1" "$2"
+}
+
 cast_header_ok() {
   node -e 'const fs=require("node:fs"); const first=fs.readFileSync(process.argv[1],"utf8").split(/\n/u)[0]; const data=JSON.parse(first); process.exit(Number.isInteger(data.version) ? 0 : 1);' "$1"
 }
@@ -95,8 +103,9 @@ do
 done
 
 json_true "$run_dir/scope.json" || fail "scope.json is not ok"
-json_string_field "$run_dir/approval-request.json" token || fail "approval-request.json missing approval token"
-json_true "$run_dir/approval.json" || fail "approval.json is not ok"
+json_string_field "$run_dir/scope.json" scopeId || fail "scope.json missing scopeId"
+json_number_gt_zero "$run_dir/scope.json" targetCount || fail "scope.json missing targetCount"
+approval_pair_ok "$run_dir/approval-request.json" "$run_dir/approval.json" || fail "approval artifacts do not prove scanner approval"
 json_true "$run_dir/normalize.json" || fail "normalize.json is not ok"
 json_true "$run_dir/index.json" || fail "index.json is not ok"
 json_has_citation "$run_dir/ask.json" || fail "ask.json has no citation"
