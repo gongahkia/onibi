@@ -351,7 +351,7 @@ models_command() {
     install)
       model="${1:-qwen2.5:0.5b}"
       need "$agent_bin"
-      "$agent_bin" ollama check --enable-ollama --model "$model" >/dev/null
+      "$agent_bin" ollama check --enable-ollama --model "$model"
       ensure_ollama
       as_root systemctl enable --now ollama >/dev/null 2>&1 || true
       ollama pull "$model"

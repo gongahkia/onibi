@@ -228,7 +228,7 @@ if [ "$skip_apt" != "1" ]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   packages="ca-certificates curl git unzip file jq nftables network-manager dnsmasq iproute2 iputils-ping dnsutils tcpdump nmap sudo"
-  if [ "$build_from_source" = "1" ]; then
+  if [ "$build_from_source" = "1" ] || [ "$fallback_source" = "1" ]; then
     packages="$packages build-essential cargo pkg-config"
     check_disk "$(dirname "$source_dir")" 5242880
   fi
@@ -245,7 +245,12 @@ need systemd-tmpfiles
 
 tmp="$(mktemp -d)"
 cleanup() {
+  code="$?"
   rm -rf "$tmp"
+  if [ "$code" -ne 0 ]; then
+    printf 'ERROR failed during: %s\n' "$current_step" >&2
+  fi
+  exit "$code"
 }
 trap cleanup EXIT INT TERM
 
