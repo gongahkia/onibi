@@ -2,23 +2,81 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create or update.
+        required: true
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: macos-latest
+  pi-agent:
+    name: Pi agent release asset
+    runs-on: ubuntu-latest
+    env:
+      TARGET: aarch64-unknown-linux-gnu
+      ASSET: kelp-pi-agent-aarch64
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
         with:
-          go-version: "1.26.4"
-          cache: true
-      - uses: goreleaser/goreleaser-action@v7
+          platforms: arm64
+
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          version: "~> v2"
-          args: release --clean
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/pi-agent/target
+          key: ${{ runner.os }}-release-pi-${{ hashFiles('packages/pi-agent/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-pi-
+
+      - name: Install cross and binutils
+        run: |
+          if ! command -v cross >/dev/null 2>&1; then
+            cargo install cross --locked
+          fi
+          sudo apt-get update
+          sudo apt-get install -y binutils-aarch64-linux-gnu
+
+      - name: Build release binary
+        run: cross build --manifest-path packages/pi-agent/Cargo.toml --target "$TARGET" --release --bin kelp-pi-agent
+
+      - name: Package release assets
+        run: |
+          mkdir -p dist
+          aarch64-linux-gnu-objcopy --strip-all "packages/pi-agent/target/$TARGET/release/kelp-pi-agent" "dist/$ASSET"
+          chmod 0755 "dist/$ASSET"
+          (cd dist && sha256sum "$ASSET" > "$ASSET.sha256")
+          file "dist/$ASSET"
+          cat "dist/$ASSET.sha256"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "dist/$ASSET" "dist/$ASSET.sha256" --clobber
+          else
+            gh release create "$RELEASE_TAG" "dist/$ASSET" "dist/$ASSET.sha256" \
+              --title "$RELEASE_TAG" \
+              --notes "Kelp Pi agent ARM64 release asset."
+          fi

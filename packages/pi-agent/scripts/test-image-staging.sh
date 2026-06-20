@@ -37,6 +37,7 @@ fi
 test -f "$root/etc/systemd/system/kelp-pi-agent.service" || fail "systemd unit missing"
 test -f "$root/usr/lib/sysusers.d/kelp-pi-agent.conf" || fail "sysusers file missing"
 test -f "$root/usr/lib/tmpfiles.d/kelp-pi-agent.conf" || fail "tmpfiles file missing"
+test -x "$root/usr/local/bin/kelp-pi" || fail "operator helper missing"
 test -x "$root/usr/local/sbin/kelp-pi-validate-node" || fail "field validator missing"
 test -x "$root/usr/local/sbin/kelp-pi-validate-scanner-sandbox" || fail "scanner sandbox validator missing"
 test -x "$root/usr/local/sbin/kelp-pi-validate-allow-outbound-reload" || fail "allow-outbound reload validator missing"

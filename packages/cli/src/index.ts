@@ -35,7 +35,7 @@ import {
   type EvidenceSensitivity
 } from "@kelpclaw/evidence";
 import { evaluatePolicy, requirePolicyPack } from "@kelpclaw/policy";
-import { piCliHelp, runPiCliCommand } from "@kelpclaw/pi-cli";
+import { runPiCliCommand } from "@kelpclaw/pi-cli";
 import {
   createWebIntelClient,
   defaultProviderForOperation,

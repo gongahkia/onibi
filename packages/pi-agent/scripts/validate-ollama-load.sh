@@ -3,7 +3,7 @@ set -eu
 
 agent_bin="${KELP_PI_AGENT_BIN:-/usr/local/bin/kelp-pi-agent}"
 ollama_bin="${KELP_PI_OLLAMA_BIN:-ollama}"
-model="${KELP_PI_OLLAMA_MODEL:-llama3.2:3b}"
+model="${KELP_PI_OLLAMA_MODEL:-qwen2.5:0.5b}"
 expect="load"
 output_file=""
 
@@ -86,7 +86,7 @@ require_pi_ram() {
   case "$ram_bytes:$min_ram_bytes" in
     *[!0-9:]* | :* | *:) fail "Ollama RAM proof is not numeric" ;;
   esac
-  printf 'OK Ollama hardware proof raspberry_pi=true ram_bytes=%s min_pi_ram_bytes=%s\n' "$ram_bytes" "$min_ram_bytes"
+  printf 'OK Ollama hardware proof raspberry_pi=true model=%s ram_bytes=%s min_pi_ram_bytes=%s\n' "$model" "$ram_bytes" "$min_ram_bytes"
 }
 
 output_file="$(mktemp)"
@@ -99,7 +99,7 @@ case "$expect" in
     grep -Eq '"decision"[[:space:]]*:[[:space:]]*"allow"' "$output_file" || fail "Ollama guard did not allow load"
     grep -Eq '"status"[[:space:]]*:[[:space:]]*"loaded"' "$output_file" || fail "Ollama model did not load"
     require_pi_ram
-    awk -v ram="$ram_bytes" -v min="$min_ram_bytes" 'BEGIN { exit !(ram >= min) }' || fail "Ollama load proof RAM is below Pi minimum"
+    awk -v ram="$ram_bytes" -v min="$min_ram_bytes" 'BEGIN { exit !(ram >= min) }' || fail "Ollama load proof RAM is below selected model minimum"
     pass "Ollama loaded $model on Raspberry Pi ram_bytes=$ram_bytes min_pi_ram_bytes=$min_ram_bytes"
     ;;
   refuse)
@@ -107,7 +107,7 @@ case "$expect" in
     grep -Eq '"decision"[[:space:]]*:[[:space:]]*"refuse"' "$output_file" || fail "Ollama guard did not refuse"
     grep -Eq '"status"[[:space:]]*:[[:space:]]*"skipped"' "$output_file" || fail "Ollama load was not skipped"
     require_pi_ram
-    awk -v ram="$ram_bytes" -v min="$min_ram_bytes" 'BEGIN { exit !(ram < min) }' || fail "Ollama refusal proof RAM is not below Pi minimum"
+    awk -v ram="$ram_bytes" -v min="$min_ram_bytes" 'BEGIN { exit !(ram < min) }' || fail "Ollama refusal proof RAM is not below selected model minimum"
     pass "Ollama refused $model on Raspberry Pi ram_bytes=$ram_bytes min_pi_ram_bytes=$min_ram_bytes before load"
     ;;
   *)

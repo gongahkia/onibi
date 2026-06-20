@@ -19,7 +19,7 @@ reality diverges as code lands, update this file rather than letting it rot.
 | Primary persona and non-goals | Operator persona, excluded primary personas, and explicit non-goals are recorded in [Operator persona](#operator-persona) and [Explicit non-goals](#explicit-non-goals). |
 | Control/data-plane split      | TS control plane stays in the monorepo; Rust data-plane agent lives in `packages/pi-agent`, recorded in [Architecture](#architecture-control-plane--data-plane).         |
 | Wire protocol and transport   | Signed JSONL envelopes over SSH-tunneled stdio are recorded in [Wire protocol](#wire-protocol) and [Transport decision](#transport-decision).                            |
-| Hardware floor                | Raspberry Pi 5 with 8GB RAM minimum and 4GB exclusion are recorded in [Pi target hardware](#pi-target-hardware).                                                         |
+| Hardware floor                | Raspberry Pi 5 with 4GB RAM minimum, model-gated local synthesis, and higher-memory profiles are recorded in [Pi target hardware](#pi-target-hardware).                  |
 | Data layout and quotas        | `/var/lib/kelp-pi` layout and quota defaults are recorded in [Data directory layout](#data-directory-layout) and [Quota defaults](#quota-defaults).                      |
 | OS baseline and upgrade flow  | Raspberry Pi OS Lite 64-bit, package pinning, and reflash-based upgrades are recorded in [OS image base](#os-image-base).                                                |
 | Signing key custody           | On-Pi Ed25519 key custody, rejected alternatives, and rotation/revocation are recorded in [Signing key custody](#signing-key-custody).                                   |
@@ -35,6 +35,66 @@ by default.
 Status: draft runbook. It lists the intended flash, scope, scan, bundle, and verify
 path, but the 30-minute cold-start acceptance task remains open until a new operator
 repeats it on a freshly flashed Pi.
+
+### Headless Pi bootstrap
+
+Preferred first install on Raspberry Pi OS Lite 64-bit:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
+$ kelp-pi
+$ kelp-pi status
+$ kelp-pi models
+$ kelp-pi doctor
+```
+
+Inspectable install path:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh -o /tmp/install-kelp-pi.sh
+$ sudo sh /tmp/install-kelp-pi.sh
+```
+
+By default the installer:
+
+- checks for Raspberry Pi 5 aarch64 unless `--allow-non-pi5` is passed;
+- installs OS packages, Nuclei, systemd files, validators, and the `kelp-pi` helper;
+- builds `kelp-pi-agent` from source on the Pi unless `--agent-url` points at a
+  prebuilt aarch64 binary;
+- creates the `kelp-pi` user, `/var/lib/kelp-pi`, and the Pi identity key;
+- enables `kelp-pi-agent.service`;
+- runs `kelp-pi status` and `kelp-pi-agent doctor`.
+
+Release-binary install shape:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh -o /tmp/install-kelp-pi.sh
+$ sudo sh /tmp/install-kelp-pi.sh \
+  --agent-url https://example.com/kelp-pi-agent-aarch64 \
+  --agent-sha256 <sha256>
+```
+
+The installer does not auto-apply AP/firewall hardening because that can disconnect a
+headless SSH session. Apply it only when local access or a recovery path is ready:
+
+```console
+$ sudo kelp-pi network-render '<long-wpa3-passphrase>' --allow-outbound <control-plane-host>:443
+$ sudo kelp-pi network-apply
+$ sudo reboot
+$ sudo kelp-pi validate-node
+```
+
+Daily operator commands:
+
+```console
+$ kelp-pi status
+$ kelp-pi models
+$ kelp-pi doctor
+$ kelp-pi logs
+$ kelp-pi next
+```
+
+### Image staging path
 
 Prepare the laptop:
 
@@ -149,8 +209,11 @@ $ ssh kelp-pi@<pi-host> sudo kelp-pi-validate-field-acceptance \
   --max-seconds 1800
 ```
 
-Add `--ollama-expect-load` on a 16GB Pi, `--ollama-expect-refuse` on an 8GB Pi, and
-`--readonly-root` only when those optional acceptance surfaces are configured.
+Add `--ollama-expect-load` on a 4GB Pi with the default small model, add
+`--ollama-model llama3.2:3b` on an 8GB Pi for a 3B-class load proof, add
+`--ollama-expect-refuse --ollama-model llama3.2:3b` on a 4GB Pi for a selected-model
+refusal proof, and add `--readonly-root` only when that optional acceptance surface is
+configured.
 
 Assemble, fetch, and verify the bundle:
 
@@ -305,13 +368,16 @@ Reference server implementation:
 
 ## Pi target hardware
 
-- **Minimum**: Raspberry Pi 5, 8GB RAM, 64GB A2 microSD, active cooler, 20Ah USB-C PD bank.
-- **Recommended**: Raspberry Pi 5, 16GB RAM, 256GB NVMe via PCIe HAT, active cooler,
+- **Minimum**: Raspberry Pi 5, 4GB RAM, 64GB A2 microSD, active cooler, 20Ah USB-C PD bank.
+- **Recommended**: Raspberry Pi 5, 8GB RAM, 256GB NVMe via PCIe HAT, active cooler,
   20Ah USB-C PD bank, rugged case.
-- 4GB Pi 5 is not supported because ZAP's JVM heap and scan state must share memory
-  with Nuclei/Nmap jobs, SQLite FTS5 retrieval, audit signing, and bundle staging.
-  The 8GB floor leaves headroom for concurrent scanner + retrieval work without
-  relying on swap; 16GB is reserved for ZAP-heavy or optional local synthesis profiles.
+- **Large profile**: Raspberry Pi 5, 16GB RAM for ZAP-heavy or larger local synthesis
+  profiles.
+- The 4GB profile is for core Nuclei/Nmap, SQLite FTS5 retrieval, audit signing,
+  bundle staging, and selected small Ollama models from `kelp-pi-agent ollama models`.
+  The 8GB profile is recommended for 3B-class local models and more scanner/retrieval
+  headroom. ZAP remains opt-in and 16GB-class because its JVM heap and scan state can
+  compete with evidence, retrieval, and bundle work.
 - Optional: e-ink status panel (v2), USB-Ethernet adapter for wired scope, GPS HAT for
   signed location attestation (v2).
 
@@ -657,11 +723,11 @@ Reference renderer:
   `--ollama-expect-refuse`, and `--readonly-root` add those evidence logs to the same
   artifact directory.
 - `kelp-pi-validate-ollama-load --expect-load` requires `kelp-pi-agent ollama load-check`
-  to load the configured 3B-class model on Raspberry Pi hardware with
+  to load the selected model on Raspberry Pi hardware with
   `ram_bytes >= min_pi_ram_bytes`; `--expect-refuse` requires the guard to refuse
-  before invoking Ollama on an undersized Pi with `ram_bytes < min_pi_ram_bytes`.
-- `scripts/verify-pi-p8-evidence.sh --load-field-dir <16gb-field-acceptance> --refuse-field-dir <8gb-field-acceptance>`
-  verifies the two separate P8 hardware evidence runs together.
+  before invoking Ollama when the selected model needs more RAM than the Pi has.
+- `scripts/verify-pi-p8-evidence.sh --load-field-dir <load-field-acceptance> --refuse-field-dir <refuse-field-acceptance>`
+  verifies separate P8 hardware evidence runs for both model load and model refusal.
 - `kelp-pi-validate-readonly-root --data-dir /var/lib/kelp-pi` requires `/` to be
   mounted read-only and the Pi data directory to be writable from a non-root mount,
   logging both mount option sets.
@@ -782,18 +848,32 @@ to laptop-produced ones; `kelp-claw verify-audit-bundle` verifies them unchanged
 over the wire protocol; offline-tolerant with replay-after-reconnect.
 
 **P8** — Optional LLM synthesis: Ollama on Pi for retrieval-then-generate with strict
-no-answer behavior; gated behind a flag; never default.
+no-answer behavior; gated behind a flag; never default; model selection is RAM-gated.
 
 Reference guard:
 
-- `kelp-pi-agent ollama check --enable-ollama --model llama3.2:3b` reports whether
+- `kelp-pi-agent ollama models` lists the Kelp Pi Ollama catalog, default model,
+  detected Pi RAM, per-model RAM tier, and whether each model is selectable.
+- `kelp-pi-agent ollama check --enable-ollama --model qwen2.5:0.5b` reports whether
   optional local synthesis is allowed on the current host. Raspberry Pi devices below
-  the 16GB class are refused before model load; non-Pi developer hosts are allowed for
-  integration testing.
-- `kelp-pi-agent ollama load-check --enable-ollama --model llama3.2:3b` runs the same
-  guard, then calls `ollama run <model> ""` to force an Ollama model preload. The
-  command is for P8 hardware validation; success still requires a Pi with Ollama
+  the selected model's RAM tier are refused before model load; non-Pi developer hosts
+  are allowed for integration testing.
+- `kelp-pi-agent ollama load-check --enable-ollama --model qwen2.5:0.5b` runs the
+  same guard, then calls `ollama run <model> ""` to force an Ollama model preload.
+  The command is for P8 hardware validation; success still requires a Pi with Ollama
   installed and the model available locally or pullable under operator control.
+
+Initial Ollama catalog:
+
+| Tier | Models                                                                     | Source size basis                                                                                                        |
+| ---- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 4GB  | `qwen2.5:0.5b`, `smollm2:360m`, `gemma3:1b`, `qwen2.5:1.5b`, `llama3.2:1b` | Ollama catalog lists these at roughly 398MB-1.3GB.                                                                       |
+| 8GB  | `smollm2:1.7b`, `qwen2.5:3b`, `llama3.2:3b`                                | Ollama catalog lists these at roughly 1.8GB-2.0GB.                                                                       |
+| 16GB | `gemma3:4b`                                                                | Ollama catalog lists this at roughly 3.3GB; Kelp Pi keeps it out of 4GB/8GB profiles for scanner and retrieval headroom. |
+
+The guard is intentionally catalog-based instead of accepting arbitrary Ollama names on
+Pi hardware. Operators can choose from the visible catalog, and unsupported model names
+fail before `ollama run` is invoked.
 
 **P9** — Eval & determinism: gold Q/A regression set, reproducible chunk-ID test,
 audit bundle replay, scanner output stability harness.

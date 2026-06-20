@@ -10,7 +10,8 @@ script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
   exit 64
 }
 
-install -d "$root/usr/local/sbin"
+install -d "$root/usr/local/bin" "$root/usr/local/sbin"
+install -m 0755 "$script_dir/kelp-pi.sh" "$root/usr/local/bin/kelp-pi"
 install -m 0755 "$script_dir/validate-pi-node.sh" "$root/usr/local/sbin/kelp-pi-validate-node"
 install -m 0755 "$script_dir/validate-scanner-sandbox.sh" "$root/usr/local/sbin/kelp-pi-validate-scanner-sandbox"
 install -m 0755 "$script_dir/validate-allow-outbound-reload.sh" "$root/usr/local/sbin/kelp-pi-validate-allow-outbound-reload"
@@ -20,6 +21,7 @@ install -m 0755 "$script_dir/validate-field-acceptance.sh" "$root/usr/local/sbin
 install -m 0755 "$script_dir/validate-ollama-load.sh" "$root/usr/local/sbin/kelp-pi-validate-ollama-load"
 install -m 0755 "$script_dir/validate-readonly-root.sh" "$root/usr/local/sbin/kelp-pi-validate-readonly-root"
 install -m 0755 "$script_dir/validate-nuclei-scan.sh" "$root/usr/local/sbin/kelp-pi-validate-nuclei-scan"
+printf '%s\n' "$root/usr/local/bin/kelp-pi"
 printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-node"
 printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-scanner-sandbox"
 printf '%s\n' "$root/usr/local/sbin/kelp-pi-validate-allow-outbound-reload"

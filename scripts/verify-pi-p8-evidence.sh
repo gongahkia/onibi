@@ -89,7 +89,7 @@ refuse_min="$(kv_from_log "$refuse_log" min_pi_ram_bytes)"
 [ -n "$refuse_ram" ] || fail "refusal ram_bytes missing"
 [ -n "$refuse_min" ] || fail "refusal min_pi_ram_bytes missing"
 
-awk -v ram="$load_ram" -v min="$load_min" 'BEGIN { exit !(ram >= min) }' || fail "load artifact is below Pi Ollama RAM threshold"
-awk -v ram="$refuse_ram" -v min="$refuse_min" 'BEGIN { exit !(ram < min) }' || fail "refusal artifact is not below Pi Ollama RAM threshold"
+awk -v ram="$load_ram" -v min="$load_min" 'BEGIN { exit !(ram >= min) }' || fail "load artifact is below selected Ollama model RAM threshold"
+awk -v ram="$refuse_ram" -v min="$refuse_min" 'BEGIN { exit !(ram < min) }' || fail "refusal artifact is not below selected Ollama model RAM threshold"
 
 pass "P8 Ollama evidence verified: load_ram_bytes=$load_ram refuse_ram_bytes=$refuse_ram"

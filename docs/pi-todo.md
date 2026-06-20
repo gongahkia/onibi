@@ -44,7 +44,7 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P8 — Optional LLM synthesis
 
-- [ ] Add a feature-flagged Ollama integration on the Pi (16GB only) → success: a 3B-class model can be loaded; loading on 8GB Pi is refused with a clear error.
+- [ ] Add a feature-flagged Ollama integration on the Pi with model selection → success: `kelp-pi-agent ollama models` reports 4GB/8GB/16GB tiers; a 4GB-safe model loads on a 4GB Pi; a model above detected RAM is refused before load.
 
 ## P9 — Eval and determinism
 
@@ -52,6 +52,7 @@ conventions. Then start at the first unchecked P0 task below.
 
 ## P11 — Docs, demo, launch
 
+- [x] Add a curlable headless Pi bootstrap and first-class `kelp-pi` helper CLI → success: `scripts/install-kelp-pi.sh --help` documents the install flow; `kelp-pi` shows status plus next steps; `kelp-pi --help` exposes status, model selection, doctor, logs, service control, network render/apply, and validation commands.
 - [ ] Write `kelp/docs/pi.md` operator quickstart: flash, scope, scan, bundle, verify → success: a new operator following the doc produces a signed bundle from a fixture target in under 30 minutes.
 - [ ] Add a sample vulnerable Docker target and a sample engagement walkthrough that exercises Pi end-to-end → success: walkthrough produces a complete bundle that verifies and demonstrates each P1-P10 capability.
 - [ ] Record a short demo: SSH into Pi, declare scope, run a scan, retrieve a citation, export bundle → success: demo asset (cast or gif) committed under `kelp/docs/assets/`.

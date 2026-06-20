@@ -106,8 +106,10 @@ pub use nuclei::{
     PINNED_NUCLEI_LINUX_ARM64_SHA256, PINNED_NUCLEI_TEMPLATES_REVISION,
 };
 pub use ollama::{
-    evaluate_ollama_guard, OllamaDecision, OllamaGuard, OllamaStatus, DEFAULT_OLLAMA_MODEL,
-    OLLAMA_MEMINFO_PATH_ENV, OLLAMA_MODEL_PATH_ENV, OLLAMA_PI_MIN_RAM_BYTES,
+    evaluate_ollama_guard, evaluate_ollama_models, ollama_model_profiles, OllamaDecision,
+    OllamaGuard, OllamaModelAvailability, OllamaModelProfile, OllamaModelTier, OllamaModelsReport,
+    OllamaStatus, DEFAULT_OLLAMA_MODEL, OLLAMA_MEMINFO_PATH_ENV, OLLAMA_MODEL_PATH_ENV,
+    OLLAMA_PI_16GB_MIN_RAM_BYTES, OLLAMA_PI_8GB_MIN_RAM_BYTES, OLLAMA_PI_MIN_RAM_BYTES,
 };
 pub use policy::{
     apply_policy_push, appsec_agent_baseline_rule, evaluate_and_audit_local_policy,
