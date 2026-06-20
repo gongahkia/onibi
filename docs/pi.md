@@ -160,7 +160,7 @@ $ ssh kelp-pi@<pi-host> \
   --run-id fixture-nuclei \
   --workspace /var/lib/kelp-pi/evidence/fixture-nuclei \
   --output /var/lib/kelp-pi/bundles/fixture-nuclei
-$ kelp-claw pi bundle fetch --bundle-id fixture-nuclei --out .kelpclaw/pi/fixture-nuclei
+$ kelp-claw pi bundle fetch --bundle-id fixture-nuclei --run-id fixture-nuclei --out .kelpclaw/pi/fixture-nuclei
 $ kelp-claw verify-audit-bundle .kelpclaw/pi/fixture-nuclei --profile reviewer
 ```
 
