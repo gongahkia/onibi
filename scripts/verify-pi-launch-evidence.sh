@@ -35,6 +35,14 @@ json_number_gt_zero() {
   node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=data[process.argv[2]]; process.exit(typeof value === "number" && value > 0 ? 0 : 1);' "$1" "$2"
 }
 
+json_path_true() {
+  node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=process.argv[2].split(".").reduce((acc,key)=>acc && acc[key], data); process.exit(value === true ? 0 : 1);' "$1" "$2"
+}
+
+json_path_eq() {
+  node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const value=process.argv[2].split(".").reduce((acc,key)=>acc && acc[key], data); process.exit(value === process.argv[3] ? 0 : 1);' "$1" "$2" "$3"
+}
+
 approval_pair_ok() {
   node -e 'const fs=require("node:fs"); const request=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const approval=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const ok=typeof request.token==="string" && request.token.length>0 && approval.token===request.token && request.scope_id===approval.scope_id && request.gate==="scanner-invocation" && approval.gate==="scanner-invocation" && request.required_action==="require-approval" && approval.required_action==="require-approval" && request.status==="pending" && approval.status==="approved" && Number.isInteger(approval.approved_at_unix); process.exit(ok ? 0 : 1);' "$1" "$2"
 }
@@ -112,7 +120,13 @@ json_has_citation "$run_dir/ask.json" || fail "ask.json has no citation"
 json_true "$run_dir/assembly.json" || fail "assembly.json is not ok"
 json_true "$run_dir/fetch.json" || fail "fetch.json is not ok"
 json_string_field "$run_dir/fetch.json" bundleDir || fail "fetch.json missing bundleDir"
+json_path_true "$run_dir/fetch.json" verified || fail "fetch.json missing reviewer verification proof"
 json_true "$run_dir/verification.json" || fail "verification.json is not ok"
+json_path_eq "$run_dir/verification.json" profile reviewer || fail "verification.json missing reviewer profile"
+json_path_true "$run_dir/verification.json" strict || fail "verification.json missing strict proof"
+json_path_true "$run_dir/verification.json" signature.valid || fail "verification.json missing valid signature proof"
+json_path_true "$run_dir/verification.json" attestation.valid || fail "verification.json missing valid attestation proof"
+json_path_true "$run_dir/verification.json" attestation.signed || fail "verification.json missing signed attestation proof"
 timing_ok "$run_dir/timing.txt" || fail "field walkthrough timing exceeded max or is incomplete"
 
 [ -d "$run_dir/fetched-bundle" ] || fail "fetched bundle missing"
