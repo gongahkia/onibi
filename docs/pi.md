@@ -79,13 +79,22 @@ $ sudo kelp-pi-validate-node
 Declare scope from the laptop, approve the active scan, then run it on the Pi:
 
 ```console
-$ kelp-claw pi scope set --host fixture.local --port 80 --until <scope-expiry-rfc3339>
+$ mkdir -p .kelpclaw/pi
+$ cat > .kelpclaw/pi/kelp-pi-agent-ssh <<'EOF'
+#!/usr/bin/env sh
+exec ssh kelp-pi@<pi-host> kelp-pi-agent "$@"
+EOF
+$ chmod 0755 .kelpclaw/pi/kelp-pi-agent-ssh
+$ export KELP_PI_AGENT_BIN="$PWD/.kelpclaw/pi/kelp-pi-agent-ssh"
+$ scope_id="$(
+  kelp-claw pi scope set --host fixture.local --port 80 --until <scope-expiry-rfc3339> | tee .kelpclaw/pi/fixture-scope.json | jq -r .scopeId
+)"
 $ approval_token="$(
   ssh kelp-pi@<pi-host> \
     kelp-pi-agent approval-request \
       --data-dir /var/lib/kelp-pi \
       --gate scanner-invocation \
-      --scope-id <scope-id> \
+      --scope-id "$scope_id" \
       --command 'scan nuclei http://fixture.local' \
       --host http://fixture.local \
       --allowed | jq -r .token
@@ -136,6 +145,7 @@ $ ssh kelp-pi@<pi-host> sudo kelp-pi-validate-field-acceptance \
   --ssh-user <client-ssh-user> \
   --upstream-interface <wan-iface> \
   --dns-probe-command 'for d in captive.apple.com connectivitycheck.gstatic.com clients3.google.com; do printf "%s " "$d"; dig +short @10.42.0.1 "$d"; done' \
+  --forbidden-ip <non-portal-probe-ip> \
   --max-seconds 1800
 ```
 
