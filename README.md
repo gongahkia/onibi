@@ -22,10 +22,18 @@ Pi readiness from a laptop:
 ```console
 $ corepack enable
 $ pnpm install --frozen-lockfile
-$ pnpm doctor:pi
-$ export KELP_PI_HOST=<pi-host>
-$ export KELP_PI_CONTROL_ENDPOINT=<control-plane-host>:443
-$ pnpm validate:pi-remote
+$ pnpm --filter @kelpclaw/cli build
+$ kelp-claw pi lab init \
+  --host <pi-host> \
+  --ssh-user <imager-ssh-user> \
+  --control-url https://<control-plane-host>:443/health \
+  --target-ip <fixture-ip> \
+  --target-url http://fixture.local \
+  --nuclei-approval-token <approval-token> \
+  --client-a <ap-client-a-ip> \
+  --client-b <ap-client-b-ip>
+$ kelp-claw pi doctor --strict
+$ kelp-claw pi validate
 ```
 
 Laptop-only harness:
@@ -64,6 +72,7 @@ Headless Pi install:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
+$ kelp-pi preflight
 $ kelp-pi
 $ kelp-pi models install qwen2.5:0.5b
 $ kelp-pi doctor
@@ -73,11 +82,14 @@ Laptop control path:
 
 ```console
 $ kelp-claw pi doctor
-$ kelp-claw pi connect --host <pi-host>
-$ kelp-claw pi validate --profile managed-ap --host <pi-host>
+$ kelp-claw pi doctor --strict --check-release-online
+$ kelp-claw pi bootstrap --host <pi-host> --ssh-user <imager-ssh-user> --dry-run
+$ kelp-claw pi connect
+$ kelp-claw pi validate
+$ kelp-claw pi recover network --force --dry-run
 ```
 
-The curl installer defaults to the latest GitHub release binary and falls back to source only when explicitly requested with `--build-from-source`. Network/AP hardening is explicit so the install does not cut an active SSH session. Start with [`docs/pi-quickstart.md`](docs/pi-quickstart.md); deeper design lives in [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and [`docs/architecture.mmd`](docs/architecture.mmd).
+The curl installer defaults to the latest GitHub release binary and falls back to source only when explicitly requested with `--build-from-source`. `kelp-claw pi bootstrap` runs the same installer over SSH after `--dry-run`; pass `--yes` to execute. Network/AP hardening is explicit so the install does not cut an active SSH session, and `kelp-pi` snapshots network files before render/apply so `kelp-claw pi recover network --force` can roll back. Field acceptance emits a Pi-signed `acceptance-manifest.json`, signature, and public key next to the logs. Start with [`docs/pi-quickstart.md`](docs/pi-quickstart.md); deeper design lives in [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and [`docs/architecture.mmd`](docs/architecture.mmd).
 
 Kelp Pi non-goals: operator anonymity, covert use, evasion, cellular or phone replacement features, always-listening voice, internet-scale scanning, scanning outside declared scope, target persistence, lateral movement, credential exfiltration, general self-hosting, and uncited generated answers.
 

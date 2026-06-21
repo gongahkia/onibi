@@ -80,3 +80,11 @@ jobs:
               --title "$RELEASE_TAG" \
               --notes "Kelp Pi agent ARM64 release asset."
           fi
+
+      - name: Verify published Pi release assets
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          KELP_PI_RELEASE_REPO: ${{ github.repository }}
+          KELP_PI_RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          KELP_PI_RELEASE_ASSET: ${{ env.ASSET }}
+        run: node scripts/verify-pi-release-assets.mjs

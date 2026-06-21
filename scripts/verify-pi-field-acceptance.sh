@@ -3,6 +3,7 @@ set -eu
 
 artifact_dir="${1:-}"
 max_seconds="${KELP_PI_MAX_ACCEPTANCE_SECONDS:-1800}"
+agent_bin="${KELP_PI_AGENT_BIN:-kelp-pi-agent}"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -33,14 +34,25 @@ node_security_score_ok() {
 [ -n "$artifact_dir" ] || fail "usage: $0 FIELD_ACCEPTANCE_DIR"
 [ -d "$artifact_dir" ] || fail "field acceptance dir missing: $artifact_dir"
 need awk
+need "$agent_bin"
 need grep
 
 summary="$artifact_dir/summary.txt"
 timing="$artifact_dir/timing.txt"
 host="$artifact_dir/host.txt"
+manifest="$artifact_dir/acceptance-manifest.json"
+manifest_sig="$artifact_dir/acceptance-manifest.sig"
+manifest_pub="$artifact_dir/acceptance-manifest.pub.json"
 [ -f "$summary" ] || fail "summary missing: $summary"
 [ -f "$timing" ] || fail "timing missing: $timing"
 [ -f "$host" ] || fail "host missing: $host"
+[ -s "$manifest" ] || fail "acceptance manifest missing: $manifest"
+[ -s "$manifest_sig" ] || fail "acceptance manifest signature missing: $manifest_sig"
+[ -s "$manifest_pub" ] || fail "acceptance manifest public key missing: $manifest_pub"
+grep -q '"schemaVersion": "kelp.pi.field-acceptance.manifest.v1"' "$manifest" || fail "acceptance manifest schema missing"
+grep -q '"key_id": "sha256:' "$manifest_pub" || fail "acceptance manifest public key id missing"
+"$agent_bin" acceptance verify --artifact-dir "$artifact_dir" >/dev/null || fail "acceptance manifest signature/hash verification failed"
+grep -q "^OK acceptance-manifest $manifest" "$summary" || fail "acceptance manifest summary missing"
 
 grep -q '^uname=.*aarch64' "$host" || fail "host uname is not aarch64"
 grep -q 'Raspberry Pi 5 aarch64 host:' "$artifact_dir/node.log" || fail "node log missing Raspberry Pi 5 aarch64 proof"

@@ -24,7 +24,9 @@ verifies `kelp-pi-agent-aarch64.sha256`, installs systemd files, installs Nuclei
 creates `/var/lib/kelp-pi`, starts the service, and runs doctor.
 
 ```console
+$ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sh -s -- --preflight-only
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
+$ kelp-pi preflight
 $ kelp-pi
 ```
 
@@ -58,27 +60,54 @@ Ollama status, model catalog, and next commands.
 Set SSH-on-LAN defaults from the laptop:
 
 ```console
-$ export KELP_PI_HOST=<pi-host>
-$ export KELP_PI_USER=kelp-pi
-$ export KELP_PI_CONTROL_ENDPOINT=<control-plane-host>:443
+$ pnpm --filter @kelpclaw/cli build
+$ kelp-claw pi lab init \
+  --host <pi-host> \
+  --ssh-user <imager-ssh-user> \
+  --control-url https://<control-plane-host>:443/health \
+  --target-ip <fixture-ip> \
+  --target-url http://fixture.local \
+  --nuclei-approval-token <approval-token> \
+  --client-a <ap-client-a-ip> \
+  --client-b <ap-client-b-ip> \
+  --forbidden-ip <non-portal-probe-ip>
 ```
 
 Run Pi readiness checks and confirm the SSH agent path:
 
 ```console
 $ kelp-claw pi doctor
-$ kelp-claw pi connect --host "$KELP_PI_HOST"
+$ kelp-claw pi doctor --strict --check-release-online
+$ kelp-claw pi bootstrap --dry-run
+$ kelp-claw pi connect
 ```
 
 Validate the first-class hardened appliance profile:
 
 ```console
-$ kelp-claw pi validate --profile managed-ap --host "$KELP_PI_HOST"
+$ kelp-claw pi validate
 ```
 
 The managed-AP acceptance surface is WPA3 AP mode, per-client isolation, local DNS
 sinkhole behavior, outbound nftables allowlist, scoped scanner proof, and signed
-bundle verification.
+bundle verification. The laptop writes the command result to
+`.kelpclaw/pi/<host>/acceptance.json`; Pi-side validator logs stay under the remote
+`--remote-output-dir` path, defaulting to `/var/lib/kelp-pi/bundles/field-acceptance-*`.
+Each successful Pi-side field acceptance writes `acceptance-manifest.json`,
+`acceptance-manifest.sig`, and `acceptance-manifest.pub.json`; verify them with:
+
+```console
+$ latest_acceptance="$(find /var/lib/kelp-pi/bundles -maxdepth 1 -type d -name 'field-acceptance-*' | sort | tail -n 1)"
+$ kelp-pi-agent acceptance verify --artifact-dir "$latest_acceptance"
+```
+
+The lab profile is stored at `.kelpclaw/pi/lab.json`, which is gitignored.
+If AP/firewall setup strands the unit, use the latest automatic snapshot:
+
+```console
+$ kelp-claw pi recover network --force --dry-run
+$ kelp-claw pi recover network --force
+```
 
 ## Local Model
 

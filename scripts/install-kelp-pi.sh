@@ -16,6 +16,7 @@ skip_start="${KELP_PI_SKIP_START:-0}"
 allow_non_pi5="${KELP_PI_ALLOW_NON_PI5:-0}"
 build_from_source="${KELP_PI_BUILD_FROM_SOURCE:-0}"
 fallback_source="${KELP_PI_RELEASE_FALLBACK_SOURCE:-0}"
+preflight_only="${KELP_PI_PREFLIGHT_ONLY:-0}"
 current_step="startup"
 
 usage() {
@@ -38,6 +39,7 @@ Options:
   --skip-nuclei              Do not download pinned Nuclei
   --skip-start               Install files but do not start systemd service
   --allow-non-pi5            Bypass Raspberry Pi 5 host check
+  --preflight-only           Check host, disk, RAM, network, and exit before install
 USAGE
 }
 
@@ -101,6 +103,41 @@ check_disk() {
   [ -d "$path" ] || path="/"
   avail="$(df -Pk "$path" | awk 'NR==2 { print $4 }')"
   [ "$avail" -ge "$required_kib" ] || fail "free disk at $path is ${avail}KiB; need ${required_kib}KiB"
+}
+
+warn() {
+  printf 'WARN %s\n' "$*" >&2
+}
+
+host_model() {
+  if [ -r /proc/device-tree/model ]; then
+    tr -d '\000' < /proc/device-tree/model
+  fi
+}
+
+check_pi_host() {
+  if [ "$allow_non_pi5" = "1" ]; then
+    return
+  fi
+  [ "$(uname -m)" = "aarch64" ] || fail "expected aarch64 Raspberry Pi OS, got $(uname -m)"
+  model="$(host_model)"
+  [ -n "$model" ] || fail "missing /proc/device-tree/model"
+  case "$model" in
+    *"Raspberry Pi 5"*) log "host: $model" ;;
+    *) fail "expected Raspberry Pi 5, got: $model" ;;
+  esac
+}
+
+check_throttle() {
+  if command -v vcgencmd >/dev/null 2>&1; then
+    throttled="$(vcgencmd get_throttled 2>/dev/null | sed 's/^throttled=//' || true)"
+    case "$throttled" in
+      ""|"0x0") log "power/thermal throttle flags: ${throttled:-none}" ;;
+      *) warn "vcgencmd get_throttled=$throttled; check PSU/cooling before field acceptance" ;;
+    esac
+  else
+    warn "vcgencmd missing; cannot inspect Pi power/thermal throttle flags"
+  fi
 }
 
 safe_source_dir() {
@@ -198,29 +235,31 @@ while [ $# -gt 0 ]; do
       allow_non_pi5=1
       shift
       ;;
+    --preflight-only)
+      preflight_only=1
+      shift
+      ;;
     *)
       fail "unknown argument: $1"
       ;;
   esac
 done
 
-[ "$(id -u)" = "0" ] || fail "run as root: curl -fsSL ... | sudo sh"
 safe_source_dir
 check_min_ram
 check_disk "$(dirname "$source_dir")" 2097152
-
-if [ "$allow_non_pi5" != "1" ]; then
-  [ "$(uname -m)" = "aarch64" ] || fail "expected aarch64 Raspberry Pi OS, got $(uname -m)"
-  [ -r /proc/device-tree/model ] || fail "missing /proc/device-tree/model"
-  model="$(tr -d '\000' < /proc/device-tree/model)"
-  case "$model" in
-    *"Raspberry Pi 5"*) log "host: $model" ;;
-    *) fail "expected Raspberry Pi 5, got: $model" ;;
-  esac
-fi
+check_pi_host
+check_throttle
 
 log "checking network"
 curl -fsI --connect-timeout 10 https://github.com >/dev/null || fail "cannot reach github.com; connect network before installing"
+
+if [ "$preflight_only" = "1" ]; then
+  printf 'Kelp Pi install preflight OK\n'
+  exit 0
+fi
+
+[ "$(id -u)" = "0" ] || fail "run as root: curl -fsSL ... | sudo sh"
 
 if [ "$skip_apt" != "1" ]; then
   log "installing OS packages"

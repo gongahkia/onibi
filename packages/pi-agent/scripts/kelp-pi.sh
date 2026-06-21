@@ -17,6 +17,7 @@ usage: kelp-pi [command]
 
 Commands:
   setup | wizard          Show first-run health, hardware, model, and next-step guide
+  preflight              Show hardware, OS, network-manager, nftables, and throttle readiness
   status                 Show agent, service, and data-dir status
   version                Show helper, agent, and install metadata
   update                 Update kelp-pi-agent from GitHub release asset with rollback
@@ -30,6 +31,8 @@ Commands:
   start|stop|restart     Control kelp-pi-agent.service
   network-render PASS    Render AP/firewall hardening files
   network-apply [CONFIG] Apply AP/firewall hardening
+  network-backup         Snapshot AP/firewall config and current nftables ruleset
+  recover network        Restore latest AP/firewall snapshot; requires --force
   validate-node          Run node validation
   reset --force          Wipe data dir, recreate layout, regenerate identity key
   wipe-data --force      Wipe data dir only
@@ -178,8 +181,58 @@ ok_line() {
   printf '%-22s %s\n' "$1:" "$2"
 }
 
+model_line() {
+  if [ -r /proc/device-tree/model ]; then
+    tr -d '\000' < /proc/device-tree/model
+  else
+    printf 'unknown'
+  fi
+}
+
+os_line() {
+  if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    printf '%s %s' "${PRETTY_NAME:-unknown}" "${VERSION_CODENAME:-}"
+  else
+    printf 'unknown'
+  fi
+}
+
+throttle_line() {
+  if command -v vcgencmd >/dev/null 2>&1; then
+    vcgencmd get_throttled 2>/dev/null | sed 's/^throttled=//' || printf 'unknown'
+  else
+    printf 'vcgencmd missing'
+  fi
+}
+
+command_line() {
+  if command -v "$1" >/dev/null 2>&1; then
+    printf 'present'
+  else
+    printf 'missing'
+  fi
+}
+
+preflight() {
+  printf 'Kelp Pi preflight\n\n'
+  ok_line model "$(model_line)"
+  ok_line arch "$(uname -m 2>/dev/null || true)"
+  ok_line os "$(os_line)"
+  ok_line ram "$(ram_line)"
+  ok_line storage "$(storage_line)"
+  ok_line throttle "$(throttle_line)"
+  ok_line nmcli "$(command_line nmcli)"
+  if command -v systemctl >/dev/null 2>&1; then
+    ok_line NetworkManager "$(systemctl is-active NetworkManager 2>/dev/null || true)"
+  fi
+  ok_line nft "$(command_line nft)"
+  ok_line sshd "$(systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || true)"
+}
+
 setup_wizard() {
   printf 'Kelp Pi setup\n\n'
+  ok_line model "$(model_line)"
   if [ -x "$agent_bin" ]; then
     ok_line agent "$("$agent_bin" version)"
   else
@@ -346,6 +399,112 @@ rollback() {
   as_root systemctl restart "$service" || true
 }
 
+network_paths() {
+  cat <<'PATHS'
+/etc/NetworkManager/system-connections/kelp-pi-ap.nmconnection
+/etc/dnsmasq.d/kelp-pi-captive.conf
+/etc/nftables.d/kelp-pi.nft
+/etc/sysctl.d/90-kelp-pi-network.conf
+/etc/kelp-pi/network-hardening.json
+/boot/firmware/config.txt.kelp-pi-fragment
+PATHS
+}
+
+network_backup() {
+  reason="${1:-manual}"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="$data_dir/recovery/network-$timestamp"
+  manifest_tmp="$(mktemp)"
+  rules_tmp="$(mktemp)"
+  trap 'rm -f "$manifest_tmp" "$rules_tmp"' EXIT INT TERM
+  as_root mkdir -p "$backup_dir/files"
+  printf 'reason\t%s\n' "$reason" >"$manifest_tmp"
+  network_paths | while IFS= read -r path; do
+    rel="${path#/}"
+    if [ -e "$path" ]; then
+      as_root mkdir -p "$backup_dir/files/$(dirname "$rel")"
+      as_root cp -p "$path" "$backup_dir/files/$rel"
+      printf 'present\t%s\t%s\n' "$path" "$rel" >>"$manifest_tmp"
+    else
+      printf 'missing\t%s\t%s\n' "$path" "$rel" >>"$manifest_tmp"
+    fi
+  done
+  as_root install -m 0644 "$manifest_tmp" "$backup_dir/manifest.tsv"
+  if command -v nft >/dev/null 2>&1 && as_root nft list ruleset >"$rules_tmp" 2>/dev/null; then
+    as_root install -m 0644 "$rules_tmp" "$backup_dir/nft-ruleset.nft"
+  fi
+  printf 'network backup: %s\n' "$backup_dir"
+}
+
+latest_network_backup() {
+  find "$data_dir/recovery" -maxdepth 1 -type d -name 'network-*' 2>/dev/null | sort | tail -n 1
+}
+
+recover_network() {
+  backup="latest"
+  force=0
+  no_restart=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --backup)
+        [ $# -ge 2 ] || { printf '--backup requires a value\n' >&2; exit 64; }
+        backup="$2"
+        shift 2
+        ;;
+      --force)
+        force=1
+        shift
+        ;;
+      --no-restart)
+        no_restart=1
+        shift
+        ;;
+      *)
+        printf 'unknown recover network argument: %s\n' "$1" >&2
+        exit 64
+        ;;
+    esac
+  done
+  [ "$force" = "1" ] || {
+    printf 'recover network requires --force\n' >&2
+    exit 64
+  }
+  if [ "$backup" = "latest" ]; then
+    backup="$(latest_network_backup)"
+  fi
+  [ -n "$backup" ] && [ -d "$backup" ] || {
+    printf 'network backup not found\n' >&2
+    exit 66
+  }
+  manifest="$backup/manifest.tsv"
+  [ -f "$manifest" ] || {
+    printf 'network backup manifest missing: %s\n' "$manifest" >&2
+    exit 66
+  }
+  while IFS='	' read -r state path rel; do
+    case "$state" in
+      reason|"")
+        ;;
+      present)
+        as_root mkdir -p "$(dirname "$path")"
+        as_root cp -p "$backup/files/$rel" "$path"
+        ;;
+      missing)
+        as_root rm -f "$path"
+        ;;
+    esac
+  done <"$manifest"
+  if [ -s "$backup/nft-ruleset.nft" ] && command -v nft >/dev/null 2>&1; then
+    as_root nft -f "$backup/nft-ruleset.nft" || true
+  fi
+  if [ "$no_restart" != "1" ] && command -v systemctl >/dev/null 2>&1; then
+    as_root systemctl restart nftables 2>/dev/null || true
+    as_root systemctl restart dnsmasq 2>/dev/null || true
+    as_root systemctl restart NetworkManager 2>/dev/null || true
+  fi
+  printf 'recovered network from %s\n' "$backup"
+}
+
 ensure_ollama() {
   if command -v ollama >/dev/null 2>&1; then
     return
@@ -472,6 +631,9 @@ case "$command" in
   setup|wizard)
     setup_wizard
     ;;
+  preflight)
+    preflight
+    ;;
   status)
     status
     ;;
@@ -501,6 +663,9 @@ case "$command" in
   validate-node)
     as_root kelp-pi-validate-node "$@"
     ;;
+  network-backup)
+    network_backup manual
+    ;;
   network-render)
     [ $# -ge 1 ] || {
       printf 'usage: kelp-pi network-render WPA3_PASSPHRASE [--allow-outbound HOST:PORT...]\n' >&2
@@ -508,11 +673,26 @@ case "$command" in
     }
     passphrase="$1"
     shift
+    network_backup before-network-render >/dev/null
     as_root "$agent_bin" hardening render-network --output / --wpa3-passphrase "$passphrase" "$@"
     ;;
   network-apply)
     config="${1:-/etc/kelp-pi/network-hardening.json}"
+    network_backup before-network-apply >/dev/null
     as_root "$agent_bin" hardening apply-network --config "$config"
+    ;;
+  recover)
+    sub="${1:-}"
+    [ $# -eq 0 ] || shift
+    case "$sub" in
+      network)
+        recover_network "$@"
+        ;;
+      *)
+        printf 'usage: kelp-pi recover network --force [--backup DIR|latest] [--no-restart]\n' >&2
+        exit 64
+        ;;
+    esac
     ;;
   reset)
     reset_data "$@"

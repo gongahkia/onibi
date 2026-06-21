@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:remote": "vitest run test/pi-remote.test.ts",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   }
 }

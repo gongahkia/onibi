@@ -753,10 +753,10 @@ function doctorRecommendations(checks: readonly DoctorCheck[]): readonly string[
   if (checks.some((check) => check.id === "env:KELP_PI_HOST" && check.status !== "pass")) {
     recommendations.add("Set KELP_PI_HOST or pass --pi-host for SSH-on-LAN Pi validation.");
   }
-  if (
-    checks.some((check) => check.id === "env:KELP_PI_CONTROL_ENDPOINT" && check.status !== "pass")
-  ) {
-    recommendations.add("Set KELP_PI_CONTROL_ENDPOINT before managed-AP outbound validation.");
+  if (checks.some((check) => check.id === "env:KELP_PI_CONTROL_URL" && check.status !== "pass")) {
+    recommendations.add(
+      "Set KELP_PI_CONTROL_URL or KELP_PI_CONTROL_ENDPOINT before managed-AP outbound validation."
+    );
   }
   if (checks.some((check) => check.id === "command:kelp-pi-agent" && check.status !== "pass")) {
     recommendations.add("Install kelp-pi-agent on a Raspberry Pi 5 before hardware acceptance.");
@@ -769,6 +769,12 @@ function doctorRecommendations(checks: readonly DoctorCheck[]): readonly string[
   }
   if (checks.some((check) => check.id === "command:cross" && check.status !== "pass")) {
     recommendations.add("Install cross before local aarch64 Pi agent release builds.");
+  }
+  if (checks.some((check) => check.id === "remote:kelp-pi-agent" && check.status !== "pass")) {
+    recommendations.add("Install and start kelp-pi-agent on the configured Pi host.");
+  }
+  if (checks.some((check) => check.id.startsWith("release-online:") && check.status !== "pass")) {
+    recommendations.add("Publish or repair the latest GitHub Pi release assets.");
   }
   for (const check of checks) {
     if (check.status === "fail") {

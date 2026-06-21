@@ -3,7 +3,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use ed25519_dalek::VerifyingKey;
+use base64ct::{Base64, Encoding};
+use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use kelp_pi_agent::{
     answer_query, apply_index_schema, apply_nftables_rules, apply_policy_push,
     apply_scanner_target_rules, apply_scope_set, approve_operator_token, ask_bind_is_loopback,
@@ -56,6 +57,7 @@ fn run() -> Result<(), ExitCode> {
 
     match command.as_str() {
         "approve" => approve_command(args.collect()),
+        "acceptance" => acceptance_command(args.collect()),
         "approval-request" => approval_request_command(args.collect()),
         "ask" => ask_command(args.collect()),
         "bundle" => bundle_command(args.collect()),
@@ -4039,6 +4041,302 @@ fn keygen_command(args: Vec<String>) -> Result<(), ExitCode> {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptanceManifest {
+    schema_version: String,
+    generated_at: String,
+    artifact_dir: String,
+    agent_version: String,
+    signer: AcceptanceManifestSigner,
+    files: Vec<AcceptanceManifestFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptanceManifestSigner {
+    algorithm: String,
+    key_id: String,
+    public_key_raw_hex: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptanceManifestFile {
+    path: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
+fn acceptance_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let Some(subcommand) = args.first() else {
+        acceptance_usage();
+        return Err(ExitCode::from(64));
+    };
+    match subcommand.as_str() {
+        "sign" => acceptance_sign_command(args[1..].to_vec()),
+        "verify" => acceptance_verify_command(args[1..].to_vec()),
+        "help" | "--help" | "-h" => {
+            acceptance_usage();
+            Ok(())
+        }
+        other => {
+            eprintln!("unknown acceptance subcommand: {other}");
+            Err(ExitCode::from(64))
+        }
+    }
+}
+
+fn acceptance_sign_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let (artifact_dir, key_dir) = acceptance_paths(args)?;
+    let identity = load_or_generate_identity_key(&key_dir, DEFAULT_KEY_LABEL).map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(78)
+    })?;
+    let manifest = acceptance_manifest(&artifact_dir, &identity).map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(78)
+    })?;
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(78)
+    })?;
+    let mut signed_manifest_bytes = manifest_bytes;
+    signed_manifest_bytes.push(b'\n');
+    let signature =
+        Base64::encode_string(&identity.signing_key.sign(&signed_manifest_bytes).to_bytes());
+    let manifest_path = artifact_dir.join("acceptance-manifest.json");
+    let signature_path = artifact_dir.join("acceptance-manifest.sig");
+    let public_path = artifact_dir.join("acceptance-manifest.pub.json");
+    fs::write(&manifest_path, signed_manifest_bytes).map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(74)
+    })?;
+    fs::write(&signature_path, format!("{signature}\n")).map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(74)
+    })?;
+    fs::write(
+        &public_path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&identity.metadata).expect("serialize public key")
+        ),
+    )
+    .map_err(|error| {
+        eprintln!("acceptance sign failed: {error}");
+        ExitCode::from(74)
+    })?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "manifest": manifest_path,
+            "signature": signature_path,
+            "publicKey": public_path,
+            "keyId": identity.metadata.key_id,
+            "fileCount": manifest.files.len()
+        })
+    );
+    Ok(())
+}
+
+fn acceptance_verify_command(args: Vec<String>) -> Result<(), ExitCode> {
+    let (artifact_dir, _) = acceptance_paths(args)?;
+    let manifest_path = artifact_dir.join("acceptance-manifest.json");
+    let signature_path = artifact_dir.join("acceptance-manifest.sig");
+    let public_path = artifact_dir.join("acceptance-manifest.pub.json");
+    let manifest_bytes = fs::read(&manifest_path).map_err(|error| {
+        eprintln!("acceptance verify failed: {error}");
+        ExitCode::from(74)
+    })?;
+    let signature_text = fs::read_to_string(&signature_path).map_err(|error| {
+        eprintln!("acceptance verify failed: {error}");
+        ExitCode::from(74)
+    })?;
+    let metadata: kelp_pi_agent::IdentityKeyMetadata =
+        serde_json::from_slice(&fs::read(&public_path).map_err(|error| {
+            eprintln!("acceptance verify failed: {error}");
+            ExitCode::from(74)
+        })?)
+        .map_err(|error| {
+            eprintln!("acceptance verify failed: {error}");
+            ExitCode::from(65)
+        })?;
+    let verifying_key = kelp_pi_agent::verifying_key_from_metadata(&metadata).map_err(|error| {
+        eprintln!("acceptance verify failed: {error}");
+        ExitCode::from(65)
+    })?;
+    let signature_bytes = Base64::decode_vec(signature_text.trim()).map_err(|error| {
+        eprintln!("acceptance verify failed: {error}");
+        ExitCode::from(65)
+    })?;
+    let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|error| {
+        eprintln!("acceptance verify failed: {error}");
+        ExitCode::from(65)
+    })?;
+    verifying_key
+        .verify(&manifest_bytes, &signature)
+        .map_err(|error| {
+            eprintln!("acceptance verify failed: {error}");
+            ExitCode::from(77)
+        })?;
+    let manifest: AcceptanceManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|error| {
+            eprintln!("acceptance verify failed: {error}");
+            ExitCode::from(65)
+        })?;
+    if manifest.signer.key_id != metadata.key_id
+        || manifest.signer.public_key_raw_hex != metadata.public_key_raw_hex
+    {
+        eprintln!("acceptance verify failed: manifest signer does not match public key");
+        return Err(ExitCode::from(77));
+    }
+    for file in &manifest.files {
+        let path = artifact_dir.join(&file.path);
+        let found = sha256_path(&path).map_err(|error| {
+            eprintln!("acceptance verify failed: {error}");
+            ExitCode::from(74)
+        })?;
+        if found != file.sha256 {
+            eprintln!("acceptance verify failed: hash mismatch for {}", file.path);
+            return Err(ExitCode::from(77));
+        }
+    }
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "manifest": manifest_path,
+            "keyId": metadata.key_id,
+            "fileCount": manifest.files.len()
+        })
+    );
+    Ok(())
+}
+
+fn acceptance_paths(args: Vec<String>) -> Result<(PathBuf, PathBuf), ExitCode> {
+    let mut data_dir = PathBuf::from(DEFAULT_DATA_DIR);
+    let mut key_dir = None;
+    let mut artifact_dir = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--help" | "-h" => {
+                acceptance_usage();
+                return Err(ExitCode::SUCCESS);
+            }
+            "--artifact-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--artifact-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                artifact_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--data-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--data-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                data_dir = PathBuf::from(value);
+                index += 2;
+            }
+            "--key-dir" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--key-dir requires a value");
+                    return Err(ExitCode::from(64));
+                };
+                key_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown argument: {other}");
+                return Err(ExitCode::from(64));
+            }
+        }
+    }
+    let Some(artifact_dir) = artifact_dir else {
+        eprintln!("acceptance requires --artifact-dir");
+        return Err(ExitCode::from(64));
+    };
+    Ok((
+        artifact_dir,
+        key_dir.unwrap_or_else(|| data_dir.join("keys")),
+    ))
+}
+
+fn acceptance_usage() {
+    eprintln!(
+        "usage: kelp-pi-agent acceptance <sign|verify> --artifact-dir PATH [--data-dir PATH] [--key-dir PATH]"
+    );
+}
+
+fn acceptance_manifest(
+    artifact_dir: &Path,
+    identity: &IdentityKey,
+) -> Result<AcceptanceManifest, String> {
+    let mut files = Vec::new();
+    collect_acceptance_files(artifact_dir, artifact_dir, &mut files)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(AcceptanceManifest {
+        schema_version: "kelp.pi.field-acceptance.manifest.v1".to_string(),
+        generated_at: rfc3339_now(),
+        artifact_dir: artifact_dir.display().to_string(),
+        agent_version: format!("kelp-pi-agent {}", env!("CARGO_PKG_VERSION")),
+        signer: AcceptanceManifestSigner {
+            algorithm: identity.metadata.algorithm.clone(),
+            key_id: identity.metadata.key_id.clone(),
+            public_key_raw_hex: identity.metadata.public_key_raw_hex.clone(),
+        },
+        files,
+    })
+}
+
+fn collect_acceptance_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<AcceptanceManifestFile>,
+) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let metadata = entry.metadata().map_err(|error| error.to_string())?;
+        if metadata.is_dir() {
+            collect_acceptance_files(root, &path, files)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if matches!(
+            relative.as_str(),
+            "acceptance-manifest.json"
+                | "acceptance-manifest.sig"
+                | "acceptance-manifest.pub.json"
+                | "acceptance-sign.json"
+                | "acceptance-verify.json"
+        ) {
+            continue;
+        }
+        files.push(AcceptanceManifestFile {
+            path: relative,
+            sha256: sha256_path(&path).map_err(|error| error.to_string())?,
+            size_bytes: metadata.len(),
+        });
+    }
+    Ok(())
+}
+
+fn sha256_path(path: &Path) -> io::Result<String> {
+    Ok(encode_hex(Sha256::digest(fs::read(path)?)))
+}
+
 fn normalize_command(args: Vec<String>) -> Result<(), ExitCode> {
     let Some(subcommand) = args.first() else {
         eprintln!(
@@ -4988,6 +5286,9 @@ fn print_usage() {
         "usage: kelp-pi-agent approval-request --gate GATE [--scope-id ID] [--ttl-seconds N] [--command CMD] [--path PATH] [--host HOST] [--mutating] [--allowed|--disallowed] [--data-dir PATH]"
     );
     eprintln!("usage: kelp-pi-agent approve TOKEN [--data-dir PATH]");
+    eprintln!(
+        "usage: kelp-pi-agent acceptance <sign|verify> --artifact-dir PATH [--data-dir PATH] [--key-dir PATH]"
+    );
     eprintln!("usage: kelp-pi-agent bundle assemble --run-id ID --workspace PATH --output PATH [--data-dir PATH] [--key-dir PATH]");
     eprintln!("usage: kelp-pi-agent bundle export --bundle-id ID [--run-id ID] [--data-dir PATH] [--key-dir PATH]");
     eprintln!("usage: kelp-pi-agent check-data-dir [--data-dir PATH]");

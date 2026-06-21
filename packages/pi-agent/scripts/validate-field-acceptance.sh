@@ -24,6 +24,7 @@ readonly_root=0
 readonly_data_dir="${KELP_PI_DATA_DIR:-/var/lib/kelp-pi}"
 readonly_data_dir_explicit=0
 max_seconds=1800
+agent_bin="${KELP_PI_AGENT_BIN:-/usr/local/bin/kelp-pi-agent}"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -192,12 +193,11 @@ done
 [ -n "$client_a" ] || fail "requires --client-a"
 [ -n "$client_b" ] || fail "requires --client-b"
 [ -n "$forbidden_ips" ] || fail "requires --forbidden-ip"
-[ -n "$upstream_interface" ] || fail "requires --upstream-interface"
-[ -n "$dns_probe_command" ] || fail "requires --dns-probe-command"
 [ -z "$ollama_model" ] || [ -n "$ollama_expect" ] || fail "--ollama-model requires --ollama-expect-load or --ollama-expect-refuse"
 [ "$readonly_root" = "1" ] || [ "$readonly_data_dir_explicit" = "0" ] || fail "--readonly-data-dir requires --readonly-root"
 
 need date
+need "$agent_bin"
 need kelp-pi-validate-node
 need kelp-pi-validate-scanner-sandbox
 need kelp-pi-validate-allow-outbound-reload
@@ -246,11 +246,10 @@ run_check allow-outbound-reload \
   --updated-config "$updated_config" \
   --session-command "$session_command"
 
-run_check dns-egress \
-  kelp-pi-validate-dns-egress \
-  --upstream-interface "$upstream_interface" \
-  --portal-ip "$portal_ip" \
-  --probe-command "$dns_probe_command"
+set -- kelp-pi-validate-dns-egress --portal-ip "$portal_ip"
+[ -z "$upstream_interface" ] || set -- "$@" --upstream-interface "$upstream_interface"
+[ -z "$dns_probe_command" ] || set -- "$@" --probe-command "$dns_probe_command"
+run_check dns-egress "$@"
 
 set -- kelp-pi-validate-ap-isolation --client-a "$client_a" --client-b "$client_b" --portal-ip "$portal_ip"
 [ -z "$ssh_user" ] || set -- "$@" --ssh-user "$ssh_user"
@@ -282,5 +281,11 @@ duration_seconds=$((end_epoch - start_epoch))
 } >"$output_dir/timing.txt"
 printf 'OK duration_seconds=%s max_seconds=%s\n' "$duration_seconds" "$max_seconds" | tee -a "$output_dir/summary.txt"
 [ "$duration_seconds" -le "$max_seconds" ] || fail "field acceptance exceeded ${max_seconds}s"
+
+sign_output="$("$agent_bin" acceptance sign --artifact-dir "$output_dir" --data-dir "$readonly_data_dir")"
+verify_output="$("$agent_bin" acceptance verify --artifact-dir "$output_dir" --data-dir "$readonly_data_dir")"
+printf '%s\n' "$sign_output" >"$output_dir/acceptance-sign.json"
+printf '%s\n' "$verify_output" >"$output_dir/acceptance-verify.json"
+printf 'OK acceptance-manifest %s\n' "$output_dir/acceptance-manifest.json" | tee -a "$output_dir/summary.txt"
 
 pass "field acceptance logs written to $output_dir"
