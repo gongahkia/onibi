@@ -1,7 +1,7 @@
 # Kelp Pi Quickstart
 
 This is the operator path for a headless Raspberry Pi 5 running Raspberry Pi OS Lite
-64-bit.
+64-bit. Raspberry Pi 5 is a product requirement for the reference Kelp Pi path.
 
 ## Hardware
 
@@ -52,6 +52,33 @@ $ kelp-pi logs
 
 `kelp-pi` shows agent status, service status, RAM tier, storage, Nuclei status,
 Ollama status, model catalog, and next commands.
+
+## Laptop Control
+
+Set SSH-on-LAN defaults from the laptop:
+
+```console
+$ export KELP_PI_HOST=<pi-host>
+$ export KELP_PI_USER=kelp-pi
+$ export KELP_PI_CONTROL_ENDPOINT=<control-plane-host>:443
+```
+
+Run Pi readiness checks and confirm the SSH agent path:
+
+```console
+$ kelp-claw pi doctor
+$ kelp-claw pi connect --host "$KELP_PI_HOST"
+```
+
+Validate the first-class hardened appliance profile:
+
+```console
+$ kelp-claw pi validate --profile managed-ap --host "$KELP_PI_HOST"
+```
+
+The managed-AP acceptance surface is WPA3 AP mode, per-client isolation, local DNS
+sinkhole behavior, outbound nftables allowlist, scoped scanner proof, and signed
+bundle verification.
 
 ## Local Model
 

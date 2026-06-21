@@ -303,9 +303,17 @@ export function runHelpCommand(): JsonRecord {
     ok: true,
     name: "kelp-claw",
     description:
-      "Reproducible AppSec Agent Harness with scoped triage, policy, SARIF, replay, evidence, and audit.",
+      "Local AppSec for Raspberry Pi 5 with scoped triage, policy, SARIF, replay, evidence, and audit.",
     usage: "kelp-claw <command> [options]",
     workflows: [
+      {
+        name: "Harden a Raspberry Pi 5 appliance",
+        commands: [
+          "kelp-claw pi doctor",
+          "kelp-claw pi connect --host <pi-host>",
+          "kelp-claw pi validate --profile managed-ap --host <pi-host>"
+        ]
+      },
       {
         name: "Audit a Dockerized app",
         commands: [
@@ -342,7 +350,8 @@ export function runHelpCommand(): JsonRecord {
           "version",
           "doctor",
           "appsec audit",
-          "pi --help",
+          "pi doctor",
+          "pi validate",
           "demo governance",
           "compat",
           "policy explain"
@@ -403,6 +412,7 @@ export async function runPiCommand(args: readonly string[] = []): Promise<JsonRe
 
 export async function runDoctorCommand(args: readonly string[] = []): Promise<JsonRecord> {
   const root = resolve(option(args, "--root") ?? ".");
+  const piReadiness = await piReadinessChecks(args);
   const checks = [
     nodeVersionCheck(),
     await writableDirectoryCheck(root),
@@ -418,7 +428,8 @@ export async function runDoctorCommand(args: readonly string[] = []): Promise<Js
     }),
     envCheck("EXA_API_KEY", { required: false }),
     envCheck("TINYFISH_API_KEY", { required: false }),
-    envCheck("KELPCLAW_API_URL", { required: false })
+    envCheck("KELPCLAW_API_URL", { required: false }),
+    ...piReadiness
   ];
   const ok = checks.every((check) => check.status !== "fail");
   return {
@@ -678,6 +689,53 @@ function envCheck(name: string, options: { readonly required: boolean }): Doctor
   };
 }
 
+async function piReadinessChecks(args: readonly string[]): Promise<readonly DoctorCheck[]> {
+  const piArgs = ["doctor"];
+  const piAgentBin = option(args, "--pi-agent-bin");
+  const piHelperBin = option(args, "--pi-helper-bin");
+  const piHost = option(args, "--pi-host");
+  if (piAgentBin) {
+    piArgs.push("--agent-bin", piAgentBin);
+  }
+  if (piHelperBin) {
+    piArgs.push("--helper-bin", piHelperBin);
+  }
+  if (piHost) {
+    piArgs.push("--host", piHost);
+  }
+  try {
+    const result = await runPiCliCommand(piArgs);
+    const checks = Array.isArray(result.checks) ? result.checks : [];
+    return checks.map((check, index) => piDoctorCheck(check, index));
+  } catch (error) {
+    return [
+      {
+        id: "kelp-pi-doctor",
+        status: "fail",
+        required: true,
+        message: "Kelp Pi doctor failed.",
+        details: { error: error instanceof Error ? error.message : String(error) }
+      }
+    ];
+  }
+}
+
+function piDoctorCheck(value: unknown, index: number): DoctorCheck {
+  const record = jsonRecord(value);
+  const id = stringField(record, "id") ?? `kelp-pi-check:${index}`;
+  return {
+    id,
+    status: doctorStatus(record.status),
+    required: typeof record.required === "boolean" ? record.required : false,
+    message: stringField(record, "message") ?? "Kelp Pi readiness check.",
+    details: jsonRecordField(record, "details") ?? { source: "kelp-claw pi doctor" }
+  };
+}
+
+function doctorStatus(value: unknown): DoctorStatus {
+  return value === "pass" || value === "warn" || value === "fail" ? value : "warn";
+}
+
 function doctorRecommendations(checks: readonly DoctorCheck[]): readonly string[] {
   const recommendations = new Set<string>();
   if (checks.some((check) => check.id === "codex-cli" && check.status !== "pass")) {
@@ -691,6 +749,26 @@ function doctorRecommendations(checks: readonly DoctorCheck[]): readonly string[
   }
   if (checks.some((check) => check.id === "env:KELPCLAW_API_URL" && check.status !== "pass")) {
     recommendations.add("Set KELPCLAW_API_URL only when recording against a running API server.");
+  }
+  if (checks.some((check) => check.id === "env:KELP_PI_HOST" && check.status !== "pass")) {
+    recommendations.add("Set KELP_PI_HOST or pass --pi-host for SSH-on-LAN Pi validation.");
+  }
+  if (
+    checks.some((check) => check.id === "env:KELP_PI_CONTROL_ENDPOINT" && check.status !== "pass")
+  ) {
+    recommendations.add("Set KELP_PI_CONTROL_ENDPOINT before managed-AP outbound validation.");
+  }
+  if (checks.some((check) => check.id === "command:kelp-pi-agent" && check.status !== "pass")) {
+    recommendations.add("Install kelp-pi-agent on a Raspberry Pi 5 before hardware acceptance.");
+  }
+  if (checks.some((check) => check.id === "command:kelp-pi-helper" && check.status !== "pass")) {
+    recommendations.add("Run scripts/install-kelp-pi.sh on the Pi to install the kelp-pi helper.");
+  }
+  if (checks.some((check) => check.id === "command:cargo" && check.status !== "pass")) {
+    recommendations.add("Install Rust cargo before local Pi agent source builds.");
+  }
+  if (checks.some((check) => check.id === "command:cross" && check.status !== "pass")) {
+    recommendations.add("Install cross before local aarch64 Pi agent release builds.");
   }
   for (const check of checks) {
     if (check.status === "fail") {

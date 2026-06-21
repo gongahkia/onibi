@@ -62,18 +62,26 @@ describe("kelp-claw smoke commands", () => {
         expect.arrayContaining([
           expect.objectContaining({
             group: "adoption",
-            entries: expect.arrayContaining(["doctor", "demo governance", "pi --help"])
+            entries: expect.arrayContaining([
+              "doctor",
+              "demo governance",
+              "pi doctor",
+              "pi validate"
+            ])
           })
         ])
       );
       await expect(runPiCommand(["--help"])).resolves.toMatchObject({
         ok: true,
         name: "kelp-claw pi",
-        description: "Manage local Kelp Pi operator commands.",
+        description: "Manage Raspberry Pi 5 field-appliance commands.",
         commands: expect.arrayContaining([
           expect.objectContaining({ name: "approve" }),
+          expect.objectContaining({ name: "connect" }),
+          expect.objectContaining({ name: "doctor" }),
           expect.objectContaining({ name: "flash" }),
           expect.objectContaining({ name: "scope set" }),
+          expect.objectContaining({ name: "validate" }),
           expect.objectContaining({ name: "wipe" })
         ])
       });

@@ -23,9 +23,24 @@ type ControlPlaneKey = {
   readonly publicKeyPem: string;
   readonly privateKeyPem: string;
 };
+type PiDoctorStatus = "pass" | "warn" | "fail";
+type PiDoctorCheck = JsonRecord & {
+  readonly id: string;
+  readonly status: PiDoctorStatus;
+  readonly required: boolean;
+  readonly message: string;
+  readonly details?: JsonRecord | undefined;
+};
+type RemotePiOptions = {
+  readonly host: string;
+  readonly user: string;
+  readonly sshBin: string;
+  readonly sshOptions: readonly string[];
+  readonly agentCommand: string;
+};
 
 export function piCliHelp(): string {
-  return "Manage local Kelp Pi operator commands.";
+  return "Manage Raspberry Pi 5 field-appliance commands.";
 }
 
 export async function runPiCliCommand(args: readonly string[] = []): Promise<JsonRecord> {
@@ -51,6 +66,16 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
           usage: "kelp-claw pi bundle import --input ENVELOPE --out PATH"
         },
         {
+          name: "connect",
+          usage:
+            "kelp-claw pi connect --host HOST [--user kelp-pi] [--agent-command kelp-pi-agent] [--dry-run]"
+        },
+        {
+          name: "doctor",
+          usage:
+            "kelp-claw pi doctor [--host HOST] [--profile managed-ap] [--agent-bin PATH] [--helper-bin PATH]"
+        },
+        {
           name: "flash",
           usage:
             "kelp-claw pi flash --image PATH --image-sha256 SHA256 --device PATH --ssh-public-key PATH --boot-seed-dir PATH --yes"
@@ -66,6 +91,11 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
             "kelp-claw pi scope set (--cidr CIDR|--host HOST|--ip IP|--url URL)... --until RFC3339 [--port PORT...] [--scope-id ID] [--from RFC3339] [--cp-key PATH] [--data-dir PATH] [--agent-bin PATH]"
         },
         {
+          name: "validate",
+          usage:
+            "kelp-claw pi validate --host HOST [--profile managed-ap] [--validator-command 'sudo kelp-pi validate-node'] [--dry-run]"
+        },
+        {
           name: "wipe",
           usage: "kelp-claw pi wipe --force [--data-dir PATH] [--agent-bin PATH]"
         }
@@ -78,6 +108,12 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "bundle") {
     return bundleCommand(rest);
   }
+  if (command === "connect") {
+    return connectCommand(rest);
+  }
+  if (command === "doctor") {
+    return doctorCommand(rest);
+  }
   if (command === "flash") {
     return flashCommand(rest);
   }
@@ -87,10 +123,15 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
   if (command === "scope") {
     return scopeCommand(rest);
   }
+  if (command === "validate") {
+    return validateCommand(rest);
+  }
   if (command === "wipe") {
     return wipeCommand(rest);
   }
-  throw new Error("Usage: kelp-claw pi <approve|bundle|flash|policy|scope|wipe|--help>");
+  throw new Error(
+    "Usage: kelp-claw pi <approve|bundle|connect|doctor|flash|policy|scope|validate|wipe|--help>"
+  );
 }
 
 async function approveCommand(args: readonly string[]): Promise<JsonRecord> {
@@ -209,6 +250,81 @@ async function bundleImportCommand(args: readonly string[]): Promise<JsonRecord>
     sizeBytes: numberField(payload, "size_bytes") ?? 0,
     files: written,
     response: envelope
+  };
+}
+
+async function connectCommand(args: readonly string[]): Promise<JsonRecord> {
+  const remote = remotePiOptions(args);
+  const sshArgs = sshCommandArgs(remote, [remote.agentCommand, "version"]);
+  if (hasFlag(args, "--dry-run")) {
+    return {
+      ok: true,
+      host: remote.host,
+      user: remote.user,
+      command: [remote.sshBin, ...sshArgs],
+      agentBin: sshAgentBin(remote)
+    };
+  }
+  const result = await runChild(remote.sshBin, sshArgs);
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || `${remote.sshBin} exited ${result.code}`);
+  }
+  return {
+    ok: true,
+    host: remote.host,
+    user: remote.user,
+    agentVersion: result.stdout.trim(),
+    agentBin: sshAgentBin(remote)
+  };
+}
+
+async function doctorCommand(args: readonly string[]): Promise<JsonRecord> {
+  const profile = option(args, "--profile") ?? process.env.KELP_PI_PROFILE ?? "managed-ap";
+  const host = option(args, "--host") ?? process.env.KELP_PI_HOST;
+  const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
+  const helperBin = option(args, "--helper-bin") ?? process.env.KELP_PI_HELPER_BIN ?? "kelp-pi";
+  const cargoBin = option(args, "--cargo-bin") ?? process.env.KELP_PI_CARGO_BIN ?? "cargo";
+  const crossBin = option(args, "--cross-bin") ?? process.env.KELP_PI_CROSS_BIN ?? "cross";
+  const controlEndpoint =
+    option(args, "--control-endpoint") ?? process.env.KELP_PI_CONTROL_ENDPOINT;
+  const releaseRepo =
+    option(args, "--release-repo") ?? process.env.KELP_PI_RELEASE_REPO ?? "gongahkia/kelp";
+  const releaseAsset =
+    option(args, "--release-asset") ?? process.env.KELP_PI_RELEASE_ASSET ?? "kelp-pi-agent-aarch64";
+  const checks: PiDoctorCheck[] = [
+    profileCheck(profile),
+    releaseAssetCheck(releaseRepo, releaseAsset),
+    envValueCheck("KELP_PI_HOST", host, false),
+    envValueCheck("KELP_PI_CONTROL_ENDPOINT", controlEndpoint, false),
+    await localCommandCheck(agentBin, ["version"], {
+      id: "command:kelp-pi-agent",
+      required: false
+    }),
+    await localCommandCheck(helperBin, ["version"], {
+      id: "command:kelp-pi-helper",
+      required: false
+    }),
+    await localCommandCheck(cargoBin, ["--version"], {
+      id: "command:cargo",
+      required: false
+    }),
+    await localCommandCheck(crossBin, ["--version"], {
+      id: "command:cross",
+      required: false
+    })
+  ];
+  const ok = checks.every((check) => check.status !== "fail");
+  return {
+    ok,
+    profile,
+    host: host ?? "",
+    hardware: {
+      minimum: "Raspberry Pi 5 4GB",
+      recommended: "Raspberry Pi 5 8GB with NVMe",
+      profile
+    },
+    checks,
+    recommendations: piDoctorRecommendations(checks)
   };
 }
 
@@ -429,6 +545,39 @@ async function scopeSetCommand(args: readonly string[]): Promise<JsonRecord> {
   };
 }
 
+async function validateCommand(args: readonly string[]): Promise<JsonRecord> {
+  const profile = option(args, "--profile") ?? process.env.KELP_PI_PROFILE ?? "managed-ap";
+  if (profile !== "managed-ap") {
+    throw new Error("kelp-claw pi validate currently supports --profile managed-ap");
+  }
+  const remote = remotePiOptions(args);
+  const validatorCommand = option(args, "--validator-command") ?? "sudo kelp-pi validate-node";
+  const sshArgs = sshCommandArgs(remote, splitCommand(validatorCommand));
+  if (hasFlag(args, "--dry-run")) {
+    return {
+      ok: true,
+      profile,
+      host: remote.host,
+      user: remote.user,
+      command: [remote.sshBin, ...sshArgs],
+      acceptance:
+        "managed-ap requires node, WPA3 AP, AP isolation, DNS sinkhole, outbound allowlist, scoped scan, and bundle verification evidence"
+    };
+  }
+  const result = await runChild(remote.sshBin, sshArgs);
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || `${remote.sshBin} exited ${result.code}`);
+  }
+  return {
+    ok: true,
+    profile,
+    host: remote.host,
+    user: remote.user,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim()
+  };
+}
+
 async function runAgent(command: string, args: readonly string[]): Promise<JsonRecord> {
   const result = await runChild(command, args);
   if (result.code !== 0) {
@@ -443,6 +592,151 @@ async function runAgent(command: string, args: readonly string[]): Promise<JsonR
     throw new Error(`${command} returned non-object JSON`);
   }
   return parsed;
+}
+
+async function localCommandCheck(
+  command: string,
+  args: readonly string[],
+  options: { readonly id: string; readonly required: boolean }
+): Promise<PiDoctorCheck> {
+  try {
+    const result = await runChild(command, args);
+    if (result.code === 0) {
+      return {
+        id: options.id,
+        status: "pass",
+        required: options.required,
+        message: `${command} is available.`,
+        details: { command, args, stdout: result.stdout.trim() }
+      };
+    }
+    return {
+      id: options.id,
+      status: options.required ? "fail" : "warn",
+      required: options.required,
+      message: `${command} exited with ${result.code ?? "unknown status"}.`,
+      details: { command, args, stderr: result.stderr.trim() }
+    };
+  } catch (error) {
+    return {
+      id: options.id,
+      status: options.required ? "fail" : "warn",
+      required: options.required,
+      message: `${command} is unavailable.`,
+      details: { command, args, error: error instanceof Error ? error.message : String(error) }
+    };
+  }
+}
+
+function profileCheck(profile: string): PiDoctorCheck {
+  const ok = profile === "managed-ap";
+  return {
+    id: "pi-profile",
+    status: ok ? "pass" : "fail",
+    required: true,
+    message: ok ? "Managed AP is the first-class Kelp Pi profile." : "Unsupported Kelp Pi profile.",
+    details: { profile, supported: ["managed-ap"] }
+  };
+}
+
+function releaseAssetCheck(releaseRepo: string, releaseAsset: string): PiDoctorCheck {
+  const ok = releaseRepo.length > 0 && releaseAsset === "kelp-pi-agent-aarch64";
+  return {
+    id: "pi-release-asset",
+    status: ok ? "pass" : "fail",
+    required: true,
+    message: ok
+      ? "Pi release asset naming is configured for aarch64."
+      : "Pi release asset must default to kelp-pi-agent-aarch64.",
+    details: { releaseRepo, releaseAsset }
+  };
+}
+
+function envValueCheck(name: string, value: string | undefined, required: boolean): PiDoctorCheck {
+  const present = Boolean(value);
+  return {
+    id: `env:${name}`,
+    status: present ? "pass" : required ? "fail" : "warn",
+    required,
+    message: present
+      ? `${name} is configured.`
+      : required
+        ? `${name} is required.`
+        : `${name} is not configured; remote Pi validation will need explicit CLI args.`,
+    details: { name, present }
+  };
+}
+
+function piDoctorRecommendations(checks: readonly PiDoctorCheck[]): readonly string[] {
+  const recommendations = new Set<string>();
+  if (checks.some((check) => check.id === "env:KELP_PI_HOST" && check.status !== "pass")) {
+    recommendations.add("Set KELP_PI_HOST or pass --host for SSH-on-LAN Pi validation.");
+  }
+  if (
+    checks.some((check) => check.id === "env:KELP_PI_CONTROL_ENDPOINT" && check.status !== "pass")
+  ) {
+    recommendations.add("Set KELP_PI_CONTROL_ENDPOINT before managed-AP outbound validation.");
+  }
+  if (checks.some((check) => check.id === "command:kelp-pi-agent" && check.status !== "pass")) {
+    recommendations.add("Install kelp-pi-agent on a Raspberry Pi 5 before hardware acceptance.");
+  }
+  if (checks.some((check) => check.id === "command:kelp-pi-helper" && check.status !== "pass")) {
+    recommendations.add("Run scripts/install-kelp-pi.sh on the Pi to install the kelp-pi helper.");
+  }
+  if (checks.some((check) => check.id === "command:cargo" && check.status !== "pass")) {
+    recommendations.add("Install Rust cargo before local Pi agent source builds.");
+  }
+  if (checks.some((check) => check.id === "command:cross" && check.status !== "pass")) {
+    recommendations.add("Install cross before local aarch64 Pi agent release builds.");
+  }
+  for (const check of checks) {
+    if (check.status === "fail") {
+      recommendations.add(`Resolve failed Pi readiness check: ${check.id}.`);
+    }
+  }
+  return [...recommendations];
+}
+
+function remotePiOptions(args: readonly string[]): RemotePiOptions {
+  const host = option(args, "--host") ?? process.env.KELP_PI_HOST;
+  if (!host) {
+    throw new Error("Kelp Pi SSH commands require --host or KELP_PI_HOST.");
+  }
+  return {
+    host,
+    user: option(args, "--user") ?? process.env.KELP_PI_USER ?? "kelp-pi",
+    sshBin: option(args, "--ssh-bin") ?? process.env.KELP_PI_SSH_BIN ?? "ssh",
+    sshOptions: [
+      ...defaultSshOptions(args),
+      ...splitCommand(process.env.KELP_PI_SSH_OPTS ?? ""),
+      ...options(args, "--ssh-option")
+    ],
+    agentCommand: option(args, "--agent-command") ?? "kelp-pi-agent"
+  };
+}
+
+function defaultSshOptions(args: readonly string[]): readonly string[] {
+  return hasFlag(args, "--no-default-ssh-options")
+    ? []
+    : ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
+}
+
+function sshCommandArgs(
+  remote: RemotePiOptions,
+  remoteCommand: readonly string[]
+): readonly string[] {
+  return [...remote.sshOptions, `${remote.user}@${remote.host}`, ...remoteCommand];
+}
+
+function sshAgentBin(remote: RemotePiOptions): string {
+  return `${remote.sshBin} ${remote.sshOptions.join(" ")} ${remote.user}@${remote.host} ${remote.agentCommand}`.replace(
+    /\s+/gu,
+    " "
+  );
+}
+
+function splitCommand(value: string): readonly string[] {
+  return value.split(/\s+/u).filter(Boolean);
 }
 
 function runChild(

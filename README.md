@@ -1,8 +1,10 @@
 # KelpClaw
 
-KelpClaw is a reproducible AppSec agent harness. It wraps AI-assisted security triage with scoped execution, policy gates, passive scanner evidence, SARIF output, replayable logs, and signed audit bundles.
+KelpClaw is local AppSec for Raspberry Pi 5. It wraps AI-assisted security triage with scoped execution, policy gates, passive scanner evidence, SARIF output, replayable logs, and signed audit bundles.
 
-The goal is not to be an autonomous exploit bot. KelpClaw is built for source and container owners who want AI-assisted vulnerability triage that can be reviewed, reproduced, and handed to security teams without trusting an opaque chat transcript.
+The primary product path is Kelp Pi: a hardened Raspberry Pi 5 field appliance for authorized onsite or airgapped assessment. The laptop harness remains supported, but users trying Kelp should expect Raspberry Pi 5 hardware as the reference environment.
+
+The goal is not to be an autonomous exploit bot. KelpClaw is built for operators who want AI-assisted vulnerability triage that can be reviewed, reproduced, and handed to security teams without trusting an opaque chat transcript.
 
 ## What It Does
 
@@ -14,6 +16,19 @@ The goal is not to be an autonomous exploit bot. KelpClaw is built for source an
 - Produces a static audit bundle that can be opened without running KelpClaw.
 
 ## Quickstart
+
+Pi readiness from a laptop:
+
+```console
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm doctor:pi
+$ export KELP_PI_HOST=<pi-host>
+$ export KELP_PI_CONTROL_ENDPOINT=<control-plane-host>:443
+$ pnpm validate:pi-remote
+```
+
+Laptop-only harness:
 
 ```console
 $ corepack enable
@@ -43,7 +58,7 @@ See [`docs/appsec-harness.md`](docs/appsec-harness.md) for the agent I/O contrac
 
 ## Kelp Pi
 
-Kelp Pi extends KelpClaw onto a battery-powered Raspberry Pi 5 as a hardened AppSec field drop-box: scoped scanning, signed audit bundles, offline cited retrieval, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 4GB RAM and 56GB+ usable storage for Nuclei/Nmap, local retrieval, bundles, and small RAM-gated Ollama models.
+Kelp Pi is the reference Kelp product surface: a battery-powered Raspberry Pi 5 hardened AppSec field drop-box with scoped scanning, signed audit bundles, offline cited retrieval, no cloud dependency, and no exploit execution by default. Minimum hardware is Raspberry Pi 5 with 4GB RAM and 56GB+ usable storage for Nuclei/Nmap, local retrieval, bundles, and small RAM-gated Ollama models. Raspberry Pi 5 8GB with NVMe is the recommended profile.
 
 Headless Pi install:
 
@@ -52,6 +67,14 @@ $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/insta
 $ kelp-pi
 $ kelp-pi models install qwen2.5:0.5b
 $ kelp-pi doctor
+```
+
+Laptop control path:
+
+```console
+$ kelp-claw pi doctor
+$ kelp-claw pi connect --host <pi-host>
+$ kelp-claw pi validate --profile managed-ap --host <pi-host>
 ```
 
 The curl installer defaults to the latest GitHub release binary and falls back to source only when explicitly requested with `--build-from-source`. Network/AP hardening is explicit so the install does not cut an active SSH session. Start with [`docs/pi-quickstart.md`](docs/pi-quickstart.md); deeper design lives in [`docs/pi.md`](docs/pi.md), [`docs/pi-todo.md`](docs/pi-todo.md), and [`docs/architecture.mmd`](docs/architecture.mmd).
