@@ -3,7 +3,6 @@ package pty
 import (
 	"bytes"
 	"context"
-	"io"
 	"testing"
 	"time"
 )
@@ -20,17 +19,13 @@ func TestSpawnEchoCommand(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = h.Close() })
 
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(&buf, h.Master)
-		close(done)
-	}()
+	_, ch, unsub := h.Subscribe(context.Background(), 0)
+	defer unsub()
 	if err := h.Wait(); err != nil {
 		t.Fatalf("wait: %v", err)
 	}
 	_ = h.Close()
-	<-done
+	buf := drainSubscription(t, ch)
 
 	if !bytes.Contains(buf.Bytes(), []byte("hello pty")) {
 		t.Fatalf("expected echoed text, got %q", buf.String())
@@ -57,17 +52,13 @@ func TestSpawnArgv0Override(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = h.Close() })
 
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(&buf, h.Master)
-		close(done)
-	}()
+	_, ch, unsub := h.Subscribe(context.Background(), 0)
+	defer unsub()
 	if err := h.Wait(); err != nil {
 		t.Fatalf("wait: %v", err)
 	}
 	_ = h.Close()
-	<-done
+	buf := drainSubscription(t, ch)
 	if !bytes.Contains(buf.Bytes(), []byte("-sh")) {
 		t.Fatalf("expected argv0 override, got %q", buf.String())
 	}
@@ -91,6 +82,11 @@ func TestWriteAndRead(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = h.Close() })
 
+	ctxSub, cancelSub := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelSub()
+	_, ch, unsub := h.Subscribe(ctxSub, 0)
+	defer unsub()
+
 	// cat echoes stdin to stdout; PTY master is bidirectional
 	go func() {
 		_, _ = h.Write([]byte("ping\n"))
@@ -98,20 +94,31 @@ func TestWriteAndRead(t *testing.T) {
 		_ = h.Close() // forces cat to exit
 	}()
 
-	got := make([]byte, 1024)
-	deadline := time.Now().Add(3 * time.Second)
-	var total int
-	for time.Now().Before(deadline) {
-		n, err := h.Master.Read(got[total:])
-		if n > 0 {
-			total += n
-			if bytes.Contains(got[:total], []byte("ping")) {
-				return
-			}
-		}
-		if err != nil {
-			break
+	var buf bytes.Buffer
+	for p := range ch {
+		buf.Write(p)
+		if bytes.Contains(buf.Bytes(), []byte("ping")) {
+			return
 		}
 	}
-	t.Fatalf("expected to see 'ping' in PTY echo, got %q", got[:total])
+	t.Fatalf("expected to see 'ping' in PTY echo, got %q", buf.Bytes())
+}
+
+func drainSubscription(t *testing.T, ch <-chan []byte) bytes.Buffer {
+	t.Helper()
+	done := make(chan bytes.Buffer, 1)
+	go func() {
+		var buf bytes.Buffer
+		for p := range ch {
+			buf.Write(p)
+		}
+		done <- buf
+	}()
+	select {
+	case buf := <-done:
+		return buf
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for PTY subscription to close")
+	}
+	return bytes.Buffer{}
 }

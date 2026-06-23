@@ -12,6 +12,10 @@ import (
 	cpty "github.com/creack/pty"
 )
 
+// phase 01 design: Spawn owns the sole PTY read loop, feeds Hub, and exposes
+// Subscribe so slow consumers cannot block the master reader; Hub coalesces
+// output, keeps replay bytes, and injects drop/resize control frames.
+
 // DefaultRows/Cols approximates a typical terminal. PTY size matters for
 // TUI agents (Claude Code) that draw based on the reported dimensions.
 const (
@@ -28,6 +32,7 @@ type Host struct {
 	CloseFunc func() error
 	WaitFunc  func() error
 
+	hub    *Hub
 	mu     sync.Mutex
 	closed bool
 }
@@ -75,11 +80,29 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pty start: %w", err)
 	}
-	return &Host{Cmd: cmd, Master: master}, nil
+	h := &Host{Cmd: cmd, Master: master, hub: NewHub(DefaultRingSize)}
+	go h.readMaster()
+	return h, nil
 }
 
 func NewVirtualHost(write func([]byte) (int, error), close func() error, wait func() error) *Host {
 	return &Host{WriteFunc: write, CloseFunc: close, WaitFunc: wait}
+}
+
+func (h *Host) readMaster() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := h.Master.Read(buf)
+		if n > 0 && h.hub != nil {
+			_, _ = h.hub.Write(buf[:n])
+		}
+		if err != nil {
+			if h.hub != nil {
+				h.hub.Close()
+			}
+			return
+		}
+	}
 }
 
 // Wait blocks until the child exits and returns its error (nil on rc=0).
@@ -97,7 +120,45 @@ func (h *Host) Wait() error {
 // goroutine that fans out to the ring buffer + idle detector + (later) tmux
 // mirror. The return signals when the child closes its tty (a clean exit).
 func (h *Host) Pipe(w io.Writer) (int64, error) {
-	return io.Copy(w, h.Master)
+	_, ch, unsub := h.Subscribe(context.Background(), DefaultSubscriberBuffer)
+	defer unsub()
+	var written int64
+	for p := range ch {
+		n, err := w.Write(p)
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+		if n != len(p) {
+			return written, io.ErrShortWrite
+		}
+	}
+	return written, nil
+}
+
+func (h *Host) Subscribe(ctx context.Context, bufCap int) (uint64, <-chan []byte, func()) {
+	if h == nil || h.hub == nil {
+		ch := make(chan []byte)
+		close(ch)
+		return 0, ch, func() {}
+	}
+	return h.hub.Subscribe(ctx, bufCap)
+}
+
+func (h *Host) Resize(rows, cols uint16) error {
+	if rows == 0 || cols == 0 {
+		return errors.New("pty: rows and cols must be non-zero")
+	}
+	if h == nil || h.Master == nil {
+		return errors.New("pty: not started")
+	}
+	if err := cpty.Setsize(h.Master, &cpty.Winsize{Rows: rows, Cols: cols}); err != nil {
+		return fmt.Errorf("pty resize: %w", err)
+	}
+	if h.hub != nil {
+		h.hub.BroadcastResize(rows, cols)
+	}
+	return nil
 }
 
 // Write sends bytes to the child's stdin (the PTY master end). Used by the
@@ -122,5 +183,9 @@ func (h *Host) Close() error {
 	if h.CloseFunc != nil {
 		return h.CloseFunc()
 	}
-	return h.Master.Close()
+	err := h.Master.Close()
+	if h.hub != nil {
+		h.hub.Close()
+	}
+	return err
 }

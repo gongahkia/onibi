@@ -230,23 +230,20 @@ func (d *Daemon) bufferSize() int {
 // user still sees their session live in the terminal). Touches the session
 // on every read for the idle detector.
 func (d *Daemon) readLoop(s *Session) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := s.Host.Master.Read(buf)
-		if n > 0 {
-			_, _ = s.Buf.Write(buf[:n])
-			_, _ = os.Stdout.Write(buf[:n]) // mirror to user's tty
+	_, ch, unsub := s.Host.Subscribe(context.Background(), 0)
+	defer unsub()
+	for p := range ch {
+		if len(p) > 0 {
+			_, _ = s.Buf.Write(p)
+			_, _ = os.Stdout.Write(p) // mirror to user's tty
 			d.touchSession(context.Background(), s)
 			// new activity means a future turn-complete should fire again
 			d.mu.Lock()
 			delete(d.notified, s.ID)
 			d.mu.Unlock()
 		}
-		if err != nil {
-			d.markSessionEnded(context.Background(), s)
-			return
-		}
 	}
+	d.markSessionEnded(context.Background(), s)
 }
 
 func (d *Daemon) waitHost(s *Session) {

@@ -195,30 +195,6 @@ Run these from repo root unless noted.
 
 > Tasks are grouped by phase. Within a phase, do `(A)` first, then `(B)`, then `(C)`. Mark complete by replacing `(A)`/`(B)`/`(C)` prefix with `x YYYY-MM-DD` (the date you completed it). Example: `x 2026-06-30 Refactor ... id:T001`.
 
-### Phase 01 — PTY subscriber hub (1.0 week)
-
-> Goal: refactor `internal/pty/host.go` so multiple consumers (existing render snapshot loop + new WebSocket clients) can attach to the same PTY without backpressuring the reader. Critical: rule #1 from §3.
-
-(A) 2026-06-23 Read internal/pty/host.go end to end; note that Host.Pipe(w io.Writer) currently does io.Copy(w, h.Master) — single-writer — and Master is *os.File. Plan the refactor before coding +phase01 @backend file:internal/pty/host.go id:T100 accept:wrote-design-comment-at-top-of-file
-(A) 2026-06-23 Add new file internal/pty/hub.go defining type Hub struct { mu sync.Mutex; subs map[uint64]*subscriber; nextID uint64; ring *RingBuffer; coalesceBuf []byte; coalesceTimer *time.Timer } +phase01 @backend file:internal/pty/hub.go id:T101 blocked-by:T100
-(A) 2026-06-23 Add internal/pty/ring.go with RingBuffer struct (size 256 KiB default), Write(p []byte), Snapshot() []byte methods; Snapshot must be safe to call concurrently with Write +phase01 @backend file:internal/pty/ring.go id:T102 blocked-by:T100
-(A) 2026-06-23 Define subscriber struct in hub.go: { ch chan []byte; bufBytes int; bufCap int; droppedBytes uint64; closed atomic.Bool }; bufCap default 32 KiB +phase01 @backend file:internal/pty/hub.go id:T103 blocked-by:T101
-(A) 2026-06-23 Implement Hub.Subscribe(ctx context.Context, bufCap int) (id uint64, ch <-chan []byte, unsub func()); subscriber created with buffered channel sized for bufCap/avg-frame-size +phase01 @backend file:internal/pty/hub.go id:T104 blocked-by:T103
-(A) 2026-06-23 Implement Hub.broadcast(p []byte) iterating subscribers, non-blocking send via select default; on overflow drop oldest frame in chan (pull-then-discard), increment droppedBytes, set need-marker flag +phase01 @backend file:internal/pty/hub.go id:T105 blocked-by:T104 accept:no-blocking-send-anywhere-in-broadcast
-(A) 2026-06-23 Implement marker frame protocol: when need-marker is set for a subscriber, prepend frame []byte("\x00ONIBI-DROPPED:<N>\x00") followed by full ring snapshot before resuming normal writes +phase01 @backend file:internal/pty/hub.go id:T106 blocked-by:T105
-(A) 2026-06-23 Add Hub.coalesce: timer-based 16ms aggregator that buffers small writes from the PTY reader and emits one broadcast per tick; flush immediately if buffer exceeds 64 KiB +phase01 @backend file:internal/pty/hub.go id:T107 blocked-by:T105 ref:arch-rule-7
-(A) 2026-06-23 Refactor Host: add Host.hub *Hub field; modify Spawn to initialize hub; spawn a goroutine reading from Master and feeding hub via coalesce; expose Host.Subscribe forwarding to hub +phase01 @backend file:internal/pty/host.go id:T108 blocked-by:T107
-(A) 2026-06-23 Replace Host.Pipe(w io.Writer) callers: existing callers should use Subscribe instead; if any caller cannot adapt, document and leave Pipe as a thin wrapper that subscribes and copies to w +phase01 @backend file:internal/pty/host.go id:T109 blocked-by:T108
-(A) 2026-06-23 Add Host.Resize(rows, cols uint16) error wrapping cpty.Setsize(h.Master, &cpty.Winsize{Rows: rows, Cols: cols}); also broadcast a resize event so subscribers can re-render +phase01 @backend file:internal/pty/host.go id:T110 blocked-by:T108 ref:arch-rule-2
-(B) 2026-06-23 Write unit test internal/pty/hub_test.go: 0-subscriber broadcast does nothing; 1-subscriber receives all writes in order; N=4 subscribers all receive identical streams +phase01 @tests file:internal/pty/hub_test.go id:T111 blocked-by:T108
-(B) 2026-06-23 Write unit test: slow subscriber (reading 1 byte/sec) does NOT block fast subscriber (reading immediately); fast sub receives full stream within N ms +phase01 @tests file:internal/pty/hub_test.go id:T112 blocked-by:T111 accept:test-passes-under-race
-(B) 2026-06-23 Write unit test: slow subscriber's dropped-frame counter increases and on next read receives marker + full ring snapshot +phase01 @tests file:internal/pty/hub_test.go id:T113 blocked-by:T112
-(B) 2026-06-23 Write unit test for ring buffer: write more than ring size, snapshot returns only most-recent ring-size bytes; concurrent Write+Snapshot safe under -race +phase01 @tests file:internal/pty/ring_test.go id:T114 blocked-by:T102
-(B) 2026-06-23 Write unit test for Resize: setting smaller dimensions truncates row count; broadcast emits resize event +phase01 @tests file:internal/pty/hub_test.go id:T115 blocked-by:T110
-(B) 2026-06-23 Add a benchmark BenchmarkHubBroadcast4Subs measuring throughput (bytes/sec) at 1/4/16 subscribers; document baseline numbers in commit message +phase01 @tests file:internal/pty/hub_test.go id:T116 blocked-by:T112
-(C) 2026-06-23 Manual smoke: write a small main.go in scripts/ptyrun that spawns htop, attaches 2 listeners to Subscribe; one listener sleeps 100ms between reads; visually confirm fast listener stays smooth +phase01 @tests id:T117 blocked-by:T116
-(C) 2026-06-23 Update internal/pty/doc.go to describe the Hub model +phase01 @docs file:internal/pty/doc.go id:T118 blocked-by:T108
-
 ### Phase 02 — HTTP+WS server skeleton (1.0 week)
 
 > Goal: stand up `internal/web/` package with HTTPS server, WS endpoints, cookie-based auth. NOT wired to PTY yet beyond a smoke endpoint; that comes in Phase 4. NOT removing Telegram yet; the daemon runs both side-by-side during dev.
