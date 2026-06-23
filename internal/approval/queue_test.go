@@ -281,3 +281,52 @@ func TestSetMessagePersists(t *testing.T) {
 		t.Fatalf("got chat=%d msg=%d", a.ChatID, a.MsgID)
 	}
 }
+
+func TestSubscribeReceivesQueueTransitions(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	events, unsub := q.Subscribe()
+	defer unsub()
+	ctx := context.Background()
+	id, _, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := readApprovalEvent(t, events)
+	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending {
+		t.Fatalf("request event = %#v", ev)
+	}
+	if err := q.Decide(ctx, id, VerdictDeny, "", "no", 1); err != nil {
+		t.Fatal(err)
+	}
+	ev = readApprovalEvent(t, events)
+	if ev.Type != EventDecided || ev.Approval.State != StateDenied || ev.Decision.Verdict != VerdictDeny {
+		t.Fatalf("decision event = %#v", ev)
+	}
+	expID, _, err := q.Request(ctx, "s", "claude", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = readApprovalEvent(t, events)
+	_, err = q.db.SQL().ExecContext(ctx, `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Unix(), expID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.ExpireOverdue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ev = readApprovalEvent(t, events)
+	if ev.Type != EventExpired || ev.Approval.State != StateExpired || ev.Decision.Verdict != VerdictExpire {
+		t.Fatalf("expiry event = %#v", ev)
+	}
+}
+
+func readApprovalEvent(t *testing.T, events <-chan Event) Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("event not delivered")
+		return Event{}
+	}
+}

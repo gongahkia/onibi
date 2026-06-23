@@ -43,6 +43,9 @@ type Queue struct {
 
 	mu      sync.Mutex
 	waiters map[string]chan Decision // approval id → single-shot delivery channel
+
+	subscribers      map[int]chan Event
+	nextSubscriberID int
 }
 
 // New returns a Queue using the given TTL for fresh approvals.
@@ -50,7 +53,30 @@ func New(db *store.DB, ttl time.Duration) *Queue {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
-	return &Queue{db: db, ttl: ttl, waiters: map[string]chan Decision{}}
+	return &Queue{db: db, ttl: ttl, waiters: map[string]chan Decision{}, subscribers: map[int]chan Event{}}
+}
+
+// Subscribe registers a non-blocking event subscriber. Slow subscribers drop
+// their oldest queued event rather than stalling queue decisions.
+func (q *Queue) Subscribe() (<-chan Event, func()) {
+	ch := make(chan Event, 64)
+	q.mu.Lock()
+	id := q.nextSubscriberID
+	q.nextSubscriberID++
+	q.subscribers[id] = ch
+	q.mu.Unlock()
+	var once sync.Once
+	unsub := func() {
+		once.Do(func() {
+			q.mu.Lock()
+			if _, ok := q.subscribers[id]; ok {
+				delete(q.subscribers, id)
+				close(ch)
+			}
+			q.mu.Unlock()
+		})
+	}
+	return ch, unsub
 }
 
 // Request creates a pending approval row, registers an in-memory waiter,
@@ -84,6 +110,20 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	q.mu.Lock()
 	q.waiters[id] = ch
 	q.mu.Unlock()
+	q.publish(Event{
+		Type: EventRequested,
+		Approval: Approval{
+			ID:        id,
+			SessionID: sessionID,
+			Agent:     agent,
+			Tool:      tool,
+			InputJSON: inputJSON,
+			State:     StatePending,
+			CreatedAt: now,
+			ExpiresAt: exp,
+		},
+		At: now,
+	})
 	return id, ch, nil
 }
 
@@ -239,6 +279,13 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 		q.Log.Warn("audit append", slog.String("action", "approval.decided"), slog.Any("err", err))
 	}
 	delivered := q.deliver(a.ID, d)
+	evApproval := *a
+	evApproval.State = st
+	evApproval.EditedJSON = editedJSON
+	evApproval.Reason = reason
+	evApproval.DecidedAt = now
+	evApproval.DecidedBy = decidedBy
+	q.publish(Event{Type: eventTypeForVerdict(verdict), Approval: evApproval, Decision: d, At: now})
 	return DecisionResult{Decision: d, Delivered: delivered}, nil
 }
 
@@ -337,6 +384,25 @@ func (q *Queue) DropWaiter(id string) {
 	q.mu.Unlock()
 }
 
+func (q *Queue) publish(ev Event) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, ch := range q.subscribers {
+		select {
+		case ch <- ev:
+		default:
+			select {
+			case <-ch:
+			default:
+			}
+			select {
+			case ch <- ev:
+			default:
+			}
+		}
+	}
+}
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------
@@ -370,6 +436,13 @@ func userVerdict(v Verdict) bool {
 	default:
 		return false
 	}
+}
+
+func eventTypeForVerdict(v Verdict) string {
+	if v == VerdictExpire {
+		return EventExpired
+	}
+	return EventDecided
 }
 
 func sha256Hex(s string) string {

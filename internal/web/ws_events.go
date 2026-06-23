@@ -3,11 +3,19 @@ package web
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
+
+	"github.com/gongahkia/onibi/internal/approval"
 )
+
+type eventEnvelope struct {
+	Type    string `json:"type"`
+	TS      string `json:"ts"`
+	Payload any    `json:"payload"`
+}
 
 func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -24,15 +32,93 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.CloseNow()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go s.pingLoop(ctx, c)
-	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer writeCancel()
-	_ = wsjson.Write(writeCtx, c, map[string]any{
-		"type":       "server-hello",
+	var writeMu sync.Mutex
+	if err := writeEvent(ctx, c, &writeMu, "server.hello", map[string]any{
 		"endpoint":   "events",
 		"session_id": sessionID,
+	}); err != nil {
+		return
+	}
+	for id := range s.currentPTYHosts() {
+		if err := writeEvent(ctx, c, &writeMu, "session.started", map[string]any{"session_id": id}); err != nil {
+			return
+		}
+	}
+	if s.approvalQueue == nil {
+		<-ctx.Done()
+		return
+	}
+	events, unsub := s.approvalQueue.Subscribe()
+	defer unsub()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if err := writeEvent(ctx, c, &writeMu, ev.Type, approvalEventPayload(ev)); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func writeEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, typ string, payload any) error {
+	return writeWSJSON(ctx, c, mu, eventEnvelope{
+		Type:    typ,
+		TS:      time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: payload,
 	})
-	_ = c.Close(websocket.StatusNormalClosure, "ok")
+}
+
+func approvalEventPayload(ev approval.Event) map[string]any {
+	a := ev.Approval
+	switch ev.Type {
+	case approval.EventRequested:
+		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
+		return map[string]any{
+			"id":             a.ID,
+			"session_id":     a.SessionID,
+			"agent":          a.Agent,
+			"tool":           a.Tool,
+			"scrubbed_input": approval.Scrub(a.InputJSON),
+			"risk_level":     risk.Level,
+			"risk_reasons":   risk.Reasons,
+			"expires_at":     a.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		}
+	case approval.EventExpired:
+		return map[string]any{
+			"id":         a.ID,
+			"session_id": a.SessionID,
+			"verdict":    ev.Decision.Verdict,
+			"reason":     ev.Decision.Reason,
+			"expires_at": a.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		}
+	default:
+		return map[string]any{
+			"id":         a.ID,
+			"session_id": a.SessionID,
+			"verdict":    ev.Decision.Verdict,
+			"reason":     ev.Decision.Reason,
+			"decided_at": ev.Decision.DecidedAt,
+		}
+	}
+}
+
+func (s *Server) currentPTYHosts() map[string]any {
+	out := map[string]any{}
+	if s.ptyHosts == nil {
+		return out
+	}
+	for id, h := range s.ptyHosts() {
+		if h != nil {
+			out[id] = true
+		}
+	}
+	return out
 }
