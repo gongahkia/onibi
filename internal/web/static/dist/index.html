@@ -83,6 +83,7 @@
         background: rgba(13, 17, 23, 0.96);
         box-shadow: 0 18px 40px rgba(0, 0, 0, 0.36);
         padding: 10px;
+        animation: approval-slide-in 160ms ease-out;
       }
       .approval-card.risk-high {
         border-color: #da3633;
@@ -169,6 +170,21 @@
         color: #8d98aa;
         font-size: 11px;
       }
+      @keyframes approval-slide-in {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .approval-card {
+          animation: none;
+        }
+      }
       #splash {
         position: fixed;
         inset: 0;
@@ -183,7 +199,7 @@
         display: none;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-B9z9Q7r6.js"></script>
+    <script type="module" crossorigin src="/assets/index-CC8xG0d8.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DYP7pi_n.css">
   </head>
   <body>

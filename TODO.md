@@ -214,8 +214,6 @@ Run these from repo root unless noted.
 (B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
 (B) 2026-06-23 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
 (B) 2026-06-23 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert ^C reaches the child process group via syscall.Kill(-pgid, SIGINT) +phase05 @tests id:T514 blocked-by:T513
-(C) 2026-06-23 Polish: approval card slide-in animation; haptic feedback on iOS via navigator.vibrate (will silently no-op on Safari) +phase05 @frontend file:frontend/src/approval.ts id:T516
-
 ### Phase 06 — Telegram excision (1.5 weeks)
 
 > Goal: delete `internal/telegram/`, strip BotFather flow, rewrite README/setup/up, ensure full test suite green. After this phase the Telegram surface is gone for good (git history retains it).

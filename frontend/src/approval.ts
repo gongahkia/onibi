@@ -70,6 +70,7 @@ export class ApprovalOverlay {
     this.cards.set(payload.id, tracked);
 
     approve.addEventListener("click", () => {
+      vibrate();
       if (payload.risk_level === "high") {
         const now = Date.now();
         if (tracked.approveUntil < now) {
@@ -80,8 +81,12 @@ export class ApprovalOverlay {
       }
       void this.decide(payload.id, { verdict: "approve" }, status);
     });
-    deny.addEventListener("click", () => void this.decide(payload.id, { verdict: "deny" }, status));
+    deny.addEventListener("click", () => {
+      vibrate();
+      void this.decide(payload.id, { verdict: "deny" }, status);
+    });
     edit.addEventListener("click", () => {
+      vibrate();
       editPane.hidden = false;
       textarea.focus();
     });
@@ -91,6 +96,7 @@ export class ApprovalOverlay {
     });
     editPane.addEventListener("submit", (event) => {
       event.preventDefault();
+      vibrate();
       void this.decide(payload.id, { verdict: "edit", edited_input: textarea.value }, status);
     });
   }
@@ -141,4 +147,8 @@ function button(label: string, kind: string): HTMLButtonElement {
   el.className = `approval-button ${kind}`;
   el.textContent = label;
   return el;
+}
+
+function vibrate(): void {
+  navigator.vibrate?.(12);
 }
