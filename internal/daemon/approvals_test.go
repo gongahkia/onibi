@@ -2,9 +2,7 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
-	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -324,141 +321,34 @@ func TestCallbackExpiredMarksExpired(t *testing.T) {
 	}
 }
 
-func TestRestorePendingApprovalsRerenders(t *testing.T) {
+func TestRestorePendingApprovalsNoopForWebEvents(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()
 	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	mock := telegram.NewMock(nil)
 	d.Bot = mock
-
 	if err := d.RestorePendingApprovals(ctx); err != nil {
-		t.Fatal(err)
-	}
-	sent := mock.Sent()
-	if len(sent) != 1 {
-		t.Fatalf("sent = %d", len(sent))
-	}
-	gotBody := sent[0].Text
-	if !strings.Contains(gotBody, "Re-sent after daemon restart") {
-		t.Fatalf("body = %s", gotBody)
-	}
-	a, err := d.Queue.Get(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a.ChatID != 100 || a.MsgID != 1 {
-		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
-	}
-}
-
-func TestRestorePendingApprovalsEditsInPlace(t *testing.T) {
-	d := newApprovalDaemon(t)
-	ctx := context.Background()
-	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
-		t.Fatal(err)
-	}
-	mock := telegram.NewMock(nil)
-	restarted := New(Options{DB: d.DB, Secrets: d.Secrets, Owner: d.Owner, Bot: mock})
-	if err := restarted.RestorePendingApprovals(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if sent := mock.Sent(); len(sent) != 0 {
 		t.Fatalf("sent = %d", len(sent))
 	}
-	edits := mock.EditedText()
-	if len(edits) != 1 {
-		t.Fatalf("text edits = %d", len(edits))
+	if edits := mock.EditedText(); len(edits) != 0 {
+		t.Fatalf("edits = %d", len(edits))
 	}
-	if edits[0].MessageID != 77 || edits[0].ChatID != int64(100) {
-		t.Fatalf("edit target = chat %#v msg %d", edits[0].ChatID, edits[0].MessageID)
-	}
-	if strings.Contains(edits[0].Text, "Re-sent after daemon restart") {
-		t.Fatalf("edit body = %s", edits[0].Text)
-	}
-	if edits[0].ParseMode != models.ParseModeHTML || edits[0].ReplyMarkup == nil {
-		t.Fatalf("edit params = %#v", edits[0])
-	}
-}
-
-func TestRestorePendingApprovalsFallsBackOnEditError(t *testing.T) {
-	d := newApprovalDaemon(t)
-	ctx := context.Background()
-	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	a, err := d.Queue.Get(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
-		t.Fatal(err)
-	}
-	mock := telegram.NewMock(nil)
-	mock.SetEditMessageTextError(errors.New("Bad Request: message to edit not found"))
-	restarted := New(Options{DB: d.DB, Secrets: d.Secrets, Owner: d.Owner, Bot: mock})
-	if err := restarted.RestorePendingApprovals(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if edits := mock.EditedText(); len(edits) != 1 {
-		t.Fatalf("text edits = %d", len(edits))
-	}
-	sent := mock.Sent()
-	if len(sent) != 1 {
-		t.Fatalf("sent = %d", len(sent))
-	}
-	if !strings.Contains(sent[0].Text, "Re-sent after daemon restart") {
-		t.Fatalf("fallback body = %s", sent[0].Text)
-	}
-	a, err := restarted.Queue.Get(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a.MsgID != 1 || a.ChatID != 100 {
+	if a.ChatID != 0 || a.MsgID != 0 || a.State != approval.StatePending {
 		t.Fatalf("message = chat %d msg %d", a.ChatID, a.MsgID)
 	}
 }
 
-func TestRestorePendingApprovalsEncryptedSkipsEditInPlace(t *testing.T) {
-	d := newApprovalDaemon(t)
-	ctx := context.Background()
-	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"echo secret"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := d.Queue.SetMessage(ctx, id, 100, 77); err != nil {
-		t.Fatal(err)
-	}
-	seed, err := envelope.GenerateSeed()
-	if err != nil {
-		t.Fatal(err)
-	}
-	mock := telegram.NewMock(nil)
-	restarted := New(Options{
-		DB:            d.DB,
-		Secrets:       d.Secrets,
-		Owner:         d.Owner,
-		Bot:           mock,
-		EncryptedMode: "on",
-		EnvelopeSeed:  seed,
-		MiniAppURL:    "https://example.com/onibi/",
-	})
-	if err := restarted.RestorePendingApprovals(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if edits := mock.EditedText(); len(edits) != 0 {
-		t.Fatalf("text edits = %d", len(edits))
-	}
-	if sent := mock.Sent(); len(sent) != 1 {
-		t.Fatalf("sent = %d", len(sent))
-	}
-}
-
-func TestApprovalMessageArmsRaceWarning(t *testing.T) {
+func TestSendApprovalMessageNoopForWebEmitter(t *testing.T) {
 	d := newApprovalDaemon(t)
 	ctx := context.Background()
 	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
@@ -470,89 +360,11 @@ func TestApprovalMessageArmsRaceWarning(t *testing.T) {
 	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"ls"}`, "s", false, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if !mock.AwaitingOwnerInteraction() {
-		t.Fatal("awaiting interaction not armed")
-	}
-	mock.RecordEmptyPolls(ctx, 10)
-	mock.RecordEmptyPolls(ctx, 10)
-	sent := mock.Sent()
-	if len(sent) != 2 {
+	if sent := mock.Sent(); len(sent) != 0 {
 		t.Fatalf("sent = %d", len(sent))
 	}
-	if !strings.Contains(sent[1].Text, "Possible token race") {
-		t.Fatalf("warning = %q", sent[1].Text)
-	}
-}
-
-func TestLargeApprovalMessageSendsDocument(t *testing.T) {
-	d := newApprovalDaemon(t)
-	ctx := context.Background()
-	large := `{"command":"` + strings.Repeat("<article>payload</article>", 500) + `"}`
-	id, _, err := d.Queue.Request(ctx, "s", "claude", "apply_patch", large)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mock := telegram.NewMock(nil)
-	d.Bot = mock
-	if _, err := d.sendApprovalMessage(ctx, id, "apply_patch", large, "s", false, time.Now().Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	sent := mock.Sent()
-	if len(sent) != 1 {
-		t.Fatalf("sent = %d", len(sent))
-	}
-	if len(sent[0].Text) > telegram.SafeTextLimit {
-		t.Fatalf("message too long: %d", len(sent[0].Text))
-	}
-	if docs := mock.Documents(); len(docs) != 1 {
-		t.Fatalf("docs = %d", len(docs))
-	}
-}
-
-func TestEncryptedApprovalMessageHidesPayload(t *testing.T) {
-	d := newApprovalDaemon(t)
-	seed, err := envelope.GenerateSeed()
-	if err != nil {
-		t.Fatal(err)
-	}
-	d.EncryptedMode = "on"
-	d.EnvelopeSeed = seed
-	d.MiniAppURL = "https://example.com/onibi/"
-	ctx := context.Background()
-	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"echo secret"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mock := telegram.NewMock(nil)
-	d.Bot = mock
-	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"echo secret"}`, "s", false, time.Now().Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	sent := mock.Sent()
-	if len(sent) != 1 {
-		t.Fatalf("sent = %d", len(sent))
-	}
-	if strings.Contains(sent[0].Text, "echo secret") {
-		t.Fatalf("telegram text leaked payload: %q", sent[0].Text)
-	}
-	kb, ok := sent[0].ReplyMarkup.(*models.ReplyKeyboardMarkup)
-	if !ok {
-		t.Fatalf("reply markup = %T", sent[0].ReplyMarkup)
-	}
-	u, err := url.Parse(kb.Keyboard[0][0].WebApp.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q, err := url.ParseQuery(u.Fragment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plain, err := envelope.Decrypt(seed, q.Get("onibi"), time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(plain.Body, "echo secret") {
-		t.Fatalf("plain body = %q", plain.Body)
+	if mock.AwaitingOwnerInteraction() {
+		t.Fatal("awaiting interaction armed")
 	}
 }
 
@@ -594,7 +406,7 @@ func TestHighRiskApproveRequiresConfirm(t *testing.T) {
 	}
 }
 
-func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
+func TestApprovalRequestReturnsQueueDecisionWithoutTelegramRender(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)
 	d.Bot = mock
@@ -604,6 +416,8 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	events, unsub := d.Queue.Subscribe()
+	defer unsub()
 
 	respCh := make(chan intake.Response, 1)
 	errCh := make(chan error, 1)
@@ -622,19 +436,24 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	var id string
 	for ctx.Err() == nil {
 		row := d.DB.SQL().QueryRowContext(ctx, `SELECT id FROM approvals WHERE state = ?`, approval.StatePending)
-		if err := row.Scan(&id); err == nil && id != "" && len(mock.Sent()) > 0 {
+		if err := row.Scan(&id); err == nil && id != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	if id == "" {
-		t.Fatal("approval was not rendered")
+		t.Fatal("approval was not queued")
 	}
-	mock.Dispatch(ctx, &models.Update{CallbackQuery: &models.CallbackQuery{
-		ID:   "cb1",
-		From: models.User{ID: 100},
-		Data: "approve:" + id,
-	}})
+	ev := readApprovalEvent(t, events)
+	if ev.Type != approval.EventRequested || ev.Approval.ID != id || ev.Approval.SessionID != "s" {
+		t.Fatalf("event = %#v", ev)
+	}
+	if sent := mock.Sent(); len(sent) != 0 {
+		t.Fatalf("sent = %d", len(sent))
+	}
+	if err := d.Queue.Decide(ctx, id, approval.VerdictApprove, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
 
 	select {
 	case err := <-errCh:
@@ -652,10 +471,7 @@ func TestApprovalRequestApprovesViaMockCallback(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if len(mock.Answered()) != 1 {
-		t.Fatalf("answers = %d", len(mock.Answered()))
-	}
-	if len(mock.Edited()) != 1 {
+	if len(mock.Edited()) != 0 {
 		t.Fatalf("edits = %d", len(mock.Edited()))
 	}
 }
@@ -692,6 +508,17 @@ func TestApprovalRequestIgnoresUnmanagedExternalHook(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Action != "approval.ignored" || !strings.Contains(entries[0].Detail, "unmanaged provider hook") {
 		t.Fatalf("audit = %#v", entries)
+	}
+}
+
+func readApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("event not delivered")
+		return approval.Event{}
 	}
 }
 

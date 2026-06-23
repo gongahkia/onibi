@@ -374,16 +374,18 @@ func TestProjectListShowsHealthAndAliasButtons(t *testing.T) {
 	}
 }
 
-func TestDemoApprovalCallbackSendsApproval(t *testing.T) {
+func TestDemoApprovalCallbackQueuesWebApproval(t *testing.T) {
 	d := newApprovalDaemon(t)
 	mock := telegram.NewMock(nil)
 	d.Bot = mock
 	if err := d.onCallback(context.Background(), mock, &models.CallbackQuery{ID: "cb", From: models.User{ID: 100}}, "demo_approval", ""); err != nil {
 		t.Fatal(err)
 	}
-	sent := mock.Sent()
-	if len(sent) != 1 || !strings.Contains(sent[0].Text, "Approval request") || !strings.Contains(sent[0].Text, "Agent: demo") {
+	if sent := mock.Sent(); len(sent) != 0 {
 		t.Fatalf("sent = %#v", sent)
+	}
+	if answered := mock.Answered(); len(answered) != 1 {
+		t.Fatalf("answered = %#v", answered)
 	}
 	pending, err := d.Queue.Pending(context.Background())
 	if err != nil {

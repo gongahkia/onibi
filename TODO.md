@@ -211,8 +211,7 @@ Run these from repo root unless noted.
 
 > Goal: wire `internal/approval/queue.go` to `/ws/events`; render approval cards on the phone over the terminal; round-trip Approve/Deny/Edit back to Queue.Decide so the agent hook unblocks.
 
-(B) 2026-06-23 Replace internal/daemon/approvals.go Telegram-rendering code path with a no-op stub during Phase 5 (full delete in Phase 6); the web emitter is the new primary; keep hook RPC reply logic intact +phase05 @backend file:internal/daemon/approvals.go id:T511
-(B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 blocked-by:T511 accept:hook-exit-code-correct
+(B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
 (B) 2026-06-23 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
 (B) 2026-06-23 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert ^C reaches the child process group via syscall.Kill(-pgid, SIGINT) +phase05 @tests id:T514 blocked-by:T513
 (C) 2026-06-23 Polish: approval card slide-in animation; haptic feedback on iOS via navigator.vibrate (will silently no-op on Safari) +phase05 @frontend file:frontend/src/approval.ts id:T516
