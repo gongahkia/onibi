@@ -195,15 +195,6 @@ Run these from repo root unless noted.
 
 > Tasks are grouped by phase. Within a phase, do `(A)` first, then `(B)`, then `(C)`. Mark complete by replacing `(A)`/`(B)`/`(C)` prefix with `x YYYY-MM-DD` (the date you completed it). Example: `x 2026-06-30 Refactor ... id:T001`.
 
-### Phase 00 — Prep (1-3 hours)
-
-(A) 2026-06-23 Read sections 1-7 of this TODO.md end to end before touching code; this is the only authoritative spec for the pivot +phase00 @prep id:T087 accept:you-can-explain-architecture-rules-from-memory
-(A) 2026-06-23 Verify dev toolchain: Go >= 1.26.4 (go version), Node >= 18 (node --version), mkcert installed (brew install mkcert nss if missing), staticcheck installed (go install honnef.co/go/tools/cmd/staticcheck@latest) +phase00 @prep id:T088 accept:all-version-checks-pass
-(A) 2026-06-23 Baseline existing test suite: cd repo root and run go test ./... -race -count=1 to capture current pass state; if anything is already broken document in CHANGELOG before changing it +phase00 @prep id:T091 accept:test-results-recorded blocked-by:T088
-(A) 2026-06-23 Remove accidentally committed onibi-notify Mach-O binary at repo root (per project memory); git rm onibi-notify; add bin/onibi-notify and onibi-notify pattern to .gitignore +phase00 @cleanup file:.gitignore id:T092 accept:repo-root-has-no-binary blocked-by:T091
-(B) 2026-06-23 Add frontend/dist/ and frontend/node_modules/ and local-mkcert .pem files to .gitignore +phase00 @cleanup file:.gitignore id:T092b blocked-by:T092
-(B) 2026-06-23 Create a working branch off main named v3-web-cockpit; all phase work commits to this branch until Phase 6 land merge +phase00 @prep id:T087b blocked-by:T091
-
 ### Phase 01 — PTY subscriber hub (1.0 week)
 
 > Goal: refactor `internal/pty/host.go` so multiple consumers (existing render snapshot loop + new WebSocket clients) can attach to the same PTY without backpressuring the reader. Critical: rule #1 from §3.

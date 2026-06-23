@@ -1,6 +1,8 @@
 # onibi v2 (Go)
 /onibi
 /onibi-notify
+/bin/onibi-notify
+onibi-notify
 /dist/
 /build/
 /bin/
@@ -15,6 +17,7 @@ coverage.txt
 .env.local
 *.token
 *.totp
+*.pem
 mybot.sqlite
 onibi.sqlite
 *.sqlite
@@ -53,6 +56,8 @@ tgterm
 
 # legacy v1.5 (TS/Node + Rust/Tauri) artifacts that may regenerate if user runs old tooling
 node_modules/
+frontend/node_modules/
+frontend/dist/
 .pnpm-store/
 target/
 dist-ssr/
