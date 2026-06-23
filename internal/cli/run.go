@@ -149,6 +149,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		MiniAppURL:            cfg.Telegram.MiniAppURL,
 		EnvelopeSeed:          envelopeSeed,
 		TerminalDefault:       cfg.Terminal.Default,
+		WebAddr:               ":8443",
+		WebCertDir:            filepath.Join(paths.StateDir, "web"),
 	})
 
 	if attachTmux != "" {

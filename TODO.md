@@ -195,27 +195,6 @@ Run these from repo root unless noted.
 
 > Tasks are grouped by phase. Within a phase, do `(A)` first, then `(B)`, then `(C)`. Mark complete by replacing `(A)`/`(B)`/`(C)` prefix with `x YYYY-MM-DD` (the date you completed it). Example: `x 2026-06-30 Refactor ... id:T001`.
 
-### Phase 02 — HTTP+WS server skeleton (1.0 week)
-
-> Goal: stand up `internal/web/` package with HTTPS server, WS endpoints, cookie-based auth. NOT wired to PTY yet beyond a smoke endpoint; that comes in Phase 4. NOT removing Telegram yet; the daemon runs both side-by-side during dev.
-
-(A) 2026-06-23 Decide WebSocket library: recommendation nhooyr.io/websocket (modern, smaller, context-aware) over gorilla/websocket; if you choose differently, document why in commit message +phase02 @backend id:T200 accept:library-chosen-documented
-(A) 2026-06-23 Create internal/web/ package skeleton: doc.go with package docstring; server.go with type Server struct {tlsCert tls.Certificate; ptyHosts func() map[string]*pty.Host; ...} +phase02 @backend file:internal/web/server.go id:T201 blocked-by:T200
-(A) 2026-06-23 Decision: bundle FiloSottile/mkcert as a Go library wrapper at github.com/icio/mkcert OR shell out to system mkcert binary OR roll cert generation via crypto/tls+crypto/x509 directly; recommendation = roll our own (no external dep, no system mkcert needed); document choice +phase02 @backend id:T202 accept:approach-documented
-(A) 2026-06-23 Implement internal/web/cert.go: GenerateOrLoadCert(certDir string) (tls.Certificate, error); on first call generates a fresh ECDSA P-256 keypair, signs an x509 cert with SAN entries for localhost, 127.0.0.1, ::1, and detected LAN IPs, with NotAfter 1 year; persists to certDir/server.crt and certDir/server.key with 0600 perms; subsequent calls load existing +phase02 @backend file:internal/web/cert.go id:T203 blocked-by:T202
-(A) 2026-06-23 Implement Server.Start(addr string) starting an http.Server with TLS, ReadHeaderTimeout 5s, IdleTimeout 120s, listening on addr (default :8443); use h2c off (HTTP/1.1 + HTTP/2 over TLS only) +phase02 @backend file:internal/web/server.go id:T204 blocked-by:T203
-(A) 2026-06-23 Implement internal/web/auth.go: cookie middleware setting cookies HttpOnly=true Secure=true SameSite=SameSiteStrictMode Path=/ MaxAge=30d; cookie name onibi_owner; cookie value is a 32-byte random session id stored in SQLite web_sessions table +phase02 @backend file:internal/web/auth.go id:T205 blocked-by:T204 ref:arch-rule-5
-(A) 2026-06-23 Add SQLite migration for web_sessions table (session_id TEXT PK, device_label TEXT, created_at INTEGER, last_seen_at INTEGER, revoked INTEGER); migration registered in internal/store/sqlite.go alongside existing schema +phase02 @backend file:internal/store/sqlite.go id:T206 blocked-by:T205
-(A) 2026-06-23 Implement Server.handleHealthz: GET /healthz returning 200 JSON {ok:true, version: buildinfo.Version}; no auth required +phase02 @backend file:internal/web/server.go id:T207 blocked-by:T204
-(A) 2026-06-23 Implement WS upgrade handler skeleton at /ws/pty?token=<query-token>; verify cookie + matching query token before upgrade; on auth fail return 401 (NOT 403); on success use nhooyr.io/websocket.Accept with Subprotocols: ["onibi.pty.v1"] +phase02 @backend file:internal/web/ws_pty.go id:T208 blocked-by:T205 ref:arch-rule-5
-(A) 2026-06-23 Implement WS upgrade handler at /ws/events; same auth; subprotocol "onibi.events.v1"; for now just echoes server-hello JSON and closes +phase02 @backend file:internal/web/ws_events.go id:T209 blocked-by:T208
-(A) 2026-06-23 Implement WS ping/pong loop: server sends Ping every 30s; client must respond within 10s or connection closes; same for both /ws/pty and /ws/events +phase02 @backend file:internal/web/ws_pty.go id:T210 blocked-by:T208 ref:arch-rule-10
-(A) 2026-06-23 Implement POST /control: JSON {session_id, action} where action in {"interrupt", "kill"}; resolves session_id to a *pty.Host via injected resolver; sends syscall.Kill(-pgid, SIGINT) or SIGKILL; auth required +phase02 @backend file:internal/web/control.go id:T211 blocked-by:T205
-(A) 2026-06-23 Wire web.Server into internal/daemon/daemon.go: start the web server in a goroutine during daemon Run; provide session-host resolver closure; shut down gracefully on daemon shutdown +phase02 @backend file:internal/daemon/daemon.go id:T212 blocked-by:T211
-(B) 2026-06-23 Add internal/web/transport/lan.go: DetectLANIPs() []net.IP returning preferred LAN IPs (skip loopback; prefer en0/eth0/wlan0; IPv4 first); used to populate cert SANs and pair URL +phase02 @backend file:internal/web/transport/lan.go id:T213 blocked-by:T203
-(B) 2026-06-23 Unit tests in internal/web: cert generation+load round-trip; cookie middleware sets+reads cookie; WS upgrade with no cookie returns 401; WS upgrade with valid cookie+token succeeds +phase02 @tests file:internal/web/server_test.go id:T214 blocked-by:T212
-(B) 2026-06-23 Smoke test (manual): start daemon; curl -k https://localhost:8443/healthz returns 200; websocat to /ws/pty without cookie returns 401; with cookie returns server-hello +phase02 @tests id:T215 blocked-by:T214
-
 ### Phase 03 — Web pair flow (0.5 week)
 
 > Goal: replace the t.me deeplink with a web URL; reuse existing pair-token model verbatim; new `/pair/:token` handler consumes token and sets cookie.
