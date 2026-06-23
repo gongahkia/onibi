@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
@@ -24,17 +25,19 @@ const (
 )
 
 type Options struct {
-	TLSCert  tls.Certificate
-	DB       *store.DB
-	PTYHosts func() map[string]*pty.Host
-	Log      *slog.Logger
+	TLSCert       tls.Certificate
+	DB            *store.DB
+	ApprovalQueue *approval.Queue
+	PTYHosts      func() map[string]*pty.Host
+	Log           *slog.Logger
 }
 
 type Server struct {
-	tlsCert  tls.Certificate
-	db       *store.DB
-	ptyHosts func() map[string]*pty.Host
-	log      *slog.Logger
+	tlsCert       tls.Certificate
+	db            *store.DB
+	approvalQueue *approval.Queue
+	ptyHosts      func() map[string]*pty.Host
+	log           *slog.Logger
 }
 
 func New(opts Options) *Server {
@@ -42,10 +45,11 @@ func New(opts Options) *Server {
 		opts.Log = slog.Default()
 	}
 	return &Server{
-		tlsCert:  opts.TLSCert,
-		db:       opts.DB,
-		ptyHosts: opts.PTYHosts,
-		log:      opts.Log,
+		tlsCert:       opts.TLSCert,
+		db:            opts.DB,
+		approvalQueue: opts.ApprovalQueue,
+		ptyHosts:      opts.PTYHosts,
+		log:           opts.Log,
 	}
 }
 
@@ -58,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/control", s.handleControl)
+	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	mux.HandleFunc("/", s.handleRoot)
 	return mux
 }

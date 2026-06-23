@@ -76,9 +76,9 @@ func TestEncryptedTextOutputHidesPayload(t *testing.T) {
 	}
 }
 
-func TestAskApprovalDoesNotSendPlaintextCopy(t *testing.T) {
+func TestAskApprovalUsesWebEmitterOnly(t *testing.T) {
 	d := newApprovalDaemon(t)
-	seed := enableEncryptedTestDaemon(t, d)
+	enableEncryptedTestDaemon(t, d)
 	d.EncryptedMode = "ask"
 	ctx := context.Background()
 	id, _, err := d.Queue.Request(ctx, "s", "claude", "Bash", `{"command":"echo secret"}`)
@@ -90,14 +90,8 @@ func TestAskApprovalDoesNotSendPlaintextCopy(t *testing.T) {
 	if _, err := d.sendApprovalMessage(ctx, id, "Bash", `{"command":"echo secret"}`, "s", false, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	sent := mock.Sent()
-	if len(sent) != 1 {
+	if sent := mock.Sent(); len(sent) != 0 {
 		t.Fatalf("sent = %d", len(sent))
-	}
-	assertSentMessagesHide(t, mock, "echo secret")
-	plain := decryptSentMessage(t, seed, sent[0])
-	if !strings.Contains(plain.Body, "echo secret") {
-		t.Fatalf("plain body = %q", plain.Body)
 	}
 }
 

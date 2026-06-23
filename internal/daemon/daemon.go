@@ -341,10 +341,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return err
 		}
 		webServer := web.New(web.Options{
-			TLSCert:  cert,
-			DB:       d.DB,
-			PTYHosts: d.webPTYHosts,
-			Log:      d.Log,
+			TLSCert:       cert,
+			DB:            d.DB,
+			ApprovalQueue: d.Queue,
+			PTYHosts:      d.webPTYHosts,
+			Log:           d.Log,
 		})
 		wg.Add(1)
 		go func() {

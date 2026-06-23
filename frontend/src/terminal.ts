@@ -11,7 +11,6 @@ export type TerminalHandle = {
 
 export function createTerminal(container: HTMLElement): TerminalHandle {
   const term = new Terminal({
-    rendererType: "canvas",
     fontFamily: "Menlo, Monaco, monospace",
     fontSize: 14,
     cursorBlink: true,

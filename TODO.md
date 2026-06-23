@@ -211,24 +211,9 @@ Run these from repo root unless noted.
 
 > Goal: wire `internal/approval/queue.go` to `/ws/events`; render approval cards on the phone over the terminal; round-trip Approve/Deny/Edit back to Queue.Decide so the agent hook unblocks.
 
-(A) 2026-06-23 Define /ws/events JSON protocol in docs/ws-events-protocol.md: messages are JSON envelopes {type, ts, payload}; types include "approval.requested", "approval.decided", "approval.expired", "session.started", "session.ended", "render.event" +phase05 @docs file:docs/ws-events-protocol.md id:T500
-(A) 2026-06-23 Add approval.Queue subscriber API: Queue.Subscribe() (<-chan Event, unsub func()) so multiple consumers (existing audit log + new web emitter) can both observe state transitions +phase05 @backend file:internal/approval/queue.go id:T501 blocked-by:T500
-(A) 2026-06-23 Implement web events emitter: internal/web/ws_events.go pump that subscribes to approval.Queue + session registry + selected render events, marshals to JSON envelope, sends as WS text frames to all attached /ws/events clients +phase05 @backend file:internal/web/ws_events.go id:T502 blocked-by:T501
-(A) 2026-06-23 On approval.requested event, payload includes id, session_id, tool, scrubbed_input (apply approval/scrub.go), risk_level (apply approval/risk.go), expires_at +phase05 @backend file:internal/web/ws_events.go id:T503 blocked-by:T502
-(A) 2026-06-23 Add POST /approval/:id route: JSON {verdict: "approve"|"deny"|"edit", edited_input?: string, reason?: string}; resolves to Queue.Decide(id, Decision{...}); auth required +phase05 @backend file:internal/web/approval.go id:T504 blocked-by:T503
-(A) 2026-06-23 On the phone side, write frontend/src/approval.ts: ApprovalCard component (vanilla TS, no framework) rendering tool name, scrubbed input (monospace, line-numbered), risk badge, Approve / Deny / Edit buttons +phase05 @frontend file:frontend/src/approval.ts id:T505 blocked-by:T504
-(A) 2026-06-23 Edit button opens an inline edit pane: textarea pre-filled with current input; on submit POST /approval/:id with verdict "edit" and edited_input +phase05 @frontend file:frontend/src/approval.ts id:T506 blocked-by:T505
-(A) 2026-06-23 Add EventsWS class in frontend/src/events.ts paralleling ws.ts but for /ws/events JSON stream; emits typed events; auto-reconnect +phase05 @frontend file:frontend/src/events.ts id:T507 blocked-by:T506
-(A) 2026-06-23 Render approval card stack as absolutely-positioned overlay above the terminal (z-index 10, max-height 60dvh, bottom-anchored, scrollable); auto-show when approval.requested fires; auto-dismiss on approval.decided +phase05 @frontend file:frontend/src/approval.ts id:T508 blocked-by:T507
-(A) 2026-06-23 Add /control phone-side buttons: Interrupt and Kill buttons in a top toolbar; POST to /control with the active session_id +phase05 @frontend file:frontend/src/main.ts id:T509 blocked-by:T508
-(A) 2026-06-23 High-risk double-confirm: if risk_level=="high" the Approve button text becomes "Approve (tap twice)" and requires two taps within 2 seconds; reuse approval/risk.go High-list +phase05 @frontend file:frontend/src/approval.ts id:T510 blocked-by:T508
-(B) 2026-06-23 Replace internal/daemon/approvals.go Telegram-rendering code path with a no-op stub during Phase 5 (full delete in Phase 6); the web emitter is the new primary; keep hook RPC reply logic intact +phase05 @backend file:internal/daemon/approvals.go id:T511 blocked-by:T504
-(B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 blocked-by:T511 accept:hook-exit-code-correct
+(B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
 (B) 2026-06-23 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
 (B) 2026-06-23 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert ^C reaches the child process group via syscall.Kill(-pgid, SIGINT) +phase05 @tests id:T514 blocked-by:T513
-(B) 2026-06-23 Unit tests: events emitter marshalling; approval.Subscribe receives events for all queue transitions; POST /approval/:id rejects unauthenticated +phase05 @tests file:internal/web/ws_events_test.go id:T515 blocked-by:T504
-(C) 2026-06-23 Polish: approval card slide-in animation; haptic feedback on iOS via navigator.vibrate (will silently no-op on Safari) +phase05 @frontend file:frontend/src/approval.ts id:T516 blocked-by:T510
-
 ### Phase 06 — Telegram excision (1.5 weeks)
 
 > Goal: delete `internal/telegram/`, strip BotFather flow, rewrite README/setup/up, ensure full test suite green. After this phase the Telegram surface is gone for good (git history retains it).

@@ -24,12 +24,9 @@ import (
 // handleApprovalRequest is the RPC handler invoked when an onibi-notify
 // --wait client sends an approval_request. It:
 //  1. creates an approval row, gets the in-memory waiter channel
-//  2. renders the tool call + scrubbed inputs to Telegram with [Approve]
-//     [Deny][Edit] keyboard
-//  3. records (chat, msg) on the approval row so the callback handler can
-//     edit the message in place when the decision lands
-//  4. blocks reading the waiter channel until decision or ctx cancel
-//  5. returns the intake.Response (the server writes it back to the
+//  2. lets Queue.Subscribe feed the web /ws/events emitter
+//  3. blocks reading the waiter channel until decision or ctx cancel
+//  4. returns the intake.Response (the server writes it back to the
 //     blocked hook, which formats Claude's expected JSON and exits)
 func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	s, reason := d.sessionForEvent(ev)
@@ -39,9 +36,6 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 	ev.Session = s.ID
 	d.appendEventOutput(s, ev)
-
-	// fall back to session label if known (for nicer message header)
-	sessLabel := s.Name + " (" + s.ID + ")"
 
 	approvalID, ch, err := d.Queue.Request(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON)
 	if err != nil {
@@ -56,25 +50,6 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	if isHighRiskApproval(a) {
 		d.noteAnomaly(ctx, "approval.high_risk")
 	}
-	renderCtx := approvalRenderContext{
-		Agent:        ev.Agent,
-		SessionLabel: sessLabel,
-		CWD:          ev.CWD,
-		ToolTarget:   ev.ToolTarget,
-		Command:      ev.Command,
-		FilePath:     ev.FilePath,
-		ExpiresAt:    a.ExpiresAt,
-	}
-	sent, sendErr := d.sendApprovalMessageWithContext(ctx, approvalID, ev.Tool, ev.InputJSON, false, renderCtx)
-	if sendErr != nil {
-		// Telegram unreachable — cancel the approval so the hook unblocks
-		_ = d.Queue.Cancel(context.Background(), approvalID, "telegram send failed: "+sendErr.Error())
-		<-ch // drain
-		return intake.Response{Decision: "cancelled", Reason: "telegram send failed"}, nil
-	}
-	if sent != nil {
-		_ = d.Queue.SetMessage(ctx, approvalID, sent.Chat.ID, int64(sent.ID))
-	}
 
 	// audit: request raised
 	d.audit(ctx, "approval.request", ev.Session, ev.InputJSON, 0,
@@ -83,7 +58,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	// wait for decision
 	select {
 	case dec := <-ch:
-		return d.respondAndAnnotate(ctx, approvalID, sent, dec, ev)
+		return d.respondAndAnnotate(ctx, approvalID, nil, dec, ev)
 	case <-ctx.Done():
 		// server is shutting down; cancel the approval so the hook unblocks
 		_ = d.Queue.Cancel(context.Background(), approvalID, "daemon shutdown")
@@ -106,12 +81,6 @@ func (d *Daemon) handleDemoApprovalRequest(ctx context.Context, ev intake.Event)
 }
 
 func (d *Daemon) startDemoApproval(ctx context.Context, ev intake.Event) (string, <-chan approval.Decision, *models.Message, error) {
-	if d.Bot == nil {
-		return "", nil, nil, errors.New("telegram bot unavailable")
-	}
-	if d.Owner == nil {
-		return "", nil, nil, errors.New("owner unavailable")
-	}
 	tool := strings.TrimSpace(ev.Tool)
 	if tool == "" {
 		tool = "Bash"
@@ -132,70 +101,14 @@ func (d *Daemon) startDemoApproval(ctx context.Context, ev intake.Event) (string
 	if err != nil {
 		return "", nil, nil, err
 	}
-	a, err := d.Queue.Get(ctx, approvalID)
-	if err != nil {
-		_ = d.Queue.Cancel(context.Background(), approvalID, "demo approval failed")
-		return "", nil, nil, err
-	}
-	sent, err := d.sendApprovalMessageWithContext(ctx, approvalID, tool, inputJSON, false, approvalRenderContext{
-		Agent:        agent,
-		SessionLabel: "test approval (" + sessionID + ")",
-		CWD:          ev.CWD,
-		ToolTarget:   ev.ToolTarget,
-		Command:      ev.Command,
-		FilePath:     ev.FilePath,
-		ExpiresAt:    a.ExpiresAt,
-	})
-	if err != nil {
-		_ = d.Queue.Cancel(context.Background(), approvalID, "telegram send failed: "+err.Error())
-		return "", nil, nil, err
-	}
-	if sent != nil {
-		_ = d.Queue.SetMessage(ctx, approvalID, sent.Chat.ID, int64(sent.ID))
-	}
 	d.audit(ctx, "approval.demo", sessionID, inputJSON, 0, "tool="+tool+" id="+approvalID)
-	return approvalID, ch, sent, nil
+	return approvalID, ch, nil, nil
 }
 
-// RestorePendingApprovals re-renders pending approvals after a daemon restart.
-// It does not recreate waiters: the original hook may already have failed
-// open. The row remains useful for owner visibility and audit.
+// RestorePendingApprovals is a Phase 5 no-op. Web approval visibility comes
+// from live Queue.Subscribe events; pending DB rows remain for audit/log use.
 func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
-	if d.Queue == nil || d.Bot == nil || d.Owner == nil {
-		return nil
-	}
-	pending, err := d.Queue.Pending(ctx)
-	if err != nil {
-		return err
-	}
-	for _, a := range pending {
-		sessLabel := a.SessionID
-		if s, err := d.Registry.Get(a.SessionID); err == nil {
-			sessLabel = s.Name + " (" + s.ID + ")"
-		}
-		if a.ChatID != 0 && a.MsgID != 0 {
-			edited, fallback := d.tryEditApprovalInPlace(ctx, a, sessLabel)
-			if edited {
-				_ = d.Queue.SetMessage(ctx, a.ID, a.ChatID, a.MsgID)
-				continue
-			}
-			if !fallback {
-				continue
-			}
-		}
-		sent, err := d.sendApprovalMessageWithContext(ctx, a.ID, a.Tool, a.InputJSON, true, approvalRenderContext{
-			Agent:        a.Agent,
-			SessionLabel: sessLabel,
-			ExpiresAt:    a.ExpiresAt,
-		})
-		if err != nil {
-			d.Log.Warn("restore approval message", slog.String("id", a.ID), slog.Any("err", err))
-			continue
-		}
-		if sent != nil {
-			_ = d.Queue.SetMessage(ctx, a.ID, sent.Chat.ID, int64(sent.ID))
-		}
-	}
+	_ = ctx
 	return nil
 }
 
@@ -230,15 +143,13 @@ func (d *Daemon) sendApprovalMessage(ctx context.Context, id, tool, inputJSON, s
 }
 
 func (d *Daemon) sendApprovalMessageWithContext(ctx context.Context, id, tool, inputJSON string, restored bool, renderCtx approvalRenderContext) (*models.Message, error) {
-	if d.Bot == nil {
-		return nil, errors.New("telegram bot unavailable")
-	}
-	switch strings.ToLower(strings.TrimSpace(d.EncryptedMode)) {
-	case "on", "ask":
-		return d.sendEncryptedApprovalMessage(ctx, id, tool, inputJSON, restored, renderCtx)
-	default:
-		return d.sendPlainApprovalMessage(ctx, id, tool, inputJSON, restored, renderCtx)
-	}
+	_ = ctx
+	_ = id
+	_ = tool
+	_ = inputJSON
+	_ = restored
+	_ = renderCtx
+	return nil, nil
 }
 
 func (d *Daemon) sendPlainApprovalMessage(ctx context.Context, id, tool, inputJSON string, restored bool, renderCtx approvalRenderContext) (*models.Message, error) {

@@ -82,6 +82,20 @@ type Decision struct {
 	DecidedAt    int64           `json:"decided_at,omitempty"` // unix sec
 }
 
+const (
+	EventRequested = "approval.requested"
+	EventDecided   = "approval.decided"
+	EventExpired   = "approval.expired"
+)
+
+// Event is emitted after every approval queue state transition.
+type Event struct {
+	Type     string
+	Approval Approval
+	Decision Decision
+	At       time.Time
+}
+
 // DefaultTTL is the hard upper bound on approval lifetime; stale approvals
 // are expired to prevent late-decision hijack.
 const DefaultTTL = 5 * time.Minute

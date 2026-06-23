@@ -160,7 +160,8 @@ func TestWSEventsAcceptsCookieAndToken(t *testing.T) {
 	if err := wsjson.Read(ctx, c, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello["type"] != "server-hello" || hello["endpoint"] != "events" || hello["session_id"] != sessionID {
+	payload, _ := hello["payload"].(map[string]any)
+	if hello["type"] != "server.hello" || hello["ts"] == "" || payload["endpoint"] != "events" || payload["session_id"] != sessionID {
 		t.Fatalf("hello = %#v", hello)
 	}
 }
