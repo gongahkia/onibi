@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#090b0f">
+    <title>Onibi</title>
+    <style>
+      html, body, #term {
+        width: 100%;
+        height: 100dvh;
+        margin: 0;
+        overflow: hidden;
+        background: #090b0f;
+      }
+      body {
+        color: #d7dde8;
+        font-family: Menlo, Monaco, monospace;
+        -webkit-text-size-adjust: 100%;
+        touch-action: none;
+      }
+      #term {
+        box-sizing: border-box;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #090b0f;
+        color: #8d98aa;
+        font-size: 14px;
+        z-index: 2;
+      }
+      #splash[hidden] {
+        display: none;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-Cod0b2dY.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DYP7pi_n.css">
+  </head>
+  <body>
+    <div id="term" aria-label="terminal"></div>
+    <div id="splash">loading...</div>
+  </body>
+</html>

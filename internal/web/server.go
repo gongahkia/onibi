@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
+	webstatic "github.com/gongahkia/onibi/internal/web/static"
 )
 
 const (
@@ -53,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/pair/{token}", s.handlePair)
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
+	mux.HandleFunc("/session-info", s.handleSessionInfo)
+	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/control", s.handleControl)
 	mux.HandleFunc("/", s.handleRoot)
 	return mux
@@ -112,8 +116,70 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	index, err := webstatic.FS.ReadFile("dist/index.html")
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!doctype html><title>Onibi</title><body>Onibi web cockpit paired.</body>"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!doctype html><title>Onibi</title><body>Onibi web cockpit paired.</body>"))
+	_, _ = w.Write(index)
+}
+
+func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := s.authenticate(r); err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	assets, err := fs.Sub(webstatic.FS, "dist/assets")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.StripPrefix("/assets/", http.FileServer(http.FS(assets))).ServeHTTP(w, r)
+}
+
+func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
+	if !ok {
+		return
+	}
+	hosts := map[string]*pty.Host{}
+	if s.ptyHosts != nil {
+		if got := s.ptyHosts(); got != nil {
+			hosts = got
+		}
+	}
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID != "" {
+		if hosts[sessionID] == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+	} else {
+		if len(hosts) != 1 {
+			http.Error(w, "exactly one active session required", http.StatusConflict)
+			return
+		}
+		for id := range hosts {
+			sessionID = id
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"session_id": sessionID,
+		"ws_token":   ownerSessionID,
+	})
 }
 
 func (s *Server) hostForSession(sessionID string) (*pty.Host, bool) {

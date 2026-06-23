@@ -145,6 +145,31 @@ func (h *Host) Subscribe(ctx context.Context, bufCap int) (uint64, <-chan []byte
 	return h.hub.Subscribe(ctx, bufCap)
 }
 
+func (h *Host) SubscribeLive(ctx context.Context, bufCap int) (uint64, <-chan []byte, func()) {
+	if h == nil || h.hub == nil {
+		ch := make(chan []byte)
+		close(ch)
+		return 0, ch, func() {}
+	}
+	return h.hub.SubscribeLive(ctx, bufCap)
+}
+
+func (h *Host) SubscribeFrom(ctx context.Context, bufCap int, seq uint64) (Replay, <-chan []byte, func()) {
+	if h == nil || h.hub == nil {
+		ch := make(chan []byte)
+		close(ch)
+		return Replay{}, ch, func() {}
+	}
+	return h.hub.SubscribeFrom(ctx, bufCap, seq)
+}
+
+func (h *Host) ReplaySince(seq uint64) Replay {
+	if h == nil || h.hub == nil {
+		return Replay{}
+	}
+	return h.hub.ReplaySince(seq)
+}
+
 func (h *Host) Resize(rows, cols uint16) error {
 	if rows == 0 || cols == 0 {
 		return errors.New("pty: rows and cols must be non-zero")

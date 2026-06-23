@@ -21,9 +21,16 @@ type Hub struct {
 	subs          map[uint64]*subscriber
 	nextID        uint64
 	ring          *RingBuffer
+	seq           uint64
 	coalesceBuf   []byte
 	coalesceTimer *time.Timer
 	closed        bool
+}
+
+type Replay struct {
+	Data     []byte
+	Seq      uint64
+	Snapshot bool
 }
 
 type subscriber struct {
@@ -44,6 +51,20 @@ func NewHub(ringSize int) *Hub {
 }
 
 func (h *Hub) Subscribe(ctx context.Context, bufCap int) (uint64, <-chan []byte, func()) {
+	return h.subscribe(ctx, bufCap, true)
+}
+
+func (h *Hub) SubscribeLive(ctx context.Context, bufCap int) (uint64, <-chan []byte, func()) {
+	return h.subscribe(ctx, bufCap, false)
+}
+
+func (h *Hub) ReplaySince(seq uint64) Replay {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.replaySinceLocked(seq)
+}
+
+func (h *Hub) SubscribeFrom(ctx context.Context, bufCap int, seq uint64) (Replay, <-chan []byte, func()) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -61,7 +82,73 @@ func (h *Hub) Subscribe(ctx context.Context, bufCap int) (uint64, <-chan []byte,
 	}
 
 	h.mu.Lock()
+	replay := h.replaySinceLocked(seq)
+	if h.closed {
+		close(sub.ch)
+		h.mu.Unlock()
+		return replay, sub.ch, func() {}
+	}
+	h.nextID++
+	id := h.nextID
+	h.subs[id] = sub
+	h.mu.Unlock()
+
+	unsub := func() {
+		if sub.closed.Swap(true) {
+			return
+		}
+		close(sub.done)
+		h.mu.Lock()
+		delete(h.subs, id)
+		close(sub.ch)
+		h.mu.Unlock()
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			unsub()
+		case <-sub.done:
+		}
+	}()
+	return replay, sub.ch, unsub
+}
+
+func (h *Hub) replaySinceLocked(seq uint64) Replay {
 	snapshot := h.ring.Snapshot()
+	current := h.seq
+	var earliest uint64
+	if uint64(len(snapshot)) < current {
+		earliest = current - uint64(len(snapshot))
+	}
+	if seq < earliest || seq > current {
+		return Replay{Data: snapshot, Seq: current, Snapshot: true}
+	}
+	offset := int(seq - earliest)
+	return Replay{Data: append([]byte(nil), snapshot[offset:]...), Seq: current}
+}
+
+func (h *Hub) subscribe(ctx context.Context, bufCap int, replay bool) (uint64, <-chan []byte, func()) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if bufCap <= 0 {
+		bufCap = DefaultSubscriberBuffer
+	}
+	frameCap := bufCap / avgFrameSize
+	if frameCap < minSubscriberFrames {
+		frameCap = minSubscriberFrames
+	}
+	sub := &subscriber{
+		ch:     make(chan []byte, frameCap),
+		done:   make(chan struct{}),
+		bufCap: bufCap,
+	}
+
+	h.mu.Lock()
+	var snapshot []byte
+	if replay {
+		snapshot = h.ring.Snapshot()
+	}
 	if h.closed {
 		if len(snapshot) > 0 {
 			sub.sendLocked(snapshot, false, false)
@@ -108,6 +195,7 @@ func (h *Hub) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	h.ring.Write(p)
+	h.seq += uint64(len(p))
 	h.coalesceBuf = append(h.coalesceBuf, p...)
 	if len(h.coalesceBuf) >= coalesceFlushBytes {
 		h.flushLocked()

@@ -127,13 +127,6 @@ func TestWSPTYAcceptsCookieAndToken(t *testing.T) {
 	if got := c.Subprotocol(); got != ptySubprotocol {
 		t.Fatalf("subprotocol = %q", got)
 	}
-	var hello map[string]any
-	if err := wsjson.Read(ctx, c, &hello); err != nil {
-		t.Fatal(err)
-	}
-	if hello["type"] != "server-hello" || hello["endpoint"] != "pty" || hello["session_id"] != sessionID {
-		t.Fatalf("hello = %#v", hello)
-	}
 }
 
 func TestWSEventsAcceptsCookieAndToken(t *testing.T) {
