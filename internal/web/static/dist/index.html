@@ -21,7 +21,153 @@
       }
       #term {
         box-sizing: border-box;
-        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        padding: calc(env(safe-area-inset-top) + 44px) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      #toolbar {
+        position: fixed;
+        top: env(safe-area-inset-top);
+        left: env(safe-area-inset-left);
+        right: env(safe-area-inset-right);
+        height: 44px;
+        z-index: 11;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        box-sizing: border-box;
+        padding: 6px 10px;
+        background: rgba(9, 11, 15, 0.72);
+        border-bottom: 1px solid #222a38;
+        backdrop-filter: blur(12px);
+      }
+      .control-button,
+      .approval-button {
+        border: 1px solid #303a4d;
+        border-radius: 6px;
+        background: #151a24;
+        color: #d7dde8;
+        font: 600 12px Menlo, Monaco, monospace;
+        min-height: 30px;
+      }
+      .control-button {
+        min-width: 54px;
+      }
+      .approval-button {
+        padding: 0 10px;
+      }
+      .approval-button.primary {
+        background: #1f6feb;
+        border-color: #388bfd;
+        color: #fff;
+      }
+      .approval-button.danger {
+        background: #6e1f25;
+        border-color: #da3633;
+        color: #fff;
+      }
+      #approval-overlay {
+        position: fixed;
+        left: max(10px, env(safe-area-inset-left));
+        right: max(10px, env(safe-area-inset-right));
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 10;
+        display: grid;
+        gap: 8px;
+        max-height: 60dvh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .approval-card {
+        border: 1px solid #303a4d;
+        border-radius: 8px;
+        background: rgba(13, 17, 23, 0.96);
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.36);
+        padding: 10px;
+      }
+      .approval-card.risk-high {
+        border-color: #da3633;
+      }
+      .approval-header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 8px;
+        align-items: center;
+      }
+      .approval-title {
+        font: 700 13px Menlo, Monaco, monospace;
+        color: #f0f3f6;
+      }
+      .approval-meta {
+        grid-column: 1;
+        color: #8d98aa;
+        font-size: 11px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .approval-risk {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        border: 1px solid #303a4d;
+        border-radius: 999px;
+        padding: 3px 7px;
+        color: #d7dde8;
+        font-size: 11px;
+      }
+      .approval-input {
+        max-height: 26dvh;
+        overflow: auto;
+        margin: 10px 0;
+        padding: 8px;
+        background: #05070a;
+        border: 1px solid #202632;
+        border-radius: 6px;
+        color: #d7dde8;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .approval-line {
+        display: grid;
+        grid-template-columns: 3ch 1fr;
+        gap: 8px;
+      }
+      .approval-line-no {
+        color: #697386;
+        text-align: right;
+        user-select: none;
+      }
+      .approval-line code {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .approval-actions,
+      .approval-edit {
+        display: flex;
+        gap: 8px;
+      }
+      .approval-edit {
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .approval-edit[hidden] {
+        display: none;
+      }
+      .approval-edit textarea {
+        flex: 1 0 100%;
+        min-height: 120px;
+        box-sizing: border-box;
+        border: 1px solid #303a4d;
+        border-radius: 6px;
+        background: #05070a;
+        color: #d7dde8;
+        font: 12px Menlo, Monaco, monospace;
+        padding: 8px;
+      }
+      .approval-status {
+        min-height: 16px;
+        margin-top: 6px;
+        color: #8d98aa;
+        font-size: 11px;
       }
       #splash {
         position: fixed;
@@ -37,11 +183,13 @@
         display: none;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-Cod0b2dY.js"></script>
+    <script type="module" crossorigin src="/assets/index-B9z9Q7r6.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DYP7pi_n.css">
   </head>
   <body>
+    <div id="toolbar" aria-label="session controls"></div>
     <div id="term" aria-label="terminal"></div>
+    <div id="approval-overlay" aria-live="polite"></div>
     <div id="splash">loading...</div>
   </body>
 </html>
