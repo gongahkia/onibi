@@ -1,4 +1,6 @@
 // Package pty hosts coding agents under pseudo-terminals via creack/pty.
-// Default control-plane backend (the alternative is internal/tmux for users
-// who run agents inside an existing tmux session). Phase 2.
+// Spawn owns the only master read loop and fans output through Hub. Consumers
+// attach with Host.Subscribe; each subscriber is bounded, slow readers drop old
+// frames, and drop/resize control frames let web clients recover without
+// blocking agent output.
 package pty

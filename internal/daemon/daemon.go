@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
 // BufferSize is the per-session ring-buffer capacity (bytes). 64 KiB is
@@ -56,6 +58,8 @@ type Daemon struct {
 	MiniAppURL      string
 	EnvelopeSeed    string
 	TerminalDefault string
+	WebAddr         string
+	WebCertDir      string
 	anomaly         *anomalyTracker
 
 	mu       sync.Mutex
@@ -92,6 +96,8 @@ type Options struct {
 	MiniAppURL            string
 	EnvelopeSeed          string
 	TerminalDefault       string
+	WebAddr               string
+	WebCertDir            string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -120,6 +126,8 @@ func New(opts Options) *Daemon {
 		MiniAppURL:      opts.MiniAppURL,
 		EnvelopeSeed:    opts.EnvelopeSeed,
 		TerminalDefault: opts.TerminalDefault,
+		WebAddr:         opts.WebAddr,
+		WebCertDir:      opts.WebCertDir,
 		anomaly:         newAnomalyTracker(),
 	}
 
@@ -230,23 +238,20 @@ func (d *Daemon) bufferSize() int {
 // user still sees their session live in the terminal). Touches the session
 // on every read for the idle detector.
 func (d *Daemon) readLoop(s *Session) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := s.Host.Master.Read(buf)
-		if n > 0 {
-			_, _ = s.Buf.Write(buf[:n])
-			_, _ = os.Stdout.Write(buf[:n]) // mirror to user's tty
+	_, ch, unsub := s.Host.Subscribe(context.Background(), 0)
+	defer unsub()
+	for p := range ch {
+		if len(p) > 0 {
+			_, _ = s.Buf.Write(p)
+			_, _ = os.Stdout.Write(p) // mirror to user's tty
 			d.touchSession(context.Background(), s)
 			// new activity means a future turn-complete should fire again
 			d.mu.Lock()
 			delete(d.notified, s.ID)
 			d.mu.Unlock()
 		}
-		if err != nil {
-			d.markSessionEnded(context.Background(), s)
-			return
-		}
 	}
+	d.markSessionEnded(context.Background(), s)
 }
 
 func (d *Daemon) waitHost(s *Session) {
@@ -326,6 +331,31 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
+	if d.WebAddr != "" {
+		certDir := d.WebCertDir
+		if certDir == "" {
+			certDir = filepath.Join(d.Paths.StateDir, "web")
+		}
+		cert, err := web.GenerateOrLoadCert(certDir)
+		if err != nil {
+			return err
+		}
+		webServer := web.New(web.Options{
+			TLSCert:  cert,
+			DB:       d.DB,
+			PTYHosts: d.webPTYHosts,
+			Log:      d.Log,
+		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := webServer.StartContext(ctx, d.WebAddr); err != nil {
+				d.Log.Error("web server", slog.Any("err", err))
+				cancel()
+			}
+		}()
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -374,6 +404,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	wg.Wait()
 	return nil
+}
+
+func (d *Daemon) webPTYHosts() map[string]*pty.Host {
+	out := map[string]*pty.Host{}
+	for _, s := range d.Registry.List() {
+		if s.Host != nil {
+			out[s.ID] = s.Host
+		}
+	}
+	return out
 }
 
 func (d *Daemon) runStartupMaintenance(ctx context.Context) {

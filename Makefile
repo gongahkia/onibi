@@ -1,17 +1,33 @@
-.PHONY: build install test vet staticcheck tidy run clean gen-readme gen-readme-check release-dry release-smoke reproducible-build
+.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-dry release-smoke reproducible-build
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
 BUILD_DIR := bin
+FRONTEND_JS_GZ_LIMIT := 256000
 VERSION ?= $(shell git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --dirty 2>/dev/null || echo v2-dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=$(VERSION) -X github.com/gongahkia/onibi/internal/buildinfo.Commit=$(COMMIT) -X github.com/gongahkia/onibi/internal/buildinfo.Date=$(DATE)
 
-build:
+build: frontend-size-check
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/onibi
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(NOTIFY_BINARY) ./clients/onibi-notify
+
+# frontend dist is embedded by Go, so compile it before binaries.
+frontend-install:
+	npm --prefix frontend install
+
+frontend-build: frontend-install
+	npm --prefix frontend run build
+
+frontend-size-check: frontend-build
+	@bytes=$$(find internal/web/static/dist/assets -type f -name '*.js' -exec gzip -c {} \; | wc -c | tr -d ' '); \
+	if [ "$$bytes" -gt "$(FRONTEND_JS_GZ_LIMIT)" ]; then \
+		echo "frontend js gzip bytes $$bytes exceeds $(FRONTEND_JS_GZ_LIMIT)"; \
+		exit 1; \
+	fi; \
+	echo "frontend js gzip bytes: $$bytes"
 
 install: build
 	install -m 0755 $(BUILD_DIR)/$(BINARY) $(HOME)/.local/bin/$(BINARY)

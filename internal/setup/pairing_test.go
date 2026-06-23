@@ -66,6 +66,13 @@ func TestDeepLinkFormat(t *testing.T) {
 	}
 }
 
+func TestWebPairURLFormat(t *testing.T) {
+	url := WebPairURL("https", "onibi.local", 8443, "TOK123")
+	if url != "https://onibi.local:8443/pair/TOK123" {
+		t.Fatalf("unexpected url: %s", url)
+	}
+}
+
 func TestExtractToken(t *testing.T) {
 	tok, ok := ExtractToken("pair_abc123")
 	if !ok || tok != "abc123" {

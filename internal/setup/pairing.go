@@ -53,6 +53,10 @@ func DeepLink(botUsername, token string) string {
 	return fmt.Sprintf("https://t.me/%s?start=%s%s", botUsername, PairPrefix, token)
 }
 
+func WebPairURL(scheme, host string, port int, token string) string {
+	return fmt.Sprintf("%s://%s:%d/pair/%s", scheme, host, port, token)
+}
+
 // ExtractToken parses a /start payload of the form "pair_<token>" and
 // returns the bare token. Returns false if the payload is malformed.
 func ExtractToken(startPayload string) (string, bool) {

@@ -146,6 +146,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
 
+-- paired web cockpit browser sessions
+CREATE TABLE IF NOT EXISTS web_sessions (
+  session_id   TEXT PRIMARY KEY,
+  device_label TEXT,
+  created_at   INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  revoked      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at);
+
 -- Telegram-originated prompt queue (durable, per-session FIFO)
 CREATE TABLE IF NOT EXISTS prompt_queue (
   id          TEXT PRIMARY KEY,
@@ -334,4 +344,53 @@ func (d *DB) PurgeExpiredPairings(ctx context.Context) error {
 		`DELETE FROM pairing_tokens WHERE expires_at <= ?`,
 		time.Now().Unix())
 	return err
+}
+
+// ----------------------------------------------------------------------------
+// Web sessions
+// ----------------------------------------------------------------------------
+
+// PutWebSession records an owner browser session.
+func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, now time.Time) error {
+	ts := now.Unix()
+	_, err := d.sql.ExecContext(ctx,
+		`INSERT INTO web_sessions(session_id, device_label, created_at, last_seen_at, revoked)
+		 VALUES (?, ?, ?, ?, 0)
+		 ON CONFLICT(session_id) DO UPDATE SET
+		   device_label=excluded.device_label,
+		   last_seen_at=excluded.last_seen_at,
+		   revoked=0`,
+		sessionID, deviceLabel, ts, ts)
+	return err
+}
+
+// TouchWebSession updates last_seen_at iff the session is not revoked.
+func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Time) (bool, error) {
+	res, err := d.sql.ExecContext(ctx,
+		`UPDATE web_sessions SET last_seen_at = ?
+		 WHERE session_id = ? AND revoked = 0`,
+		now.Unix(), sessionID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// WebSessionValid reports whether sessionID exists and is not revoked.
+func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error) {
+	var revoked int
+	err := d.sql.QueryRowContext(ctx,
+		`SELECT revoked FROM web_sessions WHERE session_id = ?`,
+		sessionID).Scan(&revoked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return revoked == 0, nil
 }
