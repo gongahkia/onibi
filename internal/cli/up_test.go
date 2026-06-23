@@ -17,15 +17,12 @@ import (
 
 func TestUpRunsSetupWhenUnpaired(t *testing.T) {
 	withDefaultState(t)
-	oldSetup := setupRun
+	oldWebPair := webPairRun
 	oldInstall := installServiceRun
-	setupCalled := false
-	setupRun = func(cmd *cobra.Command, _ []string) error {
-		setupCalled = true
-		complete, _ := cmd.Flags().GetBool("complete")
-		if !complete {
-			t.Fatal("setup delegate missing --complete")
-		}
+	webPairCalled := false
+	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
+		webPairCalled = true
+		cmd.Println("pair stub")
 		return nil
 	}
 	installServiceRun = func(*cobra.Command, []string) error {
@@ -33,7 +30,7 @@ func TestUpRunsSetupWhenUnpaired(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() {
-		setupRun = oldSetup
+		webPairRun = oldWebPair
 		installServiceRun = oldInstall
 	})
 
@@ -43,10 +40,10 @@ func TestUpRunsSetupWhenUnpaired(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !setupCalled {
-		t.Fatal("setup not called")
+	if !webPairCalled {
+		t.Fatal("web pair not called")
 	}
-	if !strings.Contains(out.String(), "setup --complete") {
+	if !strings.Contains(out.String(), "pair stub") {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }
@@ -62,15 +59,10 @@ func TestUpInstallsServiceWhenPaired(t *testing.T) {
 	}
 	_ = db.Close()
 
-	oldSetup := setupRun
 	oldInstall := installServiceRun
 	oldDoctor := doctorRun
 	installCalled := false
 	doctorCalled := false
-	setupRun = func(*cobra.Command, []string) error {
-		t.Fatal("setup should not run")
-		return nil
-	}
 	installServiceRun = func(*cobra.Command, []string) error {
 		installCalled = true
 		return nil
@@ -80,7 +72,6 @@ func TestUpInstallsServiceWhenPaired(t *testing.T) {
 		return doctor.Report{Checks: []doctor.Check{{Name: "ok", Status: doctor.Pass, Detail: "ok"}}}
 	}
 	t.Cleanup(func() {
-		setupRun = oldSetup
 		installServiceRun = oldInstall
 		doctorRun = oldDoctor
 	})

@@ -1,18 +1,28 @@
 package cli
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"net/http"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
-var setupRun = runSetup
 var installServiceRun = runInstallService
+var webPairRun = runWebPairUp
 
 func upCmd() *cobra.Command {
 	return &cobra.Command{
@@ -41,16 +51,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if !ownerSet {
-		fmt.Fprintln(cmd.OutOrStdout(), "Not paired yet - running setup --complete.")
-		setup := setupCmd()
-		setup.SetContext(cmd.Context())
-		setup.SetIn(cmd.InOrStdin())
-		setup.SetOut(cmd.OutOrStdout())
-		setup.SetErr(cmd.ErrOrStderr())
-		if err := setup.Flags().Set("complete", "true"); err != nil {
-			return err
-		}
-		return setupRun(setup, nil)
+		return webPairRun(cmd, paths, db)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), "Already paired - installing service and running doctor.")
@@ -66,4 +67,74 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("doctor failed: see output above")
 	}
 	return nil
+}
+
+func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
+	const port = 8443
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	cert, err := web.GenerateOrLoadCert(filepath.Join(paths.StateDir, "web"))
+	if err != nil {
+		return err
+	}
+	server := web.New(web.Options{TLSCert: cert, DB: db})
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.StartContext(ctx, fmt.Sprintf(":%d", port)) }()
+	if err := waitForWebHealth(ctx, port, errCh); err != nil {
+		return err
+	}
+
+	token, err := setup.NewToken(ctx, db)
+	if err != nil {
+		return err
+	}
+	url := setup.WebPairURL("https", web.PreferredHost(), port, token)
+	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
+	fmt.Fprintln(cmd.OutOrStdout(), url)
+	if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
+		return err
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
+
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+}
+
+func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {
+	client := &http.Client{
+		Timeout: 250 * time.Millisecond,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(25 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errCh:
+			return err
+		case <-deadline.C:
+			return fmt.Errorf("web server did not become ready")
+		case <-tick.C:
+			resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/healthz", port))
+			if err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return nil
+				}
+			}
+		}
+	}
 }

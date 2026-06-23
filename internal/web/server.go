@@ -50,9 +50,11 @@ func New(opts Options) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/pair/{token}", s.handlePair)
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/control", s.handleControl)
+	mux.HandleFunc("/", s.handleRoot)
 	return mux
 }
 
@@ -95,6 +97,23 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"version": buildinfo.Version,
 	})
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := s.authenticate(r); err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte("<!doctype html><title>Onibi</title><body>Onibi web cockpit paired.</body>"))
 }
 
 func (s *Server) hostForSession(sessionID string) (*pty.Host, bool) {

@@ -199,15 +199,7 @@ Run these from repo root unless noted.
 
 > Goal: replace the t.me deeplink with a web URL; reuse existing pair-token model verbatim; new `/pair/:token` handler consumes token and sets cookie.
 
-(A) 2026-06-23 Add setup.WebPairURL(scheme, host string, port int, token string) string returning fmt.Sprintf("%s://%s:%d/pair/%s", scheme, host, port, token); keep existing DeepLink for now (deletion in Phase 6) +phase03 @backend file:internal/setup/pairing.go id:T300 accept:no-changes-to-NewToken-or-Consume
-(A) 2026-06-23 Implement /pair/:token HTTP handler in internal/web/pair.go: extract token from path; call setup.Consume(ctx, db, token); on success create new session row in web_sessions via auth middleware helper, set onibi_owner cookie, 302 redirect to /; on failure return 401 with HTML "pair token expired or already used" +phase03 @backend file:internal/web/pair.go id:T301 blocked-by:T300 ref:arch-rule-4
-(A) 2026-06-23 Verify single-use semantics still apply: second hit to same /pair/:token URL returns 401 even if cookie already set (do not auto-promote) +phase03 @backend file:internal/web/pair.go id:T302 blocked-by:T301
-(A) 2026-06-23 Wire pair handler into server router under /pair/{token} (chi or stdlib http.ServeMux pattern) +phase03 @backend file:internal/web/server.go id:T303 blocked-by:T302
-(A) 2026-06-23 Modify internal/cli/up.go: after server starts, call setup.NewToken to mint a fresh pair token, build WebPairURL using detected LAN IP and configured port, print URL to stdout, render QR via setup.PrintQR; do NOT remove Telegram path yet (Phase 6) +phase03 @backend file:internal/cli/up.go id:T304 blocked-by:T303
-(A) 2026-06-23 Implement detection helper: prefer mDNS hostname (hostname + ".local") if mDNS is available on the platform, else first non-loopback LAN IPv4; expose as web.PreferredHost() string +phase03 @backend file:internal/web/transport/lan.go id:T305 blocked-by:T304
-(B) 2026-06-23 Unit tests: WebPairURL formatting; /pair/:token success path; /pair/:token reuse fails; expired token fails; cookie attributes set correctly +phase03 @tests file:internal/web/pair_test.go id:T306 blocked-by:T303
 (B) 2026-06-23 Smoke test on real iPhone: rm -rf state db, onibi up, scan QR from phone, verify cookie set in Safari devtools, reload / returns 200; second iPhone hits / and gets 403 +phase03 @tests id:T307 blocked-by:T306 accept:cookie-survives-reload-on-iOS-Safari
-(B) 2026-06-23 Write docs/ios-cert-install.md: step-by-step "Settings → General → VPN & Device Management → install profile → trust root cert"; reference from /pair page on TLS handshake failure +phase03 @docs file:docs/ios-cert-install.md id:T308 blocked-by:T305
 
 ### Phase 04 — xterm.js terminal SPA (1.5 weeks)
 

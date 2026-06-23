@@ -1,8 +1,12 @@
 package transport
 
 import (
+	"context"
 	"net"
+	"os"
 	"sort"
+	"strings"
+	"time"
 )
 
 func DetectLANIPs() []net.IP {
@@ -55,6 +59,26 @@ func DetectLANIPs() []net.IP {
 		ips = append(ips, c.ip)
 	}
 	return ips
+}
+
+func PreferredHost() string {
+	if name, err := os.Hostname(); err == nil {
+		name = strings.Trim(strings.TrimSuffix(name, ".local"), ".")
+		if name != "" && name != "localhost" {
+			mdns := name + ".local"
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			_, err := net.DefaultResolver.LookupHost(ctx, mdns)
+			cancel()
+			if err == nil {
+				return mdns
+			}
+		}
+	}
+	ips := DetectLANIPs()
+	if len(ips) > 0 {
+		return ips[0].String()
+	}
+	return "localhost"
 }
 
 func addrIP(addr net.Addr) net.IP {
