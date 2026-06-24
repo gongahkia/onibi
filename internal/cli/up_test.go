@@ -91,10 +91,10 @@ func TestUpInstallsServiceWhenPaired(t *testing.T) {
 }
 
 func TestWebPairURLsIncludesFallbacks(t *testing.T) {
-	got := webPairURLs("tok", 8443, "host.local", []string{"192.168.1.31", "host.local", ""})
+	got := webPairURLs("tok", 8443, []string{"192.168.1.31", "host.local", ""}, "host.local")
 	want := []string{
-		"https://host.local:8443/pair/tok",
 		"https://192.168.1.31:8443/pair/tok",
+		"https://host.local:8443/pair/tok",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("urls = %#v", got)
