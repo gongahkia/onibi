@@ -198,14 +198,14 @@ Run these from repo root unless noted.
 ### Phase 03 — Web pair flow (0.5 week)
 
 > Goal: replace the t.me deeplink with a web URL; reuse existing pair-token model verbatim; new `/pair/:token` handler consumes token and sets cookie.
-
-(B) 2026-06-23 Smoke test on real iPhone: rm -rf state db, onibi up, scan QR from phone, verify cookie set in Safari devtools, reload / returns 200; second iPhone hits / and gets 403 +phase03 @tests id:T307 blocked-by:T306 accept:cookie-survives-reload-on-iOS-Safari
+# 2026-06-24: real-iPhone pair/auth/cookie smoke passed; completed task removed.
 
 ### Phase 04 — xterm.js terminal SPA (1.5 weeks)
 
 > Goal: build the frontend that renders a live terminal on the phone and connects to /ws/pty. No approval UI yet — terminal stream + input only.
 
-(B) 2026-06-23 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 blocked-by:T413 accept:no-scrollback-corruption-after-resume
+# 2026-06-24: CLI web diagnostics and local-shell availability completed; local smoke saw /session-info 200 and /ws/pty 101.
+(B) 2026-06-23 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 accept:no-scrollback-corruption-after-resume
 
 ### Phase 05 — Approval cockpit overlay (2.0 weeks)
 

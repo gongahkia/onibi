@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -17,6 +19,7 @@ import (
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -24,6 +27,8 @@ import (
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
+
+const webPairSessionID = "local-shell"
 
 func upCmd() *cobra.Command {
 	return &cobra.Command{
@@ -81,7 +86,21 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	}
 	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelDebug}))
 	logger.Info("web pair server starting", "addr", fmt.Sprintf(":%d", port), "state_dir", paths.StateDir, "cert_dir", filepath.Join(paths.StateDir, "web"))
-	server := web.New(web.Options{TLSCert: cert, DB: db, Log: logger})
+	sessionID, host, err := startWebPairShell(ctx, paths, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = host.Close() }()
+	hostDone := make(chan error, 1)
+	go func() { hostDone <- host.Wait() }()
+	server := web.New(web.Options{
+		TLSCert: cert,
+		DB:      db,
+		PTYHosts: func() map[string]*pty.Host {
+			return map[string]*pty.Host{sessionID: host}
+		},
+		Log: logger,
+	})
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.StartContext(ctx, fmt.Sprintf(":%d", port)) }()
 	if err := waitForWebHealth(ctx, port, errCh); err != nil {
@@ -104,12 +123,46 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	select {
 	case <-ctx.Done():
 		return nil
+	case err := <-hostDone:
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err != nil {
+			logger.Warn("web pair shell exited", "session_id", sessionID, "err", err)
+			return fmt.Errorf("web shell exited: %w", err)
+		}
+		logger.Info("web pair shell exited", "session_id", sessionID)
+		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
 			return nil
 		}
 		return err
 	}
+}
+
+func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Logger) (string, *pty.Host, error) {
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return "", nil, err
+	}
+	launch, err := resolveShellLaunch(cfg.Shell.Default, cfg.Shell.Login, os.Getenv, exec.LookPath)
+	if err != nil {
+		return "", nil, err
+	}
+	cwd, _ := os.Getwd()
+	host, err := pty.Spawn(ctx, pty.SpawnOptions{
+		Name:  launch.Command,
+		Args:  launch.Args,
+		Argv0: launch.Argv0,
+		Env:   []string{"ONIBI_SESSION_ID=" + webPairSessionID},
+		Dir:   cwd,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	logger.Info("web pair shell started", "session_id", webPairSessionID, "shell", launch.Name, "command", launch.Command)
+	return webPairSessionID, host, nil
 }
 
 func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {

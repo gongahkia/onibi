@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -163,6 +164,34 @@ func TestWSEventsAcceptsCookieAndToken(t *testing.T) {
 	payload, _ := hello["payload"].(map[string]any)
 	if hello["type"] != "server.hello" || hello["ts"] == "" || payload["endpoint"] != "events" || payload["session_id"] != sessionID {
 		t.Fatalf("hello = %#v", hello)
+	}
+}
+
+func TestSessionInfoReturnsSinglePTYHost(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host := pty.NewVirtualHost(nil, nil, nil)
+	srv.ptyHosts = func() map[string]*pty.Host {
+		return map[string]*pty.Host{"local-shell": host}
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/session-info", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleSessionInfo(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	got := map[string]string{}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["session_id"] != "local-shell" || got["ws_token"] == "" {
+		t.Fatalf("session-info = %#v", got)
 	}
 }
 
