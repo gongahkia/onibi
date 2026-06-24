@@ -205,6 +205,7 @@ Run these from repo root unless noted.
 > Goal: build the frontend that renders a live terminal on the phone and connects to /ws/pty. No approval UI yet — terminal stream + input only.
 
 # 2026-06-24: CLI web diagnostics and local-shell availability completed; local smoke saw /session-info 200 and /ws/pty 101.
+# 2026-06-24: T415 retry saw no phone requests before token expiry on `.local`; `onibi up` now prints LAN-IP fallback URLs.
 (B) 2026-06-23 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 accept:no-scrollback-corruption-after-resume
 
 ### Phase 05 — Approval cockpit overlay (2.0 weeks)

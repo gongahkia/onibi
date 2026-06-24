@@ -111,10 +111,14 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	url := setup.WebPairURL("https", web.PreferredHost(), port, token)
+	urls := webPairURLs(token, port, web.PreferredHost(), web.LANHosts())
+	url := urls[0]
 	logger.Info("web pair token minted", "url", url, "ttl", setup.PairTokenTTL.String())
 	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
 	fmt.Fprintln(cmd.OutOrStdout(), url)
+	for _, alt := range urls[1:] {
+		fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
+	}
 	if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
 		return err
 	}
@@ -139,6 +143,25 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		}
 		return err
 	}
+}
+
+func webPairURLs(token string, port int, primary string, fallbacks []string) []string {
+	seen := map[string]bool{}
+	add := func(host string, urls []string) []string {
+		if host == "" || seen[host] {
+			return urls
+		}
+		seen[host] = true
+		return append(urls, setup.WebPairURL("https", host, port, token))
+	}
+	urls := add(primary, nil)
+	for _, host := range fallbacks {
+		urls = add(host, urls)
+	}
+	if len(urls) == 0 {
+		urls = add("localhost", urls)
+	}
+	return urls
 }
 
 func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Logger) (string, *pty.Host, error) {
