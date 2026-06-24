@@ -97,6 +97,10 @@ func TestRootWithoutOwnerCookieForbidden(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d", w.Code)
 	}
+	body := w.Body.String()
+	if !strings.Contains(body, "local HTTPS certificate") || !strings.Contains(body, "hotspot") {
+		t.Fatalf("body missing diagnostic: %q", body)
+	}
 }
 
 func noRedirectClient() *http.Client {

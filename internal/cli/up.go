@@ -80,12 +80,14 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cert, err := web.GenerateOrLoadCert(filepath.Join(paths.StateDir, "web"))
+	certDir := filepath.Join(paths.StateDir, "web")
+	cert, err := web.GenerateOrLoadCert(certDir)
 	if err != nil {
 		return err
 	}
 	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelDebug}))
-	logger.Info("web pair server starting", "addr", fmt.Sprintf(":%d", port), "state_dir", paths.StateDir, "cert_dir", filepath.Join(paths.StateDir, "web"))
+	certPaths := web.LocalCertPaths(certDir)
+	logger.Info("web pair server starting", "addr", fmt.Sprintf(":%d", port), "state_dir", paths.StateDir, "cert_dir", certDir)
 	sessionID, host, err := startWebPairShell(ctx, paths, logger)
 	if err != nil {
 		return err
@@ -114,6 +116,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	urls := webPairURLs(token, port, web.LANHosts(), web.PreferredHost())
 	url := urls[0]
 	logger.Info("web pair token minted", "url", url, "ttl", setup.PairTokenTTL.String())
+	fmt.Fprintln(cmd.OutOrStdout(), "iPhone HTTPS trust:")
+	fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
+	fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
 	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
 	fmt.Fprintln(cmd.OutOrStdout(), url)
 	for _, alt := range urls[1:] {

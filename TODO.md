@@ -209,6 +209,8 @@ Run these from repo root unless noted.
 # 2026-06-24: QR primary changed to LAN IP first; `.local` is fallback because iPhone did not reach mDNS URL.
 # 2026-06-24: LAN-IP QR retry still saw no phone requests; local Mac health to LAN IP returned 200, so remaining failure is phone-to-Mac LAN reachability. IPv6 fallback URL formatting fixed.
 # 2026-06-24: macOS firewall is enabled but block-all is off and incoming connections to `bin/onibi` are permitted.
+# 2026-06-24: iPhone reached `/pair`, token was consumed, then `/` returned 403 with missing owner cookie after TLS `unknown certificate`; network reachability is OK, but Safari rejected/not-returned the Secure cookie on the untrusted self-signed leaf cert.
+x 2026-06-24 Replace self-signed leaf TLS cert with mkcert/local-CA flow or explicit iOS-trustable cert profile path; add CLI preflight/diagnostic that warns before QR if iOS has not trusted the local cert, and after pair-cookie failure recommends cert trust first and hotspot only for LAN reachability failures +phase04 @backend file:internal/web/cert.go id:T416 blocked-by:T415 accept:forbidden-after-pair-has-actionable-diagnostic
 (B) 2026-06-23 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 accept:no-scrollback-corruption-after-resume
 
 ### Phase 05 — Approval cockpit overlay (2.0 weeks)

@@ -121,7 +121,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.authenticate(r); err != nil {
 		s.log.Warn("web root auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr))
-		http.Error(w, "forbidden", http.StatusForbidden)
+		writeRootForbidden(w, err)
 		return
 	}
 	index, err := webstatic.FS.ReadFile("dist/index.html")
@@ -133,6 +133,16 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(index)
+}
+
+func writeRootForbidden(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	if errors.Is(err, errAuthMissingCookie) || errors.Is(err, errAuthEmptyCookie) {
+		_, _ = w.Write([]byte(`<!doctype html><title>Onibi Forbidden</title><body><h1>Forbidden</h1><p>Owner cookie is missing. If this happened immediately after pairing, iOS likely did not trust Onibi's local HTTPS certificate.</p><p>Install the Onibi local CA profile printed by <code>onibi up</code>, enable full trust in iOS Certificate Trust Settings, then restart <code>onibi up</code> and scan the new QR.</p><p>Use a phone hotspot only when the phone cannot reach the pair URL at all.</p></body>`))
+		return
+	}
+	_, _ = w.Write([]byte("forbidden"))
 }
 
 func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {

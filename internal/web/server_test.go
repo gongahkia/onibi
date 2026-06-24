@@ -40,6 +40,23 @@ func TestGenerateOrLoadCertRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	caPEM, err := os.ReadFile(filepath.Join(dir, "onibi-local-ca.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, ok := parseSingleCert(caPEM)
+	if !ok {
+		t.Fatal("failed to parse ca cert")
+	}
+	if !ca.IsCA {
+		t.Fatal("ca cert is not a CA")
+	}
+	if leaf.IsCA {
+		t.Fatal("server cert is a CA")
+	}
+	if err := leaf.CheckSignatureFrom(ca); err != nil {
+		t.Fatalf("server cert not signed by ca: %v", err)
+	}
 	if !leaf.NotAfter.After(time.Now().AddDate(0, 11, 0)) {
 		t.Fatalf("unexpected NotAfter: %s", leaf.NotAfter)
 	}
@@ -49,7 +66,7 @@ func TestGenerateOrLoadCertRoundTrip(t *testing.T) {
 	if !hasIP(leaf, "127.0.0.1") || !hasIP(leaf, "::1") {
 		t.Fatalf("IP SANs = %#v", leaf.IPAddresses)
 	}
-	for _, name := range []string{"server.crt", "server.key"} {
+	for _, name := range []string{"onibi-local-ca.crt", "onibi-local-ca.key", "onibi-local-ca.mobileconfig", "server.crt", "server.key"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
