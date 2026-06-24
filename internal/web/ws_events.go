@@ -28,9 +28,11 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{eventsSubprotocol}})
 	if err != nil {
+		s.log.Warn("web events ws accept failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		return
 	}
 	defer c.CloseNow()
+	s.log.Info("web events ws accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr))
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -48,6 +50,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.approvalQueue == nil {
+		s.log.Info("web events ws waiting without approval queue", "request_id", requestID(r), "session_id", sessionID)
 		<-ctx.Done()
 		return
 	}

@@ -49,9 +49,11 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{ptySubprotocol}})
 	if err != nil {
+		s.log.Warn("web pty ws accept failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		return
 	}
 	defer c.CloseNow()
+	s.log.Info("web pty ws accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr))
 	c.SetReadLimit(1 << 20)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -60,14 +62,17 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 
 	attach, err := readPTYAttach(ctx, c)
 	if err != nil {
+		s.log.Warn("web pty attach failed", "request_id", requestID(r), "err", err)
 		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
 		return
 	}
 	host, ok := s.hostForSession(attach.SessionID)
 	if !ok {
+		s.log.Warn("web pty attach failed", "request_id", requestID(r), "reason", "unknown_session", "session_id", attach.SessionID)
 		_ = c.Close(websocket.StatusPolicyViolation, "unknown session")
 		return
 	}
+	s.log.Info("web pty attached", "request_id", requestID(r), "session_id", attach.SessionID, "last_seq", attach.LastSeq)
 
 	replay, ch, unsub := host.SubscribeFrom(ctx, pty.DefaultSubscriberBuffer, attach.LastSeq)
 	defer unsub()

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os/signal"
 	"path/filepath"
@@ -78,7 +79,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	server := web.New(web.Options{TLSCert: cert, DB: db})
+	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger.Info("web pair server starting", "addr", fmt.Sprintf(":%d", port), "state_dir", paths.StateDir, "cert_dir", filepath.Join(paths.StateDir, "web"))
+	server := web.New(web.Options{TLSCert: cert, DB: db, Log: logger})
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.StartContext(ctx, fmt.Sprintf(":%d", port)) }()
 	if err := waitForWebHealth(ctx, port, errCh); err != nil {
@@ -90,6 +93,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	url := setup.WebPairURL("https", web.PreferredHost(), port, token)
+	logger.Info("web pair token minted", "url", url, "ttl", setup.PairTokenTTL.String())
 	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
 	fmt.Fprintln(cmd.OutOrStdout(), url)
 	if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {

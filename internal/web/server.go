@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log"
 	"log/slog"
 	"net/http"
 	"time"
@@ -64,7 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/control", s.handleControl)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	mux.HandleFunc("/", s.handleRoot)
-	return mux
+	return s.loggedHandler(mux)
 }
 
 func (s *Server) Start(addr string) error {
@@ -81,6 +82,7 @@ func (s *Server) StartContext(ctx context.Context, addr string) error {
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{s.tlsCert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		ErrorLog:          log.New(slogWriter{s}, "", 0),
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -118,6 +120,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.authenticate(r); err != nil {
+		s.log.Warn("web root auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -138,6 +141,7 @@ func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.authenticate(r); err != nil {
+		s.log.Warn("web asset auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr), "path", r.URL.Path)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -168,11 +172,13 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID != "" {
 		if hosts[sessionID] == nil {
+			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "session_not_found", "requested_session", sessionID, "active_sessions", len(hosts))
 			http.Error(w, "session not found", http.StatusNotFound)
 			return
 		}
 	} else {
 		if len(hosts) != 1 {
+			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "active_session_count_not_one", "active_sessions", len(hosts))
 			http.Error(w, "exactly one active session required", http.StatusConflict)
 			return
 		}
