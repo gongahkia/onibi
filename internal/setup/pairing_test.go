@@ -71,6 +71,10 @@ func TestWebPairURLFormat(t *testing.T) {
 	if url != "https://onibi.local:8443/pair/TOK123" {
 		t.Fatalf("unexpected url: %s", url)
 	}
+	url = WebPairURL("https", "fd00::14be:1854:2e12:e2e8", 8443, "TOK123")
+	if url != "https://[fd00::14be:1854:2e12:e2e8]:8443/pair/TOK123" {
+		t.Fatalf("unexpected IPv6 url: %s", url)
+	}
 }
 
 func TestExtractToken(t *testing.T) {

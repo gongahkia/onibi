@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +56,7 @@ func DeepLink(botUsername, token string) string {
 }
 
 func WebPairURL(scheme, host string, port int, token string) string {
-	return fmt.Sprintf("%s://%s:%d/pair/%s", scheme, host, port, token)
+	return fmt.Sprintf("%s://%s/pair/%s", scheme, net.JoinHostPort(host, strconv.Itoa(port)), token)
 }
 
 // ExtractToken parses a /start payload of the form "pair_<token>" and
