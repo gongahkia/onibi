@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -39,6 +40,7 @@ type ptySnapshotFrame struct {
 }
 
 func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -53,7 +55,21 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
-	s.log.Info("web pty ws accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr))
+	reqID := requestID(r)
+	var sessionID string
+	var bytesIn atomic.Uint64
+	var bytesOut atomic.Uint64
+	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr))
+	defer func() {
+		s.log.Info("web pty ws closed",
+			"request_id", reqID,
+			"session_id", sessionID,
+			"remote", remoteHost(r.RemoteAddr),
+			"duration_ms", time.Since(started).Milliseconds(),
+			"bytes_from_client", bytesIn.Load(),
+			"bytes_to_client", bytesOut.Load(),
+		)
+	}()
 	c.SetReadLimit(1 << 20)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,36 +78,42 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 
 	attach, err := readPTYAttach(ctx, c)
 	if err != nil {
-		s.log.Warn("web pty attach failed", "request_id", requestID(r), "err", err)
+		s.log.Warn("web pty attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
 		return
 	}
+	sessionID = attach.SessionID
 	host, ok := s.hostForSession(attach.SessionID)
 	if !ok {
-		s.log.Warn("web pty attach failed", "request_id", requestID(r), "reason", "unknown_session", "session_id", attach.SessionID)
+		s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "unknown_session", "session_id", attach.SessionID, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "unknown session")
 		return
 	}
-	s.log.Info("web pty attached", "request_id", requestID(r), "session_id", attach.SessionID, "last_seq", attach.LastSeq)
+	s.log.Info("web pty attached", "request_id", reqID, "session_id", attach.SessionID, "last_seq", attach.LastSeq, "attach_latency_ms", time.Since(started).Milliseconds())
 
 	replay, ch, unsub := host.SubscribeFrom(ctx, pty.DefaultSubscriberBuffer, attach.LastSeq)
 	defer unsub()
 	var writeMu sync.Mutex
 	if replay.Snapshot {
+		bytesOut.Add(uint64(len(replay.Data)))
 		err = writeWSJSON(ctx, c, &writeMu, ptySnapshotFrame{
 			Type:       "snapshot",
 			Seq:        replay.Seq,
 			Base64Data: base64.StdEncoding.EncodeToString(replay.Data),
 		})
 	} else if len(replay.Data) > 0 {
+		bytesOut.Add(uint64(len(replay.Data)))
 		err = writeWSBinary(ctx, c, &writeMu, replay.Data)
 	}
 	if err != nil {
+		s.log.Warn("web pty replay failed", "request_id", reqID, "session_id", attach.SessionID, "err", err, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data))
 		return
 	}
+	s.log.Info("web pty replay sent", "request_id", reqID, "session_id", attach.SessionID, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data), "seq", replay.Seq)
 
 	go func() {
 		for p := range ch {
+			bytesOut.Add(uint64(len(p)))
 			if err := writeWSBinary(ctx, c, &writeMu, p); err != nil {
 				cancel()
 				return
@@ -104,9 +126,12 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	for {
 		typ, p, err := c.Read(ctx)
 		if err != nil {
+			s.log.Debug("web pty read ended", "request_id", reqID, "session_id", attach.SessionID, "err", err, "duration_ms", time.Since(started).Milliseconds())
 			return
 		}
+		bytesIn.Add(uint64(len(p)))
 		if err := handlePTYClientFrame(host, typ, p); err != nil {
+			s.log.Warn("web pty client frame rejected", "request_id", reqID, "session_id", attach.SessionID, "message_type", typ.String(), "bytes", len(p), "err", err)
 			_ = c.Close(websocket.StatusPolicyViolation, "invalid frame")
 			return
 		}

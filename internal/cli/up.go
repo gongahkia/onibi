@@ -139,7 +139,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	queue.Log = logger
 	sweeper := &approval.Sweeper{Queue: queue, Log: logger, Interval: time.Second}
 	intakeServer := intake.New(paths.Socket, func(context.Context, intake.Event) error { return nil }, logger)
-	intakeServer.SetApprovalHandler(localWebApprovalHandler(queue, sessionID))
+	intakeServer.SetApprovalHandler(localWebApprovalHandler(queue, sessionID, logger))
 	server := web.New(web.Options{
 		TLSCert:       cert,
 		DB:            db,
@@ -212,8 +212,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	}
 }
 
-func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string) intake.ApprovalHandler {
+func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string, logger *slog.Logger) intake.ApprovalHandler {
 	return func(ctx context.Context, ev intake.Event) (intake.Response, error) {
+		started := time.Now()
 		sessionID := ev.Session
 		if sessionID == "" {
 			sessionID = fallbackSessionID
@@ -232,8 +233,16 @@ func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string) in
 		}
 		approvalID, ch, err := queue.Request(ctx, sessionID, agent, tool, inputJSON)
 		if err != nil {
+			logger.Warn("web approval request failed", "agent", agent, "tool", tool, "session_id", sessionID, "err", err, "duration_ms", time.Since(started).Milliseconds())
 			return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 		}
+		logger.Info("web approval requested",
+			"approval_id", approvalID,
+			"session_id", sessionID,
+			"agent", agent,
+			"tool", tool,
+			"ttl", approval.DefaultTTL.String(),
+		)
 		select {
 		case dec := <-ch:
 			resp := intake.Response{
@@ -244,9 +253,19 @@ func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string) in
 			if len(dec.UpdatedInput) > 0 {
 				resp.UpdatedInput = string(dec.UpdatedInput)
 			}
+			logger.Info("web approval response",
+				"approval_id", approvalID,
+				"session_id", sessionID,
+				"agent", agent,
+				"tool", tool,
+				"decision", resp.Decision,
+				"edited", resp.UpdatedInput != "",
+				"wait_ms", time.Since(started).Milliseconds(),
+			)
 			return resp, nil
 		case <-ctx.Done():
 			_ = queue.Cancel(context.Background(), approvalID, "web pair shutdown")
+			logger.Warn("web approval cancelled", "approval_id", approvalID, "session_id", sessionID, "agent", agent, "tool", tool, "reason", "context_done", "wait_ms", time.Since(started).Milliseconds())
 			return intake.Response{Decision: "cancelled", Reason: "web pair shutdown"}, nil
 		}
 	}

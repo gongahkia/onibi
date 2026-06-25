@@ -18,6 +18,7 @@ type eventEnvelope struct {
 }
 
 func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -32,7 +33,18 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
-	s.log.Info("web events ws accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr))
+	reqID := requestID(r)
+	eventsSent := 0
+	s.log.Info("web events ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr), "session_id", sessionID)
+	defer func() {
+		s.log.Info("web events ws closed",
+			"request_id", reqID,
+			"session_id", sessionID,
+			"remote", remoteHost(r.RemoteAddr),
+			"duration_ms", time.Since(started).Milliseconds(),
+			"events_sent", eventsSent,
+		)
+	}()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -42,15 +54,19 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		"endpoint":   "events",
 		"session_id": sessionID,
 	}); err != nil {
+		s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "server.hello", "err", err)
 		return
 	}
+	eventsSent++
 	for id := range s.currentPTYHosts() {
 		if err := writeEvent(ctx, c, &writeMu, "session.started", map[string]any{"session_id": id}); err != nil {
+			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "session.started", "err", err)
 			return
 		}
+		eventsSent++
 	}
 	if s.approvalQueue == nil {
-		s.log.Info("web events ws waiting without approval queue", "request_id", requestID(r), "session_id", sessionID)
+		s.log.Info("web events ws waiting without approval queue", "request_id", reqID, "session_id", sessionID)
 		<-ctx.Done()
 		return
 	}
@@ -65,8 +81,11 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := writeEvent(ctx, c, &writeMu, ev.Type, approvalEventPayload(ev)); err != nil {
+				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "err", err)
 				return
 			}
+			eventsSent++
+			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "events_sent", eventsSent)
 		}
 	}
 }

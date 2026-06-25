@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"syscall"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/pty"
 )
@@ -15,6 +16,7 @@ type controlRequest struct {
 }
 
 func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -24,11 +26,13 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	var req controlRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		s.log.Warn("web control bad request", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	host, ok := s.hostForSession(req.SessionID)
 	if !ok {
+		s.log.Warn("web control failed", "request_id", requestID(r), "reason", "session_not_found", "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -39,13 +43,16 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	case "kill":
 		sig = syscall.SIGKILL
 	default:
+		s.log.Warn("web control failed", "request_id", requestID(r), "reason", "bad_action", "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "bad action", http.StatusBadRequest)
 		return
 	}
 	if err := signalHost(host, sig); err != nil {
+		s.log.Warn("web control failed", "request_id", requestID(r), "reason", "signal_failed", "session_id", req.SessionID, "action", req.Action, "signal", sig.String(), "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.log.Info("web control accepted", "request_id", requestID(r), "session_id", req.SessionID, "action", req.Action, "signal", sig.String(), "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }

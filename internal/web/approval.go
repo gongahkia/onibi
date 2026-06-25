@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	approvals "github.com/gongahkia/onibi/internal/approval"
 )
@@ -15,6 +16,7 @@ type approvalDecisionRequest struct {
 }
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -23,44 +25,65 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.approvalQueue == nil {
+		s.log.Warn("web approval failed", "request_id", requestID(r), "reason", "queue_unavailable", "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "approval queue unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
 	if id == "" {
+		s.log.Warn("web approval failed", "request_id", requestID(r), "reason", "missing_id", "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "approval id required", http.StatusBadRequest)
 		return
 	}
 	var req approvalDecisionRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		s.log.Warn("web approval failed", "request_id", requestID(r), "approval_id", id, "reason", "bad_request", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	verdict, err := mapApprovalVerdict(req.Verdict)
 	if err != nil {
+		s.log.Warn("web approval failed", "request_id", requestID(r), "approval_id", id, "reason", "bad_verdict", "verdict", req.Verdict, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	a, err := s.approvalQueue.Get(r.Context(), id)
 	if err != nil {
+		s.log.Warn("web approval lookup failed", "request_id", requestID(r), "approval_id", id, "err", err, "verdict", req.Verdict, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		writeApprovalError(w, err)
 		return
 	}
 	if verdict == approvals.VerdictEdit {
 		if req.EditedInput == "" {
+			s.log.Warn("web approval failed", "request_id", requestID(r), "approval_id", id, "session_id", a.SessionID, "agent", a.Agent, "tool", a.Tool, "reason", "empty_edit", "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 			http.Error(w, "edited_input required", http.StatusBadRequest)
 			return
 		}
 		if err := approvals.ValidateEditedInput(a.Tool, a.InputJSON, req.EditedInput); err != nil {
+			s.log.Warn("web approval failed", "request_id", requestID(r), "approval_id", id, "session_id", a.SessionID, "agent", a.Agent, "tool", a.Tool, "reason", "invalid_edit", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
 	err = s.approvalQueue.Decide(r.Context(), id, verdict, req.EditedInput, req.Reason, 0)
 	if err != nil {
+		s.log.Warn("web approval decide failed", "request_id", requestID(r), "approval_id", id, "session_id", a.SessionID, "agent", a.Agent, "tool", a.Tool, "verdict", verdict, "err", err, "age_ms", time.Since(a.CreatedAt).Milliseconds(), "ttl_remaining_ms", time.Until(a.ExpiresAt).Milliseconds(), "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		writeApprovalError(w, err)
 		return
 	}
+	s.log.Info("web approval decided",
+		"request_id", requestID(r),
+		"approval_id", id,
+		"session_id", a.SessionID,
+		"agent", a.Agent,
+		"tool", a.Tool,
+		"verdict", verdict,
+		"edited", req.EditedInput != "",
+		"age_ms", time.Since(a.CreatedAt).Milliseconds(),
+		"ttl_remaining_ms", time.Until(a.ExpiresAt).Milliseconds(),
+		"remote", remoteHost(r.RemoteAddr),
+		"duration_ms", time.Since(started).Milliseconds(),
+	)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
