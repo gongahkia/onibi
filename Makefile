@@ -60,11 +60,11 @@ gen-readme-check:
 
 release-dry:
 	@command -v goreleaser >/dev/null 2>&1 || (echo "goreleaser not installed: brew install goreleaser" && exit 1)
-	goreleaser release --snapshot --clean
+	goreleaser release --snapshot --clean --skip=publish --skip=sign
 
 release-smoke:
 	@command -v goreleaser >/dev/null 2>&1 || (echo "goreleaser not installed: brew install goreleaser" && exit 1)
-	goreleaser release --snapshot --clean
+	goreleaser release --snapshot --clean --skip=publish --skip=sign
 	scripts/release-smoke.sh dist
 
 reproducible-build:
