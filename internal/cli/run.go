@@ -17,14 +17,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
-	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 // runRun implements `onibi run [agent [args...]]`.
@@ -72,28 +69,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
-	if err != nil {
-		return err
-	}
-	token, ok, err := sec.GetWithTimeout(ctx, secrets.KeyBotToken, 30*time.Second)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("no bot token stored — run `onibi setup` first")
-	}
-	envelopeSeed, _, err := sec.GetWithTimeout(ctx, secrets.KeyEnvelopeSeed, 30*time.Second)
-	if err != nil {
-		return err
-	}
-	logging.SetSecrets(token)
-
-	owner, err := auth.LoadOwner(ctx, db)
-	if err != nil {
-		return err
-	}
-
 	if logFilePath == "" {
 		logFilePath = filepath.Join(paths.LogDir, "onibi.log")
 	}
@@ -108,36 +83,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	logger := logging.New(io.MultiWriter(cmd.ErrOrStderr(), logFile), level)
 
-	router := &telegram.Router{Owner: owner, Log: logger}
-	bot, err := telegram.New(ctx, telegram.Options{
-		Token:       token,
-		APIHandler:  router.Dispatch,
-		OffsetStore: db,
-		Log:         logger,
-		PollerConflict: func(ctx context.Context, detail string) {
-			_ = db.AuditAppend(ctx, "telegram.poller_conflict", "", "", 0, detail)
-		},
-	})
-	if err != nil {
-		return err
-	}
-	if want, ok, err := db.KVGetString(ctx, auth.KVKeyBotID); err != nil {
-		return err
-	} else if ok && want != "" && want != fmt.Sprintf("%d", bot.Self().ID) {
-		return fmt.Errorf("bot identity mismatch: stored %s got %d; run `onibi rotate-token`", want, bot.Self().ID)
-	}
-	if bot.ClearedWebhookURL() != "" {
-		logger.Warn("removed pre-existing telegram webhook")
-		_, _ = bot.Send(ctx, owner.ID(), "Security notice: a pre-existing Telegram webhook was removed at startup. If this was unexpected, run `onibi rotate-token`.")
-	}
-
 	d := daemon.New(daemon.Options{
 		Paths:                 paths,
 		DB:                    db,
-		Secrets:               sec,
-		Owner:                 owner,
-		Bot:                   bot,
-		Router:                router,
 		Log:                   logger,
 		ExitWhenIdle:          len(args) > 0,
 		ApprovalTTL:           approvalTTL,
@@ -145,12 +93,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
 		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:            cfg.Daemon.PTYBufferBytes,
-		EncryptedMode:         cfg.Telegram.EncryptedMode,
-		MiniAppURL:            cfg.Telegram.MiniAppURL,
-		EnvelopeSeed:          envelopeSeed,
 		TerminalDefault:       cfg.Terminal.Default,
-		WebAddr:               ":8443",
-		WebCertDir:            filepath.Join(paths.StateDir, "web"),
+		WebAddr:               cfg.Web.ListenAddr,
+		WebCertDir:            certDir(paths, cfg),
 	})
 
 	if attachTmux != "" {
@@ -231,4 +176,11 @@ func enterRawMode(master *os.File) (func(), error) {
 		signal.Stop(winch)
 		_ = term.Restore(fd, old)
 	}, nil
+}
+
+func certDir(paths config.Paths, cfg config.Config) string {
+	if cfg.Web.CertDir != "" {
+		return cfg.Web.CertDir
+	}
+	return filepath.Join(paths.StateDir, "web")
 }

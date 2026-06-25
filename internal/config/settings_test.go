@@ -30,7 +30,7 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	paths := testPaths(t)
-	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nterminal:\n  default: iterm\n")
+	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nweb:\n  listen_addr: ':9443'\ntransport:\n  mode: auto\nterminal:\n  default: iterm\n")
 	if err := os.WriteFile(paths.Config, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["terminal.default"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -58,6 +58,9 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	}
 	if cfg.Terminal.Default != "iterm" {
 		t.Fatalf("terminal.default = %s", cfg.Terminal.Default)
+	}
+	if cfg.Web.ListenAddr != ":9443" || cfg.Transport.Mode != "auto" {
+		t.Fatalf("web/transport config = %#v %#v", cfg.Web, cfg.Transport)
 	}
 }
 
@@ -133,21 +136,21 @@ func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
-func TestMiniAppURLAllowsHTTPSAndLocalhost(t *testing.T) {
-	for _, value := range []string{"https://example.com/onibi/", "http://localhost:5173/", "http://127.0.0.1:5173/", "http://[::1]:5173/"} {
+func TestTransportModeValues(t *testing.T) {
+	for _, value := range []string{"lan", "tailscale", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
-			if err := Set(&cfg, "telegram.mini_app_url", value); err != nil {
+			if err := Set(&cfg, "transport.mode", value); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 }
 
-func TestMiniAppURLRejectsExternalHTTP(t *testing.T) {
+func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
-	err := Set(&cfg, "telegram.mini_app_url", "http://example.com/onibi/")
-	if err == nil || !strings.Contains(err.Error(), "telegram.mini_app_url must use https or localhost http") {
+	err := Set(&cfg, "transport.mode", "satellite")
+	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, auto") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

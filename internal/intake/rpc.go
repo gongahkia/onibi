@@ -12,8 +12,7 @@ type Response struct {
 	// Reason is a short human-readable string describing the outcome
 	// (populated for deny/expired/cancelled).
 	Reason string `json:"reason,omitempty"`
-	// DecidedBy is the Telegram chat id of the deciding user, for the
-	// hook's audit/error message.
+	// DecidedBy is the deciding actor id for audit/error messages.
 	DecidedBy int64 `json:"decided_by,omitempty"`
 	// Text is used by non-approval request/response calls.
 	Text string `json:"text,omitempty"`

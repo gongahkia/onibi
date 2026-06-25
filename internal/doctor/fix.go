@@ -11,10 +11,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/adapters"
-	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/secrets"
-	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -56,7 +53,6 @@ func (f *fixer) run() {
 	}
 	f.fixPerms()
 	f.fixSocket()
-	f.fixService()
 	f.fixHookHashes()
 }
 
@@ -110,46 +106,6 @@ func (f *fixer) fixSocket() {
 	} else {
 		f.add("removed stale socket")
 	}
-}
-
-func (f *fixer) fixService() {
-	db, err := store.Open(f.opts.Paths.DBFile)
-	if err != nil {
-		return
-	}
-	defer db.Close()
-	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: f.opts.Paths.EnvFile, PreferDotenv: f.opts.PreferDotenv})
-	if err != nil {
-		return
-	}
-	token, ok, err := sec.GetWithTimeout(f.ctx, secrets.KeyBotToken, secretLookupTimeout)
-	if err != nil {
-		f.err("get bot token", err)
-		return
-	}
-	if !ok || token == "" {
-		return
-	}
-	if paired, err := auth.IsOwnerSet(f.ctx, db); err != nil || !paired {
-		return
-	}
-	m := f.opts.Service
-	if m == nil {
-		m, err = service.NewManager(f.opts.Paths, "")
-		if err != nil {
-			f.err("service manager", err)
-			return
-		}
-	}
-	st := m.Status(f.ctx)
-	if st.Installed && st.Running {
-		return
-	}
-	if err := m.Install(f.ctx); err != nil {
-		f.err("install service", err)
-		return
-	}
-	f.add("installed service")
 }
 
 func (f *fixer) fixHookHashes() {

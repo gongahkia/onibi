@@ -5,10 +5,9 @@ import (
 	"unicode/utf8"
 )
 
-// Defaults sized for Telegram readability + the 4096-char message limit.
 const (
 	DefaultMaxLines = 40
-	DefaultMaxChars = 3500 // leaves headroom below 4096 for fence + caption
+	DefaultMaxChars = 3500
 	fence           = "```"
 )
 
@@ -20,8 +19,7 @@ type Options struct {
 }
 
 // TextTail returns the last N lines of buf, ANSI-stripped, wrapped in a
-// fenced code block ready for Telegram's MarkdownV2. Truncates head-side
-// (with a "[…N lines truncated…]" marker) when the result would exceed
+// fenced code block. Truncates head-side when the result would exceed
 // MaxChars.
 func TextTail(buf []byte, opts Options) string {
 	body := TextTailBody(buf, opts)

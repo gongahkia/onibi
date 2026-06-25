@@ -6,7 +6,6 @@ require (
 	github.com/99designs/keyring v1.2.2
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
-	github.com/go-telegram/bot v1.21.0
 	github.com/jaguilar/vt100 v0.0.0-20201024211400-81de19cb81a4
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e

@@ -62,7 +62,7 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 
 func launchGhostty(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("Ghostty auto-launch is macOS-only")
+		return errors.New("ghostty auto-launch is macOS-only")
 	}
 	if _, err := lookTerminalPath("ghostty"); err != nil {
 		if _, statErr := os.Stat("/Applications/Ghostty.app"); statErr != nil {
@@ -110,7 +110,7 @@ func launchITerm2(ctx context.Context, target string) error {
 
 func launchTerminalApp(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("Terminal.app is macOS-only")
+		return errors.New("terminal.app is macOS-only")
 	}
 	if _, err := lookTerminalPath("osascript"); err != nil {
 		return err

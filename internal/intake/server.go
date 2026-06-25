@@ -153,7 +153,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	}
 
 	// approval_request is RPC: hold the conn open while the daemon waits
-	// for a Telegram decision. Disable the read deadline; set a long write
+	// for a web decision. Disable the read deadline; set a long write
 	// deadline for when we eventually send the response.
 	if ev.Type == TypeApprovalRequest {
 		s.handleApproval(ctx, c, ev)

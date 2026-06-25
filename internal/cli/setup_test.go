@@ -12,7 +12,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
-	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -72,29 +71,8 @@ func TestSetupCompleteContinuesWhenUserConfirmsMissingNotify(t *testing.T) {
 	if !strings.Contains(out.String(), "Doctor summary:") {
 		t.Fatalf("stdout = %q", out.String())
 	}
-	if !strings.Contains(out.String(), "onibi demo --approval") {
+	if !strings.Contains(out.String(), "onibi up") {
 		t.Fatalf("missing next action: %q", out.String())
-	}
-}
-
-func TestSetupEncryptedPrintsURLBeforeQR(t *testing.T) {
-	paths, _ := setupCompleteFixture(t)
-	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd, out, _ := setupCompleteCmd("")
-	if err := runSetupEncrypted(cmd, paths, sec, "on", "https://example.com/mini"); err != nil {
-		t.Fatal(err)
-	}
-	got := out.String()
-	urlIdx := strings.Index(got, "Open this legacy seed URL")
-	qrIdx := strings.Index(got, "Or scan this legacy QR")
-	if urlIdx < 0 || qrIdx < 0 || urlIdx > qrIdx {
-		t.Fatalf("output order wrong:\n%s", got)
-	}
-	if !strings.Contains(got, "Plaintext entry will refuse in encrypted mode") {
-		t.Fatalf("missing plaintext refusal note:\n%s", got)
 	}
 }
 

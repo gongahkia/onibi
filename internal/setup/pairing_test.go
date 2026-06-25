@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/store"
@@ -59,13 +58,6 @@ func TestConsumeUnknownToken(t *testing.T) {
 	}
 }
 
-func TestDeepLinkFormat(t *testing.T) {
-	url := DeepLink("onibi_abcd_bot", "TOK123")
-	if !strings.HasPrefix(url, "https://t.me/onibi_abcd_bot?start=pair_TOK123") {
-		t.Fatalf("unexpected url: %s", url)
-	}
-}
-
 func TestWebPairURLFormat(t *testing.T) {
 	url := WebPairURL("https", "onibi.local", 8443, "TOK123")
 	if url != "https://onibi.local:8443/pair/TOK123" {
@@ -74,15 +66,5 @@ func TestWebPairURLFormat(t *testing.T) {
 	url = WebPairURL("https", "fd00::14be:1854:2e12:e2e8", 8443, "TOK123")
 	if url != "https://[fd00::14be:1854:2e12:e2e8]:8443/pair/TOK123" {
 		t.Fatalf("unexpected IPv6 url: %s", url)
-	}
-}
-
-func TestExtractToken(t *testing.T) {
-	tok, ok := ExtractToken("pair_abc123")
-	if !ok || tok != "abc123" {
-		t.Fatalf("got tok=%q ok=%v", tok, ok)
-	}
-	if _, ok := ExtractToken("nopair"); ok {
-		t.Fatal("expected false for malformed payload")
 	}
 }

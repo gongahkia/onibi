@@ -1,10 +1,7 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,18 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	tgbot "github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
-
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
-	"github.com/gongahkia/onibi/internal/render"
-	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/telegram"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
@@ -39,40 +29,24 @@ const BufferSize = 64 * 1024
 // per daemon process (spawned via `onibi run <agent> -- <args>`). Phase 6
 // will refactor to multi-session with a long-lived background daemon.
 type Daemon struct {
-	Paths   config.Paths
-	DB      *store.DB
-	Secrets *secrets.Store
-	Owner   *auth.Owner
-	Bot     telegram.API
-	Log     *slog.Logger
+	Paths config.Paths
+	DB    *store.DB
+	Log   *slog.Logger
 
 	Registry   *Registry
 	Intake     *intake.Server
 	Idle       *IdleDetector
 	Queue      *approval.Queue
 	Sweeper    *approval.Sweeper
-	Router     *telegram.Router
 	BufferSize int
 
-	EncryptedMode   string
-	MiniAppURL      string
-	EnvelopeSeed    string
 	TerminalDefault string
 	WebAddr         string
 	WebCertDir      string
-	anomaly         *anomalyTracker
 
 	mu       sync.Mutex
 	notified map[string]bool // session id → already-fired turn-complete once
 	started  time.Time
-
-	renderMu        sync.RWMutex
-	renderOverrides map[string]render.Mode
-
-	threadMu        sync.RWMutex
-	messageSessions map[messageKey]string
-	defaultTargets  map[int64]string
-	busySessions    map[string]bool
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 }
@@ -81,10 +55,6 @@ type Daemon struct {
 type Options struct {
 	Paths                 config.Paths
 	DB                    *store.DB
-	Secrets               *secrets.Store
-	Owner                 *auth.Owner
-	Bot                   telegram.API
-	Router                *telegram.Router // optional; if nil, daemon creates one (untied to any bot)
 	Log                   *slog.Logger
 	ExitWhenIdle          bool
 	ApprovalTTL           time.Duration
@@ -92,16 +62,13 @@ type Options struct {
 	IdleThreshold         time.Duration
 	IdleInterval          time.Duration
 	BufferSize            int
-	EncryptedMode         string
-	MiniAppURL            string
-	EnvelopeSeed          string
 	TerminalDefault       string
 	WebAddr               string
 	WebCertDir            string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
-// approval queue + telegram router.
+// approval queue + local web cockpit.
 func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
@@ -109,26 +76,15 @@ func New(opts Options) *Daemon {
 	d := &Daemon{
 		Paths:           opts.Paths,
 		DB:              opts.DB,
-		Secrets:         opts.Secrets,
-		Owner:           opts.Owner,
-		Bot:             opts.Bot,
 		Log:             opts.Log,
 		Registry:        NewRegistry(),
 		notified:        map[string]bool{},
 		started:         time.Now(),
-		renderOverrides: map[string]render.Mode{},
-		messageSessions: map[messageKey]string{},
-		defaultTargets:  map[int64]string{},
-		busySessions:    map[string]bool{},
 		ExitWhenIdle:    opts.ExitWhenIdle,
 		BufferSize:      opts.BufferSize,
-		EncryptedMode:   opts.EncryptedMode,
-		MiniAppURL:      opts.MiniAppURL,
-		EnvelopeSeed:    opts.EnvelopeSeed,
 		TerminalDefault: opts.TerminalDefault,
 		WebAddr:         opts.WebAddr,
 		WebCertDir:      opts.WebCertDir,
-		anomaly:         newAnomalyTracker(),
 	}
 
 	// approval queue + expiry sweeper
@@ -158,18 +114,6 @@ func New(opts Options) *Daemon {
 		OnIdle:    d.onIdle,
 	}
 
-	// telegram router: owner-chokepoint + callback + reply dispatch.
-	// Caller may pre-build the router so they can wire router.Dispatch
-	// as the bot's DefaultHandler (recommended); otherwise we build one
-	// here that won't be reachable from the bot.
-	if opts.Router != nil {
-		d.Router = opts.Router
-	} else {
-		d.Router = &telegram.Router{Owner: opts.Owner, Log: opts.Log}
-	}
-	d.Router.OnCB = d.onCallback
-	d.Router.OnReply = d.onReply
-	d.Router.OnText = d.onText
 	return d
 }
 
@@ -260,11 +204,6 @@ func (d *Daemon) waitHost(s *Session) {
 	}
 	_ = s.Host.Wait()
 	d.markSessionEnded(context.Background(), s)
-}
-
-type messageKey struct {
-	chatID int64
-	msgID  int
 }
 
 func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string) {
@@ -385,14 +324,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.Sweeper.Run(ctx)
 	}()
 
-	// telegram long-poll loop — Router applied to every inbound update via
-	// the client's DefaultHandler (set up before bot construction below)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.Bot.Start(ctx)
-	}()
-
 	if d.ExitWhenIdle {
 		// wait for hosted session children to exit in interactive agent-run mode
 		wg.Add(1)
@@ -426,9 +357,6 @@ func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 	d.restoreSessions(ctx)
 	if err := d.RestorePendingApprovals(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		d.Log.Warn("restore pending approvals", slog.Any("err", err))
-	}
-	if err := telegram.RegisterCommands(ctx, d.Bot); err != nil && !errors.Is(err, context.Canceled) {
-		d.Log.Warn("register telegram commands", slog.Any("err", err))
 	}
 }
 
@@ -590,27 +518,13 @@ func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {
 }
 
 func (d *Daemon) notifyCmdDone(ctx context.Context, ev intake.Event) error {
-	if d.Bot == nil || d.Owner == nil {
-		return nil
-	}
-	if d.isSnoozed(ctx, "shell") {
-		return nil
-	}
+	_ = ctx
 	cmd := strings.TrimSpace(ev.Cmd)
 	if cmd == "" {
 		cmd = "(unknown command)"
 	}
-	_, err := d.sendTextOutput(ctx, d.Bot, d.Owner.ID(), fmt.Sprintf("[shell] command done rc=%d elapsed=%s", ev.Status, time.Duration(ev.Elapsed)*time.Millisecond), cmd, "onibi-shell.txt")
-	return err
-}
-
-func externalSessionID(ev intake.Event) string {
-	key := ev.Agent + "|" + ev.ProviderSessionID + "|" + ev.CWD + "|" + fmt.Sprint(ev.PID)
-	if strings.Trim(key, "|") == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(key))
-	return "ext" + hex.EncodeToString(sum[:6])
+	d.Log.Info("command done", slog.Int("status", ev.Status), slog.Duration("elapsed", time.Duration(ev.Elapsed)*time.Millisecond), slog.String("cmd", cmd))
+	return nil
 }
 
 func shortID(s string) string {
@@ -626,14 +540,12 @@ func (d *Daemon) onIdle(s *Session) {
 	_ = d.notifyTurnComplete(context.Background(), s.ID, "idle_fallback", "")
 }
 
-// notifyTurnComplete formats and sends one Telegram message for the
-// session's recent output, with a once-per-active-period guard so the
-// hook path and the idle fallback don't both fire.
+// notifyTurnComplete records one turn-complete event with a
+// once-per-active-period guard so the hook path and idle fallback do not
+// both fire.
 func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint string) error {
+	_ = ctx
 	if sessionID == "" {
-		return nil
-	}
-	if d.Bot == nil || d.Owner == nil {
 		return nil
 	}
 	d.mu.Lock()
@@ -648,74 +560,6 @@ func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint s
 	if err != nil {
 		return nil // session not ours — likely a different daemon's hook firing
 	}
-	if d.isSnoozed(ctx, s.Agent) {
-		d.markSessionReady(ctx, d.Bot, s)
-		return nil
-	}
-
-	header := fmt.Sprintf("[%s] turn complete (%s)", s.Name, kind)
-	if hint != "" {
-		header += "\n" + hint
-	}
-	buf := s.Buf.Snapshot()
-	if render.ResolveMode(buf, d.renderOverride(s.ID)) == render.ModePNG {
-		img, pngErr := render.RenderPNG(buf, render.PNGOptions{})
-		if pngErr == nil {
-			if d.encryptedModeEnabled() {
-				sent, sendErr := d.sendEncryptedImage(ctx, d.Bot, d.Owner.ID(), header, img, "onibi-"+s.ID+".png")
-				if sendErr == nil {
-					d.bindMessage(sent, s.ID)
-					d.markSessionReady(ctx, d.Bot, s)
-					return nil
-				}
-				d.Log.Warn("send encrypted turn-complete render", slog.Any("err", sendErr))
-				d.sendSecureRequired(ctx, d.Bot, d.Owner.ID())
-				d.markSessionReady(ctx, d.Bot, s)
-				return nil
-			}
-			sent, sendErr := d.Bot.SendPhoto(ctx, &tgbot.SendPhotoParams{
-				ChatID:  d.Owner.ID(),
-				Caption: trimCaption(header),
-				Photo: &models.InputFileUpload{
-					Filename: "onibi-" + s.ID + ".png",
-					Data:     bytes.NewReader(img),
-				},
-			})
-			if sendErr == nil {
-				d.bindMessage(sent, s.ID)
-				d.markSessionReady(ctx, d.Bot, s)
-				return nil
-			}
-			d.Log.Warn("send turn-complete render", slog.Any("err", sendErr))
-		} else {
-			d.Log.Warn("render terminal preview", slog.Any("err", pngErr))
-		}
-	}
-	tail := render.TextTailBody(buf, render.Options{Lang: ""})
-	sent, err := d.sendTextOutput(ctx, d.Bot, d.Owner.ID(), header, tail, "onibi-"+s.ID+".txt")
-	if err == nil {
-		d.bindMessage(sent, s.ID)
-	}
-	if err != nil {
-		d.Log.Warn("send turn-complete", slog.Any("err", err))
-	}
-	d.markSessionReady(ctx, d.Bot, s)
+	d.Log.Info("turn complete", slog.String("session", s.ID), slog.String("kind", kind), slog.String("hint", hint))
 	return nil
-}
-
-func trimCaption(s string) string {
-	r := []rune(s)
-	if len(r) <= 900 {
-		return s
-	}
-	return string(r[:900]) + "..."
-}
-
-// SendOwner is a convenience wrapper for ad-hoc messages (welcome, errors).
-func (d *Daemon) SendOwner(ctx context.Context, text string) error {
-	_, err := d.Bot.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID: d.Owner.ID(),
-		Text:   text,
-	})
-	return err
 }

@@ -10,16 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/setup"
@@ -33,11 +32,13 @@ var webPairRun = runWebPairUp
 const webPairSessionID = "local-shell"
 
 func upCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "up",
-		Short: "Set up Onibi if needed, otherwise install service and run doctor",
+		Short: "Start the local web cockpit and print a pairing QR",
 		RunE:  runUp,
 	}
+	cmd.Flags().String("transport", "", "pairing transport: lan, tailscale, or auto")
+	return cmd
 }
 
 func runUp(cmd *cobra.Command, _ []string) error {
@@ -54,42 +55,34 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 	defer db.Close()
 
-	ownerSet, err := auth.IsOwnerSet(cmd.Context(), db)
-	if err != nil {
-		return err
-	}
-	if !ownerSet {
-		return webPairRun(cmd, paths, db)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), "Already paired - installing service and running doctor.")
-	if err := installServiceRun(cmd, nil); err != nil {
-		return err
-	}
-	style := styleFor(cmd)
-	report := doctorRun(cmd.Context(), doctor.Options{Paths: paths, Mode: "installed"})
-	for _, c := range report.Checks {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", style.status(c.Status), c.Name, c.Detail)
-	}
-	if report.Failed() {
-		return fmt.Errorf("doctor failed: see output above")
-	}
-	return nil
+	return webPairRun(cmd, paths, db)
 }
 
 func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
-	const port = 8443
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	certDir := filepath.Join(paths.StateDir, "web")
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	if transport, _ := cmd.Flags().GetString("transport"); strings.TrimSpace(transport) != "" {
+		if err := config.Set(&cfg, "transport.mode", transport); err != nil {
+			return err
+		}
+	}
+	port, err := listenPort(cfg.Web.ListenAddr)
+	if err != nil {
+		return err
+	}
+	certDir := certDir(paths, cfg)
 	cert, err := web.GenerateOrLoadCert(certDir)
 	if err != nil {
 		return err
 	}
 	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelDebug}))
 	certPaths := web.LocalCertPaths(certDir)
-	logger.Info("web pair server starting", "addr", fmt.Sprintf(":%d", port), "state_dir", paths.StateDir, "cert_dir", certDir)
+	logger.Info("web pair server starting", "addr", cfg.Web.ListenAddr, "transport", cfg.Transport.Mode, "state_dir", paths.StateDir, "cert_dir", certDir)
 	sessionID, host, err := startWebPairShell(ctx, paths, logger)
 	if err != nil {
 		return err
@@ -112,7 +105,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		Log: logger,
 	})
 	errCh := make(chan error, 1)
-	go func() { errCh <- server.StartContext(ctx, fmt.Sprintf(":%d", port)) }()
+	go func() { errCh <- server.StartContext(ctx, cfg.Web.ListenAddr) }()
 	go func() { errCh <- intakeServer.Serve(ctx) }()
 	go sweeper.Run(ctx)
 	if err := waitForWebHealth(ctx, port, errCh); err != nil {
@@ -273,4 +266,20 @@ func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {
 			}
 		}
 	}
+}
+
+func listenPort(addr string) (int, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return 0, fmt.Errorf("web.listen_addr required")
+	}
+	i := strings.LastIndex(addr, ":")
+	if i < 0 || i == len(addr)-1 {
+		return 0, fmt.Errorf("web.listen_addr must include port: %s", addr)
+	}
+	port, err := strconv.Atoi(addr[i+1:])
+	if err != nil || port <= 0 {
+		return 0, fmt.Errorf("invalid web.listen_addr port: %s", addr)
+	}
+	return port, nil
 }

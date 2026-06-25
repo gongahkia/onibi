@@ -20,26 +20,24 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
-	"github.com/gongahkia/onibi/internal/miniappurl"
-	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 type supportBundle struct {
-	GeneratedAt        time.Time                 `json:"generated_at"`
-	Redacted           bool                      `json:"redacted"`
-	Paths              map[string]string         `json:"paths"`
-	Version            supportVersion            `json:"version"`
-	System             supportSystem             `json:"system"`
-	Doctor             doctor.Report             `json:"doctor"`
-	HookMatrix         []hooksMatrixRow          `json:"hook_matrix"`
-	HookReports        []hooksShowReport         `json:"hook_reports"`
-	Config             []supportConfigKey        `json:"config"`
-	EncryptedReadiness supportEncryptedReadiness `json:"encrypted_readiness"`
-	Database           supportDatabase           `json:"database"`
-	Audit              []supportAuditEntry       `json:"audit"`
-	Logs               map[string][]string       `json:"logs"`
-	Errors             []string                  `json:"errors,omitempty"`
+	GeneratedAt time.Time           `json:"generated_at"`
+	Redacted    bool                `json:"redacted"`
+	Paths       map[string]string   `json:"paths"`
+	Version     supportVersion      `json:"version"`
+	System      supportSystem       `json:"system"`
+	Doctor      doctor.Report       `json:"doctor"`
+	HookMatrix  []hooksMatrixRow    `json:"hook_matrix"`
+	HookReports []hooksShowReport   `json:"hook_reports"`
+	Config      []supportConfigKey  `json:"config"`
+	Web         supportWeb          `json:"web"`
+	Database    supportDatabase     `json:"database"`
+	Audit       []supportAuditEntry `json:"audit"`
+	Logs        map[string][]string `json:"logs"`
+	Errors      []string            `json:"errors,omitempty"`
 }
 
 type supportVersion struct {
@@ -62,13 +60,11 @@ type supportConfigKey struct {
 	Explicit bool   `json:"explicit"`
 }
 
-type supportEncryptedReadiness struct {
-	Mode                 string `json:"mode"`
-	SeedPresent          bool   `json:"seed_present"`
-	SeedError            string `json:"seed_error,omitempty"`
-	MiniAppURLSet        bool   `json:"mini_app_url_set"`
-	MiniAppURLAllowed    bool   `json:"mini_app_url_allowed"`
-	WebAppActionLastSeen string `json:"webapp_action_last_seen"`
+type supportWeb struct {
+	ListenAddr string `json:"listen_addr"`
+	CertDir    string `json:"cert_dir,omitempty"`
+	Transport  string `json:"transport"`
+	SAddr      string `json:"saddr,omitempty"`
 }
 
 type supportDatabase struct {
@@ -93,7 +89,7 @@ func supportBundleCmd() *cobra.Command {
 		RunE:  runSupportBundle,
 	}
 	cmd.Flags().Bool("redacted", false, "required; redact secrets and local paths")
-	cmd.Flags().Bool("include-chat-id", false, "include legacy chat ids in audit rows")
+	cmd.Flags().Bool("include-chat-id", false, "include legacy actor ids in audit rows")
 	return cmd
 }
 
@@ -144,20 +140,20 @@ func buildSupportBundle(cmd *cobra.Command, paths config.Paths, db *store.DB, in
 	logs, logErrs := supportLogs(paths)
 	errs = append(errs, logErrs...)
 	return supportBundle{
-		GeneratedAt:        time.Now(),
-		Redacted:           true,
-		Paths:              supportPaths(paths),
-		Version:            supportVersion{Version: buildinfo.Version, Commit: buildinfo.Commit, Date: buildinfo.Date},
-		System:             supportSystem{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Shell: os.Getenv("SHELL"), Term: os.Getenv("TERM")},
-		Doctor:             doctorReport,
-		HookMatrix:         matrix,
-		HookReports:        reports,
-		Config:             supportConfig(cfg, meta),
-		EncryptedReadiness: supportEncrypted(ctx, paths, cfg, db),
-		Database:           supportDatabaseVersion(ctx, db),
-		Audit:              supportAudit(ctx, db, includeChatID),
-		Logs:               logs,
-		Errors:             errs,
+		GeneratedAt: time.Now(),
+		Redacted:    true,
+		Paths:       supportPaths(paths),
+		Version:     supportVersion{Version: buildinfo.Version, Commit: buildinfo.Commit, Date: buildinfo.Date},
+		System:      supportSystem{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Shell: os.Getenv("SHELL"), Term: os.Getenv("TERM")},
+		Doctor:      doctorReport,
+		HookMatrix:  matrix,
+		HookReports: reports,
+		Config:      supportConfig(cfg, meta),
+		Web:         supportWebConfig(cfg),
+		Database:    supportDatabaseVersion(ctx, db),
+		Audit:       supportAudit(ctx, db, includeChatID),
+		Logs:        logs,
+		Errors:      errs,
 	}
 }
 
@@ -207,30 +203,13 @@ func redactConfigScalar(key, value string) string {
 	return value
 }
 
-func supportEncrypted(ctx context.Context, paths config.Paths, cfg config.Config, db *store.DB) supportEncryptedReadiness {
-	out := supportEncryptedReadiness{
-		Mode:              strings.TrimSpace(cfg.Telegram.EncryptedMode),
-		MiniAppURLSet:     strings.TrimSpace(cfg.Telegram.MiniAppURL) != "",
-		MiniAppURLAllowed: miniappurl.Allowed(cfg.Telegram.MiniAppURL),
+func supportWebConfig(cfg config.Config) supportWeb {
+	return supportWeb{
+		ListenAddr: cfg.Web.ListenAddr,
+		CertDir:    cfg.Web.CertDir,
+		Transport:  cfg.Transport.Mode,
+		SAddr:      cfg.Transport.SAddr,
 	}
-	if out.Mode == "" {
-		out.Mode = "off"
-	}
-	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
-	if err != nil {
-		out.SeedError = err.Error()
-	} else {
-		seed, ok, err := sec.GetWithTimeout(ctx, secrets.KeyEnvelopeSeed, 2*time.Second)
-		if err != nil {
-			out.SeedError = err.Error()
-		}
-		out.SeedPresent = ok && strings.TrimSpace(seed) != ""
-	}
-	out.WebAppActionLastSeen = "never"
-	if v, ok, err := db.KVGetString(ctx, "secure:last_webapp_action"); err == nil && ok {
-		out.WebAppActionLastSeen = v
-	}
-	return out
 }
 
 func supportDatabaseVersion(ctx context.Context, db *store.DB) supportDatabase {
@@ -325,13 +304,13 @@ func tailLines(path string, n int) ([]string, error) {
 }
 
 var (
-	telegramTokenRe    = regexp.MustCompile(`\b\d{5,}:[A-Za-z0-9_-]{20,}\b`)
+	legacyTokenRe      = regexp.MustCompile(`\b\d{5,}:[A-Za-z0-9_-]{20,}\b`)
 	promptAssignmentRe = regexp.MustCompile(`(?i)\b(prompt|input_json|input|payload|text)=("[^"]*"|[^ \t\n]+)`)
 )
 
 func redactSupportBundle(body []byte, home string) []byte {
 	s := string(body)
-	s = telegramTokenRe.ReplaceAllString(s, "[REDACTED]")
+	s = legacyTokenRe.ReplaceAllString(s, "[REDACTED]")
 	s = approval.Scrub(s)
 	if home != "" {
 		s = strings.ReplaceAll(s, filepath.Clean(home), "~")
@@ -340,7 +319,7 @@ func redactSupportBundle(body []byte, home string) []byte {
 }
 
 func redactSupportText(s string) string {
-	s = telegramTokenRe.ReplaceAllString(s, "[REDACTED]")
+	s = legacyTokenRe.ReplaceAllString(s, "[REDACTED]")
 	s = promptAssignmentRe.ReplaceAllString(s, `${1}="[REDACTED]"`)
 	return approval.Scrub(s)
 }

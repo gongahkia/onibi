@@ -64,13 +64,13 @@ func PreToolUseResponse(resp intake.Response) PreToolUseResult {
 		return PreToolUseResult{Stdout: marshalHook(hookSpecific{
 			HookEventName:            "PreToolUse",
 			PermissionDecision:       "allow",
-			PermissionDecisionReason: "edited by owner via Telegram",
+			PermissionDecisionReason: "edited by owner via Onibi",
 			UpdatedInput:             updated,
 		})}
 	case "deny":
 		reason := resp.Reason
 		if reason == "" {
-			reason = "denied by owner via Telegram"
+			reason = "denied by owner via Onibi"
 		}
 		return PreToolUseResult{
 			Stdout: marshalHook(hookSpecific{

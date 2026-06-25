@@ -40,7 +40,7 @@ func TestSupportBundleRedactsSecretsPromptChatIDAndHome(t *testing.T) {
 			t.Fatalf("bundle leaked %q:\n%s", forbidden, body)
 		}
 	}
-	for _, want := range []string{"[REDACTED]", "~", "doctor", "hook_matrix", "encrypted_readiness", "schema_version"} {
+	for _, want := range []string{"[REDACTED]", "~", "doctor", "hook_matrix", "web", "schema_version"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("bundle missing %q:\n%s", want, body)
 		}
@@ -70,7 +70,7 @@ func TestSupportBundleCanIncludeChatID(t *testing.T) {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
 	if len(bundle.Audit) != 1 || bundle.Audit[0].DecidedByChat != "9999" {
-		t.Fatalf("chat id not included: %+v", bundle.Audit)
+		t.Fatalf("actor id not included: %+v", bundle.Audit)
 	}
 }
 

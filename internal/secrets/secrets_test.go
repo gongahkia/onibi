@@ -17,11 +17,11 @@ func TestDotenvRoundtrip(t *testing.T) {
 	if s.Backend() != BackendDotenv {
 		t.Fatalf("expected dotenv backend, got %s", s.Backend())
 	}
-	if err := s.Set(KeyBotToken, "12345:ABCDEFGHIJKLMNOPQRSTUVWXYZ"); err != nil {
+	if err := s.Set("TEST_SECRET", "value"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, ok, err := s.Get(KeyBotToken)
-	if err != nil || !ok || got != "12345:ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+	got, ok, err := s.Get("TEST_SECRET")
+	if err != nil || !ok || got != "value" {
 		t.Fatalf("Get: %q ok=%v err=%v", got, ok, err)
 	}
 	// perms must be 0600

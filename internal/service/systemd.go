@@ -57,7 +57,7 @@ func (m *Manager) systemdStatus(ctx context.Context) Status {
 
 func (m *Manager) systemdUnit() string {
 	return `[Unit]
-Description=Onibi Telegram-controlled coding-agent host
+Description=Onibi web-controlled coding-agent host
 After=network-online.target
 
 [Service]

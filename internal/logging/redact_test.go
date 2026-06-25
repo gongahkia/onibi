@@ -36,7 +36,7 @@ func TestRedactsTokenInStringAttr(t *testing.T) {
 	t.Cleanup(func() { SetSecrets() })
 
 	log, buf := newBuffered()
-	log.Info("url", slog.String("url", "https://api.telegram.org/bot"+fakeToken+"/getMe"))
+	log.Info("url", slog.String("url", "https://example.invalid/secret/"+fakeToken))
 
 	if strings.Contains(buf.String(), fakeToken) {
 		t.Fatalf("token leaked in attr: %q", buf.String())
@@ -49,7 +49,7 @@ func TestRedactsTokenInErrorAttr(t *testing.T) {
 
 	log, buf := newBuffered()
 	err := errors.New("send failed for " + fakeToken)
-	log.Error("telegram", slog.Any("err", err))
+	log.Error("secret", slog.Any("err", err))
 
 	if strings.Contains(buf.String(), fakeToken) {
 		t.Fatalf("token leaked in error: %q", buf.String())

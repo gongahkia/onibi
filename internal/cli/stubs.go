@@ -76,35 +76,12 @@ func addRunFlags(cmd *cobra.Command) {
 func setupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Legacy setup flow",
+		Short: "Show web setup guidance",
 		RunE:  runSetup,
 	}
-	cmd.Flags().Bool("rotate-owner", false, "regenerate owner and require re-pair")
-	cmd.Flags().Bool("enable-totp", false, "enable opt-in TOTP gate for destructive commands")
-	cmd.Flags().Bool("paranoid", false, "enable TOTP + 60s approval expiry + confirm-tap on presets")
 	cmd.Flags().Bool("print-checklist", false, "print setup security checklist and exit")
-	cmd.Flags().Bool("token-stdin", false, "read legacy token from stdin (avoids argv leak)")
-	cmd.Flags().Bool("complete", false, "after pairing, offer service install, hook install, and doctor")
-	cmd.Flags().Bool("enable-encrypted-mode", false, "configure legacy encrypted approval payloads")
-	cmd.Flags().String("encrypted-mode", "on", "encrypted approval mode (off, ask, on)")
-	cmd.Flags().String("mini-app-url", "", "legacy hosted Mini App URL for encrypted approvals")
+	cmd.Flags().Bool("complete", false, "offer service install, hook install, and doctor")
 	return cmd
-}
-
-func getChatIDCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "get-chat-id",
-		Short: "Legacy owner id helper",
-		RunE:  runGetChatID,
-	}
-}
-
-func rotateTokenCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rotate-token",
-		Short: "Legacy token rotation helper",
-		RunE:  runRotateToken,
-	}
 }
 
 func updateCheckCmd() *cobra.Command {

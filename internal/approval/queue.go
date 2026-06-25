@@ -85,8 +85,7 @@ func (q *Queue) Subscribe() (<-chan Event, func()) {
 // then is closed.
 //
 // The caller is responsible for:
-//   - sending a Telegram message that surfaces the approval (the daemon
-//     does this via SetMessage after the bot send returns msg/chat ids)
+//   - surfacing the approval to a user
 //   - reading the Decision from the returned channel
 //   - context-cancelling if it gives up (no need to call Cancel — the
 //     waiter map is GC'd when the approval is decided OR purged)
@@ -127,9 +126,7 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	return id, ch, nil
 }
 
-// SetMessage records the Telegram (chat, message) the approval was rendered
-// to, so a follow-up editMessageReplyMarkup can edit it in place after the
-// decision lands.
+// SetMessage records a legacy rendered-message target.
 func (q *Queue) SetMessage(ctx context.Context, id string, chatID, msgID int64) error {
 	_, err := q.db.SQL().ExecContext(ctx,
 		`UPDATE approvals SET chat_id = ?, msg_id = ? WHERE id = ?`,
@@ -163,8 +160,7 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 	return a, nil
 }
 
-// Pending returns unexpired pending approvals, oldest first. Used on daemon
-// restart to re-render approvals that still have a valid Telegram lifetime.
+// Pending returns unexpired pending approvals, oldest first.
 func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 	rows, err := q.db.SQL().QueryContext(ctx,
 		`SELECT id, session_id, agent, tool, input_json, state,
@@ -199,7 +195,7 @@ func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 
 // Decide is the only path that transitions a pending approval to a terminal
 // state. Atomic — uses WHERE state='pending' guard so concurrent callers
-// (Telegram callback + expiry sweeper + cancel) can't double-decide.
+// cannot double-decide.
 //
 // On success, delivers the Decision to the registered waiter (if any) and
 // removes it from the waiters map. Returns ErrAlreadyDecided if another
@@ -376,8 +372,8 @@ func (q *Queue) deliver(id string, d Decision) bool {
 // DropWaiter removes the in-memory waiter for id without changing the DB
 // state. Used by the intake handler when its socket connection drops
 // (client gave up); the approval row remains pending and may still be
-// decided by Telegram callback — that decision just won't go anywhere
-// (no waiter) which is fine.
+// decided later; that decision will not go anywhere (no waiter), which is
+// fine.
 func (q *Queue) DropWaiter(id string) {
 	q.mu.Lock()
 	delete(q.waiters, id)

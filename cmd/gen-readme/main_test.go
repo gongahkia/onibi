@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestReadmeDoesNotUseLegacyTelegramCommandBlock(t *testing.T) {
+func TestReadmeDoesNotUseLegacyCommandBlock(t *testing.T) {
 	root := filepath.Join("..", "..")
 	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
 	if err != nil {

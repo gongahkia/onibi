@@ -122,7 +122,7 @@ func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFla
 	}
 	if stateFlag {
 		table = append(table, []string{style.red("remove state"), paths.StateDir})
-		table = append(table, []string{style.red("remove secrets"), "bot token and TOTP secret from active backend"})
+		table = append(table, []string{style.red("remove secrets"), "legacy credentials from active backend"})
 	}
 	_ = renderTable(cmd.OutOrStdout(), table)
 }
@@ -196,8 +196,8 @@ func deleteSecrets(paths config.Paths) error {
 	if err != nil {
 		return err
 	}
-	if err := sec.Delete(secrets.KeyBotToken); err != nil {
+	if err := sec.Delete("bot_token"); err != nil {
 		return err
 	}
-	return sec.Delete(secrets.KeyTOTPSecret)
+	return sec.Delete("totp_secret_hex")
 }

@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/miniappurl"
-
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,10 +39,11 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
-	Daemon   Daemon   `yaml:"daemon" json:"daemon"`
-	Shell    Shell    `yaml:"shell" json:"shell"`
-	Telegram Telegram `yaml:"telegram" json:"telegram"`
-	Terminal Terminal `yaml:"terminal" json:"terminal"`
+	Daemon    Daemon    `yaml:"daemon" json:"daemon"`
+	Shell     Shell     `yaml:"shell" json:"shell"`
+	Web       Web       `yaml:"web" json:"web"`
+	Transport Transport `yaml:"transport" json:"transport"`
+	Terminal  Terminal  `yaml:"terminal" json:"terminal"`
 }
 
 type Daemon struct {
@@ -61,13 +60,18 @@ type Shell struct {
 	Login       bool     `yaml:"login" json:"login"`
 }
 
-type Telegram struct {
-	EncryptedMode string `yaml:"encrypted_mode" json:"encrypted_mode"`
-	MiniAppURL    string `yaml:"mini_app_url" json:"mini_app_url"`
-}
-
 type Terminal struct {
 	Default string `yaml:"default" json:"default"`
+}
+
+type Web struct {
+	ListenAddr string `yaml:"listen_addr" json:"listen_addr"`
+	CertDir    string `yaml:"cert_dir" json:"cert_dir"`
+}
+
+type Transport struct {
+	Mode  string `yaml:"mode" json:"mode"`
+	SAddr string `yaml:"saddr" json:"saddr"`
 }
 
 type LoadMeta struct {
@@ -98,10 +102,8 @@ func Default() Config {
 			Default:     "auto",
 			Login:       true,
 		},
-		Telegram: Telegram{
-			EncryptedMode: "off",
-			MiniAppURL:    "https://gongahkia.github.io/onibi/miniapp/",
-		},
+		Web:       Web{ListenAddr: ":8443"},
+		Transport: Transport{Mode: "lan"},
 		Terminal: Terminal{
 			Default: "auto",
 		},
@@ -187,13 +189,13 @@ func (c Config) Validate() error {
 	if err := validateShellDefault(c.Shell.Default); err != nil {
 		return err
 	}
-	switch c.Telegram.EncryptedMode {
-	case "off", "ask", "on":
-	default:
-		return fmt.Errorf("telegram.encrypted_mode must be one of off, ask, on")
+	if strings.TrimSpace(c.Web.ListenAddr) == "" {
+		return fmt.Errorf("web.listen_addr required")
 	}
-	if c.Telegram.MiniAppURL != "" && !miniappurl.Allowed(c.Telegram.MiniAppURL) {
-		return fmt.Errorf("telegram.mini_app_url must use https or localhost http")
+	switch strings.ToLower(strings.TrimSpace(c.Transport.Mode)) {
+	case "lan", "tailscale", "auto":
+	default:
+		return fmt.Errorf("transport.mode must be one of lan, tailscale, auto")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
@@ -319,10 +321,14 @@ func Set(cfg *Config, key, value string) error {
 			return fmt.Errorf("shell.login must be boolean")
 		}
 		cfg.Shell.Login = v
-	case "telegram.encrypted_mode":
-		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(value))
-	case "telegram.mini_app_url":
-		cfg.Telegram.MiniAppURL = strings.TrimSpace(value)
+	case "web.listen_addr":
+		cfg.Web.ListenAddr = strings.TrimSpace(value)
+	case "web.cert_dir":
+		cfg.Web.CertDir = strings.TrimSpace(value)
+	case "transport.mode":
+		cfg.Transport.Mode = strings.ToLower(strings.TrimSpace(value))
+	case "transport.saddr":
+		cfg.Transport.SAddr = strings.TrimSpace(value)
 	case "terminal.default":
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(value))
 	default:
@@ -349,10 +355,14 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Shell.Default, nil
 	case "shell.login":
 		return strconv.FormatBool(cfg.Shell.Login), nil
-	case "telegram.encrypted_mode":
-		return cfg.Telegram.EncryptedMode, nil
-	case "telegram.mini_app_url":
-		return cfg.Telegram.MiniAppURL, nil
+	case "web.listen_addr":
+		return cfg.Web.ListenAddr, nil
+	case "web.cert_dir":
+		return cfg.Web.CertDir, nil
+	case "transport.mode":
+		return cfg.Transport.Mode, nil
+	case "transport.saddr":
+		return cfg.Transport.SAddr, nil
 	case "terminal.default":
 		return cfg.Terminal.Default, nil
 	default:
@@ -372,18 +382,21 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
-		{"telegram.encrypted_mode", def.Telegram.EncryptedMode, cfg.Telegram.EncryptedMode, meta.Explicit["telegram.encrypted_mode"], "approval payload mode: off, ask, or on"},
-		{"telegram.mini_app_url", def.Telegram.MiniAppURL, cfg.Telegram.MiniAppURL, meta.Explicit["telegram.mini_app_url"], "hosted Mini App URL for encrypted approvals"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, or auto"},
+		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
+		{"web.cert_dir", def.Web.CertDir, cfg.Web.CertDir, meta.Explicit["web.cert_dir"], "local HTTPS certificate directory"},
+		{"web.listen_addr", def.Web.ListenAddr, cfg.Web.ListenAddr, meta.Explicit["web.listen_addr"], "local web cockpit listen address"},
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 	return rows
 }
 
 type rawConfig struct {
-	Daemon   rawDaemon   `yaml:"daemon"`
-	Shell    rawShell    `yaml:"shell"`
-	Telegram rawTelegram `yaml:"telegram"`
-	Terminal rawTerminal `yaml:"terminal"`
+	Daemon    rawDaemon    `yaml:"daemon"`
+	Shell     rawShell     `yaml:"shell"`
+	Web       rawWeb       `yaml:"web"`
+	Transport rawTransport `yaml:"transport"`
+	Terminal  rawTerminal  `yaml:"terminal"`
 }
 
 type rawDaemon struct {
@@ -400,13 +413,18 @@ type rawShell struct {
 	Login       *bool     `yaml:"login"`
 }
 
-type rawTelegram struct {
-	EncryptedMode *string `yaml:"encrypted_mode"`
-	MiniAppURL    *string `yaml:"mini_app_url"`
-}
-
 type rawTerminal struct {
 	Default *string `yaml:"default"`
+}
+
+type rawWeb struct {
+	ListenAddr *string `yaml:"listen_addr"`
+	CertDir    *string `yaml:"cert_dir"`
+}
+
+type rawTransport struct {
+	Mode  *string `yaml:"mode"`
+	SAddr *string `yaml:"saddr"`
 }
 
 func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
@@ -442,13 +460,21 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 		cfg.Shell.Login = *raw.Shell.Login
 		meta.Explicit["shell.login"] = true
 	}
-	if raw.Telegram.EncryptedMode != nil {
-		cfg.Telegram.EncryptedMode = strings.ToLower(strings.TrimSpace(*raw.Telegram.EncryptedMode))
-		meta.Explicit["telegram.encrypted_mode"] = true
+	if raw.Web.ListenAddr != nil {
+		cfg.Web.ListenAddr = strings.TrimSpace(*raw.Web.ListenAddr)
+		meta.Explicit["web.listen_addr"] = true
 	}
-	if raw.Telegram.MiniAppURL != nil {
-		cfg.Telegram.MiniAppURL = strings.TrimSpace(*raw.Telegram.MiniAppURL)
-		meta.Explicit["telegram.mini_app_url"] = true
+	if raw.Web.CertDir != nil {
+		cfg.Web.CertDir = strings.TrimSpace(*raw.Web.CertDir)
+		meta.Explicit["web.cert_dir"] = true
+	}
+	if raw.Transport.Mode != nil {
+		cfg.Transport.Mode = strings.ToLower(strings.TrimSpace(*raw.Transport.Mode))
+		meta.Explicit["transport.mode"] = true
+	}
+	if raw.Transport.SAddr != nil {
+		cfg.Transport.SAddr = strings.TrimSpace(*raw.Transport.SAddr)
+		meta.Explicit["transport.saddr"] = true
 	}
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))

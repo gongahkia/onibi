@@ -11,9 +11,8 @@ const placeholder = "[REDACTED]"
 
 // secretsRef holds the active set of strings the redaction handler will
 // scrub from every log record. Pointer-swapped atomically so SetSecrets is
-// lock-free for readers. Strings should be the long-lived secret values
-// (the bot token, TOTP secret in hex form, etc.); anything shorter than 12
-// chars is ignored to avoid false positives.
+// lock-free for readers. Strings should be long-lived secret values; anything
+// shorter than 12 chars is ignored to avoid false positives.
 var secretsRef atomic.Pointer[[]string]
 
 func init() {

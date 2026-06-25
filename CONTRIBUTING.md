@@ -17,9 +17,9 @@ onibi doctor --offline
 
 Rules:
 
-- Do not commit bot tokens, `.env`, SQLite state, logs, or local hook output.
-- Keep Telegram update handling behind the owner-check router.
-- Do not pass Telegram-provided text to a shell command.
+- Do not commit secrets, `.env`, SQLite state, logs, local cert keys, or hook output.
+- Keep web cockpit actions behind owner-cookie authentication.
+- Do not pass browser-provided text to a shell command except as literal PTY input.
 - Prefer narrow changes over broad refactors.
 - Update tests when changing pairing, approvals, rendering, service install, or socket intake.
 

@@ -64,12 +64,12 @@ type Approval struct {
 	State      string
 	EditedJSON string // populated when State == StateEdited
 	Reason     string // populated when State == StateDenied/Expired/Cancelled
-	MsgID      int64  // Telegram message id (for editMessageReplyMarkup on decide)
-	ChatID     int64  // Telegram chat id the message was sent to
+	MsgID      int64  // legacy rendered-message id
+	ChatID     int64  // legacy target id
 	CreatedAt  time.Time
 	DecidedAt  time.Time
 	ExpiresAt  time.Time
-	DecidedBy  int64 // Telegram from.id of the deciding user (audit)
+	DecidedBy  int64 // deciding actor id (audit)
 }
 
 // Decision is what the queue returns to the parked waiter (the blocked hook).

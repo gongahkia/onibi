@@ -186,8 +186,7 @@ func (h *Host) Resize(rows, cols uint16) error {
 	return nil
 }
 
-// Write sends bytes to the child's stdin (the PTY master end). Used by the
-// Telegram reply path to inject text.
+// Write sends bytes to the child's stdin (the PTY master end).
 func (h *Host) Write(p []byte) (int, error) {
 	if h.WriteFunc != nil {
 		return h.WriteFunc(p)

@@ -16,7 +16,7 @@ Web-controlled coding-agent host with a live xterm.js terminal and approval cock
 
 Onibi runs local shells and coding agents under PTYs, exposes a phone cockpit over local HTTPS/WebSocket, and routes tool approvals through an owner-only web UI. The current v3 path is LAN/hotspot-first: run `onibi up`, scan the QR from your phone, then drive the live terminal and approval overlay from mobile Safari.
 
-Status: v3 web-cockpit pivot in progress. The local shell cockpit, iPhone pairing, live terminal, resize/reconnect smoke, toolbar controls, and Claude Code approval overlay have been validated locally. Full Telegram code removal, durable device management, mobile polish, Tailscale transport, and release prep are still tracked in [`TODO.md`](./TODO.md).
+Status: v3 web-cockpit pivot in progress. The local shell cockpit, iPhone pairing, live terminal, resize/reconnect smoke, toolbar controls, Claude Code approval overlay, and device management command surface have been validated locally. Mobile polish, Tailscale transport, and release prep are still tracked in [`TODO.md`](./TODO.md).
 
 ## Quick Start
 
@@ -48,6 +48,9 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 
 ```bash
 ./bin/onibi up
+./bin/onibi pair
+./bin/onibi devices
+./bin/onibi unpair <device-id>
 ./bin/onibi install-hooks --agent claude
 ./bin/onibi hooks --show --agent claude
 ./bin/onibi adapters
@@ -75,16 +78,12 @@ After `./bin/onibi up` and phone pairing:
 - `internal/approval` owns the approval queue and decision state machine.
 - `frontend/` contains the xterm.js cockpit.
 
-Historical v2 Telegram transport code still exists until Phase 06, but it is no longer the product direction for the v3 cockpit.
-
 ## Docs
 
 - [`TODO.md`](./TODO.md): authoritative v3 task list.
 - [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
 - [`docs/transports.md`](./docs/transports.md): LAN/Tailscale transport notes.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
-
-Older docs that describe the Telegram transport are retained only as legacy reference until Phase 06 rewrites or removes them.
 
 ## Security
 

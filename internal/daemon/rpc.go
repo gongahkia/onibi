@@ -33,7 +33,7 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 			return intake.Response{}, fmt.Errorf("write PTY: %w", err)
 		}
 		d.touchSession(ctx, s)
-		d.noteAnomaly(ctx, "telegram.inject")
+		d.noteAnomaly(ctx, "session.inject")
 		d.audit(ctx, "mcp.session_input", s.ID, ev.Text, 0, "")
 		return intake.Response{Text: "sent to " + s.Name + " (" + s.ID + ")"}, nil
 	case intake.TypeSessionPeek:

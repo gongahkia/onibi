@@ -1,5 +1,5 @@
 class Onibi < Formula
-  desc "Telegram-controlled coding-agent host"
+  desc "Web-controlled coding-agent host"
   homepage "https://github.com/gongahkia/onibi"
   license "Apache-2.0"
   version "{{VERSION}}"

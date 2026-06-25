@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   state       TEXT NOT NULL DEFAULT 'pending',     -- pending|approved|denied|edited|expired|cancelled
   edited_json TEXT,
   reason      TEXT,
-  msg_id      INTEGER,                              -- telegram message id for callback editing
+  msg_id      INTEGER,                              -- legacy rendered-message id
   chat_id     INTEGER,
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER,
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS web_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at);
 
--- Telegram-originated prompt queue (durable, per-session FIFO)
+-- prompt queue (durable, per-session FIFO)
 CREATE TABLE IF NOT EXISTS prompt_queue (
   id          TEXT PRIMARY KEY,
   session_id  TEXT NOT NULL,
