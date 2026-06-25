@@ -260,19 +260,20 @@ x 2026-06-25 Update Makefile: remove any Telegram-specific targets (e.g., telegr
 
 > Goal: make the phone UX driveable for 5 minutes without rage-quitting. Soft key bar, paste shim, reconnect toast, PWA manifest.
 
-(A) 2026-06-23 Write frontend/src/softkeys.ts: SoftKeyBar component rendering a bottom-fixed bar of buttons [Esc, Tab, Ctrl, Alt, ↑, ↓, ←, →, ^C, ^D, ^Z] +phase07 @frontend file:frontend/src/softkeys.ts id:T700 blocked-by:T415
-(A) 2026-06-23 Soft-key state machine: Ctrl and Alt are sticky-toggle modifiers (one-shot, deactivate after next key); other keys are direct send; on tap, simulate term.write of the corresponding control sequence to PTY +phase07 @frontend file:frontend/src/softkeys.ts id:T701 blocked-by:T700
-(A) 2026-06-23 Long-press repeat for arrow keys: 500ms long-press starts repeating at 100ms intervals until pointerup +phase07 @frontend file:frontend/src/softkeys.ts id:T702 blocked-by:T701
-(A) 2026-06-23 Paste shim: hidden Paste button reads navigator.clipboard.readText() (requires user gesture) and sends text to PTY; document iOS Safari clipboard prompt expectation +phase07 @frontend file:frontend/src/softkeys.ts id:T703 blocked-by:T702
-(A) 2026-06-23 Reconnect toast: when WS reconnect triggers, show a non-blocking toast "Reconnecting…" that fades on successful resume +phase07 @frontend file:frontend/src/ws.ts id:T704 blocked-by:T703
-(A) 2026-06-23 PWA manifest: add frontend/manifest.webmanifest with name "Onibi", short_name "Onibi", icons (192, 512), start_url "/", display "standalone", theme_color "#000000", background_color "#000000"; link from index.html +phase07 @frontend file:frontend/manifest.webmanifest id:T705 blocked-by:T704
-(A) 2026-06-23 Generate PWA icons at 192 and 512: re-use existing asset/logo/onibi.png cropped to square; place in frontend/public/icons/ +phase07 @frontend file:frontend/public/icons/ id:T706 blocked-by:T705
-(A) 2026-06-23 Service worker (asset cache only, NO push): frontend/src/sw.ts registers via main.ts; caches /assets/* with stale-while-revalidate; never caches root index.html or /ws/* or /api/* +phase07 @frontend file:frontend/src/sw.ts id:T707 blocked-by:T706
-(A) 2026-06-23 iOS viewport pinning: in main.ts attach visualViewport listener; on keyboard show/hide, scroll the terminal to keep cursor visible +phase07 @frontend file:frontend/src/main.ts id:T708 blocked-by:T707 ref:arch-rule-2
-(A) 2026-06-23 Confirm 100dvh sizing applied to html and body in index.html stylesheet; verify no 100vh remains anywhere in frontend/ +phase07 @frontend file:frontend/index.html id:T709 blocked-by:T708
+x 2026-06-25 Write frontend/src/softkeys.ts: SoftKeyBar component rendering a bottom-fixed bar of buttons [Esc, Tab, Ctrl, Alt, ↑, ↓, ←, →, ^C, ^D, ^Z] +phase07 @frontend file:frontend/src/softkeys.ts id:T700 blocked-by:T415
+x 2026-06-25 Soft-key state machine: Ctrl and Alt are sticky-toggle modifiers (one-shot, deactivate after next key); other keys are direct send; on tap, simulate term.write of the corresponding control sequence to PTY +phase07 @frontend file:frontend/src/softkeys.ts id:T701 blocked-by:T700
+x 2026-06-25 Long-press repeat for arrow keys: 500ms long-press starts repeating at 100ms intervals until pointerup +phase07 @frontend file:frontend/src/softkeys.ts id:T702 blocked-by:T701
+x 2026-06-25 Paste shim: hidden Paste button reads navigator.clipboard.readText() (requires user gesture) and sends text to PTY; document iOS Safari clipboard prompt expectation +phase07 @frontend file:frontend/src/softkeys.ts id:T703 blocked-by:T702
+x 2026-06-25 Reconnect toast: when WS reconnect triggers, show a non-blocking toast "Reconnecting…" that fades on successful resume +phase07 @frontend file:frontend/src/ws.ts id:T704 blocked-by:T703
+x 2026-06-25 PWA manifest: add frontend/manifest.webmanifest with name "Onibi", short_name "Onibi", icons (192, 512), start_url "/", display "standalone", theme_color "#000000", background_color "#000000"; link from index.html +phase07 @frontend file:frontend/manifest.webmanifest id:T705 blocked-by:T704
+x 2026-06-25 Generate PWA icons at 192 and 512: re-use existing asset/logo/onibi.png cropped to square; place in frontend/public/icons/ +phase07 @frontend file:frontend/public/icons/ id:T706 blocked-by:T705
+x 2026-06-25 Service worker (asset cache only, NO push): frontend/src/sw.ts registers via main.ts; caches /assets/* with stale-while-revalidate; never caches root index.html or /ws/* or /api/* +phase07 @frontend file:frontend/src/sw.ts id:T707 blocked-by:T706
+x 2026-06-25 iOS viewport pinning: in main.ts attach visualViewport listener; on keyboard show/hide, scroll the terminal to keep cursor visible +phase07 @frontend file:frontend/src/main.ts id:T708 blocked-by:T707 ref:arch-rule-2
+x 2026-06-25 Confirm 100dvh sizing applied to html and body in index.html stylesheet; verify no 100vh remains anywhere in frontend/ +phase07 @frontend file:frontend/index.html id:T709 blocked-by:T708
 (B) 2026-06-23 Real-iPhone session test: drive vim (open, edit, save, quit) + claude (send prompt, wait, approve) + tmux (switch window) for 5 minutes via soft-key bar without rage-quitting +phase07 @tests id:T710 blocked-by:T709 accept:session-completed-without-bug
 (B) 2026-06-23 Test "Add to Home Screen" flow on iOS Safari: launch from home screen icon, app opens in standalone mode (no Safari chrome), still pairs with cookie-set, terminal still loads +phase07 @tests id:T711 blocked-by:T710
-(C) 2026-06-23 Dark/light mode toggle in soft-key bar (xterm.js theme swap) — optional +phase07 @frontend id:T712 blocked-by:T710
+x 2026-06-25 Dark/light mode toggle in soft-key bar (xterm.js theme swap) — optional +phase07 @frontend id:T712 blocked-by:T710
+# 2026-06-25: T712 completed early by user request; T710/T711 remain the real-iPhone validation gates.
 
 ### Phase 08 — Tailscale Funnel transport (1.0 week, v1.1)
 

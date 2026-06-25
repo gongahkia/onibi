@@ -87,11 +87,16 @@ Soft keys:
 
 | key | sends |
 |---|---|
-| `ESC` | Escape, useful for vim |
-| `UP` | Up arrow |
-| `DN` | Down arrow |
-| `INT` | SIGINT, like Ctrl-C |
-| `KILL` | terminate the hosted process |
+| `Esc` | Escape, useful for vim |
+| `Tab` | Tab |
+| `Ctrl` | one-shot Ctrl modifier |
+| `Alt` | one-shot Alt modifier |
+| `↑` / `↓` / `←` / `→` | arrows; long-press repeats |
+| `^C` / `^D` / `^Z` | Ctrl-C, Ctrl-D, Ctrl-Z |
+| `Paste` | reads the iOS clipboard and sends it to the PTY |
+
+iOS Safari shows a clipboard permission prompt the first time `Paste` reads the clipboard.
+The top `INT` control sends SIGINT to the hosted process; `KILL` terminates it.
 
 Basic smoke:
 

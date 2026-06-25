@@ -39,7 +39,8 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 - Live xterm.js terminal over `/ws/pty`.
 - Pair-by-QR over local HTTPS.
 - iPhone trusted local CA profile.
-- Toolbar controls: `ESC`, `UP`, `DN`, `INT`, `KILL`.
+- Top controls: `INT`, `KILL`.
+- Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.

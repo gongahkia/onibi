@@ -1,7 +1,9 @@
 import { TerminalWS } from "./ws";
-import { attachTerminalIO, createTerminal, installViewportResize } from "./terminal";
+import { applyTerminalTheme, attachTerminalIO, createTerminal, installViewportResize } from "./terminal";
+import type { TerminalThemeName } from "./terminal";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
+import { SoftKeyBar } from "./softkeys";
 
 type SessionInfo = {
   session_id: string;
@@ -12,22 +14,30 @@ const termEl = requireElement("term");
 const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
 const toolbar = requireElement("toolbar");
-const { term, fit } = createTerminal(termEl);
+const softkeys = requireElement("softkeys");
+const toast = requireElement("toast");
+let theme = loadTheme();
+applyDocumentTheme(theme);
+const { term, fit } = createTerminal(termEl, theme);
 const ws = new TerminalWS();
 const events = new EventsWS();
 const approvals = new ApprovalOverlay(approvalRoot);
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
+installViewportPinning(termEl);
+registerServiceWorker();
 ws.addEventListener("data", (event) => {
   const data = (event as CustomEvent<ArrayBuffer>).detail;
   term.write(new Uint8Array(data));
 });
 ws.addEventListener("open", () => {
   splash.hidden = true;
+  hideToast();
   fit.fit();
   ws.sendResize(term.rows, term.cols);
 });
+ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
 events.addEventListener("event", (event) => approvals.handleEnvelope((event as CustomEvent).detail));
 
 void boot();
@@ -36,6 +46,14 @@ async function boot(): Promise<void> {
   try {
     const info = await sessionInfo();
     installControls(toolbar, info.session_id);
+    new SoftKeyBar({
+      root: softkeys,
+      sendBytes: (data) => ws.sendBinary(data),
+      sendText: (data) => ws.sendText(data),
+      focus: () => term.focus(),
+      getTheme: () => theme,
+      setTheme: setTheme
+    });
     ws.connect(wsURL(info.ws_token), info.session_id, 0);
     events.connect(eventsURL(info.ws_token));
   } catch {
@@ -66,9 +84,6 @@ function eventsURL(token: string): string {
 
 function installControls(root: HTMLElement, sessionID: string): void {
   root.replaceChildren(
-    controlButton("ESC", () => ws.sendBinary(new Uint8Array([0x1b]))),
-    controlButton("UP", () => ws.sendBinary(new Uint8Array([0x1b, 0x5b, 0x41]))),
-    controlButton("DN", () => ws.sendBinary(new Uint8Array([0x1b, 0x5b, 0x42]))),
     controlButton("INT", () => postControl(sessionID, "interrupt")),
     controlButton("KILL", () => postControl(sessionID, "kill"))
   );
@@ -109,6 +124,56 @@ function postControl(sessionID: string, action: string): void {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionID, action })
   });
+}
+
+function setTheme(next: TerminalThemeName): void {
+  theme = next;
+  window.localStorage.setItem("onibi-theme", next);
+  applyDocumentTheme(next);
+  applyTerminalTheme(term, next);
+}
+
+function loadTheme(): TerminalThemeName {
+  return window.localStorage.getItem("onibi-theme") === "light" ? "light" : "dark";
+}
+
+function applyDocumentTheme(next: TerminalThemeName): void {
+  document.documentElement.dataset.theme = next;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#090b0f" : "#f6f8fa");
+}
+
+function showToast(message: string): void {
+  toast.textContent = message;
+  toast.hidden = false;
+}
+
+function hideToast(): void {
+  toast.hidden = true;
+}
+
+function installViewportPinning(root: HTMLElement): void {
+  const viewport = window.visualViewport;
+  if (viewport == null) {
+    return;
+  }
+  let frame = 0;
+  const pin = () => {
+    window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(() => {
+      document.documentElement.style.setProperty("--visual-viewport-height", `${viewport.height}px`);
+      const cursor = root.querySelector<HTMLElement>(".xterm-helper-textarea");
+      cursor?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  };
+  viewport.addEventListener("resize", pin);
+  viewport.addEventListener("scroll", pin);
+  pin();
+}
+
+function registerServiceWorker(): void {
+  if ("serviceWorker" in navigator && window.isSecureContext) {
+    void navigator.serviceWorker.register("/sw.js");
+  }
 }
 
 function requireElement(id: string): HTMLElement {

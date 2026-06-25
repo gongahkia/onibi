@@ -74,6 +74,7 @@ export class TerminalWS extends EventTarget {
     window.clearTimeout(this.reconnectTimer);
     const delay = Math.min(8000, 250 * 2 ** this.attempts);
     this.attempts += 1;
+    this.dispatchEvent(new CustomEvent<number>("reconnecting", { detail: delay }));
     this.reconnectTimer = window.setTimeout(() => this.open(), delay);
   }
 
