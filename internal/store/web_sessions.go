@@ -28,7 +28,7 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 		return nil, err
 	}
 	defer rows.Close()
-	var out []WebSession
+	out := []WebSession{}
 	for rows.Next() {
 		var s WebSession
 		var created, last int64
