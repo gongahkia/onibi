@@ -16,9 +16,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/auth"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
@@ -95,9 +97,15 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	defer func() { _ = host.Close() }()
 	hostDone := make(chan error, 1)
 	go func() { hostDone <- host.Wait() }()
+	queue := approval.New(db, approval.DefaultTTL)
+	queue.Log = logger
+	sweeper := &approval.Sweeper{Queue: queue, Log: logger, Interval: time.Second}
+	intakeServer := intake.New(paths.Socket, func(context.Context, intake.Event) error { return nil }, logger)
+	intakeServer.SetApprovalHandler(localWebApprovalHandler(queue, sessionID))
 	server := web.New(web.Options{
-		TLSCert: cert,
-		DB:      db,
+		TLSCert:       cert,
+		DB:            db,
+		ApprovalQueue: queue,
 		PTYHosts: func() map[string]*pty.Host {
 			return map[string]*pty.Host{sessionID: host}
 		},
@@ -105,6 +113,8 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	})
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.StartContext(ctx, fmt.Sprintf(":%d", port)) }()
+	go func() { errCh <- intakeServer.Serve(ctx) }()
+	go sweeper.Run(ctx)
 	if err := waitForWebHealth(ctx, port, errCh); err != nil {
 		return err
 	}
@@ -150,6 +160,46 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	}
 }
 
+func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string) intake.ApprovalHandler {
+	return func(ctx context.Context, ev intake.Event) (intake.Response, error) {
+		sessionID := ev.Session
+		if sessionID == "" {
+			sessionID = fallbackSessionID
+		}
+		agent := ev.Agent
+		if agent == "" {
+			agent = "agent"
+		}
+		tool := ev.Tool
+		if tool == "" {
+			tool = "tool"
+		}
+		inputJSON := ev.InputJSON
+		if inputJSON == "" {
+			inputJSON = "{}"
+		}
+		approvalID, ch, err := queue.Request(ctx, sessionID, agent, tool, inputJSON)
+		if err != nil {
+			return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
+		}
+		select {
+		case dec := <-ch:
+			resp := intake.Response{
+				Decision:  string(dec.Verdict),
+				Reason:    dec.Reason,
+				DecidedBy: dec.DecidedBy,
+			}
+			if len(dec.UpdatedInput) > 0 {
+				resp.UpdatedInput = string(dec.UpdatedInput)
+			}
+			return resp, nil
+		case <-ctx.Done():
+			_ = queue.Cancel(context.Background(), approvalID, "web pair shutdown")
+			return intake.Response{Decision: "cancelled", Reason: "web pair shutdown"}, nil
+		}
+	}
+}
+
 func webPairURLs(token string, port int, lanHosts []string, fallback string) []string {
 	seen := map[string]bool{}
 	add := func(host string, urls []string) []string {
@@ -184,7 +234,7 @@ func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Log
 		Name:  launch.Command,
 		Args:  launch.Args,
 		Argv0: launch.Argv0,
-		Env:   []string{"ONIBI_SESSION_ID=" + webPairSessionID},
+		Env:   []string{"ONIBI_SESSION_ID=" + webPairSessionID, "ONIBI_SOCK=" + paths.Socket},
 		Dir:   cwd,
 	})
 	if err != nil {

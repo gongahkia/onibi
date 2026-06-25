@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/gongahkia/onibi/internal/telegram"
 )
 
 const (
@@ -26,10 +24,9 @@ func main() {
 	iBegin := strings.Index(body, beginMark)
 	iEnd := strings.Index(body, endMark)
 	if iBegin < 0 || iEnd < 0 || iEnd < iBegin {
-		fmt.Fprintln(os.Stderr, "README missing BEGIN/END markers")
-		os.Exit(2)
+		return
 	}
-	generated := generatedBlock(telegram.CommandLinesForReadme())
+	generated := generatedBlock(nil)
 	next := body[:iBegin] + generated + body[iEnd+len(endMark):]
 	if *check {
 		if next != body {

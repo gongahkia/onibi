@@ -10,8 +10,8 @@ import (
 func Root() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "onibi",
-		Short:         "Telegram-controlled coding-agent host",
-		Long:          brand.ANSI() + "\n\nOnibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes approval prompts, shell events, and turn signals to a Telegram bot for one-handed control from your phone.",
+		Short:         "Web-controlled coding-agent host",
+		Long:          brand.ANSI() + "\n\nOnibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes terminal I/O plus approval prompts to a local web cockpit for one-handed control from your phone.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

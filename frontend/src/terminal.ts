@@ -59,10 +59,17 @@ export function attachTerminalIO(term: Terminal, ws: TerminalWS): IDisposable {
 
 export function installViewportResize(term: Terminal, fit: FitAddon, ws: TerminalWS): IDisposable {
   let timer = 0;
+  let lastRows = 0;
+  let lastCols = 0;
   const send = () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       fit.fit();
+      if (term.rows === lastRows && term.cols === lastCols) {
+        return;
+      }
+      lastRows = term.rows;
+      lastCols = term.cols;
       ws.sendResize(term.rows, term.cols);
     }, 200);
   };

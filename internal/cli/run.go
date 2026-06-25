@@ -49,7 +49,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if intake.SocketActive(paths.Socket, 200*time.Millisecond) {
-		return fmt.Errorf("onibi service is already running on %s; start sessions from Telegram with /new shell, /new <agent>, or /new tmux <target>; stop the service before using foreground onibi run/shell", paths.Socket)
+		return fmt.Errorf("onibi service is already running on %s; stop the service before using foreground onibi run/shell", paths.Socket)
 	}
 	cfg, cfgMeta, err := config.Load(paths)
 	if err != nil {

@@ -211,13 +211,17 @@ Run these from repo root unless noted.
 # 2026-06-24: macOS firewall is enabled but block-all is off and incoming connections to `bin/onibi` are permitted.
 # 2026-06-24: iPhone reached `/pair`, token was consumed, then `/` returned 403 with missing owner cookie after TLS `unknown certificate`; network reachability is OK, but Safari rejected/not-returned the Secure cookie on the untrusted self-signed leaf cert.
 x 2026-06-24 Replace self-signed leaf TLS cert with mkcert/local-CA flow or explicit iOS-trustable cert profile path; add CLI preflight/diagnostic that warns before QR if iOS has not trusted the local cert, and after pair-cookie failure recommends cert trust first and hotspot only for LAN reachability failures +phase04 @backend file:internal/web/cert.go id:T416 blocked-by:T415 accept:forbidden-after-pair-has-actionable-diagnostic
-(B) 2026-06-23 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 accept:no-scrollback-corruption-after-resume
+# 2026-06-25: T415 passed on real iPhone over hotspot. Vim edit/save/quit worked with ESC toolbar; rotate worked; reconnect tested by background/return substitute because airplane mode would drop the hotspot hosting the Mac.
+x 2026-06-25 Manual smoke: drive vim on real iPhone via the pair URL for 2 minutes; resize on rotate; airplane-mode for 10 seconds and confirm clean reconnect with snapshot replay +phase04 @tests id:T415 accept:no-scrollback-corruption-after-resume
 
 ### Phase 05 — Approval cockpit overlay (2.0 weeks)
 
 > Goal: wire `internal/approval/queue.go` to `/ws/events`; render approval cards on the phone over the terminal; round-trip Approve/Deny/Edit back to Queue.Decide so the agent hook unblocks.
 
-(B) 2026-06-23 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
+# 2026-06-25: T512 attempt over web cockpit reached Claude Code and Claude created `/tmp/onibi-approval-deny.txt`, but no Onibi approval overlay appeared; Claude's native terminal approval prompt handled the Write. Do not mark T512 done until hooks route the approval through Onibi and Deny prevents the write.
+# 2026-06-25: `onibi up` local-shell flow now starts an approval.Queue + intake socket and passes the queue to `/ws/events`; spawned shell exports `ONIBI_SOCK` and `ONIBI_SESSION_ID=local-shell`, so Claude hooks can reach the web approval overlay.
+# 2026-06-25: T512 passed on real iPhone. Claude Write approval rendered in Onibi overlay; Deny posted `/approval/<id>` 200; Claude did not create `/tmp/onibi-approval-deny.txt` or `/tmp/onibi-approval-deny.tft`.
+x 2026-06-25 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
 (B) 2026-06-23 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
 (B) 2026-06-23 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert ^C reaches the child process group via syscall.Kill(-pgid, SIGINT) +phase05 @tests id:T514 blocked-by:T513
 ### Phase 06 — Telegram excision (1.5 weeks)

@@ -76,25 +76,25 @@ func addRunFlags(cmd *cobra.Command) {
 func setupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Pair this machine with a Telegram bot",
+		Short: "Legacy setup flow",
 		RunE:  runSetup,
 	}
 	cmd.Flags().Bool("rotate-owner", false, "regenerate owner and require re-pair")
 	cmd.Flags().Bool("enable-totp", false, "enable opt-in TOTP gate for destructive commands")
 	cmd.Flags().Bool("paranoid", false, "enable TOTP + 60s approval expiry + confirm-tap on presets")
 	cmd.Flags().Bool("print-checklist", false, "print setup security checklist and exit")
-	cmd.Flags().Bool("token-stdin", false, "read bot token from stdin (avoids argv leak)")
+	cmd.Flags().Bool("token-stdin", false, "read legacy token from stdin (avoids argv leak)")
 	cmd.Flags().Bool("complete", false, "after pairing, offer service install, hook install, and doctor")
-	cmd.Flags().Bool("enable-encrypted-mode", false, "configure Telegram-blind encrypted approval payloads")
+	cmd.Flags().Bool("enable-encrypted-mode", false, "configure legacy encrypted approval payloads")
 	cmd.Flags().String("encrypted-mode", "on", "encrypted approval mode (off, ask, on)")
-	cmd.Flags().String("mini-app-url", "", "hosted Mini App URL for encrypted approvals")
+	cmd.Flags().String("mini-app-url", "", "legacy hosted Mini App URL for encrypted approvals")
 	return cmd
 }
 
 func getChatIDCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get-chat-id",
-		Short: "Print your chat id (fallback for users who can't use deeplinks)",
+		Short: "Legacy owner id helper",
 		RunE:  runGetChatID,
 	}
 }
@@ -102,7 +102,7 @@ func getChatIDCmd() *cobra.Command {
 func rotateTokenCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rotate-token",
-		Short: "Walk through @BotFather /revoke flow and replace the token in Keychain",
+		Short: "Legacy token rotation helper",
 		RunE:  runRotateToken,
 	}
 }
@@ -126,13 +126,13 @@ func demoCmd() *cobra.Command {
 		Short: "Run guided local demos",
 		RunE:  runDemo,
 	}
-	cmd.Flags().Bool("approval", false, "send a test approval to Telegram")
+	cmd.Flags().Bool("approval", false, "create a local test approval")
 	addDemoApprovalFlags(cmd)
 	approval := &cobra.Command{
 		Hidden: true,
-		Use:   "approval",
-		Short: "Send a test approval to Telegram",
-		RunE:  runDemoApproval,
+		Use:    "approval",
+		Short:  "Create a local test approval",
+		RunE:   runDemoApproval,
 	}
 	addDemoApprovalFlags(approval)
 	cmd.AddCommand(approval)
@@ -155,16 +155,16 @@ func projectCmd() *cobra.Command {
 	cmd.Flags().Bool("forget", false, "forget a project alias")
 	list := &cobra.Command{
 		Hidden: true,
-		Use:   "list",
-		Short: "List project aliases",
-		RunE:  runProjectList,
+		Use:    "list",
+		Short:  "List project aliases",
+		RunE:   runProjectList,
 	}
 	add := &cobra.Command{
 		Hidden: true,
-		Use:   "add here | add <alias> <path>",
-		Short: "Add a project alias",
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  runProjectAdd,
+		Use:    "add here | add <alias> <path>",
+		Short:  "Add a project alias",
+		Args:   cobra.MinimumNArgs(1),
+		RunE:   runProjectAdd,
 	}
 	forget := &cobra.Command{
 		Hidden:  true,
@@ -196,7 +196,7 @@ func doctorCmd() *cobra.Command {
 		Short: "Run setup + integrity checks",
 		RunE:  runDoctor,
 	}
-	cmd.Flags().Bool("offline", false, "skip live Telegram network checks")
+	cmd.Flags().Bool("offline", false, "skip live network checks")
 	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
 	cmd.Flags().Bool("fix", false, "apply safe local fixes for doctor warnings")
 	cmd.Flags().Bool("after-upgrade", false, "run offline upgrade checks")
@@ -233,9 +233,9 @@ func hooksCmd() *cobra.Command {
 	cmd.Flags().Bool("json", false, "print JSON")
 	show := &cobra.Command{
 		Hidden: true,
-		Use:   "show",
-		Short: "Show hook config, records, backups, and drift",
-		RunE:  runHooksShow,
+		Use:    "show",
+		Short:  "Show hook config, records, backups, and drift",
+		RunE:   runHooksShow,
 	}
 	show.Flags().String("agent", "", "agent name")
 	show.Flags().String("shell", "", "shell name")
@@ -243,9 +243,9 @@ func hooksCmd() *cobra.Command {
 	show.Flags().Bool("json", false, "print JSON")
 	matrix := &cobra.Command{
 		Hidden: true,
-		Use:   "matrix",
-		Short: "Show hook compatibility matrix",
-		RunE:  runHooksMatrix,
+		Use:    "matrix",
+		Short:  "Show hook compatibility matrix",
+		RunE:   runHooksMatrix,
 	}
 	matrix.Flags().Bool("json", false, "print JSON")
 	cmd.AddCommand(show, matrix)

@@ -163,16 +163,16 @@ func runSetupEncrypted(cmd *cobra.Command, paths config.Paths, sec *secrets.Stor
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "")
-	fmt.Fprintf(cmd.OutOrStdout(), "Encrypted Telegram mode set to %s.\n", cfg.Telegram.EncryptedMode)
-	fmt.Fprintln(cmd.OutOrStdout(), "Open this URL in Telegram to store the Mini App decrypt seed:")
+	fmt.Fprintf(cmd.OutOrStdout(), "Legacy encrypted mode set to %s.\n", cfg.Telegram.EncryptedMode)
+	fmt.Fprintln(cmd.OutOrStdout(), "Open this legacy seed URL to store the Mini App decrypt seed:")
 	fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", seedURL)
 	fmt.Fprintln(cmd.OutOrStdout(), "")
-	fmt.Fprintln(cmd.OutOrStdout(), "Or scan this QR in Telegram:")
+	fmt.Fprintln(cmd.OutOrStdout(), "Or scan this legacy QR:")
 	if err := setup.PrintQR(cmd.OutOrStdout(), seedURL); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "(QR failed: %v)\n", err)
 		fmt.Fprintln(cmd.OutOrStdout(), "Use the URL above.")
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Security note: Telegram sees ciphertext, but the Mini App host can serve JS. Keep the host static and audited. Plaintext entry will refuse in encrypted mode; use /secure or switch to encrypted_mode=off.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Security note: this is the legacy encrypted path. Keep the Mini App host static and audited. Plaintext entry will refuse in encrypted mode; use /secure or switch to encrypted_mode=off.")
 	return nil
 }
 
@@ -317,7 +317,7 @@ func runGetChatID(cmd *cobra.Command, _ []string) error {
 	return setup.RunGetChatID(cmd.Context(), tok, io)
 }
 
-// runRotateToken prompts for a fresh BotFather token, validates it via
+// runRotateToken prompts for a fresh legacy token, validates it via
 // getMe, ensures the bot id matches the persisted bot_id (refusing if it
 // doesn't — would indicate a different bot), and replaces the stored token.
 func runRotateToken(cmd *cobra.Command, _ []string) error {
@@ -338,8 +338,7 @@ func runRotateToken(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	io := setup.IO{In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr()}
-	fmt.Fprintln(io.Out, "Walk through @BotFather → /mybots → select bot → API Token → Revoke current token.")
-	fmt.Fprintln(io.Out, "BotFather replies with a new token. Paste it below.")
+	fmt.Fprintln(io.Out, "Legacy token rotation: revoke the old token with the provider and paste the replacement below.")
 	return setup.RunRotateToken(cmd.Context(), db, sec, io)
 }
 

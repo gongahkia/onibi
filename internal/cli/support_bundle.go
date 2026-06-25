@@ -93,7 +93,7 @@ func supportBundleCmd() *cobra.Command {
 		RunE:  runSupportBundle,
 	}
 	cmd.Flags().Bool("redacted", false, "required; redact secrets and local paths")
-	cmd.Flags().Bool("include-chat-id", false, "include Telegram chat ids in audit rows")
+	cmd.Flags().Bool("include-chat-id", false, "include legacy chat ids in audit rows")
 	return cmd
 }
 

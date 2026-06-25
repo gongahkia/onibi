@@ -24,7 +24,7 @@ Trust state:
 
 Events:
 
-- `PreToolUse` -> blocking Telegram approval.
+- `PreToolUse` -> blocking Onibi approval.
 - `SessionStart`, `PostToolUse` -> provider-event intake.
 - `Stop` -> turn-complete notification.
 

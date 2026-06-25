@@ -65,15 +65,37 @@ function eventsURL(token: string): string {
 }
 
 function installControls(root: HTMLElement, sessionID: string): void {
-  root.replaceChildren(controlButton("INT", () => postControl(sessionID, "interrupt")), controlButton("KILL", () => postControl(sessionID, "kill")));
+  root.replaceChildren(
+    controlButton("ESC", () => ws.sendBinary(new Uint8Array([0x1b]))),
+    controlButton("UP", () => ws.sendBinary(new Uint8Array([0x1b, 0x5b, 0x41]))),
+    controlButton("DN", () => ws.sendBinary(new Uint8Array([0x1b, 0x5b, 0x42]))),
+    controlButton("INT", () => postControl(sessionID, "interrupt")),
+    controlButton("KILL", () => postControl(sessionID, "kill"))
+  );
 }
 
 function controlButton(label: string, action: () => void): HTMLButtonElement {
   const el = document.createElement("button");
+  let firedAt = 0;
+  const fire = (event: Event) => {
+    event.preventDefault();
+    firedAt = Date.now();
+    action();
+    term.focus();
+  };
   el.type = "button";
   el.className = "control-button";
   el.textContent = label;
-  el.addEventListener("click", action);
+  el.tabIndex = -1;
+  el.addEventListener("pointerdown", fire);
+  el.addEventListener("touchstart", fire, { passive: false });
+  el.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (Date.now() - firedAt > 500) {
+      action();
+      term.focus();
+    }
+  });
   return el;
 }
 
