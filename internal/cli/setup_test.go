@@ -88,8 +88,8 @@ func TestSetupEncryptedPrintsURLBeforeQR(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	urlIdx := strings.Index(got, "Open this URL in Telegram")
-	qrIdx := strings.Index(got, "Or scan this QR")
+	urlIdx := strings.Index(got, "Open this legacy seed URL")
+	qrIdx := strings.Index(got, "Or scan this legacy QR")
 	if urlIdx < 0 || qrIdx < 0 || urlIdx > qrIdx {
 		t.Fatalf("output order wrong:\n%s", got)
 	}

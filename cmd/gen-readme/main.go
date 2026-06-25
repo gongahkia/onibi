@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	beginMark = "<!-- BEGIN-TELEGRAM-COMMANDS -->"
-	endMark   = "<!-- END-TELEGRAM-COMMANDS -->"
+	beginMark = "<!-- BEGIN-COMMANDS -->"
+	endMark   = "<!-- END-COMMANDS -->"
 )
 
 func main() {
