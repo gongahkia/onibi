@@ -20,16 +20,33 @@ func (s *Server) loggedHandler(next http.Handler) http.Handler {
 		w.Header().Set("X-Onibi-Request-ID", id)
 		rec := &statusRecorder{ResponseWriter: w}
 		start := time.Now()
+		s.log.Debug("web request start",
+			"request_id", id,
+			"method", r.Method,
+			"path", safeRequestPath(r.URL.Path),
+			"host", r.Host,
+			"proto", r.Proto,
+			"remote", remoteHost(r.RemoteAddr),
+			"content_length", r.ContentLength,
+			"query_present", r.URL.RawQuery != "",
+			"user_agent", trimForLog(r.UserAgent(), 160),
+			"tls", tlsLogAttrs(r),
+		)
 		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id)))
 		s.log.Info("web request",
 			"request_id", id,
 			"method", r.Method,
 			"path", safeRequestPath(r.URL.Path),
+			"host", r.Host,
+			"proto", r.Proto,
 			"status", rec.statusCode(),
 			"bytes", rec.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote", remoteHost(r.RemoteAddr),
+			"content_length", r.ContentLength,
+			"query_present", r.URL.RawQuery != "",
 			"user_agent", trimForLog(r.UserAgent(), 160),
+			"tls", tlsLogAttrs(r),
 		)
 	})
 }
@@ -107,4 +124,31 @@ func trimForLog(value string, max int) string {
 		return value
 	}
 	return value[:max] + "..."
+}
+
+func tlsLogAttrs(r *http.Request) string {
+	if r.TLS == nil {
+		return "none"
+	}
+	return fmt.Sprintf("version=%s cipher=%s server_name=%s resumed=%t",
+		tlsVersionName(r.TLS.Version),
+		tls.CipherSuiteName(r.TLS.CipherSuite),
+		trimForLog(r.TLS.ServerName, 80),
+		r.TLS.DidResume,
+	)
+}
+
+func tlsVersionName(v uint16) string {
+	switch v {
+	case tls.VersionTLS10:
+		return "TLS1.0"
+	case tls.VersionTLS11:
+		return "TLS1.1"
+	case tls.VersionTLS12:
+		return "TLS1.2"
+	case tls.VersionTLS13:
+		return "TLS1.3"
+	default:
+		return fmt.Sprintf("0x%x", v)
+	}
 }

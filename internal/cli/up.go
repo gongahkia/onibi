@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,8 +20,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
@@ -59,34 +63,75 @@ func runUp(cmd *cobra.Command, _ []string) error {
 }
 
 func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
+	started := time.Now()
+	logger := logging.New(cmd.ErrOrStderr(), slog.LevelDebug).With("component", "up")
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg, _, err := config.Load(paths)
+	cwd, _ := os.Getwd()
+	logger.Info("onibi up starting",
+		"version", buildinfo.Version,
+		"commit", buildinfo.Commit,
+		"build_date", buildinfo.Date,
+		"pid", os.Getpid(),
+		"goos", runtime.GOOS,
+		"goarch", runtime.GOARCH,
+		"cwd", cwd,
+		"state_dir", paths.StateDir,
+		"config_path", paths.Config,
+		"db_path", paths.DBFile,
+		"socket_path", paths.Socket,
+	)
+
+	phase := time.Now()
+	cfg, meta, err := config.Load(paths)
 	if err != nil {
 		return err
 	}
+	logPhase(logger, "config_loaded", phase,
+		"config_path", meta.Path,
+		"config_exists", meta.Exists,
+		"listen_addr", cfg.Web.ListenAddr,
+		"transport", cfg.Transport.Mode,
+		"shell_default", cfg.Shell.Default,
+		"shell_login", cfg.Shell.Login,
+		"approval_ttl", approval.DefaultTTL.String(),
+	)
 	if transport, _ := cmd.Flags().GetString("transport"); strings.TrimSpace(transport) != "" {
 		if err := config.Set(&cfg, "transport.mode", transport); err != nil {
 			return err
 		}
+		logger.Info("transport override applied", "transport", cfg.Transport.Mode)
 	}
 	port, err := listenPort(cfg.Web.ListenAddr)
 	if err != nil {
 		return err
 	}
 	certDir := certDir(paths, cfg)
+	phase = time.Now()
 	cert, err := web.GenerateOrLoadCert(certDir)
 	if err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelDebug}))
 	certPaths := web.LocalCertPaths(certDir)
-	logger.Info("web pair server starting", "addr", cfg.Web.ListenAddr, "transport", cfg.Transport.Mode, "state_dir", paths.StateDir, "cert_dir", certDir)
+	logPhase(logger, "cert_ready", phase, certLogAttrs(cert, certPaths, certDir)...)
+	lanHosts := web.LANHosts()
+	preferredHost := web.PreferredHost()
+	logger.Info("web pair server starting",
+		"addr", cfg.Web.ListenAddr,
+		"port", port,
+		"transport", cfg.Transport.Mode,
+		"state_dir", paths.StateDir,
+		"cert_dir", certDir,
+		"lan_hosts", strings.Join(lanHosts, ","),
+		"preferred_host", preferredHost,
+	)
+	phase = time.Now()
 	sessionID, host, err := startWebPairShell(ctx, paths, logger)
 	if err != nil {
 		return err
 	}
+	logPhase(logger, "shell_ready", phase, "session_id", sessionID)
 	defer func() { _ = host.Close() }()
 	hostDone := make(chan error, 1)
 	go func() { hostDone <- host.Wait() }()
@@ -105,20 +150,29 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		Log: logger,
 	})
 	errCh := make(chan error, 1)
+	phase = time.Now()
 	go func() { errCh <- server.StartContext(ctx, cfg.Web.ListenAddr) }()
 	go func() { errCh <- intakeServer.Serve(ctx) }()
 	go sweeper.Run(ctx)
-	if err := waitForWebHealth(ctx, port, errCh); err != nil {
+	if err := waitForWebHealth(ctx, port, errCh, logger); err != nil {
 		return err
 	}
+	logPhase(logger, "servers_ready", phase, "socket_path", paths.Socket)
 
+	phase = time.Now()
 	token, err := setup.NewToken(ctx, db)
 	if err != nil {
 		return err
 	}
-	urls := webPairURLs(token, port, web.LANHosts(), web.PreferredHost())
+	urls := webPairURLs(token, port, lanHosts, preferredHost)
 	url := urls[0]
-	logger.Info("web pair token minted", "url", url, "ttl", setup.PairTokenTTL.String())
+	logger.Info("web pair token minted",
+		"primary_url", redactPairURL(url),
+		"fallback_urls", redactPairURLs(urls[1:]),
+		"ttl", setup.PairTokenTTL.String(),
+		"expires_at", time.Now().Add(setup.PairTokenTTL).UTC().Format(time.RFC3339Nano),
+		"duration_ms", time.Since(phase).Milliseconds(),
+	)
 	fmt.Fprintln(cmd.OutOrStdout(), "iPhone HTTPS trust:")
 	fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
 	fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
@@ -131,24 +185,29 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
+	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
 
 	select {
 	case <-ctx.Done():
+		logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
 		return nil
 	case err := <-hostDone:
 		if ctx.Err() != nil {
+			logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
 			return nil
 		}
 		if err != nil {
-			logger.Warn("web pair shell exited", "session_id", sessionID, "err", err)
+			logger.Warn("web pair shell exited", "session_id", sessionID, "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 			return fmt.Errorf("web shell exited: %w", err)
 		}
-		logger.Info("web pair shell exited", "session_id", sessionID)
+		logger.Info("web pair shell exited", "session_id", sessionID, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
+			logger.Info("onibi up stopping", "reason", "server_closed", "uptime", time.Since(started).Truncate(time.Millisecond).String())
 			return nil
 		}
+		logger.Error("onibi up server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 		return err
 	}
 }
@@ -233,11 +292,19 @@ func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Log
 	if err != nil {
 		return "", nil, err
 	}
-	logger.Info("web pair shell started", "session_id", webPairSessionID, "shell", launch.Name, "command", launch.Command)
+	logger.Info("web pair shell started",
+		"session_id", webPairSessionID,
+		"shell", launch.Name,
+		"command", launch.Command,
+		"argv0", launch.Argv0,
+		"args", strings.Join(launch.Args, " "),
+		"cwd", cwd,
+		"login", cfg.Shell.Login,
+	)
 	return webPairSessionID, host, nil
 }
 
-func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {
+func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger *slog.Logger) error {
 	client := &http.Client{
 		Timeout: 250 * time.Millisecond,
 		Transport: &http.Transport{
@@ -248,6 +315,9 @@ func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {
 	defer deadline.Stop()
 	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
+	started := time.Now()
+	attempts := 0
+	healthURL := fmt.Sprintf("https://127.0.0.1:%d/healthz", port)
 	for {
 		select {
 		case <-ctx.Done():
@@ -255,17 +325,75 @@ func waitForWebHealth(ctx context.Context, port int, errCh <-chan error) error {
 		case err := <-errCh:
 			return err
 		case <-deadline.C:
+			logger.Warn("web health timeout", "url", healthURL, "attempts", attempts, "duration_ms", time.Since(started).Milliseconds())
 			return fmt.Errorf("web server did not become ready")
 		case <-tick.C:
-			resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/healthz", port))
+			attempts++
+			resp, err := client.Get(healthURL)
 			if err == nil {
 				_ = resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
+					logger.Info("web health ready", "url", healthURL, "attempts", attempts, "duration_ms", time.Since(started).Milliseconds())
 					return nil
 				}
+				if attempts == 1 || attempts%10 == 0 {
+					logger.Debug("web health probe", "url", healthURL, "attempt", attempts, "status", resp.StatusCode)
+				}
+			} else if attempts == 1 || attempts%10 == 0 {
+				logger.Debug("web health probe", "url", healthURL, "attempt", attempts, "err", err)
 			}
 		}
 	}
+}
+
+func logPhase(logger *slog.Logger, phase string, started time.Time, attrs ...any) {
+	fields := []any{"phase", phase, "duration_ms", time.Since(started).Milliseconds()}
+	fields = append(fields, attrs...)
+	logger.Info("up phase complete", fields...)
+}
+
+func certLogAttrs(cert tls.Certificate, paths web.CertPaths, certDir string) []any {
+	attrs := []any{
+		"cert_dir", certDir,
+		"ca_cert", paths.CACert,
+		"server_cert", paths.ServerCert,
+		"mobileconfig", paths.MobileConfig,
+	}
+	if len(cert.Certificate) == 0 {
+		return append(attrs, "cert_loaded", false)
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return append(attrs, "cert_loaded", false, "cert_parse_err", err.Error())
+	}
+	var ips []string
+	for _, ip := range leaf.IPAddresses {
+		ips = append(ips, ip.String())
+	}
+	return append(attrs,
+		"cert_loaded", true,
+		"cert_subject", leaf.Subject.CommonName,
+		"cert_not_before", leaf.NotBefore.UTC().Format(time.RFC3339Nano),
+		"cert_not_after", leaf.NotAfter.UTC().Format(time.RFC3339Nano),
+		"cert_dns_names", strings.Join(leaf.DNSNames, ","),
+		"cert_ip_sans", strings.Join(ips, ","),
+	)
+}
+
+func redactPairURLs(urls []string) []string {
+	out := make([]string, len(urls))
+	for i, url := range urls {
+		out[i] = redactPairURL(url)
+	}
+	return out
+}
+
+func redactPairURL(url string) string {
+	i := strings.Index(url, "/pair/")
+	if i < 0 {
+		return url
+	}
+	return url[:i] + "/pair/<redacted>"
 }
 
 func listenPort(addr string) (int, error) {
