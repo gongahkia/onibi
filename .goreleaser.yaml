@@ -117,7 +117,7 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
     homepage: https://github.com/gongahkia/onibi
-    description: "Telegram-controlled coding-agent host"
+    description: "Web-controlled coding-agent host"
     caveats: |
       After install or upgrade, run:
         onibi doctor --after-upgrade

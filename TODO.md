@@ -252,7 +252,7 @@ x 2026-06-25 Update cmd/gen-readme/* templates if they reference Telegram +phase
 x 2026-06-25 Acceptance check: rg -i 'telegram' internal/ cmd/ adapters/ — only allowed hits are historical docs comments; rg -i 'botfather' . — must be empty except CHANGELOG +phase06 @cleanup id:T617 blocked-by:T616 accept:no-live-telegram-references
 x 2026-06-25 Run go test ./... -race -count=1 — must be green; go vet ./... clean; staticcheck ./... clean +phase06 @tests id:T618 blocked-by:T617 accept:CI-equivalent-green-locally
 (B) 2026-06-23 Run goreleaser snapshot --skip=publish --clean — must build artifacts for all configured targets; record final binary size and confirm >=20% smaller than v2 +phase06 @release id:T619 blocked-by:T618
-# 2026-06-25: blocked locally because `goreleaser` is not installed on PATH; all preceding Phase 06 code/test checks passed.
+# 2026-06-25: `goreleaser release --snapshot --clean --skip=publish --skip=sign` succeeds after installing syft; signing skipped because GPG_FINGERPRINT is unset. Size gate is not met: pre-excision Go baseline 568fa69 darwin-arm64 stripped binary is 16,295,186 bytes; current snapshot darwin-arm64 is 15,365,858 bytes (5.70% smaller, target >=20%). Keep T619 open.
 (B) 2026-06-23 Update Makefile: remove any Telegram-specific targets (e.g., telegram-probe); ensure make test includes the new frontend npm test command if added +phase06 @build file:Makefile id:T620 blocked-by:T619
 
 ### Phase 07 — Mobile polish + soft keyboard + PWA (1.0 week)
