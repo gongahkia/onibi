@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -220,6 +221,7 @@ func TestControlInterruptUsesHostResolver(t *testing.T) {
 		writes <- append([]byte(nil), p...)
 		return len(p), nil
 	}, nil, nil)
+	host.Cmd = &exec.Cmd{Process: &os.Process{Pid: -1}}
 	srv.ptyHosts = func() map[string]*pty.Host {
 		return map[string]*pty.Host{"s1": host}
 	}

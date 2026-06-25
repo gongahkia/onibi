@@ -1,18 +1,16 @@
 # Getting Started
 
-This guide takes a fresh machine from no Onibi state to one working Telegram-controlled agent session.
+This guide takes a fresh machine from no Onibi state to one working LAN web cockpit session.
 
 ## 1. Prerequisites
 
 You need:
 
 - macOS or Linux.
-- Go 1.26.4 or newer when installing from source.
-- A Telegram account.
-- Telegram 2-Step Verification enabled on that account.
-- A bot created with @BotFather.
-- `git`, `make`, and a shell supported by your platform.
-- Optional: Claude Code installed if you want to test the Claude adapter first.
+- Go 1.26.4 or newer when building from source.
+- `git`, `make`, and a local shell.
+- A phone browser on the same reachable network as the Mac, or an iPhone hotspot.
+- Optional: Claude Code installed if you want approval overlay tests.
 
 Onibi stores local state in:
 
@@ -24,348 +22,120 @@ Onibi stores local state in:
 ~/.local/share/onibi/
 ```
 
-The daemon listens only on a local Unix socket under that state path. It talks outbound to Telegram over HTTPS.
+The phone cockpit is served over local HTTPS. The daemon also opens a same-UID Unix socket for hooks and MCP tools.
 
 ## 2. Install
 
-The source install is the current reliable path:
+Build from source:
 
 ```bash
 git clone https://github.com/gongahkia/onibi
 cd onibi
-make install
+make build
 ```
 
-Confirm the binaries are available:
+Confirm the binary works:
 
 ```bash
-onibi version
-onibi update-check
-onibi-notify --help
+./bin/onibi version
+./bin/onibi doctor
 ```
 
-If install or first boot fails, run the repair-plan view before changing files:
+Install Claude hooks when testing Claude approvals:
 
 ```bash
-onibi doctor --explain
+./bin/onibi install-hooks --agent claude
+./bin/onibi hooks --show --agent claude
 ```
 
-Common blockers are missing Go/toolchain binaries, `onibi-notify` not on PATH,
-state directory permissions, unavailable keychain, missing Telegram token,
-unpaired owner, tmux missing, service install failure, or agent hook trust
-still pending.
+Claude may require you to open `/hooks` and trust the printed Onibi hook commands.
 
-After the Homebrew tap is published, the release path is:
+## 3. Pair The Phone
+
+Start Onibi:
 
 ```bash
-brew install --cask gongahkia/onibi/onibi
-onibi version
-onibi update-check
+./bin/onibi up
 ```
 
-## 3. Create The Telegram Bot
+Onibi prints:
 
-Open Telegram and start a chat with `@BotFather`.
+- A local CA profile path, usually `onibi-local-ca.mobileconfig`.
+- A LAN or hotspot pair URL.
+- A QR code for the pair URL.
 
-Create the bot:
+On iPhone:
 
-```text
-/newbot
-```
+1. Install the printed CA profile if Safari warns about trust.
+2. Enable full trust for the Onibi local CA in iOS certificate trust settings.
+3. Restart `./bin/onibi up`.
+4. Scan the new QR.
 
-BotFather asks for:
+If pairing returns `Forbidden owner cookie is missing`, the browser did not complete trusted local HTTPS setup. Install and fully trust the profile, restart Onibi, then scan the new QR. Do not reuse an old QR.
 
-- A display name, for example `Onibi Home`.
-- A username ending in `bot`, for example `onibi_home_bot`.
+Network rule:
 
-BotFather returns an HTTP API token. Keep it private. Onibi stores it in the OS keychain when available and falls back to a `0600` `.env` file in the state directory when no keychain backend is available.
+- Same Wi-Fi works only when the network allows client-to-client traffic.
+- Managed Wi-Fi may block pairing or WebSockets.
+- iPhone hotspot is the current recommended fallback.
 
-Recommended BotFather cleanup:
+## 4. Use The Cockpit
 
-```text
-/setdescription
-/setuserpic
-```
+After pairing, Safari opens the terminal cockpit.
 
-Those are optional. The only required value is the token from `/newbot`.
+Soft keys:
 
-## 4. Pair Onibi
+| key | sends |
+|---|---|
+| `ESC` | Escape, useful for vim |
+| `UP` | Up arrow |
+| `DN` | Down arrow |
+| `INT` | SIGINT, like Ctrl-C |
+| `KILL` | terminate the hosted process |
 
-Run the happy-path command:
+Basic smoke:
 
 ```bash
-onibi up
+vim /tmp/onibi-smoke.txt
 ```
 
-On a fresh machine, `onibi up` delegates to:
+Type text, tap `ESC`, then type `:wq`.
+
+## 5. Test Claude Approvals
+
+Start Claude from the Onibi cockpit shell:
 
 ```bash
-onibi setup --complete
+claude
 ```
 
-During setup:
+Ask Claude to create a temp file. When the approval card appears on the phone:
 
-- Paste the BotFather token when prompted.
-- Open the printed Telegram link.
-- Press the pairing button or send the requested message.
-- Confirm Telegram 2-Step Verification when asked.
-- Accept service install if you want Onibi to run in the background.
-- Accept hook install if you want automatic agent and shell notifications.
+- `Approve` lets the original tool input run.
+- `Deny` blocks it.
+- `Edit` lets you submit modified JSON input.
 
-If you need to avoid putting the bot token in terminal scrollback, use stdin:
+Example edit test:
+
+1. Ask Claude to run `touch /tmp/onibi-original && echo original`.
+2. Tap `Edit`.
+3. Replace the Bash input with `{"command":"touch /tmp/onibi-edited && echo edited"}`.
+4. Submit the edit.
+5. Verify `/tmp/onibi-original` is absent and `/tmp/onibi-edited` exists.
+
+## 6. Common Commands
 
 ```bash
-printf '%s\n' '123456789:replace-with-botfather-token' | onibi setup --token-stdin --complete
+./bin/onibi up
+./bin/onibi doctor
+./bin/onibi adapters
+./bin/onibi hooks --show --agent claude
+./bin/onibi install-hooks --agent claude
 ```
 
-After setup, run:
+## 7. Clean Reset
 
-```bash
-onibi doctor
-onibi adapters
-onibi config --list
-onibi demo --approval
-```
-
-Expected result:
-
-- `doctor` reports the state directory, SQLite DB, owner chat id, token, and hook status.
-- `adapters` shows which agent hooks are installed or available.
-- `config --list` prints daemon, shell, and Telegram settings.
-- `demo --approval` sends a labelled test approval to Telegram without executing an agent tool.
-
-## 5. Start The First Session
-
-Open Telegram and send:
-
-```text
-/menu
-```
-
-Use the onboarding buttons to add a project, choose an agent, start visible,
-or trigger a test approval. The test approval path does not require trusted
-agent hooks.
-
-For the normal Telegram flow, add the repo as an explicit project alias:
-
-```bash
-onibi project --add here
-```
-
-Or from Telegram:
-
-```text
-/project add onibi ~/Desktop/coding/projects/onibi
-```
-
-`/project list` shows alias health and buttons for starting visible or
-headless sessions from saved aliases.
-
-Start a visible tmux-backed session from Telegram:
-
-```text
-/new --visible --project onibi codex
-```
-
-Visible means Onibi opens a local terminal attached to the same tmux session.
-Headless means the same session runs without an attached terminal window:
-
-```text
-/new --headless --project onibi shell
-```
-
-Onibi uses tmux as the control plane. Ghostty, iTerm2, or Terminal.app only
-render the session when visible; Onibi does not inject into arbitrary terminal
-tabs.
-
-Choose a visible-session launcher:
-
-```bash
-onibi config --set terminal.default auto
-onibi config --set terminal.default ghostty
-onibi config --set terminal.default iterm2
-onibi config --set terminal.default terminal
-onibi config --set terminal.default none
-```
-
-`auto` tries Ghostty, then iTerm2, then Terminal.app, then prints the manual
-`tmux attach-session` command.
-
-CLI starts still work for local testing:
-
-```bash
-onibi run claude
-onibi shell
-onibi wrap bash
-```
-
-In Telegram, send:
-
-```text
-/status
-/sessions
-```
-
-You should see the running session id, agent name, and current daemon status.
-
-## 6. Trigger The First Approval
-
-To test approvals before agent hooks are trusted, run:
-
-```bash
-onibi demo --approval
-```
-
-For a real agent approval, ask the agent to do something that uses a tool, for example:
-
-```text
-list the files in this repo
-```
-
-When the agent attempts the tool call, Onibi sends an approval message to Telegram.
-
-Use Telegram to choose:
-
-- Approve: let the original tool input run.
-- Deny: block it.
-- Edit: send modified JSON input back to the agent.
-
-After the turn finishes, Onibi sends a completion notification. Use:
-
-```text
-/peek <session-id>
-```
-
-or:
-
-```text
-/render <session-id>
-```
-
-to inspect recent output from Telegram. `/render` is a PNG render of the
-Onibi PTY/tmux buffer, not a Ghostty window screenshot. `/screenshot` remains a
-compatibility alias for `/render`.
-
-## 7. Common Next Steps
-
-Install or refresh hooks:
-
-```bash
-onibi install-hooks --interactive
-onibi doctor --fix
-```
-
-Run as a background service:
-
-```bash
-onibi install-service
-onibi doctor --mode installed
-```
-
-Start another agent:
-
-```bash
-onibi run codex
-onibi run gemini
-onibi run goose
-```
-
-List recorded sessions:
-
-```bash
-onibi sessions
-onibi sessions --all
-```
-
-Inspect audit logs:
-
-```bash
-onibi log -n 20
-onibi log --json --n 20
-```
-
-Rotate a leaked bot token:
-
-```bash
-onibi rotate-token
-onibi doctor
-```
-
-## 8. Encrypted Telegram Mode
-
-Default mode sends approval and prompt bodies as normal Telegram bot messages.
-
-Encrypted mode sends ciphertext through Telegram and decrypts in the Mini App:
-
-```bash
-onibi setup --enable-encrypted-mode --encrypted-mode on
-onibi config --get telegram.encrypted_mode
-```
-
-Setup prints a Mini App seed URL and QR code. Open it in Telegram so the Mini App stores the seed in Telegram SecureStorage.
-
-When encrypted mode is on:
-
-- Use `/secure` for prompt entry and approvals.
-- Plain `/prompt`, `/send`, `/editprompt`, and `/rename <id> <name>` refuse plaintext.
-- The Mini App host must stay static and trusted because it renders decrypted plaintext.
-
-Read the full model before relying on encrypted mode:
-
-```bash
-less docs/encrypted-mode.md
-```
-
-## 9. Troubleshooting
-
-No Telegram messages:
-
-```bash
-onibi doctor
-onibi log -n 20
-```
-
-Service not running:
-
-```bash
-onibi install-service
-onibi doctor --mode installed
-```
-
-Hook drift:
-
-```bash
-onibi adapters
-onibi doctor --fix
-```
-
-Lost bot token:
-
-```bash
-onibi rotate-token
-```
-
-Lost owner account:
-
-```bash
-onibi setup --rotate-owner
-```
-
-More cases:
-
-```bash
-less docs/troubleshooting.md
-```
-
-## 10. Clean Reset
-
-Stop the service first:
-
-```bash
-onibi uninstall-service
-```
-
-Remove all local Onibi state:
+Stop `onibi up`, then remove local state:
 
 ```bash
 # macOS
@@ -378,5 +148,5 @@ rm -rf ~/.local/share/onibi/
 Then pair again:
 
 ```bash
-onibi up
+./bin/onibi up
 ```

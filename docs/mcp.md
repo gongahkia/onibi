@@ -47,7 +47,7 @@ onibi doctor --mode installed
 
 ## Auth Model
 
-MCP clients do not talk to Telegram directly. They talk to `onibi mcp` over stdio. For daemon actions, `onibi mcp` connects to the local Unix socket.
+MCP clients do not talk to the phone browser directly. They talk to `onibi mcp` over stdio. For daemon actions, `onibi mcp` connects to the local Unix socket.
 
 The socket enforces same-UID peer credentials:
 
@@ -60,8 +60,8 @@ There is no network listener, bearer token, or remote MCP auth layer. A differen
 
 | Tool | Needs live daemon | Reads DB | Writes socket | Purpose |
 |---|---:|---:|---:|---|
-| `onibi_notify` | Yes | No | Yes | Send a status message to Telegram through the daemon. |
-| `onibi_approval_request` | Yes | No | Yes | Block for a Telegram approval decision. |
+| `onibi_notify` | Yes | No | Yes | Send a status event through the daemon. |
+| `onibi_approval_request` | Yes | No | Yes | Block for an owner approval decision. |
 | `onibi_session_list` | No | Yes | No | List recorded sessions from SQLite. |
 | `onibi_session_input` | Yes | No | Yes | Write text into a live session. |
 | `onibi_session_peek` | Yes | No | Yes | Read recent output from a live session. |

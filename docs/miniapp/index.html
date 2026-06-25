@@ -178,7 +178,7 @@ async function encryptPlain(seed, kind, plain, ttlSeconds){
 async function send(action, extra){
   if(!current) return;
   if(!tg || !tg.sendData){
-    setNotice("Telegram bridge unavailable.");
+    setNotice("Legacy mini app bridge unavailable.");
     return;
   }
   const seed = await storage().get("onibi_seed");

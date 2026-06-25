@@ -1,69 +1,51 @@
 # Security
 
-Onibi gives a Telegram chat controlled access to local coding-agent sessions. Treat it like remote terminal control.
+Onibi gives a paired phone browser control over local coding-agent sessions. Treat it like remote terminal access to your user account.
 
 ## Threat Model
 
 | # | adversary | capability | mitigation |
 |---|---|---|---|
-| T1 | bot token thief | can impersonate the bot, consume updates, or set webhooks | OS keychain by default, `.env` fallback warning, log redaction, token rotation, doctor checks, startup `deleteWebhook` alert, hard `getUpdates` conflict failure |
-| T2 | owner Telegram account compromised | becomes the owner and can approve/inject | setup requires Telegram 2-step verification acknowledgement, approvals expire, optional TOTP for destructive controls and paranoid edit replies |
-| T3 | local malware as same user | can read user files, Keychain after unlock, socket, hooks | out of scope; hook hash checks provide detection only |
-| T4 | network MITM | can try to read/modify Telegram traffic | stdlib TLS, TLS 1.2 minimum, no proxy for `api.telegram.org` by default |
-| T5 | first-message owner race | attacker pairs before real user | single-use deeplink pairing; no first-message ownership fallback |
-| T6 | bot username typo/squat | phishing future users | setup suggests a random username suffix |
-| T7 | stale approval hijack | approve old queued requests | approval TTL is enforced by the state machine; paranoid mode caps it at 60s |
-| T8 | duplicate callback replay | repeat an old decision | terminal approval states are final and idempotent |
-| T9 | hook tampering | redirect notify events or capture approval data | installed hook hashes are recorded and checked by `onibi doctor` |
-| T10 | edited JSON abuse | change tool inputs through Telegram | JSON syntax validation, known-tool schema validation, audit hashes for original/edited/diff, paranoid edit TOTP |
-| T11 | Unix socket impersonation | inject fake local events | state dir/socket perms plus peer UID checks |
-| T12 | token paste capture | clipboard/shoulder-surf token leak | `--token-stdin`, no argv token, immediate log scrubbing |
-| T13 | token committed to a repo | public bot takeover | `.gitignore`, pre-commit template, keychain storage by default |
-| T14 | SMS OTP interception | Telegram account takeover | setup recommends email recovery for Telegram 2-step verification |
-| T15 | Telegram cloud inspection | Telegram can store bot chat contents | optional encrypted approval payloads send ciphertext and decrypt in the Mini App |
-| T16 | Mini App host compromise | hosted JS can exfiltrate the decrypt seed | keep the Mini App static, review `docs/miniapp/index.html`, and host it from an account you control |
+| T1 | local network attacker | probes the web server or tries to steal a pair URL | HTTPS, short-lived single-use pair tokens, owner cookie, WebSocket token checks |
+| T2 | untrusted Wi-Fi | blocks or interferes with device-to-device traffic | hotspot fallback, local-only server, QR regenerated per run |
+| T3 | stolen paired phone | can use an active owner browser session | stop `onibi up`, clear browser data, rotate local state if needed |
+| T4 | same-user local malware | can read files, socket, hooks, and agent output | out of scope; hook hashes and doctor checks are detection only |
+| T5 | hook tampering | redirects approval data or bypasses Onibi | hook hashes, `hooks --show`, provider trust review |
+| T6 | stale approval replay | repeats an old decision | terminal approval states are final and idempotent |
+| T7 | edited JSON abuse | changes tool inputs before approval | JSON validation, provider schemas where available, audit records |
+| T8 | Unix socket impersonation | injects fake local events | state dir/socket perms plus peer UID checks |
+| T9 | local CA misuse | user trusts the wrong certificate profile | profile is generated locally; install only the path printed by `onibi up` |
 
 ## Enforcements
 
-- Every Telegram update passes one owner check before handlers run.
-- Pairing tokens are single-use, TTL-bound, and constant-time compared.
-- `setup --rotate-owner` requires the current owner to confirm in Telegram before a new owner can pair.
-- Approval decisions are stored with atomic `WHERE state='pending'` transitions.
-- Edited approval input must be a JSON object and pass known Claude tool schemas; unknown tools must preserve the original JSON shape.
-- Paranoid edit replies must end with a 6-digit TOTP code. TOTP also gates `/kill`, `/interrupt`, and matching menu callbacks when enabled.
-- Bot tokens are never accepted as positional args and are redacted from logs.
-- Startup checks for an existing Telegram webhook, deletes it, and alerts the owner when one was present.
-- `getUpdates` 409 conflicts stop the Telegram poller, are stored locally, and make `onibi doctor` fail until the other poller is stopped or the token is rotated.
-- The daemon uses outbound HTTPS to Telegram only; it does not expose an inbound network service.
-- Unix socket/state paths are permission-checked by `onibi doctor`.
-- Telegram send calls are rate-limited below Telegram's documented soft limits.
-- Hook installers record SHA-256 hashes; `onibi doctor` reports mismatches.
-- Optional encrypted Telegram mode uses AES-GCM envelopes with a setup QR seed stored by Telegram Mini App SecureStorage. If SecureStorage is unavailable, the Mini App fails closed.
-- `telegram.encrypted_mode=on` encrypts approvals, session previews/output, prompt acknowledgements, logs/status/session lists, and Mini App actions. `ask` uses the encrypted path without sending a plaintext approval copy.
-- High-risk approvals require a second confirm action; approval/request, high-risk approval, and prompt-injection volume spikes send owner warnings.
-- `onibi mcp` exposes local stdio MCP tools through the same Onibi Unix socket and peer-UID checks as hooks.
+- Pairing tokens are TTL-bound and single-use.
+- Owner identity is stored in an HttpOnly Secure cookie.
+- WebSocket connections require cookie auth and token auth.
+- Approval decisions update pending rows atomically.
+- Edited approval input must be valid JSON.
+- Hook installers record SHA-256 hashes.
+- `onibi doctor` reports hook drift and state permission problems.
+- `/control` actions operate on the hosted PTY process, not arbitrary system processes.
+- `onibi mcp` exposes local stdio tools through the same Unix socket and peer-UID checks as hooks.
 
 ## Non-Defenses
 
-- Same-user local malware. If the user account is owned, Onibi is owned.
-- Full compromise of the owner Telegram account. Optional TOTP narrows some destructive paths, but normal prompt injection and approvals still trust the owner chat.
-- Telegram cloud confidentiality when encrypted mode is off, or for metadata such as bot identity, timing, message length, and approval id when encrypted mode is on.
-- Prompts typed directly into Telegram are already stored by Telegram; use `/secure` in encrypted mode.
-- Mini App host integrity. Static hosting reduces moving parts, but served JavaScript can read the local decrypt seed.
-- Apple notarization or GitHub release infrastructure compromise.
-- Hosted agent API insider attacks.
+- Same-user local compromise. If your OS user account is owned, Onibi is owned.
+- A stolen unlocked phone with an active paired browser session.
+- Malicious coding agents or provider-side model behavior.
+- Malicious commands you approve.
+- Apple notarization, GitHub release, package registry, or Homebrew compromise.
 
 ## Setup Checklist
 
-- [ ] Bot username has a random suffix.
-- [ ] Bot token is in the OS keychain, not `.env`.
-- [ ] Telegram 2-step verification is enabled.
-- [ ] Telegram recovery uses email, not SMS.
-- [ ] LaunchAgent/systemd service is loaded.
-- [ ] State dir is `0700`; socket is `0600`.
-- [ ] Hook hashes match `onibi doctor`.
-- [ ] Bot token was rotated within the last 6 months.
+- [ ] Install only the `onibi-local-ca.mobileconfig` printed by your own `onibi up`.
+- [ ] Enable full trust for that CA only when you intend to use the phone cockpit.
+- [ ] Use iPhone hotspot when managed Wi-Fi blocks local peer traffic.
+- [ ] Verify hook commands with `./bin/onibi hooks --show --agent claude`.
+- [ ] Review Claude `/hooks` before trusting Onibi hooks.
+- [ ] Keep state dir permissions restricted.
+- [ ] Stop `onibi up` when you are done.
 
 ## Reporting
 
-Report vulnerabilities privately through GitHub Security Advisories for this repository. Do not open a public issue for a live exploit or token exposure.
+Report vulnerabilities privately through GitHub Security Advisories for this repository. Do not open a public issue for a live exploit.

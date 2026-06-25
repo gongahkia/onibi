@@ -54,13 +54,14 @@ func signalHost(host *pty.Host, sig syscall.Signal) error {
 	if host == nil {
 		return errors.New("session has no host")
 	}
+	if sig == syscall.SIGINT {
+		_, err := host.Write([]byte{3})
+		return err
+	}
 	if host.Cmd != nil && host.Cmd.Process != nil {
 		return signalPID(host.Cmd.Process.Pid, sig)
 	}
 	switch sig {
-	case syscall.SIGINT:
-		_, err := host.Write([]byte{3})
-		return err
 	case syscall.SIGKILL:
 		return host.Close()
 	default:

@@ -79,6 +79,9 @@ function controlButton(label: string, action: () => void): HTMLButtonElement {
   let firedAt = 0;
   const fire = (event: Event) => {
     event.preventDefault();
+    if (Date.now() - firedAt < 250) {
+      return;
+    }
     firedAt = Date.now();
     action();
     term.focus();

@@ -1,150 +1,131 @@
 # Troubleshooting
 
-## Lost Bot Token
+## Pairing Shows Forbidden
 
-Run:
+If the phone shows `Forbidden owner cookie is missing` right after pairing, iOS did not trust Onibi's local HTTPS certificate for that run.
 
-```sh
-onibi rotate-token
-onibi doctor
+Do this:
+
+```bash
+./bin/onibi up
 ```
 
-Use @BotFather -> `/mybots` -> select bot -> API Token -> Revoke current token. Paste only the new token into Onibi.
+Then on iPhone:
 
-## Lost Owner Telegram Account
+1. Install the printed `onibi-local-ca.mobileconfig`.
+2. Enable full trust for the Onibi local CA.
+3. Stop and restart `./bin/onibi up`.
+4. Scan the new QR.
 
-Run:
+Old pair URLs expire and should not be reused.
 
-```sh
-onibi setup --rotate-owner
-onibi doctor
+## TLS Unknown Certificate
+
+Server logs like this mean the phone rejected the local cert:
+
+```text
+TLS handshake error ... remote error: tls: unknown certificate
 ```
 
-This requires current owner confirmation, then pairs the new owner.
+Install and fully trust the printed CA profile, restart Onibi, then scan a new QR.
 
-## Stale Webhook
-
-Onibi uses long polling, not webhooks. Startup deletes any webhook. If updates still do not arrive:
-
-```sh
-onibi doctor
-onibi rotate-token
-onibi install-service
-```
-
-## No Telegram Updates
+## Phone Cannot Reach The Mac
 
 Check:
 
-```sh
-onibi doctor
-onibi install-service
-onibi log -n 20
+```bash
+./bin/onibi up
 ```
 
-Common causes: wrong bot token, another poller consuming updates, blocked Telegram network, service not running, or owner chat mismatch.
+Use the printed IP URL first. If `.local` fails, keep using the IP URL.
 
-If doctor reports `telegram getUpdates` as `conflict: another getUpdates poller
-is active`, Onibi has stopped its Telegram poll loop. Stop the other Onibi
-daemon/process first. If you cannot identify it, revoke the token in @BotFather
-and run:
+Common causes:
 
-```sh
-onibi rotate-token
-onibi install-service
-onibi doctor --mode installed
+- Mac and phone are not on the same network.
+- Managed Wi-Fi blocks client-to-client traffic.
+- VPN or firewall blocks inbound local HTTPS.
+- The QR was generated before switching networks.
+
+Current fallback: connect the Mac to the iPhone hotspot, rerun `./bin/onibi up`, scan the new QR.
+
+## WebSocket Token Mismatch
+
+Logs like `reason=token_mismatch` usually mean a stale tab, stale token, or reload during reconnect.
+
+Try:
+
+1. Refresh the phone page once.
+2. If it repeats, stop `onibi up`.
+3. Run `./bin/onibi up` again.
+4. Scan the new QR.
+
+## Claude Shows Native Approval Instead Of Onibi Card
+
+Check hooks:
+
+```bash
+./bin/onibi install-hooks --agent claude
+./bin/onibi hooks --show --agent claude
 ```
 
-## Sleep/Wake
+Then in Claude Code, open `/hooks` and keep the Onibi hook commands enabled if they match.
 
-If the laptop slept and messages stopped:
+Start Claude from the shell created by `./bin/onibi up`. That shell exports:
 
-```sh
-onibi doctor --fix
-onibi install-service
+```bash
+echo "$ONIBI_SOCK"
+echo "$ONIBI_SESSION_ID"
 ```
 
-Then send `/status` in Telegram. If it still fails, stop and restart the user service.
+If either is empty, the hook cannot route approval requests to the current web cockpit.
 
-## Encrypted Approval Mode
+## Approval Edit Fails
 
-Run:
+The edited payload must remain valid JSON.
 
-```sh
-onibi setup --enable-encrypted-mode
-onibi config --get telegram.encrypted_mode
-onibi config --get telegram.mini_app_url
+For Claude Bash, edit the command object:
+
+```json
+{"command":"touch /tmp/onibi-edited && echo edited"}
 ```
 
-If the Mini App says `seed missing`, scan the setup QR again. If Telegram opens
-the app but actions do not return to the bot, verify the approval was opened
-from the one-time keyboard button, not a normal browser.
-If it says `SecureStorage unavailable`, update Telegram or use a Telegram client
-that supports Mini App SecureStorage; Onibi does not fall back to browser storage.
+For file writes, preserve the expected fields such as `file_path` and `content`.
 
-## MCP
+## Soft Keys
 
-Use `onibi mcp` as a stdio server command in the MCP client config. The daemon
-must already be running for session_input, session_peek, notify, and
-approval_request; session_list can read the local DB without a live daemon.
+- `ESC` sends Escape for vim.
+- `UP` and `DN` send arrow keys.
+- `INT` sends SIGINT to the running PTY process group.
+- `KILL` terminates the hosted process.
+
+If `ESC` or arrows seem ignored, tap the terminal once to focus it and try again.
 
 ## Hook Drift
 
-If `onibi adapters` or `onibi doctor` reports hook drift:
+If hooks are missing or stale:
 
-```sh
-onibi adapters
-onibi hooks --show --all
-onibi doctor --fix
-onibi install-hooks --interactive
+```bash
+./bin/onibi adapters
+./bin/onibi hooks --show --all
+./bin/onibi install-hooks --agent claude
 ```
 
-`doctor --fix` adopts recognized current Onibi hooks with missing hashes and reinstalls outdated managed hooks. Tampered hooks require manual review.
+Provider-specific trust or reload prompts printed by `install-hooks` are required for that provider.
 
-Before or after installing one provider, inspect the exact file, backup, expected commands, installed commands, and trust/reload next step:
+## MCP
 
-```sh
-onibi hooks --show --agent codex
-onibi hooks --show --agent claude
-onibi hooks --show --agent gemini
-onibi hooks --show --shell zsh
-onibi doctor --after-upgrade
+Use `onibi mcp` as a stdio server command in the MCP client config. The daemon should already be running for daemon-backed tools.
+
+## Clean Reset
+
+Stop `onibi up`, then remove local state:
+
+```bash
+# macOS
+rm -rf ~/Library/Application\ Support/onibi/
+
+# Linux
+rm -rf ~/.local/share/onibi/
 ```
 
-Provider-specific trust or reload prompts printed by `install-hooks` are required for that provider. Codex and Claude require manual review; OpenCode, Amp, and Pi require restart/reload behavior from their own CLI.
-
-## Shell Hook Conflicts
-
-Shell hooks are opt-in and emit `cmd_done` only after commands exceed the configured minimum duration. If events are missing, first run a command longer than the threshold, then check:
-
-```sh
-onibi adapters
-onibi doctor
-```
-
-Common conflict points:
-
-- Starship: Onibi does not replace the prompt; zsh uses `add-zsh-hook` for `preexec` and `precmd`. Keep both init blocks loaded, and reinstall Onibi hooks after prompt/framework setup if `cmd_done` events disappear.
-- oh-my-zsh: load oh-my-zsh and plugins before the Onibi managed block. If a later plugin resets zsh hooks, move the managed block to the end by running `onibi install-hooks --shell zsh`.
-- fish `conf.d`: Onibi owns `~/.config/fish/conf.d/onibi.fish` and rewrites it on install. Do not edit that file in place; put custom fish config in a separate `*.fish` file.
-- bash plus `nix-shell --pure`: pure shells clear most environment variables, and Nix `shellHook` can change interactive state. If Bash notifications vanish inside Nix, source `~/.bashrc` after entering the shell or add the Onibi install/source step after the Nix shell setup.
-
-## Keychain Fallback
-
-If doctor reports `.env fallback`, the token is in the state dir instead of the OS keychain. Keep the file `0600`, install keychain support if needed, then rotate the token:
-
-```sh
-onibi rotate-token
-onibi doctor
-```
-
-## Service Not Running
-
-Run:
-
-```sh
-onibi install-service
-onibi doctor --mode installed
-```
-
-macOS writes `~/Library/LaunchAgents/sh.onibi.daemon.plist`. Linux writes `~/.config/systemd/user/onibi.service`.
+Run `./bin/onibi up` and pair again.

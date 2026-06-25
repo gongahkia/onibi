@@ -221,9 +221,11 @@ x 2026-06-25 Manual smoke: drive vim on real iPhone via the pair URL for 2 minut
 # 2026-06-25: T512 attempt over web cockpit reached Claude Code and Claude created `/tmp/onibi-approval-deny.txt`, but no Onibi approval overlay appeared; Claude's native terminal approval prompt handled the Write. Do not mark T512 done until hooks route the approval through Onibi and Deny prevents the write.
 # 2026-06-25: `onibi up` local-shell flow now starts an approval.Queue + intake socket and passes the queue to `/ws/events`; spawned shell exports `ONIBI_SOCK` and `ONIBI_SESSION_ID=local-shell`, so Claude hooks can reach the web approval overlay.
 # 2026-06-25: T512 passed on real iPhone. Claude Write approval rendered in Onibi overlay; Deny posted `/approval/<id>` 200; Claude did not create `/tmp/onibi-approval-deny.txt` or `/tmp/onibi-approval-deny.tft`.
+# 2026-06-25: T513 passed on real iPhone. Bash approval overlay edited command from `/tmp/onibi-original` to `/tmp/onibi-edited`; Claude output was `edited`; final local check showed original absent and edited present.
+# 2026-06-25: T514 passed on real iPhone. INT sent Ctrl-C to the foreground PTY job; shell printed `^CINT_OK` and did not print `BAD`.
 x 2026-06-25 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
-(B) 2026-06-23 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
-(B) 2026-06-23 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert ^C reaches the child process group via syscall.Kill(-pgid, SIGINT) +phase05 @tests id:T514 blocked-by:T513
+x 2026-06-25 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
+x 2026-06-25 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert Ctrl-C reaches the foreground PTY job and stops it before completion +phase05 @tests id:T514 blocked-by:T513
 ### Phase 06 — Telegram excision (1.5 weeks)
 
 > Goal: delete `internal/telegram/`, strip BotFather flow, rewrite README/setup/up, ensure full test suite green. After this phase the Telegram surface is gone for good (git history retains it).

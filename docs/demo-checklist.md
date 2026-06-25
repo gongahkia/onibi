@@ -2,10 +2,11 @@
 
 Target: 90 seconds.
 
-1. `brew install --cask gongahkia/onibi/onibi`
-2. `onibi setup --complete`
-3. Show Telegram pair + welcome message.
-4. `onibi run claude`
-5. Trigger one approval.
-6. Approve from Telegram.
-7. Show `/status` and `onibi doctor`.
+1. `make build`
+2. `./bin/onibi install-hooks --agent claude`
+3. `./bin/onibi up`
+4. Show iPhone QR pairing over LAN or hotspot.
+5. Drive `vim` from the phone cockpit.
+6. Start `claude` in the cockpit shell.
+7. Trigger one tool approval and decide it from the phone overlay.
+8. Show `./bin/onibi doctor`.
