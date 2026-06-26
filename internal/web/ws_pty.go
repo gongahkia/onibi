@@ -39,6 +39,12 @@ type ptySnapshotFrame struct {
 	Base64Data string `json:"base64_data"`
 }
 
+type ptyResizeFrame struct {
+	Type string `json:"type"`
+	Rows uint16 `json:"rows"`
+	Cols uint16 `json:"cols"`
+}
+
 func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	if r.Method != http.MethodGet {
@@ -114,9 +120,17 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for p := range ch {
 			bytesOut.Add(uint64(len(p)))
-			if err := writeWSBinary(ctx, c, &writeMu, p); err != nil {
-				cancel()
-				return
+			if rows, cols, ok := pty.ParseResizeFrame(p); ok {
+				err := writeWSJSON(ctx, c, &writeMu, ptyResizeFrame{Type: "resize", Rows: rows, Cols: cols})
+				if err != nil {
+					cancel()
+					return
+				}
+			} else {
+				if err := writeWSBinary(ctx, c, &writeMu, p); err != nil {
+					cancel()
+					return
+				}
 			}
 		}
 		_ = c.Close(websocket.StatusNormalClosure, "pty closed")

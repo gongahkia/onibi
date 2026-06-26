@@ -138,6 +138,16 @@ func TestHostResizeBroadcastsFrame(t *testing.T) {
 	}
 }
 
+func TestParseResizeFrame(t *testing.T) {
+	rows, cols, ok := ParseResizeFrame(ResizeFrame(46, 170))
+	if !ok || rows != 46 || cols != 170 {
+		t.Fatalf("parse resize = rows:%d cols:%d ok:%v", rows, cols, ok)
+	}
+	if _, _, ok := ParseResizeFrame([]byte("ONIBI-RESIZE:46x170")); ok {
+		t.Fatal("parsed unframed resize marker")
+	}
+}
+
 func BenchmarkHubBroadcast4Subs(b *testing.B) {
 	for _, subs := range []int{1, 4, 16} {
 		b.Run(fmt.Sprintf("%dsubs", subs), func(b *testing.B) {

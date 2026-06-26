@@ -3,6 +3,8 @@ package pty
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +214,27 @@ func (h *Hub) BroadcastResize(rows, cols uint16) {
 
 func ResizeFrame(rows, cols uint16) []byte {
 	return []byte(fmt.Sprintf("\x00ONIBI-RESIZE:%dx%d\x00", rows, cols))
+}
+
+func ParseResizeFrame(p []byte) (uint16, uint16, bool) {
+	s := string(p)
+	if !strings.HasPrefix(s, "\x00ONIBI-RESIZE:") || !strings.HasSuffix(s, "\x00") {
+		return 0, 0, false
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(s, "\x00ONIBI-RESIZE:"), "\x00")
+	rowsText, colsText, ok := strings.Cut(body, "x")
+	if !ok {
+		return 0, 0, false
+	}
+	rows, err := strconv.ParseUint(rowsText, 10, 16)
+	if err != nil || rows == 0 {
+		return 0, 0, false
+	}
+	cols, err := strconv.ParseUint(colsText, 10, 16)
+	if err != nil || cols == 0 {
+		return 0, 0, false
+	}
+	return uint16(rows), uint16(cols), true
 }
 
 func (h *Hub) Close() {

@@ -69,6 +69,21 @@ func TestWSPTYResizeFrameResizesHost(t *testing.T) {
 	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
 	writeWSJSONForTest(t, c, ptyControlFrame{Type: "resize", Rows: 22, Cols: 77})
 
+	typ, p := readWSForTest(t, c)
+	if typ != websocket.MessageText {
+		t.Fatalf("resize echo message type = %v payload=%q", typ, p)
+	}
+	var frame ptyResizeFrame
+	if err := json.Unmarshal(p, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != "resize" || frame.Rows != 22 || frame.Cols != 77 {
+		t.Fatalf("resize frame = %#v", frame)
+	}
+	if bytes.Contains(p, []byte("ONIBI-RESIZE")) {
+		t.Fatalf("resize marker leaked to web client: %q", p)
+	}
+
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		rows, cols, err := cpty.Getsize(host.Master)
