@@ -119,6 +119,52 @@ export function installViewportResize(term: Terminal, fit: FitAddon, ws: Termina
   };
 }
 
+export function installTouchScroll(term: Terminal, root: HTMLElement): IDisposable {
+  let lastY: number | undefined;
+  let carry = 0;
+  const linePx = () => Math.max(12, root.clientHeight / Math.max(1, term.rows));
+  const start = (event: TouchEvent) => {
+    if (event.touches.length !== 1) {
+      lastY = undefined;
+      carry = 0;
+      return;
+    }
+    lastY = event.touches[0].clientY;
+    carry = 0;
+  };
+  const move = (event: TouchEvent) => {
+    if (lastY === undefined || event.touches.length !== 1) {
+      return;
+    }
+    const y = event.touches[0].clientY;
+    carry += lastY - y;
+    lastY = y;
+    const lines = Math.trunc(carry / linePx());
+    if (lines === 0) {
+      return;
+    }
+    term.scrollLines(lines);
+    carry -= lines * linePx();
+    event.preventDefault();
+  };
+  const end = () => {
+    lastY = undefined;
+    carry = 0;
+  };
+  root.addEventListener("touchstart", start, { passive: true });
+  root.addEventListener("touchmove", move, { passive: false });
+  root.addEventListener("touchend", end);
+  root.addEventListener("touchcancel", end);
+  return {
+    dispose() {
+      root.removeEventListener("touchstart", start);
+      root.removeEventListener("touchmove", move);
+      root.removeEventListener("touchend", end);
+      root.removeEventListener("touchcancel", end);
+    }
+  };
+}
+
 function binaryStringBytes(value: string): Uint8Array {
   const bytes = new Uint8Array(value.length);
   for (let i = 0; i < value.length; i += 1) {

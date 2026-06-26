@@ -1,5 +1,5 @@
 import { TerminalWS } from "./ws";
-import { applyTerminalTheme, attachTerminalIO, createTerminal, installViewportResize } from "./terminal";
+import { applyTerminalTheme, attachTerminalIO, createTerminal, installTouchScroll, installViewportResize } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
@@ -25,6 +25,7 @@ const approvals = new ApprovalOverlay(approvalRoot);
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
+installTouchScroll(term, termEl);
 installViewportPinning(termEl);
 registerServiceWorker();
 ws.addEventListener("data", (event) => {
