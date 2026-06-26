@@ -4,6 +4,8 @@ type SoftKeyBarOptions = {
   root: HTMLElement;
   sendBytes: (data: Uint8Array) => void;
   sendText: (data: string) => void;
+  pageUp: () => void;
+  pageDown: () => void;
   focus: () => void;
   getTheme: () => TerminalThemeName;
   setTheme: (theme: TerminalThemeName) => void;
@@ -44,6 +46,8 @@ export class SoftKeyBar {
     for (const key of keys) {
       frag.append(this.keyButton(key));
     }
+    frag.append(this.pageButton("PgUp", options.pageUp));
+    frag.append(this.pageButton("PgDn", options.pageDown));
     frag.append(this.pasteButton());
     this.themeButton = this.button(themeLabel(options.getTheme()));
     this.themeButton.addEventListener("pointerdown", (event) => {
@@ -97,6 +101,16 @@ export class SoftKeyBar {
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       void this.paste();
+    });
+    return el;
+  }
+
+  private pageButton(label: string, action: () => void): HTMLButtonElement {
+    const el = this.button(label);
+    el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      action();
+      this.options.focus();
     });
     return el;
   }
