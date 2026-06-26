@@ -173,7 +173,8 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	sessionID := session.ID
-	defer func() { _, _ = d.HideSession(context.Background(), sessionID, "end") }()
+	tmuxTarget := session.TmuxTarget
+	defer cleanupManagedWebPairShell(logger, d, sessionID, tmuxTarget)
 	logPhase(logger, "shell_ready", phase, "session_id", sessionID)
 	visible, _ := cmd.Flags().GetBool("visible")
 	if visible {
@@ -306,6 +307,30 @@ func startManagedWebPairShell(ctx context.Context, d *daemon.Daemon, cfg config.
 		"login", cfg.Shell.Login,
 	)
 	return session, nil
+}
+
+func cleanupManagedWebPairShell(logger *slog.Logger, d *daemon.Daemon, sessionID, tmuxTarget string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if _, err := d.HideSession(ctx, sessionID, "end"); err != nil {
+		logger.Warn("managed shell session cleanup failed", "session_id", sessionID, "tmux_target", tmuxTarget, "err", err)
+	}
+	cancel()
+	if strings.TrimSpace(tmuxTarget) == "" {
+		return
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.KillTmuxTarget(ctx, tmuxTarget); err != nil && !tmuxTargetAlreadyGone(err) {
+		logger.Warn("managed tmux target cleanup failed", "session_id", sessionID, "tmux_target", tmuxTarget, "err", err)
+	}
+}
+
+func tmuxTargetAlreadyGone(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "can't find session") || strings.Contains(msg, "no server running")
 }
 
 func shellWorkingDir(cmd *cobra.Command) (string, error) {

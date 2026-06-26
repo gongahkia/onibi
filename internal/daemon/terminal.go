@@ -79,7 +79,7 @@ func launchGhosttyAppleScript(ctx context.Context, target string) error {
 	script := `tell application "Ghostty"` + "\n" +
 		`set cfg to new surface configuration` + "\n" +
 		`set command of cfg to ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
-		`set wait after command of cfg to true` + "\n" +
+		`set wait after command of cfg to false` + "\n" +
 		`set win to new window with configuration cfg` + "\n" +
 		`activate` + "\n" +
 		`end tell`
@@ -87,7 +87,7 @@ func launchGhosttyAppleScript(ctx context.Context, target string) error {
 }
 
 func launchGhosttyFresh(ctx context.Context, target string) error {
-	args := append([]string{"-Fna", "Ghostty.app", "--args", "-e"}, tmuxAttachArgs(target)...)
+	args := append([]string{"-Fna", "Ghostty.app", "--args", "--wait-after-command=false", "-e"}, tmuxAttachArgs(target)...)
 	return runTerminalCommand(ctx, "open", args...)
 }
 

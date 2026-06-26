@@ -306,6 +306,14 @@ func (d *Daemon) HandoverSession(ctx context.Context, id, target string) (string
 	}
 }
 
+func (d *Daemon) KillTmuxTarget(ctx context.Context, target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return errors.New("tmux target required")
+	}
+	return newTmuxController().KillSession(ctx, target)
+}
+
 func (d *Daemon) clearWebAttachHost(id string, host *pty.Host) {
 	d.webAttachMu.Lock()
 	defer d.webAttachMu.Unlock()
