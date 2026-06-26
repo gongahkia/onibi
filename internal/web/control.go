@@ -30,7 +30,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	host, ok := s.hostForSession(req.SessionID)
+	host, ok := s.hostForSession(r.Context(), req.SessionID)
 	if !ok {
 		s.log.Warn("web control failed", "request_id", requestID(r), "reason", "session_not_found", "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "session not found", http.StatusNotFound)

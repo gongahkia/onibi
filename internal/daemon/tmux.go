@@ -97,6 +97,55 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	return s, nil
 }
 
+func (d *Daemon) StartManagedTmuxSession(ctx context.Context, name, agent, bin string, args []string, cwd string) (*Session, error) {
+	if strings.TrimSpace(bin) == "" {
+		return nil, errors.New("command required")
+	}
+	id := NewID()
+	target := "onibi-" + shortID(id)
+	if strings.TrimSpace(name) == "" {
+		name = agent
+	}
+	if strings.TrimSpace(cwd) == "" {
+		cwd, _ = os.Getwd()
+	}
+	ctrl := newTmuxController()
+	env := []string{
+		"ONIBI_SOCK=" + d.Paths.Socket,
+		"ONIBI_SESSION_ID=" + id,
+	}
+	if err := ctrl.StartSession(ctx, target, tmux.StartOptions{
+		WindowName: name,
+		CWD:        cwd,
+		Env:        env,
+		Command:    bin,
+		Args:       args,
+	}); err != nil {
+		return nil, err
+	}
+	initial, _ := ctrl.Capture(ctx, target, 50)
+	s := NewSession(id, name, agent, nil, d.bufferSize())
+	s.Transport = "tmux"
+	s.TmuxTarget = target
+	s.Cmd = commandLine(bin, args)
+	s.CWD = cwd
+	if initial != "" {
+		_, _ = s.Buf.Write([]byte(initial))
+	}
+	if err := d.Registry.Add(s); err != nil {
+		_ = ctrl.KillSession(context.Background(), target)
+		return nil, err
+	}
+	if d.DB != nil {
+		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
+			d.Log.Warn("persist tmux session start", "session", s.ID, "err", err)
+		}
+	}
+	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s target=%s", s.Agent, s.Name, s.TmuxTarget))
+	go d.captureTmuxLoop(ctx, ctrl, s)
+	return s, nil
+}
+
 func (d *Daemon) restoreSessions(ctx context.Context) {
 	if d.DB == nil {
 		return
@@ -184,8 +233,107 @@ func (d *Daemon) tmuxHost(ctrl *tmux.Controller, target string, killSession bool
 	}, nil)
 }
 
-func (d *Daemon) ShowSession(ctx context.Context, id string) (string, error) {
+func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, error) {
 	s, err := d.sessionByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if s.Transport != "tmux" || s.TmuxTarget == "" {
+		if s.Host == nil {
+			return nil, errors.New("session has no writable PTY")
+		}
+		return s.Host, nil
+	}
+	d.webAttachMu.Lock()
+	if h := d.webAttachHosts[s.ID]; h != nil {
+		d.webAttachMu.Unlock()
+		return h, nil
+	}
+	d.webAttachMu.Unlock()
+
+	ctrl := newTmuxController()
+	_ = ctrl.DetachClients(ctx, s.TmuxTarget)
+	args := tmuxAttachArgs(s.TmuxTarget)
+	if len(args) == 0 {
+		return nil, errors.New("tmux attach command unavailable")
+	}
+	host, err := pty.Spawn(ctx, pty.SpawnOptions{
+		Name: args[0],
+		Args: args[1:],
+		Env:  []string{"ONIBI_SOCK=" + d.Paths.Socket, "ONIBI_SESSION_ID=" + s.ID},
+		Dir:  s.CWD,
+	})
+	if err != nil {
+		return nil, err
+	}
+	d.webAttachMu.Lock()
+	d.webAttachHosts[s.ID] = host
+	s.Host = host
+	d.webAttachMu.Unlock()
+	go func() {
+		_ = host.Wait()
+		d.clearWebAttachHost(s.ID, host)
+	}()
+	return host, nil
+}
+
+func (d *Daemon) HandoverSession(ctx context.Context, id, target string) (string, error) {
+	s, err := d.sessionByID(id)
+	if err != nil {
+		return "", err
+	}
+	if s.Transport != "tmux" || s.TmuxTarget == "" {
+		return "", errors.New("handover requires a tmux-backed session")
+	}
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case "mac":
+		d.closeWebAttachHost(s.ID)
+		msg, err := d.ShowSession(ctx, s.ID)
+		if err != nil {
+			return "", err
+		}
+		return msg, nil
+	case "phone":
+		ctrl := newTmuxController()
+		_ = ctrl.DetachClients(ctx, s.TmuxTarget)
+		d.closeWebAttachHost(s.ID)
+		if _, err := d.EnsureWebPTYHost(ctx, s.ID); err != nil {
+			return "", err
+		}
+		d.audit(ctx, "session.handover", s.ID, "", 0, "phone")
+		return "Phone handover ready.", nil
+	default:
+		return "", errors.New("handover target must be mac or phone")
+	}
+}
+
+func (d *Daemon) clearWebAttachHost(id string, host *pty.Host) {
+	d.webAttachMu.Lock()
+	defer d.webAttachMu.Unlock()
+	if d.webAttachHosts[id] != host {
+		return
+	}
+	delete(d.webAttachHosts, id)
+	if s, err := d.Registry.Get(id); err == nil && s.Host == host {
+		s.Host = nil
+	}
+}
+
+func (d *Daemon) closeWebAttachHost(id string) {
+	d.webAttachMu.Lock()
+	host := d.webAttachHosts[id]
+	delete(d.webAttachHosts, id)
+	if s, err := d.Registry.Get(id); err == nil && s.Host == host {
+		s.Host = nil
+	}
+	d.webAttachMu.Unlock()
+	if host != nil {
+		_ = host.Close()
+	}
+}
+
+func (d *Daemon) ShowSession(ctx context.Context, id string) (string, error) {
+	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
 		return "", err
 	}
@@ -200,7 +348,7 @@ func (d *Daemon) ShowSession(ctx context.Context, id string) (string, error) {
 }
 
 func (d *Daemon) HideSession(ctx context.Context, id, mode string) (string, error) {
-	s, err := d.sessionByID(id)
+	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
 		return "", err
 	}

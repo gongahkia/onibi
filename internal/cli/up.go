@@ -24,6 +24,7 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/pty"
@@ -48,6 +49,7 @@ func upCmd() *cobra.Command {
 	cmd.Flags().String("shell", "", "shell executable for local cockpit session")
 	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
+	cmd.Flags().Bool("visible", false, "open the managed session in a Mac terminal immediately")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
 	cmd.Flags().String("log-file", "", "also write up logs to this file")
 	return cmd
@@ -155,34 +157,40 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"lan_hosts", strings.Join(lanHosts, ","),
 		"preferred_host", preferredHost,
 	)
+	d := daemon.New(daemon.Options{
+		Paths:                 paths,
+		DB:                    db,
+		Log:                   logger,
+		ApprovalTTL:           cfg.Daemon.ApprovalTimeout.Std(),
+		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
+		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:            cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:       cfg.Terminal.Default,
+		WebAddr:               cfg.Web.ListenAddr,
+		WebCertDir:            certDir,
+		SkipRestore:           true,
+	})
 	phase = time.Now()
-	sessionID, host, err := startWebPairShell(ctx, paths, cfg, shellCWD, logger)
+	session, err := startManagedWebPairShell(ctx, d, cfg, shellCWD, logger)
 	if err != nil {
 		return err
 	}
+	sessionID := session.ID
 	logPhase(logger, "shell_ready", phase, "session_id", sessionID)
-	defer func() { _ = host.Close() }()
-	hostDone := make(chan error, 1)
-	go func() { hostDone <- host.Wait() }()
-	queue := approval.New(db, approval.DefaultTTL)
-	queue.Log = logger
-	sweeper := &approval.Sweeper{Queue: queue, Log: logger, Interval: time.Second}
-	intakeServer := intake.New(paths.Socket, func(context.Context, intake.Event) error { return nil }, logger)
-	intakeServer.SetApprovalHandler(localWebApprovalHandler(queue, sessionID, logger))
-	server := web.New(web.Options{
-		TLSCert:       cert,
-		DB:            db,
-		ApprovalQueue: queue,
-		PTYHosts: func() map[string]*pty.Host {
-			return map[string]*pty.Host{sessionID: host}
-		},
-		Log: logger,
-	})
+	visible, _ := cmd.Flags().GetBool("visible")
+	if visible {
+		if msg, err := d.ShowSession(ctx, sessionID); err != nil {
+			logger.Warn("initial Mac handover failed", "session_id", sessionID, "err", err)
+		} else {
+			logger.Info("initial Mac handover complete", "session_id", sessionID, "message", msg)
+		}
+	} else if _, err := d.EnsureWebPTYHost(ctx, sessionID); err != nil {
+		return err
+	}
 	errCh := make(chan error, 1)
 	phase = time.Now()
-	go func() { errCh <- server.StartContext(ctx, cfg.Web.ListenAddr) }()
-	go func() { errCh <- intakeServer.Serve(ctx) }()
-	go sweeper.Run(ctx)
+	go func() { errCh <- d.Run(ctx) }()
 	if err := waitForWebHealth(ctx, port, errCh, logger); err != nil {
 		return err
 	}
@@ -240,17 +248,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	select {
 	case <-ctx.Done():
 		logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
-		return nil
-	case err := <-hostDone:
-		if ctx.Err() != nil {
-			logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
-			return nil
-		}
-		if err != nil {
-			logger.Warn("web pair shell exited", "session_id", sessionID, "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
-			return fmt.Errorf("web shell exited: %w", err)
-		}
-		logger.Info("web pair shell exited", "session_id", sessionID, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {

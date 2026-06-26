@@ -44,18 +44,18 @@ func newSessionCmd() *cobra.Command {
 
 func showCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <id|name>",
+		Use:   "show [id|name]",
 		Short: "Open a visible terminal for a tmux-backed session",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runShowSession,
 	}
 }
 
 func hideCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "hide <id|name>",
+		Use:   "hide [id|name]",
 		Short: "Detach visible clients or end a tmux-backed session",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runHideSession,
 	}
 	cmd.Flags().Bool("headless", false, "detach terminal clients and continue headless")

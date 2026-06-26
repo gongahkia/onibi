@@ -30,6 +30,9 @@ type Options struct {
 	DB            *store.DB
 	ApprovalQueue *approval.Queue
 	PTYHosts      func() map[string]*pty.Host
+	SessionIDs    func() []string
+	PTYHost       func(context.Context, string) (*pty.Host, error)
+	Handover      func(context.Context, string, string) (string, error)
 	Log           *slog.Logger
 }
 
@@ -38,6 +41,9 @@ type Server struct {
 	db            *store.DB
 	approvalQueue *approval.Queue
 	ptyHosts      func() map[string]*pty.Host
+	sessionIDs    func() []string
+	ptyHost       func(context.Context, string) (*pty.Host, error)
+	handover      func(context.Context, string, string) (string, error)
 	log           *slog.Logger
 }
 
@@ -50,6 +56,9 @@ func New(opts Options) *Server {
 		db:            opts.DB,
 		approvalQueue: opts.ApprovalQueue,
 		ptyHosts:      opts.PTYHosts,
+		sessionIDs:    opts.SessionIDs,
+		ptyHost:       opts.PTYHost,
+		handover:      opts.Handover,
 		log:           opts.Log,
 	}
 }
@@ -63,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/control", s.handleControl)
+	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	mux.HandleFunc("/", s.handleRoot)
 	return s.loggedHandler(mux)
@@ -173,28 +183,21 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	hosts := map[string]*pty.Host{}
-	if s.ptyHosts != nil {
-		if got := s.ptyHosts(); got != nil {
-			hosts = got
-		}
-	}
+	sessionIDs := s.activeSessionIDs()
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID != "" {
-		if hosts[sessionID] == nil {
-			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "session_not_found", "requested_session", sessionID, "active_sessions", len(hosts))
+		if !containsSessionID(sessionIDs, sessionID) {
+			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "session_not_found", "requested_session", sessionID, "active_sessions", len(sessionIDs))
 			http.Error(w, "session not found", http.StatusNotFound)
 			return
 		}
 	} else {
-		if len(hosts) != 1 {
-			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "active_session_count_not_one", "active_sessions", len(hosts))
+		if len(sessionIDs) != 1 {
+			s.log.Warn("web session info failed", "request_id", requestID(r), "reason", "active_session_count_not_one", "active_sessions", len(sessionIDs))
 			http.Error(w, "exactly one active session required", http.StatusConflict)
 			return
 		}
-		for id := range hosts {
-			sessionID = id
-		}
+		sessionID = sessionIDs[0]
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
@@ -203,14 +206,61 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) hostForSession(sessionID string) (*pty.Host, bool) {
+func (s *Server) activeSessionIDs() []string {
+	if s.sessionIDs != nil {
+		return uniqueSessionIDs(s.sessionIDs())
+	}
+	hosts := s.staticPTYHosts()
+	ids := make([]string, 0, len(hosts))
+	for id := range hosts {
+		ids = append(ids, id)
+	}
+	return uniqueSessionIDs(ids)
+}
+
+func (s *Server) staticPTYHosts() map[string]*pty.Host {
 	if s.ptyHosts == nil {
-		return nil, false
+		return nil
 	}
 	hosts := s.ptyHosts()
 	if hosts == nil {
-		return nil, false
+		return nil
 	}
-	h := hosts[sessionID]
+	return hosts
+}
+
+func (s *Server) hostForSession(ctx context.Context, sessionID string) (*pty.Host, bool) {
+	if s.ptyHost != nil {
+		h, err := s.ptyHost(ctx, sessionID)
+		if err == nil && h != nil {
+			return h, true
+		}
+		if err != nil {
+			s.log.Warn("web pty host resolver failed", "session_id", sessionID, "err", err)
+		}
+	}
+	h := s.staticPTYHosts()[sessionID]
 	return h, h != nil
+}
+
+func uniqueSessionIDs(ids []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func containsSessionID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }

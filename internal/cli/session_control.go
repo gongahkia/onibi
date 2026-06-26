@@ -43,7 +43,11 @@ func runNewSession(cmd *cobra.Command, args []string) error {
 }
 
 func runShowSession(cmd *cobra.Command, args []string) error {
-	resp, err := sessionRPC(cmd.Context(), intake.Event{Type: intake.TypeSessionShow, Session: args[0]})
+	session := ""
+	if len(args) > 0 {
+		session = args[0]
+	}
+	resp, err := sessionRPC(cmd.Context(), intake.Event{Type: intake.TypeSessionShow, Session: session})
 	if err != nil {
 		return err
 	}
@@ -67,7 +71,11 @@ func runHideSession(cmd *cobra.Command, args []string) error {
 			mode = "end"
 		}
 	}
-	resp, err := sessionRPC(cmd.Context(), intake.Event{Type: intake.TypeSessionHide, Session: args[0], Mode: mode})
+	session := ""
+	if len(args) > 0 {
+		session = args[0]
+	}
+	resp, err := sessionRPC(cmd.Context(), intake.Event{Type: intake.TypeSessionHide, Session: session, Mode: mode})
 	if err != nil {
 		return err
 	}

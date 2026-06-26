@@ -89,7 +89,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID = attach.SessionID
-	host, ok := s.hostForSession(attach.SessionID)
+	host, ok := s.hostForSession(ctx, attach.SessionID)
 	if !ok {
 		s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "unknown_session", "session_id", attach.SessionID, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "unknown session")

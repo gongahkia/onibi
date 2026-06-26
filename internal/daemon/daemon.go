@@ -44,11 +44,14 @@ type Daemon struct {
 	WebAddr         string
 	WebCertDir      string
 
-	mu       sync.Mutex
-	notified map[string]bool // session id → already-fired turn-complete once
-	started  time.Time
+	mu             sync.Mutex
+	webAttachMu    sync.Mutex
+	webAttachHosts map[string]*pty.Host
+	notified       map[string]bool // session id → already-fired turn-complete once
+	started        time.Time
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
+	SkipRestore  bool
 }
 
 // Options bundles construction inputs.
@@ -65,6 +68,7 @@ type Options struct {
 	TerminalDefault       string
 	WebAddr               string
 	WebCertDir            string
+	SkipRestore           bool
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -78,9 +82,11 @@ func New(opts Options) *Daemon {
 		DB:              opts.DB,
 		Log:             opts.Log,
 		Registry:        NewRegistry(),
+		webAttachHosts:  map[string]*pty.Host{},
 		notified:        map[string]bool{},
 		started:         time.Now(),
 		ExitWhenIdle:    opts.ExitWhenIdle,
+		SkipRestore:     opts.SkipRestore,
 		BufferSize:      opts.BufferSize,
 		TerminalDefault: opts.TerminalDefault,
 		WebAddr:         opts.WebAddr,
@@ -284,6 +290,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 			DB:            d.DB,
 			ApprovalQueue: d.Queue,
 			PTYHosts:      d.webPTYHosts,
+			SessionIDs:    d.webSessionIDs,
+			PTYHost:       d.EnsureWebPTYHost,
+			Handover:      d.HandoverSession,
 			Log:           d.Log,
 		})
 		wg.Add(1)
@@ -348,13 +357,24 @@ func (d *Daemon) webPTYHosts() map[string]*pty.Host {
 	return out
 }
 
+func (d *Daemon) webSessionIDs() []string {
+	live := d.liveSessions()
+	out := make([]string, 0, len(live))
+	for _, s := range live {
+		out = append(out, s.ID)
+	}
+	return out
+}
+
 func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 	if d.DB != nil {
 		if err := d.DB.KVPurgeExpired(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Warn("purge expired kv", slog.Any("err", err))
 		}
 	}
-	d.restoreSessions(ctx)
+	if !d.SkipRestore {
+		d.restoreSessions(ctx)
+	}
 	if err := d.RestorePendingApprovals(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		d.Log.Warn("restore pending approvals", slog.Any("err", err))
 	}
