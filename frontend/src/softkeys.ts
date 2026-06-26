@@ -110,7 +110,9 @@ export class SoftKeyBar {
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       action();
-      this.options.focus();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     });
     return el;
   }
