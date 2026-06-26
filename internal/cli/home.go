@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -95,6 +96,13 @@ func quiet(cmd *cobra.Command) bool {
 
 func debug(cmd *cobra.Command) bool {
 	return boolFlag(cmd, "debug")
+}
+
+func commandLogLevel(cmd *cobra.Command) slog.Level {
+	if debug(cmd) {
+		return slog.LevelDebug
+	}
+	return slog.LevelWarn
 }
 
 func logoWidth(cmd *cobra.Command) int {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,7 +30,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	bufSize, _ := cmd.Flags().GetInt("buffer")
 	attachTmux, _ := cmd.Flags().GetString("attach-tmux")
-	debug, _ := cmd.Flags().GetBool("debug")
 	logFilePath, _ := cmd.Flags().GetString("log-file")
 	argv0, _ := cmd.Flags().GetString("argv0")
 
@@ -77,10 +75,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer logFile.Close()
-	level := slog.LevelInfo
-	if debug {
-		level = slog.LevelDebug
-	}
+	level := commandLogLevel(cmd)
 	logger := logging.New(io.MultiWriter(cmd.ErrOrStderr(), logFile), level)
 
 	d := daemon.New(daemon.Options{

@@ -72,10 +72,8 @@ func runUp(cmd *cobra.Command, _ []string) error {
 
 func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	started := time.Now()
-	level := slog.LevelInfo
-	if debug(cmd) {
-		level = slog.LevelDebug
-	}
+	debugMode := debug(cmd)
+	level := commandLogLevel(cmd)
 	logWriter := cmd.ErrOrStderr()
 	if logFile, _ := cmd.Flags().GetString("log-file"); strings.TrimSpace(logFile) != "" {
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -204,28 +202,39 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"expires_at", time.Now().Add(setup.PairTokenTTL).UTC().Format(time.RFC3339Nano),
 		"duration_ms", time.Since(phase).Milliseconds(),
 	)
-	printCLIHeader(cmd, "Onibi up")
 	style := styleFor(cmd)
-	_ = renderTable(cmd.OutOrStdout(), [][]string{
-		{"web", style.status("PASS"), cfg.Web.ListenAddr},
-		{"transport", style.status("INFO"), cfg.Transport.Mode},
-		{"shell", style.status("PASS"), sessionID},
-		{"socket", style.status("PASS"), paths.Socket},
-	})
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), style.bold("iPhone HTTPS trust"))
-	fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
-	fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Pair from phone"))
-	fmt.Fprintln(cmd.OutOrStdout(), url)
-	fmt.Fprintln(cmd.OutOrStdout(), "Expires:", setup.PairTokenTTL.String())
-	for _, alt := range urls[1:] {
-		fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
-	}
-	if noQR, _ := cmd.Flags().GetBool("no-qr"); !noQR && !quiet(cmd) {
-		if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
-			return err
+	if quiet(cmd) {
+		fmt.Fprintln(cmd.OutOrStdout(), url)
+	} else {
+		if debugMode {
+			printCLIHeader(cmd, "Onibi up")
+			_ = renderTable(cmd.OutOrStdout(), [][]string{
+				{"web", style.status("PASS"), cfg.Web.ListenAddr},
+				{"transport", style.status("INFO"), cfg.Transport.Mode},
+				{"shell", style.status("PASS"), sessionID},
+				{"socket", style.status("PASS"), paths.Socket},
+			})
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(cmd.OutOrStdout(), style.bold("iPhone HTTPS trust"))
+			fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
+			fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
+			fmt.Fprintln(cmd.OutOrStdout())
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), style.bold("Onibi up"))
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), style.bold("Pair from phone"))
+		fmt.Fprintln(cmd.OutOrStdout(), url)
+		fmt.Fprintln(cmd.OutOrStdout(), "Expires:", setup.PairTokenTTL.String())
+		if debugMode {
+			for _, alt := range urls[1:] {
+				fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
+			}
+		}
+		if noQR, _ := cmd.Flags().GetBool("no-qr"); !noQR {
+			if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
