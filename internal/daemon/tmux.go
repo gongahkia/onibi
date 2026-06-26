@@ -314,6 +314,24 @@ func (d *Daemon) KillTmuxTarget(ctx context.Context, target string) error {
 	return newTmuxController().KillSession(ctx, target)
 }
 
+func (d *Daemon) ScrollSession(ctx context.Context, id, direction string) error {
+	s, err := d.sessionByID(id)
+	if err != nil {
+		return err
+	}
+	if s.Transport != "tmux" || s.TmuxTarget == "" {
+		return errors.New("scrollback requires a tmux-backed session")
+	}
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case "page_up":
+		return newTmuxController().CopyModePageUp(ctx, s.TmuxTarget)
+	case "page_down":
+		return newTmuxController().CopyModePageDown(ctx, s.TmuxTarget)
+	default:
+		return errors.New("scroll direction must be page_up or page_down")
+	}
+}
+
 func (d *Daemon) clearWebAttachHost(id string, host *pty.Host) {
 	d.webAttachMu.Lock()
 	defer d.webAttachMu.Unlock()

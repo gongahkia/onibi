@@ -30,6 +30,21 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if req.Action == "page_up" || req.Action == "page_down" {
+		if s.scroll == nil {
+			http.Error(w, "scroll unavailable", http.StatusNotImplemented)
+			return
+		}
+		if err := s.scroll(r.Context(), req.SessionID, req.Action); err != nil {
+			s.log.Warn("web control failed", "request_id", requestID(r), "reason", "scroll_failed", "session_id", req.SessionID, "action", req.Action, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.log.Info("web control accepted", "request_id", requestID(r), "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		return
+	}
 	host, ok := s.hostForSession(r.Context(), req.SessionID)
 	if !ok {
 		s.log.Warn("web control failed", "request_id", requestID(r), "reason", "session_not_found", "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())

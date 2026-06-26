@@ -152,6 +152,24 @@ func TestStartSessionBuildsTmuxCommand(t *testing.T) {
 	}
 }
 
+func TestCopyModePageKeys(t *testing.T) {
+	r := &fakeRunner{}
+	c := NewWithRunner(r)
+	if err := c.CopyModePageUp(context.Background(), "onibi-abc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CopyModePageDown(context.Background(), "onibi-abc"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"tmux", "copy-mode", "-u", "-t", "onibi-abc"},
+		{"tmux", "send-keys", "-X", "-t", "onibi-abc", "page-down"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestListPanesParsesRows(t *testing.T) {
 	r := &fakeRunner{out: []byte("%1\ts\tw\tclaude\ttitle\n")}
 	c := NewWithRunner(r)

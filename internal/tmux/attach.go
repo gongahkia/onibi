@@ -181,6 +181,22 @@ func (c *Controller) KillSession(ctx context.Context, target string) error {
 	return err
 }
 
+func (c *Controller) CopyModePageUp(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	_, err := c.run(ctx, "copy-mode", "-u", "-t", target)
+	return err
+}
+
+func (c *Controller) CopyModePageDown(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	_, err := c.run(ctx, "send-keys", "-X", "-t", target, "page-down")
+	return err
+}
+
 func (c *Controller) SendText(ctx context.Context, target, text string, enter bool) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("tmux target required")

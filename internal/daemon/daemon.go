@@ -293,6 +293,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			SessionIDs:    d.webSessionIDs,
 			PTYHost:       d.EnsureWebPTYHost,
 			Handover:      d.HandoverSession,
+			Scroll:        d.ScrollSession,
 			Log:           d.Log,
 		})
 		wg.Add(1)

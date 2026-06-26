@@ -33,6 +33,7 @@ type Options struct {
 	SessionIDs    func() []string
 	PTYHost       func(context.Context, string) (*pty.Host, error)
 	Handover      func(context.Context, string, string) (string, error)
+	Scroll        func(context.Context, string, string) error
 	Log           *slog.Logger
 }
 
@@ -44,6 +45,7 @@ type Server struct {
 	sessionIDs    func() []string
 	ptyHost       func(context.Context, string) (*pty.Host, error)
 	handover      func(context.Context, string, string) (string, error)
+	scroll        func(context.Context, string, string) error
 	log           *slog.Logger
 }
 
@@ -59,6 +61,7 @@ func New(opts Options) *Server {
 		sessionIDs:    opts.SessionIDs,
 		ptyHost:       opts.PTYHost,
 		handover:      opts.Handover,
+		scroll:        opts.Scroll,
 		log:           opts.Log,
 	}
 }
