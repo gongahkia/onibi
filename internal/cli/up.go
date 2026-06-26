@@ -206,8 +206,8 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if quiet(cmd) {
 		fmt.Fprintln(cmd.OutOrStdout(), url)
 	} else {
+		printCLIHeader(cmd, "Onibi up")
 		if debugMode {
-			printCLIHeader(cmd, "Onibi up")
 			_ = renderTable(cmd.OutOrStdout(), [][]string{
 				{"web", style.status("PASS"), cfg.Web.ListenAddr},
 				{"transport", style.status("INFO"), cfg.Transport.Mode},
@@ -218,9 +218,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 			fmt.Fprintln(cmd.OutOrStdout(), style.bold("iPhone HTTPS trust"))
 			fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
 			fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
-			fmt.Fprintln(cmd.OutOrStdout())
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), style.bold("Onibi up"))
 			fmt.Fprintln(cmd.OutOrStdout())
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), style.bold("Pair from phone"))
