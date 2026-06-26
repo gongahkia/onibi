@@ -129,12 +129,34 @@ function postControl(sessionID: string, action: string): void {
 }
 
 function postHandover(sessionID: string, target: "mac" | "phone"): void {
-  void fetch("/handover", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionID, target })
-  });
+  void (async () => {
+    showToast(target === "mac" ? "Opening on Mac..." : "Returning to phone...");
+    try {
+      const response = await fetch("/handover", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionID, target })
+      });
+      const text = await response.text();
+      let body = {} as { message?: unknown };
+      try {
+        body = text === "" ? {} : (JSON.parse(text) as { message?: unknown });
+      } catch {
+        body = {};
+      }
+      if (!response.ok) {
+        const msg = typeof body.message === "string" ? body.message : text.trim() || `handover ${response.status}`;
+        throw new Error(msg);
+      }
+      const msg = typeof body.message === "string" && body.message.trim() !== "" ? body.message : "Handover complete.";
+      showToast(msg);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Handover failed.");
+    } finally {
+      term.focus();
+    }
+  })();
 }
 
 function setTheme(next: TerminalThemeName): void {

@@ -300,6 +300,21 @@ func TestHandoverCallsResolver(t *testing.T) {
 	}
 }
 
+func TestHandoverRejectsMissingCookie(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.handover = func(context.Context, string, string) (string, error) {
+		t.Fatal("handover resolver should not be called")
+		return "", nil
+	}
+	req := httptest.NewRequest(http.MethodPost, "/handover", strings.NewReader(`{"session_id":"s1","target":"mac"}`))
+	w := httptest.NewRecorder()
+	srv.handleHandover(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
 func testServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))

@@ -11,9 +11,9 @@ phone browser
   | POST /approval, /control
   v
 internal/web
-  | terminal I/O, control signals
+  | terminal I/O, handover, control signals
   v
-internal/pty host
+managed tmux session
   |
   v
 shell / claude / codex / other agent
@@ -55,23 +55,27 @@ The pair route sets the owner cookie and redirects to `/`. The frontend then ope
 
 iOS requires the printed Onibi local CA profile to be installed and fully trusted before Safari accepts the local HTTPS certificate.
 
-## PTY And Control
+## Session, PTY, And Handover
 
-The local shell created by `onibi up` receives:
+`onibi up` creates one managed tmux-backed session. The spawned shell receives:
 
 ```bash
 ONIBI_SOCK=/path/to/onibi.sock
-ONIBI_SESSION_ID=local-shell
+ONIBI_SESSION_ID=<managed-session-id>
 ```
 
-The web terminal writes input bytes into the PTY. Soft keys send normal terminal escape sequences or control actions:
+The phone view is a web PTY attach client for that tmux session. `MAC` closes the web attach client and opens the same tmux session in a visible macOS terminal. `PHONE` detaches visible tmux clients and creates a fresh web attach client for Safari.
+
+Soft keys send normal terminal escape sequences or control actions:
 
 | control | behavior |
 |---|---|
+| `MAC` | opens the current managed tmux session in a visible terminal |
+| `PHONE` | returns the current managed tmux session to the phone web PTY |
 | `ESC` | writes byte `0x1b` |
 | `UP` | writes `\x1b[A` |
 | `DN` | writes `\x1b[B` |
-| `INT` | writes Ctrl-C (`0x03`) to the PTY, letting the TTY interrupt the foreground job |
+| `INT` | writes Ctrl-C (`0x03`) to the session, letting the TTY interrupt the foreground job |
 | `KILL` | terminates the hosted process |
 
 ## Approval Flow

@@ -14,9 +14,9 @@
 
 Web-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
 
-Onibi runs local shells and coding agents under PTYs, exposes a phone cockpit over local HTTPS/WebSocket, and routes tool approvals through an owner-only web UI. The current v3 path is LAN/hotspot-first: run `onibi up`, scan the QR from your phone, then drive the live terminal and approval overlay from mobile Safari.
+Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over local HTTPS/WebSocket, and routes tool approvals through an owner-only web UI. The current v3 path is LAN/hotspot-first: run `onibi up`, scan the QR from your phone, then drive or hand over the same live session between mobile Safari and a visible Mac terminal.
 
-Status: v3 web-cockpit pivot in progress. The local shell cockpit, iPhone pairing, live terminal, resize/reconnect smoke, toolbar controls, Claude Code approval overlay, and device management command surface have been validated locally. Mobile polish, Tailscale transport, and release prep are still tracked in [`TODO.md`](./TODO.md).
+Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, and device management command surface have local coverage. Real-phone handover validation, Tailscale transport, and release prep are still tracked in [`TODO.md`](./TODO.md).
 
 ## Quick Start
 
@@ -30,20 +30,22 @@ On iPhone:
 
 1. Install and fully trust the printed `onibi-local-ca.mobileconfig` once.
 2. Scan the QR printed by `onibi up`.
-3. Use the terminal cockpit from Safari.
+3. Use the terminal cockpit from Safari. Use `MAC` to open the same session in a visible macOS terminal and `PHONE` to return it to Safari.
 
 If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhone hotspot, rerun `./bin/onibi up`, and scan the new QR.
 
 ## What Works Now
 
+- Managed tmux-backed session created by `onibi up`.
 - Live xterm.js terminal over `/ws/pty`.
 - Pair-by-QR over local HTTPS.
 - iPhone trusted local CA profile.
-- Top controls: `INT`, `KILL`.
+- Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
 - Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
+- `onibi show` / `onibi hide` for tmux-backed session visibility.
 
 ## Main Commands
 
@@ -52,6 +54,8 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ./bin/onibi quickstart
 ./bin/onibi status
 ./bin/onibi up
+./bin/onibi show
+./bin/onibi hide --headless
 ./bin/onibi pair
 ./bin/onibi devices
 ./bin/onibi unpair <device-id>
@@ -67,7 +71,7 @@ CLI aliases include `start` for `up`, `qr` for `pair`, `phones` for `devices`, `
 Useful CLI flags:
 
 - Global: `--quiet`, `--debug`, `--no-logo`, `--logo-width <cols>`, `--color auto|always|never`.
-- `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--no-qr`, `--log-file <path>`.
+- `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
 
@@ -78,15 +82,20 @@ After `./bin/onibi up` and phone pairing:
 1. Run `vim /tmp/onibi-smoke.txt` from the phone.
 2. Edit, press `ESC`, then `:wq`.
 3. Rotate the phone and confirm the terminal remains usable.
-4. For hotspot mode, background Safari for 10 seconds and return; use airplane mode only on shared Wi-Fi.
-5. Run `claude`.
-6. Ask Claude to create `/tmp/onibi-approval-deny.txt`.
-7. Tap `Deny` on the Onibi approval card.
-8. Verify the file does not exist.
+4. Confirm no visible `ONIBI-RESIZE:*` marker appears.
+5. Tap `MAC`; confirm the same cwd/history/running process opens in a macOS terminal.
+6. Tap `PHONE`; confirm the same session returns to Safari.
+7. For hotspot mode, background Safari for 10 seconds and return; use airplane mode only on shared Wi-Fi.
+8. Run `claude`.
+9. Ask Claude to create `/tmp/onibi-approval-deny.txt`.
+10. Tap `Deny` on the Onibi approval card.
+11. Verify the file does not exist.
+12. Stop `onibi up` and confirm no `onibi-*` tmux sessions remain.
 
 ## Architecture
 
-- `internal/pty` hosts shells and agents under PTYs.
+- `internal/tmux` creates managed tmux-backed sessions for handover.
+- `internal/pty` bridges web terminal I/O to local PTYs and tmux attach clients.
 - `internal/web` serves HTTPS, static frontend assets, `/ws/pty`, `/ws/events`, `/control`, `/approval`, and `/pair`.
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.

@@ -70,7 +70,7 @@ Check hooks:
 
 Then in Claude Code, open `/hooks` and keep the Onibi hook commands enabled if they match.
 
-Start Claude from the shell created by `./bin/onibi up`. That shell exports:
+Start Claude from the managed session created by `./bin/onibi up`, whether you are viewing it on the phone or after tapping `MAC`. That shell exports:
 
 ```bash
 echo "$ONIBI_SOCK"
@@ -78,6 +78,20 @@ echo "$ONIBI_SESSION_ID"
 ```
 
 If either is empty, the hook cannot route approval requests to the current web cockpit.
+
+## Handover Does Not Open On Mac
+
+Tap `MAC` again and check the toast. If it fails, run:
+
+```bash
+./bin/onibi show
+```
+
+With one active managed session, `show` targets it by default. If the command only prints a `tmux attach-session` hint, run that hint manually and check your configured terminal in `onibi config show`.
+
+## Handover Back To Phone Reconnects
+
+`PHONE` detaches the visible tmux clients and creates a fresh web attach host. A short reconnect toast is expected. The same cwd/history/running process should remain visible after reconnect.
 
 ## Approval Edit Fails
 
@@ -95,7 +109,9 @@ For file writes, preserve the expected fields such as `file_path` and `content`.
 
 - `ESC` sends Escape for vim.
 - `UP` and `DN` send arrow keys.
-- `INT` sends SIGINT to the running PTY process group.
+- `MAC` opens the current managed session in a visible macOS terminal.
+- `PHONE` returns the current managed session to Safari.
+- `INT` sends SIGINT to the running session.
 - `KILL` terminates the hosted process.
 
 If `ESC` or arrows seem ignored, tap the terminal once to focus it and try again.

@@ -38,7 +38,7 @@ This pivot replaces the Telegram transport with a self-hosted HTTP+WebSocket ser
 
 ## 2. Outcome target (what "done" looks like for v1)
 
-User runs `onibi up` on their laptop. Terminal prints a QR for a LAN URL (e.g. `https://onibi.local:8443/pair/<43chars>` or `https://192.168.1.42:8443/pair/<43chars>`). User scans on phone; mobile Safari opens; the `/pair/:token` handler consumes the single-use token, sets an HttpOnly+Secure+SameSite=Strict owner cookie, and redirects to `/`. The phone now shows a live xterm.js view of the laptop's current ghostty/tmux pane. User can type into it (input forwards to the PTY's stdin). When Claude Code or another adapter fires an approval hook (via `onibi-notify`), an approval card overlays the terminal with Approve / Deny / Edit buttons. Tapping a verdict unblocks the hook. `/interrupt` and `/kill` buttons send SIGINT / SIGKILL to the PTY's process group. Telegram code is gone. README is rewritten.
+User runs `onibi up` on their laptop. Terminal prints a QR for a LAN URL (e.g. `https://onibi.local:8443/pair/<43chars>` or `https://192.168.1.42:8443/pair/<43chars>`). User scans on phone; mobile Safari opens; the `/pair/:token` handler consumes the single-use token, sets an HttpOnly+Secure+SameSite=Strict owner cookie, and redirects to `/`. The phone now shows a live xterm.js view of a managed tmux-backed Onibi session. User can type into it, hand the same session to a visible Mac terminal, then hand it back to the phone without losing cwd/history/running process state. When Claude Code or another adapter fires an approval hook (via `onibi-notify`), an approval card overlays the terminal with Approve / Deny / Edit buttons. Tapping a verdict unblocks the hook. `/interrupt` and `/kill` buttons send SIGINT / SIGKILL to the session. Telegram code is gone. README is rewritten.
 
 Subsequent versions (out of v1 scope, documented in §9):
 - **v1.1**: `--transport=tailscale` flag for Tailscale Funnel (cellular OK, persistent URL).
@@ -161,8 +161,8 @@ Run these from repo root unless noted.
 - **Phase 04**: open phone browser to `/` post-pair, drive `vim` for 2 minutes including save, search, resize on rotate. Force airplane-mode for 10s mid-stream and confirm xterm.js reconnects and replays without scrollback corruption.
 - **Phase 05**: install Claude Code via `onibi adapters install claude`, start a Claude session, trigger an Edit tool call; approval card appears on phone; tap Deny; hook exits with denial JSON; verify file was NOT modified. Repeat with Bash tool. Tap `/interrupt`; terminal shows `^C`.
 - **Phase 06**: `rg -i telegram internal/` returns nothing live (only historical docs comments allowed); `rg -i botfather .` empty; `go test ./... -race -count=1` green; `go vet ./...` clean; `staticcheck ./...` clean; `goreleaser snapshot --skip=publish --clean` builds; binary size at least 20% smaller than v2.
-- **Phase 07**: 5-minute real-iPhone session driving `vim` + `claude` + `tmux` window switch via soft-key bar without rage-quit; on-screen Tab triggers shell completion; "Add to Home Screen" works and launches in standalone mode.
-- **Phase 08**: on a tailnet-joined Mac, `onibi up --transport=tailscale` prints a `*.ts.net` URL; iPhone on LTE (Wi-Fi disabled) scans QR, opens URL, sees live pane and types into it.
+- **Phase 07**: 5-minute real-iPhone session driving `vim` + `claude` + `tmux` window switch via soft-key bar without rage-quit; `MAC` opens the same session in a visible macOS terminal; `PHONE` hands the same cwd/history/running process back to Safari; no visible `ONIBI-RESIZE:*` marker; Ctrl-C shutdown leaves no orphan `onibi-*` tmux session; on-screen Tab triggers shell completion; "Add to Home Screen" works and launches in standalone mode with handover controls still present.
+- **Phase 08**: on a tailnet-joined Mac, `onibi up --transport=tailscale` prints a `*.ts.net` URL; iPhone on LTE (Wi-Fi disabled) scans QR, opens URL, sees live pane, types into it, and passes the managed session Mac <-> phone without losing state.
 
 ---
 
@@ -204,7 +204,7 @@ Run these from repo root unless noted.
 
 > Goal: build the frontend that renders a live terminal on the phone and connects to /ws/pty. No approval UI yet — terminal stream + input only.
 
-# 2026-06-24: CLI web diagnostics and local-shell availability completed; local smoke saw /session-info 200 and /ws/pty 101.
+# 2026-06-24: CLI web diagnostics and web shell availability completed; local smoke saw /session-info 200 and /ws/pty 101.
 # 2026-06-24: T415 retry saw no phone requests before token expiry on `.local`; `onibi up` now prints LAN-IP fallback URLs.
 # 2026-06-24: QR primary changed to LAN IP first; `.local` is fallback because iPhone did not reach mDNS URL.
 # 2026-06-24: LAN-IP QR retry still saw no phone requests; local Mac health to LAN IP returned 200, so remaining failure is phone-to-Mac LAN reachability. IPv6 fallback URL formatting fixed.
@@ -219,7 +219,7 @@ x 2026-06-25 Manual smoke: drive vim on real iPhone via the pair URL for 2 minut
 > Goal: wire `internal/approval/queue.go` to `/ws/events`; render approval cards on the phone over the terminal; round-trip Approve/Deny/Edit back to Queue.Decide so the agent hook unblocks.
 
 # 2026-06-25: T512 attempt over web cockpit reached Claude Code and Claude created `/tmp/onibi-approval-deny.txt`, but no Onibi approval overlay appeared; Claude's native terminal approval prompt handled the Write. Do not mark T512 done until hooks route the approval through Onibi and Deny prevents the write.
-# 2026-06-25: `onibi up` local-shell flow now starts an approval.Queue + intake socket and passes the queue to `/ws/events`; spawned shell exports `ONIBI_SOCK` and `ONIBI_SESSION_ID=local-shell`, so Claude hooks can reach the web approval overlay.
+# 2026-06-26: `onibi up` now starts a managed tmux-backed session and passes its session id to `/ws/pty` + `/ws/events`; the spawned shell exports `ONIBI_SOCK` and `ONIBI_SESSION_ID=<managed-session-id>`, so Claude hooks can reach the web approval overlay across phone/Mac handover.
 # 2026-06-25: T512 passed on real iPhone. Claude Write approval rendered in Onibi overlay; Deny posted `/approval/<id>` 200; Claude did not create `/tmp/onibi-approval-deny.txt` or `/tmp/onibi-approval-deny.tft`.
 # 2026-06-25: T513 passed on real iPhone. Bash approval overlay edited command from `/tmp/onibi-original` to `/tmp/onibi-edited`; Claude output was `edited`; final local check showed original absent and edited present.
 # 2026-06-25: T514 passed on real iPhone. INT sent Ctrl-C to the foreground PTY job; shell printed `^CINT_OK` and did not print `BAD`.
@@ -270,10 +270,12 @@ x 2026-06-25 Generate PWA icons at 192 and 512: re-use existing asset/logo/onibi
 x 2026-06-25 Service worker (asset cache only, NO push): frontend/src/sw.ts registers via main.ts; caches /assets/* with stale-while-revalidate; never caches root index.html or /ws/* or /api/* +phase07 @frontend file:frontend/src/sw.ts id:T707 blocked-by:T706
 x 2026-06-25 iOS viewport pinning: in main.ts attach visualViewport listener; on keyboard show/hide, scroll the terminal to keep cursor visible +phase07 @frontend file:frontend/src/main.ts id:T708 blocked-by:T707 ref:arch-rule-2
 x 2026-06-25 Confirm 100dvh sizing applied to html and body in index.html stylesheet; verify no 100vh remains anywhere in frontend/ +phase07 @frontend file:frontend/index.html id:T709 blocked-by:T708
-(B) 2026-06-23 Real-iPhone session test: drive vim (open, edit, save, quit) + claude (send prompt, wait, approve) + tmux (switch window) for 5 minutes via soft-key bar without rage-quitting +phase07 @tests id:T710 blocked-by:T709 accept:session-completed-without-bug
-(B) 2026-06-23 Test "Add to Home Screen" flow on iOS Safari: launch from home screen icon, app opens in standalone mode (no Safari chrome), still pairs with cookie-set, terminal still loads +phase07 @tests id:T711 blocked-by:T710
+(B) 2026-06-23 Real-iPhone session test: drive vim (open, edit, save, quit) + claude (send prompt, wait, approve) + tmux (switch window) for 5 minutes via soft-key bar; tap `MAC`, confirm same cwd/history/running process opens in macOS terminal; tap `PHONE`, confirm same state returns to Safari; confirm no visible `ONIBI-RESIZE:*` marker +phase07 @tests id:T710 blocked-by:T709 accept:session-completed-without-bug
+(B) 2026-06-23 Test "Add to Home Screen" flow on iOS Safari: launch from home screen icon, app opens in standalone mode (no Safari chrome), still pairs with cookie-set, terminal still loads, `MAC`/`PHONE` handover buttons still work +phase07 @tests id:T711 blocked-by:T710
 x 2026-06-25 Dark/light mode toggle in soft-key bar (xterm.js theme swap) — optional +phase07 @frontend id:T712 blocked-by:T710
 # 2026-06-25: T712 completed early by user request; T710/T711 remain the real-iPhone validation gates.
+x 2026-06-26 Local handover regression coverage: managed tmux metadata persists without a permanent web PTY host; `/handover` requires owner cookie; Mac handover closes web attach host; hide headless/end closes web attach host and end marks session ended +phase07 @tests id:T713 blocked-by:T709 accept:handover-regressions-covered
+(B) 2026-06-26 CLI lifecycle smoke: run `onibi up --no-qr --color never`, pair or curl health, Ctrl-C, then verify `tmux list-sessions -F '#{session_name}'` has no leftover `onibi-*`; repeat `onibi show`, `onibi hide --headless`, `onibi hide --end` against the only active session +phase07 @tests id:T714 blocked-by:T713 accept:no-orphan-managed-tmux-session
 
 ### Phase 08 — Tailscale Funnel transport (1.0 week, v1.1)
 
@@ -288,7 +290,7 @@ x 2026-06-25 Dark/light mode toggle in soft-key bar (xterm.js theme swap) — op
 (A) 2026-06-23 No handler-side code changes needed (Tailscale terminates TLS at the node; requests arrive on loopback :8443 just like LAN); verify by hitting funnel URL from a different machine +phase08 @tests id:T806 blocked-by:T805
 (B) 2026-06-23 Add doctor check for Tailscale: tailscale binary in PATH; tailscaled running; funnel feature enabled in admin (parse status --json AllowFunnel) +phase08 @backend file:internal/doctor/ id:T807 blocked-by:T805
 (B) 2026-06-23 Documentation: docs/transports.md describing LAN vs Tailscale Funnel trust models; reference Tailscale's docs claim that Funnel relay does not see decrypted bytes +phase08 @docs file:docs/transports.md id:T808 blocked-by:T807
-(B) 2026-06-23 E2E test on a tailnet-joined Mac with `onibi up --transport=tailscale`: open the funnel URL from an iPhone on LTE (Wi-Fi disabled) — confirm live terminal + input works +phase08 @tests id:T809 blocked-by:T808 accept:cellular-phone-can-drive-terminal
+(B) 2026-06-23 E2E test on a tailnet-joined Mac with `onibi up --transport=tailscale`: open the funnel URL from an iPhone on LTE (Wi-Fi disabled) — confirm live terminal + input works and managed Mac <-> phone handover preserves session state +phase08 @tests id:T809 blocked-by:T808 accept:cellular-phone-can-drive-terminal
 
 ### Phase 09 — Release prep (0.5 week)
 

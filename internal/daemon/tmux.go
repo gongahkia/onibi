@@ -354,9 +354,11 @@ func (d *Daemon) HideSession(ctx context.Context, id, mode string) (string, erro
 		if err := ctrl.DetachClients(ctx, s.TmuxTarget); err != nil {
 			return "", err
 		}
+		d.closeWebAttachHost(s.ID)
 		d.audit(ctx, "session.hide", s.ID, "", 0, "headless")
 		return "Detached visible clients. Session continues headless.", nil
 	case "end", "kill":
+		d.closeWebAttachHost(s.ID)
 		if err := ctrl.KillSession(ctx, s.TmuxTarget); err != nil {
 			return "", err
 		}
