@@ -75,9 +75,10 @@ func addRunFlags(cmd *cobra.Command) {
 
 func setupCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "setup",
-		Short: "Show web setup guidance",
-		RunE:  runSetup,
+		Use:     "setup",
+		Aliases: []string{"init"},
+		Short:   "Show web setup guidance",
+		RunE:    runSetup,
 	}
 	cmd.Flags().Bool("print-checklist", false, "print setup security checklist and exit")
 	cmd.Flags().Bool("complete", false, "offer service install, hook install, and doctor")
@@ -157,9 +158,10 @@ func projectCmd() *cobra.Command {
 
 func pingCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ping",
-		Short: "Check daemon socket health",
-		RunE:  runPing,
+		Use:     "ping",
+		Aliases: []string{"health"},
+		Short:   "Check daemon socket health",
+		RunE:    runPing,
 	}
 	cmd.Flags().IntP("count", "c", 1, "number of probes")
 	cmd.Flags().Duration("interval", time.Second, "delay between probes")
@@ -169,9 +171,10 @@ func pingCmd() *cobra.Command {
 
 func doctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Run setup + integrity checks",
-		RunE:  runDoctor,
+		Use:     "doctor",
+		Aliases: []string{"check"},
+		Short:   "Run setup + integrity checks",
+		RunE:    runDoctor,
 	}
 	cmd.Flags().Bool("offline", false, "skip live network checks")
 	cmd.Flags().String("mode", "auto", "doctor mode (auto, preflight, installed, ci)")
@@ -184,9 +187,10 @@ func doctorCmd() *cobra.Command {
 
 func installHooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "install-hooks",
-		Short: "Install agent and/or shell hooks",
-		RunE:  runInstallHooks,
+		Use:     "install-hooks",
+		Aliases: []string{"integrate"},
+		Short:   "Install agent and/or shell hooks",
+		RunE:    runInstallHooks,
 	}
 	cmd.Flags().String("agent", "", "agent name (claude, codex, opencode, goose, gemini, copilot, pi, amp)")
 	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish)")
@@ -198,9 +202,10 @@ func installHooksCmd() *cobra.Command {
 
 func hooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "hooks",
-		Short: "Inspect installed hooks",
-		RunE:  runHooks,
+		Use:     "hooks",
+		Aliases: []string{"inspect-hooks"},
+		Short:   "Inspect installed hooks",
+		RunE:    runHooks,
 	}
 	cmd.Flags().Bool("show", false, "show hook config, records, backups, and drift")
 	cmd.Flags().Bool("matrix", false, "show hook compatibility matrix")
@@ -247,9 +252,10 @@ func uninstallServiceCmd() *cobra.Command {
 
 func adaptersCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "adapters",
-		Short: "Show agent and shell adapter status",
-		RunE:  runAdapters,
+		Use:     "adapters",
+		Aliases: []string{"integrations"},
+		Short:   "Show agent and shell adapter status",
+		RunE:    runAdapters,
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
 	return cmd
@@ -257,9 +263,10 @@ func adaptersCmd() *cobra.Command {
 
 func sessionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sessions",
-		Short: "List sessions recorded by the daemon",
-		RunE:  runSessions,
+		Use:     "sessions",
+		Aliases: []string{"ps"},
+		Short:   "List sessions recorded by the daemon",
+		RunE:    runSessions,
 	}
 	cmd.Flags().Bool("all", false, "include ended sessions")
 	cmd.Flags().Int("n", 50, "number of sessions to print")

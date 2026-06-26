@@ -16,12 +16,12 @@ import (
 	"golang.org/x/term"
 )
 
-//go:embed onibi-v2-logo.png
+//go:embed onibi-logo.png
 var logoPNG []byte
 
 const (
 	defaultWidth = 50
-	maxWidth     = 60
+	maxWidth     = 72
 	minWidth     = 12
 )
 
@@ -35,8 +35,20 @@ func ANSIForWriter(w io.Writer) string {
 	return render(width, color)
 }
 
+func ANSIForWriterWidth(w io.Writer, width int) string {
+	if width <= 0 {
+		return ANSIForWriter(w)
+	}
+	_, color := terminalWidth(w)
+	return renderExplicit(width, color)
+}
+
 func Render(width int) string {
 	return render(width, false)
+}
+
+func RenderExact(width int) string {
+	return renderExplicit(width, false)
 }
 
 func render(width int, color bool) string {
@@ -45,6 +57,10 @@ func render(width int, color bool) string {
 			width = n
 		}
 	}
+	return renderExplicit(width, color)
+}
+
+func renderExplicit(width int, color bool) string {
 	art := renderPlain(clampWidth(width))
 	if color {
 		return "\x1b[38;5;37m" + art + "\x1b[0m"
@@ -148,7 +164,24 @@ func terminalWidth(w io.Writer) (int, bool) {
 	if err != nil {
 		return defaultWidth, true
 	}
-	return width - 4, true
+	return smartWidth(width), true
+}
+
+func smartWidth(cols int) int {
+	if cols <= 0 {
+		return defaultWidth
+	}
+	if cols <= minWidth+2 {
+		return minWidth
+	}
+	width := int(math.Round(float64(cols) * 0.62))
+	if cols < 52 {
+		width = cols - 2
+	}
+	if max := cols - 2; width > max {
+		width = max
+	}
+	return clampWidth(width)
 }
 
 func clampWidth(width int) int {

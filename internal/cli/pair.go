@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -19,19 +20,26 @@ import (
 
 func pairCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pair",
-		Short: "Mint a fresh web pairing QR",
-		RunE:  runPair,
+		Use:     "pair",
+		Aliases: []string{"qr"},
+		Short:   "Mint a fresh web pairing QR",
+		RunE:    runPair,
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
+	cmd.Flags().String("host", "", "override host in generated pair URL")
+	cmd.Flags().Int("port", 0, "override port in generated pair URL")
+	cmd.Flags().Bool("fallbacks", true, "print fallback URLs")
+	cmd.Flags().Bool("no-qr", false, "print URL without QR")
+	cmd.Flags().Bool("copy", false, "copy primary URL to clipboard with pbcopy")
 	return cmd
 }
 
 func devicesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "devices",
-		Short: "List paired web devices",
-		RunE:  runDevices,
+		Use:     "devices",
+		Aliases: []string{"phones"},
+		Short:   "List paired web devices",
+		RunE:    runDevices,
 	}
 	cmd.Flags().Bool("all", false, "include revoked devices")
 	cmd.Flags().Bool("json", false, "print JSON")
@@ -58,7 +66,7 @@ func runPair(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	port, err := listenPort(cfg.Web.ListenAddr)
+	port, err := pairPort(cmd, cfg)
 	if err != nil {
 		return err
 	}
@@ -66,7 +74,12 @@ func runPair(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	urls := webPairURLs(token, port, web.LANHosts(), web.PreferredHost())
+	urls := pairURLs(cmd, token, port)
+	if copyURL, _ := cmd.Flags().GetBool("copy"); copyURL {
+		if err := copyToClipboard(urls[0]); err != nil {
+			return err
+		}
+	}
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
 			"url":       urls[0],
@@ -74,12 +87,47 @@ func runPair(cmd *cobra.Command, _ []string) error {
 			"expires":   setup.PairTokenTTL.String(),
 		})
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
-	fmt.Fprintln(cmd.OutOrStdout(), urls[0])
-	for _, alt := range urls[1:] {
-		fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
+	if quiet(cmd) {
+		fmt.Fprintln(cmd.OutOrStdout(), urls[0])
+		return nil
+	}
+	printCLIHeader(cmd, "Pair")
+	fmt.Fprintln(cmd.OutOrStdout(), "Scan from the phone that should control this Onibi cockpit.")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), "URL:", urls[0])
+	fmt.Fprintln(cmd.OutOrStdout(), "Expires:", setup.PairTokenTTL.String())
+	if fallbacks, _ := cmd.Flags().GetBool("fallbacks"); fallbacks {
+		for _, alt := range urls[1:] {
+			fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
+		}
+	}
+	if noQR, _ := cmd.Flags().GetBool("no-qr"); noQR {
+		return nil
 	}
 	return setup.PrintQR(cmd.OutOrStdout(), urls[0])
+}
+
+func pairPort(cmd *cobra.Command, cfg config.Config) (int, error) {
+	if port, _ := cmd.Flags().GetInt("port"); port > 0 {
+		return port, nil
+	}
+	return listenPort(cfg.Web.ListenAddr)
+}
+
+func pairURLs(cmd *cobra.Command, token string, port int) []string {
+	if host, _ := cmd.Flags().GetString("host"); strings.TrimSpace(host) != "" {
+		return []string{setup.WebPairURL("https", strings.TrimSpace(host), port, token)}
+	}
+	return webPairURLs(token, port, web.LANHosts(), web.PreferredHost())
+}
+
+func copyToClipboard(s string) error {
+	c := exec.Command("pbcopy")
+	c.Stdin = strings.NewReader(s)
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("copy URL to clipboard: %w", err)
+	}
+	return nil
 }
 
 func runDevices(cmd *cobra.Command, _ []string) error {

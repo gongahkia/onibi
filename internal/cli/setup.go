@@ -38,8 +38,9 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
-	fmt.Fprintln(cmd.OutOrStdout(), "Onibi web setup uses pair-by-QR from `onibi up`.")
-	fmt.Fprintln(cmd.OutOrStdout(), "Run `onibi up`, install the printed iPhone CA profile if needed, then scan the QR.")
+	printCLIHeader(cmd, "Setup")
+	fmt.Fprintln(cmd.OutOrStdout(), "Onibi setup is CLI-first: start the cockpit, scan the QR, then install hooks.")
+	fmt.Fprintln(cmd.OutOrStdout(), "The iPhone CA profile is printed by `onibi up` when local HTTPS is needed.")
 	if complete {
 		return runSetupComplete(cmd, paths, db)
 	}
@@ -90,9 +91,12 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 
 func printSetupNextActions(cmd *cobra.Command) {
 	fmt.Fprintln(cmd.OutOrStdout(), "\nNext:")
-	fmt.Fprintln(cmd.OutOrStdout(), "  onibi up")
-	fmt.Fprintln(cmd.OutOrStdout(), "  onibi install-hooks --agent claude")
-	fmt.Fprintln(cmd.OutOrStdout(), "  onibi hooks --show --agent claude")
+	_ = renderTable(cmd.OutOrStdout(), [][]string{
+		{"1", "onibi status", "inspect local state"},
+		{"2", "onibi up", "start cockpit and scan QR"},
+		{"3", "onibi install-hooks --interactive", "connect agents/shells"},
+		{"4", "onibi hooks --show --all", "verify hook drift"},
+	})
 }
 
 func handleMissingNotifyBinary(cmd *cobra.Command, br *bufio.Reader, cause error) error {

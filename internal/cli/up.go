@@ -6,11 +6,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,11 +39,17 @@ const webPairSessionID = "local-shell"
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "up",
-		Short: "Start the local web cockpit and print a pairing QR",
-		RunE:  runUp,
+		Use:     "up",
+		Aliases: []string{"start"},
+		Short:   "Start the local web cockpit and print a pairing QR",
+		RunE:    runUp,
 	}
 	cmd.Flags().String("transport", "", "pairing transport: lan, tailscale, or auto")
+	cmd.Flags().String("shell", "", "shell executable for local cockpit session")
+	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
+	cmd.Flags().String("cwd", "", "working directory for spawned shell")
+	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
+	cmd.Flags().String("log-file", "", "also write up logs to this file")
 	return cmd
 }
 
@@ -64,7 +72,20 @@ func runUp(cmd *cobra.Command, _ []string) error {
 
 func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	started := time.Now()
-	logger := logging.New(cmd.ErrOrStderr(), slog.LevelDebug).With("component", "up")
+	level := slog.LevelInfo
+	if debug(cmd) {
+		level = slog.LevelDebug
+	}
+	logWriter := cmd.ErrOrStderr()
+	if logFile, _ := cmd.Flags().GetString("log-file"); strings.TrimSpace(logFile) != "" {
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		logWriter = io.MultiWriter(logWriter, f)
+	}
+	logger := logging.New(logWriter, level).With("component", "up")
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -103,6 +124,16 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		}
 		logger.Info("transport override applied", "transport", cfg.Transport.Mode)
 	}
+	if shell, _ := cmd.Flags().GetString("shell"); strings.TrimSpace(shell) != "" {
+		cfg.Shell.Default = strings.TrimSpace(shell)
+	}
+	if noLogin, _ := cmd.Flags().GetBool("no-login-shell"); noLogin {
+		cfg.Shell.Login = false
+	}
+	shellCWD, err := shellWorkingDir(cmd)
+	if err != nil {
+		return err
+	}
 	port, err := listenPort(cfg.Web.ListenAddr)
 	if err != nil {
 		return err
@@ -127,7 +158,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"preferred_host", preferredHost,
 	)
 	phase = time.Now()
-	sessionID, host, err := startWebPairShell(ctx, paths, logger)
+	sessionID, host, err := startWebPairShell(ctx, paths, cfg, shellCWD, logger)
 	if err != nil {
 		return err
 	}
@@ -173,16 +204,29 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"expires_at", time.Now().Add(setup.PairTokenTTL).UTC().Format(time.RFC3339Nano),
 		"duration_ms", time.Since(phase).Milliseconds(),
 	)
-	fmt.Fprintln(cmd.OutOrStdout(), "iPhone HTTPS trust:")
+	printCLIHeader(cmd, "Onibi up")
+	style := styleFor(cmd)
+	_ = renderTable(cmd.OutOrStdout(), [][]string{
+		{"web", style.status("PASS"), cfg.Web.ListenAddr},
+		{"transport", style.status("INFO"), cfg.Transport.Mode},
+		{"shell", style.status("PASS"), sessionID},
+		{"socket", style.status("PASS"), paths.Socket},
+	})
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), style.bold("iPhone HTTPS trust"))
 	fmt.Fprintln(cmd.OutOrStdout(), certPaths.MobileConfig)
 	fmt.Fprintln(cmd.OutOrStdout(), "Install this profile and enable full trust if Safari warns or pairing returns Forbidden.")
-	fmt.Fprintln(cmd.OutOrStdout(), "Pair Onibi from your phone:")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Pair from phone"))
 	fmt.Fprintln(cmd.OutOrStdout(), url)
+	fmt.Fprintln(cmd.OutOrStdout(), "Expires:", setup.PairTokenTTL.String())
 	for _, alt := range urls[1:] {
 		fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
 	}
-	if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
-		return err
+	if noQR, _ := cmd.Flags().GetBool("no-qr"); !noQR && !quiet(cmd) {
+		if err := setup.PrintQR(cmd.OutOrStdout(), url); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
 	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
@@ -291,16 +335,11 @@ func webPairURLs(token string, port int, lanHosts []string, fallback string) []s
 	return urls
 }
 
-func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Logger) (string, *pty.Host, error) {
-	cfg, _, err := config.Load(paths)
-	if err != nil {
-		return "", nil, err
-	}
+func startWebPairShell(ctx context.Context, paths config.Paths, cfg config.Config, cwd string, logger *slog.Logger) (string, *pty.Host, error) {
 	launch, err := resolveShellLaunch(cfg.Shell.Default, cfg.Shell.Login, os.Getenv, exec.LookPath)
 	if err != nil {
 		return "", nil, err
 	}
-	cwd, _ := os.Getwd()
 	host, err := pty.Spawn(ctx, pty.SpawnOptions{
 		Name:  launch.Command,
 		Args:  launch.Args,
@@ -321,6 +360,25 @@ func startWebPairShell(ctx context.Context, paths config.Paths, logger *slog.Log
 		"login", cfg.Shell.Login,
 	)
 	return webPairSessionID, host, nil
+}
+
+func shellWorkingDir(cmd *cobra.Command) (string, error) {
+	cwd, _ := cmd.Flags().GetString("cwd")
+	if strings.TrimSpace(cwd) == "" {
+		return os.Getwd()
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("--cwd is not a directory: %s", abs)
+	}
+	return abs, nil
 }
 
 func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger *slog.Logger) error {

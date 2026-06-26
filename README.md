@@ -48,15 +48,28 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ## Main Commands
 
 ```bash
+./bin/onibi
+./bin/onibi quickstart
+./bin/onibi status
 ./bin/onibi up
 ./bin/onibi pair
 ./bin/onibi devices
 ./bin/onibi unpair <device-id>
-./bin/onibi install-hooks --agent claude
-./bin/onibi hooks --show --agent claude
+./bin/onibi install-hooks --interactive
+./bin/onibi hooks --show --all
 ./bin/onibi adapters
 ./bin/onibi doctor
+./bin/onibi logo
 ```
+
+CLI aliases include `start` for `up`, `qr` for `pair`, `phones` for `devices`, `integrations` for `adapters`, `integrate` for `install-hooks`, `check` for `doctor`, and `ps` for `sessions`.
+
+Useful CLI flags:
+
+- Global: `--quiet`, `--debug`, `--no-logo`, `--logo-width <cols>`, `--color auto|always|never`.
+- `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--no-qr`, `--log-file <path>`.
+- `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
+- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
 
 ## Current Test Flow
 
