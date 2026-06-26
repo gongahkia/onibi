@@ -126,6 +126,33 @@ func TestHideSessionEndClosesWebAttachAndMarksEnded(t *testing.T) {
 	}
 }
 
+func TestScrollSessionUsesTmuxCopyMode(t *testing.T) {
+	r := &tmuxRunner{}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
+	t.Cleanup(func() { newTmuxController = old })
+
+	d := New(Options{})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	s.Transport = "tmux"
+	s.TmuxTarget = "onibi-s1"
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ScrollSession(context.Background(), s.ID, "page_up"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ScrollSession(context.Background(), s.ID, "page_down"); err != nil {
+		t.Fatal(err)
+	}
+	if !containsCall(r.calls, "copy-mode", "-u", "-t", "onibi-s1") {
+		t.Fatalf("tmux calls = %#v", r.calls)
+	}
+	if !containsCall(r.calls, "send-keys", "-X", "-t", "onibi-s1", "page-down") {
+		t.Fatalf("tmux calls = %#v", r.calls)
+	}
+}
+
 type tmuxRunner struct {
 	calls   [][]string
 	results [][]byte

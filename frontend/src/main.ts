@@ -51,8 +51,8 @@ async function boot(): Promise<void> {
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
       sendText: (data) => ws.sendText(data),
-      pageUp: () => term.scrollPages(-1),
-      pageDown: () => term.scrollPages(1),
+      pageUp: () => postControl(info.session_id, "page_up"),
+      pageDown: () => postControl(info.session_id, "page_down"),
       focus: () => term.focus(),
       getTheme: () => theme,
       setTheme: setTheme

@@ -272,6 +272,34 @@ func TestControlInterruptUsesHostResolver(t *testing.T) {
 	}
 }
 
+func TestControlPageUpUsesScrollResolver(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	called := false
+	srv.scroll = func(_ context.Context, sessionID, direction string) error {
+		called = true
+		if sessionID != "s1" || direction != "page_up" {
+			t.Fatalf("scroll args = %q %q", sessionID, direction)
+		}
+		return nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleControl(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("scroll resolver was not called")
+	}
+}
+
 func TestHandoverCallsResolver(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

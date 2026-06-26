@@ -4,8 +4,8 @@ type SoftKeyBarOptions = {
   root: HTMLElement;
   sendBytes: (data: Uint8Array) => void;
   sendText: (data: string) => void;
-  pageUp: () => void;
-  pageDown: () => void;
+  pageUp: () => Promise<void> | void;
+  pageDown: () => Promise<void> | void;
   focus: () => void;
   getTheme: () => TerminalThemeName;
   setTheme: (theme: TerminalThemeName) => void;
@@ -109,7 +109,7 @@ export class SoftKeyBar {
     const el = this.button(label);
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      action();
+      void action();
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
