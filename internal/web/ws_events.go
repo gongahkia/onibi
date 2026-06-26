@@ -58,7 +58,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventsSent++
-	for id := range s.currentPTYHosts() {
+	for _, id := range s.activeSessionIDs() {
 		if err := writeEvent(ctx, c, &writeMu, "session.started", map[string]any{"session_id": id}); err != nil {
 			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "session.started", "err", err)
 			return
@@ -130,17 +130,4 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 			"decided_at": ev.Decision.DecidedAt,
 		}
 	}
-}
-
-func (s *Server) currentPTYHosts() map[string]any {
-	out := map[string]any{}
-	if s.ptyHosts == nil {
-		return out
-	}
-	for id, h := range s.ptyHosts() {
-		if h != nil {
-			out[id] = true
-		}
-	}
-	return out
 }

@@ -84,6 +84,8 @@ function eventsURL(token: string): string {
 
 function installControls(root: HTMLElement, sessionID: string): void {
   root.replaceChildren(
+    controlButton("MAC", () => postHandover(sessionID, "mac")),
+    controlButton("PHONE", () => postHandover(sessionID, "phone")),
     controlButton("INT", () => postControl(sessionID, "interrupt")),
     controlButton("KILL", () => postControl(sessionID, "kill"))
   );
@@ -123,6 +125,15 @@ function postControl(sessionID: string, action: string): void {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionID, action })
+  });
+}
+
+function postHandover(sessionID: string, target: "mac" | "phone"): void {
+  void fetch("/handover", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionID, target })
   });
 }
 

@@ -25,9 +25,7 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
-	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -35,8 +33,6 @@ import (
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
-
-const webPairSessionID = "local-shell"
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -177,6 +173,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	sessionID := session.ID
+	defer func() { _, _ = d.HideSession(context.Background(), sessionID, "end") }()
 	logPhase(logger, "shell_ready", phase, "session_id", sessionID)
 	visible, _ := cmd.Flags().GetBool("visible")
 	if visible {
@@ -248,6 +245,14 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	select {
 	case <-ctx.Done():
 		logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+		select {
+		case err := <-errCh:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
+				return err
+			}
+		case <-time.After(5 * time.Second):
+			logger.Warn("onibi up shutdown timed out")
+		}
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
@@ -256,65 +261,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		}
 		logger.Error("onibi up server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 		return err
-	}
-}
-
-func localWebApprovalHandler(queue *approval.Queue, fallbackSessionID string, logger *slog.Logger) intake.ApprovalHandler {
-	return func(ctx context.Context, ev intake.Event) (intake.Response, error) {
-		started := time.Now()
-		sessionID := ev.Session
-		if sessionID == "" {
-			sessionID = fallbackSessionID
-		}
-		agent := ev.Agent
-		if agent == "" {
-			agent = "agent"
-		}
-		tool := ev.Tool
-		if tool == "" {
-			tool = "tool"
-		}
-		inputJSON := ev.InputJSON
-		if inputJSON == "" {
-			inputJSON = "{}"
-		}
-		approvalID, ch, err := queue.Request(ctx, sessionID, agent, tool, inputJSON)
-		if err != nil {
-			logger.Warn("web approval request failed", "agent", agent, "tool", tool, "session_id", sessionID, "err", err, "duration_ms", time.Since(started).Milliseconds())
-			return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
-		}
-		logger.Info("web approval requested",
-			"approval_id", approvalID,
-			"session_id", sessionID,
-			"agent", agent,
-			"tool", tool,
-			"ttl", approval.DefaultTTL.String(),
-		)
-		select {
-		case dec := <-ch:
-			resp := intake.Response{
-				Decision:  string(dec.Verdict),
-				Reason:    dec.Reason,
-				DecidedBy: dec.DecidedBy,
-			}
-			if len(dec.UpdatedInput) > 0 {
-				resp.UpdatedInput = string(dec.UpdatedInput)
-			}
-			logger.Info("web approval response",
-				"approval_id", approvalID,
-				"session_id", sessionID,
-				"agent", agent,
-				"tool", tool,
-				"decision", resp.Decision,
-				"edited", resp.UpdatedInput != "",
-				"wait_ms", time.Since(started).Milliseconds(),
-			)
-			return resp, nil
-		case <-ctx.Done():
-			_ = queue.Cancel(context.Background(), approvalID, "web pair shutdown")
-			logger.Warn("web approval cancelled", "approval_id", approvalID, "session_id", sessionID, "agent", agent, "tool", tool, "reason", "context_done", "wait_ms", time.Since(started).Milliseconds())
-			return intake.Response{Decision: "cancelled", Reason: "web pair shutdown"}, nil
-		}
 	}
 }
 
@@ -338,31 +284,28 @@ func webPairURLs(token string, port int, lanHosts []string, fallback string) []s
 	return urls
 }
 
-func startWebPairShell(ctx context.Context, paths config.Paths, cfg config.Config, cwd string, logger *slog.Logger) (string, *pty.Host, error) {
+func startManagedWebPairShell(ctx context.Context, d *daemon.Daemon, cfg config.Config, cwd string, logger *slog.Logger) (*daemon.Session, error) {
 	launch, err := resolveShellLaunch(cfg.Shell.Default, cfg.Shell.Login, os.Getenv, exec.LookPath)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	host, err := pty.Spawn(ctx, pty.SpawnOptions{
-		Name:  launch.Command,
-		Args:  launch.Args,
-		Argv0: launch.Argv0,
-		Env:   []string{"ONIBI_SESSION_ID=" + webPairSessionID, "ONIBI_SOCK=" + paths.Socket},
-		Dir:   cwd,
-	})
+	if launch.Argv0 != "" {
+		logger.Warn("tmux-backed shell ignores argv0 login hint", "shell", launch.Name, "argv0", launch.Argv0)
+	}
+	session, err := d.StartManagedTmuxSession(ctx, launch.Name, "shell", launch.Command, launch.Args, cwd)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	logger.Info("web pair shell started",
-		"session_id", webPairSessionID,
+		"session_id", session.ID,
+		"tmux_target", session.TmuxTarget,
 		"shell", launch.Name,
 		"command", launch.Command,
-		"argv0", launch.Argv0,
 		"args", strings.Join(launch.Args, " "),
 		"cwd", cwd,
 		"login", cfg.Shell.Login,
 	)
-	return webPairSessionID, host, nil
+	return session, nil
 }
 
 func shellWorkingDir(cmd *cobra.Command) (string, error) {

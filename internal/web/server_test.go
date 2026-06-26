@@ -213,6 +213,31 @@ func TestSessionInfoReturnsSinglePTYHost(t *testing.T) {
 	}
 }
 
+func TestSessionInfoReturnsSingleSessionIDWithoutHost(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionIDs = func() []string { return []string{"s1"} }
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/session-info", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleSessionInfo(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	got := map[string]string{}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["session_id"] != "s1" || got["ws_token"] == "" {
+		t.Fatalf("session-info = %#v", got)
+	}
+}
+
 func TestControlInterruptUsesHostResolver(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
@@ -244,6 +269,34 @@ func TestControlInterruptUsesHostResolver(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("host did not receive interrupt")
+	}
+}
+
+func TestHandoverCallsResolver(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	called := false
+	srv.handover = func(_ context.Context, sessionID, target string) (string, error) {
+		called = true
+		if sessionID != "s1" || target != "mac" {
+			t.Fatalf("handover args = %q %q", sessionID, target)
+		}
+		return "opened", nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/handover", strings.NewReader(`{"session_id":"s1","target":"mac"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleHandover(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("handover resolver was not called")
 	}
 }
 

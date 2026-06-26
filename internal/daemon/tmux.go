@@ -268,7 +268,6 @@ func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, er
 	}
 	d.webAttachMu.Lock()
 	d.webAttachHosts[s.ID] = host
-	s.Host = host
 	d.webAttachMu.Unlock()
 	go func() {
 		_ = host.Wait()
@@ -314,18 +313,12 @@ func (d *Daemon) clearWebAttachHost(id string, host *pty.Host) {
 		return
 	}
 	delete(d.webAttachHosts, id)
-	if s, err := d.Registry.Get(id); err == nil && s.Host == host {
-		s.Host = nil
-	}
 }
 
 func (d *Daemon) closeWebAttachHost(id string) {
 	d.webAttachMu.Lock()
 	host := d.webAttachHosts[id]
 	delete(d.webAttachHosts, id)
-	if s, err := d.Registry.Get(id); err == nil && s.Host == host {
-		s.Host = nil
-	}
 	d.webAttachMu.Unlock()
 	if host != nil {
 		_ = host.Close()
