@@ -45,7 +45,7 @@ void boot();
 async function boot(): Promise<void> {
   try {
     const info = await sessionInfo();
-    installControls(toolbar, info.session_id);
+    installControls(toolbar, info);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -54,7 +54,7 @@ async function boot(): Promise<void> {
       getTheme: () => theme,
       setTheme: setTheme
     });
-    ws.connect(wsURL(info.ws_token), info.session_id, 0);
+    connectTerminal(info);
     events.connect(eventsURL(info.ws_token));
   } catch {
     splash.textContent = "session unavailable";
@@ -82,12 +82,12 @@ function eventsURL(token: string): string {
   return `${scheme}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
 }
 
-function installControls(root: HTMLElement, sessionID: string): void {
+function installControls(root: HTMLElement, info: SessionInfo): void {
   root.replaceChildren(
-    controlButton("MAC", () => postHandover(sessionID, "mac")),
-    controlButton("PHONE", () => postHandover(sessionID, "phone")),
-    controlButton("INT", () => postControl(sessionID, "interrupt")),
-    controlButton("KILL", () => postControl(sessionID, "kill"))
+    controlButton("MAC", () => postHandover(info, "mac")),
+    controlButton("PHONE", () => postHandover(info, "phone")),
+    controlButton("INT", () => postControl(info.session_id, "interrupt")),
+    controlButton("KILL", () => postControl(info.session_id, "kill"))
   );
 }
 
@@ -128,15 +128,20 @@ function postControl(sessionID: string, action: string): void {
   });
 }
 
-function postHandover(sessionID: string, target: "mac" | "phone"): void {
+function connectTerminal(info: SessionInfo): void {
+  ws.connect(wsURL(info.ws_token), info.session_id, 0);
+}
+
+function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
   void (async () => {
     showToast(target === "mac" ? "Opening on Mac..." : "Returning to phone...");
+    ws.close();
     try {
       const response = await fetch("/handover", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionID, target })
+        body: JSON.stringify({ session_id: info.session_id, target })
       });
       const text = await response.text();
       let body = {} as { message?: unknown };
@@ -151,7 +156,11 @@ function postHandover(sessionID: string, target: "mac" | "phone"): void {
       }
       const msg = typeof body.message === "string" && body.message.trim() !== "" ? body.message : "Handover complete.";
       showToast(msg);
+      if (target === "phone") {
+        connectTerminal(info);
+      }
     } catch (err) {
+      connectTerminal(info);
       showToast(err instanceof Error ? err.message : "Handover failed.");
     } finally {
       term.focus();
