@@ -275,7 +275,6 @@ x 2026-06-26 Add to Home Screen flow de-scoped by user decision; standalone iOS 
 x 2026-06-25 Dark/light mode toggle in soft-key bar (xterm.js theme swap) — optional +phase07 @frontend id:T712 blocked-by:T710
 # 2026-06-25: T712 completed early by user request; T710/T711 remain the real-iPhone validation gates.
 x 2026-06-26 Local handover regression coverage: managed tmux metadata persists without a permanent web PTY host; `/handover` requires owner cookie; Mac handover closes web attach host; hide headless/end closes web attach host and end marks session ended +phase07 @tests id:T713 blocked-by:T709 accept:handover-regressions-covered
-(B) 2026-06-26 CLI lifecycle smoke: run `onibi up --no-qr --color never`, pair or curl health, Ctrl-C, then verify `tmux list-sessions -F '#{session_name}'` has no leftover `onibi-*`; repeat `onibi show`, `onibi hide --headless`, `onibi hide --end` against the only active session +phase07 @tests id:T714 blocked-by:T713 accept:no-orphan-managed-tmux-session
 
 ### Phase 08 — Tailscale Funnel transport (1.0 week, v1.1)
 
