@@ -29,10 +29,20 @@ import (
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
+	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 )
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
+var newTailscalePairTransport = func() tailscalePairTransport {
+	return webtransport.NewTailscale()
+}
+
+type tailscalePairTransport interface {
+	Enable(context.Context, int) error
+	URL(context.Context) (string, error)
+	Disable(context.Context) error
+}
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -195,13 +205,25 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	logPhase(logger, "servers_ready", phase, "socket_path", paths.Socket)
 
 	phase = time.Now()
+	pairTransport, err := resolvePairTransport(ctx, cfg.Transport.Mode, port, lanHosts, preferredHost, logger)
+	if err != nil {
+		return err
+	}
+	defer cleanupPairTransport(logger, pairTransport)
+	logPhase(logger, "pair_transport_ready", phase,
+		"transport", pairTransport.mode,
+		"base_url", pairTransport.redactedBaseURL(),
+	)
+
+	phase = time.Now()
 	token, err := setup.NewToken(ctx, db)
 	if err != nil {
 		return err
 	}
-	urls := webPairURLs(token, port, lanHosts, preferredHost)
+	urls := pairTransport.URLs(token)
 	url := urls[0]
 	logger.Info("web pair token minted",
+		"transport", pairTransport.mode,
 		"primary_url", redactPairURL(url),
 		"fallback_urls", redactPairURLs(urls[1:]),
 		"ttl", setup.PairTokenTTL.String(),
@@ -216,7 +238,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		if debugMode {
 			_ = renderTable(cmd.OutOrStdout(), [][]string{
 				{"web", style.status("PASS"), cfg.Web.ListenAddr},
-				{"transport", style.status("INFO"), cfg.Transport.Mode},
+				{"transport", style.status("INFO"), pairTransport.mode},
 				{"shell", style.status("PASS"), sessionID},
 				{"socket", style.status("PASS"), paths.Socket},
 			})
@@ -283,6 +305,85 @@ func webPairURLs(token string, port int, lanHosts []string, fallback string) []s
 		urls = add("localhost", urls)
 	}
 	return urls
+}
+
+type pairTransport struct {
+	mode     string
+	baseURL  string
+	port     int
+	lanHosts []string
+	fallback string
+	cleanup  func(context.Context) error
+}
+
+func resolvePairTransport(ctx context.Context, mode string, port int, lanHosts []string, fallback string, logger *slog.Logger) (pairTransport, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "lan"
+	}
+	switch mode {
+	case "lan":
+		return lanPairTransport(port, lanHosts, fallback), nil
+	case "tailscale":
+		return startTailscalePairTransport(ctx, port)
+	case "auto":
+		pt, err := startTailscalePairTransport(ctx, port)
+		if err == nil {
+			return pt, nil
+		}
+		logger.Warn("tailscale transport unavailable; falling back to lan", "err", err)
+		return lanPairTransport(port, lanHosts, fallback), nil
+	default:
+		return pairTransport{}, fmt.Errorf("unsupported transport %q", mode)
+	}
+}
+
+func lanPairTransport(port int, lanHosts []string, fallback string) pairTransport {
+	return pairTransport{mode: "lan", port: port, lanHosts: lanHosts, fallback: fallback}
+}
+
+func startTailscalePairTransport(ctx context.Context, port int) (pairTransport, error) {
+	ts := newTailscalePairTransport()
+	if err := ts.Enable(ctx, port); err != nil {
+		return pairTransport{}, err
+	}
+	baseURL, err := ts.URL(ctx)
+	if err != nil {
+		_ = ts.Disable(context.Background())
+		return pairTransport{}, err
+	}
+	return pairTransport{
+		mode:    "tailscale",
+		baseURL: baseURL,
+		cleanup: func(ctx context.Context) error {
+			return ts.Disable(ctx)
+		},
+	}, nil
+}
+
+func (p pairTransport) URLs(token string) []string {
+	if strings.TrimSpace(p.baseURL) != "" {
+		return []string{strings.TrimRight(p.baseURL, "/") + "/pair/" + token}
+	}
+	return webPairURLs(token, p.port, p.lanHosts, p.fallback)
+}
+
+func (p pairTransport) redactedBaseURL() string {
+	if strings.TrimSpace(p.baseURL) == "" {
+		return ""
+	}
+	return strings.TrimRight(p.baseURL, "/")
+}
+
+func cleanupPairTransport(logger *slog.Logger, pt pairTransport) {
+	if pt.cleanup == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pt.cleanup(ctx); err != nil {
+		logger.Warn("pair transport cleanup failed", "transport", pt.mode, "err", err)
+	}
 }
 
 func startManagedWebPairShell(ctx context.Context, d *daemon.Daemon, cfg config.Config, cwd string, logger *slog.Logger) (*daemon.Session, error) {
