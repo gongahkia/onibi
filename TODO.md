@@ -280,7 +280,6 @@ x 2026-06-26 Local handover regression coverage: managed tmux metadata persists 
 
 > Goal: add `--transport=tailscale` so phone can connect over cellular without LAN.
 
-(A) 2026-06-23 Implement internal/web/transport/tailscale.go: Detect() (bool, error) shells out to `tailscale status --json` (use os/exec.Command); parse JSON; return true if BackendState=="Running" and the Self.HasFunnelEligibleCap or equivalent flag is set +phase08 @backend file:internal/web/transport/tailscale.go id:T801 blocked-by:T800 ref:arch-rule-9
 (A) 2026-06-23 Implement Tailscale.Enable(port int) error: invokes `tailscale funnel --bg <port>` (background); returns when funnel is active +phase08 @backend file:internal/web/transport/tailscale.go id:T802 blocked-by:T801
 (A) 2026-06-23 Parse `tailscale serve status --json` to get the assigned funnel URL (something like https://device-name.tailnet.ts.net/); return as TailscaleTransport.URL() string +phase08 @backend file:internal/web/transport/tailscale.go id:T803 blocked-by:T802
 (A) 2026-06-23 Wire transport into pair flow: if Tailscale transport active, web pair URL uses the funnel URL instead of LAN IP; QR encodes funnel URL +phase08 @backend file:internal/cli/up.go id:T804 blocked-by:T803
