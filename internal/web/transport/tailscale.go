@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -18,6 +19,7 @@ const (
 	tailscaleHTTPSCap       = "https"
 	tailscaleFunnelCap      = "funnel"
 	tailscaleFunnelPortsCap = "https://tailscale.com/cap/funnel-ports"
+	TailscaleBinEnv         = "ONIBI_TAILSCALE_BIN"
 )
 
 type Tailscale struct {
@@ -57,7 +59,14 @@ type serveStatusLayer struct {
 }
 
 func NewTailscale() *Tailscale {
-	return &Tailscale{Bin: "tailscale", runner: execCommandRunner{}}
+	return &Tailscale{Bin: TailscaleBin(), runner: execCommandRunner{}}
+}
+
+func TailscaleBin() string {
+	if bin := strings.TrimSpace(os.Getenv(TailscaleBinEnv)); bin != "" {
+		return bin
+	}
+	return "tailscale"
 }
 
 func (t *Tailscale) Detect(ctx context.Context) (bool, error) {

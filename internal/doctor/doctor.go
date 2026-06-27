@@ -102,6 +102,7 @@ func (r *runner) run() {
 	r.checkDB()
 	r.checkConfig()
 	r.checkLAN()
+	r.checkTailscale()
 	r.checkLocalCerts()
 	r.checkSocket()
 	r.checkService()
@@ -181,6 +182,34 @@ func (r *runner) checkLAN() {
 		out = append(out, ip.String())
 	}
 	r.add("lan ip", Pass, strings.Join(out, ", "))
+}
+
+func (r *runner) checkTailscale() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("tailscale", Warn, err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.Transport.Mode))
+	if mode != "tailscale" && mode != "auto" {
+		r.add("tailscale", Pass, "not selected (transport="+mode+")")
+		return
+	}
+	bin := transport.TailscaleBin()
+	if _, err := exec.LookPath(bin); err != nil {
+		r.add("tailscale", Warn, "binary not found in PATH: "+bin)
+		return
+	}
+	ts := transport.NewTailscale()
+	if err := ts.Check(r.ctx); err != nil {
+		r.add("tailscale", Warn, err.Error())
+		return
+	}
+	if url, err := ts.URL(r.ctx); err == nil {
+		r.add("tailscale", Pass, "ready; Funnel active at "+url)
+		return
+	}
+	r.add("tailscale", Pass, "ready; no active Funnel")
 }
 
 func (r *runner) checkLocalCerts() {
