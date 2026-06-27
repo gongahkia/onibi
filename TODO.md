@@ -281,7 +281,6 @@ x 2026-06-26 Local handover regression coverage: managed tmux metadata persists 
 > Goal: add `--transport=tailscale` so phone can connect over cellular without LAN.
 
 (A) 2026-06-23 No handler-side code changes needed (Tailscale terminates TLS at the node; requests arrive on loopback :8443 just like LAN); verify by hitting funnel URL from a different machine +phase08 @tests id:T806 blocked-by:T805
-(B) 2026-06-23 Documentation: docs/transports.md describing LAN vs Tailscale Funnel trust models; reference Tailscale's docs claim that Funnel relay does not see decrypted bytes +phase08 @docs file:docs/transports.md id:T808 blocked-by:T807
 (B) 2026-06-23 E2E test on a tailnet-joined Mac with `onibi up --transport=tailscale`: open the funnel URL from an iPhone on LTE (Wi-Fi disabled) — confirm live terminal + input works and managed Mac <-> phone handover preserves session state +phase08 @tests id:T809 blocked-by:T808 accept:cellular-phone-can-drive-terminal
 
 ### Phase 09 — Release prep (0.5 week)
