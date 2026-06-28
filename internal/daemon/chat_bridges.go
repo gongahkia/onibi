@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -278,12 +277,4 @@ func set(vals []string) map[string]bool {
 		}
 	}
 	return out
-}
-
-func messageText(raw json.RawMessage) string {
-	var v struct {
-		Text string `json:"text"`
-	}
-	_ = json.Unmarshal(raw, &v)
-	return strings.TrimSpace(v.Text)
 }
