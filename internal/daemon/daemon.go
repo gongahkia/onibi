@@ -43,6 +43,8 @@ type Daemon struct {
 	TerminalDefault string
 	WebAddr         string
 	WebCertDir      string
+	RelayKeys       *web.RelayKeys
+	RequireWebE2E   bool
 	TelegramToken   string
 	TelegramOwnerID int64
 	TelegramPair    string
@@ -71,6 +73,8 @@ type Options struct {
 	TerminalDefault       string
 	WebAddr               string
 	WebCertDir            string
+	RelayKeys             *web.RelayKeys
+	RequireWebE2E         bool
 	TelegramToken         string
 	TelegramOwnerID       int64
 	TelegramPair          string
@@ -97,6 +101,8 @@ func New(opts Options) *Daemon {
 		TerminalDefault: opts.TerminalDefault,
 		WebAddr:         opts.WebAddr,
 		WebCertDir:      opts.WebCertDir,
+		RelayKeys:       opts.RelayKeys,
+		RequireWebE2E:   opts.RequireWebE2E,
 		TelegramToken:   opts.TelegramToken,
 		TelegramOwnerID: opts.TelegramOwnerID,
 		TelegramPair:    opts.TelegramPair,
@@ -303,6 +309,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 			PTYHost:       d.EnsureWebPTYHost,
 			Handover:      d.HandoverSession,
 			Scroll:        d.ScrollSession,
+			RelayKeys:     d.RelayKeys,
+			RequireE2E:    d.RequireWebE2E,
 			Log:           d.Log,
 		})
 		wg.Add(1)

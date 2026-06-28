@@ -25,6 +25,7 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
@@ -181,6 +182,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"lan_hosts", strings.Join(lanHosts, ","),
 		"preferred_host", preferredHost,
 	)
+	relayKeys := web.NewRelayKeys()
 	d := daemon.New(daemon.Options{
 		Paths:                 paths,
 		DB:                    db,
@@ -193,6 +195,8 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		TerminalDefault:       cfg.Terminal.Default,
 		WebAddr:               cfg.Web.ListenAddr,
 		WebCertDir:            certDir,
+		RelayKeys:             relayKeys,
+		RequireWebE2E:         webtransport.IsRelayMode(cfg.Transport.Mode),
 		SkipRestore:           true,
 	})
 	phase = time.Now()
@@ -239,6 +243,20 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	urls := pairTransport.URLs(token)
+	if webtransport.IsRelayMode(string(pairTransport.Mode)) {
+		key, err := envelope.NewKey()
+		if err != nil {
+			return err
+		}
+		if err := relayKeys.RegisterPair(ctx, db, token, key, setup.PairTokenTTL); err != nil {
+			return err
+		}
+		fragment := "k=" + envelope.EncodeKey(key)
+		for i := range urls {
+			urls[i] = appendURLFragment(urls[i], fragment)
+		}
+		logger.Info("relay e2e key registered", "transport", pairTransport.Mode, "commitment", envelope.Commitment(key))
+	}
 	url := urls[0]
 	logger.Info("web pair token minted",
 		"transport", pairTransport.Mode,

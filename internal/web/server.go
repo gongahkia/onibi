@@ -34,6 +34,8 @@ type Options struct {
 	PTYHost       func(context.Context, string) (*pty.Host, error)
 	Handover      func(context.Context, string, string) (string, error)
 	Scroll        func(context.Context, string, string) error
+	RelayKeys     *RelayKeys
+	RequireE2E    bool
 	Log           *slog.Logger
 }
 
@@ -46,6 +48,8 @@ type Server struct {
 	ptyHost       func(context.Context, string) (*pty.Host, error)
 	handover      func(context.Context, string, string) (string, error)
 	scroll        func(context.Context, string, string) error
+	relayKeys     *RelayKeys
+	requireE2E    bool
 	log           *slog.Logger
 }
 
@@ -62,6 +66,8 @@ func New(opts Options) *Server {
 		ptyHost:       opts.PTYHost,
 		handover:      opts.Handover,
 		scroll:        opts.Scroll,
+		relayKeys:     opts.RelayKeys,
+		requireE2E:    opts.RequireE2E,
 		log:           opts.Log,
 	}
 }
