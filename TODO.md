@@ -4,6 +4,16 @@ Current status, 2026-06-28: this root file is a retained planning artifact. The 
 
 Status: retained planning artifact. Some lines below are historical and may already be implemented; use `docs/pi-todo.md` for current completion state.
 
+## Immediate live Pi retry checklist
+
+- [ ] Reconnect Pi 5 to the same network as the Mac and discover its current IP (`hostname -I` on Pi, router UI, or network scan).
+- [ ] Verify passwordless SSH with dedicated key: `ssh -o BatchMode=yes -i ~/.ssh/kelp_pi_acceptance gongahkia@<pi-ip> true`.
+- [ ] Confirm target facts: `uname -m`, `/proc/device-tree/model`, `df -h /tmp`, and `command -v rsync || true`.
+- [ ] Install Pi `rsync` if missing: `sudo apt-get update && sudo apt-get install -y rsync`.
+- [ ] Update `.kelp-pi/acceptance.env` with the current `KELP_PI_SSH_HOST=<pi-ip>`.
+- [ ] Rerun `pnpm accept:pi`; if the network drops during GGUF transfer, rerun after reconnect because the harness now prefers resumable rsync.
+- [ ] After pass, inspect `.kelp-pi/acceptance-evidence/{doctor.json,model-warm.json,bundle-verify.json}` and mark `docs/pi-todo.md` real Pi acceptance items complete.
+
 Labels: `[Inference]` = derived from analysis. `[Speculation]` = uncertain, needs Pi-side verification. `[Unverified]` = claimed elsewhere, not yet measured.
 
 ---
