@@ -254,9 +254,10 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 
 func (d *Daemon) handleProviderText(ctx context.Context, target, text string, actor int64) (string, error) {
 	if handled, reply := d.handleProviderTextCommand(ctx, text, actor); handled {
-		return reply, nil
+		return redactChatText(reply), nil
 	}
-	return d.SendSessionTextAndCapture(ctx, target, text, true)
+	out, err := d.SendSessionTextAndCapture(ctx, target, text, true)
+	return redactChatText(out), err
 }
 
 func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, actor int64) (bool, string) {

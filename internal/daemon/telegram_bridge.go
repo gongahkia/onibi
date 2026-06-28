@@ -415,12 +415,12 @@ func formatApproval(a *approval.Approval) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Approval %s\nagent=%s tool=%s session=%s\nrisk=%s\n", a.ID, a.Agent, a.Tool, a.SessionID, approval.ClassifyRisk(a.Tool, a.InputJSON).Level)
 	if details.Command != "" {
-		fmt.Fprintf(&b, "\ncommand:\n%s\n", approval.Scrub(details.Command))
+		fmt.Fprintf(&b, "\ncommand:\n%s\n", redactChatText(details.Command))
 	}
 	if details.FilePath != "" {
-		fmt.Fprintf(&b, "\nfile:\n%s\n", approval.Scrub(details.FilePath))
+		fmt.Fprintf(&b, "\nfile:\n%s\n", redactChatText(details.FilePath))
 	}
-	body := approval.Scrub(a.InputJSON)
+	body := redactChatText(a.InputJSON)
 	if len(body) > 1800 {
 		body = body[:1800] + "\n..."
 	}
@@ -470,6 +470,7 @@ func (b *telegramBridge) sendChunks(ctx context.Context, chatID int64, text stri
 }
 
 func (b *telegramBridge) send(ctx context.Context, chatID int64, text string, markup *telegram.InlineKeyboardMarkup) {
+	text = redactChatText(text)
 	if _, err := b.client.SendMessage(ctx, chatID, text, markup); err != nil {
 		b.d.Log.Warn("telegram send failed", "chat_id", chatID, "err", err)
 	}
