@@ -100,10 +100,11 @@ type Options struct {
 }
 
 type MatrixOptions struct {
-	Homeserver  string
-	AccessToken string
-	RoomID      string
-	OwnerUserID string
+	Homeserver     string
+	AccessToken    string
+	RoomID         string
+	OwnerUserID    string
+	AllowEncrypted bool
 }
 
 type SlackOptions struct {

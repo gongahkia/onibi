@@ -30,13 +30,20 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if _, err := c.CheckRoomOwner(ctx, d.Matrix.RoomID, 50); err != nil {
 		return err
 	}
+	encrypted, err := c.IsEncryptedRoom(ctx, d.Matrix.RoomID)
+	if err != nil {
+		return err
+	}
+	if encrypted && !d.Matrix.AllowEncrypted {
+		return errors.New("matrix encrypted rooms require Megolm support; set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 to bypass")
+	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
 	if d.DB != nil {
 		since, _, _ = d.DB.KVGetString(ctx, matrixKVSince)
 	}
 	for {
-		sync, err := c.Sync(ctx, since, 25*time.Second)
+		sync, err := c.SyncRoom(ctx, d.Matrix.RoomID, since, 25*time.Second)
 		if err != nil {
 			select {
 			case <-ctx.Done():

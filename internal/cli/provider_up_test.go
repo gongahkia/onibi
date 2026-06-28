@@ -7,11 +7,12 @@ func TestProviderOptionsFromEnvMatrix(t *testing.T) {
 	t.Setenv("ONIBI_MATRIX_ACCESS_TOKEN", "tok")
 	t.Setenv("ONIBI_MATRIX_ROOM_ID", "!room:example")
 	t.Setenv("ONIBI_MATRIX_OWNER_USER_ID", "@owner:example")
+	t.Setenv("ONIBI_MATRIX_ALLOW_ENCRYPTED", "1")
 	opts, label, err := providerOptionsFromEnv("matrix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if label != "Matrix" || opts.Matrix.RoomID != "!room:example" || opts.Matrix.OwnerUserID != "@owner:example" {
+	if label != "Matrix" || opts.Matrix.RoomID != "!room:example" || opts.Matrix.OwnerUserID != "@owner:example" || !opts.Matrix.AllowEncrypted {
 		t.Fatalf("opts=%#v label=%q", opts, label)
 	}
 }

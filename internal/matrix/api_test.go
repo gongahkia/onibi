@@ -35,6 +35,34 @@ func TestSyncUsesSinceTokenAndParsesMessage(t *testing.T) {
 	}
 }
 
+func TestSyncRoomUsesRoomFilter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_matrix/client/v3/sync" || r.URL.Query().Get("since") != "s1" {
+			t.Fatalf("request = %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		var filter struct {
+			Room struct {
+				Rooms []string `json:"rooms"`
+			} `json:"room"`
+		}
+		if err := json.Unmarshal([]byte(r.URL.Query().Get("filter")), &filter); err != nil {
+			t.Fatal(err)
+		}
+		if len(filter.Room.Rooms) != 1 || filter.Room.Rooms[0] != "!room:example" {
+			t.Fatalf("filter = %#v", filter)
+		}
+		writeJSON(t, w, map[string]any{"next_batch": "s2", "rooms": map[string]any{"join": map[string]any{}}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, "tok").SyncRoom(t.Context(), "!room:example", "s1", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NextBatch != "s2" {
+		t.Fatalf("sync = %#v", got)
+	}
+}
+
 func TestSendTextEscapesRoomAndTxn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/send/m.room.message/txn-1") {
@@ -118,6 +146,49 @@ func TestCheckRoomOwnerUsesPowerLevels(t *testing.T) {
 	}
 	if who.UserID != "@owner:example" {
 		t.Fatalf("who = %#v", who)
+	}
+}
+
+func TestCheckRoomOwnerUsesUsersDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/account/whoami"):
+			writeJSON(t, w, WhoAmI{UserID: "@owner:example"})
+		case strings.Contains(r.URL.Path, "/state/m.room.power_levels"):
+			writeJSON(t, w, PowerLevels{UsersDefault: 50})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL, "tok").CheckRoomOwner(t.Context(), "!room:example", 50); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsEncryptedRoom(t *testing.T) {
+	var encrypted bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/state/m.room.encryption") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if !encrypted {
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(t, w, map[string]any{"errcode": "M_NOT_FOUND", "error": "not found"})
+			return
+		}
+		writeJSON(t, w, map[string]any{"algorithm": "m.megolm.v1.aes-sha2"})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	got, err := c.IsEncryptedRoom(t.Context(), "!room:example")
+	if err != nil || got {
+		t.Fatalf("encrypted=%v err=%v", got, err)
+	}
+	encrypted = true
+	got, err = c.IsEncryptedRoom(t.Context(), "!room:example")
+	if err != nil || !got {
+		t.Fatalf("encrypted=%v err=%v", got, err)
 	}
 }
 

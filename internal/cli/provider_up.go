@@ -76,10 +76,11 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 	switch mode {
 	case "matrix":
 		opts.Matrix = daemon.MatrixOptions{
-			Homeserver:  envRequired("ONIBI_MATRIX_HOMESERVER"),
-			AccessToken: envRequired("ONIBI_MATRIX_ACCESS_TOKEN"),
-			RoomID:      envRequired("ONIBI_MATRIX_ROOM_ID"),
-			OwnerUserID: strings.TrimSpace(os.Getenv("ONIBI_MATRIX_OWNER_USER_ID")),
+			Homeserver:     envRequired("ONIBI_MATRIX_HOMESERVER"),
+			AccessToken:    envRequired("ONIBI_MATRIX_ACCESS_TOKEN"),
+			RoomID:         envRequired("ONIBI_MATRIX_ROOM_ID"),
+			OwnerUserID:    strings.TrimSpace(os.Getenv("ONIBI_MATRIX_OWNER_USER_ID")),
+			AllowEncrypted: envBool("ONIBI_MATRIX_ALLOW_ENCRYPTED"),
 		}
 		if opts.Matrix.Homeserver == "" || opts.Matrix.AccessToken == "" || opts.Matrix.RoomID == "" {
 			return opts, "", fmt.Errorf("matrix requires ONIBI_MATRIX_HOMESERVER, ONIBI_MATRIX_ACCESS_TOKEN, ONIBI_MATRIX_ROOM_ID")
@@ -149,6 +150,15 @@ func isNotifyTransport(mode string) bool {
 
 func envRequired(name string) string {
 	return strings.TrimSpace(os.Getenv(name))
+}
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitCSV(v string) []string {

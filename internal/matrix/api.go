@@ -89,6 +89,38 @@ func (c *Client) Sync(ctx context.Context, since string, timeout time.Duration) 
 	return out, nil
 }
 
+func (c *Client) SyncRoom(ctx context.Context, roomID, since string, timeout time.Duration) (SyncResponse, error) {
+	if strings.TrimSpace(roomID) == "" {
+		return SyncResponse{}, errors.New("matrix room id required")
+	}
+	filter := map[string]any{
+		"room": map[string]any{
+			"rooms": []string{roomID},
+			"state": map[string]any{"types": []string{"m.room.encryption", "m.room.power_levels"}},
+			"timeline": map[string]any{
+				"limit": 20,
+				"types": []string{"m.room.message", "m.room.encrypted"},
+			},
+		},
+	}
+	b, err := json.Marshal(filter)
+	if err != nil {
+		return SyncResponse{}, err
+	}
+	q := url.Values{"filter": {string(b)}}
+	if since != "" {
+		q.Set("since", since)
+	}
+	if timeout > 0 {
+		q.Set("timeout", fmt.Sprintf("%d", timeout.Milliseconds()))
+	}
+	var out SyncResponse
+	if err := c.do(ctx, http.MethodGet, "/_matrix/client/v3/sync?"+q.Encode(), nil, &out); err != nil {
+		return SyncResponse{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) SendText(ctx context.Context, roomID, text string) error {
 	return chatout.SendChunks(ctx, text, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
 		return c.sendTextChunk(ctx, roomID, chunk)
@@ -120,6 +152,18 @@ func (c *Client) PowerLevels(ctx context.Context, roomID string) (PowerLevels, e
 		out.Users = map[string]int{}
 	}
 	return out, nil
+}
+
+func (c *Client) IsEncryptedRoom(ctx context.Context, roomID string) (bool, error) {
+	var out map[string]any
+	p := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/state/m.room.encryption"
+	if err := c.do(ctx, http.MethodGet, p, nil, &out); err != nil {
+		if strings.Contains(err.Error(), "M_NOT_FOUND") || strings.Contains(err.Error(), "404") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *Client) CheckRoomOwner(ctx context.Context, roomID string, minPower int) (WhoAmI, error) {
@@ -227,6 +271,9 @@ func (c *Client) doAttempt(ctx context.Context, method, p string, payload any, d
 		msg := strings.TrimSpace(e.Error)
 		if msg == "" {
 			msg = resp.Status
+		}
+		if e.ErrCode != "" {
+			msg = e.ErrCode + " " + msg
 		}
 		return fmt.Errorf("matrix %s: %s", p, msg)
 	}
