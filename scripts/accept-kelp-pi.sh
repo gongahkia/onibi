@@ -18,6 +18,7 @@ SSH_PORT="${KELP_PI_SSH_PORT:-22}"
 REMOTE_ROOT="${KELP_PI_REMOTE_DATA_DIR:-/tmp/kelp-pi-acceptance}"
 REMOTE_BIN="${KELP_PI_REMOTE_BIN:-$REMOTE_ROOT/kelp-pi}"
 LOCAL_BIN="${KELP_PI_BINARY:-zig-out/bin/kelp-pi}"
+LOCAL_VERIFY_BIN="${KELP_PI_VERIFY_BINARY:-./zig-out/bin/kelp-pi}"
 LOCAL_MODEL="${KELP_PI_MODEL:-.kelp-pi/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf}"
 REMOTE_MODEL="$REMOTE_ROOT/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
 LOCAL_LLAMA_LIB_DIR="${KELP_PI_LLAMA_LIB_DIR:-}"
@@ -93,4 +94,4 @@ rm -rf .kelp-pi/acceptance-bundle
 mkdir -p .kelp-pi
 # shellcheck disable=SC2086
 $SCP_BASE -r "$REMOTE:$REMOTE_ROOT/bundle" .kelp-pi/acceptance-bundle
-./zig-out/bin/kelp-pi verify-bundle .kelp-pi/acceptance-bundle
+"$LOCAL_VERIFY_BIN" verify-bundle .kelp-pi/acceptance-bundle

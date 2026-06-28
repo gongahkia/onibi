@@ -107,6 +107,7 @@ KELP_PI_SSH_HOST=<pi-host>
 KELP_PI_SSH_USER=<pi-user>
 KELP_PI_BINARY=<path-to-linux-aarch64-kelp-pi>
 KELP_PI_LLAMA_LIB_DIR=<path-to-linux-aarch64-llama-lib-dir>
+KELP_PI_VERIFY_BINARY=./zig-out/bin/kelp-pi
 ```
 
 Then run:

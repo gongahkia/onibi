@@ -5,7 +5,14 @@ import tseslint from "typescript-eslint";
 
 export default [
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "target/**", "vendor/**"]
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/coverage/**",
+      "target/**",
+      "vendor/**",
+      ".kelp-pi/**"
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
