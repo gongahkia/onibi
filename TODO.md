@@ -83,25 +83,25 @@ Audience: red-teamer / security researcher on airgap. CLI-only. SSH-or-direct on
 
 Move-not-delete preserves audit history of the prior architecture, matching the prior Find-Evil cleanup pattern in `CHANGES.md`.
 
-| Package | Disposition | Reason |
-|---|---|---|
-| `packages/cli` | `legacy/cli` | Laptop CLI superseded by on-Pi `kelp-pi` |
-| `packages/pi-cli` | `legacy/pi-cli` | Laptop-side Pi control superseded |
-| `packages/nanoclaw` | `legacy/nanoclaw` | Cloud agent runner removed |
-| `packages/codegen` | `legacy/codegen` | Cloud codegen removed |
-| `packages/agent-hooks` | `legacy/agent-hooks` | Claude Code hook integration not needed on Pi |
-| `packages/adapters` | `legacy/adapters` | MCP adapter — see §11 open question |
-| `packages/web-intel` | `legacy/web-intel` | Airgap, no Internet |
+| Package                  | Disposition            | Reason                                         |
+| ------------------------ | ---------------------- | ---------------------------------------------- |
+| `packages/cli`           | `legacy/cli`           | Laptop CLI superseded by on-Pi `kelp-pi`       |
+| `packages/pi-cli`        | `legacy/pi-cli`        | Laptop-side Pi control superseded              |
+| `packages/nanoclaw`      | `legacy/nanoclaw`      | Cloud agent runner removed                     |
+| `packages/codegen`       | `legacy/codegen`       | Cloud codegen removed                          |
+| `packages/agent-hooks`   | `legacy/agent-hooks`   | Claude Code hook integration not needed on Pi  |
+| `packages/adapters`      | `legacy/adapters`      | MCP adapter — see §11 open question            |
+| `packages/web-intel`     | `legacy/web-intel`     | Airgap, no Internet                            |
 | `packages/workflow-spec` | `legacy/workflow-spec` | TS schemas — port what survives to Zig structs |
-| `packages/testing` | `legacy/testing` | TS test harness retired with TS code |
+| `packages/testing`       | `legacy/testing`       | TS test harness retired with TS code           |
 
 ### 2.2 Packages to port to Zig (reference until replaced)
 
-| Source | Target | Notes |
-|---|---|---|
-| `packages/policy/src/packs.ts` (rules) | `policies/*.toml` + `app/policy/*.zig` | Declarative packs + Zig evaluator |
-| `packages/evidence/src/*.ts` (importers) | `app/evidence/*.zig` | One module per scanner format |
-| `packages/pi-agent/src/*.rs` | `app/*.zig` | Module-by-module port — see §3.2 |
+| Source                                   | Target                                 | Notes                             |
+| ---------------------------------------- | -------------------------------------- | --------------------------------- |
+| `packages/policy/src/packs.ts` (rules)   | `policies/*.toml` + `app/policy/*.zig` | Declarative packs + Zig evaluator |
+| `packages/evidence/src/*.ts` (importers) | `app/evidence/*.zig`                   | One module per scanner format     |
+| `packages/pi-agent/src/*.rs`             | `app/*.zig`                            | Module-by-module port — see §3.2  |
 
 ### 2.3 New top-level layout
 
@@ -150,22 +150,22 @@ Keep `.env.example` but rewrite (see §6).
 
 Single static binary `kelp-pi` (rename from `kelp-pi-agent`).
 
-| Existing Rust (`packages/pi-agent/src/`) | Target Zig (`app/`) | Priority | Notes |
-|---|---|---|---|
-| `main.rs` | `main.zig` | P0 | Subcommand dispatcher: `chat`, `doctor`, `keygen`, `scan`, `ask`, `bundle`, `policy`, `approve`, `scope` |
-| `lib.rs` | (split) | P0 | Re-export points; collapse into module roots |
-| `policy.rs` | `policy/evaluator.zig` + `policy/expressions.zig` | P0 | Same action verbs (allow/deny/require-approval/log-only) |
-| `scanner.rs` | `scanner/orchestrator.zig` | P0 | systemd-run + nftables marks + rate limits |
-| `nuclei.rs` | `scanner/nuclei.zig` | P0 | Version + template pin constants preserved |
-| `nmap.rs` | `scanner/nmap.zig` | P1 | |
-| `zap.rs` | `scanner/zap.zig` + `hardening/pi5_probe.zig` | P1 | Split: scanner vs `/proc/device-tree/model` hardware probe currently colocated here |
-| `ollama.rs` | **delete** → `model/llamacpp.zig` | P0 | No Ollama daemon. Direct `llama.cpp` linkage. RAM gate logic preserved. |
-| `hardening.rs` | `hardening/network.zig` + `hardening/peripherals.zig` | P1 | nftables + AP mode + Bluetooth/audio/HDMI disable |
-| `thermal.rs` | `hardening/thermal.zig` | P1 | Scan gate on temp threshold |
-| `boot.rs` | `hardening/boot.zig` | P2 | `/boot/config.txt` mutations |
-| `bundle.rs` | `bundle/sign.zig` + `bundle/verify.zig` | P0 | Ed25519 signing, audit chain |
-| `keys.rs` | `bundle/keys.zig` | P0 | On-Pi keygen, never-export invariant |
-| `tests/*.rs` | `app/**/*_test.zig` | P1 | Zig `std.testing` |
+| Existing Rust (`packages/pi-agent/src/`) | Target Zig (`app/`)                                   | Priority | Notes                                                                                                    |
+| ---------------------------------------- | ----------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `main.rs`                                | `main.zig`                                            | P0       | Subcommand dispatcher: `chat`, `doctor`, `keygen`, `scan`, `ask`, `bundle`, `policy`, `approve`, `scope` |
+| `lib.rs`                                 | (split)                                               | P0       | Re-export points; collapse into module roots                                                             |
+| `policy.rs`                              | `policy/evaluator.zig` + `policy/expressions.zig`     | P0       | Same action verbs (allow/deny/require-approval/log-only)                                                 |
+| `scanner.rs`                             | `scanner/orchestrator.zig`                            | P0       | systemd-run + nftables marks + rate limits                                                               |
+| `nuclei.rs`                              | `scanner/nuclei.zig`                                  | P0       | Version + template pin constants preserved                                                               |
+| `nmap.rs`                                | `scanner/nmap.zig`                                    | P1       |                                                                                                          |
+| `zap.rs`                                 | `scanner/zap.zig` + `hardening/pi5_probe.zig`         | P1       | Split: scanner vs `/proc/device-tree/model` hardware probe currently colocated here                      |
+| `ollama.rs`                              | **delete** → `model/llamacpp.zig`                     | P0       | No Ollama daemon. Direct `llama.cpp` linkage. RAM gate logic preserved.                                  |
+| `hardening.rs`                           | `hardening/network.zig` + `hardening/peripherals.zig` | P1       | nftables + AP mode + Bluetooth/audio/HDMI disable                                                        |
+| `thermal.rs`                             | `hardening/thermal.zig`                               | P1       | Scan gate on temp threshold                                                                              |
+| `boot.rs`                                | `hardening/boot.zig`                                  | P2       | `/boot/config.txt` mutations                                                                             |
+| `bundle.rs`                              | `bundle/sign.zig` + `bundle/verify.zig`               | P0       | Ed25519 signing, audit chain                                                                             |
+| `keys.rs`                                | `bundle/keys.zig`                                     | P0       | On-Pi keygen, never-export invariant                                                                     |
+| `tests/*.rs`                             | `app/**/*_test.zig`                                   | P1       | Zig `std.testing`                                                                                        |
 
 ### 3.3 Cross-compile recipe (the only supported build path)
 
@@ -186,6 +186,7 @@ Single output: `zig-out/bin/kelp-pi`.
 ### 4.1 Primary: **Qwen3 0.6B Q4_K_M** via `llama.cpp`
 
 Rationale:
+
 - Ties Qwen3-4B and Phi-4-mini at 0.880 on the BFCL tool-calling benchmark. `[Inference]` — based on the 2026 ertas.ai benchmark write-up, not measured locally.
 - Q4_K_M weights ~400-500MB. KV cache headroom comfortable on 4GB after kernel + scanners + SQLite. `[Inference]`
 - ARM NEON / dotprod / fp16 path on Pi 5 Cortex-A76 well-supported in `llama.cpp`.
@@ -193,13 +194,13 @@ Rationale:
 
 ### 4.2 Secondary candidates (list in `models/manifest.toml`)
 
-| Model | Q | Size est. | Notes |
-|---|---|---|---|
-| Llama 3.2 1B | Q4_K_M | ~700MB | Broader instruction-tuning, weaker tool-calling |
-| Gemma 3 1B | Q4_K_M | ~700MB | Small, weaker reasoning chain |
-| Phi-4-mini 3.8B | Q4_K_M | ~2.2GB | **Must-measure on 4GB Pi** — may not leave KV-cache headroom. `[Speculation]` |
-| Qwen3 4B | Q4_K_M | ~2.4GB | Likely OOM on 4GB. `[Speculation]` |
-| TinyLlama 1.1B | Q4_0 | ~600MB | Known-good baseline (14.4 tok/s cited). Fallback. |
+| Model           | Q      | Size est. | Notes                                                                         |
+| --------------- | ------ | --------- | ----------------------------------------------------------------------------- |
+| Llama 3.2 1B    | Q4_K_M | ~700MB    | Broader instruction-tuning, weaker tool-calling                               |
+| Gemma 3 1B      | Q4_K_M | ~700MB    | Small, weaker reasoning chain                                                 |
+| Phi-4-mini 3.8B | Q4_K_M | ~2.2GB    | **Must-measure on 4GB Pi** — may not leave KV-cache headroom. `[Speculation]` |
+| Qwen3 4B        | Q4_K_M | ~2.4GB    | Likely OOM on 4GB. `[Speculation]`                                            |
+| TinyLlama 1.1B  | Q4_0   | ~600MB    | Known-good baseline (14.4 tok/s cited). Fallback.                             |
 
 ### 4.3 Build flags for `llama.cpp`
 
@@ -213,6 +214,7 @@ Rationale:
 ### 4.4 Model registry: `models/manifest.toml`
 
 Schema:
+
 ```toml
 [[model]]
 id = "qwen3-0.6b-q4_k_m"
@@ -249,6 +251,7 @@ read context → propose action → evaluate policy → request approval (if req
 Policy evaluation runs **before** approval, **always**, regardless of model output. Approval is the second gate.
 
 Approval modes:
+
 - **Default**: per-action prompt.
 - `--auto allow:<class>[,<class>...]`: granular whitelist by action class (read, evidence-import, retrieval-query). **Never** allow `scanner-active`, `policy-mutation`, `bundle-sign`.
 - **No YOLO / no `--auto allow:*`.** Document rejection rationale in `docs/pi-threat-model.md` (§1.8).
@@ -256,6 +259,7 @@ Approval modes:
 ### 5.3 Architect/Editor split (Aider-derived)
 
 Two prompts under the hood, one model:
+
 - **Triage architect**: input = current finding + retrieval citations; output = plain-English analysis + proposed next evidence step.
 - **Scanner editor**: input = architect's proposal; output = deterministic tool invocation (XML-tagged, see §5.4).
 
@@ -266,6 +270,7 @@ Two prompts under the hood, one model:
 Small models (0.6B-1B) follow tag structure more reliably than JSON-schema adherence. `[Inference]` — broadly observed; not directly cited.
 
 Tag set (initial):
+
 ```
 <scan tool="nuclei" target="<url>" scope-id="<id>" />
 <import format="sarif" path="<path>" />
@@ -289,16 +294,16 @@ Each tag maps 1:1 to an action class with a fixed policy gate.
 
 ### 6.1 File-by-file
 
-| File | Action |
-|---|---|
-| `packages/nanoclaw/src/agentic-runner.ts` | Move to `legacy/nanoclaw/` |
-| `packages/nanoclaw/package.json` | Move (whole package retired) |
-| `packages/codegen/src/agent-sdk-generator.ts` | Move to `legacy/codegen/` |
-| `packages/codegen/src/openai-generator.ts` | Move to `legacy/codegen/` |
-| `packages/codegen/src/openweight-generator.ts` | Move to `legacy/codegen/` (despite "open" in name — surface is laptop-side, retired) |
-| `.env.example` | Rewrite: strip `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `KELPCLAW_AGENTIC_PROVIDER`. Add `KELP_PI_MODEL_PATH`, `KELP_PI_MODEL_SHA256`, `KELP_PI_DATA_DIR` |
-| `Dockerfile.api`, `Dockerfile.kelp`, `Dockerfile.kelpclaw` | Move to `legacy/docker/` |
-| `docker-compose.yml` | Move to `legacy/docker/` |
+| File                                                       | Action                                                                                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/nanoclaw/src/agentic-runner.ts`                  | Move to `legacy/nanoclaw/`                                                                                                                              |
+| `packages/nanoclaw/package.json`                           | Move (whole package retired)                                                                                                                            |
+| `packages/codegen/src/agent-sdk-generator.ts`              | Move to `legacy/codegen/`                                                                                                                               |
+| `packages/codegen/src/openai-generator.ts`                 | Move to `legacy/codegen/`                                                                                                                               |
+| `packages/codegen/src/openweight-generator.ts`             | Move to `legacy/codegen/` (despite "open" in name — surface is laptop-side, retired)                                                                    |
+| `.env.example`                                             | Rewrite: strip `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `KELPCLAW_AGENTIC_PROVIDER`. Add `KELP_PI_MODEL_PATH`, `KELP_PI_MODEL_SHA256`, `KELP_PI_DATA_DIR` |
+| `Dockerfile.api`, `Dockerfile.kelp`, `Dockerfile.kelpclaw` | Move to `legacy/docker/`                                                                                                                                |
+| `docker-compose.yml`                                       | Move to `legacy/docker/`                                                                                                                                |
 
 ### 6.2 Verification step (post-excision)
 
@@ -316,6 +321,7 @@ Source: `packages/policy/src/packs.ts` (the `appsec-agent-baseline` pack).
 Target: `policies/appsec-agent-baseline.toml`.
 
 Constraints:
+
 - Preserve every rule one-for-one.
 - Provenance comment header: source file + git SHA at time of port.
 - Same action verbs: `allow` / `deny` / `require-approval` / `log-only`.
@@ -323,16 +329,16 @@ Constraints:
 
 ### 7.2 Other packs to port (or drop)
 
-| Pack | Disposition |
-|---|---|
-| `appsec-agent-baseline` | **Port** — primary harness policy |
-| `baseline` | Port — general defaults |
-| `no-destructive-shell` | Port — narrow guard |
-| `sg-agentic-ai-baseline` | Port — region-specific, low cost |
-| `sg-pdpa-strict`, `sg-financial-ai`, `finance-sg`, `pii-strict` | Port — declarative, no runtime cost |
-| `asean-genai-baseline` | Port |
-| `github-pr-safe` | Drop — not applicable to Pi-resident agent |
-| `web-search-safe`, `sg-web-research`, `browser-automation-strict` | Drop — no Internet by policy |
+| Pack                                                              | Disposition                                |
+| ----------------------------------------------------------------- | ------------------------------------------ |
+| `appsec-agent-baseline`                                           | **Port** — primary harness policy          |
+| `baseline`                                                        | Port — general defaults                    |
+| `no-destructive-shell`                                            | Port — narrow guard                        |
+| `sg-agentic-ai-baseline`                                          | Port — region-specific, low cost           |
+| `sg-pdpa-strict`, `sg-financial-ai`, `finance-sg`, `pii-strict`   | Port — declarative, no runtime cost        |
+| `asean-genai-baseline`                                            | Port                                       |
+| `github-pr-safe`                                                  | Drop — not applicable to Pi-resident agent |
+| `web-search-safe`, `sg-web-research`, `browser-automation-strict` | Drop — no Internet by policy               |
 
 ### 7.3 Zig evaluator
 
@@ -343,6 +349,7 @@ Constraints:
 ### 7.4 Approval reuse
 
 Chat-REPL action approvals **reuse** the existing approval-token flow:
+
 - Token TTL: 300s default (unchanged).
 - Token storage: `/var/lib/kelp-pi/approvals/` (unchanged).
 - Subcommand: `kelp-pi approve --data-dir <dir> <token>` (renamed from `kelp-pi-agent`).
@@ -359,15 +366,15 @@ Chat-REPL action approvals **reuse** the existing approval-token flow:
 
 ### 8.2 Importer port table
 
-| Source (`packages/evidence/src/`) | Target (`app/evidence/`) | Notes |
-|---|---|---|
-| `sarif.ts` | `sarif.zig` | Generic SARIF v2.1.0 |
-| `nuclei.ts` | `nuclei.zig` | JSONL |
-| `nmap.ts` | `nmap.zig` | XML |
-| `zap.ts` | `zap.zig` | JSON |
-| `burp.ts` | `burp.zig` | XML |
-| `nessus.ts` | `nessus.zig` | XML |
-| `index.ts` (workspace + signing + QA) | `evidence/workspace.zig` + `bundle/sign.zig` | Split by concern |
+| Source (`packages/evidence/src/`)     | Target (`app/evidence/`)                     | Notes                |
+| ------------------------------------- | -------------------------------------------- | -------------------- |
+| `sarif.ts`                            | `sarif.zig`                                  | Generic SARIF v2.1.0 |
+| `nuclei.ts`                           | `nuclei.zig`                                 | JSONL                |
+| `nmap.ts`                             | `nmap.zig`                                   | XML                  |
+| `zap.ts`                              | `zap.zig`                                    | JSON                 |
+| `burp.ts`                             | `burp.zig`                                   | XML                  |
+| `nessus.ts`                           | `nessus.zig`                                 | XML                  |
+| `index.ts` (workspace + signing + QA) | `evidence/workspace.zig` + `bundle/sign.zig` | Split by concern     |
 
 ### 8.3 Scope/gate behavior (unchanged)
 
@@ -399,6 +406,7 @@ Chat-REPL action approvals **reuse** the existing approval-token flow:
 ### 9.3 First-boot UX: `kelp-pi doctor`
 
 Outputs in order:
+
 1. Hardware probe: model string from `/proc/device-tree/model`, RAM total, NEON/dotprod/fp16 detection.
 2. Memory budget: free RAM, estimated KV-cache ceiling for primary model.
 3. Model registry status: which GGUFs present, hash verification.
@@ -435,6 +443,7 @@ Smoke sequence to run during manual testing:
 7. **Bundle generation + verify**: `kelp-pi bundle --run-id <id>`, copy bundle off Pi, run `kelp-pi verify-bundle <bundle>` on a clean host. Expect signature valid, transcript integrity verified, all referenced evidence present.
 
 Measurement record (write into `docs/pi-launch.md` after the session):
+
 - TTFT (ms)
 - Throughput (tok/s)
 - Peak RSS (MB)

@@ -2,81 +2,58 @@
 
 ## Scope
 
-Kelp Pi is a Raspberry Pi 5 field data plane for scoped AppSec triage. Current code
-implements the Rust agent foundation, signed wire primitives, local policy checks,
-loopback `/ask`, deterministic retrieval fixtures, selfcheck posture checks,
-hash-chained audit logs with signed rotation manifests, signed firmware-update
-staging, and destructive data-dir wipe. Scanner execution, Pi-produced audit bundles,
-AP/DNS/nftables hardening, quota enforcement, thermal scan refusal, and control-plane
-bundle sync remain TODOs in [`pi-todo.md`](./pi-todo.md).
+Kelp Pi is a Raspberry Pi 5 local AppSec triage runtime. The active pivot target is a single Zig `kelp-pi` binary with local model inference, policy-gated tool use, offline evidence retrieval, and signed bundles.
 
-Kelp Pi does not claim tamper-resistant hardware custody, covert operation, exploit
-execution, internet scanning, or scanning outside an operator-declared scope.
+Current Zig scaffold is not a hardened release. Treat it as a contract testbed.
 
 ## Current Enforced Controls
 
-- `kelp-pi-agent wire --stdio` verifies signed control-plane envelopes before handling
-  `selfcheck.run`; malformed JSON, wrong sender, bad signatures, and unsupported kinds
-  are refused.
-- `policy.push` accepts only trusted control-plane signatures, verifies the embedded
-  policy hash, and persists the accepted pack under `policy/current-policy.json`.
-- `policy pull` emits signed current-pack requests; local CP sync rotates signed
-  packs through `wire --stdio`, and `start` can poll signed policy-push files at a
-  configured interval. Accepted pulls/pushes are logged.
-- Signed Pi-originated envelopes can be queued in `outbox/queued` while disconnected
-  and replayed in sequence order after reconnect; replayed envelopes are archived.
-- Local policy evaluation covers scanner invocation, file operation, outbound network,
-  and synthesis gates, and writes `policy-decision` audit events when called through
-  the audited paths.
-- `selfcheck --target` and signed `selfcheck.run` refuse targets outside loopback, the
-  configured AP CIDR, or the configured allowlist; refusal is logged.
-- `serve-ask` binds to loopback by default; non-loopback requires
-  `--allow-non-loopback`.
-- Retrieval returns `no_answer` below threshold. Optional synthesis is gated by an
-  audited policy check and every generated sentence must cite retrieved chunks.
-- Binary and executable ingest inputs are refused by `validate_ingest_source` and
-  logged when the audited ingest validator is used.
-- Audit entries are hash-chained. `verify-audit-log --data-dir` verifies rotated
-  segment manifests, signatures, and the active log chain.
-- `firmware-update` stages a bundle only after the manifest signature, signer key ID,
-  relative payload path, and payload hash verify. Unsigned or wrong-key bundles are
-  refused and logged.
-- `wipe --force` zeros regular files before deleting the data dir; the agent then
-  refuses to start until the data-dir layout is recreated.
+- `policy check` parses `policies/appsec-agent-baseline.toml`.
+- Policy precedence is fail-closed by severity: deny, require approval, log-only, allow.
+- `keygen` creates an Ed25519 keypair JSON under the data directory.
+- `scope set` writes the active scope file.
+- `scan` refuses targets outside active scope.
+- `scan` requires an approval token for active scanner commands matched by policy.
+- `index ingest` refuses inputs containing NUL bytes and writes content hashes.
+- `model warm` checks model manifest membership before any load attempt.
+- `verify-bundle` requires manifest, result, and static HTML files.
 
-## Physical Capture
+## Not Yet Enforced
 
-Current `keygen` stores the Pi Ed25519 private key as a local JSON file with `0600`
-permissions under the configured key directory. At-rest passphrase encryption is not
-implemented yet, so powered-off capture of that file is a key-compromise event unless
-the operator protects the storage layer externally. Powered-on capture of an unlocked
-agent is also a key-compromise event: the attacker may sign envelopes until the
-operator revokes the key or the process stops. The control plane must revoke the Pi
-key ID after suspected capture and distrust envelopes after the last
-operator-confirmed good timestamp.
+- GGUF hash verification.
+- `llama.cpp` load and prompt execution.
+- SQLite FTS5 retrieval.
+- Actual scanner execution.
+- systemd/nftables scanner sandboxing.
+- Append-only signed transcript.
+- Hash-chained audit log.
+- Bundle Ed25519 signature.
+- Private-key file mode hardening.
+- At-rest key encryption.
+- Real Pi thermal/storage gates.
 
-## Hostile LAN
+## Threats
 
-The Pi assumes the local network may be monitored or hostile. The implemented remote
-control path is SSH-tunneled stdio with Kelp Pi Ed25519 envelope signatures at the
-protocol layer. The agent does not expose a custom TCP control port. AP client
-isolation, outbound nftables allowlisting, and captive-portal DNS sinkholing are
-planned controls and are not enforced by current code.
+### Physical Capture
 
-## Malicious Corpus
+Private-key compromise is a device compromise. Current scaffold writes a local key JSON and does not harden permissions beyond process defaults. Release target must set restrictive file mode, support revocation, and document operator storage protection.
 
-Corpus files, scanner sidecars, and imported prior bundles are untrusted input.
-Current code refuses binary and executable ingest inputs, derives chunk IDs from
-canonical path plus content hash, avoids executing corpus content, and supports
-PDF-derived text only through sidecar text. Upload/corpus/index quota enforcement is
-planned and not enforced yet.
+### Malicious Scanner Output
 
-## Audit-Log Tamper Attempts
+Scanner output and imported evidence are untrusted. Prompt-injection content inside scanner output must not bypass policy. Policy gates run before tool dispatch regardless of model output.
 
-Current audited events include data-dir preflight, daemon start/stop, panic, local
-policy decisions, approval requests, selfcheck target refusals, binary ingest refusals,
-firmware update staging/refusal, and signed audit-log rotation. Verification fails on
-modified, deleted, reordered, or inserted active-log entries and on tampered segment
-files or manifests. Scanner invocation, evidence append, `/ask` query, bundle export,
-and Pi-produced bundle verification are planned audit surfaces and are not fully
-implemented yet.
+### Hostile LAN
+
+The Pi should assume the local LAN is monitored or hostile. Release target uses SSH/direct TTY for operator access and should avoid exposing a custom unauthenticated TCP control port.
+
+### Scope Breakout
+
+Active scanners must only reach declared targets. Current scaffold does string-based scope checks only. Release target needs OS-level enforcement around scanner network access.
+
+### Audit Tamper
+
+Current minimal bundle verification is not tamper evidence. Release target needs hash-chained logs and signed manifests covering transcript, evidence, policy decisions, and generated findings.
+
+## Refusal Boundary
+
+Default policy denies exploit execution, destructive commands, secret exfiltration, persistence, and lateral movement. Active scanning requires approval. No auto-approve-all mode.

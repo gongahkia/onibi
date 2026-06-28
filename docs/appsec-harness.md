@@ -1,31 +1,40 @@
 # AppSec Harness
 
-KelpClaw AppSec audit turns a Dockerized target plus scanner evidence into a reproducible triage bundle.
+The pivot target is Pi-local AppSec triage through `kelp-pi chat`. The old laptop `kelp-claw appsec audit --agent-command ...` path remains in `packages/cli` as legacy reference until Zig parity.
 
-## Command
+## Pi Contract
+
+Input:
+
+- Chat turns.
+- Scope declarations.
+- Passive scanner imports.
+- Active scanner requests.
+- Operator approvals.
+
+Output:
+
+- Signed transcript target.
+- Normalized findings.
+- Retrieval citations.
+- Policy decisions.
+- Raw evidence.
+- Static audit bundle.
+
+## Current Zig Commands
 
 ```console
-$ kelp-claw appsec audit \
-  --context . \
-  --dockerfile Dockerfile \
-  --agent-command ./appsec-agent.sh \
-  --sarif findings.sarif \
-  --nuclei-jsonl nuclei.jsonl \
-  --zap-json zap.json \
-  --out .kelpclaw/appsec/local
+$ kelp-pi policy check --tool Bash --command 'nuclei -u http://target'
+$ kelp-pi scope set --host http://fixture.local --until 2026-12-31T00:00:00Z
+$ kelp-pi approval-request --scope-id default --command 'nuclei http://fixture.local'
+$ kelp-pi scan nuclei --target http://fixture.local --approval-token <token> --dry-run
+$ kelp-pi index ingest --input findings.json --path evidence/findings.json
+$ kelp-pi ask "default"
+$ kelp-pi bundle assemble --run-id local --workspace . --output audit-bundle
+$ kelp-pi verify-bundle audit-bundle
 ```
 
-V1 builds the Dockerfile and imports scanner output. It does not run exploits or active scanners by default.
-
-## Agent Contract
-
-The agent command receives:
-
-- `KELPCLAW_APPSEC_INPUT`: JSON input with target metadata, Docker build result, scanner evidence summary, and policy decisions.
-- `KELPCLAW_APPSEC_OUTPUT`: path where the agent must write triage JSON.
-- `KELPCLAW_EVIDENCE_WORKSPACE`: normalized evidence workspace.
-
-Output schema:
+## Triage JSON Target
 
 ```json
 {
@@ -37,6 +46,7 @@ Output schema:
       "severity": "high",
       "confidence": "medium",
       "evidenceIds": ["scanner-finding-id"],
+      "citations": [{ "path": "evidence/findings.json", "chunkId": "..." }],
       "rationale": "why this matters",
       "recommendedAction": "next safe action"
     }
@@ -46,42 +56,8 @@ Output schema:
 }
 ```
 
-Invalid JSON fails closed, while preserving logs and imported evidence.
-
-## Scanner Evidence
-
-Supported passive imports:
-
-- `--sarif`
-- `--nuclei-jsonl`
-- `--zap-json`
-- `--nmap-xml`
-- `--burp-xml`
-- `--nessus-xml`
-
-Scanner execution remains external in v1. KelpClaw records and signs the evidence it receives.
-
-## Outputs
-
-Default output layout:
-
-```text
-.kelpclaw/appsec/<run-id>/
-  appsec-run.json
-  appsec-input.json
-  appsec-triage.json
-  findings.sarif
-  policy-decisions.json
-  docker-build.stdout.log
-  docker-build.stderr.log
-  agent.stdout.log
-  agent.stderr.log
-  evidence-workspace/
-  audit-bundle/
-```
-
-The audit bundle contains a static `index.html`, manifest, signature, attestation, SARIF, run metadata, policy decisions, and logs.
+Invalid JSON, missing citations, or disallowed tool requests fail closed.
 
 ## Safety
 
-`appsec-agent-baseline` blocks destructive shell, credential exfiltration, exploit execution, persistence, and lateral movement. It requires approval for active scanners and container runtime actions beyond Docker build.
+`appsec-agent-baseline` denies destructive shell, credential exfiltration, exploit execution, persistence, and lateral movement. It requires approval for active scanners and container runtime actions beyond build.

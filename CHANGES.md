@@ -1,5 +1,13 @@
 # Changes
 
+## Local-Only Pi Pivot
+
+- Added a Zig `kelp-pi` scaffold with policy checks, scope files, approval tokens, dry-run scanner gating, index ingest, ask, bundle assemble/verify, model manifest checks, chat shell, and Ed25519 key generation.
+- Added `policies/appsec-agent-baseline.toml`, ported from the TypeScript `appsec-agent-baseline` rules.
+- Added `models/manifest.toml` with the selected Qwen3 0.6B Q4_K_M GGUF URL and an explicit SHA-256 fill-in gate.
+- Rewrote pivot-facing docs around a Pi-resident runtime: no cloud APIs, no laptop control plane, no provider table, and no Ollama daemon.
+- Kept TypeScript and Rust packages as legacy parity references until Zig reaches feature parity.
+
 ## Kelp Pi Target Introduction
 
 - Added Kelp Pi design docs and task tracking for a Raspberry Pi 5 AppSec field unit.

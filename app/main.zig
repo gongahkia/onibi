@@ -133,16 +133,17 @@ fn keygen(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const key_dir = try pathJoin(allocator, data_dir, "keys");
     defer allocator.free(key_dir);
     try std.fs.cwd().makePath(key_dir);
-    var secret: [32]u8 = undefined;
-    std.crypto.random.bytes(&secret);
-    const secret_hex = try hexAlloc(allocator, &secret);
+    const key_pair = std.crypto.sign.Ed25519.KeyPair.generate();
+    const secret_hex = try hexAlloc(allocator, &key_pair.secret_key.toBytes());
     defer allocator.free(secret_hex);
+    const public_hex = try hexAlloc(allocator, &key_pair.public_key.toBytes());
+    defer allocator.free(public_hex);
     const key_path = try pathJoin(allocator, key_dir, "pi-ed25519.key.json");
     defer allocator.free(key_path);
     const payload = try std.fmt.allocPrint(
         allocator,
-        "{{\"schemaVersion\":\"kelp.pi.key.v1\",\"algorithm\":\"ed25519\",\"label\":\"{s}\",\"privateKeyHex\":\"{s}\"}}\n",
-        .{ label, secret_hex },
+        "{{\"schemaVersion\":\"kelp.pi.key.v1\",\"algorithm\":\"ed25519\",\"label\":\"{s}\",\"publicKeyHex\":\"{s}\",\"privateKeyHex\":\"{s}\"}}\n",
+        .{ label, public_hex, secret_hex },
     );
     defer allocator.free(payload);
     try writeFileWithParents(key_path, payload);
@@ -277,8 +278,9 @@ fn askCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const data_dir = option(args[1..], "--data-dir") orelse default_data_dir;
     const index_path = try pathJoin3(allocator, data_dir, "index", "chunks.jsonl");
     defer allocator.free(index_path);
-    const content = std.fs.cwd().readFileAlloc(allocator, index_path, 32 * 1024 * 1024) catch "";
-    defer if (content.len != 0) allocator.free(content);
+    const content_opt = std.fs.cwd().readFileAlloc(allocator, index_path, 32 * 1024 * 1024) catch null;
+    defer if (content_opt) |content| allocator.free(content);
+    const content = content_opt orelse "";
     var out = std.fs.File.stdout().deprecatedWriter();
     if (content.len == 0 or !containsIgnoreCase(content, query)) {
         return out.print("{{\"query\":\"{s}\",\"noAnswer\":{{\"reason\":\"no matching chunks\"}},\"citations\":[]}}\n", .{query});
@@ -334,7 +336,7 @@ fn modelCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     try out.print("{{\"ok\":true,\"id\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":false,\"reason\":\"manifest verified; GGUF load requires linked llama.cpp\"}}\n", .{id});
 }
 
-fn chatCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn chatCommand(_: std.mem.Allocator, args: []const []const u8) !void {
     const data_dir = option(args, "--data-dir") orelse default_data_dir;
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("kelp-pi chat session=local data-dir={s}\n", .{data_dir});

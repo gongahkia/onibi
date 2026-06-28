@@ -1,70 +1,74 @@
-# Kelp Pi — TODO
+# Kelp Pi TODO
 
-One task per line. Each task ends with `→ success: <condition>` so completion is
-unambiguous. Order roughly follows phases in [`pi.md`](./pi.md). Tasks within a
-phase may parallelize; tasks across phases generally cannot.
+Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 
-If you are picking this up cold: read [`pi.md`](./pi.md) first for the design,
-[`appsec-harness.md`](./appsec-harness.md) for the AppSec audit surface that Kelp
-Pi extends, and [`deployment.md`](./deployment.md) for control-plane runtime
-conventions. Then start at the first unchecked P0 task below.
+## P0 - Pivot Contract
 
-## P0 — Scoping, absorption, and contracts
+- [x] Rewrite README around Pi-resident `kelp-pi`.
+- [x] Record local-only runtime: no cloud APIs, no laptop control plane, no provider table, no Ollama daemon.
+- [x] Add Zig build entrypoint: `build.zig`.
+- [x] Add Zig command scaffold: `app/main.zig`.
+- [x] Add TOML policy pack: `policies/appsec-agent-baseline.toml`.
+- [x] Add model manifest: `models/manifest.toml`.
+- [x] Add package scripts for Zig build/test/format.
+- [ ] Fill final GGUF SHA-256 after downloading the selected model.
+- [ ] Add release gate that fails when model SHA-256 is blank.
 
-- [x] Migrate IDEA and TODO into `kelp/docs/pi.md` and `kelp/docs/pi-todo.md` → success: both files live under `kelp/docs/`; `bloob/` reduced to a stub pointer (full deletion deferred to the operator's git workflow).
-- [x] Update kelp top-level README to mention the Pi target in one paragraph → success: README contains a "Kelp Pi (in design)" section linking to `docs/pi.md` and `docs/pi-todo.md`.
+## P1 - Zig Parity
 
-## P1 — Rust agent foundation
+- [x] Implement `kelp-pi doctor`.
+- [x] Implement `kelp-pi keygen` with stdlib Ed25519 generation.
+- [x] Implement `kelp-pi policy check`.
+- [x] Implement `kelp-pi scope set`.
+- [x] Implement approval token creation and existence check.
+- [x] Implement dry-run scanner gate with policy + scope + approval checks.
+- [x] Implement minimal `index ingest` and `ask`.
+- [x] Implement minimal `bundle assemble` and `verify-bundle`.
+- [x] Implement `model warm` manifest check.
+- [x] Implement `chat` shell scaffold.
+- [ ] Split `app/main.zig` into modules after behavior stabilizes.
+- [ ] Port Rust `policy_sync`, `scan_scope`, `acceptance_manifest`, `storage_quota`, and `outbox_replay` tests.
 
-- [ ] Cross-compile to `aarch64-unknown-linux-gnu` via `cross` or `cargo-zigbuild` → success: a `kelp-pi-agent` binary runs on a real Pi 5 and prints version.
-- [ ] Provide a systemd unit file `kelp-pi-agent.service` → success: `systemctl start kelp-pi-agent` brings up the daemon and `status` shows healthy.
-- [ ] Configure systemd unit with `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, dedicated user → success: `systemd-analyze security kelp-pi-agent.service` scores below 3.0 (lower is better).
+## P2 - llama.cpp
 
-## P2 — Pi networking and hardening
+- [ ] Vendor or submodule `llama.cpp`.
+- [ ] Link `llama.cpp` from `build.zig`.
+- [ ] Add RAM gate before model load.
+- [ ] Load Qwen3 0.6B Q4_K_M GGUF on Pi 5 4GB.
+- [ ] Record token latency, peak RSS, thermals, and failure mode.
 
-- [ ] Configure NetworkManager AP mode for wlan0 with WPA3-only and per-client isolation → success: two clients on the AP cannot ping each other; only the Pi's portal IP responds.
-- [ ] Disable upstream DNS by default; install a local dnsmasq with sinkhole rules for captive-portal probes → success: clients connecting see the local portal IP for `captive.apple.com`, `connectivitycheck.gstatic.com`, `clients3.google.com`, etc., and zero upstream DNS queries leave the Pi.
-- [ ] Configure nftables outbound allowlist: deny all egress except declared control-plane endpoints → success: `nft list ruleset` shows the allowlist; `curl https://example.com` from the Pi fails with no route.
-- [ ] Add an `allow-outbound` config field that takes a list of `host:port` pairs and rewrites the nftables rules atomically → success: changing the config and reloading does not drop the existing control-plane session.
-- [ ] Disable Bluetooth, audio, HDMI, and any unused peripheral via boot config → success: `dmesg` post-boot does not show the disabled subsystems initialized.
-- [ ] Optional: configure read-only root with a writable overlay for `/var/lib/kelp-pi` → success: an integration test pulls the SD card during write activity, reboots, and the agent comes up cleanly.
+## P3 - Retrieval
 
-## P3 — Retrieval foundation
+- [ ] Replace JSONL stub with SQLite FTS5.
+- [ ] Store canonical chunk IDs from path + byte range + content hash.
+- [ ] Require citations for every generated finding.
+- [ ] Add malicious corpus tests for prompt injection and binary ingest refusal.
 
-## P4 — Scanner integration
+## P4 - Scanner Orchestration
 
-- [ ] Embed Nuclei as a pinned ARM64 binary in the Pi image → success: `kelp-pi-agent scan nuclei --target ...` runs without external `nuclei` install.
-- [ ] Implement scanner sandboxing: each scanner runs as an unprivileged user under systemd-run with no network access except to in-scope targets via nftables marks → success: a scanner invocation cannot reach the control plane or the public internet.
+- [ ] Pin Nuclei/Nmap/ZAP install or bundle strategy for aarch64.
+- [ ] Run scanners under unprivileged sandbox.
+- [ ] Enforce target scope with nftables or equivalent OS control.
+- [ ] Persist raw scanner output and normalized findings.
 
-## P5 — Policy gates on Pi
+## P5 - Bundles And Audit
 
-## P6 — Audit bundle parity
+- [ ] Implement append-only transcript JSONL.
+- [ ] Implement hash-chained audit log.
+- [ ] Sign bundle manifest with Pi Ed25519 key.
+- [ ] Verify bundle signatures on a clean host.
+- [ ] Preserve legacy replay/equivalence smoke coverage until Zig parity.
 
-## P7 — Control plane sync
+## P6 - Installer And Ops
 
-## P8 — Optional LLM synthesis
+- [ ] Rewrite `scripts/install-kelp-pi.sh` for `kelp-pi-aarch64`.
+- [ ] Port hardened systemd directives from `packages/pi-agent/systemd/`.
+- [ ] Add systemd-analyze security target below 3.0.
+- [ ] Add network/AP hardening only after a recovery path exists.
+- [ ] Add real Pi acceptance runbook and captured evidence.
 
-- [ ] Add a feature-flagged Ollama integration on the Pi with model selection → success: `kelp-pi-agent ollama models` reports 4GB/8GB/16GB tiers; a 4GB-safe model loads on a 4GB Pi; a model above detected RAM is refused before load.
+## Cutover Gate
 
-## P9 — Eval and determinism
-
-## P10 — Field ops
-
-## P11 — Docs, demo, launch
-
-- [x] Add a curlable headless Pi bootstrap and first-class `kelp-pi` helper CLI → success: `scripts/install-kelp-pi.sh --help` documents the install flow; `kelp-pi` shows first-run setup; `kelp-pi --help` exposes status, version, update, model install/list/remove, doctor, logs, service control, network render/apply, reset, uninstall, and validation commands.
-- [x] Add GitHub release binary path for Kelp Pi → success: `.github/workflows/release.yml` publishes `kelp-pi-agent-aarch64` plus `kelp-pi-agent-aarch64.sha256`; the curl installer defaults to that release asset and verifies the checksum before install.
-- [x] Split Kelp Pi user quickstart from design docs → success: `docs/pi-quickstart.md` contains install, first-run, model, update, hardening, recovery, and real-Pi acceptance commands without requiring the architecture doc.
-- [ ] Write `kelp/docs/pi.md` operator quickstart: flash, scope, scan, bundle, verify → success: a new operator following the doc produces a signed bundle from a fixture target in under 30 minutes.
-- [ ] Add a sample vulnerable Docker target and a sample engagement walkthrough that exercises Pi end-to-end → success: walkthrough produces a complete bundle that verifies and demonstrates each P1-P10 capability.
-- [ ] Record a short demo: SSH into Pi, declare scope, run a scan, retrieve a citation, export bundle → success: demo asset (cast or gif) committed under `kelp/docs/assets/`.
-
-## Acceptance gate (block release until all checked)
-
-- [ ] Cold-start engagement demo passes in under 30 minutes from a freshly flashed Pi.
-
-## Rename note
-
-`bloob/` was retired as of 2026-06-19. The product is **KelpClaw**, the Pi-specific
-surface is **Kelp Pi**, the agent binary is **kelp-pi-agent**, the CLI subcommand
-family is `kelp-claw pi ...`. Do not reintroduce "bloob" as a name anywhere.
+- [ ] One fresh Raspberry Pi 5 run produces a signed bundle from a fixture target in under 30 minutes.
+- [ ] `pnpm verify`, `zig build test`, and `zig build` pass.
+- [ ] Legacy TS/Rust runtime paths are moved only after equivalent Zig behavior exists.

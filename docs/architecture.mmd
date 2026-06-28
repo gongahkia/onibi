@@ -1,60 +1,38 @@
 flowchart LR
-  user["App owner / security reviewer"]
-  reviewer["Static reviewer handoff\nindex.html + logs"]
+  operator["operator\nSSH or direct TTY"]
 
-  subgraph control["Control plane\nlaptop / server"]
-    cli["kelp-claw CLI\nappsec + pi commands"]
-    appsec["appsec audit"]
-    dockerfile["Dockerfile target"]
-    docker["Docker build metadata\nstdout, stderr, image id"]
-    scannerImport["Passive scanner imports\nSARIF, Nuclei, ZAP, Nmap, Burp, Nessus"]
-    evidence["Evidence workspace\nnormalized findings + source refs"]
-    policy["Policy packs\nappsec-agent-baseline + Pi trust list"]
-    agent["Triage assistant\n--agent-command"]
-    triage["AppSec triage JSON\nsummary, findings, next steps, limitations"]
-    sarif["SARIF output"]
-    bundle["Laptop signed audit bundle\nmanifest, signature, attestation"]
-    verifier["verify-audit-bundle"]
+  subgraph pi["Raspberry Pi 5\nlocal-only runtime"]
+    binary["kelp-pi\nsingle Zig binary"]
+    chat["chat REPL"]
+    architect["triage architect"]
+    editor["scanner editor"]
+    model["llama.cpp\nlocal GGUF"]
+    policy["policy evaluator\npolicies/*.toml"]
+    approvals["approval tokens\n/var/lib/kelp-pi/approvals"]
+    scope["scope store\n/var/lib/kelp-pi/scope"]
+    scanners["scoped scanners\nNuclei/Nmap/ZAP target"]
+    evidence["evidence workspace\n/var/lib/kelp-pi/evidence"]
+    index["SQLite FTS5 target\n/var/lib/kelp-pi/index"]
+    transcript["append-only transcript target\n/var/lib/kelp-pi/sessions"]
+    bundle["signed audit bundle target\n/var/lib/kelp-pi/bundles"]
   end
 
-  subgraph pi["Pi data plane\nRaspberry Pi 5 field unit"]
-    piAgent["kelp-pi-agent\nRust daemon / stdio server"]
-    piScope["Signed scope + policy cache\n/var/lib/kelp-pi/scope policy"]
-    piScanners["Scoped scanner runners\nNuclei, Nmap, ZAP opt-in"]
-    piEvidence["Pi evidence workspace\n/var/lib/kelp-pi/evidence"]
-    piIndex["Offline retrieval index\nSQLite FTS5 + citations"]
-    piAudit["Hash-chained audit log\n/var/lib/kelp-pi/audit"]
-    piBundle["Pi signed audit bundle\n/var/lib/kelp-pi/bundles"]
-  end
+  reviewer["reviewer handoff\nindex.html + manifest + signature"]
 
-  user --> cli
-  dockerfile --> appsec
-  cli --> appsec
-  appsec --> docker
-  scannerImport --> evidence
-  appsec --> evidence
-  policy --> appsec
-  evidence --> agent
-  docker --> agent
-  policy --> agent
-  agent --> triage
-  evidence --> sarif
-  triage --> sarif
-  docker --> bundle
+  operator --> binary
+  binary --> chat
+  chat --> architect
+  architect --> editor
+  model --> architect
+  editor --> policy
+  policy --> approvals
+  policy --> scope
+  policy --> scanners
+  scanners --> evidence
+  evidence --> index
+  index --> architect
+  chat --> transcript
+  transcript --> bundle
   evidence --> bundle
-  triage --> bundle
-  sarif --> bundle
-  bundle --> verifier
-  verifier --> reviewer
-
-  cli <-->|"SSH-tunneled stdio\nsigned JSONL envelopes"| piAgent
-  policy -->|"policy.push / policy.pull"| piAgent
-  cli -->|"scope.set\nscan.request\nask.query\nbundle.fetch"| piAgent
-  piAgent --> piScope
-  piAgent --> piScanners
-  piScanners --> piEvidence
-  piEvidence --> piIndex
-  piEvidence --> piBundle
-  piAudit --> piBundle
-  piIndex -->|"ask.result\ncitations"| piAgent
-  piBundle --> verifier
+  policy --> bundle
+  bundle --> reviewer
