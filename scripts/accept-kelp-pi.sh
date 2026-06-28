@@ -54,6 +54,15 @@ copy_to_remote() {
   $SCP_BASE "$1" "$REMOTE:$2"
 }
 
+copy_large_to_remote() {
+  if command -v rsync >/dev/null 2>&1 && run_remote "command -v rsync >/dev/null 2>&1"; then
+    # shellcheck disable=SC2086
+    rsync --partial --inplace -e "$SSH_BASE" "$1" "$REMOTE:$2"
+  else
+    copy_to_remote "$1" "$2"
+  fi
+}
+
 write_evidence() {
   name="$1"
   content="$2"
@@ -101,7 +110,7 @@ printf '%s\n' "$ldd_output" | grep -q 'not found' && fail "remote ldd has unreso
 printf '%s\n' "$ldd_output" | grep -q 'not a dynamic executable' && fail "remote binary is not dynamically linked"
 
 if [ -f "$LOCAL_MODEL" ]; then
-  copy_to_remote "$LOCAL_MODEL" "$REMOTE_MODEL"
+  copy_large_to_remote "$LOCAL_MODEL" "$REMOTE_MODEL"
 else
   echo "missing local model $LOCAL_MODEL" >&2
   exit 66
