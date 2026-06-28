@@ -27,15 +27,18 @@ func TestPairTokenSuccessAndReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusFound {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/" {
+	if loc := resp.Header.Get("Location"); loc != "" {
 		t.Fatalf("location = %q", loc)
 	}
 	cookies := resp.Cookies()
 	if len(cookies) != 1 || cookies[0].Name != OwnerCookieName || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode {
 		t.Fatalf("cookies = %#v", cookies)
+	}
+	if !strings.Contains(resp.Header.Get("Referrer-Policy"), "no-referrer") {
+		t.Fatalf("referrer-policy = %q", resp.Header.Get("Referrer-Policy"))
 	}
 
 	rootReq, err := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
