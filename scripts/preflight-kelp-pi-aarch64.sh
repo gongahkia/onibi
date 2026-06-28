@@ -42,7 +42,7 @@ function sha(path) {
   return createHash("sha256").update(readFileSync(join(root, path))).digest("hex");
 }
 if (manifest.schemaVersion !== "kelp.pi.package.v1") throw new Error("bad manifest schema");
-if (manifest.target !== "aarch64-linux-gnu") throw new Error("bad target");
+if (manifest.target !== "aarch64-linux-gnu.2.36") throw new Error("bad target");
 if (sha(manifest.binary.path) !== manifest.binary.sha256) throw new Error("binary sha mismatch");
 for (const lib of manifest.libraries) {
   if (sha(lib.path) !== lib.sha256) throw new Error(`library sha mismatch: ${lib.path}`);

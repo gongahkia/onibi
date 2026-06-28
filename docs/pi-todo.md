@@ -73,6 +73,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [ ] Add network/AP hardening only after a recovery path exists.
 - [x] Add SSH acceptance harness using `.kelp-pi/acceptance.env`.
 - [x] Gate SSH acceptance on remote llama-linked pass and `model warm loaded:true`.
+- [x] Gate SSH acceptance on Pi 5 aarch64 host, resolved shared libs, elapsed time, and peak RSS.
 - [ ] Run SSH acceptance on real Pi and capture evidence.
 
 ## Cutover Gate

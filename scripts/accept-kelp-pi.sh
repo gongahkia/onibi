@@ -36,6 +36,11 @@ if [ -n "${KELP_PI_SSH_KEY:-}" ]; then
   SCP_BASE="$SCP_BASE -i $KELP_PI_SSH_KEY"
 fi
 
+fail() {
+  echo "FAIL $*" >&2
+  exit 1
+}
+
 run_remote() {
   # shellcheck disable=SC2086
   $SSH_BASE "$REMOTE" "$@"
@@ -72,9 +77,20 @@ if [ -n "$LOCAL_LLAMA_LIB_DIR" ]; then
   $SCP_BASE -r "$LOCAL_LLAMA_LIB_DIR/." "$REMOTE:$REMOTE_LLAMA_LIB_DIR/"
 fi
 
-write_evidence "host.txt" "$(run_remote "uname -m; cat /proc/device-tree/model 2>/dev/null || true")"
-write_evidence "remote-binary-file.txt" "$(run_remote "file '$REMOTE_BIN' 2>/dev/null || true")"
-write_evidence "remote-ldd.txt" "$(run_remote "$REMOTE_ENV ldd '$REMOTE_BIN' 2>/dev/null || true")"
+host_output="$(run_remote "uname -m; cat /proc/device-tree/model 2>/dev/null || true")"
+write_evidence "host.txt" "$host_output"
+printf '%s\n' "$host_output" | sed -n '1p' | grep -q '^aarch64$' || fail "remote host is not aarch64"
+printf '%s\n' "$host_output" | grep -qi 'Raspberry Pi 5' || fail "remote host is not Raspberry Pi 5"
+binary_file_output="$(run_remote "if command -v file >/dev/null 2>&1; then file '$REMOTE_BIN'; fi")"
+write_evidence "remote-binary-file.txt" "$binary_file_output"
+if [ -n "$binary_file_output" ]; then
+  printf '%s\n' "$binary_file_output" | grep -Eq 'ELF 64-bit.*(ARM aarch64|aarch64)' || fail "remote binary is not ELF aarch64"
+fi
+ldd_output="$(run_remote "$REMOTE_ENV ldd '$REMOTE_BIN' 2>/dev/null || true")"
+write_evidence "remote-ldd.txt" "$ldd_output"
+[ -n "$ldd_output" ] || fail "remote ldd produced no output"
+printf '%s\n' "$ldd_output" | grep -q 'not found' && fail "remote ldd has unresolved libraries"
+printf '%s\n' "$ldd_output" | grep -q 'not a dynamic executable' && fail "remote binary is not dynamically linked"
 
 if [ -f "$LOCAL_MODEL" ]; then
   copy_to_remote "$LOCAL_MODEL" "$REMOTE_MODEL"
@@ -87,11 +103,13 @@ write_evidence "remote-model-sha256.txt" "$(run_remote "sha256sum '$REMOTE_MODEL
 run_remote "$REMOTE_ENV '$REMOTE_BIN' keygen --data-dir '$REMOTE_ROOT' --label acceptance-pi >/tmp/kelp-pi-keygen.json"
 doctor_output="$(run_remote "$REMOTE_ENV '$REMOTE_BIN' doctor --data-dir '$REMOTE_ROOT'")"
 write_evidence "doctor.json" "$doctor_output"
-printf '%s\n' "$doctor_output" | grep -q '"id":"llama-linked","status":"pass"'
+printf '%s\n' "$doctor_output" | grep -q '"id":"llama-linked","status":"pass"' || fail "remote doctor missing llama-linked pass"
 write_evidence "thermal-before.txt" "$(run_remote "for f in /sys/class/thermal/thermal_zone*/temp; do [ -r \"\$f\" ] && printf \"%s=\" \"\$f\" && cat \"\$f\"; done 2>/dev/null || true")"
 warm_output="$(run_remote "$REMOTE_ENV '$REMOTE_BIN' model warm --data-dir '$REMOTE_ROOT' --id qwen3-0.6b-q4_k_m --model-path '$REMOTE_MODEL' --n-predict 1 --threads '${KELP_LLAMA_THREADS:-2}'")"
 write_evidence "model-warm.json" "$warm_output"
-printf '%s\n' "$warm_output" | grep -q '"loaded":true'
+printf '%s\n' "$warm_output" | grep -q '"loaded":true' || fail "remote model warm did not load model"
+printf '%s\n' "$warm_output" | grep -q '"elapsedSeconds":' || fail "remote model warm missing elapsedSeconds"
+printf '%s\n' "$warm_output" | grep -q '"peakRssBytes":' || fail "remote model warm missing peakRssBytes"
 write_evidence "thermal-after.txt" "$(run_remote "for f in /sys/class/thermal/thermal_zone*/temp; do [ -r \"\$f\" ] && printf \"%s=\" \"\$f\" && cat \"\$f\"; done 2>/dev/null || true")"
 run_remote "$REMOTE_ENV '$REMOTE_BIN' scope set --data-dir '$REMOTE_ROOT' --host http://fixture.local --until 2026-12-31T00:00:00Z"
 

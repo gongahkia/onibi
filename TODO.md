@@ -1,6 +1,8 @@
 # todo.md — Pi-resident, local-only, post-guardrail pivot
 
-Status: planning artifact. No code or doc edits yet. Every line below is a deferred change.
+Current status, 2026-06-28: this root file is a retained planning artifact. The live task source is `docs/pi-todo.md`. The Linux/aarch64 linked package and preflight path are implemented; the next gate is real Raspberry Pi 5 SSH acceptance evidence.
+
+Status: retained planning artifact. Some lines below are historical and may already be implemented; use `docs/pi-todo.md` for current completion state.
 
 Labels: `[Inference]` = derived from analysis. `[Speculation]` = uncertain, needs Pi-side verification. `[Unverified]` = claimed elsewhere, not yet measured.
 
