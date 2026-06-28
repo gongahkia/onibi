@@ -215,7 +215,7 @@ func pairTransportCategoryChoices(current string) []pairTransportCategory {
 			category: transportCategoryWeb,
 			label:    "Web URL",
 			detail:   "browser cockpit + QR",
-			status:   "LAN, Tailscale, Auto",
+			status:   "LAN, Tailscale, Cloudflare, ngrok, Auto",
 			active:   active == transportCategoryWeb,
 		},
 		{
@@ -269,6 +269,30 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 		},
 		{
 			key:     "3",
+			mode:    "cloudflare-quick",
+			label:   "Cloudflare Quick",
+			detail:  "temporary trycloudflare URL",
+			command: "onibi up --transport=cloudflare-quick",
+			active:  current == "cloudflare-quick",
+		},
+		{
+			key:     "4",
+			mode:    "cloudflare-named",
+			label:   "Cloudflare Named",
+			detail:  "configured public hostname",
+			command: "onibi up --transport=cloudflare-named",
+			active:  current == "cloudflare-named",
+		},
+		{
+			key:     "5",
+			mode:    "ngrok",
+			label:   "ngrok",
+			detail:  "dev/demo public URL",
+			command: "onibi up --transport=ngrok",
+			active:  current == "ngrok",
+		},
+		{
+			key:     "6",
 			mode:    "auto",
 			label:   "Auto",
 			detail:  "try Tailscale, fallback LAN",
@@ -281,10 +305,7 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 func unavailableTransportChoices(category string) []unavailableTransportChoice {
 	switch category {
 	case transportCategoryWeb:
-		return []unavailableTransportChoice{
-			{label: "Cloudflare Tunnel", detail: "public web URL"},
-			{label: "ngrok", detail: "dev/demo public URL"},
-		}
+		return nil
 	case transportCategoryChat:
 		return []unavailableTransportChoice{
 			{label: "Slack", detail: "workspace chat control"},
@@ -302,7 +323,7 @@ func unavailableTransportChoices(category string) []unavailableTransportChoice {
 
 func normalizePairTransport(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "tailscale", "telegram", "auto":
+	case "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "auto":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "lan"
@@ -337,7 +358,7 @@ func categoryForTransportKey(choices []pairTransportCategory, key string) string
 }
 
 func unavailableProviderSelected(raw string) bool {
-	for _, name := range []string{"cloudflare", "ngrok", "slack", "discord", "matrix", "pushover"} {
+	for _, name := range []string{"slack", "discord", "matrix", "pushover"} {
 		if strings.Contains(raw, name) {
 			return true
 		}
