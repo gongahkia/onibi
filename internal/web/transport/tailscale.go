@@ -24,8 +24,9 @@ const (
 )
 
 type Tailscale struct {
-	Bin    string
-	runner commandRunner
+	Bin      string
+	runner   commandRunner
+	lookPath func(string) (string, error)
 }
 
 type commandRunner interface {
@@ -70,7 +71,7 @@ type serveStatusLayer struct {
 }
 
 func NewTailscale() *Tailscale {
-	return &Tailscale{Bin: TailscaleBin(), runner: execCommandRunner{}}
+	return &Tailscale{Bin: TailscaleBin(), runner: execCommandRunner{}, lookPath: exec.LookPath}
 }
 
 func TailscaleBin() string {
@@ -88,6 +89,9 @@ func (t *Tailscale) Detect(ctx context.Context) (bool, error) {
 }
 
 func (t *Tailscale) Check(ctx context.Context) error {
+	if err := checkBinary(t.Bin, t.lookPath, "tailscale"); err != nil {
+		return err
+	}
 	st, err := t.status(ctx)
 	if err != nil {
 		return err
@@ -126,7 +130,7 @@ func (t *Tailscale) Enable(ctx context.Context, localPort int) error {
 
 func (t *Tailscale) Disable(ctx context.Context) error {
 	if _, err := t.run(ctx, "funnel", "--bg", "off"); err != nil {
-		return fmt.Errorf("tailscale funnel --bg off: %w", err)
+		return Diagnostic(DiagCleanup, "tailscale", "tailscale funnel --bg off failed", err)
 	}
 	return nil
 }
@@ -164,7 +168,7 @@ func (t *Tailscale) waitForFunnel(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			return errors.New("tailscale funnel did not become active")
+			return Diagnostic(DiagActivationLag, "tailscale", "tailscale funnel did not become active", nil)
 		case <-tick.C:
 		}
 	}
@@ -259,7 +263,7 @@ func portListContains(list string, want int) bool {
 func funnelURLFromServeStatus(body []byte) (string, error) {
 	var st serveStatus
 	if err := json.Unmarshal(body, &st); err != nil {
-		return "", fmt.Errorf("parse tailscale serve status: %w", err)
+		return "", Diagnostic(DiagURLParse, "tailscale", "parse tailscale serve status", err)
 	}
 	hostPorts := activeFunnelHostPorts(st)
 	if len(hostPorts) == 0 {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/store"
+	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 )
 
 func TestUpStartsWebPair(t *testing.T) {
@@ -66,17 +67,19 @@ func TestWebPairURLsIncludesFallbacks(t *testing.T) {
 }
 
 func TestResolvePairTransportAutoUsesTailscale(t *testing.T) {
-	old := newTailscalePairTransport
+	old := newTransportProviders
 	fake := &fakePairTransport{url: "https://dev.tail.ts.net/"}
-	newTailscalePairTransport = func() tailscalePairTransport { return fake }
-	t.Cleanup(func() { newTailscalePairTransport = old })
+	newTransportProviders = func() webtransport.ProviderFactory {
+		return webtransport.ProviderFactory{Tailscale: func() webtransport.Provider { return fake }}
+	}
+	t.Cleanup(func() { newTransportProviders = old })
 
 	pt, err := resolvePairTransport(context.Background(), "auto", 8443, []string{"192.0.2.10"}, "host.local", discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pt.mode != "tailscale" {
-		t.Fatalf("mode = %q", pt.mode)
+	if pt.Mode != webtransport.ModeTailscale {
+		t.Fatalf("mode = %q", pt.Mode)
 	}
 	if got := pt.URLs("tok"); len(got) != 1 || got[0] != "https://dev.tail.ts.net/pair/tok" {
 		t.Fatalf("urls = %#v", got)
@@ -84,7 +87,7 @@ func TestResolvePairTransportAutoUsesTailscale(t *testing.T) {
 	if fake.enablePort != 8443 {
 		t.Fatalf("enable port = %d", fake.enablePort)
 	}
-	if err := pt.cleanup(context.Background()); err != nil {
+	if err := pt.Disable(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !fake.disabled {
@@ -93,18 +96,20 @@ func TestResolvePairTransportAutoUsesTailscale(t *testing.T) {
 }
 
 func TestResolvePairTransportAutoFallsBackToLAN(t *testing.T) {
-	old := newTailscalePairTransport
-	newTailscalePairTransport = func() tailscalePairTransport {
-		return &fakePairTransport{enableErr: errors.New("no tailscale")}
+	old := newTransportProviders
+	newTransportProviders = func() webtransport.ProviderFactory {
+		return webtransport.ProviderFactory{Tailscale: func() webtransport.Provider {
+			return &fakePairTransport{enableErr: errors.New("no tailscale")}
+		}}
 	}
-	t.Cleanup(func() { newTailscalePairTransport = old })
+	t.Cleanup(func() { newTransportProviders = old })
 
 	pt, err := resolvePairTransport(context.Background(), "auto", 8443, []string{"192.0.2.10"}, "host.local", discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pt.mode != "lan" {
-		t.Fatalf("mode = %q", pt.mode)
+	if pt.Mode != webtransport.ModeLAN {
+		t.Fatalf("mode = %q", pt.Mode)
 	}
 	got := pt.URLs("tok")
 	if len(got) == 0 || got[0] != "https://192.0.2.10:8443/pair/tok" {
@@ -137,6 +142,10 @@ type fakePairTransport struct {
 	enableErr  error
 	enablePort int
 	disabled   bool
+}
+
+func (f *fakePairTransport) Check(context.Context) error {
+	return nil
 }
 
 func (f *fakePairTransport) Enable(_ context.Context, port int) error {
