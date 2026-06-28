@@ -36,8 +36,12 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Add RAM gate before model load.
 - [x] Add C bridge and host `model prompt` smoke through real `llama.cpp`.
 - [x] Add local package wrapper carrying linked llama shared libs.
+- [x] Add Docker-backed Linux/aarch64 llama and `kelp-pi` package path.
+- [x] Add aarch64 package preflight.
 - [ ] Load Qwen3 0.6B Q4_K_M GGUF on Pi 5 4GB.
-- [ ] Record token latency, peak RSS, thermals, and failure mode.
+- [x] Record token latency and peak RSS in linked model JSON.
+- [x] Record Pi thermal snapshots in SSH acceptance evidence.
+- [ ] Record real Pi failure mode after first live run.
 
 ## P3 - Retrieval
 
@@ -68,6 +72,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [ ] Add systemd-analyze security target below 3.0.
 - [ ] Add network/AP hardening only after a recovery path exists.
 - [x] Add SSH acceptance harness using `.kelp-pi/acceptance.env`.
+- [x] Gate SSH acceptance on remote llama-linked pass and `model warm loaded:true`.
 - [ ] Run SSH acceptance on real Pi and capture evidence.
 
 ## Cutover Gate

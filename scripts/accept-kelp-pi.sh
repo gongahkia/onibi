@@ -17,14 +17,17 @@ fi
 SSH_PORT="${KELP_PI_SSH_PORT:-22}"
 REMOTE_ROOT="${KELP_PI_REMOTE_DATA_DIR:-/tmp/kelp-pi-acceptance}"
 REMOTE_BIN="${KELP_PI_REMOTE_BIN:-$REMOTE_ROOT/kelp-pi}"
-LOCAL_BIN="${KELP_PI_BINARY:-zig-out/bin/kelp-pi}"
+PACKAGE_DIR="${KELP_PI_PACKAGE_DIR:-}"
+LOCAL_BIN="${KELP_PI_BINARY:-${PACKAGE_DIR:+$PACKAGE_DIR/bin/kelp-pi}}"
+LOCAL_BIN="${LOCAL_BIN:-zig-out/bin/kelp-pi}"
 LOCAL_VERIFY_BIN="${KELP_PI_VERIFY_BINARY:-./zig-out/bin/kelp-pi}"
 LOCAL_MODEL="${KELP_PI_MODEL:-.kelp-pi/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf}"
 REMOTE_MODEL="$REMOTE_ROOT/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
-LOCAL_LLAMA_LIB_DIR="${KELP_PI_LLAMA_LIB_DIR:-}"
+LOCAL_LLAMA_LIB_DIR="${KELP_PI_LLAMA_LIB_DIR:-${PACKAGE_DIR:+$PACKAGE_DIR/lib}}"
 REMOTE_LLAMA_LIB_DIR="${KELP_PI_REMOTE_LLAMA_LIB_DIR:-$REMOTE_ROOT/lib}"
 REMOTE_ENV="LD_LIBRARY_PATH='$REMOTE_LLAMA_LIB_DIR':\${LD_LIBRARY_PATH:-}"
 REMOTE="$KELP_PI_SSH_USER@$KELP_PI_SSH_HOST"
+EVIDENCE_DIR="${KELP_PI_ACCEPTANCE_EVIDENCE_DIR:-.kelp-pi/acceptance-evidence}"
 
 SSH_BASE="ssh -p $SSH_PORT"
 SCP_BASE="scp -P $SSH_PORT"
@@ -43,6 +46,17 @@ copy_to_remote() {
   $SCP_BASE "$1" "$REMOTE:$2"
 }
 
+write_evidence() {
+  name="$1"
+  content="$2"
+  printf '%s\n' "$content" > "$EVIDENCE_DIR/$name"
+}
+
+mkdir -p "$EVIDENCE_DIR"
+if [ -n "$PACKAGE_DIR" ] && [ -f "$PACKAGE_DIR/package-manifest.json" ]; then
+  cp "$PACKAGE_DIR/package-manifest.json" "$EVIDENCE_DIR/package-manifest.json"
+fi
+
 run_remote "mkdir -p '$REMOTE_ROOT/models' '$REMOTE_ROOT/normalized' '$REMOTE_ROOT/audit'"
 
 if [ -f "$LOCAL_BIN" ]; then
@@ -58,16 +72,27 @@ if [ -n "$LOCAL_LLAMA_LIB_DIR" ]; then
   $SCP_BASE -r "$LOCAL_LLAMA_LIB_DIR/." "$REMOTE:$REMOTE_LLAMA_LIB_DIR/"
 fi
 
+write_evidence "host.txt" "$(run_remote "uname -m; cat /proc/device-tree/model 2>/dev/null || true")"
+write_evidence "remote-binary-file.txt" "$(run_remote "file '$REMOTE_BIN' 2>/dev/null || true")"
+write_evidence "remote-ldd.txt" "$(run_remote "$REMOTE_ENV ldd '$REMOTE_BIN' 2>/dev/null || true")"
+
 if [ -f "$LOCAL_MODEL" ]; then
   copy_to_remote "$LOCAL_MODEL" "$REMOTE_MODEL"
 else
   echo "missing local model $LOCAL_MODEL" >&2
   exit 66
 fi
+write_evidence "remote-model-sha256.txt" "$(run_remote "sha256sum '$REMOTE_MODEL' 2>/dev/null || shasum -a 256 '$REMOTE_MODEL' 2>/dev/null || true")"
 
 run_remote "$REMOTE_ENV '$REMOTE_BIN' keygen --data-dir '$REMOTE_ROOT' --label acceptance-pi >/tmp/kelp-pi-keygen.json"
-run_remote "$REMOTE_ENV '$REMOTE_BIN' doctor --data-dir '$REMOTE_ROOT'"
-run_remote "$REMOTE_ENV '$REMOTE_BIN' model warm --data-dir '$REMOTE_ROOT' --id qwen3-0.6b-q4_k_m --model-path '$REMOTE_MODEL' --n-predict 1 --threads '${KELP_LLAMA_THREADS:-2}' | grep '\"loaded\":true'"
+doctor_output="$(run_remote "$REMOTE_ENV '$REMOTE_BIN' doctor --data-dir '$REMOTE_ROOT'")"
+write_evidence "doctor.json" "$doctor_output"
+printf '%s\n' "$doctor_output" | grep -q '"id":"llama-linked","status":"pass"'
+write_evidence "thermal-before.txt" "$(run_remote "for f in /sys/class/thermal/thermal_zone*/temp; do [ -r \"\$f\" ] && printf \"%s=\" \"\$f\" && cat \"\$f\"; done 2>/dev/null || true")"
+warm_output="$(run_remote "$REMOTE_ENV '$REMOTE_BIN' model warm --data-dir '$REMOTE_ROOT' --id qwen3-0.6b-q4_k_m --model-path '$REMOTE_MODEL' --n-predict 1 --threads '${KELP_LLAMA_THREADS:-2}'")"
+write_evidence "model-warm.json" "$warm_output"
+printf '%s\n' "$warm_output" | grep -q '"loaded":true'
+write_evidence "thermal-after.txt" "$(run_remote "for f in /sys/class/thermal/thermal_zone*/temp; do [ -r \"\$f\" ] && printf \"%s=\" \"\$f\" && cat \"\$f\"; done 2>/dev/null || true")"
 run_remote "$REMOTE_ENV '$REMOTE_BIN' scope set --data-dir '$REMOTE_ROOT' --host http://fixture.local --until 2026-12-31T00:00:00Z"
 
 TOKEN="$(
@@ -94,4 +119,6 @@ rm -rf .kelp-pi/acceptance-bundle
 mkdir -p .kelp-pi
 # shellcheck disable=SC2086
 $SCP_BASE -r "$REMOTE:$REMOTE_ROOT/bundle" .kelp-pi/acceptance-bundle
-"$LOCAL_VERIFY_BIN" verify-bundle .kelp-pi/acceptance-bundle
+verify_output="$("$LOCAL_VERIFY_BIN" verify-bundle .kelp-pi/acceptance-bundle)"
+write_evidence "bundle-verify.json" "$verify_output"
+printf '%s\n' "$verify_output"

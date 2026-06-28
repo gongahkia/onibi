@@ -35,6 +35,17 @@ $ pnpm pi:package
 
 `llama:smoke` builds local `libllama`, links `kelp-pi` with `-Dllama=true`, loads the pinned GGUF, decodes greedy tokens, and verifies JSON reports `loaded:true`.
 
+## Linux/aarch64 Package
+
+```console
+$ pnpm llama:build:aarch64
+$ pnpm zig:build:aarch64
+$ pnpm pi:package:aarch64
+$ pnpm pi:preflight:aarch64
+```
+
+This builds inside Docker `linux/arm64`, packages `bin/kelp-pi` plus `libllama.so*`/`libggml*.so*`, and verifies the packaged binary is ELF aarch64 before live Pi testing.
+
 ## First Run
 
 ```console
@@ -105,8 +116,7 @@ Create `.kelp-pi/acceptance.env`:
 ```sh
 KELP_PI_SSH_HOST=<pi-host>
 KELP_PI_SSH_USER=<pi-user>
-KELP_PI_BINARY=<path-to-linux-aarch64-kelp-pi>
-KELP_PI_LLAMA_LIB_DIR=<path-to-linux-aarch64-llama-lib-dir>
+KELP_PI_PACKAGE_DIR=.kelp-pi/dist/kelp-pi-linux-aarch64
 KELP_PI_VERIFY_BINARY=./zig-out/bin/kelp-pi
 ```
 
@@ -116,7 +126,7 @@ Then run:
 $ pnpm accept:pi
 ```
 
-The script copies the binary, optional llama shared libs, and local GGUF. It requires remote `model warm` to report `loaded:true`, then runs doctor/scope/approval/scan/index/ask/bundle on the Pi, copies the bundle back, and verifies it locally.
+The script copies the binary, llama shared libs, and local GGUF. It requires remote `doctor` to report `llama-linked=pass`, remote `model warm` to report `loaded:true`, records host/binary/ldd/model/thermal evidence under `.kelp-pi/acceptance-evidence`, then runs doctor/scope/approval/scan/index/ask/bundle on the Pi, copies the bundle back, and verifies it locally.
 
 ## Real Pi Target
 

@@ -3,6 +3,8 @@ set -eu
 
 PREFIX="${KELP_LLAMA_PREFIX:-.kelp-pi/llama/host}"
 MODEL="${KELP_PI_MODEL:-.kelp-pi/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf}"
+ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-.zig-cache/global}"
+export ZIG_GLOBAL_CACHE_DIR
 PROMPT="${KELP_LLAMA_SMOKE_PROMPT:-<|im_start|>user
 /no_think Reply with exactly: ready<|im_end|>
 <|im_start|>assistant

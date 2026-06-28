@@ -8,6 +8,7 @@ struct kelp_llama_result {
     int32_t loaded;
     int32_t decoded_tokens;
     double elapsed_seconds;
+    int64_t peak_rss_bytes;
     char text[2048];
     char error[256];
 };

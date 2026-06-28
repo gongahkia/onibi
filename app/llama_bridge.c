@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 
 static void set_error(struct kelp_llama_result * result, const char * message) {
     if (result == NULL) return;
@@ -26,6 +27,16 @@ static void quiet_llama_log(enum ggml_log_level level, const char * text, void *
     (void) level;
     (void) text;
     (void) user_data;
+}
+
+static int64_t peak_rss_bytes(void) {
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) != 0) return 0;
+#if defined(__APPLE__)
+    return (int64_t) usage.ru_maxrss;
+#else
+    return (int64_t) usage.ru_maxrss * 1024;
+#endif
 }
 
 int32_t kelp_llama_generate(
@@ -145,6 +156,7 @@ int32_t kelp_llama_generate(
     rc = 0;
 
 cleanup:
+    result->peak_rss_bytes = peak_rss_bytes();
     if (prompt_tokens != NULL) free(prompt_tokens);
     if (sampler != NULL) llama_sampler_free(sampler);
     if (ctx != NULL) llama_free(ctx);

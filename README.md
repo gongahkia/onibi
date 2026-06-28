@@ -28,6 +28,15 @@ $ pnpm llama:smoke
 $ pnpm pi:package
 ```
 
+Build the Pi-ready Linux/aarch64 package before live Pi testing:
+
+```console
+$ pnpm llama:build:aarch64
+$ pnpm zig:build:aarch64
+$ pnpm pi:package:aarch64
+$ pnpm pi:preflight:aarch64
+```
+
 Run the local policy gate:
 
 ```console
@@ -103,6 +112,7 @@ $ pnpm verify
 $ zig build test
 $ zig build
 $ pnpm llama:smoke
+$ pnpm pi:preflight:aarch64
 $ pnpm accept:pi
 ```
 

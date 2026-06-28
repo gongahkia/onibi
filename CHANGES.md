@@ -5,6 +5,7 @@
 - Added a Zig `kelp-pi` scaffold with policy checks, scope files, approval tokens, dry-run scanner gating, index ingest, ask, bundle assemble/verify, model manifest checks, chat shell, and Ed25519 key generation.
 - Deepened the Zig path with SQLite FTS5 retrieval, approved-token enforcement, signed bundle manifests, GGUF fetch/verify/warm checks, scanner execution argv/sandbox wiring, and SSH acceptance harness.
 - Added a real `llama.cpp` link path with C bridge, host prompt smoke, package wrapper, and linked-load gate in Pi acceptance.
+- Added Linux/aarch64 Docker package scripts, package manifest/preflight, model RSS telemetry, and Pi acceptance evidence capture.
 - Added `policies/appsec-agent-baseline.toml`, ported from the TypeScript `appsec-agent-baseline` rules.
 - Added `models/manifest.toml` with the selected Qwen3 0.6B Q4_K_M GGUF URL and an explicit SHA-256 fill-in gate.
 - Rewrote pivot-facing docs around a Pi-resident runtime: no cloud APIs, no laptop control plane, no provider table, and no Ollama daemon.

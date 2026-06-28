@@ -9,6 +9,7 @@ const LlamaResult = extern struct {
     loaded: c_int,
     decoded_tokens: c_int,
     elapsed_seconds: f64,
+    peak_rss_bytes: i64,
     text: [2048]u8,
     @"error": [256]u8,
 };
@@ -500,12 +501,12 @@ fn modelGenerate(allocator: std.mem.Allocator, model: ModelEntry, model_path: []
     const rc = kelp_llama_generate(model_path_z.ptr, prompt_z.ptr, @intCast(n_predict), @intCast(n_threads), &result);
     var out = std.fs.File.stdout().deprecatedWriter();
     if (rc != 0 or result.ok == 0) {
-        try out.print("{{\"ok\":false,\"id\":\"{s}\",\"path\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":{},\"reason\":\"", .{ model.id, model_path, result.loaded != 0 });
+        try out.print("{{\"ok\":false,\"id\":\"{s}\",\"path\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":{},\"peakRssBytes\":{},\"reason\":\"", .{ model.id, model_path, result.loaded != 0, result.peak_rss_bytes });
         try writeJsonEscaped(&out, std.mem.sliceTo(result.@"error"[0..], 0));
         try out.print("\"}}\n", .{});
         return;
     }
-    try out.print("{{\"ok\":true,\"id\":\"{s}\",\"path\":\"{s}\",\"sha256\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":true,\"decodedTokens\":{},\"elapsedSeconds\":{d:.3},\"text\":\"", .{ model.id, model_path, actual_hash, result.decoded_tokens, result.elapsed_seconds });
+    try out.print("{{\"ok\":true,\"id\":\"{s}\",\"path\":\"{s}\",\"sha256\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":true,\"decodedTokens\":{},\"elapsedSeconds\":{d:.3},\"peakRssBytes\":{},\"text\":\"", .{ model.id, model_path, actual_hash, result.decoded_tokens, result.elapsed_seconds, result.peak_rss_bytes });
     try writeJsonEscaped(&out, std.mem.sliceTo(result.text[0..], 0));
     try out.print("\"}}\n", .{});
 }
