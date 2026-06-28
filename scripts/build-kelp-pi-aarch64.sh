@@ -1,10 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-TARGET="${KELP_PI_TARGET:-aarch64-linux-gnu}"
+TARGET="${KELP_PI_TARGET:-aarch64-linux-gnu.2.36}"
 PREFIX="${KELP_LLAMA_PREFIX:-.kelp-pi/llama/linux-aarch64}"
 IMAGE="${KELP_PI_AARCH64_IMAGE:-debian:bookworm}"
 ZIG_VERSION="${KELP_ZIG_VERSION:-0.15.2}"
+SYSROOT="${KELP_PI_SYSROOT:-/}"
+SYSTEM_INCLUDE_DIR="${KELP_PI_SYSTEM_INCLUDE_DIR:-/usr/include}"
+SYSTEM_LIB_DIR="${KELP_PI_SYSTEM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}"
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 if [ "${KELP_PI_SKIP_LLAMA_BUILD:-0}" != "1" ]; then
@@ -17,6 +20,9 @@ docker run --rm --platform linux/arm64 \
   -e TARGET="$TARGET" \
   -e PREFIX="$PREFIX" \
   -e ZIG_VERSION="$ZIG_VERSION" \
+  -e SYSROOT="$SYSROOT" \
+  -e SYSTEM_INCLUDE_DIR="$SYSTEM_INCLUDE_DIR" \
+  -e SYSTEM_LIB_DIR="$SYSTEM_LIB_DIR" \
   "$IMAGE" \
   sh -lc '
     set -eu
@@ -29,9 +35,11 @@ docker run --rm --platform linux/arm64 \
       mkdir -p "$zig_dir"
       tar -xJf /tmp/zig.tar.xz -C "$zig_dir" --strip-components=1
     fi
-    "$zig_dir/zig" build \
-      -Dtarget="$TARGET" \
-      -Doptimize=ReleaseSafe \
-      -Dllama=true \
-      -Dllama-prefix="$PREFIX"
+    set -- "$zig_dir/zig" build
+    if [ -n "$SYSROOT" ]; then set -- "$@" --sysroot "$SYSROOT"; fi
+    if [ -n "$TARGET" ]; then set -- "$@" -Dtarget="$TARGET"; fi
+    if [ -n "$SYSTEM_INCLUDE_DIR" ]; then set -- "$@" -Dsystem-include-dir="$SYSTEM_INCLUDE_DIR"; fi
+    if [ -n "$SYSTEM_LIB_DIR" ]; then set -- "$@" -Dsystem-lib-dir="$SYSTEM_LIB_DIR"; fi
+    set -- "$@" -Doptimize=ReleaseSafe -Dllama=true -Dllama-prefix="$PREFIX"
+    "$@"
   '
