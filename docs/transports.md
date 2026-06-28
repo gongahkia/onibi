@@ -10,10 +10,13 @@ The supported transports are:
 
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
 - `tailscale`: QR points at the device's Tailscale Funnel URL.
+- `cloudflare-quick`: QR points at a temporary `trycloudflare.com` URL.
+- `cloudflare-named`: QR points at a configured Cloudflare Tunnel hostname.
+- `ngrok`: QR points at an ngrok public HTTPS URL.
 - `telegram`: Bot API chat control for natural text input/output and approvals.
 
-`auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable.
-Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=lan`, `--transport=tailscale`, `--transport=telegram`, or `--transport=auto` for scripts.
+`auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
+Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=lan`, `--transport=tailscale`, `--transport=cloudflare-quick`, `--transport=cloudflare-named`, `--transport=ngrok`, `--transport=telegram`, or `--transport=auto` for scripts.
 
 ## LAN
 
@@ -92,14 +95,68 @@ Security model:
 - Onibi stores the BotFather token in the OS keystore when available and pairs a single owner chat id through a one-time `/start <code>`.
 - Non-owner chats are ignored after pairing.
 
+## Cloudflare Quick Tunnel
+
+`onibi up --transport=cloudflare-quick` runs:
+
+```text
+cloudflared tunnel --url https://localhost:<web-port>
+```
+
+Onibi parses the emitted `https://*.trycloudflare.com` URL, waits for activation, and prints a QR with the relay key in the URL fragment:
+
+```text
+https://example.trycloudflare.com/pair/<token>#k=<relay-key>
+```
+
+Security model:
+
+- Cloudflare can observe host, path, timing, and connection metadata.
+- Terminal bytes, WebSocket event payloads, control requests, approval decisions, and user input are encrypted at the app layer with per-pair HKDF + AES-GCM.
+- The raw relay key is only in the URL fragment and volatile server memory. SQLite stores only an HMAC commitment.
+- On shutdown, Onibi kills the `cloudflared` process and logs cleanup.
+
+## Cloudflare Named Tunnel
+
+`onibi up --transport=cloudflare-named` requires:
+
+```bash
+ONIBI_CLOUDFLARE_TUNNEL_NAME=<name-or-id>
+ONIBI_CLOUDFLARE_HOSTNAME=<hostname>
+```
+
+Optional:
+
+```bash
+ONIBI_CLOUDFLARED_BIN=/path/to/cloudflared
+ONIBI_CLOUDFLARE_TEARDOWN=0
+```
+
+Onibi validates `cloudflared tunnel info`, refuses obvious route collisions, runs `cloudflared tunnel run <name-or-id>`, and defaults to no account-side teardown.
+
+## ngrok
+
+`onibi up --transport=ngrok` runs:
+
+```text
+ngrok http https://localhost:<web-port>
+```
+
+Onibi discovers the public URL from the local Agent API at `http://127.0.0.1:4040/api/tunnels`.
+
+Optional:
+
+```bash
+ONIBI_NGROK_AUTHTOKEN=<token>
+ONIBI_NGROK_DOMAIN=<reserved-domain>
+ONIBI_NGROK_AGENT_API=http://127.0.0.1:4040
+```
+
+Reserved domains require an auth token. Cleanup requests tunnel shutdown through the Agent API and then kills the local process.
+
 ## Connection catalog
 
-These options are not implemented yet and stay grouped by intended surface:
+Planned options stay grouped by intended surface:
 
-- Web URL: Cloudflare Quick Tunnel, Cloudflare Named Tunnel, and ngrok.
 - Chat: Slack Socket Mode, Discord bot, and Matrix bot.
 - Notify-only: Pushover.
-
-## Future Cloudflare transports
-
-Cloudflare Quick Tunnel is not part of v3/v1.1. If added later, it must use app-level end-to-end encryption before release because Cloudflare can terminate TLS for ordinary tunnels.

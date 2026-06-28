@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	NgrokBinEnv        = "ONIBI_NGROK_BIN"
-	NgrokAuthtokenEnv  = "ONIBI_NGROK_AUTHTOKEN"
-	NgrokDomainEnv     = "ONIBI_NGROK_DOMAIN"
-	NgrokAgentAPIEnv   = "ONIBI_NGROK_AGENT_API"
-	ngrokProvider      = "ngrok"
-	ngrokDefaultAPI    = "http://127.0.0.1:4040"
+	NgrokBinEnv         = "ONIBI_NGROK_BIN"
+	NgrokAuthtokenEnv   = "ONIBI_NGROK_AUTHTOKEN"
+	NgrokDomainEnv      = "ONIBI_NGROK_DOMAIN"
+	NgrokAgentAPIEnv    = "ONIBI_NGROK_AGENT_API"
+	ngrokProvider       = "ngrok"
+	ngrokDefaultAPI     = "http://127.0.0.1:4040"
 	ngrokActivationWait = 20 * time.Second
 )
 

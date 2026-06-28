@@ -21,9 +21,11 @@ const DefaultBaseURL = "https://api.telegram.org"
 var botTokenRE = regexp.MustCompile(`^[0-9]{5,12}:[A-Za-z0-9_-]{30,}$`)
 
 type Client struct {
-	Token   string
-	BaseURL string
-	HTTP    *http.Client
+	Token      string
+	BaseURL    string
+	HTTP       *http.Client
+	RetrySleep func(context.Context, time.Duration) error
+	MaxRetries int
 }
 
 type User struct {
@@ -190,41 +192,86 @@ func (c *Client) do(ctx context.Context, method, contentType string, body io.Rea
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
+	payload, err := io.ReadAll(body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
 	hc := c.HTTP
 	if hc == nil {
 		hc = http.DefaultClient
 	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
+	maxRetries := c.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = 1
 	}
-	defer resp.Body.Close()
-	var env struct {
-		OK          bool            `json:"ok"`
-		Result      json.RawMessage `json:"result"`
-		Description string          `json:"description"`
-		ErrorCode   int             `json:"error_code"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-		return err
-	}
-	if !env.OK || resp.StatusCode >= 400 {
-		msg := strings.TrimSpace(env.Description)
-		if msg == "" {
-			msg = resp.Status
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("telegram %s: %s", method, msg)
+		req.Header.Set("Content-Type", contentType)
+		resp, err := hc.Do(req)
+		if err != nil {
+			return err
+		}
+		env, err := decodeResponseEnvelope(resp)
+		if err != nil {
+			return err
+		}
+		if (!env.OK || resp.StatusCode >= 400) && resp.StatusCode == http.StatusTooManyRequests && env.Parameters != nil && env.Parameters.RetryAfter > 0 && attempt < maxRetries {
+			if err := c.sleepRetry(ctx, time.Duration(env.Parameters.RetryAfter)*time.Second); err != nil {
+				return err
+			}
+			continue
+		}
+		if !env.OK || resp.StatusCode >= 400 {
+			msg := strings.TrimSpace(env.Description)
+			if msg == "" {
+				msg = resp.Status
+			}
+			return fmt.Errorf("telegram %s: %s", method, msg)
+		}
+		if dst == nil {
+			return nil
+		}
+		if len(env.Result) == 0 {
+			return nil
+		}
+		return json.Unmarshal(env.Result, dst)
 	}
-	if dst == nil {
+}
+
+type responseParameters struct {
+	RetryAfter int `json:"retry_after"`
+}
+
+type responseEnvelope struct {
+	OK          bool                `json:"ok"`
+	Result      json.RawMessage     `json:"result"`
+	Description string              `json:"description"`
+	ErrorCode   int                 `json:"error_code"`
+	Parameters  *responseParameters `json:"parameters"`
+}
+
+func decodeResponseEnvelope(resp *http.Response) (responseEnvelope, error) {
+	defer resp.Body.Close()
+	var env responseEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		return env, err
+	}
+	return env, nil
+}
+
+func (c *Client) sleepRetry(ctx context.Context, d time.Duration) error {
+	if c.RetrySleep != nil {
+		return c.RetrySleep(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		return nil
 	}
-	if len(env.Result) == 0 {
-		return nil
-	}
-	return json.Unmarshal(env.Result, dst)
 }

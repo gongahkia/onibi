@@ -38,16 +38,16 @@ type CloudflareQuick struct {
 }
 
 type CloudflareNamed struct {
-	Bin        string
-	Tunnel     string
-	Hostname   string
-	Teardown   bool
-	runner     commandRunner
-	processes  processRunner
-	lookPath   func(string) (string, error)
-	mu         sync.Mutex
-	process    managedProcess
-	publicURL  string
+	Bin       string
+	Tunnel    string
+	Hostname  string
+	Teardown  bool
+	runner    commandRunner
+	processes processRunner
+	lookPath  func(string) (string, error)
+	mu        sync.Mutex
+	process   managedProcess
+	publicURL string
 }
 
 func NewCloudflareQuick() *CloudflareQuick {

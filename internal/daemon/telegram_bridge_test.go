@@ -134,6 +134,58 @@ func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 	}
 }
 
+func TestTelegramBridgeTargetPersistsAcrossRestart(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, TelegramOwnerID: 42})
+	s1 := NewSession("s1", "shell", "shell", nil, 0)
+	s2 := NewSession("s2", "claude", "claude", nil, 0)
+	if err := d.Registry.Add(s1); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Registry.Add(s2); err != nil {
+		t.Fatal(err)
+	}
+	spy, client := newTelegramAPISpy(t)
+	b := &telegramBridge{
+		d:         d,
+		client:    client,
+		ownerID:   42,
+		seen:      map[string]bool{},
+		killArmed: map[int64]time.Time{},
+	}
+	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{
+		Chat: telegram.Chat{ID: 42},
+		Text: "/target claude",
+	}})
+	if got := b.target(context.Background(), 42); got != "s2" {
+		t.Fatalf("target = %q", got)
+	}
+	if got := strings.Join(spy.messageTexts(), "\n"); !strings.Contains(got, "Target: claude (s2)") {
+		t.Fatalf("messages = %q", got)
+	}
+	restarted := &telegramBridge{d: New(Options{DB: db, TelegramOwnerID: 42}), ownerID: 42}
+	if got := restarted.target(context.Background(), 42); got != "s2" {
+		t.Fatalf("restarted target = %q", got)
+	}
+}
+
+func TestTelegramBridgeLongOutputChunks(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, TelegramOwnerID: 42})
+	spy, client := newTelegramAPISpy(t)
+	b := &telegramBridge{d: d, client: client, ownerID: 42}
+	b.sendChunks(context.Background(), 42, strings.Repeat("x", 9000))
+	msgs := spy.messageTexts()
+	if len(msgs) < 3 {
+		t.Fatalf("messages = %d", len(msgs))
+	}
+	for _, msg := range msgs {
+		if len(msg) > 3800 {
+			t.Fatalf("chunk too long: %d", len(msg))
+		}
+	}
+}
+
 func TestTelegramBridgeKillRequiresConfirmation(t *testing.T) {
 	r := &tmuxRunner{}
 	old := newTmuxController
@@ -209,6 +261,39 @@ func TestTelegramBridgeApprovalDedupAndDenyCallback(t *testing.T) {
 	}
 	if decided.State != approval.StateDenied || decided.DecidedBy != 42 {
 		t.Fatalf("approval = %#v", decided)
+	}
+	if got := spy.callbackTexts(); len(got) != 1 || got[0] != "ok" {
+		t.Fatalf("callbacks = %#v", got)
+	}
+}
+
+func TestTelegramBridgeApprovalCallbackAfterRestart(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d1 := New(Options{DB: db, TelegramOwnerID: 42})
+	id, _, err := d1.Queue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2 := New(Options{DB: db, TelegramOwnerID: 42})
+	spy, client := newTelegramAPISpy(t)
+	b := &telegramBridge{
+		d:         d2,
+		client:    client,
+		ownerID:   42,
+		seen:      map[string]bool{},
+		killArmed: map[int64]time.Time{},
+	}
+	b.handleCallback(context.Background(), &telegram.CallbackQuery{
+		ID:      "cb-restart",
+		Message: &telegram.Message{Chat: telegram.Chat{ID: 42}},
+		Data:    "dn:" + id,
+	})
+	a, err := d2.Queue.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateDenied || a.DecidedBy != 42 {
+		t.Fatalf("approval = %#v", a)
 	}
 	if got := spy.callbackTexts(); len(got) != 1 || got[0] != "ok" {
 		t.Fatalf("callbacks = %#v", got)

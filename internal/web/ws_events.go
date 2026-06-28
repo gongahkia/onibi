@@ -8,8 +8,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/envelope"
 )
 
 type eventEnvelope struct {

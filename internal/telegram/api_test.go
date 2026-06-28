@@ -1,12 +1,14 @@
 package telegram
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testToken = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
@@ -154,6 +156,39 @@ func TestClientAPIAndValidationErrors(t *testing.T) {
 	}
 }
 
+func TestClientRetriesRetryAfter429(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"error_code":  429,
+				"description": "Too Many Requests",
+				"parameters":  map[string]any{"retry_after": 1},
+			})
+			return
+		}
+		writeTG(t, w, Message{MessageID: 10, Chat: Chat{ID: 42}, Text: "hello"})
+	}))
+	defer srv.Close()
+	var slept time.Duration
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	c.RetrySleep = func(_ context.Context, d time.Duration) error {
+		slept = d
+		return nil
+	}
+	msg, err := c.SendMessage(t.Context(), 42, "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || slept != time.Second || msg.MessageID != 10 {
+		t.Fatalf("calls=%d slept=%s msg=%#v", calls, slept, msg)
+	}
+}
+
 func TestChunkTextSplitsOnNewline(t *testing.T) {
 	got := ChunkText("one\ntwo\nthree", 8)
 	want := []string{"one\ntwo", "three"}
@@ -163,6 +198,19 @@ func TestChunkTextSplitsOnNewline(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("chunks = %#v", got)
+		}
+	}
+}
+
+func TestChunkTextNearTelegramLimit(t *testing.T) {
+	text := strings.Repeat("x", 4095) + "\n" + strings.Repeat("y", 4095)
+	chunks := ChunkText(text, 4096)
+	if len(chunks) != 2 {
+		t.Fatalf("chunks = %d", len(chunks))
+	}
+	for _, chunk := range chunks {
+		if len(chunk) > 4096 {
+			t.Fatalf("chunk too long: %d", len(chunk))
 		}
 	}
 }
