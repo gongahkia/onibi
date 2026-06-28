@@ -516,6 +516,18 @@ func redactPairURL(url string) string {
 	return url[:i] + "/pair/<redacted>"
 }
 
+func appendURLFragment(raw string, fragment string) string {
+	raw = strings.TrimRight(raw, "#")
+	fragment = strings.TrimPrefix(strings.TrimSpace(fragment), "#")
+	if fragment == "" {
+		return raw
+	}
+	if i := strings.Index(raw, "#"); i >= 0 {
+		return raw[:i+1] + fragment
+	}
+	return raw + "#" + fragment
+}
+
 func listenPort(addr string) (int, error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {

@@ -17,7 +17,8 @@ func (s *Server) handleHandover(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := s.requireHTTPAuth(w, r); !ok {
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
+	if !ok {
 		return
 	}
 	if s.handover == nil {
@@ -25,9 +26,7 @@ func (s *Server) handleHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req handoverRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		s.log.Warn("web handover bad request", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
-		http.Error(w, "bad request", http.StatusBadRequest)
+	if !s.readJSONBody(w, r, ownerSessionID, &req) {
 		return
 	}
 	msg, err := s.handover(r.Context(), req.SessionID, req.Target)

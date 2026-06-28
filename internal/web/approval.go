@@ -21,7 +21,8 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := s.requireHTTPAuth(w, r); !ok {
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
+	if !ok {
 		return
 	}
 	if s.approvalQueue == nil {
@@ -36,9 +37,7 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req approvalDecisionRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		s.log.Warn("web approval failed", "request_id", requestID(r), "approval_id", id, "reason", "bad_request", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
-		http.Error(w, "bad request", http.StatusBadRequest)
+	if !s.readJSONBody(w, r, ownerSessionID, &req) {
 		return
 	}
 	verdict, err := mapApprovalVerdict(req.Verdict)

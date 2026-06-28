@@ -1,3 +1,5 @@
+import { decodeText, RelayE2E } from "./e2e";
+
 type SnapshotFrame = {
   type: "snapshot";
   seq: number;
@@ -20,6 +22,11 @@ export class TerminalWS extends EventTarget {
   private reconnectTimer = 0;
   private attempts = 0;
   private stopped = false;
+  private e2e: RelayE2E | undefined;
+
+  setE2E(e2e: RelayE2E | undefined): void {
+    this.e2e = e2e;
+  }
 
   connect(url: string, sessionId: string, lastSeq = 0): void {
     this.url = url;
@@ -37,13 +44,13 @@ export class TerminalWS extends EventTarget {
 
   sendText(data: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
+      void this.sendTyped("text", new TextEncoder().encode(data));
     }
   }
 
   sendBinary(data: Uint8Array | ArrayBuffer): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
+      void this.sendTyped("binary", data instanceof Uint8Array ? data : new Uint8Array(data));
     }
   }
 
@@ -55,11 +62,7 @@ export class TerminalWS extends EventTarget {
     const socket = new WebSocket(this.url, ["onibi.pty.v1"]);
     socket.binaryType = "arraybuffer";
     this.ws = socket;
-    socket.addEventListener("open", () => {
-      this.attempts = 0;
-      socket.send(JSON.stringify({ type: "attach", session_id: this.sessionId, last_seq: this.lastSeq }));
-      this.dispatchEvent(new Event("open"));
-    });
+    socket.addEventListener("open", () => void this.handleOpen(socket));
     socket.addEventListener("message", (event) => void this.handleMessage(event));
     socket.addEventListener("close", () => {
       this.dispatchEvent(new Event("close"));
@@ -68,6 +71,23 @@ export class TerminalWS extends EventTarget {
       }
     });
     socket.addEventListener("error", () => socket.close());
+  }
+
+  private async handleOpen(socket: WebSocket): Promise<void> {
+    this.attempts = 0;
+    await this.sendTyped("text", new TextEncoder().encode(JSON.stringify({ type: "attach", session_id: this.sessionId, last_seq: this.lastSeq })), socket);
+    this.dispatchEvent(new Event("open"));
+  }
+
+  private async sendTyped(type: "text" | "binary", data: Uint8Array, socket = this.ws): Promise<void> {
+    if (socket?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (this.e2e === undefined) {
+      socket.send(type === "text" ? decodeText(data) : data);
+      return;
+    }
+    socket.send(await this.e2e.sealBytes(type, data, "ws:pty"));
   }
 
   private scheduleReconnect(): void {
@@ -79,6 +99,19 @@ export class TerminalWS extends EventTarget {
   }
 
   private async handleMessage(event: MessageEvent): Promise<void> {
+    if (this.e2e !== undefined) {
+      if (typeof event.data !== "string") {
+        this.ws?.close();
+        return;
+      }
+      const frame = await this.e2e.open(event.data, "ws:pty");
+      if (frame.type === "text") {
+        this.handleText(decodeText(frame.data));
+        return;
+      }
+      this.handleBinary(frame.data.buffer.slice(frame.data.byteOffset, frame.data.byteOffset + frame.data.byteLength));
+      return;
+    }
     if (typeof event.data === "string") {
       this.handleText(event.data);
       return;

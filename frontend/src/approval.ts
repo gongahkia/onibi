@@ -6,10 +6,17 @@ type ApprovalCard = {
   approveUntil: number;
 };
 
+type PostJSON = (path: string, body: Record<string, string>) => Promise<Response>;
+
 export class ApprovalOverlay {
   private cards = new Map<string, ApprovalCard>();
+  private postJSON: PostJSON = defaultPostJSON;
 
   constructor(private readonly root: HTMLElement) {}
+
+  setPostJSON(postJSON: PostJSON): void {
+    this.postJSON = postJSON;
+  }
 
   handleEnvelope(envelope: EventEnvelope): void {
     if (envelope.type === "approval.requested") {
@@ -114,18 +121,22 @@ export class ApprovalOverlay {
 
   private async decide(id: string, body: Record<string, string>, status: HTMLElement): Promise<void> {
     status.textContent = "Sending...";
-    const response = await fetch(`/approval/${encodeURIComponent(id)}`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
+    const response = await this.postJSON(`/approval/${encodeURIComponent(id)}`, body);
     if (!response.ok) {
       status.textContent = await response.text();
       return;
     }
     status.textContent = "Done.";
   }
+}
+
+async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {
+  return fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
 }
 
 function lineNodes(value: string): HTMLElement[] {

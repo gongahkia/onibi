@@ -31,6 +31,43 @@ func TestTailscaleDetectRejectsMissingFunnelPort(t *testing.T) {
 	}
 }
 
+func TestTailscaleDetectRejectsLoggedOutBackend(t *testing.T) {
+	ts := testTailscale(`{"BackendState":"NeedsLogin","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{}}}`, serveActive())
+	ok, err := ts.Detect(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "NeedsLogin") {
+		t.Fatalf("Detect err = %v", err)
+	}
+	if ok {
+		t.Fatal("detect returned true")
+	}
+}
+
+func TestTailscaleDetectRejectsMissingHTTPSAndFunnelCaps(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		want   string
+	}{
+		{
+			name:   "https",
+			status: `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"funnel":{},"https://tailscale.com/cap/funnel-ports?ports=443":{}}}}`,
+			want:   "HTTPS",
+		},
+		{
+			name:   "funnel",
+			status: `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{},"https://tailscale.com/cap/funnel-ports?ports=443":{}}}}`,
+			want:   "Funnel",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := testTailscale(tc.status, serveActive()).Detect(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Detect err = %v", err)
+			}
+		})
+	}
+}
+
 func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	r := &fakeTSRunner{outputs: map[string][]byte{
 		"tailscale status --json":                               []byte(statusRunningFunnel()),
@@ -66,6 +103,17 @@ func TestTailscaleURLParsesServeStatus(t *testing.T) {
 	}
 }
 
+func TestTailscaleURLRejectsInvalidJSON(t *testing.T) {
+	_, err := funnelURLFromServeStatus([]byte(`not-json`))
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	var diag *DiagnosticError
+	if !errors.As(err, &diag) || diag.Code != DiagURLParse {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
 func TestExecCommandRunnerIgnoresStderrWarning(t *testing.T) {
 	out, err := (execCommandRunner{}).Run(context.Background(), "/bin/sh", "-c", "echo warning >&2; cat <<'JSON'\n"+statusRunningFunnel()+"\nJSON")
 	if err != nil {
@@ -90,6 +138,18 @@ func TestTailscaleDisableTurnsFunnelOff(t *testing.T) {
 	}
 }
 
+func TestTailscaleDisableReportsCleanupFailure(t *testing.T) {
+	r := &fakeTSRunner{errs: map[string]error{
+		"tailscale funnel --bg off": errors.New("boom"),
+	}}
+	ts := &Tailscale{Bin: "tailscale", runner: r}
+	err := ts.Disable(context.Background())
+	var diag *DiagnosticError
+	if !errors.As(err, &diag) || diag.Code != DiagCleanup {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
 func statusRunningFunnel() string {
 	return `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{},"funnel":{},"https://tailscale.com/cap/funnel-ports?ports=443,8443-8444":{}}}}`
 }
@@ -107,6 +167,7 @@ func testTailscale(status, serve string) *Tailscale {
 
 type fakeTSRunner struct {
 	outputs map[string][]byte
+	errs    map[string]error
 	calls   [][]string
 }
 
@@ -114,6 +175,9 @@ func (r *fakeTSRunner) Run(_ context.Context, name string, args ...string) ([]by
 	call := append([]string{name}, args...)
 	r.calls = append(r.calls, call)
 	key := strings.Join(call, " ")
+	if err := r.errs[key]; err != nil {
+		return nil, err
+	}
 	out, ok := r.outputs[key]
 	if !ok {
 		return nil, errors.New("unexpected command: " + key)

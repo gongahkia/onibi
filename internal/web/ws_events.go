@@ -8,6 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/approval"
 )
 
@@ -25,6 +26,12 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID, ok := s.requireWSAuth(w, r)
 	if !ok {
+		return
+	}
+	codec, err := s.e2eCodec(sessionID, e2eInfoEvents)
+	if err != nil {
+		s.log.Warn("web events e2e unavailable", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
+		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
 		return
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{eventsSubprotocol}})
@@ -50,7 +57,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	go s.pingLoop(ctx, c)
 	var writeMu sync.Mutex
-	if err := writeEvent(ctx, c, &writeMu, "server.hello", map[string]any{
+	if err := writeEvent(ctx, c, &writeMu, codec, "server.hello", map[string]any{
 		"endpoint":   "events",
 		"session_id": sessionID,
 	}); err != nil {
@@ -59,7 +66,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	eventsSent++
 	for _, id := range s.activeSessionIDs() {
-		if err := writeEvent(ctx, c, &writeMu, "session.started", map[string]any{"session_id": id}); err != nil {
+		if err := writeEvent(ctx, c, &writeMu, codec, "session.started", map[string]any{"session_id": id}); err != nil {
 			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "session.started", "err", err)
 			return
 		}
@@ -80,7 +87,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if err := writeEvent(ctx, c, &writeMu, ev.Type, approvalEventPayload(ev)); err != nil {
+			if err := writeEvent(ctx, c, &writeMu, codec, ev.Type, approvalEventPayload(ev)); err != nil {
 				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "err", err)
 				return
 			}
@@ -90,12 +97,12 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, typ string, payload any) error {
+func writeEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, codec *envelope.Codec, typ string, payload any) error {
 	return writeWSJSON(ctx, c, mu, eventEnvelope{
 		Type:    typ,
 		TS:      time.Now().UTC().Format(time.RFC3339Nano),
 		Payload: payload,
-	})
+	}, codec)
 }
 
 func approvalEventPayload(ev approval.Event) map[string]any {

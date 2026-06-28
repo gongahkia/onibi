@@ -1,3 +1,5 @@
+import { decodeText, RelayE2E } from "./e2e";
+
 export type EventEnvelope<T = unknown> = {
   type: string;
   ts: string;
@@ -30,6 +32,11 @@ export class EventsWS extends EventTarget {
   private reconnectTimer = 0;
   private attempts = 0;
   private stopped = false;
+  private e2e: RelayE2E | undefined;
+
+  setE2E(e2e: RelayE2E | undefined): void {
+    this.e2e = e2e;
+  }
 
   connect(url: string): void {
     this.url = url;
@@ -50,7 +57,7 @@ export class EventsWS extends EventTarget {
       this.attempts = 0;
       this.dispatchEvent(new Event("open"));
     });
-    socket.addEventListener("message", (event) => this.handleMessage(event));
+    socket.addEventListener("message", (event) => void this.handleMessage(event));
     socket.addEventListener("close", () => {
       this.dispatchEvent(new Event("close"));
       if (!this.stopped) {
@@ -67,11 +74,12 @@ export class EventsWS extends EventTarget {
     this.reconnectTimer = window.setTimeout(() => this.open(), delay);
   }
 
-  private handleMessage(event: MessageEvent): void {
+  private async handleMessage(event: MessageEvent): Promise<void> {
     if (typeof event.data !== "string") {
       return;
     }
-    const envelope = JSON.parse(event.data) as EventEnvelope;
+    const raw = this.e2e === undefined ? event.data : decodeText((await this.e2e.open(event.data, "ws:events")).data);
+    const envelope = JSON.parse(raw) as EventEnvelope;
     this.dispatchEvent(new CustomEvent<EventEnvelope>("event", { detail: envelope }));
     this.dispatchEvent(new CustomEvent<EventEnvelope>(envelope.type, { detail: envelope }));
   }

@@ -1,0 +1,138 @@
+package web
+
+import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/gongahkia/onibi/internal/envelope"
+	"github.com/gongahkia/onibi/internal/store"
+)
+
+func TestRelayKeyBindStoresCommitmentOnly(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := keys.BindSession(context.Background(), db, "tok", sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bound {
+		t.Fatal("relay key not bound")
+	}
+	commit, ok, err := db.KVGetString(context.Background(), relaySessionCommitPrefix+sessionID)
+	if err != nil || !ok {
+		t.Fatalf("commit ok=%v err=%v", ok, err)
+	}
+	if commit != envelope.Commitment(key) {
+		t.Fatal("bad commitment")
+	}
+	if strings.Contains(commit, envelope.EncodeKey(key)) {
+		t.Fatal("commitment leaked raw key")
+	}
+	got, ok := keys.KeyForSession(sessionID)
+	if !ok || !bytes.Equal(got, key) {
+		t.Fatal("volatile session key missing")
+	}
+}
+
+func TestRelayControlBodyRequiresEncryption(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, _ := envelope.NewKey()
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	called := false
+	srv.scroll = func(_ context.Context, sessionID, direction string) error {
+		called = sessionID == "s1" && direction == "page_up"
+		return nil
+	}
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	codec, err := envelope.NewCodec(key, "http:POST:/control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := codec.Seal("text", []byte(`{"session_id":"s1","action":"page_up"}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("page_up")) {
+		t.Fatal("encrypted body leaked control payload")
+	}
+	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleControl(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("decrypted control did not reach handler")
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w = httptest.NewRecorder()
+	srv.handleControl(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("plaintext relay status = %d", w.Code)
+	}
+}
+
+func TestWSEncryptHidesPayload(t *testing.T) {
+	key, _ := envelope.NewKey()
+	codec, err := envelope.NewCodec(key, e2eInfoPTY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, sealed, err := wsEncrypt(codec, websocket.MessageBinary, []byte("pty secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typ != websocket.MessageText || bytes.Contains(sealed, []byte("pty secret")) {
+		t.Fatalf("sealed typ=%v payload=%s", typ, sealed)
+	}
+	openedType, opened, err := wsDecrypt(codec, typ, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedType != websocket.MessageBinary || string(opened) != "pty secret" {
+		t.Fatalf("opened typ=%v payload=%q", openedType, opened)
+	}
+}

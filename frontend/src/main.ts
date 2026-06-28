@@ -4,6 +4,7 @@ import type { TerminalThemeName } from "./terminal";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
 import { SoftKeyBar } from "./softkeys";
+import { RelayE2E } from "./e2e";
 
 type SessionInfo = {
   session_id: string;
@@ -22,6 +23,7 @@ const { term, fit } = createTerminal(termEl, theme);
 const ws = new TerminalWS();
 const events = new EventsWS();
 const approvals = new ApprovalOverlay(approvalRoot);
+let relayE2E: RelayE2E | undefined;
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
@@ -45,6 +47,10 @@ void boot();
 
 async function boot(): Promise<void> {
   try {
+    relayE2E = await RelayE2E.fromFragment();
+    ws.setE2E(relayE2E);
+    events.setE2E(relayE2E);
+    approvals.setPostJSON(postJSON);
     const info = await sessionInfo();
     installControls(toolbar, info);
     new SoftKeyBar({
@@ -123,12 +129,7 @@ function controlButton(label: string, action: () => void): HTMLButtonElement {
 }
 
 function postControl(sessionID: string, action: string): void {
-  void fetch("/control", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionID, action })
-  });
+  void postJSON("/control", { session_id: sessionID, action });
 }
 
 function connectTerminal(info: SessionInfo): void {
@@ -140,12 +141,7 @@ function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
     showToast(target === "mac" ? "Opening on Mac..." : "Returning to phone...");
     ws.close();
     try {
-      const response = await fetch("/handover", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: info.session_id, target })
-      });
+      const response = await postJSON("/handover", { session_id: info.session_id, target });
       const text = await response.text();
       let body = {} as { message?: unknown };
       try {
@@ -169,6 +165,16 @@ function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
       term.focus();
     }
   })();
+}
+
+async function postJSON(path: string, body: Record<string, string>): Promise<Response> {
+  const raw = JSON.stringify(body);
+  return fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": relayE2E === undefined ? "application/json" : "application/vnd.onibi.e2e+json" },
+    body: relayE2E === undefined ? raw : await relayE2E.sealText(raw, `http:POST:${path}`)
+  });
 }
 
 function setTheme(next: TerminalThemeName): void {
