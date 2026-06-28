@@ -32,7 +32,7 @@ $ ./zig-out/bin/kelp-pi model warm --id qwen3-0.6b-q4_k_m
 $ ./zig-out/bin/kelp-pi chat --data-dir .kelp-pi
 ```
 
-`model warm` currently verifies manifest presence only. It does not load GGUF until `llama.cpp` is linked.
+`model warm` verifies manifest SHA-256, GGUF magic, and RAM floor. Native libllama load requires `zig build -Dllama=true` and a reachable `libllama`.
 
 ## Scope And Approval
 
@@ -47,6 +47,8 @@ $ ./zig-out/bin/kelp-pi approval-request \
   --scope-id default \
   --command 'nuclei http://fixture.local'
 
+$ ./zig-out/bin/kelp-pi approve --data-dir .kelp-pi <token>
+
 $ ./zig-out/bin/kelp-pi scan nuclei \
   --data-dir .kelp-pi \
   --target http://fixture.local \
@@ -57,7 +59,7 @@ $ ./zig-out/bin/kelp-pi scan nuclei \
 Expected behavior:
 
 - Outside-scope targets fail.
-- Active scanner commands require an approval token.
+- Active scanner commands require an approved, unexpired approval token.
 - Denied exploit/destructive commands are refused before execution.
 
 ## Evidence
@@ -71,7 +73,7 @@ $ ./zig-out/bin/kelp-pi index ingest \
 $ ./zig-out/bin/kelp-pi ask default --data-dir .kelp-pi
 ```
 
-Current index storage is JSONL. SQLite FTS5 is the target implementation.
+Index storage is SQLite FTS5 at `.kelp-pi/index/chunks.sqlite3`.
 
 ## Bundle
 
@@ -83,7 +85,25 @@ $ ./zig-out/bin/kelp-pi bundle assemble \
 $ ./zig-out/bin/kelp-pi verify-bundle .kelp-pi/bundles/local
 ```
 
-Current bundle verification checks required files only. Signature verification is still open.
+Bundle verification checks manifest signature and file SHA-256 values.
+
+## SSH Acceptance
+
+Create `.kelp-pi/acceptance.env`:
+
+```sh
+KELP_PI_SSH_HOST=<pi-host>
+KELP_PI_SSH_USER=<pi-user>
+KELP_PI_BINARY=<path-to-linux-aarch64-kelp-pi>
+```
+
+Then run:
+
+```console
+$ pnpm accept:pi
+```
+
+The script copies the binary and local GGUF, runs doctor/model/scope/approval/scan/index/ask/bundle on the Pi, copies the bundle back, and verifies it locally.
 
 ## Real Pi Target
 

@@ -32,6 +32,7 @@
     "verify:pi-release-assets": "node scripts/verify-pi-release-assets.mjs",
     "check:codegen-policy": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/check-codegen-policy.mjs",
     "smoke:live": "pnpm --filter @kelpclaw/workflow-spec build && node scripts/live-smoke.mjs",
+    "accept:pi": "scripts/accept-kelp-pi.sh",
     "zig:build": "zig build",
     "zig:fmt": "zig fmt build.zig app",
     "zig:fmt:check": "zig fmt --check build.zig app",

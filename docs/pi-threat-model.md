@@ -4,7 +4,7 @@
 
 Kelp Pi is a Raspberry Pi 5 local AppSec triage runtime. The active pivot target is a single Zig `kelp-pi` binary with local model inference, policy-gated tool use, offline evidence retrieval, and signed bundles.
 
-Current Zig scaffold is not a hardened release. Treat it as a contract testbed.
+Current Zig implementation is not a hardened release. Treat it as a contract testbed.
 
 ## Current Enforced Controls
 
@@ -13,21 +13,18 @@ Current Zig scaffold is not a hardened release. Treat it as a contract testbed.
 - `keygen` creates an Ed25519 keypair JSON under the data directory.
 - `scope set` writes the active scope file.
 - `scan` refuses targets outside active scope.
-- `scan` requires an approval token for active scanner commands matched by policy.
-- `index ingest` refuses inputs containing NUL bytes and writes content hashes.
-- `model warm` checks model manifest membership before any load attempt.
-- `verify-bundle` requires manifest, result, and static HTML files.
+- `scan` requires an approved, unexpired approval token for active scanner commands matched by policy.
+- `index ingest` refuses inputs containing NUL bytes and writes SQLite FTS5 chunks with content hashes.
+- `model warm` checks model manifest membership, SHA-256, GGUF magic, and RAM floor before any load attempt.
+- `verify-bundle` verifies the Ed25519 manifest signature and every manifest file SHA-256.
 
 ## Not Yet Enforced
 
-- GGUF hash verification.
-- `llama.cpp` load and prompt execution.
-- SQLite FTS5 retrieval.
-- Actual scanner execution.
+- Native `llama.cpp` load in the default build.
+- Prompt execution.
 - systemd/nftables scanner sandboxing.
 - Append-only signed transcript.
 - Hash-chained audit log.
-- Bundle Ed25519 signature.
 - Private-key file mode hardening.
 - At-rest key encryption.
 - Real Pi thermal/storage gates.

@@ -15,6 +15,8 @@ __pycache__/
 .playwright-cli
 .kelpclaw
 .kelpclaw/datasets/
+.kelp-pi
+*.gguf
 .env
 CLAUDE.md
 AGENTS.md

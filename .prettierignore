@@ -7,3 +7,4 @@ zig-out
 pnpm-lock.yaml
 .env.example
 Dockerfile.*
+vendor

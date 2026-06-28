@@ -15,7 +15,7 @@ Sources checked: <https://ziglang.org/download/>, <https://ziglang.org/news/0.16
 Unverified until Pi hardware run:
 
 - Raspberry Pi 5 memory headroom.
-- `llama.cpp` static link and GGUF load.
+- Native `llama.cpp` load with `-Dllama=true`.
 - Scanner sandboxing through systemd/nftables.
 - Bundle signature validation on a clean host.
 
@@ -105,7 +105,7 @@ Reasoning:
 - Q4_K_M is the desired size/quality tradeoff for first hardware validation. [Inference]
 - Direct `llama.cpp` keeps the runtime single-binary-oriented and avoids an Ollama daemon.
 
-Open gate: `models/manifest.toml` must contain the final SHA-256 after downloading the GGUF. Until then, release packaging must fail.
+The primary GGUF SHA-256 is pinned in `models/manifest.toml`. Release packaging should fail if any primary model SHA is blank or mismatched.
 
 ## Policy
 
@@ -156,7 +156,7 @@ Target outputs:
 - Static `index.html`.
 - Manifest, file hashes, Ed25519 signature, and public key.
 
-Current scaffold writes a minimal unsigned bundle. Full signing and verification remain P0.
+Current Zig implementation signs `manifest.json` with the Pi Ed25519 key and verifies manifest file hashes/signature. Append-only transcript and audit-chain signing remain open.
 
 ## Legacy Mapping
 

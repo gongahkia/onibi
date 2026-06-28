@@ -4,10 +4,10 @@ KelpClaw is a local-only AppSec triage chat agent for Raspberry Pi 5. The target
 
 ## Status
 
-- Active pivot: Zig `kelp-pi` scaffold in `app/main.zig`.
+- Active pivot: Zig `kelp-pi` implementation in `app/main.zig`.
 - Legacy reference code: TypeScript packages and Rust `packages/pi-agent` stay in tree until Zig parity.
 - Runtime target: no cloud APIs, no laptop control plane, no provider SDKs, no Ollama daemon.
-- Current blockers: `llama.cpp` is not linked, SQLite FTS5 is not wired, bundle signatures are not implemented, `models/manifest.toml` needs a downloaded SHA-256, and real Pi acceptance has not run.
+- Current blockers: libllama is not linked by default, generated answers are not implemented, append-only transcript/hash-chain audit is not implemented, and real Pi acceptance still depends on `.kelp-pi/acceptance.env`.
 
 ## Quickstart
 
@@ -31,7 +31,8 @@ Exercise the Pi-local flow without running scanners:
 ```console
 $ ./zig-out/bin/kelp-pi keygen --data-dir .kelp-pi --label dev-pi
 $ ./zig-out/bin/kelp-pi scope set --data-dir .kelp-pi --host http://fixture.local --until 2026-12-31T00:00:00Z
-$ ./zig-out/bin/kelp-pi approval-request --data-dir .kelp-pi --scope-id default --command 'nuclei http://fixture.local'
+$ token="$(./zig-out/bin/kelp-pi approval-request --data-dir .kelp-pi --scope-id default --command 'nuclei http://fixture.local' | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).token))')"
+$ ./zig-out/bin/kelp-pi approve --data-dir .kelp-pi "$token"
 $ ./zig-out/bin/kelp-pi scan nuclei --data-dir .kelp-pi --target http://fixture.local --approval-token <token> --dry-run
 ```
 
@@ -92,6 +93,7 @@ flowchart LR
 $ pnpm verify
 $ zig build test
 $ zig build
+$ pnpm accept:pi
 ```
 
 ## License

@@ -3,10 +3,10 @@
 [[model]]
 id = "qwen3-0.6b-q4_k_m"
 url = "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/60b85c0e3d8fe0f6474f406922a26d12aca4550d/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
-sha256 = ""
+sha256 = "9acfc1e001311f34b4252001b626f2e466d592a42065f66571bff3790d4e1b14"
 primary = true
 ram_floor_mb = 1024
-notes = "sha256 must be filled from the downloaded GGUF before release packaging."
+notes = "downloaded and hashed 2026-06-28; Hugging Face x-linked-etag matched sha256."
 
 [[model]]
 id = "tinyllama-1.1b-q4_0"
