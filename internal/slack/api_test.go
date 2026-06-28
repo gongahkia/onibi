@@ -53,6 +53,48 @@ func TestOpenSocketAndPostMessage(t *testing.T) {
 	}
 }
 
+func TestPostMessageChunksAndRetriesRateLimit(t *testing.T) {
+	var texts []string
+	var slept time.Duration
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat.postMessage") {
+			writeSlackOK(t, w, map[string]any{"url": "wss://socket.example"})
+			return
+		}
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0.25")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"ratelimited"}`))
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, body["text"].(string))
+		writeSlackOK(t, w, nil)
+	}))
+	defer srv.Close()
+	c := New("xapp-token", "xoxb-token")
+	c.BaseURL = srv.URL
+	c.PostPace = -1
+	c.Sleep = func(_ context.Context, d time.Duration) error {
+		slept += d
+		return nil
+	}
+	if err := c.PostMessage(t.Context(), "C1", strings.Repeat("x", MessageChunkLimit+10)); err != nil {
+		t.Fatal(err)
+	}
+	if len(texts) != 2 || len(texts[0]) != MessageChunkLimit || len(texts[1]) != 10 {
+		t.Fatalf("texts = %d %v", len(texts), chunkLens(texts))
+	}
+	if slept != 250*time.Millisecond {
+		t.Fatalf("slept = %s", slept)
+	}
+}
+
 func TestSocketReadAckAndInteractionParse(t *testing.T) {
 	ackCh := make(chan map[string]any, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +149,25 @@ func TestSocketReadAckAndInteractionParse(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+}
+
+func writeSlackOK(t *testing.T, w http.ResponseWriter, extra map[string]any) {
+	t.Helper()
+	body := map[string]any{"ok": true}
+	for k, v := range extra {
+		body[k] = v
+	}
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func chunkLens(chunks []string) []int {
+	out := make([]int, 0, len(chunks))
+	for _, chunk := range chunks {
+		out = append(out, len(chunk))
+	}
+	return out
 }
 
 func TestAllowlistDMAndChannel(t *testing.T) {

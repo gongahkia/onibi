@@ -1,6 +1,7 @@
 package matrix
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -53,6 +54,49 @@ func TestSendTextEscapesRoomAndTxn(t *testing.T) {
 	c.TxnID = func() string { return "txn-1" }
 	if err := c.SendText(t.Context(), "!room:example", "hello"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSendTextChunksAndRetriesRateLimit(t *testing.T) {
+	var bodies []RoomMessage
+	var slept time.Duration
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/send/m.room.message/") {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			writeJSON(t, w, map[string]any{"errcode": "M_LIMIT_EXCEEDED", "error": "limited", "retry_after_ms": 125})
+			return
+		}
+		var body RoomMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, body)
+		writeJSON(t, w, map[string]any{"event_id": "$1"})
+	}))
+	defer srv.Close()
+	txn := 0
+	c := New(srv.URL, "tok")
+	c.TxnID = func() string {
+		txn++
+		return "txn-" + string(rune('0'+txn))
+	}
+	c.Sleep = func(_ context.Context, d time.Duration) error {
+		slept += d
+		return nil
+	}
+	if err := c.SendText(t.Context(), "!room:example", strings.Repeat("x", MessageChunkLimit+7)); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || len(bodies[0].Body) != MessageChunkLimit || len(bodies[1].Body) != 7 {
+		t.Fatalf("bodies = %#v", bodies)
+	}
+	if slept != 125*time.Millisecond {
+		t.Fatalf("slept = %s", slept)
 	}
 }
 

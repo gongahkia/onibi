@@ -11,13 +11,18 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/chatout"
 )
+
+const MessageChunkLimit = 3500
 
 type Client struct {
 	Homeserver  string
 	AccessToken string
 	HTTP        *http.Client
 	TxnID       func() string
+	Sleep       chatout.Sleeper
 }
 
 type WhoAmI struct {
@@ -85,6 +90,12 @@ func (c *Client) Sync(ctx context.Context, since string, timeout time.Duration) 
 }
 
 func (c *Client) SendText(ctx context.Context, roomID, text string) error {
+	return chatout.SendChunks(ctx, text, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
+		return c.sendTextChunk(ctx, roomID, chunk)
+	})
+}
+
+func (c *Client) sendTextChunk(ctx context.Context, roomID, text string) error {
 	if strings.TrimSpace(roomID) == "" {
 		return errors.New("matrix room id required")
 	}
@@ -145,6 +156,10 @@ func MessageBody(ev Event) string {
 }
 
 func (c *Client) do(ctx context.Context, method, p string, payload any, dst any) error {
+	return c.doAttempt(ctx, method, p, payload, dst, 1)
+}
+
+func (c *Client) doAttempt(ctx context.Context, method, p string, payload any, dst any, retries int) error {
 	if c == nil {
 		return errors.New("matrix client nil")
 	}
@@ -194,10 +209,21 @@ func (c *Client) do(ctx context.Context, method, p string, payload any, dst any)
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var e struct {
-			ErrCode string `json:"errcode"`
-			Error   string `json:"error"`
+			ErrCode      string `json:"errcode"`
+			Error        string `json:"error"`
+			RetryAfterMS int    `json:"retry_after_ms"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if resp.StatusCode == http.StatusTooManyRequests && retries > 0 {
+			delay := time.Duration(e.RetryAfterMS) * time.Millisecond
+			if delay <= 0 {
+				delay = chatout.RetryAfter(resp.Header, time.Second)
+			}
+			if err := chatout.Sleep(ctx, delay, c.Sleep); err != nil {
+				return err
+			}
+			return c.doAttempt(ctx, method, p, payload, dst, retries-1)
+		}
 		msg := strings.TrimSpace(e.Error)
 		if msg == "" {
 			msg = resp.Status

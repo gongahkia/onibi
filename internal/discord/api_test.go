@@ -101,6 +101,50 @@ func TestSlashCommandFallbackResponse(t *testing.T) {
 	}
 }
 
+func TestCreateMessageChunksNoMentionsAndRetriesRateLimit(t *testing.T) {
+	var bodies []map[string]any
+	var slept time.Duration
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/channels/C1/messages") {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"retry_after":0.2}`))
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1"}`))
+	}))
+	defer srv.Close()
+	c := New("bot-token")
+	c.BaseURL = srv.URL
+	c.Sleep = func(_ context.Context, d time.Duration) error {
+		slept += d
+		return nil
+	}
+	if err := c.CreateMessage(t.Context(), "C1", strings.Repeat("x", MessageChunkLimit+5)); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || len(bodies[0]["content"].(string)) != MessageChunkLimit || len(bodies[1]["content"].(string)) != 5 {
+		t.Fatalf("bodies = %#v", bodies)
+	}
+	mentions := bodies[0]["allowed_mentions"].(map[string]any)
+	if len(mentions["parse"].([]any)) != 0 {
+		t.Fatalf("mentions = %#v", mentions)
+	}
+	if slept != 200*time.Millisecond {
+		t.Fatalf("slept = %s", slept)
+	}
+}
+
 func contextWithTimeout(t *testing.T, d time.Duration) (context.Context, context.CancelFunc) {
 	t.Helper()
 	return context.WithTimeout(t.Context(), d)

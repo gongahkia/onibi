@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/gongahkia/onibi/internal/chatout"
 )
 
 const DefaultBaseURL = "https://discord.com/api/v10"
+const MessageChunkLimit = 2000
 
 const (
 	OpDispatch       = 0
@@ -30,6 +33,7 @@ type Client struct {
 	Token   string
 	BaseURL string
 	HTTP    *http.Client
+	Sleep   chatout.Sleeper
 }
 
 type GatewayFrame struct {
@@ -134,7 +138,12 @@ func ParseInteraction(frame GatewayFrame) (Interaction, bool, error) {
 }
 
 func (c *Client) CreateMessage(ctx context.Context, channelID, content string) error {
-	return c.api(ctx, http.MethodPost, "/channels/"+url.PathEscape(channelID)+"/messages", map[string]any{"content": content}, nil)
+	return chatout.SendChunks(ctx, content, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
+		return c.api(ctx, http.MethodPost, "/channels/"+url.PathEscape(channelID)+"/messages", map[string]any{
+			"content":          chunk,
+			"allowed_mentions": map[string]any{"parse": []string{}},
+		}, nil)
+	})
 }
 
 func (c *Client) RespondInteraction(ctx context.Context, interactionID, token, content string) error {
@@ -156,6 +165,10 @@ func mustJSON(v any) json.RawMessage {
 }
 
 func (c *Client) api(ctx context.Context, method, p string, payload any, dst any) error {
+	return c.apiAttempt(ctx, method, p, payload, dst, 1)
+}
+
+func (c *Client) apiAttempt(ctx context.Context, method, p string, payload any, dst any, retries int) error {
 	if c == nil {
 		return errors.New("discord client nil")
 	}
@@ -197,6 +210,23 @@ func (c *Client) api(ctx context.Context, method, p string, payload any, dst any
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if retries <= 0 {
+			return fmt.Errorf("discord %s rate limited", p)
+		}
+		var body struct {
+			RetryAfter float64 `json:"retry_after"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		delay := time.Duration(body.RetryAfter * float64(time.Second))
+		if delay <= 0 {
+			delay = chatout.RetryAfter(resp.Header, time.Second)
+		}
+		if err := chatout.Sleep(ctx, delay, c.Sleep); err != nil {
+			return err
+		}
+		return c.apiAttempt(ctx, method, p, payload, dst, retries-1)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var body struct {
 			Message string `json:"message"`

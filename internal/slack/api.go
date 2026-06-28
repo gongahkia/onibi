@@ -12,15 +12,24 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/gongahkia/onibi/internal/chatout"
 )
 
 const DefaultBaseURL = "https://slack.com/api"
+
+const (
+	MessageChunkLimit = 3000
+	DefaultPostPace   = time.Second
+)
 
 type Client struct {
 	AppToken string
 	BotToken string
 	BaseURL  string
 	HTTP     *http.Client
+	Sleep    chatout.Sleeper
+	PostPace time.Duration
 }
 
 type SocketOpenResponse struct {
@@ -92,7 +101,13 @@ func (c *Client) PostMessage(ctx context.Context, channel, text string) error {
 	if strings.TrimSpace(channel) == "" {
 		return errors.New("slack channel required")
 	}
-	return c.api(ctx, "chat.postMessage", c.BotToken, map[string]any{"channel": channel, "text": text}, nil)
+	pace := c.PostPace
+	if pace == 0 {
+		pace = DefaultPostPace
+	}
+	return chatout.SendChunks(ctx, text, MessageChunkLimit, pace, c.Sleep, func(ctx context.Context, chunk string) error {
+		return c.api(ctx, "chat.postMessage", c.BotToken, map[string]any{"channel": channel, "text": chunk}, nil)
+	})
 }
 
 func Dial(ctx context.Context, socketURL string) (*websocket.Conn, error) {
@@ -148,6 +163,10 @@ func (a Allowlist) Allows(channelID, userID, channelType string) bool {
 }
 
 func (c *Client) api(ctx context.Context, method, token string, payload any, dst any) error {
+	return c.apiAttempt(ctx, method, token, payload, dst, 1)
+}
+
+func (c *Client) apiAttempt(ctx context.Context, method, token string, payload any, dst any, retries int) error {
 	if strings.TrimSpace(token) == "" {
 		return errors.New("slack token required")
 	}
@@ -184,6 +203,15 @@ func (c *Client) api(ctx context.Context, method, token string, payload any, dst
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if retries <= 0 {
+			return fmt.Errorf("slack %s rate limited", method)
+		}
+		if err := chatout.Sleep(ctx, chatout.RetryAfter(resp.Header, time.Second), c.Sleep); err != nil {
+			return err
+		}
+		return c.apiAttempt(ctx, method, token, payload, dst, retries-1)
+	}
 	var raw struct {
 		OK  bool            `json:"ok"`
 		Err string          `json:"error"`
