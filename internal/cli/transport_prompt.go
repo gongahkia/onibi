@@ -18,7 +18,7 @@ type pairTransportChoice struct {
 }
 
 func promptPairTransport(cmd *cobra.Command, current string) (string, bool, error) {
-	if quiet(cmd) || !inputIsTerminal(cmd.InOrStdin()) || !outputIsTerminal(cmd.OutOrStdout()) {
+	if !shouldPromptPairTransport(cmd) {
 		return current, false, nil
 	}
 	choices := pairTransportChoices(normalizePairTransport(current))
@@ -64,6 +64,10 @@ func promptPairTransport(cmd *cobra.Command, current string) (string, bool, erro
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, or q.")
 	}
+}
+
+func shouldPromptPairTransport(cmd *cobra.Command) bool {
+	return !quiet(cmd) && inputIsTerminal(cmd.InOrStdin()) && outputIsTerminal(cmd.OutOrStdout())
 }
 
 func pairTransportChoices(current string) []pairTransportChoice {

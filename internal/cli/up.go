@@ -124,18 +124,27 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"shell_login", cfg.Shell.Login,
 		"approval_ttl", approval.DefaultTTL.String(),
 	)
+	headerPrinted := false
 	if transport, _ := cmd.Flags().GetString("transport"); strings.TrimSpace(transport) != "" {
 		if err := config.Set(&cfg, "transport.mode", transport); err != nil {
 			return err
 		}
 		logger.Info("transport override applied", "transport", cfg.Transport.Mode)
-	} else if selected, prompted, err := promptPairTransport(cmd, cfg.Transport.Mode); err != nil {
-		return err
-	} else if prompted {
-		if err := config.Set(&cfg, "transport.mode", selected); err != nil {
+	} else {
+		if shouldPromptPairTransport(cmd) {
+			printCLIHeader(cmd, "Onibi up")
+			headerPrinted = true
+		}
+		selected, prompted, err := promptPairTransport(cmd, cfg.Transport.Mode)
+		if err != nil {
 			return err
 		}
-		logger.Info("transport selected", "transport", cfg.Transport.Mode)
+		if prompted {
+			if err := config.Set(&cfg, "transport.mode", selected); err != nil {
+				return err
+			}
+			logger.Info("transport selected", "transport", cfg.Transport.Mode)
+		}
 	}
 	if shell, _ := cmd.Flags().GetString("shell"); strings.TrimSpace(shell) != "" {
 		cfg.Shell.Default = strings.TrimSpace(shell)
@@ -241,7 +250,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if quiet(cmd) {
 		fmt.Fprintln(cmd.OutOrStdout(), url)
 	} else {
-		printCLIHeader(cmd, "Onibi up")
+		if !headerPrinted {
+			printCLIHeader(cmd, "Onibi up")
+		}
 		if debugMode {
 			_ = renderTable(cmd.OutOrStdout(), [][]string{
 				{"web", style.status("PASS"), cfg.Web.ListenAddr},
