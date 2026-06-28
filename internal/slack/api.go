@@ -74,6 +74,10 @@ type InteractionPayload struct {
 	} `json:"actions"`
 }
 
+type DisconnectPayload struct {
+	Reason string `json:"reason"`
+}
+
 type Allowlist struct {
 	Channels map[string]bool
 	DMUsers  map[string]bool
@@ -147,6 +151,15 @@ func ParseEvent(env Envelope) (EventPayload, error) {
 func ParseInteraction(env Envelope) (InteractionPayload, error) {
 	var p InteractionPayload
 	return p, json.Unmarshal(env.Payload, &p)
+}
+
+func ParseDisconnect(env Envelope) (DisconnectPayload, error) {
+	var p DisconnectPayload
+	return p, json.Unmarshal(env.Payload, &p)
+}
+
+func ShouldReconnect(env Envelope) bool {
+	return env.Type == "disconnect"
 }
 
 func (a Allowlist) Allows(channelID, userID, channelType string) bool {

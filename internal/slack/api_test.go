@@ -151,6 +151,17 @@ func TestSocketReadAckAndInteractionParse(t *testing.T) {
 	}
 }
 
+func TestDisconnectShouldReconnect(t *testing.T) {
+	env := Envelope{Type: "disconnect", Payload: json.RawMessage(`{"reason":"refresh_requested"}`)}
+	got, err := ParseDisconnect(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Reason != "refresh_requested" || !ShouldReconnect(env) {
+		t.Fatalf("disconnect = %#v reconnect=%v", got, ShouldReconnect(env))
+	}
+}
+
 func writeSlackOK(t *testing.T, w http.ResponseWriter, extra map[string]any) {
 	t.Helper()
 	body := map[string]any{"ok": true}

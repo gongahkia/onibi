@@ -98,12 +98,12 @@ func (d *Daemon) runSlackBridge(ctx context.Context, c *slack.Client) error {
 	if c == nil {
 		return errors.New("slack client nil")
 	}
-	url, err := c.OpenSocket(ctx)
-	if err != nil {
-		return err
-	}
 	allow := slack.Allowlist{Channels: set(d.Slack.AllowedIDs), DMUsers: set(d.Slack.AllowedDMUsers)}
 	for {
+		url, err := c.OpenSocket(ctx)
+		if err != nil {
+			return err
+		}
 		conn, err := slack.Dial(ctx, url)
 		if err != nil {
 			select {
@@ -127,9 +127,14 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 		if err != nil {
 			return err
 		}
-		_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 		switch env.Type {
+		case "disconnect":
+			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
+			if slack.ShouldReconnect(env) {
+				return nil
+			}
 		case "events_api":
+			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 			ev, err := slack.ParseEvent(env)
 			if err != nil || ev.Event.Type != "message" || strings.TrimSpace(ev.Event.Text) == "" || !allow.Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
 				continue
@@ -142,9 +147,18 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			_ = c.PostMessage(ctx, ev.Event.Channel, out)
 		case "interactive":
 			action, err := slack.ParseInteraction(env)
+			ackPayload := map[string]any{"text": "Approval decision received."}
 			if err == nil && len(action.Actions) > 0 {
-				d.handleProviderApproval(ctx, action.Actions[0].ActionID, action.Actions[0].Value, 0)
+				if err := d.decideProviderApproval(ctx, action.Actions[0].Value, approvalVerdictForAction(action.Actions[0].ActionID), 0); err != nil {
+					ackPayload["text"] = "Approval decision failed: " + err.Error()
+				}
 			}
+			if !env.Accepts {
+				ackPayload = nil
+			}
+			_ = slack.Ack(ctx, conn, env.EnvelopeID, ackPayload)
+		default:
+			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 		}
 	}
 }
@@ -334,11 +348,21 @@ func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, act
 }
 
 func (d *Daemon) handleProviderApproval(ctx context.Context, action, id string, actor int64) {
+	verdict := approvalVerdictForAction(action)
+	if verdict == "" {
+		return
+	}
+	_ = d.decideProviderApproval(ctx, id, verdict, actor)
+}
+
+func approvalVerdictForAction(action string) approval.Verdict {
 	switch strings.ToLower(action) {
 	case "approve", "ap":
-		_ = d.decideProviderApproval(ctx, id, approval.VerdictApprove, actor)
+		return approval.VerdictApprove
 	case "deny", "dn":
-		_ = d.decideProviderApproval(ctx, id, approval.VerdictDeny, actor)
+		return approval.VerdictDeny
+	default:
+		return ""
 	}
 }
 
