@@ -157,10 +157,15 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 	allow := set(d.Discord.AllowedIDs)
 	intents := d.Discord.Intents
 	if intents == 0 {
-		intents = 1 << 9
+		intents = (1 << 9) | (1 << 12) | (1 << 15)
 	}
+	state := &discord.GatewayState{}
 	for {
-		conn, err := discord.DialGateway(ctx, gatewayURL)
+		connectURL := gatewayURL
+		if resumeURL, _, _, ok := state.Resume(gatewayURL); ok {
+			connectURL = resumeURL
+		}
+		conn, err := discord.DialGateway(ctx, connectURL)
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -169,9 +174,28 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 				continue
 			}
 		}
-		_, _ = discord.ReadFrame(ctx, conn)
-		_ = discord.SendIdentify(ctx, conn, d.Discord.Token, intents)
-		err = d.runDiscordSocket(ctx, c, conn, allow)
+		helloFrame, err := discord.ReadFrame(ctx, conn)
+		if err != nil {
+			_ = conn.CloseNow()
+			continue
+		}
+		state.Observe(helloFrame)
+		hello, _, _ := discord.ParseHello(helloFrame)
+		socketCtx, stopSocket := context.WithCancel(ctx)
+		if hello.HeartbeatInterval > 0 {
+			go func() {
+				if err := d.runDiscordHeartbeat(socketCtx, conn, time.Duration(hello.HeartbeatInterval)*time.Millisecond, state); err != nil && !errors.Is(err, context.Canceled) {
+					d.Log.Warn("discord heartbeat", "err", err)
+				}
+			}()
+		}
+		if _, sessionID, seq, ok := state.Resume(gatewayURL); ok {
+			_ = discord.SendResume(ctx, conn, d.Discord.Token, sessionID, seq)
+		} else {
+			_ = discord.SendIdentify(ctx, conn, d.Discord.Token, intents)
+		}
+		err = d.runDiscordSocket(socketCtx, c, conn, allow, state)
+		stopSocket()
 		_ = conn.CloseNow()
 		if errors.Is(err, context.Canceled) {
 			return err
@@ -179,12 +203,36 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 	}
 }
 
-func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *websocket.Conn, allow map[string]bool) error {
+func (d *Daemon) runDiscordHeartbeat(ctx context.Context, conn *websocket.Conn, interval time.Duration, state *discord.GatewayState) error {
+	if interval <= 0 {
+		return nil
+	}
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+			if state.AckOverdue(2 * interval) {
+				_ = conn.Close(websocket.StatusGoingAway, "discord heartbeat ack timeout")
+				return errors.New("discord heartbeat ack timeout")
+			}
+			if err := discord.SendHeartbeat(ctx, conn, state.HeartbeatSeq()); err != nil {
+				return err
+			}
+			state.MarkHeartbeatSent()
+		}
+	}
+}
+
+func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *websocket.Conn, allow map[string]bool, state *discord.GatewayState) error {
 	for {
 		frame, err := discord.ReadFrame(ctx, conn)
 		if err != nil {
 			return err
 		}
+		state.Observe(frame)
 		if discord.HandleReconnect(frame) {
 			return nil
 		}

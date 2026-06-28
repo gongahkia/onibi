@@ -79,6 +79,36 @@ func TestMessageContentIntentAndDMGuild(t *testing.T) {
 	}
 }
 
+func TestGatewayStateReadyHeartbeatAckAndInvalidSession(t *testing.T) {
+	st := &GatewayState{}
+	seq := int64(42)
+	st.Observe(GatewayFrame{
+		Op: OpDispatch,
+		T:  "READY",
+		S:  &seq,
+		D:  mustJSON(Ready{SessionID: "sess-1", ResumeGatewayURL: "wss://resume.example"}),
+	})
+	u, sessionID, gotSeq, ok := st.Resume("wss://default.example")
+	if !ok || u != "wss://resume.example" || sessionID != "sess-1" || gotSeq != 42 {
+		t.Fatalf("resume = %q %q %d %v", u, sessionID, gotSeq, ok)
+	}
+	if hb := st.HeartbeatSeq(); hb == nil || *hb != 42 {
+		t.Fatalf("heartbeat seq = %v", hb)
+	}
+	st.MarkHeartbeatSent()
+	if !st.AckOverdue(-time.Nanosecond) {
+		t.Fatal("expected heartbeat overdue")
+	}
+	st.Observe(GatewayFrame{Op: OpHeartbeatACK})
+	if st.AckOverdue(-time.Nanosecond) {
+		t.Fatal("ack should clear heartbeat overdue")
+	}
+	st.Observe(GatewayFrame{Op: OpInvalidSession, D: mustJSON(false)})
+	if _, _, _, ok := st.Resume("wss://default.example"); ok {
+		t.Fatal("non-resumable invalid session should clear state")
+	}
+}
+
 func TestSlashCommandFallbackResponse(t *testing.T) {
 	var hit bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

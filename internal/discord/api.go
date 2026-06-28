@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -27,6 +28,7 @@ const (
 	OpReconnect      = 7
 	OpInvalidSession = 9
 	OpHello          = 10
+	OpHeartbeatACK   = 11
 )
 
 type Client struct {
@@ -45,6 +47,11 @@ type GatewayFrame struct {
 
 type Hello struct {
 	HeartbeatInterval int `json:"heartbeat_interval"`
+}
+
+type Ready struct {
+	SessionID        string `json:"session_id"`
+	ResumeGatewayURL string `json:"resume_gateway_url"`
 }
 
 type Identify struct {
@@ -79,6 +86,17 @@ type Interaction struct {
 	} `json:"data"`
 }
 
+type GatewayState struct {
+	mu               sync.Mutex
+	Seq              int64
+	HasSeq           bool
+	SessionID        string
+	ResumeGatewayURL string
+	AwaitingAck      bool
+	LastHeartbeat    time.Time
+	LastAck          time.Time
+}
+
 func New(token string) *Client {
 	return &Client{Token: strings.TrimSpace(token), BaseURL: DefaultBaseURL, HTTP: &http.Client{Timeout: 15 * time.Second}}
 }
@@ -109,6 +127,10 @@ func SendResume(ctx context.Context, c *websocket.Conn, token, sessionID string,
 	return writeGateway(ctx, c, GatewayFrame{Op: OpResume, D: mustJSON(Resume{Token: token, SessionID: sessionID, Seq: seq})})
 }
 
+func SendHeartbeat(ctx context.Context, c *websocket.Conn, seq *int64) error {
+	return writeGateway(ctx, c, GatewayFrame{Op: OpHeartbeat, D: mustJSON(seq)})
+}
+
 func HandleReconnect(frame GatewayFrame) bool {
 	return frame.Op == OpReconnect || frame.Op == OpInvalidSession
 }
@@ -129,12 +151,110 @@ func ParseMessage(frame GatewayFrame) (MessageCreate, bool, error) {
 	return msg, true, json.Unmarshal(frame.D, &msg)
 }
 
+func ParseHello(frame GatewayFrame) (Hello, bool, error) {
+	if frame.Op != OpHello {
+		return Hello{}, false, nil
+	}
+	var hello Hello
+	return hello, true, json.Unmarshal(frame.D, &hello)
+}
+
+func ParseReady(frame GatewayFrame) (Ready, bool, error) {
+	if frame.Op != OpDispatch || frame.T != "READY" {
+		return Ready{}, false, nil
+	}
+	var ready Ready
+	return ready, true, json.Unmarshal(frame.D, &ready)
+}
+
 func ParseInteraction(frame GatewayFrame) (Interaction, bool, error) {
 	if frame.Op != OpDispatch || frame.T != "INTERACTION_CREATE" {
 		return Interaction{}, false, nil
 	}
 	var in Interaction
 	return in, true, json.Unmarshal(frame.D, &in)
+}
+
+func (s *GatewayState) Observe(frame GatewayFrame) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if frame.S != nil {
+		s.Seq = *frame.S
+		s.HasSeq = true
+	}
+	if frame.Op == OpHeartbeatACK {
+		s.AwaitingAck = false
+		s.LastAck = time.Now()
+		return
+	}
+	if frame.Op == OpInvalidSession {
+		var resumable bool
+		if err := json.Unmarshal(frame.D, &resumable); err == nil && !resumable {
+			s.SessionID = ""
+			s.ResumeGatewayURL = ""
+			s.HasSeq = false
+			s.Seq = 0
+		}
+		return
+	}
+	if frame.Op == OpDispatch && frame.T == "READY" {
+		var ready Ready
+		if err := json.Unmarshal(frame.D, &ready); err == nil {
+			s.SessionID = ready.SessionID
+			s.ResumeGatewayURL = ready.ResumeGatewayURL
+		}
+	}
+}
+
+func (s *GatewayState) HeartbeatSeq() *int64 {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.HasSeq {
+		return nil
+	}
+	seq := s.Seq
+	return &seq
+}
+
+func (s *GatewayState) MarkHeartbeatSent() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.AwaitingAck = true
+	s.LastHeartbeat = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *GatewayState) AckOverdue(timeout time.Duration) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.AwaitingAck && !s.LastHeartbeat.IsZero() && time.Since(s.LastHeartbeat) > timeout
+}
+
+func (s *GatewayState) Resume(defaultURL string) (url string, sessionID string, seq int64, ok bool) {
+	if s == nil {
+		return defaultURL, "", 0, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.SessionID == "" || !s.HasSeq {
+		return defaultURL, "", 0, false
+	}
+	url = strings.TrimSpace(s.ResumeGatewayURL)
+	if url == "" {
+		url = defaultURL
+	}
+	return url, s.SessionID, s.Seq, true
 }
 
 func (c *Client) CreateMessage(ctx context.Context, channelID, content string) error {
