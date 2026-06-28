@@ -14,9 +14,15 @@ The supported transports are:
 - `cloudflare-named`: QR points at a configured Cloudflare Tunnel hostname.
 - `ngrok`: QR points at an ngrok public HTTPS URL.
 - `telegram`: Bot API chat control for natural text input/output and approvals.
+- `matrix`: Matrix room control with `/sync` polling and room-power validation.
+- `slack`: Slack Socket Mode workspace control.
+- `discord`: Discord Gateway bot control with slash-command fallback.
+- `pushover`: notify-only approval alerts.
+- `ntfy`: notify-only topic alerts.
+- `gotify`: notify-only self-hosted alerts.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
-Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=lan`, `--transport=tailscale`, `--transport=cloudflare-quick`, `--transport=cloudflare-named`, `--transport=ngrok`, `--transport=telegram`, or `--transport=auto` for scripts.
+Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=<mode>` for scripts.
 
 ## LAN
 
@@ -94,6 +100,94 @@ Security model:
 - Telegram is plaintext to Telegram Bot API infrastructure; use web/Tailscale when you need live terminal UX without chat-provider retention.
 - Onibi stores the BotFather token in the OS keystore when available and pairs a single owner chat id through a one-time `/start <code>`.
 - Non-owner chats are ignored after pairing.
+
+## Matrix
+
+`onibi up --transport=matrix` requires:
+
+```bash
+ONIBI_MATRIX_HOMESERVER=https://matrix.example
+ONIBI_MATRIX_ACCESS_TOKEN=...
+ONIBI_MATRIX_ROOM_ID='!room:example.org'
+```
+
+Optional:
+
+```bash
+ONIBI_MATRIX_OWNER_USER_ID='@owner:example.org'
+```
+
+Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, stores the `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors.
+
+## Slack
+
+`onibi up --transport=slack` requires:
+
+```bash
+ONIBI_SLACK_APP_TOKEN=xapp-...
+ONIBI_SLACK_BOT_TOKEN=xoxb-...
+```
+
+Optional:
+
+```bash
+ONIBI_SLACK_ALLOWED_CHANNELS=C123,C456
+ONIBI_SLACK_ALLOWED_DM_USERS=U123,U456
+```
+
+Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, reconnects after WebSocket loss, routes allowed message events to the current session, and accepts approval button callbacks.
+
+## Discord
+
+`onibi up --transport=discord` requires:
+
+```bash
+ONIBI_DISCORD_TOKEN=...
+```
+
+Optional:
+
+```bash
+ONIBI_DISCORD_ALLOWED_IDS=<channel-or-user-id>,...
+```
+
+Onibi connects to the Discord Gateway, sends Identify, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and replies with a slash-command fallback when message content is unavailable.
+
+## Notify-only
+
+Notify-only providers never route terminal text input. They subscribe to approval requests and publish alert text only.
+
+Pushover:
+
+```bash
+ONIBI_PUSHOVER_TOKEN=...
+ONIBI_PUSHOVER_USER_KEY=...
+onibi up --transport=pushover
+```
+
+Pushover approval alerts use emergency priority and poll the returned receipt.
+
+ntfy:
+
+```bash
+ONIBI_NTFY_TOPIC=<20+ char random secret>
+ONIBI_NTFY_BASE_URL=https://ntfy.sh
+ONIBI_NTFY_TOKEN=...
+onibi up --transport=ntfy
+```
+
+The ntfy topic is treated as a secret; guessable topics are rejected.
+
+Gotify:
+
+```bash
+ONIBI_GOTIFY_URL=https://gotify.example
+ONIBI_GOTIFY_APP_TOKEN=...
+ONIBI_GOTIFY_CLIENT_TOKEN=...
+onibi up --transport=gotify
+```
+
+Gotify sends approval notifications through the REST message endpoint and has a WebSocket receive client for smoke tests.
 
 ## Cloudflare Quick Tunnel
 
