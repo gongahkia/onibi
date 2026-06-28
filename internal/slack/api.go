@@ -62,6 +62,13 @@ type ConversationInfoResponse struct {
 	} `json:"channel"`
 }
 
+type PostMessageResponse struct {
+	OK      bool   `json:"ok"`
+	Err     string `json:"error"`
+	Channel string `json:"channel"`
+	TS      string `json:"ts"`
+}
+
 type Envelope struct {
 	EnvelopeID   string          `json:"envelope_id"`
 	Type         string          `json:"type"`
@@ -92,6 +99,9 @@ type InteractionPayload struct {
 	Channel struct {
 		ID string `json:"id"`
 	} `json:"channel"`
+	Message struct {
+		TS string `json:"ts"`
+	} `json:"message"`
 	Actions []struct {
 		ActionID string `json:"action_id"`
 		Value    string `json:"value"`
@@ -138,15 +148,40 @@ func (c *Client) PostMessage(ctx context.Context, channel, text string) error {
 	})
 }
 
-func (c *Client) PostMessageBlocks(ctx context.Context, channel, text string, blocks []any) error {
+func (c *Client) PostMessageBlocks(ctx context.Context, channel, text string, blocks []any) (PostMessageResponse, error) {
 	if strings.TrimSpace(channel) == "" {
-		return errors.New("slack channel required")
+		return PostMessageResponse{}, errors.New("slack channel required")
 	}
 	payload := map[string]any{"channel": channel, "text": text}
 	if len(blocks) > 0 {
 		payload["blocks"] = blocks
 	}
-	return c.api(ctx, "chat.postMessage", c.BotToken, payload, nil)
+	var out PostMessageResponse
+	if err := c.api(ctx, "chat.postMessage", c.BotToken, payload, &out); err != nil {
+		return PostMessageResponse{}, err
+	}
+	if !out.OK {
+		return PostMessageResponse{}, fmt.Errorf("slack chat.postMessage: %s", out.Err)
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateMessage(ctx context.Context, channel, ts, text string, blocks []any) (PostMessageResponse, error) {
+	if strings.TrimSpace(channel) == "" || strings.TrimSpace(ts) == "" {
+		return PostMessageResponse{}, errors.New("slack channel/ts required")
+	}
+	payload := map[string]any{"channel": channel, "ts": ts, "text": text}
+	if len(blocks) > 0 {
+		payload["blocks"] = blocks
+	}
+	var out PostMessageResponse
+	if err := c.api(ctx, "chat.update", c.BotToken, payload, &out); err != nil {
+		return PostMessageResponse{}, err
+	}
+	if !out.OK {
+		return PostMessageResponse{}, fmt.Errorf("slack chat.update: %s", out.Err)
+	}
+	return out, nil
 }
 
 func (c *Client) AuthTest(ctx context.Context) (AuthTestResponse, error) {

@@ -122,6 +122,27 @@ type ApplicationCommandOption struct {
 	Required    bool   `json:"required,omitempty"`
 }
 
+type APIError struct {
+	Path       string
+	StatusCode int
+	Code       int
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(e.Message)
+	if msg == "" {
+		msg = http.StatusText(e.StatusCode)
+	}
+	if e.Code != 0 {
+		return fmt.Sprintf("discord %s: status %d code %d: %s", e.Path, e.StatusCode, e.Code, msg)
+	}
+	return fmt.Sprintf("discord %s: status %d: %s", e.Path, e.StatusCode, msg)
+}
+
 type GatewayState struct {
 	mu               sync.Mutex
 	Seq              int64
@@ -381,6 +402,36 @@ func (c *Client) RegisterOnibiCommand(ctx context.Context, applicationID, guildI
 	return out, nil
 }
 
+func (c *Client) ApplicationCommands(ctx context.Context, applicationID, guildID string) ([]ApplicationCommand, error) {
+	applicationID = strings.TrimSpace(applicationID)
+	if applicationID == "" {
+		app, err := c.CurrentApplication(ctx)
+		if err != nil {
+			return nil, err
+		}
+		applicationID = app.ID
+	}
+	p := "/applications/" + url.PathEscape(applicationID)
+	if strings.TrimSpace(guildID) != "" {
+		p += "/guilds/" + url.PathEscape(strings.TrimSpace(guildID))
+	}
+	p += "/commands"
+	var out []ApplicationCommand
+	if err := c.api(ctx, http.MethodGet, p, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func HasOnibiCommand(commands []ApplicationCommand) bool {
+	for _, cmd := range commands {
+		if strings.EqualFold(strings.TrimSpace(cmd.Name), "onibi") {
+			return true
+		}
+	}
+	return false
+}
+
 func writeGateway(ctx context.Context, c *websocket.Conn, frame GatewayFrame) error {
 	b, err := json.Marshal(frame)
 	if err != nil {
@@ -459,6 +510,7 @@ func (c *Client) apiAttempt(ctx context.Context, method, p string, payload any, 
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var body struct {
+			Code    int    `json:"code"`
 			Message string `json:"message"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&body)
@@ -466,7 +518,7 @@ func (c *Client) apiAttempt(ctx context.Context, method, p string, payload any, 
 		if msg == "" {
 			msg = resp.Status
 		}
-		return fmt.Errorf("discord %s: %s", p, msg)
+		return &APIError{Path: p, StatusCode: resp.StatusCode, Code: body.Code, Message: msg}
 	}
 	if dst == nil {
 		return nil

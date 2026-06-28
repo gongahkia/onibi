@@ -96,7 +96,7 @@ func TestPostMessageChunksAndRetriesRateLimit(t *testing.T) {
 }
 
 func TestAuthConversationAndBlockPost(t *testing.T) {
-	var sawBlocks bool
+	var sawBlocks, sawUpdate bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/auth.test"):
@@ -119,7 +119,17 @@ func TestAuthConversationAndBlockPost(t *testing.T) {
 				t.Fatalf("blocks missing: %#v", body)
 			}
 			sawBlocks = true
-			writeSlackOK(t, w, nil)
+			writeSlackOK(t, w, map[string]any{"channel": "C1", "ts": "123.456"})
+		case strings.HasSuffix(r.URL.Path, "/chat.update"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["channel"] != "C1" || body["ts"] != "123.456" {
+				t.Fatalf("update body = %#v", body)
+			}
+			sawUpdate = true
+			writeSlackOK(t, w, map[string]any{"channel": "C1", "ts": "123.456"})
 		default:
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -141,11 +151,19 @@ func TestAuthConversationAndBlockPost(t *testing.T) {
 	if !info.Channel.IsMember {
 		t.Fatalf("info = %#v", info)
 	}
-	if err := c.PostMessageBlocks(t.Context(), "C1", "fallback", []any{map[string]any{"type": "section"}}); err != nil {
+	if resp, err := c.PostMessageBlocks(t.Context(), "C1", "fallback", []any{map[string]any{"type": "section"}}); err != nil {
 		t.Fatal(err)
+	} else if resp.Channel != "C1" || resp.TS == "" {
+		t.Fatalf("resp = %#v", resp)
 	}
 	if !sawBlocks {
 		t.Fatal("blocks not posted")
+	}
+	if _, err := c.UpdateMessage(t.Context(), "C1", "123.456", "updated", []any{map[string]any{"type": "context"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !sawUpdate {
+		t.Fatal("update not posted")
 	}
 }
 

@@ -101,7 +101,7 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, u telegram.Update) {
 		b.send(ctx, m.Chat.ID, "Input failed: "+err.Error(), nil)
 		return
 	}
-	b.sendChunks(ctx, m.Chat.ID, b.d.prepareProviderOutput(out))
+	b.sendChunks(ctx, m.Chat.ID, b.d.prepareProviderOutputFor("telegram", out))
 }
 
 func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Message) bool {
@@ -403,7 +403,7 @@ func (b *telegramBridge) sendApproval(ctx context.Context, a *approval.Approval)
 	}
 	b.seen[a.ID] = true
 	b.mu.Unlock()
-	text := formatApprovalWithPolicy(a, b.d.ProviderOutput)
+	text := formatApprovalWithPolicy(a, b.d.providerOutputPolicy("telegram"))
 	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
 		{{Text: "Approve", CallbackData: "ap:" + a.ID}, {Text: "Deny", CallbackData: "dn:" + a.ID}},
 	}}

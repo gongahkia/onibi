@@ -46,25 +46,28 @@ type Daemon struct {
 	Sweeper    *approval.Sweeper
 	BufferSize int
 
-	TerminalDefault string
-	WebAddr         string
-	WebCertDir      string
-	RelayKeys       *web.RelayKeys
-	RequireWebE2E   bool
-	TelegramToken   string
-	TelegramOwnerID int64
-	TelegramPair    string
-	Matrix          MatrixOptions
-	Slack           SlackOptions
-	Discord         DiscordOptions
-	Pushover        PushoverOptions
-	Ntfy            NtfyOptions
-	Gotify          GotifyOptions
-	ProviderOutput  ProviderOutputPolicy
+	TerminalDefault         string
+	WebAddr                 string
+	WebCertDir              string
+	RelayKeys               *web.RelayKeys
+	RequireWebE2E           bool
+	TelegramToken           string
+	TelegramOwnerID         int64
+	TelegramPair            string
+	Matrix                  MatrixOptions
+	Slack                   SlackOptions
+	Discord                 DiscordOptions
+	Pushover                PushoverOptions
+	Ntfy                    NtfyOptions
+	Gotify                  GotifyOptions
+	ProviderOutput          ProviderOutputPolicy
+	ProviderOutputOverrides ProviderOutputOverrides
 
 	mu             sync.Mutex
 	webAttachMu    sync.Mutex
 	webAttachHosts map[string]*pty.Host
+	slackMu        sync.Mutex
+	slackApprovals map[string]slackApprovalRef
 	notified       map[string]bool // session id → already-fired turn-complete once
 	started        time.Time
 
@@ -74,31 +77,32 @@ type Daemon struct {
 
 // Options bundles construction inputs.
 type Options struct {
-	Paths                 config.Paths
-	DB                    *store.DB
-	Log                   *slog.Logger
-	ExitWhenIdle          bool
-	ApprovalTTL           time.Duration
-	ApprovalSweepInterval time.Duration
-	IdleThreshold         time.Duration
-	IdleInterval          time.Duration
-	BufferSize            int
-	TerminalDefault       string
-	WebAddr               string
-	WebCertDir            string
-	RelayKeys             *web.RelayKeys
-	RequireWebE2E         bool
-	TelegramToken         string
-	TelegramOwnerID       int64
-	TelegramPair          string
-	Matrix                MatrixOptions
-	Slack                 SlackOptions
-	Discord               DiscordOptions
-	Pushover              PushoverOptions
-	Ntfy                  NtfyOptions
-	Gotify                GotifyOptions
-	ProviderOutput        ProviderOutputPolicy
-	SkipRestore           bool
+	Paths                   config.Paths
+	DB                      *store.DB
+	Log                     *slog.Logger
+	ExitWhenIdle            bool
+	ApprovalTTL             time.Duration
+	ApprovalSweepInterval   time.Duration
+	IdleThreshold           time.Duration
+	IdleInterval            time.Duration
+	BufferSize              int
+	TerminalDefault         string
+	WebAddr                 string
+	WebCertDir              string
+	RelayKeys               *web.RelayKeys
+	RequireWebE2E           bool
+	TelegramToken           string
+	TelegramOwnerID         int64
+	TelegramPair            string
+	Matrix                  MatrixOptions
+	Slack                   SlackOptions
+	Discord                 DiscordOptions
+	Pushover                PushoverOptions
+	Ntfy                    NtfyOptions
+	Gotify                  GotifyOptions
+	ProviderOutput          ProviderOutputPolicy
+	ProviderOutputOverrides ProviderOutputOverrides
+	SkipRestore             bool
 }
 
 type MatrixOptions struct {
@@ -148,31 +152,33 @@ func New(opts Options) *Daemon {
 		opts.Log = slog.Default()
 	}
 	d := &Daemon{
-		Paths:           opts.Paths,
-		DB:              opts.DB,
-		Log:             opts.Log,
-		Registry:        NewRegistry(),
-		webAttachHosts:  map[string]*pty.Host{},
-		notified:        map[string]bool{},
-		started:         time.Now(),
-		ExitWhenIdle:    opts.ExitWhenIdle,
-		SkipRestore:     opts.SkipRestore,
-		BufferSize:      opts.BufferSize,
-		TerminalDefault: opts.TerminalDefault,
-		WebAddr:         opts.WebAddr,
-		WebCertDir:      opts.WebCertDir,
-		RelayKeys:       opts.RelayKeys,
-		RequireWebE2E:   opts.RequireWebE2E,
-		TelegramToken:   opts.TelegramToken,
-		TelegramOwnerID: opts.TelegramOwnerID,
-		TelegramPair:    opts.TelegramPair,
-		Matrix:          opts.Matrix,
-		Slack:           opts.Slack,
-		Discord:         opts.Discord,
-		Pushover:        opts.Pushover,
-		Ntfy:            opts.Ntfy,
-		Gotify:          opts.Gotify,
-		ProviderOutput:  opts.ProviderOutput.normalized(),
+		Paths:                   opts.Paths,
+		DB:                      opts.DB,
+		Log:                     opts.Log,
+		Registry:                NewRegistry(),
+		webAttachHosts:          map[string]*pty.Host{},
+		slackApprovals:          map[string]slackApprovalRef{},
+		notified:                map[string]bool{},
+		started:                 time.Now(),
+		ExitWhenIdle:            opts.ExitWhenIdle,
+		SkipRestore:             opts.SkipRestore,
+		BufferSize:              opts.BufferSize,
+		TerminalDefault:         opts.TerminalDefault,
+		WebAddr:                 opts.WebAddr,
+		WebCertDir:              opts.WebCertDir,
+		RelayKeys:               opts.RelayKeys,
+		RequireWebE2E:           opts.RequireWebE2E,
+		TelegramToken:           opts.TelegramToken,
+		TelegramOwnerID:         opts.TelegramOwnerID,
+		TelegramPair:            opts.TelegramPair,
+		Matrix:                  opts.Matrix,
+		Slack:                   opts.Slack,
+		Discord:                 opts.Discord,
+		Pushover:                opts.Pushover,
+		Ntfy:                    opts.Ntfy,
+		Gotify:                  opts.Gotify,
+		ProviderOutput:          opts.ProviderOutput.normalized(),
+		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 	}
 
 	// approval queue + expiry sweeper

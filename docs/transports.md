@@ -137,7 +137,7 @@ ONIBI_SLACK_ALLOWED_DM_USERS=U123,U456
 ONIBI_SLACK_APPROVAL_CHANNEL=C123
 ```
 
-Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events, routes allowed message events to the current session, and accepts approval button callbacks.
+Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events, routes allowed message events to the current session, and accepts approval button callbacks. Approval buttons update the original Slack message to approved/denied/expired/failed final state.
 
 ## Discord
 
@@ -155,7 +155,7 @@ ONIBI_DISCORD_APPLICATION_ID=...
 ONIBI_DISCORD_GUILD_ID=...
 ```
 
-Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable.
+Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable. `onibi doctor --transport=discord` reports app auth, channel visibility, optional slash-command presence, and gated send permission failures.
 
 ## Chat redaction
 
@@ -165,9 +165,11 @@ Chat providers receive terminal text through third-party infrastructure. By defa
 onibi config set provider.output.max_chunks 8
 onibi config set provider.output.max_bytes 24576
 onibi config set provider.output.redaction strict
+onibi config set provider.output.slack.max_bytes 12000
+onibi config set provider.output.discord.redaction off
 ```
 
-`provider.output.redaction` accepts `default`, `strict`, or `off`. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
+`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 

@@ -68,3 +68,20 @@ func TestProviderOutputPolicyTruncatesAndStrictRedacts(t *testing.T) {
 		t.Fatalf("not truncated: %q", got)
 	}
 }
+
+func TestProviderOutputOverrideSelection(t *testing.T) {
+	d := New(Options{
+		ProviderOutput: ProviderOutputPolicy{MaxChunks: 8, MaxBytes: 4096, Redaction: "default"},
+		ProviderOutputOverrides: ProviderOutputOverrides{
+			Slack: ProviderOutputPolicy{MaxBytes: 900, Redaction: "strict"},
+		},
+	})
+	slackPolicy := d.providerOutputPolicy("slack")
+	if slackPolicy.MaxBytes != 900 || slackPolicy.MaxChunks != 8 || slackPolicy.Redaction != "strict" {
+		t.Fatalf("slack policy = %#v", slackPolicy)
+	}
+	matrixPolicy := d.providerOutputPolicy("matrix")
+	if matrixPolicy.MaxBytes != 4096 || matrixPolicy.Redaction != "default" {
+		t.Fatalf("matrix policy = %#v", matrixPolicy)
+	}
+}

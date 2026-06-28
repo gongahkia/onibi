@@ -23,6 +23,14 @@ type ProviderOutputPolicy struct {
 	Redaction string
 }
 
+type ProviderOutputOverrides struct {
+	Telegram ProviderOutputPolicy
+	Matrix   ProviderOutputPolicy
+	Slack    ProviderOutputPolicy
+	Discord  ProviderOutputPolicy
+	Notify   ProviderOutputPolicy
+}
+
 func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
 	if p.MaxChunks <= 0 {
 		p.MaxChunks = DefaultProviderOutputMaxChunks
@@ -43,11 +51,50 @@ func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
 }
 
 func (d *Daemon) prepareProviderOutput(s string) string {
+	return d.prepareProviderOutputFor("", s)
+}
+
+func (d *Daemon) prepareProviderOutputFor(provider, s string) string {
+	return d.providerOutputPolicy(provider).apply(s)
+}
+
+func (d *Daemon) providerOutputPolicy(provider string) ProviderOutputPolicy {
 	p := ProviderOutputPolicy{}
 	if d != nil {
 		p = d.ProviderOutput
+		p = p.withOverride(d.ProviderOutputOverrides.forProvider(provider))
 	}
-	return p.apply(s)
+	return p.normalized()
+}
+
+func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPolicy {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "telegram":
+		return o.Telegram
+	case "matrix":
+		return o.Matrix
+	case "slack":
+		return o.Slack
+	case "discord":
+		return o.Discord
+	case "notify", "pushover", "ntfy", "gotify":
+		return o.Notify
+	default:
+		return ProviderOutputPolicy{}
+	}
+}
+
+func (p ProviderOutputPolicy) withOverride(ov ProviderOutputPolicy) ProviderOutputPolicy {
+	if ov.MaxChunks > 0 {
+		p.MaxChunks = ov.MaxChunks
+	}
+	if ov.MaxBytes > 0 {
+		p.MaxBytes = ov.MaxBytes
+	}
+	if strings.TrimSpace(ov.Redaction) != "" {
+		p.Redaction = ov.Redaction
+	}
+	return p
 }
 
 func (p ProviderOutputPolicy) apply(s string) string {

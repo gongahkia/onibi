@@ -149,6 +149,8 @@ func TestRegisterOnibiCommandAndProbes(t *testing.T) {
 				t.Fatalf("body = %#v", body)
 			}
 			_ = json.NewEncoder(w).Encode(ApplicationCommand{ID: "cmd1", Name: "onibi", Description: body.Description})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/applications/app1/guilds/G1/commands"):
+			_ = json.NewEncoder(w).Encode([]ApplicationCommand{{ID: "cmd1", Name: "onibi"}})
 		default:
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
 		}
@@ -176,6 +178,31 @@ func TestRegisterOnibiCommandAndProbes(t *testing.T) {
 	}
 	if cmd.Name != "onibi" || registeredPath == "" {
 		t.Fatalf("cmd=%#v path=%q", cmd, registeredPath)
+	}
+	cmds, err := c.ApplicationCommands(t.Context(), "app1", "G1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !HasOnibiCommand(cmds) {
+		t.Fatalf("commands = %#v", cmds)
+	}
+}
+
+func TestAPIErrorIncludesStatusAndCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 50013, "message": "Missing Permissions"})
+	}))
+	defer srv.Close()
+	c := New("bot-token")
+	c.BaseURL = srv.URL
+	err := c.CreateMessage(t.Context(), "C1", "hello")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr.StatusCode != http.StatusForbidden || apiErr.Code != 50013 || !strings.Contains(apiErr.Error(), "Missing Permissions") {
+		t.Fatalf("err = %#v %v", err, err)
 	}
 }
 

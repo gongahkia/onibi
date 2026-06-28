@@ -80,9 +80,20 @@ type Provider struct {
 }
 
 type ProviderOutput struct {
-	MaxChunks int    `yaml:"max_chunks" json:"max_chunks"`
-	MaxBytes  int    `yaml:"max_bytes" json:"max_bytes"`
-	Redaction string `yaml:"redaction" json:"redaction"`
+	MaxChunks int                    `yaml:"max_chunks" json:"max_chunks"`
+	MaxBytes  int                    `yaml:"max_bytes" json:"max_bytes"`
+	Redaction string                 `yaml:"redaction" json:"redaction"`
+	Telegram  ProviderOutputOverride `yaml:"telegram,omitempty" json:"telegram,omitempty"`
+	Matrix    ProviderOutputOverride `yaml:"matrix,omitempty" json:"matrix,omitempty"`
+	Slack     ProviderOutputOverride `yaml:"slack,omitempty" json:"slack,omitempty"`
+	Discord   ProviderOutputOverride `yaml:"discord,omitempty" json:"discord,omitempty"`
+	Notify    ProviderOutputOverride `yaml:"notify,omitempty" json:"notify,omitempty"`
+}
+
+type ProviderOutputOverride struct {
+	MaxChunks int    `yaml:"max_chunks,omitempty" json:"max_chunks,omitempty"`
+	MaxBytes  int    `yaml:"max_bytes,omitempty" json:"max_bytes,omitempty"`
+	Redaction string `yaml:"redaction,omitempty" json:"redaction,omitempty"`
 }
 
 type LoadMeta struct {
@@ -208,6 +219,12 @@ func (c Config) Validate() error {
 	case "default", "strict", "off":
 	default:
 		return fmt.Errorf("provider.output.redaction must be default, strict, or off")
+	}
+	for _, name := range providerOutputProviderNames() {
+		ov := providerOutputOverride(c.Provider.Output, name)
+		if err := validateProviderOutputOverride(name, ov); err != nil {
+			return err
+		}
 	}
 	if err := validateShellDefault(c.Shell.Default); err != nil {
 		return err
@@ -369,6 +386,12 @@ func Set(cfg *Config, key, value string) error {
 	case "terminal.default":
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(value))
 	default:
+		if handled, err := setProviderOutputOverride(&cfg.Provider.Output, strings.ToLower(strings.TrimSpace(key)), value); handled {
+			if err != nil {
+				return err
+			}
+			break
+		}
 		return fmt.Errorf("unknown config key %q", key)
 	}
 	return cfg.Validate()
@@ -409,6 +432,9 @@ func Get(cfg Config, key string) (string, error) {
 	case "terminal.default":
 		return cfg.Terminal.Default, nil
 	default:
+		if handled, value := getProviderOutputOverride(cfg.Provider.Output, strings.ToLower(strings.TrimSpace(key))); handled {
+			return value, nil
+		}
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
 }
@@ -432,6 +458,15 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"provider.output.redaction", def.Provider.Output.Redaction, cfg.Provider.Output.Redaction, meta.Explicit["provider.output.redaction"], "provider output redaction: default, strict, or off"},
 		{"web.cert_dir", def.Web.CertDir, cfg.Web.CertDir, meta.Explicit["web.cert_dir"], "local HTTPS certificate directory"},
 		{"web.listen_addr", def.Web.ListenAddr, cfg.Web.ListenAddr, meta.Explicit["web.listen_addr"], "local web cockpit listen address"},
+	}
+	for _, provider := range providerOutputProviderNames() {
+		ov := providerOutputOverride(cfg.Provider.Output, provider)
+		prefix := "provider.output." + provider
+		rows = append(rows,
+			KeyInfo{prefix + ".max_chunks", "inherit", inheritedInt(ov.MaxChunks), meta.Explicit[prefix+".max_chunks"], provider + " reply chunk override; inherit uses provider.output.max_chunks"},
+			KeyInfo{prefix + ".max_bytes", "inherit", inheritedInt(ov.MaxBytes), meta.Explicit[prefix+".max_bytes"], provider + " reply byte override; inherit uses provider.output.max_bytes"},
+			KeyInfo{prefix + ".redaction", "inherit", inheritedString(ov.Redaction), meta.Explicit[prefix+".redaction"], provider + " redaction override; inherit uses provider.output.redaction"},
+		)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 	return rows
@@ -479,6 +514,17 @@ type rawProvider struct {
 }
 
 type rawProviderOutput struct {
+	MaxChunks *int                      `yaml:"max_chunks"`
+	MaxBytes  *int                      `yaml:"max_bytes"`
+	Redaction *string                   `yaml:"redaction"`
+	Telegram  rawProviderOutputOverride `yaml:"telegram"`
+	Matrix    rawProviderOutputOverride `yaml:"matrix"`
+	Slack     rawProviderOutputOverride `yaml:"slack"`
+	Discord   rawProviderOutputOverride `yaml:"discord"`
+	Notify    rawProviderOutputOverride `yaml:"notify"`
+}
+
+type rawProviderOutputOverride struct {
 	MaxChunks *int    `yaml:"max_chunks"`
 	MaxBytes  *int    `yaml:"max_bytes"`
 	Redaction *string `yaml:"redaction"`
@@ -545,8 +591,169 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 		cfg.Provider.Output.Redaction = strings.ToLower(strings.TrimSpace(*raw.Provider.Output.Redaction))
 		meta.Explicit["provider.output.redaction"] = true
 	}
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Telegram, meta, "telegram", raw.Provider.Output.Telegram)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Matrix, meta, "matrix", raw.Provider.Output.Matrix)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Slack, meta, "slack", raw.Provider.Output.Slack)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Discord, meta, "discord", raw.Provider.Output.Discord)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Notify, meta, "notify", raw.Provider.Output.Notify)
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
 		meta.Explicit["terminal.default"] = true
+	}
+}
+
+func providerOutputProviderNames() []string {
+	return []string{"telegram", "matrix", "slack", "discord", "notify"}
+}
+
+func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputOverride {
+	switch provider {
+	case "telegram":
+		return out.Telegram
+	case "matrix":
+		return out.Matrix
+	case "slack":
+		return out.Slack
+	case "discord":
+		return out.Discord
+	case "notify":
+		return out.Notify
+	default:
+		return ProviderOutputOverride{}
+	}
+}
+
+func providerOutputOverridePtr(out *ProviderOutput, provider string) *ProviderOutputOverride {
+	switch provider {
+	case "telegram":
+		return &out.Telegram
+	case "matrix":
+		return &out.Matrix
+	case "slack":
+		return &out.Slack
+	case "discord":
+		return &out.Discord
+	case "notify":
+		return &out.Notify
+	default:
+		return nil
+	}
+}
+
+func validateProviderOutputOverride(provider string, ov ProviderOutputOverride) error {
+	prefix := "provider.output." + provider
+	if ov.MaxChunks < 0 || ov.MaxChunks > 100 {
+		return fmt.Errorf("%s.max_chunks must be inherit or between 1 and 100", prefix)
+	}
+	if ov.MaxBytes < 0 || ov.MaxBytes > 1024*1024 || (ov.MaxBytes > 0 && ov.MaxBytes < 512) {
+		return fmt.Errorf("%s.max_bytes must be inherit or between 512 and 1048576", prefix)
+	}
+	switch strings.ToLower(strings.TrimSpace(ov.Redaction)) {
+	case "", "default", "strict", "off":
+		return nil
+	default:
+		return fmt.Errorf("%s.redaction must be inherit, default, strict, or off", prefix)
+	}
+}
+
+func setProviderOutputOverride(out *ProviderOutput, key, value string) (bool, error) {
+	const prefix = "provider.output."
+	if !strings.HasPrefix(key, prefix) {
+		return false, nil
+	}
+	rest := strings.TrimPrefix(key, prefix)
+	parts := strings.Split(rest, ".")
+	if len(parts) != 2 {
+		return false, nil
+	}
+	ov := providerOutputOverridePtr(out, parts[0])
+	if ov == nil {
+		return false, nil
+	}
+	v := strings.ToLower(strings.TrimSpace(value))
+	clear := v == "" || v == "inherit"
+	switch parts[1] {
+	case "max_chunks":
+		if clear {
+			ov.MaxChunks = 0
+			return true, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return true, fmt.Errorf("%s must be integer or inherit", key)
+		}
+		ov.MaxChunks = n
+	case "max_bytes":
+		if clear {
+			ov.MaxBytes = 0
+			return true, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return true, fmt.Errorf("%s must be integer bytes or inherit", key)
+		}
+		ov.MaxBytes = n
+	case "redaction":
+		if clear {
+			ov.Redaction = ""
+			return true, nil
+		}
+		ov.Redaction = v
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+func getProviderOutputOverride(out ProviderOutput, key string) (bool, string) {
+	const prefix = "provider.output."
+	if !strings.HasPrefix(key, prefix) {
+		return false, ""
+	}
+	rest := strings.TrimPrefix(key, prefix)
+	parts := strings.Split(rest, ".")
+	if len(parts) != 2 {
+		return false, ""
+	}
+	ov := providerOutputOverride(out, parts[0])
+	switch parts[1] {
+	case "max_chunks":
+		return true, inheritedInt(ov.MaxChunks)
+	case "max_bytes":
+		return true, inheritedInt(ov.MaxBytes)
+	case "redaction":
+		return true, inheritedString(ov.Redaction)
+	default:
+		return false, ""
+	}
+}
+
+func inheritedInt(v int) string {
+	if v == 0 {
+		return "inherit"
+	}
+	return strconv.Itoa(v)
+}
+
+func inheritedString(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "inherit"
+	}
+	return v
+}
+
+func applyRawProviderOutputOverride(dst *ProviderOutputOverride, meta *LoadMeta, provider string, raw rawProviderOutputOverride) {
+	prefix := "provider.output." + provider
+	if raw.MaxChunks != nil {
+		dst.MaxChunks = *raw.MaxChunks
+		meta.Explicit[prefix+".max_chunks"] = true
+	}
+	if raw.MaxBytes != nil {
+		dst.MaxBytes = *raw.MaxBytes
+		meta.Explicit[prefix+".max_bytes"] = true
+	}
+	if raw.Redaction != nil {
+		dst.Redaction = strings.ToLower(strings.TrimSpace(*raw.Redaction))
+		meta.Explicit[prefix+".redaction"] = true
 	}
 }

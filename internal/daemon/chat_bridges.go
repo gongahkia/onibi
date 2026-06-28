@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -20,6 +21,11 @@ import (
 )
 
 const matrixKVSince = "matrix.since"
+
+type slackApprovalRef struct {
+	Channel string
+	TS      string
+}
 
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if c == nil {
@@ -65,7 +71,7 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 			if body == "" || (d.Matrix.OwnerUserID != "" && ev.Sender != d.Matrix.OwnerUserID) {
 				continue
 			}
-			out, err := d.handleProviderText(ctx, "", body, 0)
+			out, err := d.handleProviderTextFor(ctx, "", body, 0, "matrix")
 			if err != nil {
 				_ = c.SendText(ctx, d.Matrix.RoomID, "Input failed: "+err.Error())
 				continue
@@ -96,7 +102,7 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 			}
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
-				_ = c.SendText(ctx, d.Matrix.RoomID, formatApprovalWithPolicy(&a, d.ProviderOutput))
+				_ = c.SendText(ctx, d.Matrix.RoomID, formatApprovalWithPolicy(&a, d.providerOutputPolicy("matrix")))
 			}
 		}
 	}
@@ -150,7 +156,7 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			if err != nil || ev.Event.Type != "message" || strings.TrimSpace(ev.Event.Text) == "" || !allow.Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
 				continue
 			}
-			out, err := d.handleProviderText(ctx, "", ev.Event.Text, 0)
+			out, err := d.handleProviderTextFor(ctx, "", ev.Event.Text, 0, "slack")
 			if err != nil {
 				_ = c.PostMessage(ctx, ev.Event.Channel, "Input failed: "+err.Error())
 				continue
@@ -161,9 +167,9 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			ackPayload := map[string]any{"text": "Approval decision received."}
 			if err == nil && len(action.Actions) > 0 {
 				id := slackApprovalID(action.Actions[0].Value)
-				if err := d.decideProviderApproval(ctx, id, approvalVerdictForAction(action.Actions[0].ActionID), 0); err != nil {
-					ackPayload["text"] = "Approval decision failed: " + err.Error()
-				}
+				verdict := approvalVerdictForAction(action.Actions[0].ActionID)
+				channel, ts := action.Channel.ID, action.Message.TS
+				ackPayload["text"] = d.handleSlackApprovalDecision(ctx, c, id, verdict, channel, ts)
 			}
 			if !env.Accepts {
 				ackPayload = nil
@@ -173,6 +179,35 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 		}
 	}
+}
+
+func (d *Daemon) handleSlackApprovalDecision(ctx context.Context, c *slack.Client, id string, verdict approval.Verdict, channel, ts string) string {
+	if id == "" || verdict == "" {
+		return "Approval decision failed: invalid action."
+	}
+	err := d.decideProviderApproval(ctx, id, verdict, 0)
+	state := approval.StateForVerdict(verdict)
+	note := "decision recorded"
+	if err != nil {
+		switch {
+		case errors.Is(err, approval.ErrAlreadyDecided):
+			note = "already decided"
+			if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
+				state = a.State
+			}
+		case errors.Is(err, approval.ErrExpired):
+			note = "expired"
+			state = approval.StateExpired
+		default:
+			note = "failed: " + err.Error()
+			state = "failed"
+		}
+	}
+	d.updateSlackApprovalMessage(ctx, c, id, state, note, channel, ts)
+	if err != nil && !errors.Is(err, approval.ErrAlreadyDecided) && !errors.Is(err, approval.ErrExpired) {
+		return "Approval decision failed: " + err.Error()
+	}
+	return "Approval " + id + ": " + string(state) + " (" + note + ")."
 }
 
 func (d *Daemon) slackApprovalChannel() string {
@@ -199,7 +234,14 @@ func (d *Daemon) forwardApprovalsToSlack(ctx context.Context, c *slack.Client, c
 			return
 		}
 		seen[a.ID] = true
-		_ = c.PostMessageBlocks(ctx, channel, "Onibi approval "+a.ID, slackApprovalBlocks(a, d.ProviderOutput))
+		resp, err := c.PostMessageBlocks(ctx, channel, "Onibi approval "+a.ID, slackApprovalBlocks(a, d.providerOutputPolicy("slack")))
+		if err != nil {
+			d.Log.Warn("slack approval post failed", slog.String("approval_id", a.ID), slog.Any("err", err))
+			return
+		}
+		if resp.Channel != "" && resp.TS != "" {
+			d.rememberSlackApproval(a.ID, slackApprovalRef{Channel: resp.Channel, TS: resp.TS})
+		}
 	}
 	if pending, err := d.Queue.Pending(ctx); err == nil {
 		for _, a := range pending {
@@ -224,6 +266,44 @@ func (d *Daemon) forwardApprovalsToSlack(ctx context.Context, c *slack.Client, c
 	}
 }
 
+func (d *Daemon) rememberSlackApproval(id string, ref slackApprovalRef) {
+	if d == nil || id == "" || ref.Channel == "" || ref.TS == "" {
+		return
+	}
+	d.slackMu.Lock()
+	d.slackApprovals[id] = ref
+	d.slackMu.Unlock()
+}
+
+func (d *Daemon) slackApprovalRef(id, channel, ts string) (slackApprovalRef, bool) {
+	if channel != "" && ts != "" {
+		return slackApprovalRef{Channel: channel, TS: ts}, true
+	}
+	d.slackMu.Lock()
+	defer d.slackMu.Unlock()
+	ref, ok := d.slackApprovals[id]
+	return ref, ok
+}
+
+func (d *Daemon) updateSlackApprovalMessage(ctx context.Context, c *slack.Client, id string, state string, note, channel, ts string) {
+	if c == nil || d == nil {
+		return
+	}
+	ref, ok := d.slackApprovalRef(id, channel, ts)
+	if !ok {
+		return
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		d.Log.Warn("slack approval load failed", slog.String("approval_id", id), slog.Any("err", err))
+		return
+	}
+	blocks := slackApprovalFinalBlocks(a, d.providerOutputPolicy("slack"), state, note)
+	if _, err := c.UpdateMessage(ctx, ref.Channel, ref.TS, "Onibi approval "+id+" "+string(state), blocks); err != nil {
+		d.Log.Warn("slack approval update failed", slog.String("approval_id", id), slog.Any("err", err))
+	}
+}
+
 func slackApprovalBlocks(a *approval.Approval, policy ProviderOutputPolicy) []any {
 	text := formatApprovalWithPolicy(a, policy)
 	if len(text) > 2800 {
@@ -241,6 +321,20 @@ func slackApprovalBlocks(a *approval.Approval, policy ProviderOutputPolicy) []an
 				"style": "danger", "action_id": "deny", "value": slackApprovalValue(a, approval.VerdictDeny),
 			},
 		}},
+	}
+}
+
+func slackApprovalFinalBlocks(a *approval.Approval, policy ProviderOutputPolicy, state string, note string) []any {
+	text := formatApprovalWithPolicy(a, policy)
+	if len(text) > 2600 {
+		text = text[:2600] + "\n..."
+	}
+	if strings.TrimSpace(note) == "" {
+		note = string(state)
+	}
+	return []any{
+		map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": "```" + text + "```"}},
+		map[string]any{"type": "context", "elements": []any{map[string]any{"type": "mrkdwn", "text": "*State:* " + string(state) + "  *Note:* " + note}}},
 	}
 }
 
@@ -363,7 +457,7 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Message content intent is missing. Use slash commands or enable the intent.")
 				continue
 			}
-			out, err := d.handleProviderText(ctx, "", msg.Content, 0)
+			out, err := d.handleProviderTextFor(ctx, "", msg.Content, 0, "discord")
 			if err != nil {
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Input failed: "+err.Error())
 				continue
@@ -373,7 +467,7 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 		if in, ok, err := discord.ParseInteraction(frame); err == nil && ok {
 			text := discord.InteractionText(in)
 			if strings.EqualFold(in.Data.Name, "onibi") && text != "" {
-				out, err := d.handleProviderText(ctx, "", text, 0)
+				out, err := d.handleProviderTextFor(ctx, "", text, 0, "discord")
 				if err != nil {
 					out = "Input failed: " + err.Error()
 				}
@@ -392,7 +486,7 @@ func (d *Daemon) runPushoverNotifier(ctx context.Context, c *pushover.Client) {
 }
 
 func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a *approval.Approval) {
-	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.ProviderOutput), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
+	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
 	if err != nil {
 		d.audit(ctx, "notify.pushover.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 		return
@@ -420,7 +514,7 @@ func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a
 
 func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		if err := c.Publish(ctx, ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.ProviderOutput), Tags: "warning"}); err != nil {
+		if err := c.Publish(ctx, ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Tags: "warning"}); err != nil {
 			d.audit(ctx, "notify.ntfy.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 			return
 		}
@@ -430,7 +524,7 @@ func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {
 
 func (d *Daemon) runGotifyNotifier(ctx context.Context, c *gotify.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		if err := c.Send(ctx, gotify.Message{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.ProviderOutput), Priority: 8}); err != nil {
+		if err := c.Send(ctx, gotify.Message{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Priority: 8}); err != nil {
 			d.audit(ctx, "notify.gotify.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 			return
 		}
@@ -461,11 +555,15 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 }
 
 func (d *Daemon) handleProviderText(ctx context.Context, target, text string, actor int64) (string, error) {
+	return d.handleProviderTextFor(ctx, target, text, actor, "")
+}
+
+func (d *Daemon) handleProviderTextFor(ctx context.Context, target, text string, actor int64, provider string) (string, error) {
 	if handled, reply := d.handleProviderTextCommand(ctx, text, actor); handled {
-		return d.prepareProviderOutput(reply), nil
+		return d.prepareProviderOutputFor(provider, reply), nil
 	}
 	out, err := d.SendSessionTextAndCapture(ctx, target, text, true)
-	return d.prepareProviderOutput(out), err
+	return d.prepareProviderOutputFor(provider, out), err
 }
 
 func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, actor int64) (bool, string) {

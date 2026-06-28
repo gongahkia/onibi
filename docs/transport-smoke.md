@@ -64,7 +64,9 @@ ONIBI_LIVE_SLACK=1 ONIBI_SLACK_APP_TOKEN=... ONIBI_SLACK_BOT_TOKEN=... ONIBI_SLA
 - Run `onibi up --transport=slack`.
 - Confirm Socket Mode opens, message envelopes are acked, `disconnect`/`refresh_requested` opens a fresh socket URL, and DM/channel allowlists block non-owned sources.
 - Set `ONIBI_SLACK_APPROVAL_CHANNEL` or include a channel in `ONIBI_SLACK_ALLOWED_CHANNELS`.
-- Trigger an approval and confirm Approve/Deny Block Kit buttons decide it; button values should contain structured approval/session state and not raw tool payload secrets.
+- Trigger an approval and confirm Approve/Deny Block Kit buttons decide it.
+- Confirm the original Slack approval message updates to approved/denied/expired/failed final state and duplicate clicks remain visibly terminal.
+- Button values should contain structured approval/session state and not raw tool payload secrets.
 
 ## Discord
 
@@ -83,6 +85,7 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 
 - Slack: `auth.test`, Socket Mode open, and configured approval/allowed channel membership.
 - Discord: current application and channel visibility; set `ONIBI_DOCTOR_LIVE=1` to send a channel permission probe.
+- Discord also checks `/onibi` command presence when `ONIBI_DISCORD_APPLICATION_ID` or `ONIBI_DISCORD_GUILD_ID` is set; doctor reports missing command but does not register it.
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
 - Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
@@ -93,11 +96,14 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 onibi config set provider.output.max_chunks 8
 onibi config set provider.output.max_bytes 24576
 onibi config set provider.output.redaction strict
+onibi config set provider.output.slack.max_bytes 12000
+onibi config set provider.output.discord.redaction off
 ```
 
 - `default` redaction uses Onibi approval/output scrubbing.
 - `strict` additionally masks long token-like strings.
 - `off` disables config redaction; `ONIBI_CHAT_UNREDACTED=1` remains an env escape hatch.
+- Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, and `notify`; set an override to `inherit` to return to global defaults.
 - Output is truncated before provider chunk send, so chat providers cannot stream unlimited terminal output.
 
 ## Notify-only

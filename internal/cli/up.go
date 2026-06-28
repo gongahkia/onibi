@@ -187,25 +187,22 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	)
 	relayKeys := web.NewRelayKeys()
 	d := daemon.New(daemon.Options{
-		Paths:                 paths,
-		DB:                    db,
-		Log:                   logger,
-		ApprovalTTL:           cfg.Daemon.ApprovalTimeout.Std(),
-		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
-		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:            cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:       cfg.Terminal.Default,
-		WebAddr:               cfg.Web.ListenAddr,
-		WebCertDir:            certDir,
-		RelayKeys:             relayKeys,
-		RequireWebE2E:         webtransport.IsRelayMode(cfg.Transport.Mode),
-		ProviderOutput: daemon.ProviderOutputPolicy{
-			MaxChunks: cfg.Provider.Output.MaxChunks,
-			MaxBytes:  cfg.Provider.Output.MaxBytes,
-			Redaction: cfg.Provider.Output.Redaction,
-		},
-		SkipRestore: true,
+		Paths:                   paths,
+		DB:                      db,
+		Log:                     logger,
+		ApprovalTTL:             cfg.Daemon.ApprovalTimeout.Std(),
+		ApprovalSweepInterval:   cfg.Daemon.ApprovalSweepInterval.Std(),
+		IdleThreshold:           cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:              cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:         cfg.Terminal.Default,
+		WebAddr:                 cfg.Web.ListenAddr,
+		WebCertDir:              certDir,
+		RelayKeys:               relayKeys,
+		RequireWebE2E:           webtransport.IsRelayMode(cfg.Transport.Mode),
+		ProviderOutput:          daemonProviderOutputPolicy(cfg),
+		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
+		SkipRestore:             true,
 	})
 	phase = time.Now()
 	session, err := startManagedWebPairShell(ctx, d, cfg, shellCWD, logger)

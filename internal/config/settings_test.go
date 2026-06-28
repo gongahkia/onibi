@@ -120,6 +120,24 @@ func TestSetValidates(t *testing.T) {
 	if got, _ := Get(cfg, "provider.output.redaction"); got != "strict" {
 		t.Fatalf("provider.output.redaction = %s", got)
 	}
+	if err := Set(&cfg, "provider.output.slack.max_bytes", "2048"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "provider.output.discord.redaction", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "provider.output.slack.max_bytes"); got != "2048" {
+		t.Fatalf("provider.output.slack.max_bytes = %s", got)
+	}
+	if got, _ := Get(cfg, "provider.output.discord.redaction"); got != "off" {
+		t.Fatalf("provider.output.discord.redaction = %s", got)
+	}
+	if err := Set(&cfg, "provider.output.discord.redaction", "inherit"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "provider.output.discord.redaction"); got != "inherit" {
+		t.Fatalf("provider.output.discord.redaction = %s", got)
+	}
 }
 
 func TestProviderOutputValidation(t *testing.T) {
@@ -134,6 +152,14 @@ func TestProviderOutputValidation(t *testing.T) {
 	cfg = Default()
 	if err := Set(&cfg, "provider.output.redaction", "none"); err == nil {
 		t.Fatal("expected redaction validation error")
+	}
+	cfg = Default()
+	if err := Set(&cfg, "provider.output.slack.max_bytes", "128"); err == nil {
+		t.Fatal("expected slack max_bytes validation error")
+	}
+	cfg = Default()
+	if err := Set(&cfg, "provider.output.slack.redaction", "none"); err == nil {
+		t.Fatal("expected slack redaction validation error")
 	}
 }
 
