@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const have_llama = b.option(bool, "llama", "Link libllama and enable real llama.cpp model load") orelse false;
+    const llama_prefix = b.option([]const u8, "llama-prefix", "Prefix containing llama.cpp include/ and lib/") orelse ".kelp-pi/llama/host";
 
     const options = b.addOptions();
     options.addOption(bool, "have_llama", have_llama);
@@ -22,10 +23,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     exe.linkSystemLibrary("sqlite3");
-    if (have_llama) {
-        exe.addIncludePath(b.path("vendor/llama.cpp/include"));
-        exe.linkSystemLibrary("llama");
-    }
+    if (have_llama) addLlamaBridge(b, exe, llama_prefix);
     b.installArtifact(exe);
 
     const test_root = b.createModule(.{
@@ -37,11 +35,27 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = test_root });
     tests.linkLibC();
     tests.linkSystemLibrary("sqlite3");
-    if (have_llama) {
-        tests.addIncludePath(b.path("vendor/llama.cpp/include"));
-        tests.linkSystemLibrary("llama");
-    }
+    if (have_llama) addLlamaBridge(b, tests, llama_prefix);
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Zig unit tests");
     test_step.dependOn(&run_tests.step);
+}
+
+fn addLlamaBridge(b: *std.Build, compile: *std.Build.Step.Compile, prefix: []const u8) void {
+    const lib_dir = b.pathJoin(&.{ prefix, "lib" });
+    const include_dir = b.pathJoin(&.{ prefix, "include" });
+    compile.addIncludePath(b.path("app"));
+    compile.addIncludePath(.{ .cwd_relative = include_dir });
+    compile.addIncludePath(b.path("vendor/llama.cpp/include"));
+    compile.addCSourceFile(.{
+        .file = b.path("app/llama_bridge.c"),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra" },
+    });
+    compile.addLibraryPath(.{ .cwd_relative = lib_dir });
+    compile.addRPath(.{ .cwd_relative = lib_dir });
+    compile.linkSystemLibrary("llama");
+    compile.linkSystemLibrary("ggml");
+    compile.linkSystemLibrary("ggml-base");
+    compile.linkSystemLibrary("ggml-cpu");
+    compile.linkLibCpp();
 }

@@ -4,6 +4,17 @@ const sqlite = @cImport({
     @cInclude("sqlite3.h");
 });
 
+const LlamaResult = extern struct {
+    ok: c_int,
+    loaded: c_int,
+    decoded_tokens: c_int,
+    elapsed_seconds: f64,
+    text: [2048]u8,
+    @"error": [256]u8,
+};
+
+extern fn kelp_llama_generate(model_path: [*:0]const u8, prompt: [*:0]const u8, n_predict: c_int, n_threads: c_int, result: *LlamaResult) c_int;
+
 const default_data_dir = "/var/lib/kelp-pi";
 const default_policy_path = "policies/appsec-agent-baseline.toml";
 const default_model_manifest = "models/manifest.toml";
@@ -392,7 +403,7 @@ fn verifyBundle(allocator: std.mem.Allocator, args: []const []const u8) !void {
 }
 
 fn modelCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len == 0) return fail("usage: kelp-pi model <fetch|warm|verify> --id MODEL_ID", 64);
+    if (args.len == 0) return fail("usage: kelp-pi model <fetch|warm|verify|prompt> --id MODEL_ID", 64);
     const sub = args[0];
     const id = option(args[1..], "--id") orelse default_model_id;
     const manifest_path = option(args[1..], "--manifest") orelse default_model_manifest;
@@ -406,9 +417,10 @@ fn modelCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer allocator.free(default_path);
     const model_path = option(args[1..], "--model-path") orelse default_path;
     if (std.mem.eql(u8, sub, "fetch")) return modelFetch(allocator, model, model_path);
-    if (std.mem.eql(u8, sub, "verify")) return modelVerify(allocator, model, model_path, false);
-    if (std.mem.eql(u8, sub, "warm")) return modelVerify(allocator, model, model_path, true);
-    return fail("usage: kelp-pi model <fetch|warm|verify> --id MODEL_ID", 64);
+    if (std.mem.eql(u8, sub, "verify")) return modelVerify(allocator, model, model_path, false, null, 0, 0);
+    if (std.mem.eql(u8, sub, "warm")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse "ready", parseUsize(option(args[1..], "--n-predict") orelse "1", 1), parseUsize(option(args[1..], "--threads") orelse "2", 2));
+    if (std.mem.eql(u8, sub, "prompt")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse "Answer with one word: ready", parseUsize(option(args[1..], "--n-predict") orelse "32", 32), parseUsize(option(args[1..], "--threads") orelse "2", 2));
+    return fail("usage: kelp-pi model <fetch|warm|verify|prompt> --id MODEL_ID", 64);
 }
 
 fn chatCommand(args: []const []const u8) !void {
@@ -443,7 +455,7 @@ fn chatCommand(args: []const []const u8) !void {
 
 fn modelFetch(allocator: std.mem.Allocator, model: ModelEntry, model_path: []const u8) !void {
     if (fileExists(model_path)) {
-        return modelVerify(allocator, model, model_path, false);
+        return modelVerify(allocator, model, model_path, false, null, 0, 0);
     }
     if (std.fs.path.dirname(model_path)) |parent| try std.fs.cwd().makePath(parent);
     const result = try std.process.Child.run(.{ .allocator = allocator, .argv = &.{ "curl", "-fL", "--retry", "3", "-o", model_path, model.url }, .max_output_bytes = 1024 * 1024 });
@@ -454,10 +466,10 @@ fn modelFetch(allocator: std.mem.Allocator, model: ModelEntry, model_path: []con
         else => false,
     };
     if (!ok) return fail("model download failed", 77);
-    return modelVerify(allocator, model, model_path, false);
+    return modelVerify(allocator, model, model_path, false, null, 0, 0);
 }
 
-fn modelVerify(allocator: std.mem.Allocator, model: ModelEntry, model_path: []const u8, warm: bool) !void {
+fn modelVerify(allocator: std.mem.Allocator, model: ModelEntry, model_path: []const u8, warm: bool, prompt: ?[]const u8, n_predict: usize, n_threads: usize) !void {
     if (!fileExists(model_path)) return printJsonStatus(false, "missing-model-file", "model path does not exist");
     const actual = try fileHashHex(allocator, model_path);
     defer allocator.free(actual);
@@ -466,10 +478,31 @@ fn modelVerify(allocator: std.mem.Allocator, model: ModelEntry, model_path: []co
     if (!ramGateAllows(model.ram_floor_mb)) return printJsonStatus(false, "ram-gate", "detected RAM below model floor");
     var out = std.fs.File.stdout().deprecatedWriter();
     if (warm and build_options.have_llama) {
-        try out.print("{{\"ok\":true,\"id\":\"{s}\",\"path\":\"{s}\",\"sha256\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":true}}\n", .{ model.id, model_path, actual });
+        return modelGenerate(allocator, model, model_path, actual, prompt orelse "ready", n_predict, n_threads);
     } else {
         try out.print("{{\"ok\":true,\"id\":\"{s}\",\"path\":\"{s}\",\"sha256\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":false,\"reason\":\"libllama not linked in this build\"}}\n", .{ model.id, model_path, actual });
     }
+}
+
+fn modelGenerate(allocator: std.mem.Allocator, model: ModelEntry, model_path: []const u8, actual_hash: []const u8, prompt: []const u8, n_predict_raw: usize, n_threads_raw: usize) !void {
+    const model_path_z = try allocator.dupeZ(u8, model_path);
+    defer allocator.free(model_path_z);
+    const prompt_z = try allocator.dupeZ(u8, prompt);
+    defer allocator.free(prompt_z);
+    var result: LlamaResult = undefined;
+    const n_predict = @min(n_predict_raw, 512);
+    const n_threads = @max(n_threads_raw, 1);
+    const rc = kelp_llama_generate(model_path_z.ptr, prompt_z.ptr, @intCast(n_predict), @intCast(n_threads), &result);
+    var out = std.fs.File.stdout().deprecatedWriter();
+    if (rc != 0 or result.ok == 0) {
+        try out.print("{{\"ok\":false,\"id\":\"{s}\",\"path\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":{},\"reason\":\"", .{ model.id, model_path, result.loaded != 0 });
+        try writeJsonEscaped(&out, std.mem.sliceTo(result.@"error"[0..], 0));
+        try out.print("\"}}\n", .{});
+        return;
+    }
+    try out.print("{{\"ok\":true,\"id\":\"{s}\",\"path\":\"{s}\",\"sha256\":\"{s}\",\"runtime\":\"llama.cpp\",\"loaded\":true,\"decodedTokens\":{},\"elapsedSeconds\":{d:.3},\"text\":\"", .{ model.id, model_path, actual_hash, result.decoded_tokens, result.elapsed_seconds });
+    try writeJsonEscaped(&out, std.mem.sliceTo(result.text[0..], 0));
+    try out.print("\"}}\n", .{});
 }
 
 fn sqliteOpen(path: []const u8) !*sqlite.sqlite3 {
