@@ -43,6 +43,9 @@ func ValidateTopicSecret(topic string) error {
 	if !topicSecretRE.MatchString(topic) {
 		return errors.New("ntfy topic must be a 20+ char random secret using letters, numbers, _ or -")
 	}
+	if weakTopicSecret(topic) {
+		return errors.New("ntfy topic must contain enough mixed random characters")
+	}
 	low := strings.ToLower(topic)
 	for _, bad := range []string{"onibi", "approval", "test", "default", "public"} {
 		if strings.Contains(low, bad) {
@@ -50,6 +53,25 @@ func ValidateTopicSecret(topic string) error {
 		}
 	}
 	return nil
+}
+
+func weakTopicSecret(topic string) bool {
+	classes := map[string]bool{}
+	unique := map[rune]bool{}
+	for _, r := range topic {
+		unique[r] = true
+		switch {
+		case r >= 'a' && r <= 'z':
+			classes["lower"] = true
+		case r >= 'A' && r <= 'Z':
+			classes["upper"] = true
+		case r >= '0' && r <= '9':
+			classes["digit"] = true
+		default:
+			classes["symbol"] = true
+		}
+	}
+	return len(unique) < 8 || len(classes) < 2
 }
 
 func (c *Client) Publish(ctx context.Context, msg Message) error {
@@ -86,6 +108,10 @@ func (c *Client) Publish(ctx context.Context, msg Message) error {
 }
 
 func (c *Client) SubscribeWS(ctx context.Context) (*websocket.Conn, error) {
+	return c.SubscribeWSSince(ctx, "")
+}
+
+func (c *Client) SubscribeWSSince(ctx context.Context, since string) (*websocket.Conn, error) {
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
@@ -97,6 +123,11 @@ func (c *Client) SubscribeWS(ctx context.Context) (*websocket.Conn, error) {
 		u.Scheme = "wss"
 	} else {
 		u.Scheme = "ws"
+	}
+	if strings.TrimSpace(since) != "" {
+		q := u.Query()
+		q.Set("since", strings.TrimSpace(since))
+		u.RawQuery = q.Encode()
 	}
 	opts := &websocket.DialOptions{}
 	if c.Token != "" {

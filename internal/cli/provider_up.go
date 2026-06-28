@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
+	gotifyapi "github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -19,6 +21,13 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 	opts, label, err := providerOptionsFromEnv(mode)
 	if err != nil {
 		return err
+	}
+	if mode == "gotify" {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+		defer cancel()
+		if err := gotifyapi.New(opts.Gotify.BaseURL, opts.Gotify.AppToken, opts.Gotify.ClientToken).Validate(ctx); err != nil {
+			return err
+		}
 	}
 	d := daemon.New(daemon.Options{
 		Paths:                 paths,

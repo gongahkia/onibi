@@ -45,7 +45,11 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/message", bytes.NewReader(b))
+	reqURL, err := gotifyTokenURL(c.BaseURL+"/message", c.AppToken)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -62,6 +66,40 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("gotify send status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) Validate(ctx context.Context) error {
+	if c == nil {
+		return errors.New("gotify client nil")
+	}
+	if c.BaseURL == "" || c.AppToken == "" {
+		return errors.New("gotify url/app token required")
+	}
+	if c.ClientToken == "" {
+		return nil
+	}
+	reqURL, err := gotifyTokenURL(c.BaseURL+"/message?limit=1", c.ClientToken)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Gotify-Key", c.ClientToken)
+	hc := c.HTTP
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("gotify validate status %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -87,4 +125,15 @@ func (c *Client) SubscribeWS(ctx context.Context) (*websocket.Conn, error) {
 	u.RawQuery = q.Encode()
 	conn, _, err := websocket.Dial(ctx, u.String(), nil)
 	return conn, err
+}
+
+func gotifyTokenURL(raw, token string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("token", token)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }

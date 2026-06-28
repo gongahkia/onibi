@@ -12,8 +12,8 @@ import (
 
 func TestSendUsesRESTAndAppToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/message" || r.Header.Get("X-Gotify-Key") != "app" {
-			t.Fatalf("path=%s key=%q", r.URL.Path, r.Header.Get("X-Gotify-Key"))
+		if r.URL.Path != "/message" || r.URL.Query().Get("token") != "app" || r.Header.Get("X-Gotify-Key") != "app" {
+			t.Fatalf("url=%s key=%q", r.URL.String(), r.Header.Get("X-Gotify-Key"))
 		}
 		var msg Message
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
@@ -27,6 +27,24 @@ func TestSendUsesRESTAndAppToken(t *testing.T) {
 	defer srv.Close()
 	if err := New(srv.URL, "app", "client").Send(t.Context(), Message{Title: "Approval", Message: "approve a1", Priority: 8}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateChecksClientToken(t *testing.T) {
+	var hit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if r.Method != http.MethodGet || r.URL.Path != "/message" || r.URL.Query().Get("token") != "client" || r.Header.Get("X-Gotify-Key") != "client" {
+			t.Fatalf("request = %s %s key=%q", r.Method, r.URL.String(), r.Header.Get("X-Gotify-Key"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, "app", "client").Validate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !hit {
+		t.Fatal("validation did not call server")
 	}
 }
 

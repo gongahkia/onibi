@@ -280,11 +280,30 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 
 func (d *Daemon) runPushoverNotifier(ctx context.Context, c *pushover.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApproval(a), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
-		if err == nil && resp.Receipt != "" {
-			go func() { _, _ = c.PollReceipt(ctx, resp.Receipt, 30*time.Second) }()
-		}
+		d.sendPushoverApproval(ctx, c, a)
 	})
+}
+
+func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a *approval.Approval) {
+	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApproval(a), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
+	if err != nil || resp.Receipt == "" {
+		return
+	}
+	d.audit(ctx, "notify.pushover.receipt", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
+	go func() {
+		got, err := c.PollReceipt(ctx, resp.Receipt, 30*time.Second)
+		if err != nil {
+			d.audit(ctx, "notify.pushover.receipt.error", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt+" err="+err.Error())
+			return
+		}
+		state := "pending"
+		if got.Acknowledged == 1 {
+			state = "acknowledged"
+		} else if got.Expired == 1 {
+			state = "expired"
+		}
+		d.audit(ctx, "notify.pushover.receipt."+state, a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
+	}()
 }
 
 func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {

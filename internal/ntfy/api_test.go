@@ -10,7 +10,7 @@ import (
 )
 
 func TestValidateTopicSecret(t *testing.T) {
-	for _, bad := range []string{"short", "onibi-public-topic-1234567890"} {
+	for _, bad := range []string{"short", "onibi-public-topic-1234567890", "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
 		if err := ValidateTopicSecret(bad); err == nil {
 			t.Fatalf("accepted %q", bad)
 		}
@@ -62,4 +62,24 @@ func TestSubscribeWS(t *testing.T) {
 	if !strings.Contains(string(p), `"message":"hi"`) {
 		t.Fatalf("payload = %s", p)
 	}
+}
+
+func TestSubscribeWSSince(t *testing.T) {
+	topic := "A1b2C3d4E5f6G7h8I9j0"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/ws") || r.URL.Query().Get("since") != "all" {
+			t.Fatalf("url = %s", r.URL.String())
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.CloseNow()
+	}))
+	defer srv.Close()
+	conn, err := New(srv.URL, topic, "").SubscribeWSSince(t.Context(), "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
 }
