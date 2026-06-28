@@ -195,7 +195,7 @@ func fitTableWidths(widths []int, maxWidth int) []int {
 		col := -1
 		slack := 0
 		for i, width := range out {
-			minWidth := minTableColumnWidth(i, width)
+			minWidth := minTableColumnWidth(i, len(out), width)
 			if width-minWidth > slack {
 				col = i
 				slack = width - minWidth
@@ -209,12 +209,15 @@ func fitTableWidths(widths []int, maxWidth int) []int {
 	return out
 }
 
-func minTableColumnWidth(i, natural int) int {
+func minTableColumnWidth(i, cols, natural int) int {
 	if natural <= 1 {
 		return natural
 	}
 	if i == 0 {
 		return 1
+	}
+	if i == cols-1 && natural >= 22 {
+		return 22
 	}
 	if natural < 12 {
 		return natural
@@ -318,16 +321,6 @@ func takeVisiblePrefix(s string, width int) (string, int) {
 		seen++
 	}
 	return s[:i], i
-}
-					return err
-				}
-			}
-		}
-		if _, err := io.WriteString(w, "\n"); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func tableHeader(s cliStyle, cols ...string) []string {
