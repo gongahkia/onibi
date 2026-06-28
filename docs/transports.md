@@ -247,10 +247,3 @@ ONIBI_NGROK_AGENT_API=http://127.0.0.1:4040
 ```
 
 Reserved domains require an auth token. Cleanup requests tunnel shutdown through the Agent API and then kills the local process.
-
-## Connection catalog
-
-Planned options stay grouped by intended surface:
-
-- Chat: Slack Socket Mode, Discord bot, and Matrix bot.
-- Notify-only: Pushover.

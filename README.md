@@ -8,13 +8,13 @@
   <a href="https://github.com/gongahkia/onibi/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/gongahkia/onibi/ci.yml?branch=main&style=flat-square"></a>
   <img alt="go" src="https://img.shields.io/badge/go-1.26.4%2B-blue?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square">
-  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20%7C%20Tailscale%20%7C%20Cloudflare%20%7C%20ngrok%20%7C%20Telegram-1f766f?style=flat-square">
+  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20%7C%20Tailscale%20%7C%20Cloudflare%20%7C%20ngrok%20%7C%20Chat%20%7C%20Notify-1f766f?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
 </p>
 
-Web/Telegram-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
+Web/chat-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
 
-Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web or Telegram UI. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, or Telegram before driving the same live session between mobile Safari, Telegram, and a visible Mac terminal.
+Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
 
 Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Release prep is still tracked in [`TODO.md`](./TODO.md).
 
@@ -26,7 +26,7 @@ make build
 ./bin/onibi up
 ```
 
-`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `./bin/onibi up --transport=lan`, `--transport=tailscale`, `--transport=cloudflare-quick`, `--transport=cloudflare-named`, `--transport=ngrok`, `--transport=telegram`, or `--transport=auto` to skip the picker.
+`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `./bin/onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
 
 On iPhone:
 
@@ -48,7 +48,8 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
-- Telegram text control: `/new shell`, send `ls`, receive terminal text output; approvals support Approve/Deny/Edit.
+- Chat text control: Telegram, Matrix, Slack, and Discord can route terminal text; approvals support provider-native actions where available.
+- Notify-only approvals: Pushover, ntfy, and Gotify publish approval alerts without terminal text input.
 
 ## Main Commands
 
@@ -102,7 +103,8 @@ After `./bin/onibi up` and phone pairing:
 - `internal/tmux` creates managed tmux-backed sessions for handover.
 - `internal/pty` bridges web terminal I/O to local PTYs and tmux attach clients.
 - `internal/web` serves HTTPS, static frontend assets, `/ws/pty`, `/ws/events`, `/control`, `/approval`, and `/pair`.
-- `internal/telegram` talks to Telegram Bot API for chat-native text input/output and approval callbacks.
+- `internal/telegram`, `internal/matrix`, `internal/slack`, and `internal/discord` provide chat-native text input/output and approval callbacks.
+- `internal/pushover`, `internal/ntfy`, and `internal/gotify` provide notify-only approval delivery.
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.
 - `frontend/` contains the xterm.js cockpit.

@@ -133,7 +133,7 @@ func (c *Client) postForm(ctx context.Context, p string, values url.Values, dst 
 	if c == nil {
 		return errors.New("pushover client nil")
 	}
-	if c.Token == "" || c.UserKey == "" && p == "/messages.json" {
+	if c.Token == "" || (c.UserKey == "" && p == "/messages.json") {
 		return errors.New("pushover token/user required")
 	}
 	base := strings.TrimRight(c.BaseURL, "/")
