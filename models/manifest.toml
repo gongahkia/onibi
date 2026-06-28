@@ -1,0 +1,17 @@
+# source checked 2026-06-28 via Hugging Face API.
+
+[[model]]
+id = "qwen3-0.6b-q4_k_m"
+url = "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/60b85c0e3d8fe0f6474f406922a26d12aca4550d/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
+sha256 = ""
+primary = true
+ram_floor_mb = 1024
+notes = "sha256 must be filled from the downloaded GGUF before release packaging."
+
+[[model]]
+id = "tinyllama-1.1b-q4_0"
+url = ""
+sha256 = ""
+primary = false
+ram_floor_mb = 1024
+notes = "fallback slot; pin URL and sha256 only after a measured Pi run."
