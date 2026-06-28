@@ -137,7 +137,7 @@ func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "tailscale", "auto"} {
+	for _, value := range []string{"lan", "tailscale", "telegram", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
@@ -150,7 +150,7 @@ func TestTransportModeValues(t *testing.T) {
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, auto") {
+	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, telegram, auto") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

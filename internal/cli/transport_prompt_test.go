@@ -9,7 +9,7 @@ import (
 )
 
 func TestPromptPairTransportSelectsTailscale(t *testing.T) {
-	cmd, out := transportPromptCmd("2\n")
+	cmd, out := transportPromptCmd("1\n2\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
@@ -21,13 +21,13 @@ func TestPromptPairTransportSelectsTailscale(t *testing.T) {
 	if got != "tailscale" {
 		t.Fatalf("transport = %q", got)
 	}
-	if !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare") {
+	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Tunnel") {
 		t.Fatalf("prompt output = %q", out.String())
 	}
 }
 
 func TestPromptPairTransportEnterKeepsCurrent(t *testing.T) {
-	cmd, _ := transportPromptCmd("\n")
+	cmd, _ := transportPromptCmd("\n\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "auto")
 	if err != nil {
@@ -38,8 +38,50 @@ func TestPromptPairTransportEnterKeepsCurrent(t *testing.T) {
 	}
 }
 
-func TestPromptPairTransportRepromptsForUnavailableCloudflare(t *testing.T) {
-	cmd, out := transportPromptCmd("4\n1\n")
+func TestPromptPairTransportSelectsTelegram(t *testing.T) {
+	cmd, out := transportPromptCmd("2\n1\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "telegram" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if !strings.Contains(out.String(), "Telegram") {
+		t.Fatalf("prompt output = %q", out.String())
+	}
+}
+
+func TestPromptPairTransportDefaultsToTelegramProvider(t *testing.T) {
+	cmd, _ := transportPromptCmd("\n\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "telegram" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+}
+
+func TestPromptPairTransportRepromptsForUnavailableNotifyOnly(t *testing.T) {
+	cmd, out := transportPromptCmd("3\n\n1\n1\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "lan" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if !strings.Contains(out.String(), "Pushover") || !strings.Contains(out.String(), "No notify-only providers are enabled yet") {
+		t.Fatalf("missing unavailable notice: %q", out.String())
+	}
+}
+
+func TestPromptPairTransportRepromptsForUnavailableWebProvider(t *testing.T) {
+	cmd, out := transportPromptCmd("1\ncloudflare\n1\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {

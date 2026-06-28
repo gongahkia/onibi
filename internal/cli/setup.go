@@ -97,7 +97,7 @@ func printSetupNextActions(cmd *cobra.Command) {
 	fmt.Fprintln(cmd.OutOrStdout(), "\nNext:")
 	_ = renderTable(cmd.OutOrStdout(), [][]string{
 		{"1", "onibi status", "inspect local state"},
-		{"2", "onibi up", "choose LAN/Tailscale, start cockpit, scan QR"},
+		{"2", "onibi up", "choose category/provider, start control surface"},
 		{"3", "onibi install-hooks --interactive", "connect agents/shells"},
 		{"4", "onibi hooks --show --all", "verify hook drift"},
 	})

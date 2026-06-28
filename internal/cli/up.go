@@ -51,7 +51,7 @@ func upCmd() *cobra.Command {
 		Short:   "Start the local web cockpit and print a pairing QR",
 		RunE:    runUp,
 	}
-	cmd.Flags().String("transport", "", "pairing transport: lan, tailscale, or auto")
+	cmd.Flags().String("transport", "", "pairing transport: lan, tailscale, telegram, or auto")
 	cmd.Flags().String("shell", "", "shell executable for local cockpit session")
 	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
@@ -155,6 +155,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	shellCWD, err := shellWorkingDir(cmd)
 	if err != nil {
 		return err
+	}
+	if cfg.Transport.Mode == "telegram" {
+		return runTelegramUp(cmd, paths, db, cfg, logger, started, shellCWD)
 	}
 	port, err := listenPort(cfg.Web.ListenAddr)
 	if err != nil {

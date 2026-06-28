@@ -1,12 +1,19 @@
 # Onibi transports
 
-Onibi v3 ships two pairing transports:
+Onibi v3 groups connection options by control surface:
+
+- Web URL: browser cockpit + QR.
+- Chat: natural text control.
+- Notify-only: approvals and alerts without terminal input.
+
+The supported transports are:
 
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
 - `tailscale`: QR points at the device's Tailscale Funnel URL.
+- `telegram`: Bot API chat control for natural text input/output and approvals.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable.
-Run `onibi up` from a terminal to choose interactively, or pass `--transport=lan`, `--transport=tailscale`, or `--transport=auto` for scripts.
+Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=lan`, `--transport=tailscale`, `--transport=telegram`, or `--transport=auto` for scripts.
 
 ## LAN
 
@@ -56,6 +63,42 @@ Operational notes:
 - The Mac must be logged in to Tailscale and allowed by tailnet policy to use Funnel.
 - Public DNS for the Funnel URL can lag after enablement.
 - Use `onibi doctor` with `transport.mode: tailscale` or `transport.mode: auto` to check the binary, daemon state, and Funnel capability.
+
+## Telegram
+
+`onibi up --transport=telegram` starts a tmux-backed session and a Telegram long-polling bridge. Setup is optional and explicit:
+
+```bash
+onibi telegram setup
+onibi up --transport=telegram
+```
+
+Natural text input:
+
+- `/new shell` starts a shell session.
+- Sending `ls` writes `ls` + Enter to the target session.
+- Onibi replies with recent stripped terminal text output.
+- `/new claude` or `/new codex` works the same way for agent sessions.
+
+Approval/control:
+
+- Pending tool calls appear as Telegram approval cards with Approve/Deny buttons.
+- Use `/edit <approval-id> <edited JSON>` to edit a tool input.
+- `/interrupt`, `/esc`, `/enter`, `/kill`, `/show`, `/hide`, and `/end` control the selected target.
+
+Security model:
+
+- Telegram is plaintext to Telegram Bot API infrastructure; use web/Tailscale when you need live terminal UX without chat-provider retention.
+- Onibi stores the BotFather token in the OS keystore when available and pairs a single owner chat id through a one-time `/start <code>`.
+- Non-owner chats are ignored after pairing.
+
+## Connection catalog
+
+These options are not implemented yet and stay grouped by intended surface:
+
+- Web URL: Cloudflare Quick Tunnel, Cloudflare Named Tunnel, and ngrok.
+- Chat: Slack Socket Mode, Discord bot, and Matrix bot.
+- Notify-only: Pushover.
 
 ## Future Cloudflare transports
 

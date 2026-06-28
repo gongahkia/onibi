@@ -43,6 +43,9 @@ type Daemon struct {
 	TerminalDefault string
 	WebAddr         string
 	WebCertDir      string
+	TelegramToken   string
+	TelegramOwnerID int64
+	TelegramPair    string
 
 	mu             sync.Mutex
 	webAttachMu    sync.Mutex
@@ -68,6 +71,9 @@ type Options struct {
 	TerminalDefault       string
 	WebAddr               string
 	WebCertDir            string
+	TelegramToken         string
+	TelegramOwnerID       int64
+	TelegramPair          string
 	SkipRestore           bool
 }
 
@@ -91,6 +97,9 @@ func New(opts Options) *Daemon {
 		TerminalDefault: opts.TerminalDefault,
 		WebAddr:         opts.WebAddr,
 		WebCertDir:      opts.WebCertDir,
+		TelegramToken:   opts.TelegramToken,
+		TelegramOwnerID: opts.TelegramOwnerID,
+		TelegramPair:    opts.TelegramPair,
 	}
 
 	// approval queue + expiry sweeper
@@ -301,6 +310,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 			defer wg.Done()
 			if err := webServer.StartContext(ctx, d.WebAddr); err != nil {
 				d.Log.Error("web server", slog.Any("err", err))
+				cancel()
+			}
+		}()
+	}
+
+	if strings.TrimSpace(d.TelegramToken) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				d.Log.Error("telegram bridge", slog.Any("err", err))
 				cancel()
 			}
 		}()

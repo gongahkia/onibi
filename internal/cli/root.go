@@ -44,7 +44,7 @@ func Root() *cobra.Command {
 		&cobra.Group{ID: "maintain", Title: "Maintain"},
 	)
 
-	addGrouped(root, "start", quickstartCmd(), setupCmd(), upCmd(), pairCmd(), logoCmd())
+	addGrouped(root, "start", quickstartCmd(), setupCmd(), upCmd(), pairCmd(), telegramCmd(), logoCmd())
 	addGrouped(root, "control", runCmd(), wrapCmd(), newSessionCmd(), showCmd(), hideCmd(), shellCmd(), demoCmd(), projectCmd())
 	addGrouped(root, "integrate", adaptersCmd(), installHooksCmd(), hooksCmd(), mcpCmd())
 	addGrouped(root, "inspect", statusCmd(), devicesCmd(), sessionsCmd(), pingCmd(), doctorCmd(), logCmd(), tailLogCmd(), versionCmd())
