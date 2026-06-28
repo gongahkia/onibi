@@ -1,6 +1,6 @@
 # Kelp Pi Quickstart
 
-This is the target operator path for Raspberry Pi 5 running Raspberry Pi OS Lite 64-bit. Current commands can be tested on a dev host; real Pi acceptance is still open until a Linux/aarch64 linked package is built and copied to the Pi.
+This is the target operator path for Raspberry Pi 5 running Raspberry Pi OS Lite 64-bit. Current commands can be tested on a dev host; real Pi acceptance needs the Linux/aarch64 package, a reachable Pi, and `.kelp-pi/acceptance.env`.
 
 ## Hardware
 
@@ -44,7 +44,7 @@ $ pnpm pi:package:aarch64
 $ pnpm pi:preflight:aarch64
 ```
 
-This builds inside Docker `linux/arm64`, packages `bin/kelp-pi` plus `libllama.so*`/`libggml*.so*`, and verifies the packaged binary is ELF aarch64 before live Pi testing.
+This builds inside Docker `linux/arm64`, targets Raspberry Pi OS Bookworm 64-bit / glibc 2.36 by default, packages `bin/kelp-pi` plus `libllama.so*`/`libggml*.so*`, and verifies the packaged binary is ELF aarch64 before live Pi testing.
 
 ## First Run
 

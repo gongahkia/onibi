@@ -7,7 +7,7 @@ KelpClaw is a local-only AppSec triage chat agent for Raspberry Pi 5. The target
 - Active pivot: Zig `kelp-pi` implementation in `app/main.zig`.
 - Legacy reference code: TypeScript packages and Rust `packages/pi-agent` stay in tree until Zig parity.
 - Runtime target: no cloud APIs, no laptop control plane, no provider SDKs, no Ollama daemon.
-- Current blockers: generated answer synthesis is not wired into `ask`, append-only transcript/hash-chain audit is not implemented, and real Pi acceptance still depends on a Linux/aarch64 linked package plus `.kelp-pi/acceptance.env`.
+- Current blockers: generated answer synthesis is not wired into `ask`, append-only transcript/hash-chain audit is not implemented, and real Pi acceptance still depends on a Raspberry Pi plus `.kelp-pi/acceptance.env`.
 
 ## Quickstart
 
@@ -36,6 +36,8 @@ $ pnpm zig:build:aarch64
 $ pnpm pi:package:aarch64
 $ pnpm pi:preflight:aarch64
 ```
+
+The default Docker builder targets Raspberry Pi OS Bookworm 64-bit / glibc 2.36.
 
 Run the local policy gate:
 
