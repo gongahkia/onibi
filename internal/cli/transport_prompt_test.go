@@ -95,6 +95,30 @@ func TestPromptPairTransportRepromptsForUnavailableWebProvider(t *testing.T) {
 	}
 }
 
+func TestPromptPairTransportBackFromProvider(t *testing.T) {
+	cmd, out := transportPromptCmd("2\nb\n1\n3\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "auto" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if strings.Count(out.String(), "Connection category") != 2 {
+		t.Fatalf("prompt output = %q", out.String())
+	}
+}
+
+func TestPromptPairTransportCancel(t *testing.T) {
+	cmd, _ := transportPromptCmd("q\n")
+	withPromptTTY(t, true)
+	_, prompted, err := promptPairTransport(cmd, "lan")
+	if !prompted || err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("prompted=%v err=%v", prompted, err)
+	}
+}
+
 func TestPromptPairTransportSkipsNonInteractive(t *testing.T) {
 	cmd, _ := transportPromptCmd("2\n")
 	withPromptTTY(t, false)

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,6 +48,109 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 	}
 	if msg.MessageID != 9 || len(seen) != 2 {
 		t.Fatalf("msg=%#v seen=%#v", msg, seen)
+	}
+}
+
+func TestValidBotToken(t *testing.T) {
+	if !ValidBotToken(testToken) {
+		t.Fatal("expected valid token")
+	}
+	for _, token := range []string{"", "abc", "123:short", "123456:bad token"} {
+		if ValidBotToken(token) {
+			t.Fatalf("expected invalid token %q", token)
+		}
+	}
+}
+
+func TestClientGetUpdatesPayload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/getUpdates") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["offset"] != float64(99) || body["timeout"] != float64(7) {
+			t.Fatalf("body = %#v", body)
+		}
+		updates, ok := body["allowed_updates"].([]any)
+		if !ok || len(updates) != 2 || updates[0] != "message" || updates[1] != "callback_query" {
+			t.Fatalf("allowed_updates = %#v", body["allowed_updates"])
+		}
+		writeTG(t, w, []Update{{UpdateID: 99, Message: &Message{Chat: Chat{ID: 42}, Text: "/ping"}}})
+	}))
+	defer srv.Close()
+
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	got, err := c.GetUpdates(t.Context(), 99, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].UpdateID != 99 || got[0].Message.Text != "/ping" {
+		t.Fatalf("updates = %#v", got)
+	}
+}
+
+func TestClientSendPhotoMultipart(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/sendPhoto") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data;") {
+			t.Fatalf("content-type = %q", r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if r.FormValue("chat_id") != "42" || r.FormValue("caption") != "screen" {
+			t.Fatalf("form chat=%q caption=%q", r.FormValue("chat_id"), r.FormValue("caption"))
+		}
+		f, hdr, err := r.FormFile("photo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		b, err := io.ReadAll(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Filename != "onibi.png" || string(b) != "png-bytes" {
+			t.Fatalf("file=%q bytes=%q", hdr.Filename, string(b))
+		}
+		writeTG(t, w, true)
+	}))
+	defer srv.Close()
+
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	if err := c.SendPhoto(t.Context(), 42, []byte("png-bytes"), "screen"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SendPhoto(t.Context(), 42, nil, "screen"); err == nil || !strings.Contains(err.Error(), "photo bytes required") {
+		t.Fatalf("expected photo bytes error, got %v", err)
+	}
+}
+
+func TestClientAPIAndValidationErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]any{"ok": false, "description": "Bad Request: chat not found", "error_code": 400}); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	if _, err := c.SendMessage(t.Context(), 42, "hello", nil); err == nil || !strings.Contains(err.Error(), "chat not found") {
+		t.Fatalf("expected api error, got %v", err)
+	}
+	c = NewClient("bad")
+	c.BaseURL = srv.URL
+	if _, err := c.GetMe(t.Context()); err == nil || !strings.Contains(err.Error(), "invalid Telegram bot token") {
+		t.Fatalf("expected validation error, got %v", err)
 	}
 }
 
