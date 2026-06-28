@@ -57,7 +57,7 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 			if body == "" || (d.Matrix.OwnerUserID != "" && ev.Sender != d.Matrix.OwnerUserID) {
 				continue
 			}
-			out, err := d.SendSessionTextAndCapture(ctx, "", body, true)
+			out, err := d.handleProviderText(ctx, "", body, 0)
 			if err != nil {
 				_ = c.SendText(ctx, d.Matrix.RoomID, "Input failed: "+err.Error())
 				continue
@@ -134,7 +134,7 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			if err != nil || ev.Event.Type != "message" || strings.TrimSpace(ev.Event.Text) == "" || !allow.Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
 				continue
 			}
-			out, err := d.SendSessionTextAndCapture(ctx, "", ev.Event.Text, true)
+			out, err := d.handleProviderText(ctx, "", ev.Event.Text, 0)
 			if err != nil {
 				_ = c.PostMessage(ctx, ev.Event.Channel, "Input failed: "+err.Error())
 				continue
@@ -196,7 +196,7 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Message content intent is missing. Use slash commands or enable the intent.")
 				continue
 			}
-			out, err := d.SendSessionTextAndCapture(ctx, "", msg.Content, true)
+			out, err := d.handleProviderText(ctx, "", msg.Content, 0)
 			if err != nil {
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Input failed: "+err.Error())
 				continue
@@ -252,20 +252,52 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 	}
 }
 
+func (d *Daemon) handleProviderText(ctx context.Context, target, text string, actor int64) (string, error) {
+	if handled, reply := d.handleProviderTextCommand(ctx, text, actor); handled {
+		return reply, nil
+	}
+	return d.SendSessionTextAndCapture(ctx, target, text, true)
+}
+
+func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, actor int64) (bool, string) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 {
+		return false, ""
+	}
+	verb := strings.TrimPrefix(strings.ToLower(fields[0]), "/")
+	var verdict approval.Verdict
+	switch verb {
+	case "approve", "ap":
+		verdict = approval.VerdictApprove
+	case "deny", "dn":
+		verdict = approval.VerdictDeny
+	default:
+		return false, ""
+	}
+	if len(fields) < 2 {
+		return true, "Approval id required."
+	}
+	id := fields[1]
+	if err := d.decideProviderApproval(ctx, id, verdict, actor); err != nil {
+		return true, fmt.Sprintf("Approval %s failed: %v", id, err)
+	}
+	return true, fmt.Sprintf("Approval %s %s.", id, verdict)
+}
+
 func (d *Daemon) handleProviderApproval(ctx context.Context, action, id string, actor int64) {
 	switch strings.ToLower(action) {
 	case "approve", "ap":
-		d.decideProviderApproval(ctx, id, approval.VerdictApprove, actor)
+		_ = d.decideProviderApproval(ctx, id, approval.VerdictApprove, actor)
 	case "deny", "dn":
-		d.decideProviderApproval(ctx, id, approval.VerdictDeny, actor)
+		_ = d.decideProviderApproval(ctx, id, approval.VerdictDeny, actor)
 	}
 }
 
-func (d *Daemon) decideProviderApproval(ctx context.Context, id string, verdict approval.Verdict, actor int64) {
+func (d *Daemon) decideProviderApproval(ctx context.Context, id string, verdict approval.Verdict, actor int64) error {
 	if d.Queue == nil || strings.TrimSpace(id) == "" {
-		return
+		return errors.New("approval queue/id required")
 	}
-	_ = d.Queue.Decide(ctx, id, verdict, "", fmt.Sprintf("provider %s", verdict), actor)
+	return d.Queue.Decide(ctx, id, verdict, "", fmt.Sprintf("provider %s", verdict), actor)
 }
 
 func set(vals []string) map[string]bool {
