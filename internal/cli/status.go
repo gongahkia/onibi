@@ -25,6 +25,7 @@ type cliStatusReport struct {
 	Sessions     cliStatusCount      `json:"sessions"`
 	Devices      cliStatusCount      `json:"devices"`
 	Integrations cliIntegrationCount `json:"integrations"`
+	Notify       cliNotifySummary    `json:"notify"`
 	Doctor       cliDoctorSummary    `json:"doctor"`
 	Next         []string            `json:"next"`
 }
@@ -65,6 +66,14 @@ type cliDoctorSummary struct {
 	Pass int `json:"pass"`
 	Warn int `json:"warn"`
 	Fail int `json:"fail"`
+}
+
+type cliNotifySummary struct {
+	Recent     int    `json:"recent"`
+	Errors     int    `json:"errors"`
+	LastAction string `json:"last_action,omitempty"`
+	LastDetail string `json:"last_detail,omitempty"`
+	LastAt     string `json:"last_at,omitempty"`
 }
 
 func statusCmd() *cobra.Command {
@@ -170,6 +179,7 @@ func buildCLIStatus(cmd *cobra.Command) (cliStatusReport, error) {
 	report.Daemon = probeDaemon(cmd, paths)
 	report.Sessions = countSessions(cmd, db)
 	report.Devices = countDevices(cmd, db)
+	report.Notify = summarizeNotify(cmd, db)
 	if skipHooks, _ := cmd.Flags().GetBool("no-hooks"); !skipHooks {
 		report.Integrations = countIntegrations(cmd, db)
 	}
@@ -199,6 +209,7 @@ func renderCLIStatus(cmd *cobra.Command, report cliStatusReport) error {
 		tableHeader(style, "SURFACE", "ACTIVE", "TOTAL", "DETAIL"),
 		{"sessions", fmt.Sprint(report.Sessions.Active), fmt.Sprint(report.Sessions.Total), ""},
 		{"devices", fmt.Sprint(report.Devices.Active), fmt.Sprint(report.Devices.Total), fmt.Sprintf("revoked=%d", report.Devices.Revoked)},
+		{"notify", fmt.Sprint(report.Notify.Recent), fmt.Sprint(report.Notify.Recent), fmt.Sprintf("errors=%d last=%s", report.Notify.Errors, valueOrDash(report.Notify.LastAction))},
 		{"integrations", fmt.Sprint(report.Integrations.Installed), fmt.Sprint(report.Integrations.Total), fmt.Sprintf("detected=%d issues=%d", report.Integrations.Detected, report.Integrations.Issues)},
 		{"doctor", fmt.Sprint(report.Doctor.Pass), fmt.Sprint(report.Doctor.Pass + report.Doctor.Warn + report.Doctor.Fail), fmt.Sprintf("warn=%d fail=%d", report.Doctor.Warn, report.Doctor.Fail)},
 	}
@@ -218,10 +229,12 @@ func renderCLIStatus(cmd *cobra.Command, report cliStatusReport) error {
 
 func renderCLIStatusCompact(cmd *cobra.Command, report cliStatusReport) {
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"daemon=%s sessions=%d devices=%d integrations=%d issues=%d doctor_warn=%d doctor_fail=%d next=%q\n",
+		"daemon=%s sessions=%d devices=%d notify_recent=%d notify_errors=%d integrations=%d issues=%d doctor_warn=%d doctor_fail=%d next=%q\n",
 		strings.ToLower(report.Daemon.Status),
 		report.Sessions.Active,
 		report.Devices.Active,
+		report.Notify.Recent,
+		report.Notify.Errors,
 		report.Integrations.Installed,
 		report.Integrations.Issues,
 		report.Doctor.Warn,
@@ -318,6 +331,29 @@ func summarizeDoctor(report doctor.Report) cliDoctorSummary {
 			out.Warn++
 		case doctor.Fail:
 			out.Fail++
+		}
+	}
+	return out
+}
+
+func summarizeNotify(cmd *cobra.Command, db *store.DB) cliNotifySummary {
+	rows, err := db.AuditRecent(cmd.Context(), 200)
+	if err != nil {
+		return cliNotifySummary{}
+	}
+	var out cliNotifySummary
+	for _, row := range rows {
+		if !strings.HasPrefix(row.Action, "notify.") {
+			continue
+		}
+		out.Recent++
+		if strings.Contains(row.Action, ".error") || strings.Contains(row.Action, ".failed") {
+			out.Errors++
+		}
+		if out.LastAction == "" {
+			out.LastAction = row.Action
+			out.LastDetail = row.Detail
+			out.LastAt = row.TS.Format("2006-01-02T15:04:05Z07:00")
 		}
 	}
 	return out

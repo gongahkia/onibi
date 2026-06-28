@@ -57,3 +57,14 @@ func TestChatUnredactedEscapeHatch(t *testing.T) {
 		t.Fatalf("got = %q", got)
 	}
 }
+
+func TestProviderOutputPolicyTruncatesAndStrictRedacts(t *testing.T) {
+	p := ProviderOutputPolicy{MaxChunks: 1, MaxBytes: 80, Redaction: "strict"}
+	got := p.apply("token=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\n" + strings.Repeat("lorem ipsum ", 50))
+	if strings.Contains(got, "abcdefghijklmnopqrstuvwxyz") || !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("not redacted: %q", got)
+	}
+	if !strings.Contains(got, "truncated provider output") {
+		t.Fatalf("not truncated: %q", got)
+	}
+}

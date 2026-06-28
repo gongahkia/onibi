@@ -38,6 +38,30 @@ type SocketOpenResponse struct {
 	Err string `json:"error"`
 }
 
+type AuthTestResponse struct {
+	OK     bool   `json:"ok"`
+	URL    string `json:"url"`
+	Team   string `json:"team"`
+	User   string `json:"user"`
+	TeamID string `json:"team_id"`
+	UserID string `json:"user_id"`
+	BotID  string `json:"bot_id"`
+	Err    string `json:"error"`
+}
+
+type ConversationInfoResponse struct {
+	OK      bool   `json:"ok"`
+	Err     string `json:"error"`
+	Channel struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		IsChannel bool   `json:"is_channel"`
+		IsGroup   bool   `json:"is_group"`
+		IsIM      bool   `json:"is_im"`
+		IsMember  bool   `json:"is_member"`
+	} `json:"channel"`
+}
+
 type Envelope struct {
 	EnvelopeID   string          `json:"envelope_id"`
 	Type         string          `json:"type"`
@@ -112,6 +136,42 @@ func (c *Client) PostMessage(ctx context.Context, channel, text string) error {
 	return chatout.SendChunks(ctx, text, MessageChunkLimit, pace, c.Sleep, func(ctx context.Context, chunk string) error {
 		return c.api(ctx, "chat.postMessage", c.BotToken, map[string]any{"channel": channel, "text": chunk}, nil)
 	})
+}
+
+func (c *Client) PostMessageBlocks(ctx context.Context, channel, text string, blocks []any) error {
+	if strings.TrimSpace(channel) == "" {
+		return errors.New("slack channel required")
+	}
+	payload := map[string]any{"channel": channel, "text": text}
+	if len(blocks) > 0 {
+		payload["blocks"] = blocks
+	}
+	return c.api(ctx, "chat.postMessage", c.BotToken, payload, nil)
+}
+
+func (c *Client) AuthTest(ctx context.Context) (AuthTestResponse, error) {
+	var out AuthTestResponse
+	if err := c.api(ctx, "auth.test", c.BotToken, nil, &out); err != nil {
+		return AuthTestResponse{}, err
+	}
+	if !out.OK {
+		return AuthTestResponse{}, fmt.Errorf("slack auth.test: %s", out.Err)
+	}
+	return out, nil
+}
+
+func (c *Client) ConversationInfo(ctx context.Context, channel string) (ConversationInfoResponse, error) {
+	if strings.TrimSpace(channel) == "" {
+		return ConversationInfoResponse{}, errors.New("slack channel required")
+	}
+	var out ConversationInfoResponse
+	if err := c.api(ctx, "conversations.info", c.BotToken, map[string]any{"channel": channel}, &out); err != nil {
+		return ConversationInfoResponse{}, err
+	}
+	if !out.OK {
+		return ConversationInfoResponse{}, fmt.Errorf("slack conversations.info: %s", out.Err)
+	}
+	return out, nil
 }
 
 func Dial(ctx context.Context, socketURL string) (*websocket.Conn, error) {

@@ -149,6 +149,23 @@ func TestCheckRoomOwnerUsesPowerLevels(t *testing.T) {
 	}
 }
 
+func TestJoinedRooms(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/joined_rooms") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		writeJSON(t, w, JoinedRooms{JoinedRooms: []string{"!room:example"}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, "tok").JoinedRooms(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.JoinedRooms) != 1 || got.JoinedRooms[0] != "!room:example" {
+		t.Fatalf("rooms = %#v", got)
+	}
+}
+
 func TestCheckRoomOwnerUsesUsersDefault(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

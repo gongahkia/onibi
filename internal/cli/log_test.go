@@ -66,6 +66,22 @@ func TestRunLogExportUnaffectedByJSONFlag(t *testing.T) {
 	}
 }
 
+func TestRunLogNotifyFilter(t *testing.T) {
+	seedDefaultAudit(t, "approval.decided")
+	appendDefaultAudit(t, "notify.ntfy.sent", "sent")
+	var out bytes.Buffer
+	cmd := logCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--notify", "--json", "--n", "10"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "notify.ntfy.sent") || strings.Contains(got, "approval.decided") {
+		t.Fatalf("notify filter output = %s", got)
+	}
+}
+
 func seedDefaultAudit(t *testing.T, action string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -77,6 +93,18 @@ func seedDefaultAudit(t *testing.T, action string) {
 	}
 	defer db.Close()
 	if err := db.AuditAppend(context.Background(), action, "sess1", `{"x":1}`, 9999, "approved by user"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendDefaultAudit(t *testing.T, action, detail string) {
+	t.Helper()
+	db, err := openDefaultDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.AuditAppend(context.Background(), action, "sess1", "", 0, detail); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -108,6 +108,33 @@ func TestSetValidates(t *testing.T) {
 	if got, _ := Get(cfg, "terminal.default"); got != "iterm2" {
 		t.Fatalf("terminal.default = %s", got)
 	}
+	if err := Set(&cfg, "provider.output.max_chunks", "3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "provider.output.max_bytes", "4096"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "provider.output.redaction", "strict"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "provider.output.redaction"); got != "strict" {
+		t.Fatalf("provider.output.redaction = %s", got)
+	}
+}
+
+func TestProviderOutputValidation(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "provider.output.max_chunks", "0"); err == nil {
+		t.Fatal("expected max_chunks validation error")
+	}
+	cfg = Default()
+	if err := Set(&cfg, "provider.output.max_bytes", "128"); err == nil {
+		t.Fatal("expected max_bytes validation error")
+	}
+	cfg = Default()
+	if err := Set(&cfg, "provider.output.redaction", "none"); err == nil {
+		t.Fatal("expected redaction validation error")
+	}
 }
 
 func TestTerminalDefaultValues(t *testing.T) {

@@ -101,7 +101,7 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, u telegram.Update) {
 		b.send(ctx, m.Chat.ID, "Input failed: "+err.Error(), nil)
 		return
 	}
-	b.sendChunks(ctx, m.Chat.ID, out)
+	b.sendChunks(ctx, m.Chat.ID, b.d.prepareProviderOutput(out))
 }
 
 func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Message) bool {
@@ -403,7 +403,7 @@ func (b *telegramBridge) sendApproval(ctx context.Context, a *approval.Approval)
 	}
 	b.seen[a.ID] = true
 	b.mu.Unlock()
-	text := formatApproval(a)
+	text := formatApprovalWithPolicy(a, b.d.ProviderOutput)
 	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
 		{{Text: "Approve", CallbackData: "ap:" + a.ID}, {Text: "Deny", CallbackData: "dn:" + a.ID}},
 	}}
@@ -411,16 +411,20 @@ func (b *telegramBridge) sendApproval(ctx context.Context, a *approval.Approval)
 }
 
 func formatApproval(a *approval.Approval) string {
+	return formatApprovalWithPolicy(a, ProviderOutputPolicy{})
+}
+
+func formatApprovalWithPolicy(a *approval.Approval, policy ProviderOutputPolicy) string {
 	details := approval.ExtractDetails(a.Tool, a.InputJSON)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Approval %s\nagent=%s tool=%s session=%s\nrisk=%s\n", a.ID, a.Agent, a.Tool, a.SessionID, approval.ClassifyRisk(a.Tool, a.InputJSON).Level)
 	if details.Command != "" {
-		fmt.Fprintf(&b, "\ncommand:\n%s\n", redactChatText(details.Command))
+		fmt.Fprintf(&b, "\ncommand:\n%s\n", policy.redact(details.Command))
 	}
 	if details.FilePath != "" {
-		fmt.Fprintf(&b, "\nfile:\n%s\n", redactChatText(details.FilePath))
+		fmt.Fprintf(&b, "\nfile:\n%s\n", policy.redact(details.FilePath))
 	}
-	body := redactChatText(a.InputJSON)
+	body := policy.redact(a.InputJSON)
 	if len(body) > 1800 {
 		body = body[:1800] + "\n..."
 	}

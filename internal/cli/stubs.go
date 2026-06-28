@@ -282,6 +282,7 @@ func logCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("n", 50, "number of entries to print")
 	cmd.Flags().Bool("json", false, "emit one audit entry per line as JSON")
+	cmd.Flags().Bool("notify", false, "show notify-only audit entries")
 	cmd.Flags().String("export", "", "export full log to file (csv|json by extension)")
 	return cmd
 }

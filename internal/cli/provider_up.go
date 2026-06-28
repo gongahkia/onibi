@@ -45,7 +45,12 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Pushover:              opts.Pushover,
 		Ntfy:                  opts.Ntfy,
 		Gotify:                opts.Gotify,
-		SkipRestore:           true,
+		ProviderOutput: daemon.ProviderOutputPolicy{
+			MaxChunks: cfg.Provider.Output.MaxChunks,
+			MaxBytes:  cfg.Provider.Output.MaxBytes,
+			Redaction: cfg.Provider.Output.Redaction,
+		},
+		SkipRestore: true,
 	})
 	var session *daemon.Session
 	if isEnvChatTransport(mode) {
@@ -97,10 +102,11 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 		return opts, "Matrix", nil
 	case "slack":
 		opts.Slack = daemon.SlackOptions{
-			AppToken:       envRequired("ONIBI_SLACK_APP_TOKEN"),
-			BotToken:       envRequired("ONIBI_SLACK_BOT_TOKEN"),
-			AllowedIDs:     splitCSV(os.Getenv("ONIBI_SLACK_ALLOWED_CHANNELS")),
-			AllowedDMUsers: splitCSV(os.Getenv("ONIBI_SLACK_ALLOWED_DM_USERS")),
+			AppToken:        envRequired("ONIBI_SLACK_APP_TOKEN"),
+			BotToken:        envRequired("ONIBI_SLACK_BOT_TOKEN"),
+			AllowedIDs:      splitCSV(os.Getenv("ONIBI_SLACK_ALLOWED_CHANNELS")),
+			AllowedDMUsers:  splitCSV(os.Getenv("ONIBI_SLACK_ALLOWED_DM_USERS")),
+			ApprovalChannel: strings.TrimSpace(os.Getenv("ONIBI_SLACK_APPROVAL_CHANNEL")),
 		}
 		if opts.Slack.AppToken == "" || opts.Slack.BotToken == "" {
 			return opts, "", fmt.Errorf("slack requires ONIBI_SLACK_APP_TOKEN and ONIBI_SLACK_BOT_TOKEN")

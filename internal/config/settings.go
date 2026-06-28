@@ -43,6 +43,7 @@ type Config struct {
 	Shell     Shell     `yaml:"shell" json:"shell"`
 	Web       Web       `yaml:"web" json:"web"`
 	Transport Transport `yaml:"transport" json:"transport"`
+	Provider  Provider  `yaml:"provider" json:"provider"`
 	Terminal  Terminal  `yaml:"terminal" json:"terminal"`
 }
 
@@ -72,6 +73,16 @@ type Web struct {
 type Transport struct {
 	Mode  string `yaml:"mode" json:"mode"`
 	SAddr string `yaml:"saddr" json:"saddr"`
+}
+
+type Provider struct {
+	Output ProviderOutput `yaml:"output" json:"output"`
+}
+
+type ProviderOutput struct {
+	MaxChunks int    `yaml:"max_chunks" json:"max_chunks"`
+	MaxBytes  int    `yaml:"max_bytes" json:"max_bytes"`
+	Redaction string `yaml:"redaction" json:"redaction"`
 }
 
 type LoadMeta struct {
@@ -104,6 +115,7 @@ func Default() Config {
 		},
 		Web:       Web{ListenAddr: ":8443"},
 		Transport: Transport{Mode: "lan"},
+		Provider:  Provider{Output: ProviderOutput{MaxChunks: 8, MaxBytes: 24 * 1024, Redaction: "default"}},
 		Terminal: Terminal{
 			Default: "auto",
 		},
@@ -185,6 +197,17 @@ func (c Config) Validate() error {
 	}
 	if c.Daemon.PTYBufferBytes < 4096 || c.Daemon.PTYBufferBytes > 10*1024*1024 {
 		return fmt.Errorf("daemon.pty_buffer_bytes must be between 4096 and 10485760")
+	}
+	if c.Provider.Output.MaxChunks < 1 || c.Provider.Output.MaxChunks > 100 {
+		return fmt.Errorf("provider.output.max_chunks must be between 1 and 100")
+	}
+	if c.Provider.Output.MaxBytes < 512 || c.Provider.Output.MaxBytes > 1024*1024 {
+		return fmt.Errorf("provider.output.max_bytes must be between 512 and 1048576")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Provider.Output.Redaction)) {
+	case "default", "strict", "off":
+	default:
+		return fmt.Errorf("provider.output.redaction must be default, strict, or off")
 	}
 	if err := validateShellDefault(c.Shell.Default); err != nil {
 		return err
@@ -329,6 +352,20 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Transport.Mode = strings.ToLower(strings.TrimSpace(value))
 	case "transport.saddr":
 		cfg.Transport.SAddr = strings.TrimSpace(value)
+	case "provider.output.max_chunks":
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("provider.output.max_chunks must be integer")
+		}
+		cfg.Provider.Output.MaxChunks = n
+	case "provider.output.max_bytes":
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("provider.output.max_bytes must be integer bytes")
+		}
+		cfg.Provider.Output.MaxBytes = n
+	case "provider.output.redaction":
+		cfg.Provider.Output.Redaction = strings.ToLower(strings.TrimSpace(value))
 	case "terminal.default":
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(value))
 	default:
@@ -363,6 +400,12 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Transport.Mode, nil
 	case "transport.saddr":
 		return cfg.Transport.SAddr, nil
+	case "provider.output.max_chunks":
+		return strconv.Itoa(cfg.Provider.Output.MaxChunks), nil
+	case "provider.output.max_bytes":
+		return strconv.Itoa(cfg.Provider.Output.MaxBytes), nil
+	case "provider.output.redaction":
+		return cfg.Provider.Output.Redaction, nil
 	case "terminal.default":
 		return cfg.Terminal.Default, nil
 	default:
@@ -384,6 +427,9 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
 		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
+		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},
+		{"provider.output.max_bytes", strconv.Itoa(def.Provider.Output.MaxBytes), strconv.Itoa(cfg.Provider.Output.MaxBytes), meta.Explicit["provider.output.max_bytes"], "maximum provider reply bytes per session command"},
+		{"provider.output.redaction", def.Provider.Output.Redaction, cfg.Provider.Output.Redaction, meta.Explicit["provider.output.redaction"], "provider output redaction: default, strict, or off"},
 		{"web.cert_dir", def.Web.CertDir, cfg.Web.CertDir, meta.Explicit["web.cert_dir"], "local HTTPS certificate directory"},
 		{"web.listen_addr", def.Web.ListenAddr, cfg.Web.ListenAddr, meta.Explicit["web.listen_addr"], "local web cockpit listen address"},
 	}
@@ -396,6 +442,7 @@ type rawConfig struct {
 	Shell     rawShell     `yaml:"shell"`
 	Web       rawWeb       `yaml:"web"`
 	Transport rawTransport `yaml:"transport"`
+	Provider  rawProvider  `yaml:"provider"`
 	Terminal  rawTerminal  `yaml:"terminal"`
 }
 
@@ -425,6 +472,16 @@ type rawWeb struct {
 type rawTransport struct {
 	Mode  *string `yaml:"mode"`
 	SAddr *string `yaml:"saddr"`
+}
+
+type rawProvider struct {
+	Output rawProviderOutput `yaml:"output"`
+}
+
+type rawProviderOutput struct {
+	MaxChunks *int    `yaml:"max_chunks"`
+	MaxBytes  *int    `yaml:"max_bytes"`
+	Redaction *string `yaml:"redaction"`
 }
 
 func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
@@ -475,6 +532,18 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Transport.SAddr != nil {
 		cfg.Transport.SAddr = strings.TrimSpace(*raw.Transport.SAddr)
 		meta.Explicit["transport.saddr"] = true
+	}
+	if raw.Provider.Output.MaxChunks != nil {
+		cfg.Provider.Output.MaxChunks = *raw.Provider.Output.MaxChunks
+		meta.Explicit["provider.output.max_chunks"] = true
+	}
+	if raw.Provider.Output.MaxBytes != nil {
+		cfg.Provider.Output.MaxBytes = *raw.Provider.Output.MaxBytes
+		meta.Explicit["provider.output.max_bytes"] = true
+	}
+	if raw.Provider.Output.Redaction != nil {
+		cfg.Provider.Output.Redaction = strings.ToLower(strings.TrimSpace(*raw.Provider.Output.Redaction))
+		meta.Explicit["provider.output.redaction"] = true
 	}
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))

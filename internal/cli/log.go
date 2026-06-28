@@ -16,6 +16,7 @@ func runLog(cmd *cobra.Command, _ []string) error {
 	n, _ := cmd.Flags().GetInt("n")
 	exportPath, _ := cmd.Flags().GetString("export")
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	notifyOnly, _ := cmd.Flags().GetBool("notify")
 	db, err := openDefaultDB()
 	if err != nil {
 		return err
@@ -31,6 +32,9 @@ func runLog(cmd *cobra.Command, _ []string) error {
 	entries, err := db.AuditRecent(cmd.Context(), n)
 	if err != nil {
 		return err
+	}
+	if notifyOnly {
+		entries = filterNotifyAudit(entries)
 	}
 	if len(entries) == 0 {
 		if jsonOut {
@@ -106,11 +110,25 @@ func styleAuditAction(style cliStyle, action string) string {
 	switch {
 	case strings.Contains(action, ".failed"):
 		return style.red(action)
+	case strings.HasPrefix(action, "notify.") && strings.Contains(action, ".error"):
+		return style.red(action)
 	case strings.Contains(action, ".expired"), strings.Contains(action, ".stale"):
 		return style.yellow(action)
+	case strings.HasPrefix(action, "notify."):
+		return style.green(action)
 	case strings.Contains(action, ".start"), strings.Contains(action, ".sent"), strings.Contains(action, ".decided"):
 		return style.green(action)
 	default:
 		return action
 	}
+}
+
+func filterNotifyAudit(entries []store.AuditEntry) []store.AuditEntry {
+	out := entries[:0]
+	for _, e := range entries {
+		if strings.HasPrefix(e.Action, "notify.") {
+			out = append(out, e)
+		}
+	}
+	return out
 }

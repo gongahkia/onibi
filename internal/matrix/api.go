@@ -29,6 +29,10 @@ type WhoAmI struct {
 	UserID string `json:"user_id"`
 }
 
+type JoinedRooms struct {
+	JoinedRooms []string `json:"joined_rooms"`
+}
+
 type SyncResponse struct {
 	NextBatch string `json:"next_batch"`
 	Rooms     struct {
@@ -66,6 +70,14 @@ func (c *Client) WhoAmI(ctx context.Context) (WhoAmI, error) {
 	var out WhoAmI
 	if err := c.do(ctx, http.MethodGet, "/_matrix/client/v3/account/whoami", nil, &out); err != nil {
 		return WhoAmI{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) JoinedRooms(ctx context.Context) (JoinedRooms, error) {
+	var out JoinedRooms
+	if err := c.do(ctx, http.MethodGet, "/_matrix/client/v3/joined_rooms", nil, &out); err != nil {
+		return JoinedRooms{}, err
 	}
 	return out, nil
 }

@@ -118,7 +118,7 @@ ONIBI_MATRIX_OWNER_USER_ID='@owner:example.org'
 ONIBI_MATRIX_ALLOW_ENCRYPTED=0
 ```
 
-Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, refuses encrypted rooms by default, stores the room-scoped `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors.
+Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, refuses encrypted rooms by default, stores the room-scoped `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors. `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` only bypasses the guard for send-only testing; Onibi does not implement Matrix Olm/Megolm E2EE.
 
 ## Slack
 
@@ -134,6 +134,7 @@ Optional:
 ```bash
 ONIBI_SLACK_ALLOWED_CHANNELS=C123,C456
 ONIBI_SLACK_ALLOWED_DM_USERS=U123,U456
+ONIBI_SLACK_APPROVAL_CHANNEL=C123
 ```
 
 Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events, routes allowed message events to the current session, and accepts approval button callbacks.
@@ -150,13 +151,23 @@ Optional:
 
 ```bash
 ONIBI_DISCORD_ALLOWED_IDS=<channel-or-user-id>,...
+ONIBI_DISCORD_APPLICATION_ID=...
+ONIBI_DISCORD_GUILD_ID=...
 ```
 
-Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and replies with a slash-command fallback when message content is unavailable.
+Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable.
 
 ## Chat redaction
 
-Chat providers receive terminal text through third-party infrastructure. By default, Onibi redacts common secret patterns in outbound chat terminal output and approval payloads. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
+Chat providers receive terminal text through third-party infrastructure. By default, Onibi redacts common secret patterns in outbound chat terminal output and approval payloads. Configure provider output limits with:
+
+```bash
+onibi config set provider.output.max_chunks 8
+onibi config set provider.output.max_bytes 24576
+onibi config set provider.output.redaction strict
+```
+
+`provider.output.redaction` accepts `default`, `strict`, or `off`. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 
@@ -170,7 +181,7 @@ ONIBI_PUSHOVER_USER_KEY=...
 onibi up --transport=pushover
 ```
 
-Pushover approval alerts use emergency priority, poll the returned receipt, and write receipt/ack/expiry audit rows.
+Pushover approval alerts use emergency priority, poll the returned receipt, and write send/receipt/ack/expiry audit rows.
 
 ntfy:
 
@@ -192,11 +203,11 @@ ONIBI_GOTIFY_CLIENT_TOKEN=...
 onibi up --transport=gotify
 ```
 
-Gotify sends approval notifications through the REST message endpoint, validates the optional client token before startup, and has a WebSocket receive client for smoke tests.
+Gotify sends approval notifications through the REST message endpoint, validates the optional client token before startup, writes send/error audit rows, and has a WebSocket receive client for smoke tests.
 
 ## Coverage status
 
-`onibi up` prints provider coverage in the picker. `onibi doctor --transport=<mode>` runs the matching preflight check and reports missing env, weak ntfy topics, or missing relay binaries before startup.
+`onibi up` prints provider coverage in the picker. `onibi doctor --transport=<mode>` runs the matching preflight check and reports missing env, weak ntfy topics, missing relay binaries, and provider API failures before startup. `onibi status` summarizes recent notify audit state, and `onibi log --notify` filters notify rows.
 
 ## Cloudflare Quick Tunnel
 

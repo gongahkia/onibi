@@ -2,6 +2,8 @@
 
 Default CI is hermetic. Live provider checks run only when the listed env vars are set.
 
+Live tests write sanitized JSON artifacts to `ONIBI_LIVE_ARTIFACT_DIR` when set, otherwise `/tmp/onibi-live-smoke`. Artifacts record env-key presence, timings, URLs, and scrubbed errors; they must not contain tokens, approval payload secrets, or terminal secrets.
+
 ## Always-run local checks
 
 ```bash
@@ -49,6 +51,7 @@ ONIBI_LIVE_MATRIX=1 ONIBI_MATRIX_HOMESERVER=... ONIBI_MATRIX_ACCESS_TOKEN=... ON
 - Run `onibi up --transport=matrix`.
 - Confirm the bot can `/sync`, send a room message, reconnect with the stored since token, and reject a room where it lacks owner/moderator power.
 - Confirm encrypted rooms fail unless `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` is intentionally set.
+- `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` only bypasses the startup guard. It does not provide Matrix Olm/Megolm E2EE, so encrypted-room support remains unsupported until a real E2EE client stack is integrated.
 - Restart Onibi and confirm the room does not replay old terminal input.
 - Trigger a bad homeserver/token and confirm the error is surfaced.
 
@@ -60,7 +63,8 @@ ONIBI_LIVE_SLACK=1 ONIBI_SLACK_APP_TOKEN=... ONIBI_SLACK_BOT_TOKEN=... ONIBI_SLA
 
 - Run `onibi up --transport=slack`.
 - Confirm Socket Mode opens, message envelopes are acked, `disconnect`/`refresh_requested` opens a fresh socket URL, and DM/channel allowlists block non-owned sources.
-- Trigger an approval and confirm Approve/Deny buttons decide it.
+- Set `ONIBI_SLACK_APPROVAL_CHANNEL` or include a channel in `ONIBI_SLACK_ALLOWED_CHANNELS`.
+- Trigger an approval and confirm Approve/Deny Block Kit buttons decide it; button values should contain structured approval/session state and not raw tool payload secrets.
 
 ## Discord
 
@@ -69,8 +73,32 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 ```
 
 - Run `onibi up --transport=discord`.
+- Run `onibi discord register --guild-id <guild>` for fast slash-command registration, or omit `--guild-id` for global registration.
 - Confirm Gateway Identify, heartbeat ACKs, Resume after reconnect, DM versus guild allowlist behavior, and terminal text input when Message Content intent is enabled.
-- Disable Message Content intent and confirm the slash-command fallback reply.
+- Disable Message Content intent and confirm `/onibi text:<input>` still routes terminal input.
+
+## Doctor provider probes
+
+`onibi doctor --transport <provider>` performs env and non-mutating live API checks unless `--offline` is set.
+
+- Slack: `auth.test`, Socket Mode open, and configured approval/allowed channel membership.
+- Discord: current application and channel visibility; set `ONIBI_DOCTOR_LIVE=1` to send a channel permission probe.
+- Matrix: account ownership power, joined-room state, and encrypted-room refusal.
+- Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
+- ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
+
+## Provider output policy
+
+```bash
+onibi config set provider.output.max_chunks 8
+onibi config set provider.output.max_bytes 24576
+onibi config set provider.output.redaction strict
+```
+
+- `default` redaction uses Onibi approval/output scrubbing.
+- `strict` additionally masks long token-like strings.
+- `off` disables config redaction; `ONIBI_CHAT_UNREDACTED=1` remains an env escape hatch.
+- Output is truncated before provider chunk send, so chat providers cannot stream unlimited terminal output.
 
 ## Notify-only
 
@@ -83,6 +111,7 @@ ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... go te
 - Trigger an approval and confirm an emergency notification arrives.
 - Acknowledge it and confirm receipt polling observes the ack or expiry.
 - Confirm audit rows include receipt creation and ack/expiry state.
+- Confirm `onibi status` shows notify recent/error counts and `onibi log --notify` filters notify audit rows.
 - Confirm normal terminal messages are not accepted through Pushover.
 
 ntfy:

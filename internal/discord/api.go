@@ -82,8 +82,44 @@ type Interaction struct {
 	Type    int    `json:"type"`
 	GuildID string `json:"guild_id,omitempty"`
 	Data    struct {
-		Name string `json:"name"`
+		Name    string              `json:"name"`
+		Options []InteractionOption `json:"options,omitempty"`
 	} `json:"data"`
+}
+
+type InteractionOption struct {
+	Name  string `json:"name"`
+	Type  int    `json:"type"`
+	Value any    `json:"value,omitempty"`
+}
+
+type Application struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BotPublic bool   `json:"bot_public"`
+	Flags     int    `json:"flags"`
+}
+
+type Channel struct {
+	ID      string `json:"id"`
+	Type    int    `json:"type"`
+	GuildID string `json:"guild_id,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+type ApplicationCommand struct {
+	ID          string                     `json:"id,omitempty"`
+	Type        int                        `json:"type,omitempty"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Options     []ApplicationCommandOption `json:"options,omitempty"`
+}
+
+type ApplicationCommandOption struct {
+	Type        int    `json:"type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required,omitempty"`
 }
 
 type GatewayState struct {
@@ -173,6 +209,17 @@ func ParseInteraction(frame GatewayFrame) (Interaction, bool, error) {
 	}
 	var in Interaction
 	return in, true, json.Unmarshal(frame.D, &in)
+}
+
+func InteractionText(in Interaction) string {
+	for _, opt := range in.Data.Options {
+		if opt.Name == "text" {
+			if s, ok := opt.Value.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
 }
 
 func (s *GatewayState) Observe(frame GatewayFrame) {
@@ -269,6 +316,69 @@ func (c *Client) CreateMessage(ctx context.Context, channelID, content string) e
 func (c *Client) RespondInteraction(ctx context.Context, interactionID, token, content string) error {
 	body := map[string]any{"type": 4, "data": map[string]any{"content": content}}
 	return c.api(ctx, http.MethodPost, "/interactions/"+url.PathEscape(interactionID)+"/"+url.PathEscape(token)+"/callback", body, nil)
+}
+
+func (c *Client) CurrentApplication(ctx context.Context) (Application, error) {
+	var out Application
+	if err := c.api(ctx, http.MethodGet, "/oauth2/applications/@me", nil, &out); err != nil {
+		return Application{}, err
+	}
+	if out.ID == "" {
+		return Application{}, errors.New("discord application id missing")
+	}
+	return out, nil
+}
+
+func (c *Client) Channel(ctx context.Context, channelID string) (Channel, error) {
+	if strings.TrimSpace(channelID) == "" {
+		return Channel{}, errors.New("discord channel id required")
+	}
+	var out Channel
+	if err := c.api(ctx, http.MethodGet, "/channels/"+url.PathEscape(channelID), nil, &out); err != nil {
+		return Channel{}, err
+	}
+	if out.ID == "" {
+		return Channel{}, errors.New("discord channel id missing")
+	}
+	return out, nil
+}
+
+func OnibiCommand() ApplicationCommand {
+	return ApplicationCommand{
+		Type:        1,
+		Name:        "onibi",
+		Description: "Send terminal input to Onibi",
+		Options: []ApplicationCommandOption{{
+			Type:        3,
+			Name:        "text",
+			Description: "Input text",
+			Required:    true,
+		}},
+	}
+}
+
+func (c *Client) RegisterOnibiCommand(ctx context.Context, applicationID, guildID string) (ApplicationCommand, error) {
+	applicationID = strings.TrimSpace(applicationID)
+	if applicationID == "" {
+		app, err := c.CurrentApplication(ctx)
+		if err != nil {
+			return ApplicationCommand{}, err
+		}
+		applicationID = app.ID
+	}
+	p := "/applications/" + url.PathEscape(applicationID)
+	if strings.TrimSpace(guildID) != "" {
+		p += "/guilds/" + url.PathEscape(strings.TrimSpace(guildID))
+	}
+	p += "/commands"
+	var out ApplicationCommand
+	if err := c.api(ctx, http.MethodPost, p, OnibiCommand(), &out); err != nil {
+		return ApplicationCommand{}, err
+	}
+	if out.Name == "" {
+		return ApplicationCommand{}, errors.New("discord command response missing name")
+	}
+	return out, nil
 }
 
 func writeGateway(ctx context.Context, c *websocket.Conn, frame GatewayFrame) error {

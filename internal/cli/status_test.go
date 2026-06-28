@@ -8,6 +8,7 @@ import (
 
 func TestStatusJSONIsValid(t *testing.T) {
 	withDefaultState(t)
+	appendDefaultAudit(t, "notify.gotify.error", "failed")
 	out, _ := executeRoot(t, "status", "--json", "--color", "never")
 	var report cliStatusReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
@@ -19,13 +20,16 @@ func TestStatusJSONIsValid(t *testing.T) {
 	if len(report.Next) == 0 {
 		t.Fatalf("missing next actions: %+v", report)
 	}
+	if report.Notify.Recent != 1 || report.Notify.Errors != 1 {
+		t.Fatalf("notify summary = %+v", report.Notify)
+	}
 }
 
 func TestStatusTextShowsOverview(t *testing.T) {
 	withDefaultState(t)
 	out, _ := executeRoot(t, "status", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"Status", "daemon", "integrations", "Paths", "next"} {
+	for _, want := range []string{"Status", "daemon", "notify", "integrations", "Paths", "next"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q:\n%s", want, got)
 		}

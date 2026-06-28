@@ -13,11 +13,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/gotify"
+	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/service"
+	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
@@ -207,23 +212,11 @@ func (r *runner) checkTransportProvider() {
 	case "telegram":
 		r.add("transport provider", Pass, "Telegram coverage: unit + fake API + live opt-in; run onibi telegram status for pairing")
 	case "matrix":
-		if missing := missingEnv("ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Matrix missing "+strings.Join(missing, ", "))
-			return
-		}
-		r.add("transport provider", Pass, "Matrix coverage: unit + daemon conformance + live opt-in; encrypted rooms blocked by default")
+		r.checkMatrixProvider()
 	case "slack":
-		if missing := missingEnv("ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Slack missing "+strings.Join(missing, ", "))
-			return
-		}
-		r.add("transport provider", Pass, "Slack coverage: unit + fake socket + live opt-in")
+		r.checkSlackProvider()
 	case "discord":
-		if missing := missingEnv("ONIBI_DISCORD_TOKEN"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Discord missing "+strings.Join(missing, ", "))
-			return
-		}
-		r.add("transport provider", Pass, "Discord coverage: unit + fake gateway + live opt-in")
+		r.checkDiscordProvider()
 	case "pushover":
 		if missing := missingEnv("ONIBI_PUSHOVER_TOKEN", "ONIBI_PUSHOVER_USER_KEY"); len(missing) > 0 {
 			r.add("transport provider", Warn, "Pushover missing "+strings.Join(missing, ", "))
@@ -240,21 +233,9 @@ func (r *runner) checkTransportProvider() {
 			r.add("transport provider", Warn, "ntfy topic weak: "+err.Error())
 			return
 		}
-		r.add("transport provider", Pass, "ntfy coverage: unit + fake WS + live opt-in")
+		r.checkNtfyProvider(topic)
 	case "gotify":
-		if missing := missingEnv("ONIBI_GOTIFY_URL", "ONIBI_GOTIFY_APP_TOKEN"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Gotify missing "+strings.Join(missing, ", "))
-			return
-		}
-		if !r.opts.Offline {
-			ctx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
-			defer cancel()
-			if err := gotify.New(os.Getenv("ONIBI_GOTIFY_URL"), os.Getenv("ONIBI_GOTIFY_APP_TOKEN"), os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")).Validate(ctx); err != nil {
-				r.add("transport provider", Warn, "Gotify validation failed: "+err.Error())
-				return
-			}
-		}
-		r.add("transport provider", Pass, "Gotify coverage: unit + REST/WS fake + live opt-in")
+		r.checkGotifyProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -266,6 +247,203 @@ func (r *runner) checkCloudflared(name, detail string) {
 		return
 	}
 	r.add(name, Pass, detail)
+}
+
+func (r *runner) checkMatrixProvider() {
+	if missing := missingEnv("ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID"); len(missing) > 0 {
+		r.add("transport provider", Warn, "Matrix missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "Matrix env present; live API checks skipped offline")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	roomID := strings.TrimSpace(os.Getenv("ONIBI_MATRIX_ROOM_ID"))
+	c := matrix.New(os.Getenv("ONIBI_MATRIX_HOMESERVER"), os.Getenv("ONIBI_MATRIX_ACCESS_TOKEN"))
+	who, err := c.CheckRoomOwner(ctx, roomID, 50)
+	if err != nil {
+		r.add("transport provider", Warn, "Matrix room ownership failed: "+err.Error())
+		return
+	}
+	rooms, err := c.JoinedRooms(ctx)
+	if err != nil {
+		r.add("transport provider", Warn, "Matrix joined-room check failed: "+err.Error())
+		return
+	}
+	if !containsString(rooms.JoinedRooms, roomID) {
+		r.add("transport provider", Warn, "Matrix account "+who.UserID+" is not joined to "+roomID)
+		return
+	}
+	encrypted, err := c.IsEncryptedRoom(ctx, roomID)
+	if err != nil {
+		r.add("transport provider", Warn, "Matrix encryption-state check failed: "+err.Error())
+		return
+	}
+	if encrypted && !envBool("ONIBI_MATRIX_ALLOW_ENCRYPTED") {
+		r.add("transport provider", Warn, "Matrix room is encrypted; Onibi refuses encrypted rooms without real Megolm E2EE")
+		return
+	}
+	r.add("transport provider", Pass, "Matrix live API ok: joined room, owner power, encrypted="+fmt.Sprint(encrypted))
+}
+
+func (r *runner) checkSlackProvider() {
+	if missing := missingEnv("ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN"); len(missing) > 0 {
+		r.add("transport provider", Warn, "Slack missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "Slack env present; live API checks skipped offline")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c := slack.New(os.Getenv("ONIBI_SLACK_APP_TOKEN"), os.Getenv("ONIBI_SLACK_BOT_TOKEN"))
+	auth, err := c.AuthTest(ctx)
+	if err != nil {
+		r.add("transport provider", Warn, "Slack auth.test failed: "+err.Error())
+		return
+	}
+	if _, err := c.OpenSocket(ctx); err != nil {
+		r.add("transport provider", Warn, "Slack Socket Mode failed: "+err.Error())
+		return
+	}
+	channel := strings.TrimSpace(os.Getenv("ONIBI_SLACK_APPROVAL_CHANNEL"))
+	if channel == "" {
+		channel = firstCSVEnv("ONIBI_SLACK_ALLOWED_CHANNELS")
+	}
+	if channel == "" {
+		r.add("transport provider", Warn, "Slack auth/socket ok for "+auth.TeamID+"; set ONIBI_SLACK_APPROVAL_CHANNEL or ONIBI_SLACK_ALLOWED_CHANNELS for channel access check")
+		return
+	}
+	info, err := c.ConversationInfo(ctx, channel)
+	if err != nil {
+		r.add("transport provider", Warn, "Slack channel access failed: "+err.Error())
+		return
+	}
+	if !info.Channel.IsIM && !info.Channel.IsMember {
+		r.add("transport provider", Warn, "Slack bot is not a member of "+channel)
+		return
+	}
+	r.add("transport provider", Pass, "Slack live API ok: auth, socket, channel "+channel)
+}
+
+func (r *runner) checkDiscordProvider() {
+	if missing := missingEnv("ONIBI_DISCORD_TOKEN"); len(missing) > 0 {
+		r.add("transport provider", Warn, "Discord missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "Discord env present; live API checks skipped offline")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c := discord.New(os.Getenv("ONIBI_DISCORD_TOKEN"))
+	app, err := c.CurrentApplication(ctx)
+	if err != nil {
+		r.add("transport provider", Warn, "Discord application check failed: "+err.Error())
+		return
+	}
+	channel := strings.TrimSpace(os.Getenv("ONIBI_DISCORD_CHANNEL_ID"))
+	if channel == "" {
+		channel = firstCSVEnv("ONIBI_DISCORD_ALLOWED_IDS")
+	}
+	if channel == "" {
+		r.add("transport provider", Warn, "Discord app "+app.ID+" ok; set ONIBI_DISCORD_CHANNEL_ID for channel permission check")
+		return
+	}
+	ch, err := c.Channel(ctx, channel)
+	if err != nil {
+		r.add("transport provider", Warn, "Discord channel access failed: "+err.Error())
+		return
+	}
+	if doctorLiveProbe() {
+		if err := c.CreateMessage(ctx, channel, "onibi doctor discord probe"); err != nil {
+			r.add("transport provider", Warn, "Discord send permission failed: "+err.Error())
+			return
+		}
+		r.add("transport provider", Pass, "Discord live API ok: application, channel "+ch.ID+", send probe")
+		return
+	}
+	r.add("transport provider", Pass, "Discord live API ok: application, channel "+ch.ID+"; set ONIBI_DOCTOR_LIVE=1 for send permission probe")
+}
+
+func (r *runner) checkNtfyProvider(topic string) {
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "ntfy topic valid; live publish/subscribe skipped offline")
+		return
+	}
+	if !doctorLiveProbe() {
+		r.add("transport provider", Pass, "ntfy topic valid; set ONIBI_DOCTOR_LIVE=1 for publish/subscribe probe")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c := ntfy.New(os.Getenv("ONIBI_NTFY_BASE_URL"), topic, os.Getenv("ONIBI_NTFY_TOKEN"))
+	conn, err := c.SubscribeWSSince(ctx, "all")
+	if err != nil {
+		r.add("transport provider", Warn, "ntfy subscribe failed: "+err.Error())
+		return
+	}
+	defer conn.CloseNow()
+	body := fmt.Sprintf("onibi doctor ntfy probe %d", time.Now().UnixNano())
+	if err := c.Publish(ctx, ntfy.Message{Title: "Onibi doctor", Body: body}); err != nil {
+		r.add("transport provider", Warn, "ntfy publish failed: "+err.Error())
+		return
+	}
+	if err := waitWebsocketContains(ctx, conn, body); err != nil {
+		r.add("transport provider", Warn, "ntfy subscribe did not receive probe: "+err.Error())
+		return
+	}
+	r.add("transport provider", Pass, "ntfy live API ok: publish + WebSocket subscribe")
+}
+
+func (r *runner) checkGotifyProvider() {
+	if missing := missingEnv("ONIBI_GOTIFY_URL", "ONIBI_GOTIFY_APP_TOKEN"); len(missing) > 0 {
+		r.add("transport provider", Warn, "Gotify missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "Gotify env present; live validation skipped offline")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c := gotify.New(os.Getenv("ONIBI_GOTIFY_URL"), os.Getenv("ONIBI_GOTIFY_APP_TOKEN"), os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN"))
+	if err := c.Validate(ctx); err != nil {
+		r.add("transport provider", Warn, "Gotify token validation failed: "+err.Error())
+		return
+	}
+	if !doctorLiveProbe() {
+		r.add("transport provider", Pass, "Gotify token validation ok; set ONIBI_DOCTOR_LIVE=1 for send/WS probe")
+		return
+	}
+	body := fmt.Sprintf("onibi doctor gotify probe %d", time.Now().UnixNano())
+	var conn *websocket.Conn
+	var err error
+	if strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")) != "" {
+		conn, err = c.SubscribeWS(ctx)
+		if err != nil {
+			r.add("transport provider", Warn, "Gotify WebSocket subscribe failed: "+err.Error())
+			return
+		}
+		defer conn.CloseNow()
+	}
+	if err := c.Send(ctx, gotify.Message{Title: "Onibi doctor", Message: body, Priority: 1}); err != nil {
+		r.add("transport provider", Warn, "Gotify send probe failed: "+err.Error())
+		return
+	}
+	if conn != nil {
+		if err := waitWebsocketContains(ctx, conn, body); err != nil {
+			r.add("transport provider", Warn, "Gotify WebSocket did not receive probe: "+err.Error())
+			return
+		}
+		r.add("transport provider", Pass, "Gotify live API ok: token, send, WebSocket")
+		return
+	}
+	r.add("transport provider", Pass, "Gotify live API ok: token + send; set ONIBI_GOTIFY_CLIENT_TOKEN for WS")
 }
 
 func (r *runner) transportMode(cfg config.Config) string {
@@ -290,6 +468,49 @@ func envDefault(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func doctorLiveProbe() bool {
+	return envBool("ONIBI_DOCTOR_LIVE")
+}
+
+func firstCSVEnv(name string) string {
+	for _, part := range strings.Split(os.Getenv(name), ",") {
+		if s := strings.TrimSpace(part); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func containsString(vals []string, needle string) bool {
+	for _, v := range vals {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func waitWebsocketContains(ctx context.Context, conn *websocket.Conn, want string) error {
+	for {
+		_, p, err := conn.Read(ctx)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(p), want) {
+			return nil
+		}
+	}
 }
 
 func (r *runner) checkLAN() {

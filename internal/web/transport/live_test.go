@@ -9,23 +9,41 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/liveartifact"
 )
 
 func TestLiveTailscale(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_TAILSCALE") != "1" {
 		t.Skip("set ONIBI_LIVE_TAILSCALE=1")
 	}
+	envs := []string{"ONIBI_LIVE_TAILSCALE"}
+	rec, err := liveartifact.New("tailscale", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
 	port, cleanup := liveHTTPSServer(t)
 	defer cleanup()
+	rec.Record("local-https", map[string]any{"port": port})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ts := NewTailscale()
 	if err := ts.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
 		t.Fatal(err)
 	}
 	defer ts.Disable(context.Background())
 	if url, err := ts.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
 		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url})
 	}
 }
 
@@ -33,17 +51,33 @@ func TestLiveCloudflareQuick(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_QUICK") != "1" {
 		t.Skip("set ONIBI_LIVE_CLOUDFLARE_QUICK=1")
 	}
+	envs := []string{"ONIBI_LIVE_CLOUDFLARE_QUICK", "ONIBI_CLOUDFLARED_BIN"}
+	rec, err := liveartifact.New("cloudflare-quick", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
 	port, cleanup := liveHTTPSServer(t)
 	defer cleanup()
+	rec.Record("local-https", map[string]any{"port": port})
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cf := NewCloudflareQuick()
 	if err := cf.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
 		t.Fatal(err)
 	}
 	defer cf.Disable(context.Background())
 	if url, err := cf.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
 		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url})
 	}
 }
 
@@ -51,17 +85,33 @@ func TestLiveCloudflareNamed(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_NAMED") != "1" {
 		t.Skip("set ONIBI_LIVE_CLOUDFLARE_NAMED=1")
 	}
+	envs := []string{"ONIBI_LIVE_CLOUDFLARE_NAMED", "ONIBI_CLOUDFLARED_BIN", "ONIBI_CLOUDFLARE_TUNNEL_NAME", "ONIBI_CLOUDFLARE_HOSTNAME"}
+	rec, err := liveartifact.New("cloudflare-named", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
 	port, cleanup := liveHTTPSServer(t)
 	defer cleanup()
+	rec.Record("local-https", map[string]any{"port": port})
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cf := NewCloudflareNamedFromEnv()
 	if err := cf.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
 		t.Fatal(err)
 	}
 	defer cf.Disable(context.Background())
 	if url, err := cf.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
 		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url})
 	}
 }
 
@@ -69,17 +119,33 @@ func TestLiveNgrok(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_NGROK") != "1" {
 		t.Skip("set ONIBI_LIVE_NGROK=1")
 	}
+	envs := []string{"ONIBI_LIVE_NGROK", "ONIBI_NGROK_BIN", "ONIBI_NGROK_AUTHTOKEN", "ONIBI_NGROK_DOMAIN"}
+	rec, err := liveartifact.New("ngrok", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
 	port, cleanup := liveHTTPSServer(t)
 	defer cleanup()
+	rec.Record("local-https", map[string]any{"port": port})
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	ng := NewNgrokFromEnv()
 	if err := ng.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
 		t.Fatal(err)
 	}
 	defer ng.Disable(context.Background())
 	if url, err := ng.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
 		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url})
 	}
 }
 

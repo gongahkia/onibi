@@ -95,6 +95,60 @@ func TestPostMessageChunksAndRetriesRateLimit(t *testing.T) {
 	}
 }
 
+func TestAuthConversationAndBlockPost(t *testing.T) {
+	var sawBlocks bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/auth.test"):
+			writeSlackOK(t, w, map[string]any{"team_id": "T1", "user_id": "U1", "bot_id": "B1"})
+		case strings.HasSuffix(r.URL.Path, "/conversations.info"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["channel"] != "C1" {
+				t.Fatalf("body = %#v", body)
+			}
+			writeSlackOK(t, w, map[string]any{"channel": map[string]any{"id": "C1", "is_member": true}})
+		case strings.HasSuffix(r.URL.Path, "/chat.postMessage"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := body["blocks"].([]any); !ok {
+				t.Fatalf("blocks missing: %#v", body)
+			}
+			sawBlocks = true
+			writeSlackOK(t, w, nil)
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New("xapp-token", "xoxb-token")
+	c.BaseURL = srv.URL
+	auth, err := c.AuthTest(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.TeamID != "T1" || auth.BotID != "B1" {
+		t.Fatalf("auth = %#v", auth)
+	}
+	info, err := c.ConversationInfo(t.Context(), "C1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Channel.IsMember {
+		t.Fatalf("info = %#v", info)
+	}
+	if err := c.PostMessageBlocks(t.Context(), "C1", "fallback", []any{map[string]any{"type": "section"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !sawBlocks {
+		t.Fatal("blocks not posted")
+	}
+}
+
 func TestSocketReadAckAndInteractionParse(t *testing.T) {
 	ackCh := make(chan map[string]any, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

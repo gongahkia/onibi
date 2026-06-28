@@ -200,7 +200,12 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		WebCertDir:            certDir,
 		RelayKeys:             relayKeys,
 		RequireWebE2E:         webtransport.IsRelayMode(cfg.Transport.Mode),
-		SkipRestore:           true,
+		ProviderOutput: daemon.ProviderOutputPolicy{
+			MaxChunks: cfg.Provider.Output.MaxChunks,
+			MaxBytes:  cfg.Provider.Output.MaxBytes,
+			Redaction: cfg.Provider.Output.Redaction,
+		},
+		SkipRestore: true,
 	})
 	phase = time.Now()
 	session, err := startManagedWebPairShell(ctx, d, cfg, shellCWD, logger)

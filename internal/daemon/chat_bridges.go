@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,7 +36,7 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 		return err
 	}
 	if encrypted && !d.Matrix.AllowEncrypted {
-		return errors.New("matrix encrypted rooms require Megolm support; set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 to bypass")
+		return errors.New("matrix encrypted rooms require real Olm/Megolm E2EE; use an unencrypted room or set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 only for send-only testing")
 	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
@@ -95,7 +96,7 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 			}
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
-				_ = c.SendText(ctx, d.Matrix.RoomID, formatApproval(&a))
+				_ = c.SendText(ctx, d.Matrix.RoomID, formatApprovalWithPolicy(&a, d.ProviderOutput))
 			}
 		}
 	}
@@ -106,6 +107,9 @@ func (d *Daemon) runSlackBridge(ctx context.Context, c *slack.Client) error {
 		return errors.New("slack client nil")
 	}
 	allow := slack.Allowlist{Channels: set(d.Slack.AllowedIDs), DMUsers: set(d.Slack.AllowedDMUsers)}
+	if ch := d.slackApprovalChannel(); ch != "" {
+		go d.forwardApprovalsToSlack(ctx, c, ch)
+	}
 	for {
 		url, err := c.OpenSocket(ctx)
 		if err != nil {
@@ -156,7 +160,8 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			action, err := slack.ParseInteraction(env)
 			ackPayload := map[string]any{"text": "Approval decision received."}
 			if err == nil && len(action.Actions) > 0 {
-				if err := d.decideProviderApproval(ctx, action.Actions[0].Value, approvalVerdictForAction(action.Actions[0].ActionID), 0); err != nil {
+				id := slackApprovalID(action.Actions[0].Value)
+				if err := d.decideProviderApproval(ctx, id, approvalVerdictForAction(action.Actions[0].ActionID), 0); err != nil {
 					ackPayload["text"] = "Approval decision failed: " + err.Error()
 				}
 			}
@@ -168,6 +173,99 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 		}
 	}
+}
+
+func (d *Daemon) slackApprovalChannel() string {
+	ch := strings.TrimSpace(d.Slack.ApprovalChannel)
+	if ch != "" {
+		return ch
+	}
+	if len(d.Slack.AllowedIDs) > 0 {
+		return strings.TrimSpace(d.Slack.AllowedIDs[0])
+	}
+	return ""
+}
+
+func (d *Daemon) forwardApprovalsToSlack(ctx context.Context, c *slack.Client, channel string) {
+	if d.Queue == nil || strings.TrimSpace(channel) == "" {
+		return
+	}
+	seen := map[string]bool{}
+	send := func(a *approval.Approval) {
+		if a == nil {
+			return
+		}
+		if seen[a.ID] {
+			return
+		}
+		seen[a.ID] = true
+		_ = c.PostMessageBlocks(ctx, channel, "Onibi approval "+a.ID, slackApprovalBlocks(a, d.ProviderOutput))
+	}
+	if pending, err := d.Queue.Pending(ctx); err == nil {
+		for _, a := range pending {
+			send(a)
+		}
+	}
+	events, unsub := d.Queue.Subscribe()
+	defer unsub()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev.Type == approval.EventRequested {
+				a := ev.Approval
+				send(&a)
+			}
+		}
+	}
+}
+
+func slackApprovalBlocks(a *approval.Approval, policy ProviderOutputPolicy) []any {
+	text := formatApprovalWithPolicy(a, policy)
+	if len(text) > 2800 {
+		text = text[:2800] + "\n..."
+	}
+	return []any{
+		map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": "```" + text + "```"}},
+		map[string]any{"type": "actions", "block_id": "approval:" + a.ID, "elements": []any{
+			map[string]any{
+				"type": "button", "text": map[string]any{"type": "plain_text", "text": "Approve"},
+				"style": "primary", "action_id": "approve", "value": slackApprovalValue(a, approval.VerdictApprove),
+			},
+			map[string]any{
+				"type": "button", "text": map[string]any{"type": "plain_text", "text": "Deny"},
+				"style": "danger", "action_id": "deny", "value": slackApprovalValue(a, approval.VerdictDeny),
+			},
+		}},
+	}
+}
+
+func slackApprovalValue(a *approval.Approval, verdict approval.Verdict) string {
+	b, err := json.Marshal(map[string]string{
+		"approval_id": a.ID,
+		"session_id":  a.SessionID,
+		"agent":       a.Agent,
+		"tool":        a.Tool,
+		"verdict":     string(verdict),
+	})
+	if err != nil {
+		return a.ID
+	}
+	return string(b)
+}
+
+func slackApprovalID(value string) string {
+	var payload struct {
+		ApprovalID string `json:"approval_id"`
+	}
+	if err := json.Unmarshal([]byte(value), &payload); err == nil && payload.ApprovalID != "" {
+		return payload.ApprovalID
+	}
+	return value
 }
 
 func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error {
@@ -273,7 +371,16 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 			_ = c.CreateMessage(ctx, msg.ChannelID, out)
 		}
 		if in, ok, err := discord.ParseInteraction(frame); err == nil && ok {
-			_ = c.RespondInteraction(ctx, in.ID, in.Token, "Slash command received.")
+			text := discord.InteractionText(in)
+			if strings.EqualFold(in.Data.Name, "onibi") && text != "" {
+				out, err := d.handleProviderText(ctx, "", text, 0)
+				if err != nil {
+					out = "Input failed: " + err.Error()
+				}
+				_ = c.RespondInteraction(ctx, in.ID, in.Token, out)
+			} else {
+				_ = c.RespondInteraction(ctx, in.ID, in.Token, "Slash command received.")
+			}
 		}
 	}
 }
@@ -285,8 +392,13 @@ func (d *Daemon) runPushoverNotifier(ctx context.Context, c *pushover.Client) {
 }
 
 func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a *approval.Approval) {
-	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApproval(a), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
-	if err != nil || resp.Receipt == "" {
+	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.ProviderOutput), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
+	if err != nil {
+		d.audit(ctx, "notify.pushover.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+		return
+	}
+	if resp.Receipt == "" {
+		d.audit(ctx, "notify.pushover.sent", a.SessionID, "", 0, "approval="+a.ID+" receipt=false")
 		return
 	}
 	d.audit(ctx, "notify.pushover.receipt", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
@@ -308,13 +420,21 @@ func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a
 
 func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		_ = c.Publish(ctx, ntfy.Message{Title: "Onibi approval", Body: formatApproval(a), Tags: "warning"})
+		if err := c.Publish(ctx, ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.ProviderOutput), Tags: "warning"}); err != nil {
+			d.audit(ctx, "notify.ntfy.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		d.audit(ctx, "notify.ntfy.sent", a.SessionID, "", 0, "approval="+a.ID)
 	})
 }
 
 func (d *Daemon) runGotifyNotifier(ctx context.Context, c *gotify.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		_ = c.Send(ctx, gotify.Message{Title: "Onibi approval", Message: formatApproval(a), Priority: 8})
+		if err := c.Send(ctx, gotify.Message{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.ProviderOutput), Priority: 8}); err != nil {
+			d.audit(ctx, "notify.gotify.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		d.audit(ctx, "notify.gotify.sent", a.SessionID, "", 0, "approval="+a.ID)
 	})
 }
 
@@ -342,10 +462,10 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 
 func (d *Daemon) handleProviderText(ctx context.Context, target, text string, actor int64) (string, error) {
 	if handled, reply := d.handleProviderTextCommand(ctx, text, actor); handled {
-		return redactChatText(reply), nil
+		return d.prepareProviderOutput(reply), nil
 	}
 	out, err := d.SendSessionTextAndCapture(ctx, target, text, true)
-	return redactChatText(out), err
+	return d.prepareProviderOutput(out), err
 }
 
 func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, actor int64) (bool, string) {

@@ -131,6 +131,68 @@ func TestSlashCommandFallbackResponse(t *testing.T) {
 	}
 }
 
+func TestRegisterOnibiCommandAndProbes(t *testing.T) {
+	var registeredPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/oauth2/applications/@me"):
+			_ = json.NewEncoder(w).Encode(Application{ID: "app1", Name: "onibi"})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/channels/C1"):
+			_ = json.NewEncoder(w).Encode(Channel{ID: "C1", GuildID: "G1", Name: "ops"})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/applications/app1/guilds/G1/commands"):
+			registeredPath = r.URL.Path
+			var body ApplicationCommand
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Name != "onibi" || len(body.Options) != 1 || body.Options[0].Name != "text" {
+				t.Fatalf("body = %#v", body)
+			}
+			_ = json.NewEncoder(w).Encode(ApplicationCommand{ID: "cmd1", Name: "onibi", Description: body.Description})
+		default:
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New("bot-token")
+	c.BaseURL = srv.URL
+	app, err := c.CurrentApplication(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.ID != "app1" {
+		t.Fatalf("app = %#v", app)
+	}
+	ch, err := c.Channel(t.Context(), "C1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.GuildID != "G1" {
+		t.Fatalf("channel = %#v", ch)
+	}
+	cmd, err := c.RegisterOnibiCommand(t.Context(), "", "G1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Name != "onibi" || registeredPath == "" {
+		t.Fatalf("cmd=%#v path=%q", cmd, registeredPath)
+	}
+}
+
+func TestInteractionText(t *testing.T) {
+	frame := GatewayFrame{Op: OpDispatch, T: "INTERACTION_CREATE", D: mustJSON(map[string]any{
+		"id": "i1", "token": "t1", "type": 2,
+		"data": map[string]any{"name": "onibi", "options": []any{map[string]any{"name": "text", "type": 3, "value": "ls"}}},
+	})}
+	in, ok, err := ParseInteraction(frame)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if got := InteractionText(in); got != "ls" {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 func TestCreateMessageChunksNoMentionsAndRetriesRateLimit(t *testing.T) {
 	var bodies []map[string]any
 	var slept time.Duration

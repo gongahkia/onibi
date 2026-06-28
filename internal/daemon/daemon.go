@@ -60,6 +60,7 @@ type Daemon struct {
 	Pushover        PushoverOptions
 	Ntfy            NtfyOptions
 	Gotify          GotifyOptions
+	ProviderOutput  ProviderOutputPolicy
 
 	mu             sync.Mutex
 	webAttachMu    sync.Mutex
@@ -96,6 +97,7 @@ type Options struct {
 	Pushover              PushoverOptions
 	Ntfy                  NtfyOptions
 	Gotify                GotifyOptions
+	ProviderOutput        ProviderOutputPolicy
 	SkipRestore           bool
 }
 
@@ -108,10 +110,11 @@ type MatrixOptions struct {
 }
 
 type SlackOptions struct {
-	AppToken       string
-	BotToken       string
-	AllowedIDs     []string
-	AllowedDMUsers []string
+	AppToken        string
+	BotToken        string
+	AllowedIDs      []string
+	AllowedDMUsers  []string
+	ApprovalChannel string
 }
 
 type DiscordOptions struct {
@@ -169,6 +172,7 @@ func New(opts Options) *Daemon {
 		Pushover:        opts.Pushover,
 		Ntfy:            opts.Ntfy,
 		Gotify:          opts.Gotify,
+		ProviderOutput:  opts.ProviderOutput.normalized(),
 	}
 
 	// approval queue + expiry sweeper
