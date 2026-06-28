@@ -30,20 +30,20 @@ type SocketOpenResponse struct {
 }
 
 type Envelope struct {
-	EnvelopeID string          `json:"envelope_id"`
-	Type       string          `json:"type"`
-	Accepts   bool            `json:"accepts_response_payload"`
-	Payload    json.RawMessage `json:"payload"`
-	RetryAttempt int           `json:"retry_attempt"`
-	RetryReason  string        `json:"retry_reason"`
+	EnvelopeID   string          `json:"envelope_id"`
+	Type         string          `json:"type"`
+	Accepts      bool            `json:"accepts_response_payload"`
+	Payload      json.RawMessage `json:"payload"`
+	RetryAttempt int             `json:"retry_attempt"`
+	RetryReason  string          `json:"retry_reason"`
 }
 
 type EventPayload struct {
 	Event struct {
-		Type    string `json:"type"`
-		Channel string `json:"channel"`
-		User    string `json:"user"`
-		Text    string `json:"text"`
+		Type        string `json:"type"`
+		Channel     string `json:"channel"`
+		User        string `json:"user"`
+		Text        string `json:"text"`
 		ChannelType string `json:"channel_type"`
 	} `json:"event"`
 	Authorizations []struct {
@@ -52,9 +52,13 @@ type EventPayload struct {
 }
 
 type InteractionPayload struct {
-	Type    string `json:"type"`
-	User    struct{ ID string `json:"id"` } `json:"user"`
-	Channel struct{ ID string `json:"id"` } `json:"channel"`
+	Type string `json:"type"`
+	User struct {
+		ID string `json:"id"`
+	} `json:"user"`
+	Channel struct {
+		ID string `json:"id"`
+	} `json:"channel"`
 	Actions []struct {
 		ActionID string `json:"action_id"`
 		Value    string `json:"value"`

@@ -17,13 +17,13 @@ import (
 const DefaultBaseURL = "https://discord.com/api/v10"
 
 const (
-	OpDispatch     = 0
-	OpHeartbeat    = 1
-	OpIdentify     = 2
-	OpResume       = 6
-	OpReconnect    = 7
+	OpDispatch       = 0
+	OpHeartbeat      = 1
+	OpIdentify       = 2
+	OpResume         = 6
+	OpReconnect      = 7
 	OpInvalidSession = 9
-	OpHello        = 10
+	OpHello          = 10
 )
 
 type Client struct {
@@ -44,8 +44,8 @@ type Hello struct {
 }
 
 type Identify struct {
-	Token      string         `json:"token"`
-	Intents    int            `json:"intents"`
+	Token      string            `json:"token"`
+	Intents    int               `json:"intents"`
 	Properties map[string]string `json:"properties"`
 }
 
@@ -59,8 +59,10 @@ type MessageCreate struct {
 	ID        string `json:"id"`
 	ChannelID string `json:"channel_id"`
 	GuildID   string `json:"guild_id,omitempty"`
-	Author    struct{ ID string `json:"id"` } `json:"author"`
-	Content   string `json:"content"`
+	Author    struct {
+		ID string `json:"id"`
+	} `json:"author"`
+	Content string `json:"content"`
 }
 
 type Interaction struct {
@@ -93,8 +95,8 @@ func ReadFrame(ctx context.Context, c *websocket.Conn) (GatewayFrame, error) {
 
 func SendIdentify(ctx context.Context, c *websocket.Conn, token string, intents int) error {
 	return writeGateway(ctx, c, GatewayFrame{Op: OpIdentify, D: mustJSON(Identify{
-		Token: token,
-		Intents: intents,
+		Token:      token,
+		Intents:    intents,
 		Properties: map[string]string{"os": "onibi", "browser": "onibi", "device": "onibi"},
 	})})
 }
@@ -196,7 +198,9 @@ func (c *Client) api(ctx context.Context, method, p string, payload any, dst any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		var body struct{ Message string `json:"message"` }
+		var body struct {
+			Message string `json:"message"`
+		}
 		_ = json.NewDecoder(resp.Body).Decode(&body)
 		msg := strings.TrimSpace(body.Message)
 		if msg == "" {

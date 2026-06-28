@@ -21,13 +21,13 @@ type Client struct {
 }
 
 type MessageOptions struct {
-	Title      string
-	Message    string
-	Priority   int
-	Retry      time.Duration
-	Expire     time.Duration
-	URL        string
-	URLTitle   string
+	Title    string
+	Message  string
+	Priority int
+	Retry    time.Duration
+	Expire   time.Duration
+	URL      string
+	URLTitle string
 }
 
 type MessageResponse struct {
@@ -38,11 +38,11 @@ type MessageResponse struct {
 }
 
 type Receipt struct {
-	Status       int      `json:"status"`
-	Acknowledged int     `json:"acknowledged"`
-	AcknowledgedAt int64 `json:"acknowledged_at"`
-	Expired      int     `json:"expired"`
-	Errors       []string `json:"errors"`
+	Status         int      `json:"status"`
+	Acknowledged   int      `json:"acknowledged"`
+	AcknowledgedAt int64    `json:"acknowledged_at"`
+	Expired        int      `json:"expired"`
+	Errors         []string `json:"errors"`
 }
 
 func New(token, userKey string) *Client {

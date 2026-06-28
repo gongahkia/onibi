@@ -65,18 +65,18 @@ func TestPromptPairTransportDefaultsToTelegramProvider(t *testing.T) {
 	}
 }
 
-func TestPromptPairTransportRepromptsForUnavailableNotifyOnly(t *testing.T) {
-	cmd, out := transportPromptCmd("3\n\n1\n1\n")
+func TestPromptPairTransportSelectsNotifyProvider(t *testing.T) {
+	cmd, out := transportPromptCmd("3\n2\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prompted || got != "lan" {
+	if !prompted || got != "ntfy" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-	if !strings.Contains(out.String(), "Pushover") || !strings.Contains(out.String(), "No notify-only providers are enabled yet") {
-		t.Fatalf("missing unavailable notice: %q", out.String())
+	if !strings.Contains(out.String(), "Pushover") || !strings.Contains(out.String(), "Gotify") {
+		t.Fatalf("prompt output = %q", out.String())
 	}
 }
 

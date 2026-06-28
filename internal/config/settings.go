@@ -193,9 +193,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("web.listen_addr required")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Transport.Mode)) {
-	case "lan", "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "auto":
+	case "lan", "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
 	default:
-		return fmt.Errorf("transport.mode must be one of lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, auto")
+		return fmt.Errorf("transport.mode must be one of lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
@@ -382,7 +382,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
 		{"web.cert_dir", def.Web.CertDir, cfg.Web.CertDir, meta.Explicit["web.cert_dir"], "local HTTPS certificate directory"},
 		{"web.listen_addr", def.Web.ListenAddr, cfg.Web.ListenAddr, meta.Explicit["web.listen_addr"], "local web cockpit listen address"},

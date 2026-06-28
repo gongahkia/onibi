@@ -15,8 +15,14 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/discord"
+	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/matrix"
+	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/pushover"
+	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -48,6 +54,12 @@ type Daemon struct {
 	TelegramToken   string
 	TelegramOwnerID int64
 	TelegramPair    string
+	Matrix          MatrixOptions
+	Slack           SlackOptions
+	Discord         DiscordOptions
+	Pushover        PushoverOptions
+	Ntfy            NtfyOptions
+	Gotify          GotifyOptions
 
 	mu             sync.Mutex
 	webAttachMu    sync.Mutex
@@ -78,7 +90,51 @@ type Options struct {
 	TelegramToken         string
 	TelegramOwnerID       int64
 	TelegramPair          string
+	Matrix                MatrixOptions
+	Slack                 SlackOptions
+	Discord               DiscordOptions
+	Pushover              PushoverOptions
+	Ntfy                  NtfyOptions
+	Gotify                GotifyOptions
 	SkipRestore           bool
+}
+
+type MatrixOptions struct {
+	Homeserver  string
+	AccessToken string
+	RoomID      string
+	OwnerUserID string
+}
+
+type SlackOptions struct {
+	AppToken       string
+	BotToken       string
+	AllowedIDs     []string
+	AllowedDMUsers []string
+}
+
+type DiscordOptions struct {
+	Token      string
+	GatewayURL string
+	AllowedIDs []string
+	Intents    int
+}
+
+type PushoverOptions struct {
+	Token   string
+	UserKey string
+}
+
+type NtfyOptions struct {
+	BaseURL string
+	Topic   string
+	Token   string
+}
+
+type GotifyOptions struct {
+	BaseURL     string
+	AppToken    string
+	ClientToken string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -106,6 +162,12 @@ func New(opts Options) *Daemon {
 		TelegramToken:   opts.TelegramToken,
 		TelegramOwnerID: opts.TelegramOwnerID,
 		TelegramPair:    opts.TelegramPair,
+		Matrix:          opts.Matrix,
+		Slack:           opts.Slack,
+		Discord:         opts.Discord,
+		Pushover:        opts.Pushover,
+		Ntfy:            opts.Ntfy,
+		Gotify:          opts.Gotify,
 	}
 
 	// approval queue + expiry sweeper
@@ -331,6 +393,61 @@ func (d *Daemon) Run(ctx context.Context) error {
 				d.Log.Error("telegram bridge", slog.Any("err", err))
 				cancel()
 			}
+		}()
+	}
+
+	if strings.TrimSpace(d.Matrix.AccessToken) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.runMatrixBridge(ctx, matrix.New(d.Matrix.Homeserver, d.Matrix.AccessToken)); err != nil && !errors.Is(err, context.Canceled) {
+				d.Log.Error("matrix bridge", slog.Any("err", err))
+				cancel()
+			}
+		}()
+	}
+
+	if strings.TrimSpace(d.Slack.AppToken) != "" || strings.TrimSpace(d.Slack.BotToken) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.runSlackBridge(ctx, slack.New(d.Slack.AppToken, d.Slack.BotToken)); err != nil && !errors.Is(err, context.Canceled) {
+				d.Log.Error("slack bridge", slog.Any("err", err))
+				cancel()
+			}
+		}()
+	}
+
+	if strings.TrimSpace(d.Discord.Token) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.runDiscordBridge(ctx, discord.New(d.Discord.Token)); err != nil && !errors.Is(err, context.Canceled) {
+				d.Log.Error("discord bridge", slog.Any("err", err))
+				cancel()
+			}
+		}()
+	}
+
+	if strings.TrimSpace(d.Pushover.Token) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.runPushoverNotifier(ctx, pushover.New(d.Pushover.Token, d.Pushover.UserKey))
+		}()
+	}
+	if strings.TrimSpace(d.Ntfy.Topic) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.runNtfyNotifier(ctx, ntfy.New(d.Ntfy.BaseURL, d.Ntfy.Topic, d.Ntfy.Token))
+		}()
+	}
+	if strings.TrimSpace(d.Gotify.AppToken) != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.runGotifyNotifier(ctx, gotify.New(d.Gotify.BaseURL, d.Gotify.AppToken, d.Gotify.ClientToken))
 		}()
 	}
 
