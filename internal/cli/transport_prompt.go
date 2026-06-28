@@ -169,7 +169,7 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 			}
 		}
 		if category == transportCategoryWeb {
-			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, b, or q.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, 6, b, or q.")
 		} else {
 			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, b, or q.")
 		}

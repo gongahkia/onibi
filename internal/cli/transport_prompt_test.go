@@ -21,7 +21,7 @@ func TestPromptPairTransportSelectsTailscale(t *testing.T) {
 	if got != "tailscale" {
 		t.Fatalf("transport = %q", got)
 	}
-	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Tunnel") {
+	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Quick") {
 		t.Fatalf("prompt output = %q", out.String())
 	}
 }
@@ -80,23 +80,23 @@ func TestPromptPairTransportRepromptsForUnavailableNotifyOnly(t *testing.T) {
 	}
 }
 
-func TestPromptPairTransportRepromptsForUnavailableWebProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("1\ncloudflare\n1\n")
+func TestPromptPairTransportSelectsCloudflareQuick(t *testing.T) {
+	cmd, out := transportPromptCmd("1\ncloudflare-quick\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prompted || got != "lan" {
+	if !prompted || got != "cloudflare-quick" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-	if !strings.Contains(out.String(), "not enabled in this build") {
-		t.Fatalf("missing unavailable notice: %q", out.String())
+	if !strings.Contains(out.String(), "Cloudflare Named") || !strings.Contains(out.String(), "ngrok") {
+		t.Fatalf("prompt output = %q", out.String())
 	}
 }
 
 func TestPromptPairTransportBackFromProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("2\nb\n1\n3\n")
+	cmd, out := transportPromptCmd("2\nb\n1\n6\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
