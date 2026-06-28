@@ -280,8 +280,10 @@ x 2026-06-26 Local handover regression coverage: managed tmux metadata persists 
 
 > Goal: add `--transport=tailscale` so phone can connect over cellular without LAN.
 
-(A) 2026-06-23 No handler-side code changes needed (Tailscale terminates TLS at the node; requests arrive on loopback :8443 just like LAN); verify by hitting funnel URL from a different machine +phase08 @tests id:T806 blocked-by:T805
-(B) 2026-06-23 E2E test on a tailnet-joined Mac with `onibi up --transport=tailscale`: open the funnel URL from an iPhone on LTE (Wi-Fi disabled) — confirm live terminal + input works and managed Mac <-> phone handover preserves session state +phase08 @tests id:T809 blocked-by:T808 accept:cellular-phone-can-drive-terminal
+# 2026-06-28: Tailscale Funnel enabled via login.tailscale.com/f/funnel; public /healthz returned 200 through `*.ts.net`; pair/session traffic reached local loopback through Funnel.
+x 2026-06-28 No handler-side code changes needed (Tailscale terminates TLS at the node; requests arrive on loopback :8443 just like LAN); verify by hitting funnel URL from a different machine +phase08 @tests id:T806 blocked-by:T805
+# 2026-06-28: iPhone over 5G paired at `*.ts.net`, loaded terminal, accepted PTY/events WS, typed into tmux-backed session, INT returned 200, MAC handover returned 200, PHONE handover returned 200 and PTY reattached.
+x 2026-06-28 E2E test on a tailnet-joined Mac with `onibi up --transport=tailscale`: open the funnel URL from an iPhone on LTE (Wi-Fi disabled) — confirm live terminal + input works and managed Mac <-> phone handover preserves session state +phase08 @tests id:T809 blocked-by:T808 accept:cellular-phone-can-drive-terminal
 
 ### Phase 09 — Release prep (0.5 week)
 
@@ -294,6 +296,17 @@ x 2026-06-26 Local handover regression coverage: managed tmux metadata persists 
 (B) 2026-06-23 Developer-ID sign + notarize darwin builds (Gatekeeper requirement); upload notarization tickets +phase09 @release id:T904 blocked-by:T903
 (B) 2026-06-23 Tag v0.3.0 in git; push tag; goreleaser release on tag to publish to GitHub releases +phase09 @release id:T905 blocked-by:T904
 (C) 2026-06-23 Write a launch announcement (HN-style) — optional, post-tag +phase09 @docs id:T906 blocked-by:T905
+
+### Phase 10 — Mobile web safety + comfort polish (post-v0.3.0, 0.5 week)
+
+> Origin: external audit of mobile cockpit (2026-06-28). Accepted four gaps: KILL needs confirm, INT/KILL silent on failure, no font-size control, portrait cols cramped. Skipped (per user): discoverability tooltips, connection-health badge, post-pair checklist, in-app transport hint. Reuse map: showToast at frontend/src/main.ts:190-193, high-risk double-tap pattern at frontend/src/approval.ts:72-82, postHandover JSON-error parse at frontend/src/main.ts:149-159, xterm.js term.options.fontSize, FitAddon already wired in frontend/src/terminal.ts:94-120.
+
+(A) 2026-06-28 Add KILL double-tap gate: first tap shows toast "Tap KILL again to send SIGKILL." and arms a 2s window; second tap inside window calls postControl(session,"kill"); INT remains single-tap; mirror frontend/src/approval.ts:72-82 pattern +phase10 @frontend file:frontend/src/main.ts id:T1000 blocked-by:T905
+(A) 2026-06-28 Surface /control failures as toasts: convert postControl from void fetch to async; on !response.ok parse {message} like postHandover and showToast(message); on network error showToast("Control failed.") +phase10 @frontend file:frontend/src/main.ts id:T1001 blocked-by:T1000
+(A) 2026-06-28 Return structured JSON error from /control handler ({"message": err.Error()}, Content-Type application/json, status 500) matching /handover shape +phase10 @backend file:internal/web/control.go id:T1002 blocked-by:T1001
+(B) 2026-06-28 Add A−/A+ font-size buttons to soft-key bar; clamp 10..22; call term.options.fontSize + fit.fit(); persist to localStorage["onibi-font-size"] +phase10 @frontend file:frontend/src/softkeys.ts id:T1010 blocked-by:T1002
+(B) 2026-06-28 Read localStorage["onibi-font-size"] on terminal init; default 14 if absent; log one-time [ONIBI] portrait cols=<n> when portrait and cols<40 for future tuning +phase10 @frontend file:frontend/src/terminal.ts id:T1011 blocked-by:T1010
+(B) 2026-06-28 Real-iPhone smoke: (1) KILL requires two taps within 2s; (2) stop daemon then tap INT — toast surfaces server error; (3) A−/A+ adjusts font and persists across reload +phase10 @tests id:T1012 blocked-by:T1011 accept:safety-and-comfort-validated-on-device
 
 ---
 
@@ -309,6 +322,10 @@ x 2026-06-26 Local handover regression coverage: managed tmux metadata persists 
 (C) 2026-06-23 [V1.3 — do not start before T1300 approved] Implement client-side: read k from location.hash on page load; derive key via WebCrypto subtle; wrap WS messages in encrypt/decrypt; never log k +phase13 @frontend id:T1301 blocked-by:T1300
 (C) 2026-06-23 [V1.3] Implement server-side encrypted relay: server holds only HMAC(k) commitment; cannot decrypt traffic; relay flag set in /healthz when active +phase13 @backend id:T1302 blocked-by:T1301
 (C) 2026-06-23 [V1.3] Refuse to ship tagged releases with --transport=cloudflare-quick unless E2E flag is on; build-time gate +phase13 @build id:T1303 blocked-by:T1302
+
+> v1.4: Optional Telegram approval-only notification surface (deferred indefinitely; only resurrect if user demand). Resurrects ~1500 LOC of Telegram client from git f896cfa~1. Telegram Bot API is free; the v3 pivot away was about BotFather pre-install token-copy friction, not cost — see TODO.md:29 and memory project_onibi_v3_pivot.md. Bringing Telegram back resurrects that exact wall, so demand-gated only.
+
+(C) 2026-06-28 [V1.4 — do not start in v1.x; optional, demand-gated] Resurrect minimal `internal/telegram/` package as approval-notification-only surface gated by `onibi up --transport=telegram-notify`; web cockpit stays primary transport; no full PTY over Telegram; pull bot-token via existing keychain code path; restore from git f896cfa~1 +phase14 @backend id:T1400
 
 ---
 

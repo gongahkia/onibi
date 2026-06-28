@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -62,6 +63,16 @@ func TestTailscaleURLParsesServeStatus(t *testing.T) {
 	}
 	if got != "https://dev.tail.ts.net/" {
 		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestExecCommandRunnerIgnoresStderrWarning(t *testing.T) {
+	out, err := (execCommandRunner{}).Run(context.Background(), "/bin/sh", "-c", "echo warning >&2; cat <<'JSON'\n"+statusRunningFunnel()+"\nJSON")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("stdout is not clean JSON: %q", out)
 	}
 }
 

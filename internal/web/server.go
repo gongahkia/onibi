@@ -73,6 +73,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
+	mux.HandleFunc("/manifest.webmanifest", s.handleStaticFile("dist/manifest.webmanifest", "application/manifest+json"))
+	mux.HandleFunc("/sw.js", s.handleStaticFile("dist/sw.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/icons/", s.handleIcons)
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/control", s.handleControl)
 	mux.HandleFunc("/handover", s.handleHandover)
@@ -175,6 +178,50 @@ func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.StripPrefix("/assets/", http.FileServer(http.FS(assets))).ServeHTTP(w, r)
+}
+
+func (s *Server) handleIcons(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := s.authenticate(r); err != nil {
+		s.log.Warn("web icon auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr), "path", r.URL.Path)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	icons, err := fs.Sub(webstatic.FS, "dist/icons")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.StripPrefix("/icons/", http.FileServer(http.FS(icons))).ServeHTTP(w, r)
+}
+
+func (s *Server) handleStaticFile(path, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := s.authenticate(r); err != nil {
+			s.log.Warn("web static auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr), "path", r.URL.Path)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		body, err := webstatic.FS.ReadFile(path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", contentType)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(body)
+	}
 }
 
 func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {

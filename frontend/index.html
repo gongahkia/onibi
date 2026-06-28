@@ -25,6 +25,7 @@
         --panel-solid-bg: #05070a;
         --softkey-height: 88px;
         --visual-viewport-height: 100dvh;
+        --keyboard-bottom: 0px;
         --mono-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace;
       }
       :root[data-theme="light"] {
@@ -87,7 +88,7 @@
         border-bottom: 1px solid var(--chrome-border);
       }
       #softkeys {
-        bottom: 0;
+        bottom: var(--keyboard-bottom);
         min-height: calc(env(safe-area-inset-bottom) + var(--softkey-height));
         justify-content: flex-start;
         align-content: flex-start;
@@ -137,11 +138,11 @@
         position: fixed;
         left: max(10px, env(safe-area-inset-left));
         right: max(10px, env(safe-area-inset-right));
-        bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--softkey-height));
+        bottom: calc(var(--keyboard-bottom) + max(10px, env(safe-area-inset-bottom)) + var(--softkey-height));
         z-index: 10;
         display: grid;
         gap: 8px;
-        max-height: 60dvh;
+        max-height: min(60dvh, calc(var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 64px));
         overflow-y: auto;
         overscroll-behavior: contain;
       }

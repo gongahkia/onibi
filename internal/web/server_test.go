@@ -103,6 +103,41 @@ func TestOwnerCookieAttributesAndAuth(t *testing.T) {
 	}
 }
 
+func TestPWAStaticFilesRequireAuthAndServe(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+		t.Fatal(err)
+	}
+	cookie := rr.Result().Cookies()[0]
+	for _, tc := range []struct {
+		path string
+		ct   string
+	}{
+		{"/manifest.webmanifest", "application/manifest+json"},
+		{"/sw.js", "application/javascript"},
+		{"/icons/onibi-192.png", "image/png"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d body = %q", tc.path, w.Code, w.Body.String())
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, tc.ct) {
+			t.Fatalf("%s content-type = %q", tc.path, ct)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("unauth manifest status = %d", w.Code)
+	}
+}
+
 func TestWSPTYRejectsMissingCookie(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

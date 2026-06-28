@@ -206,6 +206,8 @@ function installViewportPinning(root: HTMLElement): void {
     window.cancelAnimationFrame(frame);
     frame = window.requestAnimationFrame(() => {
       document.documentElement.style.setProperty("--visual-viewport-height", `${viewport.height}px`);
+      const keyboardBottom = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      document.documentElement.style.setProperty("--keyboard-bottom", `${keyboardBottom}px`);
       const cursor = root.querySelector<HTMLElement>(".xterm-helper-textarea");
       cursor?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });

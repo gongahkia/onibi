@@ -23,6 +23,7 @@ export class ApprovalOverlay {
 
   private add(payload: ApprovalRequestedPayload): void {
     this.remove(payload.id);
+    dismissKeyboard();
     const card = document.createElement("section");
     card.className = `approval-card risk-${payload.risk_level}`;
     card.dataset.id = payload.id;
@@ -66,6 +67,7 @@ export class ApprovalOverlay {
     status.className = "approval-status";
     card.append(header, input, actions, editPane, status);
     this.root.append(card);
+    window.setTimeout(() => card.scrollIntoView({ block: "nearest", inline: "nearest" }), 50);
     const tracked: ApprovalCard = { payload, element: card, approveUntil: 0 };
     this.cards.set(payload.id, tracked);
 
@@ -151,4 +153,11 @@ function button(label: string, kind: string): HTMLButtonElement {
 
 function vibrate(): void {
   navigator.vibrate?.(12);
+}
+
+function dismissKeyboard(): void {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+  document.querySelectorAll<HTMLElement>(".xterm-helper-textarea").forEach((el) => el.blur());
 }
