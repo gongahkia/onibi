@@ -10,6 +10,13 @@ if [ -z "$JOBS" ]; then
   JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '4')"
 fi
 
+if [ "${KELP_LLAMA_FORCE:-0}" != "1" ] && [ -d "$PREFIX/lib" ]; then
+  if find "$PREFIX/lib" -maxdepth 1 \( -name 'libllama*.dylib' -o -name 'libllama*.so*' \) | grep -q .; then
+    printf '%s\n' "$PREFIX"
+    exit 0
+  fi
+fi
+
 cmake -S vendor/llama.cpp -B "$BUILD_DIR" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" \

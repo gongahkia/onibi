@@ -37,7 +37,13 @@
     "zig:fmt": "zig fmt build.zig app",
     "zig:fmt:check": "zig fmt --check build.zig app",
     "zig:test": "zig build test",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm zig:test && pnpm zig:build"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm zig:test && pnpm zig:build",
+    "llama:build": "scripts/build-llama.sh",
+    "llama:smoke": "scripts/smoke-llama.sh",
+    "pi:package": "scripts/package-kelp-pi.sh",
+    "zig:build:llama": "zig build -Dllama=true -Dllama-prefix=.kelp-pi/llama/host",
+    "zig:test:llama": "zig build test -Dllama=true -Dllama-prefix=.kelp-pi/llama/host",
+    "zig:build:aarch64": "scripts/build-kelp-pi-aarch64.sh"
   },
   "pnpm": {
     "overrides": {

@@ -1,6 +1,6 @@
 # Kelp Pi Quickstart
 
-This is the target operator path for Raspberry Pi 5 running Raspberry Pi OS Lite 64-bit. Current commands can be tested on a dev host; real Pi acceptance is still open.
+This is the target operator path for Raspberry Pi 5 running Raspberry Pi OS Lite 64-bit. Current commands can be tested on a dev host; real Pi acceptance is still open until a Linux/aarch64 linked package is built and copied to the Pi.
 
 ## Hardware
 
@@ -24,6 +24,17 @@ $ pnpm zig:build
 $ ./zig-out/bin/kelp-pi doctor --data-dir .kelp-pi
 ```
 
+## Linked Llama Smoke
+
+```console
+$ pnpm llama:build
+$ pnpm zig:build:llama
+$ pnpm llama:smoke
+$ pnpm pi:package
+```
+
+`llama:smoke` builds local `libllama`, links `kelp-pi` with `-Dllama=true`, loads the pinned GGUF, decodes greedy tokens, and verifies JSON reports `loaded:true`.
+
 ## First Run
 
 ```console
@@ -32,7 +43,7 @@ $ ./zig-out/bin/kelp-pi model warm --id qwen3-0.6b-q4_k_m
 $ ./zig-out/bin/kelp-pi chat --data-dir .kelp-pi
 ```
 
-`model warm` verifies manifest SHA-256, GGUF magic, and RAM floor. Native libllama load requires `zig build -Dllama=true` and a reachable `libllama`.
+`model warm` verifies manifest SHA-256, GGUF magic, and RAM floor. With `zig build -Dllama=true -Dllama-prefix=.kelp-pi/llama/host`, it also loads `libllama` and decodes a small prompt.
 
 ## Scope And Approval
 
@@ -95,6 +106,7 @@ Create `.kelp-pi/acceptance.env`:
 KELP_PI_SSH_HOST=<pi-host>
 KELP_PI_SSH_USER=<pi-user>
 KELP_PI_BINARY=<path-to-linux-aarch64-kelp-pi>
+KELP_PI_LLAMA_LIB_DIR=<path-to-linux-aarch64-llama-lib-dir>
 ```
 
 Then run:
@@ -103,7 +115,7 @@ Then run:
 $ pnpm accept:pi
 ```
 
-The script copies the binary and local GGUF, runs doctor/model/scope/approval/scan/index/ask/bundle on the Pi, copies the bundle back, and verifies it locally.
+The script copies the binary, optional llama shared libs, and local GGUF. It requires remote `model warm` to report `loaded:true`, then runs doctor/scope/approval/scan/index/ask/bundle on the Pi, copies the bundle back, and verifies it locally.
 
 ## Real Pi Target
 

@@ -19,6 +19,11 @@ const default_data_dir = "/var/lib/kelp-pi";
 const default_policy_path = "policies/appsec-agent-baseline.toml";
 const default_model_manifest = "models/manifest.toml";
 const default_model_id = "qwen3-0.6b-q4_k_m";
+const default_model_smoke_prompt =
+    \\<|im_start|>user
+    \\/no_think Reply with exactly: ready<|im_end|>
+    \\<|im_start|>assistant
+;
 const default_nuclei_bin = "/opt/kelp-pi/bin/nuclei";
 const pinned_nuclei_templates_revision = "cce82b61d26bed35074cd57bc9d0aebd703a81d3";
 const scanner_users_set = "scanner_users";
@@ -418,8 +423,8 @@ fn modelCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const model_path = option(args[1..], "--model-path") orelse default_path;
     if (std.mem.eql(u8, sub, "fetch")) return modelFetch(allocator, model, model_path);
     if (std.mem.eql(u8, sub, "verify")) return modelVerify(allocator, model, model_path, false, null, 0, 0);
-    if (std.mem.eql(u8, sub, "warm")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse "ready", parseUsize(option(args[1..], "--n-predict") orelse "1", 1), parseUsize(option(args[1..], "--threads") orelse "2", 2));
-    if (std.mem.eql(u8, sub, "prompt")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse "Answer with one word: ready", parseUsize(option(args[1..], "--n-predict") orelse "32", 32), parseUsize(option(args[1..], "--threads") orelse "2", 2));
+    if (std.mem.eql(u8, sub, "warm")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse default_model_smoke_prompt, parseUsize(option(args[1..], "--n-predict") orelse "1", 1), parseUsize(option(args[1..], "--threads") orelse "2", 2));
+    if (std.mem.eql(u8, sub, "prompt")) return modelVerify(allocator, model, model_path, true, option(args[1..], "--prompt") orelse default_model_smoke_prompt, parseUsize(option(args[1..], "--n-predict") orelse "32", 32), parseUsize(option(args[1..], "--threads") orelse "2", 2));
     return fail("usage: kelp-pi model <fetch|warm|verify|prompt> --id MODEL_ID", 64);
 }
 

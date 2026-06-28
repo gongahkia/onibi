@@ -15,7 +15,7 @@ Sources checked: <https://ziglang.org/download/>, <https://ziglang.org/news/0.16
 Unverified until Pi hardware run:
 
 - Raspberry Pi 5 memory headroom.
-- Native `llama.cpp` load with `-Dllama=true`.
+- Native `llama.cpp` load and prompt smoke with `-Dllama=true`.
 - Scanner sandboxing through systemd/nftables.
 - Bundle signature validation on a clean host.
 
@@ -104,6 +104,7 @@ Reasoning:
 - 0.6B-class model is small enough to test on the 4GB Pi floor. [Inference]
 - Q4_K_M is the desired size/quality tradeoff for first hardware validation. [Inference]
 - Direct `llama.cpp` keeps the runtime single-binary-oriented and avoids an Ollama daemon.
+- Host smoke path: `pnpm llama:smoke` builds `libllama`, links `kelp-pi`, loads the pinned GGUF, and decodes greedy tokens.
 
 The primary GGUF SHA-256 is pinned in `models/manifest.toml`. Release packaging should fail if any primary model SHA is blank or mismatched.
 

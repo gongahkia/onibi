@@ -34,6 +34,8 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Vendor or submodule `llama.cpp`.
 - [x] Add optional `build.zig -Dllama=true` link path for libllama.
 - [x] Add RAM gate before model load.
+- [x] Add C bridge and host `model prompt` smoke through real `llama.cpp`.
+- [x] Add local package wrapper carrying linked llama shared libs.
 - [ ] Load Qwen3 0.6B Q4_K_M GGUF on Pi 5 4GB.
 - [ ] Record token latency, peak RSS, thermals, and failure mode.
 

@@ -20,6 +20,9 @@ REMOTE_BIN="${KELP_PI_REMOTE_BIN:-$REMOTE_ROOT/kelp-pi}"
 LOCAL_BIN="${KELP_PI_BINARY:-zig-out/bin/kelp-pi}"
 LOCAL_MODEL="${KELP_PI_MODEL:-.kelp-pi/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf}"
 REMOTE_MODEL="$REMOTE_ROOT/models/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
+LOCAL_LLAMA_LIB_DIR="${KELP_PI_LLAMA_LIB_DIR:-}"
+REMOTE_LLAMA_LIB_DIR="${KELP_PI_REMOTE_LLAMA_LIB_DIR:-$REMOTE_ROOT/lib}"
+REMOTE_ENV="LD_LIBRARY_PATH='$REMOTE_LLAMA_LIB_DIR':\${LD_LIBRARY_PATH:-}"
 REMOTE="$KELP_PI_SSH_USER@$KELP_PI_SSH_HOST"
 
 SSH_BASE="ssh -p $SSH_PORT"
@@ -48,6 +51,12 @@ else
   run_remote "command -v '$REMOTE_BIN' >/dev/null"
 fi
 
+if [ -n "$LOCAL_LLAMA_LIB_DIR" ]; then
+  run_remote "mkdir -p '$REMOTE_LLAMA_LIB_DIR'"
+  # shellcheck disable=SC2086
+  $SCP_BASE -r "$LOCAL_LLAMA_LIB_DIR/." "$REMOTE:$REMOTE_LLAMA_LIB_DIR/"
+fi
+
 if [ -f "$LOCAL_MODEL" ]; then
   copy_to_remote "$LOCAL_MODEL" "$REMOTE_MODEL"
 else
@@ -55,13 +64,13 @@ else
   exit 66
 fi
 
-run_remote "'$REMOTE_BIN' keygen --data-dir '$REMOTE_ROOT' --label acceptance-pi >/tmp/kelp-pi-keygen.json"
-run_remote "'$REMOTE_BIN' doctor --data-dir '$REMOTE_ROOT'"
-run_remote "'$REMOTE_BIN' model warm --data-dir '$REMOTE_ROOT' --id qwen3-0.6b-q4_k_m --model-path '$REMOTE_MODEL'"
-run_remote "'$REMOTE_BIN' scope set --data-dir '$REMOTE_ROOT' --host http://fixture.local --until 2026-12-31T00:00:00Z"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' keygen --data-dir '$REMOTE_ROOT' --label acceptance-pi >/tmp/kelp-pi-keygen.json"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' doctor --data-dir '$REMOTE_ROOT'"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' model warm --data-dir '$REMOTE_ROOT' --id qwen3-0.6b-q4_k_m --model-path '$REMOTE_MODEL' --n-predict 1 --threads '${KELP_LLAMA_THREADS:-2}' | grep '\"loaded\":true'"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' scope set --data-dir '$REMOTE_ROOT' --host http://fixture.local --until 2026-12-31T00:00:00Z"
 
 TOKEN="$(
-  run_remote "'$REMOTE_BIN' approval-request --data-dir '$REMOTE_ROOT' --scope-id default --command 'nuclei http://fixture.local'" |
+  run_remote "$REMOTE_ENV '$REMOTE_BIN' approval-request --data-dir '$REMOTE_ROOT' --scope-id default --command 'nuclei http://fixture.local'" |
     sed -n 's/.*"token":"\([^"]*\)".*/\1/p'
 )"
 if [ -z "$TOKEN" ]; then
@@ -69,16 +78,16 @@ if [ -z "$TOKEN" ]; then
   exit 77
 fi
 
-run_remote "'$REMOTE_BIN' scan nuclei --data-dir '$REMOTE_ROOT' --target http://fixture.local --approval-token '$TOKEN' --dry-run" &&
+run_remote "$REMOTE_ENV '$REMOTE_BIN' scan nuclei --data-dir '$REMOTE_ROOT' --target http://fixture.local --approval-token '$TOKEN' --dry-run" &&
   { echo "scan unexpectedly allowed pending token" >&2; exit 77; } || true
-run_remote "'$REMOTE_BIN' approve --data-dir '$REMOTE_ROOT' '$TOKEN'"
-run_remote "'$REMOTE_BIN' scan nuclei --data-dir '$REMOTE_ROOT' --target http://fixture.local --approval-token '$TOKEN' --dry-run"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' approve --data-dir '$REMOTE_ROOT' '$TOKEN'"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' scan nuclei --data-dir '$REMOTE_ROOT' --target http://fixture.local --approval-token '$TOKEN' --dry-run"
 
 run_remote "printf '%s\n' '{\"finding\":\"default admin marker\"}' > '$REMOTE_ROOT/finding.json'"
 run_remote "printf '%s\n' '{\"findings\":[{\"id\":\"acceptance-fixture\"}]}' > '$REMOTE_ROOT/normalized/findings.json'"
-run_remote "'$REMOTE_BIN' index ingest --data-dir '$REMOTE_ROOT' --input '$REMOTE_ROOT/finding.json' --path evidence/finding.json"
-run_remote "'$REMOTE_BIN' ask default --data-dir '$REMOTE_ROOT'"
-run_remote "'$REMOTE_BIN' bundle assemble --data-dir '$REMOTE_ROOT' --run-id acceptance --workspace '$REMOTE_ROOT' --output '$REMOTE_ROOT/bundle'"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' index ingest --data-dir '$REMOTE_ROOT' --input '$REMOTE_ROOT/finding.json' --path evidence/finding.json"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' ask default --data-dir '$REMOTE_ROOT'"
+run_remote "$REMOTE_ENV '$REMOTE_BIN' bundle assemble --data-dir '$REMOTE_ROOT' --run-id acceptance --workspace '$REMOTE_ROOT' --output '$REMOTE_ROOT/bundle'"
 
 rm -rf .kelp-pi/acceptance-bundle
 mkdir -p .kelp-pi
