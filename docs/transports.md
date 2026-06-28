@@ -6,6 +6,7 @@ Onibi v3 ships two pairing transports:
 - `tailscale`: QR points at the device's Tailscale Funnel URL.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable.
+Run `onibi up` from a terminal to choose interactively, or pass `--transport=lan`, `--transport=tailscale`, or `--transport=auto` for scripts.
 
 ## LAN
 

@@ -8,15 +8,15 @@
   <a href="https://github.com/gongahkia/onibi/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/gongahkia/onibi/ci.yml?branch=main&style=flat-square"></a>
   <img alt="go" src="https://img.shields.io/badge/go-1.26.4%2B-blue?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square">
-  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20web-1f766f?style=flat-square">
+  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20%7C%20Tailscale-1f766f?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
 </p>
 
 Web-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
 
-Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over local HTTPS/WebSocket, and routes tool approvals through an owner-only web UI. The current v3 path is LAN/hotspot-first: run `onibi up`, scan the QR from your phone, then drive or hand over the same live session between mobile Safari and a visible Mac terminal.
+Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over HTTPS/WebSocket, and routes tool approvals through an owner-only web UI. Run `onibi up`, choose LAN/hotspot or Tailscale Funnel, scan the QR from your phone, then drive or hand over the same live session between mobile Safari and a visible Mac terminal.
 
-Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, and device management command surface have local coverage. Real-phone handover validation, Tailscale transport, and release prep are still tracked in [`TODO.md`](./TODO.md).
+Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Release prep is still tracked in [`TODO.md`](./TODO.md).
 
 ## Quick Start
 
@@ -25,6 +25,8 @@ make build
 ./bin/onibi install-hooks --agent claude
 ./bin/onibi up
 ```
+
+`onibi up` prompts for a pairing transport when run from a terminal. Use `./bin/onibi up --transport=lan`, `--transport=tailscale`, or `--transport=auto` to skip the picker.
 
 On iPhone:
 

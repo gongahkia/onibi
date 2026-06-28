@@ -129,6 +129,13 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 			return err
 		}
 		logger.Info("transport override applied", "transport", cfg.Transport.Mode)
+	} else if selected, prompted, err := promptPairTransport(cmd, cfg.Transport.Mode); err != nil {
+		return err
+	} else if prompted {
+		if err := config.Set(&cfg, "transport.mode", selected); err != nil {
+			return err
+		}
+		logger.Info("transport selected", "transport", cfg.Transport.Mode)
 	}
 	if shell, _ := cmd.Flags().GetString("shell"); strings.TrimSpace(shell) != "" {
 		cfg.Shell.Default = strings.TrimSpace(shell)

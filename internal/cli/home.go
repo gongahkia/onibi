@@ -16,7 +16,8 @@ func runRootLanding(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Onibi")+" - web cockpit for local coding agents")
 	fmt.Fprintln(cmd.OutOrStdout())
 	rows := [][]string{
-		{"Start", "onibi up", "launch HTTPS cockpit and pairing QR"},
+		{"Start", "onibi up", "choose LAN/Tailscale, launch cockpit, print QR"},
+		{"Cellular", "onibi up --transport=tailscale", "use Tailscale Funnel and print QR"},
 		{"Pair", "onibi pair", "mint another phone QR"},
 		{"Integrate", "onibi install-hooks --interactive", "install agent/shell hooks"},
 		{"Check", "onibi status", "show daemon, devices, hooks, and doctor summary"},
@@ -39,7 +40,7 @@ func quickstartCmd() *cobra.Command {
 			printCLIHeader(cmd, "Quickstart")
 			rows := [][]string{
 				{"1", "onibi status", "inspect local state"},
-				{"2", "onibi up", "start cockpit and print phone QR"},
+				{"2", "onibi up", "choose LAN/Tailscale, start cockpit, print QR"},
 				{"3", "onibi install-hooks --interactive", "connect agents/shells"},
 				{"4", "onibi doctor --explain", "repair any local drift"},
 			}
