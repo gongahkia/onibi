@@ -15,6 +15,8 @@ import (
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/gotify"
+	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -63,6 +65,7 @@ type Options struct {
 	Service      *service.Manager
 	PreferDotenv bool
 	Mode         string
+	Transport    string
 	NotifyBin    string
 	AfterUpgrade bool
 }
@@ -101,6 +104,7 @@ func (r *runner) run() {
 	r.checkEnvFile()
 	r.checkDB()
 	r.checkConfig()
+	r.checkTransportProvider()
 	r.checkLAN()
 	r.checkTailscale()
 	r.checkLocalCerts()
@@ -163,12 +167,129 @@ func (r *runner) checkConfig() {
 		r.add("config", Fail, err.Error())
 		return
 	}
-	if strings.TrimSpace(cfg.Transport.Mode) == "" {
+	mode := r.transportMode(cfg)
+	if strings.TrimSpace(mode) == "" {
 		r.add("transport", Warn, "not configured")
 	} else {
-		r.add("transport", Pass, cfg.Transport.Mode)
+		r.add("transport", Pass, mode)
 	}
 	r.add("web config", Pass, fmt.Sprintf("listen=%s cert_dir=%s", cfg.Web.ListenAddr, doctorCertDir(r.opts.Paths, cfg)))
+}
+
+func (r *runner) checkTransportProvider() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("transport provider", Warn, err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(r.transportMode(cfg)))
+	switch mode {
+	case "lan":
+		r.add("transport provider", Pass, "LAN coverage: unit + local integration + manual device")
+	case "auto":
+		r.add("transport provider", Pass, "Auto coverage: Tailscale -> LAN only")
+	case "tailscale":
+		r.add("transport provider", Pass, "Tailscale coverage: unit + fake runner + live opt-in")
+	case "cloudflare-quick":
+		r.checkCloudflared("transport provider", "Cloudflare Quick coverage: unit + fake process + live opt-in")
+	case "cloudflare-named":
+		if missing := missingEnv("ONIBI_CLOUDFLARE_TUNNEL_NAME", "ONIBI_CLOUDFLARE_HOSTNAME"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Cloudflare Named missing "+strings.Join(missing, ", "))
+			return
+		}
+		r.checkCloudflared("transport provider", "Cloudflare Named coverage: unit + fake process + live opt-in")
+	case "ngrok":
+		if _, err := exec.LookPath(envDefault("ONIBI_NGROK_BIN", "ngrok")); err != nil {
+			r.add("transport provider", Warn, "ngrok binary not found")
+			return
+		}
+		r.add("transport provider", Pass, "ngrok coverage: unit + fake agent API + live opt-in")
+	case "telegram":
+		r.add("transport provider", Pass, "Telegram coverage: unit + fake API + live opt-in; run onibi telegram status for pairing")
+	case "matrix":
+		if missing := missingEnv("ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Matrix missing "+strings.Join(missing, ", "))
+			return
+		}
+		r.add("transport provider", Pass, "Matrix coverage: unit + daemon conformance + live opt-in; encrypted rooms blocked by default")
+	case "slack":
+		if missing := missingEnv("ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Slack missing "+strings.Join(missing, ", "))
+			return
+		}
+		r.add("transport provider", Pass, "Slack coverage: unit + fake socket + live opt-in")
+	case "discord":
+		if missing := missingEnv("ONIBI_DISCORD_TOKEN"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Discord missing "+strings.Join(missing, ", "))
+			return
+		}
+		r.add("transport provider", Pass, "Discord coverage: unit + fake gateway + live opt-in")
+	case "pushover":
+		if missing := missingEnv("ONIBI_PUSHOVER_TOKEN", "ONIBI_PUSHOVER_USER_KEY"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Pushover missing "+strings.Join(missing, ", "))
+			return
+		}
+		r.add("transport provider", Pass, "Pushover coverage: unit + receipt audit + live opt-in")
+	case "ntfy":
+		topic := strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOPIC"))
+		if topic == "" {
+			r.add("transport provider", Warn, "ntfy missing ONIBI_NTFY_TOPIC")
+			return
+		}
+		if err := ntfy.ValidateTopicSecret(topic); err != nil {
+			r.add("transport provider", Warn, "ntfy topic weak: "+err.Error())
+			return
+		}
+		r.add("transport provider", Pass, "ntfy coverage: unit + fake WS + live opt-in")
+	case "gotify":
+		if missing := missingEnv("ONIBI_GOTIFY_URL", "ONIBI_GOTIFY_APP_TOKEN"); len(missing) > 0 {
+			r.add("transport provider", Warn, "Gotify missing "+strings.Join(missing, ", "))
+			return
+		}
+		if !r.opts.Offline {
+			ctx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
+			defer cancel()
+			if err := gotify.New(os.Getenv("ONIBI_GOTIFY_URL"), os.Getenv("ONIBI_GOTIFY_APP_TOKEN"), os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")).Validate(ctx); err != nil {
+				r.add("transport provider", Warn, "Gotify validation failed: "+err.Error())
+				return
+			}
+		}
+		r.add("transport provider", Pass, "Gotify coverage: unit + REST/WS fake + live opt-in")
+	default:
+		r.add("transport provider", Warn, "unknown transport "+mode)
+	}
+}
+
+func (r *runner) checkCloudflared(name, detail string) {
+	if _, err := exec.LookPath(envDefault("ONIBI_CLOUDFLARED_BIN", "cloudflared")); err != nil {
+		r.add(name, Warn, "cloudflared binary not found")
+		return
+	}
+	r.add(name, Pass, detail)
+}
+
+func (r *runner) transportMode(cfg config.Config) string {
+	if v := strings.TrimSpace(r.opts.Transport); v != "" {
+		return v
+	}
+	return cfg.Transport.Mode
+}
+
+func missingEnv(names ...string) []string {
+	var out []string
+	for _, name := range names {
+		if strings.TrimSpace(os.Getenv(name)) == "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func envDefault(name, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func (r *runner) checkLAN() {
@@ -190,7 +311,7 @@ func (r *runner) checkTailscale() {
 		r.add("tailscale", Warn, err.Error())
 		return
 	}
-	mode := strings.ToLower(strings.TrimSpace(cfg.Transport.Mode))
+	mode := strings.ToLower(strings.TrimSpace(r.transportMode(cfg)))
 	if mode != "tailscale" && mode != "auto" {
 		r.add("tailscale", Pass, "not selected (transport="+mode+")")
 		return

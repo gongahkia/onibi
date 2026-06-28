@@ -9,12 +9,13 @@ import (
 )
 
 type pairTransportChoice struct {
-	key     string
-	mode    string
-	label   string
-	detail  string
-	command string
-	active  bool
+	key      string
+	mode     string
+	label    string
+	detail   string
+	coverage string
+	command  string
+	active   bool
 }
 
 type pairTransportCategory struct {
@@ -122,16 +123,16 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), style.bold(title))
-	rows := [][]string{tableHeader(style, "#", "PROVIDER", "BEST FOR", "COMMAND")}
+	rows := [][]string{tableHeader(style, "#", "PROVIDER", "BEST FOR", "COVERAGE", "COMMAND")}
 	defaultKey := "1"
 	for _, c := range choices {
 		if c.active {
 			defaultKey = c.key
 		}
-		rows = append(rows, []string{c.key, c.label, c.detail, c.command})
+		rows = append(rows, []string{c.key, c.label, c.detail, c.coverage, c.command})
 	}
 	for _, c := range unavailableTransportChoices(category) {
-		rows = append(rows, []string{"-", c.label, c.detail, "not in this build"})
+		rows = append(rows, []string{"-", c.label, c.detail, "-", "not in this build"})
 	}
 	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
 		return "", false, err
@@ -177,9 +178,9 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 func promptUnavailableTransportCategory(cmd *cobra.Command, sc *bufio.Scanner, style cliStyle) error {
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Notify-only provider"))
-	rows := [][]string{tableHeader(style, "#", "PROVIDER", "BEST FOR", "COMMAND")}
+	rows := [][]string{tableHeader(style, "#", "PROVIDER", "BEST FOR", "COVERAGE", "COMMAND")}
 	for _, c := range unavailableTransportChoices(transportCategoryNotify) {
-		rows = append(rows, []string{"-", c.label, c.detail, "not in this build"})
+		rows = append(rows, []string{"-", c.label, c.detail, "-", "not in this build"})
 	}
 	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
 		return err
@@ -239,115 +240,128 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 	if category == transportCategoryChat {
 		return []pairTransportChoice{
 			{
-				key:     "1",
-				mode:    "telegram",
-				label:   "Telegram",
-				detail:  "chat-native text control",
-				command: "onibi up --transport=telegram",
-				active:  current == "telegram",
+				key:      "1",
+				mode:     "telegram",
+				label:    "Telegram",
+				detail:   "chat-native text control",
+				coverage: "unit + fake API + live opt-in",
+				command:  "onibi up --transport=telegram",
+				active:   current == "telegram",
 			},
 			{
-				key:     "2",
-				mode:    "matrix",
-				label:   "Matrix",
-				detail:  "federated room control",
-				command: "onibi up --transport=matrix",
-				active:  current == "matrix",
+				key:      "2",
+				mode:     "matrix",
+				label:    "Matrix",
+				detail:   "federated room control",
+				coverage: "unit + daemon conformance + live opt-in",
+				command:  "onibi up --transport=matrix",
+				active:   current == "matrix",
 			},
 			{
-				key:     "3",
-				mode:    "slack",
-				label:   "Slack",
-				detail:  "Socket Mode workspace control",
-				command: "onibi up --transport=slack",
-				active:  current == "slack",
+				key:      "3",
+				mode:     "slack",
+				label:    "Slack",
+				detail:   "Socket Mode workspace control",
+				coverage: "unit + fake socket + live opt-in",
+				command:  "onibi up --transport=slack",
+				active:   current == "slack",
 			},
 			{
-				key:     "4",
-				mode:    "discord",
-				label:   "Discord",
-				detail:  "DM/guild bot control",
-				command: "onibi up --transport=discord",
-				active:  current == "discord",
+				key:      "4",
+				mode:     "discord",
+				label:    "Discord",
+				detail:   "DM/guild bot control",
+				coverage: "unit + fake gateway + live opt-in",
+				command:  "onibi up --transport=discord",
+				active:   current == "discord",
 			},
 		}
 	}
 	if category == transportCategoryNotify {
 		return []pairTransportChoice{
 			{
-				key:     "1",
-				mode:    "pushover",
-				label:   "Pushover",
-				detail:  "approval push notifications",
-				command: "onibi up --transport=pushover",
-				active:  current == "pushover",
+				key:      "1",
+				mode:     "pushover",
+				label:    "Pushover",
+				detail:   "approval push notifications",
+				coverage: "unit + receipt audit + live opt-in",
+				command:  "onibi up --transport=pushover",
+				active:   current == "pushover",
 			},
 			{
-				key:     "2",
-				mode:    "ntfy",
-				label:   "ntfy",
-				detail:  "topic publish/subscribe",
-				command: "onibi up --transport=ntfy",
-				active:  current == "ntfy",
+				key:      "2",
+				mode:     "ntfy",
+				label:    "ntfy",
+				detail:   "topic publish/subscribe",
+				coverage: "unit + fake WS + live opt-in",
+				command:  "onibi up --transport=ntfy",
+				active:   current == "ntfy",
 			},
 			{
-				key:     "3",
-				mode:    "gotify",
-				label:   "Gotify",
-				detail:  "self-hosted notifications",
-				command: "onibi up --transport=gotify",
-				active:  current == "gotify",
+				key:      "3",
+				mode:     "gotify",
+				label:    "Gotify",
+				detail:   "self-hosted notifications",
+				coverage: "unit + REST/WS fake + live opt-in",
+				command:  "onibi up --transport=gotify",
+				active:   current == "gotify",
 			},
 		}
 	}
 	return []pairTransportChoice{
 		{
-			key:     "1",
-			mode:    "lan",
-			label:   "LAN / hotspot",
-			detail:  "same Wi-Fi or phone hotspot",
-			command: "onibi up --transport=lan",
-			active:  current == "lan",
+			key:      "1",
+			mode:     "lan",
+			label:    "LAN / hotspot",
+			detail:   "same Wi-Fi or phone hotspot",
+			coverage: "unit + local integration + manual device",
+			command:  "onibi up --transport=lan",
+			active:   current == "lan",
 		},
 		{
-			key:     "2",
-			mode:    "tailscale",
-			label:   "Tailscale Funnel",
-			detail:  "cellular via *.ts.net",
-			command: "onibi up --transport=tailscale",
-			active:  current == "tailscale",
+			key:      "2",
+			mode:     "tailscale",
+			label:    "Tailscale Funnel",
+			detail:   "cellular via *.ts.net",
+			coverage: "unit + fake runner + live opt-in",
+			command:  "onibi up --transport=tailscale",
+			active:   current == "tailscale",
 		},
 		{
-			key:     "3",
-			mode:    "cloudflare-quick",
-			label:   "Cloudflare Quick",
-			detail:  "temporary trycloudflare URL",
-			command: "onibi up --transport=cloudflare-quick",
-			active:  current == "cloudflare-quick",
+			key:      "3",
+			mode:     "cloudflare-quick",
+			label:    "Cloudflare Quick",
+			detail:   "temporary trycloudflare URL",
+			coverage: "unit + fake process + live opt-in",
+			command:  "onibi up --transport=cloudflare-quick",
+			active:   current == "cloudflare-quick",
 		},
 		{
-			key:     "4",
-			mode:    "cloudflare-named",
-			label:   "Cloudflare Named",
-			detail:  "configured public hostname",
-			command: "onibi up --transport=cloudflare-named",
-			active:  current == "cloudflare-named",
+			key:      "4",
+			mode:     "cloudflare-named",
+			label:    "Cloudflare Named",
+			detail:   "configured public hostname",
+			coverage: "unit + fake process + live opt-in",
+			command:  "onibi up --transport=cloudflare-named",
+			active:   current == "cloudflare-named",
 		},
 		{
-			key:     "5",
-			mode:    "ngrok",
-			label:   "ngrok",
-			detail:  "dev/demo public URL",
-			command: "onibi up --transport=ngrok",
-			active:  current == "ngrok",
+			key:      "5",
+			mode:     "ngrok",
+			label:    "ngrok",
+			detail:   "dev/demo public URL",
+			coverage: "unit + fake agent API + live opt-in",
+			command:  "onibi up --transport=ngrok",
+			active:   current == "ngrok",
 		},
 		{
-			key:     "6",
-			mode:    "auto",
-			label:   "Auto",
-			detail:  "try Tailscale, fallback LAN",
-			command: "onibi up --transport=auto",
-			active:  current == "auto",
+			key:      "6",
+			mode:     "auto",
+			label:    "Auto",
+			detail:   "try Tailscale, fallback LAN",
+			coverage: "Tailscale -> LAN only",
+			command:  "onibi up --transport=auto",
+			active:   current == "auto",
 		},
 	}
 }

@@ -21,7 +21,7 @@ func TestPromptPairTransportSelectsTailscale(t *testing.T) {
 	if got != "tailscale" {
 		t.Fatalf("transport = %q", got)
 	}
-	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Quick") {
+	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Quick") || !strings.Contains(out.String(), "COVERAGE") {
 		t.Fatalf("prompt output = %q", out.String())
 	}
 }
@@ -48,7 +48,7 @@ func TestPromptPairTransportSelectsTelegram(t *testing.T) {
 	if !prompted || got != "telegram" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-	if !strings.Contains(out.String(), "Telegram") {
+	if !strings.Contains(out.String(), "Telegram") || !strings.Contains(out.String(), "live opt-in") {
 		t.Fatalf("prompt output = %q", out.String())
 	}
 }

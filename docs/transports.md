@@ -115,9 +115,10 @@ Optional:
 
 ```bash
 ONIBI_MATRIX_OWNER_USER_ID='@owner:example.org'
+ONIBI_MATRIX_ALLOW_ENCRYPTED=0
 ```
 
-Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, stores the `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors.
+Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, refuses encrypted rooms by default, stores the room-scoped `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors.
 
 ## Slack
 
@@ -135,7 +136,7 @@ ONIBI_SLACK_ALLOWED_CHANNELS=C123,C456
 ONIBI_SLACK_ALLOWED_DM_USERS=U123,U456
 ```
 
-Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, reconnects after WebSocket loss, routes allowed message events to the current session, and accepts approval button callbacks.
+Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events, routes allowed message events to the current session, and accepts approval button callbacks.
 
 ## Discord
 
@@ -151,7 +152,11 @@ Optional:
 ONIBI_DISCORD_ALLOWED_IDS=<channel-or-user-id>,...
 ```
 
-Onibi connects to the Discord Gateway, sends Identify, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and replies with a slash-command fallback when message content is unavailable.
+Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and replies with a slash-command fallback when message content is unavailable.
+
+## Chat redaction
+
+Chat providers receive terminal text through third-party infrastructure. By default, Onibi redacts common secret patterns in outbound chat terminal output and approval payloads. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 
@@ -165,7 +170,7 @@ ONIBI_PUSHOVER_USER_KEY=...
 onibi up --transport=pushover
 ```
 
-Pushover approval alerts use emergency priority and poll the returned receipt.
+Pushover approval alerts use emergency priority, poll the returned receipt, and write receipt/ack/expiry audit rows.
 
 ntfy:
 
@@ -176,7 +181,7 @@ ONIBI_NTFY_TOKEN=...
 onibi up --transport=ntfy
 ```
 
-The ntfy topic is treated as a secret; guessable topics are rejected.
+The ntfy topic is treated as a secret; short, repeated, single-class, or guessable topics are rejected. WebSocket subscribe supports replay smoke checks with `since`.
 
 Gotify:
 
@@ -187,7 +192,11 @@ ONIBI_GOTIFY_CLIENT_TOKEN=...
 onibi up --transport=gotify
 ```
 
-Gotify sends approval notifications through the REST message endpoint and has a WebSocket receive client for smoke tests.
+Gotify sends approval notifications through the REST message endpoint, validates the optional client token before startup, and has a WebSocket receive client for smoke tests.
+
+## Coverage status
+
+`onibi up` prints provider coverage in the picker. `onibi doctor --transport=<mode>` runs the matching preflight check and reports missing env, weak ntfy topics, or missing relay binaries before startup.
 
 ## Cloudflare Quick Tunnel
 

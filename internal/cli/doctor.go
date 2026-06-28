@@ -15,6 +15,7 @@ import (
 func runDoctor(cmd *cobra.Command, _ []string) error {
 	offline, _ := cmd.Flags().GetBool("offline")
 	mode, _ := cmd.Flags().GetString("mode")
+	transportMode, _ := cmd.Flags().GetString("transport")
 	fix, _ := cmd.Flags().GetBool("fix")
 	afterUpgrade, _ := cmd.Flags().GetBool("after-upgrade")
 	asJSON, _ := cmd.Flags().GetBool("json")
@@ -28,7 +29,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
-	opts := doctor.Options{Paths: paths, Offline: offline, Mode: mode, AfterUpgrade: afterUpgrade}
+	opts := doctor.Options{Paths: paths, Offline: offline, Mode: mode, Transport: transportMode, AfterUpgrade: afterUpgrade}
 	if doctorOptionsHook != nil {
 		doctorOptionsHook(&opts)
 	}

@@ -48,6 +48,7 @@ ONIBI_LIVE_MATRIX=1 ONIBI_MATRIX_HOMESERVER=... ONIBI_MATRIX_ACCESS_TOKEN=... ON
 
 - Run `onibi up --transport=matrix`.
 - Confirm the bot can `/sync`, send a room message, reconnect with the stored since token, and reject a room where it lacks owner/moderator power.
+- Confirm encrypted rooms fail unless `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` is intentionally set.
 - Restart Onibi and confirm the room does not replay old terminal input.
 - Trigger a bad homeserver/token and confirm the error is surfaced.
 
@@ -58,7 +59,7 @@ ONIBI_LIVE_SLACK=1 ONIBI_SLACK_APP_TOKEN=... ONIBI_SLACK_BOT_TOKEN=... ONIBI_SLA
 ```
 
 - Run `onibi up --transport=slack`.
-- Confirm Socket Mode opens, message envelopes are acked, reconnect resumes after WebSocket close, and DM/channel allowlists block non-owned sources.
+- Confirm Socket Mode opens, message envelopes are acked, `disconnect`/`refresh_requested` opens a fresh socket URL, and DM/channel allowlists block non-owned sources.
 - Trigger an approval and confirm Approve/Deny buttons decide it.
 
 ## Discord
@@ -68,7 +69,7 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 ```
 
 - Run `onibi up --transport=discord`.
-- Confirm Gateway Identify, reconnect on reconnect/invalid-session frames, DM versus guild allowlist behavior, and terminal text input when Message Content intent is enabled.
+- Confirm Gateway Identify, heartbeat ACKs, Resume after reconnect, DM versus guild allowlist behavior, and terminal text input when Message Content intent is enabled.
 - Disable Message Content intent and confirm the slash-command fallback reply.
 
 ## Notify-only
@@ -81,6 +82,7 @@ ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... go te
 
 - Trigger an approval and confirm an emergency notification arrives.
 - Acknowledge it and confirm receipt polling observes the ack or expiry.
+- Confirm audit rows include receipt creation and ack/expiry state.
 - Confirm normal terminal messages are not accepted through Pushover.
 
 ntfy:
@@ -90,7 +92,7 @@ ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> go test ./internal/n
 ```
 
 - Confirm publish and WebSocket subscribe receive the same approval text.
-- Confirm short or guessable topics are rejected before startup.
+- Confirm short, repeated, single-class, or guessable topics are rejected before startup.
 
 Gotify:
 
@@ -100,6 +102,7 @@ ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY
 
 - Confirm REST send creates an approval notification.
 - Confirm WebSocket subscribe receives the message stream.
+- Confirm startup validates the optional client token.
 - Confirm no terminal input path is exposed.
 
 ## Cloudflare Quick
