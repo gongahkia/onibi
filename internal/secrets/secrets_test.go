@@ -1,6 +1,8 @@
 package secrets
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,5 +72,52 @@ func TestDotenvLoosePermsRejected(t *testing.T) {
 	_, _, err := s.Get("FOO")
 	if err == nil {
 		t.Fatal("expected error on loose perms")
+	}
+}
+
+func TestGetOrCreateStoreKeyDotenvSurvivesRestart(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "nested", "store.key")
+	s, err := Open(Options{EnvFallbackPath: envFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 32 {
+		t.Fatalf("key len = %d", len(first))
+	}
+	fi, err := os.Stat(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("store key perms %#o (want 0600)", fi.Mode().Perm())
+	}
+	reopened, err := Open(Options{EnvFallbackPath: envFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := reopened.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("store key changed after reopen")
+	}
+}
+
+func TestGetOrCreateStoreKeyRejectsInvalidPersistedKey(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "store.key")
+	s, err := Open(Options{EnvFallbackPath: envFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(StoreKeyName, "bad"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetOrCreateStoreKey(context.Background()); err == nil {
+		t.Fatal("expected invalid persisted key error")
 	}
 }

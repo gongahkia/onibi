@@ -3,13 +3,18 @@ package secrets
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/envelope"
 
 	"github.com/99designs/keyring"
 )
@@ -25,6 +30,7 @@ const (
 
 const (
 	keyringService = "sh.onibi.daemon"
+	StoreKeyName   = "onibi.store.key.v1"
 )
 
 // Store hides whether a secret lives in the OS keystore or a .env file.
@@ -65,6 +71,26 @@ func Open(opts Options) (*Store, error) {
 	return &Store{backend: be, ring: ring}, nil
 }
 
+func DefaultStoreKeyFallbackPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "onibi", "store.key"), nil
+}
+
+func GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
+	path, err := DefaultStoreKeyFallbackPath()
+	if err != nil {
+		return nil, err
+	}
+	store, err := Open(Options{EnvFallbackPath: path})
+	if err != nil {
+		return nil, err
+	}
+	return store.GetOrCreateStoreKey(ctx)
+}
+
 func openKeyring() (keyring.Keyring, error) {
 	return keyring.Open(keyring.Config{
 		ServiceName: keyringService,
@@ -83,6 +109,31 @@ func openKeyring() (keyring.Keyring, error) {
 
 // Backend returns the active backend (informational, e.g. for `onibi doctor`).
 func (s *Store) Backend() Backend { return s.backend }
+
+func (s *Store) GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
+	value, ok, err := s.getContext(ctx, StoreKeyName)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return decodeStoreKey(value)
+	}
+	key := make([]byte, envelope.KeyBytes)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	if err := s.setContext(ctx, StoreKeyName, base64.RawURLEncoding.EncodeToString(key)); err != nil {
+		return nil, err
+	}
+	value, ok, err = s.getContext(ctx, StoreKeyName)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("store key write did not persist")
+	}
+	return decodeStoreKey(value)
+}
 
 // Set stores value under key. For .env, writes the file atomically with
 // 0600 perms (creates if missing).
@@ -112,6 +163,60 @@ func (s *Store) Get(key string) (string, bool, error) {
 		return "", false, err
 	}
 	return string(it.Data), true, nil
+}
+
+func (s *Store) getContext(ctx context.Context, key string) (string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if s.backend == BackendDotenv {
+		value, ok, err := s.Get(key)
+		if err != nil {
+			return "", false, err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
+		return value, ok, nil
+	}
+	type result struct {
+		value string
+		ok    bool
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		value, ok, err := s.Get(key)
+		ch <- result{value: value, ok: ok, err: err}
+	}()
+	select {
+	case res := <-ch:
+		return res.value, res.ok, res.err
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	}
+}
+
+func (s *Store) setContext(ctx context.Context, key, value string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.backend == BackendDotenv {
+		if err := s.Set(key, value); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+	ch := make(chan error, 1)
+	go func() {
+		ch <- s.Set(key, value)
+	}()
+	select {
+	case err := <-ch:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // GetWithTimeout retrieves key, bounding OS keystore calls that can block.
@@ -214,6 +319,9 @@ func readDotenv(path string) (map[string]string, error) {
 }
 
 func writeDotenv(path string, entries map[string]string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -234,6 +342,17 @@ func writeDotenv(path string, entries map[string]string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func decodeStoreKey(value string) ([]byte, error) {
+	key, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != envelope.KeyBytes {
+		return nil, fmt.Errorf("store key must be %d bytes", envelope.KeyBytes)
+	}
+	return key, nil
 }
 
 func checkPerm(f *os.File, want os.FileMode) error {
