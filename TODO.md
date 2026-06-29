@@ -289,8 +289,7 @@ x 2026-06-28 E2E test on a tailnet-joined Mac with `onibi up --transport=tailsca
 
 > Goal: tag v0.3.0, ship.
 
-(A) 2026-06-23 Bump version in internal/buildinfo/ to 0.3.0 (or whatever v3 marker scheme is in use) +phase09 @release file:internal/buildinfo/ id:T900 blocked-by:T809
-(A) 2026-06-23 Final test pass: go test ./... -race -count=1 + go vet + staticcheck + frontend tests (npm test if added) + manual smoke on real iPhone for both LAN and Tailscale +phase09 @tests id:T901 blocked-by:T900
+(A) 2026-06-23 Final test pass: go test ./... -race -count=1 + go vet + staticcheck + frontend tests (npm test if added) + manual smoke on real iPhone for both LAN and Tailscale +phase09 @tests id:T901
 (A) 2026-06-23 goreleaser release --skip=publish --clean dry run; confirm artifacts for darwin-amd64, darwin-arm64, linux-amd64, linux-arm64 +phase09 @release id:T902 blocked-by:T901
 (B) 2026-06-23 Update gongahkia/homebrew-onibi tap manifest: new version + sha256s of darwin artifacts +phase09 @release id:T903 blocked-by:T902
 (B) 2026-06-23 Developer-ID sign + notarize darwin builds (Gatekeeper requirement); upload notarization tickets +phase09 @release id:T904 blocked-by:T903
