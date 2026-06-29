@@ -272,7 +272,7 @@ func ManagedBody(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var managed []any
+	managed := []any{}
 	if hooks, ok := cfg["hooks"].(map[string]any); ok {
 		for _, event := range common.SortStrings(keys(hooks)) {
 			for _, group := range asSlice(hooks[event]) {

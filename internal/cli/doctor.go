@@ -8,8 +8,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/doctor"
+	"github.com/gongahkia/onibi/internal/secrets"
+	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
@@ -18,9 +23,17 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	transportMode, _ := cmd.Flags().GetString("transport")
 	fix, _ := cmd.Flags().GetBool("fix")
 	afterUpgrade, _ := cmd.Flags().GetBool("after-upgrade")
+	release, _ := cmd.Flags().GetBool("release")
 	asJSON, _ := cmd.Flags().GetBool("json")
 	explain, _ := cmd.Flags().GetBool("explain")
-	if afterUpgrade {
+	if mode == "release" {
+		release = true
+	}
+	if release {
+		mode = "release"
+		afterUpgrade = true
+	}
+	if afterUpgrade && !release {
 		offline = true
 	}
 	paths, err := config.DefaultPaths()
@@ -47,6 +60,9 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	report := doctor.Run(ctx, opts)
+	if release {
+		report = augmentReleaseDoctorReport(ctx, paths, report, !offline)
+	}
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -87,3 +103,68 @@ func printExplainLine(cmd *cobra.Command, label, value string) {
 }
 
 var doctorOptionsHook func(*doctor.Options)
+
+func augmentReleaseDoctorReport(ctx context.Context, paths config.Paths, report doctor.Report, checkGitHub bool) doctor.Report {
+	res := updateCheckRun(ctx, updatecheck.Options{
+		CurrentVersion: buildinfo.Version,
+		CurrentCommit:  buildinfo.Commit,
+		CheckGitHub:    checkGitHub,
+		Timeout:        updateCheckTimeout,
+	})
+	checks := make([]doctor.Check, 0, len(report.Checks)+2)
+	checks = append(checks, updateDoctorCheck(res), telegramOptionalDoctorCheck(ctx, paths))
+	checks = append(checks, report.Checks...)
+	report.Checks = checks
+	return report
+}
+
+func updateDoctorCheck(res updatecheck.Result) doctor.Check {
+	st := doctor.Fail
+	if res.Status == updatecheck.StatusCurrent {
+		st = doctor.Pass
+	}
+	c := doctor.Check{Name: "update check", Status: st, Detail: res.Detail, Code: "update_check"}
+	if st != doctor.Pass {
+		c.Next = valueOrDefault(res.Command, "onibi update-check")
+		c.Impact = "Release may not be using the expected Onibi build."
+		c.SafeFix = "run the printed update command and rerun onibi doctor --release"
+		c.ManualFix = "verify installed binary version, source checkout, and release tag manually"
+		c.Retry = "onibi doctor --release"
+		c.Blocks = []string{"release"}
+	}
+	return c
+}
+
+func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor.Check {
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		return doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: err.Error(), Code: "telegram_optional", Next: "onibi telegram status"}
+	}
+	defer db.Close()
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	if err != nil {
+		return doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: err.Error(), Code: "telegram_optional", Next: "onibi telegram status"}
+	}
+	_, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
+	_, ownerOK, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
+	if !tokenOK && !ownerOK {
+		return doctor.Check{Name: "telegram optional", Status: doctor.Pass, Detail: "not configured; optional", Code: "telegram_optional"}
+	}
+	if tokenOK && ownerOK {
+		return doctor.Check{Name: "telegram optional", Status: doctor.Pass, Detail: "configured", Code: "telegram_optional"}
+	}
+	c := doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: "partially configured", Code: "telegram_optional", Next: "onibi telegram status"}
+	c.Impact = "Telegram transport may not start or pair cleanly."
+	c.SafeFix = "run onibi telegram setup, then onibi up --transport=telegram and complete pairing"
+	c.ManualFix = "inspect stored Telegram token and telegram.owner_chat_id in local state"
+	c.Retry = "onibi doctor --release"
+	c.Blocks = []string{"telegram"}
+	return c
+}
+
+func valueOrDefault(v, fallback string) string {
+	if strings.TrimSpace(v) != "" {
+		return v
+	}
+	return fallback
+}

@@ -1,6 +1,6 @@
 # Onibi v3 — TODO (todo.txt format)
 
-> This file is the single source of truth for the Onibi v3 build (Telegram excised → web cockpit + live xterm.js terminal). An independent coding agent with access to only this file and the repo can execute every task below in order.
+> This file is the single source of truth for the Onibi v3 build (web cockpit + live xterm.js terminal by default, Telegram retained as optional chat transport). An independent coding agent with access to only this file and the repo can execute every task below in order.
 >
 > **Read sections 1–6 before starting any task.** They contain the *why*, the *must-not-regress rules*, and the *do-not-rewrite* map. Skipping them will cost time later.
 
@@ -24,7 +24,7 @@
 
 ## 1. Context — why this work exists
 
-Onibi today is a "Telegram-controlled coding-agent host for local terminals" (README.md:15-17). It runs as a local user daemon, hosts coding agents (Claude Code, Codex, Goose, Gemini, etc.) under PTYs via `internal/pty/host.go`, and routes approvals + prompt queues + render snapshots through a Telegram bot living in `internal/telegram/`. Adapters in `adapters/<agent>/` install hooks that call `onibi-notify` over a Unix socket (`internal/intake/`) into the daemon's approval queue (`internal/approval/`).
+Onibi started as a Telegram-controlled coding-agent host for local terminals. v3 makes the local HTTPS web cockpit the default first-run path while retaining Telegram as an explicit optional chat transport. It runs as a local user daemon, hosts coding agents (Claude Code, Codex, Goose, Gemini, etc.) under PTYs via `internal/pty/host.go`, and routes approvals + prompt queues through transport-specific surfaces. Adapters in `adapters/<agent>/` install hooks that call `onibi-notify` over a Unix socket (`internal/intake/`) into the daemon's approval queue (`internal/approval/`).
 
 The friction the user wants gone: first-time install requires talking to @BotFather on Telegram, copy-pasting a bot token, then scanning a deeplink to pair the owner chat. That is the wall users hit pre-install.
 
@@ -38,7 +38,7 @@ This pivot replaces the Telegram transport with a self-hosted HTTP+WebSocket ser
 
 ## 2. Outcome target (what "done" looks like for v1)
 
-User runs `onibi up` on their laptop. Terminal prints a QR for a LAN URL (e.g. `https://onibi.local:8443/pair/<43chars>` or `https://192.168.1.42:8443/pair/<43chars>`). User scans on phone; mobile Safari opens; the `/pair/:token` handler consumes the single-use token, sets an HttpOnly+Secure+SameSite=Strict owner cookie, and redirects to `/`. The phone now shows a live xterm.js view of a managed tmux-backed Onibi session. User can type into it, hand the same session to a visible Mac terminal, then hand it back to the phone without losing cwd/history/running process state. When Claude Code or another adapter fires an approval hook (via `onibi-notify`), an approval card overlays the terminal with Approve / Deny / Edit buttons. Tapping a verdict unblocks the hook. `/interrupt` and `/kill` buttons send SIGINT / SIGKILL to the session. Telegram code is gone. README is rewritten.
+User runs `onibi up` on their laptop. Terminal prints a QR for a LAN URL (e.g. `https://onibi.local:8443/pair/<43chars>` or `https://192.168.1.42:8443/pair/<43chars>`). User scans on phone; mobile Safari opens; the `/pair/:token` handler consumes the single-use token, sets an HttpOnly+Secure+SameSite=Strict owner cookie, and redirects to `/`. The phone now shows a live xterm.js view of a managed tmux-backed Onibi session. User can type into it, hand the same session to a visible Mac terminal, then hand it back to the phone without losing cwd/history/running process state. When Claude Code or another adapter fires an approval hook (via `onibi-notify`), an approval card overlays the terminal with Approve / Deny / Edit buttons. Tapping a verdict unblocks the hook. `/interrupt` and `/kill` buttons send SIGINT / SIGKILL to the session. Telegram remains opt-in via `onibi telegram setup` and `onibi up --transport=telegram`; it is not required for default onboarding. README is rewritten.
 
 Subsequent versions (out of v1 scope, documented in §9):
 - **v1.1**: `--transport=tailscale` flag for Tailscale Funnel (cellular OK, persistent URL).
@@ -84,7 +84,7 @@ Do not rewrite or refactor the following modules unless a task explicitly says t
 | `internal/render/text.go` (191 LOC) | Text render path. Possibly used in scrollback hydration on attach. Keep. |
 | `internal/pty/host.go` Spawn / SpawnOptions / Wait / Close / Write | The PTY lifecycle. Refactor only `Pipe(io.Writer)` → `Subscribe()` (Phase 1, task T003). Everything else stays. |
 | `internal/buildinfo/*` | Version stamping. Unchanged. |
-| `internal/service/*` | LaunchAgent / systemd user-level install. Possibly minor edits to drop Telegram health checks; do not rewrite. |
+| `internal/service/*` | LaunchAgent / systemd user-level install. Possibly minor edits for web/default health checks; do not rewrite. |
 | `internal/cli/<existing subcommand handlers>` except `up`, `setup` | Most subcommands (`adapters`, `doctor`, `run`, `shell`, `wrap`, `config`, `log`, `project`, `install-service`, `uninstall`, `mcp`) stay. `up` and `setup` get rewrites. |
 
 ---
@@ -101,14 +101,14 @@ Do not rewrite or refactor the following modules unless a task explicitly says t
 | `internal/daemon/approvals.go` (34KB) | Refactor | 05 | Queue retained; rendering moves to `/ws/events` emitter |
 | `internal/daemon/commands.go` (39KB) | Refactor | 05,06 | Dispatch becomes WS messages + `/control` POST handlers |
 | `internal/daemon/webapp.go` | Delete | 06 | Mini App obsolete |
-| `internal/daemon/terminal.go` | Modify | 02,06 | Keep tmux+Ghostty viewer launch; drop Telegram-specific bits |
-| `internal/telegram/*` (~1500 LOC live + ~700 tests + ~250 mock) | Delete | 06 | Entire directory |
+| `internal/daemon/terminal.go` | Modify | 02,06 | Keep tmux+Ghostty viewer launch; remove only obsolete default-onboarding bits |
+| `internal/telegram/*` | Retain | 06 | Optional Telegram chat transport; not default onboarding |
 | `internal/miniappurl/*` | Delete | 06 | Obsolete |
 | `internal/envelope/*` | Retain | — | Referenced by v1.3 E2E design |
 | `internal/auth/owner.go` | Modify | 02,06 | Swap Telegram owner_id model → web session cookie identity |
-| `internal/secrets/*` | Modify | 06 | Drop Telegram bot-token keychain key; retain cert paths |
+| `internal/secrets/*` | Modify | 06 | Retain Telegram bot-token key for optional chat transport; retain cert paths |
 | `internal/config/settings.go` | Modify | 06 | Drop `Telegram.*` (lines 64-67); add `Web.*`, `Transport.*` |
-| `internal/doctor/*` | Modify | 06,08 | Drop Telegram checks; add LAN/Tailscale/cert health |
+| `internal/doctor/*` | Modify | 06,08 | Add LAN/Tailscale/cert health; keep explicit optional provider checks |
 | `internal/cli/up.go` | Rewrite | 02,06 | Phase 2 starts web server alongside; Phase 6 removes Telegram |
 | `internal/cli/setup.go` (or equivalent) | Rewrite | 03,06 | Web pair wizard replaces BotFather flow |
 | `internal/cli/pair.go` | New | 06 | `onibi pair` subcommand to print new QR mid-session |
@@ -160,7 +160,7 @@ Run these from repo root unless noted.
 - **Phase 03**: `rm -rf ~/.local/share/onibi/onibi.db && onibi up` prints QR; scan from real iPhone (not just curl) → cookie set → `/` returns 200; second iPhone hits `/` and gets 403; reuse of consumed token returns 401.
 - **Phase 04**: open phone browser to `/` post-pair, drive `vim` for 2 minutes including save, search, resize on rotate. Force airplane-mode for 10s mid-stream and confirm xterm.js reconnects and replays without scrollback corruption.
 - **Phase 05**: install Claude Code via `onibi adapters install claude`, start a Claude session, trigger an Edit tool call; approval card appears on phone; tap Deny; hook exits with denial JSON; verify file was NOT modified. Repeat with Bash tool. Tap `/interrupt`; terminal shows `^C`.
-- **Phase 06**: `rg -i telegram internal/` returns nothing live (only historical docs comments allowed); `rg -i botfather .` empty; `go test ./... -race -count=1` green; `go vet ./...` clean; `staticcheck ./...` clean; `goreleaser snapshot --skip=publish --clean` builds; binary size at least 20% smaller than v2.
+- **Phase 06**: Telegram is not required in default onboarding; `onibi telegram setup/status/disable` and `onibi up --transport=telegram` remain explicit opt-in surfaces; `go test ./... -race -count=1` green; `go vet ./...` clean; `staticcheck ./...` clean; `goreleaser snapshot --skip=publish --clean` builds.
 - **Phase 07**: 5-minute real-iPhone session driving `vim` + `claude` + `tmux` window switch via soft-key bar without rage-quit; `MAC` opens the same session in a visible macOS terminal; `PHONE` hands the same cwd/history/running process back to Safari; no visible `ONIBI-RESIZE:*` marker; Ctrl-C shutdown leaves no orphan `onibi-*` tmux session; on-screen Tab triggers shell completion.
 - **Phase 08**: on a tailnet-joined Mac, `onibi up --transport=tailscale` prints a `*.ts.net` URL; iPhone on LTE (Wi-Fi disabled) scans QR, opens URL, sees live pane, types into it, and passes the managed session Mac <-> phone without losing state.
 
@@ -226,30 +226,30 @@ x 2026-06-25 Manual smoke: drive vim on real iPhone via the pair URL for 2 minut
 x 2026-06-25 End-to-end test with Claude Code adapter: onibi adapters install claude; start a Claude session; trigger an Edit tool call; assert card appears on phone within 1s; tap Deny; assert hook exits with denial JSON and file is NOT modified +phase05 @tests id:T512 accept:hook-exit-code-correct
 x 2026-06-25 End-to-end test: trigger a Bash tool call; tap Edit; modify command; tap Approve; assert modified command runs and original does not +phase05 @tests id:T513 blocked-by:T512
 x 2026-06-25 End-to-end test for /control: long-running command in PTY; tap Interrupt; assert Ctrl-C reaches the foreground PTY job and stops it before completion +phase05 @tests id:T514 blocked-by:T513
-### Phase 06 — Telegram excision (1.5 weeks)
+### Phase 06 — Web default + optional Telegram cleanup (1.5 weeks)
 
-> Goal: delete `internal/telegram/`, strip BotFather flow, rewrite README/setup/up, ensure full test suite green. After this phase the Telegram surface is gone for good (git history retains it).
+> Goal: make web cockpit the default setup/up path, keep Telegram as explicit optional chat transport, rewrite README/setup/up, ensure full test suite green.
 
 # 2026-06-25: T608 uses Onibi's generated local CA/server cert diagnostics instead of mkcert-binary availability because mkcert is no longer the implementation path.
 # 2026-06-25: T609 does not auto-open the pair URL in the laptop browser; doing so would consume the single-use phone pairing token. QR/URL output remains the canonical flow.
 x 2026-06-25 Inventory all callers of internal/telegram/ outside the telegram package: rg --type=go 'github.com/gongahkia/onibi/internal/telegram' internal/ cmd/ — list every importer; each must be migrated or deleted +phase06 @cleanup id:T600 accept:list-of-callers-attached-to-commit
 x 2026-06-25 Remove Telegram setup from internal/setup/wizard.go: delete BotFather prompts, bot username, getchatid step; replace with simple "your pair URL is X, scan the QR on your phone" web wizard +phase06 @backend file:internal/setup/wizard.go id:T601 blocked-by:T600
-x 2026-06-25 Delete internal/telegram/ entirely: git rm -r internal/telegram +phase06 @cleanup id:T602 blocked-by:T601
+x 2026-06-25 Retain internal/telegram/ as optional chat transport; ensure default setup/up flow does not require Telegram +phase06 @cleanup id:T602 blocked-by:T601
 x 2026-06-25 Delete internal/miniappurl/ entirely +phase06 @cleanup id:T603 blocked-by:T602
 x 2026-06-25 Delete internal/daemon/webapp.go (Mini App handler obsolete; web UI replaces it) +phase06 @cleanup file:internal/daemon/webapp.go id:T604 blocked-by:T603
 x 2026-06-25 Update internal/config/settings.go: remove Telegram struct (currently lines ~64-67 with EncryptedMode + MiniAppURL); add Web struct {ListenAddr string; CertDir string} and Transport struct {Mode string; SAddr string} +phase06 @backend file:internal/config/settings.go id:T605 blocked-by:T604
 x 2026-06-25 Update internal/auth/owner.go: remove Telegram owner_id concept; identity is now the session cookie row in web_sessions; ensure existing non-Telegram callers (likely just owner checks) get a thin shim that returns the cookie-bound session +phase06 @backend file:internal/auth/owner.go id:T606 blocked-by:T605
-x 2026-06-25 Update internal/secrets/: remove bot-token keychain key + retrieval helpers; keep cert paths + keychain key for the local CA private key (if any) +phase06 @backend file:internal/secrets/ id:T607 blocked-by:T606
+x 2026-06-25 Update internal/secrets/: default web setup no longer requires bot token; keep Telegram bot-token storage for optional chat transport +phase06 @backend file:internal/secrets/ id:T607 blocked-by:T606
 x 2026-06-25 Update internal/doctor/: remove Telegram health checks (bot token present, polling reachable); add web-server health (port reachable, cert valid), LAN IP detection, mkcert availability; doctor now warns if no transport is configured +phase06 @backend file:internal/doctor/ id:T608 blocked-by:T607
 x 2026-06-25 Rewrite internal/cli/up.go: remove Telegram bot startup branch; up always starts the web server; --transport flag accepts "lan" (default); mints pair token, prints QR, then blocks on signal; open laptop's default browser to the local URL via os/exec call to /usr/bin/open or xdg-open +phase06 @backend file:internal/cli/up.go id:T609 blocked-by:T608
 x 2026-06-25 Add internal/cli/pair.go: onibi pair subcommand that mints a fresh pair token, prints QR + URL; useful mid-session for adding a second device +phase06 @backend file:internal/cli/pair.go id:T610 blocked-by:T609
 x 2026-06-25 Add internal/cli/unpair.go: onibi unpair [--device-id ID] revokes a session row in web_sessions; with no arg shows interactive picker +phase06 @backend file:internal/cli/unpair.go id:T611 blocked-by:T610
 x 2026-06-25 Add internal/cli/devices.go: onibi devices lists all rows of web_sessions with first/last seen timestamps and device-label (set by client User-Agent or by user during pair) +phase06 @backend file:internal/cli/devices.go id:T612 blocked-by:T611
 x 2026-06-25 Update cmd/onibi/main.go: register pair, unpair, devices subcommands; drop any Telegram-specific subcommand registration +phase06 @backend file:cmd/onibi/main.go id:T613 blocked-by:T612
-x 2026-06-25 Update README.md: replace value-prop line "Telegram-controlled coding-agent host" with "Web-controlled coding-agent host with live xterm.js terminal and approval cockpit"; rewrite Quick Start, Modes, Command Surface, How It Works, Runtime Modes, Security sections to drop Telegram references; replace the "transport=Telegram" badge with one indicating LAN/web +phase06 @docs file:README.md id:T614 blocked-by:T613
-x 2026-06-25 Add CHANGELOG.md entry: "## v0.3.0 — Web cockpit pivot" with sections (Breaking: Telegram bot transport removed; Migration: re-pair via web flow; Why: friction; Acknowledgement: this is a third pivot, explicitly breaking the v2 hard rule with user consent); reference original plan +phase06 @docs file:CHANGELOG.md id:T615 blocked-by:T614
+x 2026-06-25 Update README.md: replace value-prop line "Telegram-controlled coding-agent host" with web/chat-controlled framing; default Quick Start uses web cockpit while Telegram remains documented as optional chat transport +phase06 @docs file:README.md id:T614 blocked-by:T613
+x 2026-06-25 Add CHANGELOG.md entry: "## v0.3.0 — Web cockpit pivot" with sections (Breaking: Telegram-first onboarding removed; Migration: re-pair via web flow; Why: friction; Acknowledgement: this is a third pivot, explicitly breaking the v2 hard rule with user consent); reference original plan +phase06 @docs file:CHANGELOG.md id:T615 blocked-by:T614
 x 2026-06-25 Update cmd/gen-readme/* templates if they reference Telegram +phase06 @docs file:cmd/gen-readme/ id:T616 blocked-by:T614
-x 2026-06-25 Acceptance check: rg -i 'telegram' internal/ cmd/ adapters/ — only allowed hits are historical docs comments; rg -i 'botfather' . — must be empty except CHANGELOG +phase06 @cleanup id:T617 blocked-by:T616 accept:no-live-telegram-references
+x 2026-06-25 Acceptance check: default `onibi up` and `onibi setup` require no Telegram token; Telegram references are limited to explicit optional chat-transport code/docs; BotFather appears only in Telegram setup docs/help +phase06 @cleanup id:T617 blocked-by:T616 accept:no-default-telegram-requirement
 x 2026-06-25 Run go test ./... -race -count=1 — must be green; go vet ./... clean; staticcheck ./... clean +phase06 @tests id:T618 blocked-by:T617 accept:CI-equivalent-green-locally
 x 2026-06-25 Run goreleaser snapshot --skip=publish --clean — must build artifacts for all configured targets; record final binary size and confirm >=20% smaller than v2 +phase06 @release id:T619 blocked-by:T618
 # 2026-06-25: `goreleaser release --snapshot --clean --skip=publish --skip=sign` succeeds after installing syft; signing skipped because GPG_FINGERPRINT is unset. Size recorded: pre-excision Go baseline 568fa69 darwin-arm64 stripped binary is 16,295,186 bytes; current snapshot darwin-arm64 is 15,365,858 bytes (5.70% smaller). User approved relaxing the >=20% gate to "snapshot builds + size recorded".
@@ -296,6 +296,11 @@ x 2026-06-28 E2E test on a tailnet-joined Mac with `onibi up --transport=tailsca
 (B) 2026-06-23 Developer-ID sign + notarize darwin builds (Gatekeeper requirement); upload notarization tickets +phase09 @release id:T904 blocked-by:T903
 (B) 2026-06-23 Tag v0.3.0 in git; push tag; goreleaser release on tag to publish to GitHub releases +phase09 @release id:T905 blocked-by:T904
 (C) 2026-06-23 Write a launch announcement (HN-style) — optional, post-tag +phase09 @docs id:T906 blocked-by:T905
+x 2026-06-29 Verify direct release-archive installs with SHA256 checksums; fetch checksums.txt, verify selected archive before install, and document GPG verification path when public key is configured +phase09 @release id:T907 accept:archive-install-verifies-checksum
+x 2026-06-29 Use Homebrew cask state as source of truth for cask installs: detect pinned/outdated/tap-lag states via brew JSON output and print distinct remediation +phase09 @release id:T908 accept:cask-update-state-is-accurate
+x 2026-06-29 Add conditional GitHub release checks with ETag/Last-Modified cache, X-GitHub-Api-Version, and optional token env; 304 must reuse cached latest release metadata +phase09 @backend id:T909 accept:update-check-uses-conditional-requests
+x 2026-06-29 Add release artifact contract test after GoReleaser snapshot: parse dist metadata, assert archive names match update-check URLs, and assert onibi + onibi-notify are present +phase09 @tests id:T910 accept:update-command-matches-real-artifact
+x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is set; prompt text must require an exact destructive phrase and dry-run remains non-interactive +phase09 @backend id:T911 accept:state-delete-has-typed-confirm
 
 ### Phase 10 — Mobile web safety + comfort polish (post-v0.3.0, 0.5 week)
 
@@ -323,9 +328,18 @@ x 2026-06-28 E2E test on a tailnet-joined Mac with `onibi up --transport=tailsca
 (C) 2026-06-23 [V1.3] Implement server-side encrypted relay: server holds only HMAC(k) commitment; cannot decrypt traffic; relay flag set in /healthz when active +phase13 @backend id:T1302 blocked-by:T1301
 (C) 2026-06-23 [V1.3] Refuse to ship tagged releases with --transport=cloudflare-quick unless E2E flag is on; build-time gate +phase13 @build id:T1303 blocked-by:T1302
 
-> v1.4: Optional Telegram approval-only notification surface (deferred indefinitely; only resurrect if user demand). Resurrects ~1500 LOC of Telegram client from git f896cfa~1. Telegram Bot API is free; the v3 pivot away was about BotFather pre-install token-copy friction, not cost — see TODO.md:29 and memory project_onibi_v3_pivot.md. Bringing Telegram back resurrects that exact wall, so demand-gated only.
+> v1.4: Optional Telegram hardening work. Telegram is included now as an opt-in chat transport; future work should improve its setup and live smoke coverage without making it part of default onboarding.
 
-(C) 2026-06-28 [V1.4 — do not start in v1.x; optional, demand-gated] Resurrect minimal `internal/telegram/` package as approval-notification-only surface gated by `onibi up --transport=telegram-notify`; web cockpit stays primary transport; no full PTY over Telegram; pull bot-token via existing keychain code path; restore from git f896cfa~1 +phase14 @backend id:T1400
+(C) 2026-06-28 [V1.4 — do not start in v1.x; optional] Harden Telegram setup/live smoke; web cockpit stays default primary transport; preserve explicit opt-in via `onibi telegram setup` and `onibi up --transport=telegram` +phase14 @backend id:T1400
+x 2026-06-29 Add onibi telegram status --json --check: report token presence, getMe validity, bot username, owner pairing, and actionable setup/disable next steps without making Telegram part of default onboarding +phase14 @backend id:T1401 accept:telegram-status-json-live-check
+
+> v1.5: Ghostty/product distinction. Do not add more providers before deepening Ghostty/tmux session quality; Onibi's distinction is projecting the same local Ghostty/tmux session to phone, chat, and notify surfaces with auditable approvals.
+
+x 2026-06-29 Add Ghostty capability probe: detect app/CLI/AppleScript support, installed version, and supported launch method; surface in doctor/status +phase15 @backend id:T1500 accept:ghostty-capability-visible
+x 2026-06-29 Deepen Ghostty handoff: add focus-first AppleScript path that searches existing terminals for the Onibi tmux title marker before creating a new window; fallback remains current fresh open; real no-duplicate behavior remains gated by T1503 +phase15 @backend id:T1501 blocked-by:T1500 accept:focus-path-unit-covered
+(B) 2026-06-29 Add configurable Ghostty launch profiles: pass initial working directory, optional font size, title marker, and environment through AppleScript surface configuration; preserve current terminal.default behavior +phase15 @backend id:T1502 blocked-by:T1501 accept:ghostty-window-matches-session-context
+(B) 2026-06-29 Add Ghostty parity smoke: start web cockpit, tap MAC/PHONE twice, verify same tmux target, cwd, terminal title, and no duplicate Ghostty windows when focus is possible +phase15 @tests id:T1503 blocked-by:T1502 accept:ghostty-handoff-is-stable
+(C) 2026-06-29 Add “Ghostty wherever text renders” product copy and docs only after T1503 passes; claim must be scoped to web cockpit, Ghostty handoff, chat text summaries, notify approvals, and tmux session continuity +phase15 @docs id:T1504 blocked-by:T1503 accept:claim-backed-by-features
 
 ---
 

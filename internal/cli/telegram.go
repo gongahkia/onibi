@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,9 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
+
+var newTelegramClient = telegram.NewClient
+var openSecretStore = secrets.Open
 
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -37,6 +41,8 @@ func telegramCmd() *cobra.Command {
 		Short: "Show Telegram setup state",
 		RunE:  runTelegramStatus,
 	}
+	status.Flags().Bool("json", false, "print JSON")
+	status.Flags().Bool("check", false, "validate token with Telegram getMe")
 	disable := &cobra.Command{
 		Use:   "disable",
 		Short: "Remove Telegram token and owner pairing",
@@ -63,7 +69,7 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return err
 	}
@@ -87,19 +93,83 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return err
 	}
-	_, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
+	token, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
 	owner, ownerOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID)
+	liveCheck, _ := cmd.Flags().GetBool("check")
+	report := telegramStatusReport{
+		Token:         tokenOK,
+		SecretBackend: string(st.Backend()),
+		OwnerPaired:   ownerOK,
+		OwnerChatID:   owner,
+		Check:         liveCheck,
+	}
+	if liveCheck && tokenOK {
+		user, err := validateTelegramToken(cmd.Context(), token)
+		if err != nil {
+			report.TokenValid = boolPtr(false)
+			report.CheckError = err.Error()
+		} else {
+			report.TokenValid = boolPtr(true)
+			report.BotID = user.ID
+			report.BotUsername = user.Username
+		}
+	}
+	report.Next = telegramStatusNext(report)
+	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(report)
+	}
 	style := styleFor(cmd)
 	rows := [][]string{
 		{"token", style.bool(tokenOK), string(st.Backend())},
 		{"owner_chat_id", style.bool(ownerOK), owner},
 	}
+	if liveCheck {
+		valid := report.TokenValid != nil && *report.TokenValid
+		detail := report.CheckError
+		if detail == "" && report.BotUsername != "" {
+			detail = "@" + report.BotUsername
+		}
+		rows = append(rows, []string{"token_valid", style.bool(valid), detail})
+	}
 	return renderTable(cmd.OutOrStdout(), rows)
 }
+
+type telegramStatusReport struct {
+	Token         bool     `json:"token"`
+	SecretBackend string   `json:"secret_backend"`
+	OwnerPaired   bool     `json:"owner_paired"`
+	OwnerChatID   string   `json:"owner_chat_id,omitempty"`
+	Check         bool     `json:"check"`
+	TokenValid    *bool    `json:"token_valid,omitempty"`
+	BotID         int64    `json:"bot_id,omitempty"`
+	BotUsername   string   `json:"bot_username,omitempty"`
+	CheckError    string   `json:"check_error,omitempty"`
+	Next          []string `json:"next,omitempty"`
+}
+
+func telegramStatusNext(report telegramStatusReport) []string {
+	var next []string
+	if !report.Token {
+		next = append(next, "onibi telegram setup")
+		return next
+	}
+	if report.Check && report.TokenValid != nil && !*report.TokenValid {
+		next = append(next, "onibi telegram setup")
+		return next
+	}
+	if !report.OwnerPaired {
+		next = append(next, "onibi up --transport=telegram")
+	}
+	return next
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 	paths, db, err := openCLIStore()
@@ -107,7 +177,7 @@ func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return err
 	}
@@ -176,7 +246,7 @@ func telegramTokenForUp(cmd *cobra.Command, paths config.Paths) (string, telegra
 		u, err := validateTelegramToken(cmd.Context(), token)
 		return token, u, err
 	}
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return "", telegram.User{}, err
 	}
@@ -187,7 +257,7 @@ func telegramTokenForUp(cmd *cobra.Command, paths config.Paths) (string, telegra
 		return token, u, err
 	}
 	if !inputIsTerminal(cmd.InOrStdin()) {
-		return "", telegram.User{}, errors.New("Telegram token missing; run `onibi telegram setup` or set ONIBI_TELEGRAM_TOKEN")
+		return "", telegram.User{}, errors.New("telegram token missing; run `onibi telegram setup` or set ONIBI_TELEGRAM_TOKEN")
 	}
 	token, err := promptTelegramToken(cmd)
 	if err != nil {
@@ -222,7 +292,7 @@ func validateTelegramToken(ctx context.Context, token string) (telegram.User, er
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return telegram.NewClient(token).GetMe(ctx)
+	return newTelegramClient(token).GetMe(ctx)
 }
 
 func telegramOwnerID(ctx context.Context, db *store.DB) (int64, error) {

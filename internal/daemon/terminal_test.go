@@ -22,12 +22,16 @@ func TestLaunchTerminalNoneReturnsAttachCommand(t *testing.T) {
 func withTerminalStubs(t *testing.T) *[]string {
 	t.Helper()
 	oldRun := runTerminalCommand
+	oldOutput := terminalOutputCommand
 	oldLook := lookTerminalPath
+	oldFindPath := findMacAppPath
 	oldFind := findMacApp
 	var calls []string
 	t.Cleanup(func() {
 		runTerminalCommand = oldRun
+		terminalOutputCommand = oldOutput
 		lookTerminalPath = oldLook
+		findMacAppPath = oldFindPath
 		findMacApp = oldFind
 	})
 	runTerminalCommand = func(_ context.Context, n string, a ...string) error {
@@ -35,6 +39,7 @@ func withTerminalStubs(t *testing.T) *[]string {
 		return nil
 	}
 	lookTerminalPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	findMacAppPath = func(...string) (string, bool) { return "/Applications/Ghostty.app", true }
 	findMacApp = func(...string) bool { return true }
 	return &calls
 }
@@ -71,7 +76,11 @@ func TestLaunchGhosttyUsesAppleScriptWindow(t *testing.T) {
 	script := args[1]
 	for _, want := range []string{
 		`new surface configuration`,
-		`set command of cfg to "/usr/bin/tmux attach-session -t onibi-abc"`,
+		`repeat with term in terminals`,
+		`focus term`,
+		`set command of cfg to "/bin/sh -lc`,
+		`onibi:onibi-abc`,
+		`set environment variables of cfg to {"ONIBI_TMUX_TARGET=onibi-abc"}`,
 		`set wait after command of cfg to false`,
 		`new window with configuration cfg`,
 	} {
@@ -200,6 +209,34 @@ func TestTmuxAttachShellUsesAbsolutePathAndQuotesUnsafeTarget(t *testing.T) {
 	want := `/opt/homebrew/bin/tmux attach-session -t 'onibi weird'\''target'`
 	if got != want {
 		t.Fatalf("attach = %q want %q", got, want)
+	}
+}
+
+func TestProbeGhosttyReportsCapability(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS-only launcher")
+	}
+	oldOutput := terminalOutputCommand
+	oldLook := lookTerminalPath
+	oldFindPath := findMacAppPath
+	t.Cleanup(func() {
+		terminalOutputCommand = oldOutput
+		lookTerminalPath = oldLook
+		findMacAppPath = oldFindPath
+	})
+	lookTerminalPath = func(name string) (string, error) {
+		if name == "ghostty" || name == "osascript" {
+			return "/usr/bin/" + name, nil
+		}
+		return "", os.ErrNotExist
+	}
+	findMacAppPath = func(...string) (string, bool) { return "/Applications/Ghostty.app", true }
+	terminalOutputCommand = func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("Ghostty 1.3.1\n\nVersion\n  - version: 1.3.1\n"), nil
+	}
+	got := ProbeGhostty(context.Background())
+	if !got.Supported || !got.Installed || !got.AppleScript || got.Version != "Ghostty 1.3.1" {
+		t.Fatalf("capability = %+v", got)
 	}
 }
 

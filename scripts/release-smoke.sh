@@ -23,6 +23,10 @@ if [[ ! -s "$dist/checksums.txt" ]]; then
   echo "missing $dist/checksums.txt" >&2
   exit 1
 fi
+if [[ ! -s "$dist/artifacts.json" ]]; then
+  echo "missing $dist/artifacts.json" >&2
+  exit 1
+fi
 if command -v shasum >/dev/null 2>&1; then
   (cd "$dist" && shasum -a 256 -c checksums.txt)
 elif command -v sha256sum >/dev/null 2>&1; then
@@ -31,6 +35,29 @@ else
   echo "no checksum verifier found (need shasum or sha256sum)" >&2
   exit 1
 fi
+
+for os in darwin linux; do
+  for arch in x86_64 arm64; do
+    matches=("$dist"/onibi_*_"$os"_"$arch".tar.gz)
+    if ((${#matches[@]} != 1)); then
+      echo "expected one $os/$arch release tarball, got ${#matches[@]}" >&2
+      exit 1
+    fi
+    name="$(basename "${matches[0]}")"
+    if ! grep -Fq "$name" "$dist/artifacts.json"; then
+      echo "artifacts.json missing $name" >&2
+      exit 1
+    fi
+    if ! tar -tzf "${matches[0]}" | grep -qx 'onibi'; then
+      echo "$name missing onibi" >&2
+      exit 1
+    fi
+    if ! tar -tzf "${matches[0]}" | grep -qx 'onibi-notify'; then
+      echo "$name missing onibi-notify" >&2
+      exit 1
+    fi
+  done
+done
 
 for tarball in "${artifacts[@]}"; do
   work="$tmp/$(basename "$tarball" .tar.gz)"

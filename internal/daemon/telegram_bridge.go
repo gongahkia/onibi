@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -511,11 +510,6 @@ func NewTelegramPairCode() (string, error) {
 	return fmt.Sprintf("%06d", n), nil
 }
 
-func parseTelegramOwnerID(s string) int64 {
-	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	return n
-}
-
 func (d *Daemon) CaptureSessionText(ctx context.Context, id string) (string, error) {
 	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
@@ -678,9 +672,4 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	default:
 		return errors.New("unsupported action")
 	}
-}
-
-func marshalJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
 }

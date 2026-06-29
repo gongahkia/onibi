@@ -181,7 +181,7 @@ func (n *Ngrok) discoverTunnel(ctx context.Context, localPort int) (ngrokTunnel,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return ngrokTunnel{}, false, fmt.Errorf("Agent API status %d", resp.StatusCode)
+		return ngrokTunnel{}, false, fmt.Errorf("agent API status %d", resp.StatusCode)
 	}
 	var body ngrokTunnelList
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -206,7 +206,7 @@ func (n *Ngrok) deleteTunnel(ctx context.Context, name string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("Agent API shutdown status %d", resp.StatusCode)
+		return fmt.Errorf("agent API shutdown status %d", resp.StatusCode)
 	}
 	return nil
 }

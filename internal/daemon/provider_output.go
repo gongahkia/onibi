@@ -50,10 +50,6 @@ func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
 	return p
 }
 
-func (d *Daemon) prepareProviderOutput(s string) string {
-	return d.prepareProviderOutputFor("", s)
-}
-
 func (d *Daemon) prepareProviderOutputFor(provider, s string) string {
 	return d.providerOutputPolicy(provider).apply(s)
 }

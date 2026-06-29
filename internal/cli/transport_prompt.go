@@ -175,37 +175,6 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 	}
 }
 
-func promptUnavailableTransportCategory(cmd *cobra.Command, sc *bufio.Scanner, style cliStyle) error {
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Notify-only provider"))
-	rows := [][]string{tableHeader(style, "#", "PROVIDER", "BEST FOR", "COVERAGE", "COMMAND")}
-	for _, c := range unavailableTransportChoices(transportCategoryNotify) {
-		rows = append(rows, []string{"-", c.label, c.detail, "-", "not in this build"})
-	}
-	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
-		return err
-	}
-	fmt.Fprintln(cmd.OutOrStdout())
-	for {
-		fmt.Fprint(cmd.OutOrStdout(), "No notify-only providers are enabled yet. Press Enter for categories or q to cancel: ")
-		if !sc.Scan() {
-			return sc.Err()
-		}
-		raw := strings.ToLower(strings.TrimSpace(sc.Text()))
-		if raw == "" || raw == "b" || raw == "back" {
-			return nil
-		}
-		if raw == "q" || raw == "quit" {
-			return fmt.Errorf("transport selection cancelled")
-		}
-		if unavailableProviderSelected(raw) {
-			fmt.Fprintln(cmd.OutOrStdout(), "Pushover is not enabled in this build.")
-			continue
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Press Enter for categories or q to cancel.")
-	}
-}
-
 func pairTransportCategoryChoices(current string) []pairTransportCategory {
 	active := categoryForTransport(current)
 	return []pairTransportCategory{

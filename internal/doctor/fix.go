@@ -134,7 +134,7 @@ func (f *fixer) fixHookHashes() {
 			f.err("refuse "+name+" hook", fmt.Errorf("managed hook tampered; uninstall and reinstall manually"))
 			continue
 		}
-		if info.Outdated {
+		if info.Outdated && info.Installed && info.Managed && info.HashRecorded {
 			bin, ok := notify()
 			if !ok {
 				continue
@@ -164,7 +164,7 @@ func (f *fixer) fixHookHashes() {
 			f.err("refuse shell "+name+" hook", fmt.Errorf("managed hook tampered; uninstall and reinstall manually"))
 			continue
 		}
-		if info.Outdated {
+		if info.Outdated && info.Installed && info.Managed && info.HashRecorded {
 			bin, ok := notify()
 			if !ok {
 				continue

@@ -27,6 +27,7 @@ make build
 ```
 
 `onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `./bin/onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
+Run `./bin/onibi status`, `./bin/onibi update-check`, and `./bin/onibi doctor --fix` when validating an install or upgrade.
 
 On iPhone:
 
@@ -68,6 +69,8 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ./bin/onibi hooks --show --all
 ./bin/onibi adapters
 ./bin/onibi doctor
+./bin/onibi update-check
+./bin/onibi uninstall --dry-run
 ./bin/onibi logo
 ```
 
@@ -79,7 +82,9 @@ Useful CLI flags:
 - `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
 - `telegram`: `setup`, `status`, `disable`; `up --transport=telegram` starts chat-native text control.
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
-- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
+- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--no-update`, `--refresh-update`, `--json`, `--strict`.
+- `doctor`: `--fix`, `--release`, `--after-upgrade`, `--explain`, `--offline`, `--json`.
+- `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--shell <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
 
 ## Current Test Flow
 

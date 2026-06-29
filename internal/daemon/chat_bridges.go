@@ -591,14 +591,6 @@ func (d *Daemon) handleProviderTextCommand(ctx context.Context, text string, act
 	return true, fmt.Sprintf("Approval %s %s.", id, verdict)
 }
 
-func (d *Daemon) handleProviderApproval(ctx context.Context, action, id string, actor int64) {
-	verdict := approvalVerdictForAction(action)
-	if verdict == "" {
-		return
-	}
-	_ = d.decideProviderApproval(ctx, id, verdict, actor)
-}
-
 func approvalVerdictForAction(action string) approval.Verdict {
 	switch strings.ToLower(action) {
 	case "approve", "ap":

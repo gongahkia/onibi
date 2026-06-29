@@ -1,15 +1,19 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -26,9 +30,16 @@ func uninstallCmd() *cobra.Command {
 	cmd.Flags().String("agent", "", "remove one agent hook")
 	cmd.Flags().String("shell", "", "remove one shell hook")
 	cmd.Flags().Bool("state", false, "remove local state, logs, sqlite, config, and fallback .env")
-	cmd.Flags().Bool("yes", false, "required with --state")
+	cmd.Flags().Bool("yes", false, "skip destructive confirmation")
 	cmd.Flags().Bool("dry-run", false, "print planned actions only")
+	cmd.Flags().Bool("json", false, "print dry-run plan JSON")
 	return cmd
+}
+
+type uninstallPlanItem struct {
+	Action string `json:"action"`
+	Target string `json:"target"`
+	Risk   string `json:"risk"`
 }
 
 func runUninstall(cmd *cobra.Command, _ []string) error {
@@ -40,9 +51,10 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	stateFlag, _ := cmd.Flags().GetBool("state")
 	yes, _ := cmd.Flags().GetBool("yes")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	asJSON, _ := cmd.Flags().GetBool("json")
 
-	if stateFlag && !yes {
-		return errors.New("--state requires --yes")
+	if asJSON && !dryRun {
+		return errors.New("--json requires --dry-run")
 	}
 	if !serviceFlag && !hooksFlag && !allHooks && agent == "" && sh == "" && !stateFlag {
 		serviceFlag = true
@@ -63,9 +75,25 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	planUninstall(cmd, paths, serviceFlag, hooksFlag, allHooks, agent, sh, stateFlag)
+	plan := buildUninstallPlan(paths, serviceFlag, hooksFlag, allHooks, agent, sh, stateFlag)
+	if asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(plan)
+	}
+	renderUninstallPlan(cmd, plan)
 	if dryRun {
 		return nil
+	}
+	if !yes {
+		ok, err := confirmUninstall(cmd, stateFlag)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(cmd.OutOrStdout(), "Cancelled.")
+			return nil
+		}
 	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -99,32 +127,68 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func planUninstall(cmd *cobra.Command, paths config.Paths, serviceFlag, hooksFlag, allHooks bool, agent, sh string, stateFlag bool) {
-	style := styleFor(cmd)
-	table := [][]string{tableHeader(style, "ACTION", "TARGET")}
+func buildUninstallPlan(paths config.Paths, serviceFlag, hooksFlag, allHooks bool, agent, sh string, stateFlag bool) []uninstallPlanItem {
+	var plan []uninstallPlanItem
 	if serviceFlag {
-		table = append(table, []string{style.yellow("remove service"), "LaunchAgent/systemd user unit"})
+		plan = append(plan, uninstallPlanItem{Action: "remove service", Target: "LaunchAgent/systemd user unit", Risk: "medium"})
 	}
 	if hooksFlag {
 		for _, inspect := range uninstallHookInspectCommands(allHooks, agent, sh) {
-			table = append(table, []string{style.yellow("inspect hooks"), inspect})
+			plan = append(plan, uninstallPlanItem{Action: "inspect hooks", Target: inspect, Risk: "low"})
 		}
 		if allHooks {
-			table = append(table, []string{style.yellow("remove hooks"), "all supported agents and shells"})
+			plan = append(plan, uninstallPlanItem{Action: "remove hooks", Target: "all supported agents and shells", Risk: "medium"})
 		} else {
 			if agent != "" {
-				table = append(table, []string{style.yellow("remove hook"), "agent:" + agent})
+				plan = append(plan, uninstallPlanItem{Action: "remove hook", Target: "agent:" + agent, Risk: "medium"})
 			}
 			if sh != "" {
-				table = append(table, []string{style.yellow("remove hook"), "shell:" + sh})
+				plan = append(plan, uninstallPlanItem{Action: "remove hook", Target: "shell:" + sh, Risk: "medium"})
 			}
 		}
 	}
 	if stateFlag {
-		table = append(table, []string{style.red("remove state"), paths.StateDir})
-		table = append(table, []string{style.red("remove secrets"), "legacy credentials from active backend"})
+		plan = append(plan,
+			uninstallPlanItem{Action: "remove state", Target: paths.StateDir, Risk: "high"},
+			uninstallPlanItem{Action: "remove secrets", Target: "Onibi credentials from active backend", Risk: "high"},
+		)
+	}
+	return plan
+}
+
+func renderUninstallPlan(cmd *cobra.Command, plan []uninstallPlanItem) {
+	style := styleFor(cmd)
+	table := [][]string{tableHeader(style, "ACTION", "TARGET")}
+	for _, item := range plan {
+		action := item.Action
+		switch item.Risk {
+		case "high":
+			action = style.red(action)
+		case "medium":
+			action = style.yellow(action)
+		default:
+			action = style.dim(action)
+		}
+		table = append(table, []string{action, item.Target})
 	}
 	_ = renderTable(cmd.OutOrStdout(), table)
+}
+
+func confirmUninstall(cmd *cobra.Command, stateFlag bool) (bool, error) {
+	if !inputIsTerminal(cmd.InOrStdin()) || !outputIsTerminal(cmd.OutOrStdout()) {
+		return false, errors.New("uninstall requires --yes in non-interactive mode")
+	}
+	br := bufio.NewReader(cmd.InOrStdin())
+	if !stateFlag {
+		return askYesNo(cmd, br, "Continue? [y/N] ", false), nil
+	}
+	const phrase = "delete onibi state"
+	fmt.Fprintf(cmd.OutOrStdout(), "Type %q to remove local state and secrets: ", phrase)
+	line, err := br.ReadString('\n')
+	if err != nil && strings.TrimSpace(line) == "" {
+		return false, err
+	}
+	return strings.TrimSpace(line) == phrase, nil
 }
 
 func uninstallHookInspectCommands(allHooks bool, agent, sh string) []string {
@@ -192,12 +256,13 @@ func uninstallAgentHook(ctx context.Context, cmd *cobra.Command, db *store.DB, n
 }
 
 func deleteSecrets(paths config.Paths) error {
-	sec, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	sec, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return err
 	}
-	if err := sec.Delete("bot_token"); err != nil {
-		return err
-	}
-	return sec.Delete("totp_secret_hex")
+	return errors.Join(
+		sec.Delete(daemon.TelegramSecretBotToken),
+		sec.Delete("bot_token"),
+		sec.Delete("totp_secret_hex"),
+	)
 }

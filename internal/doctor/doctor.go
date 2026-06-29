@@ -17,6 +17,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/matrix"
@@ -110,7 +111,7 @@ func (r *runner) add(name string, st Status, detail string) {
 
 func (r *runner) run() {
 	switch r.opts.Mode {
-	case "", "auto", "preflight", "installed", "ci":
+	case "", "auto", "preflight", "installed", "ci", "release":
 	default:
 		r.add("doctor mode", Fail, "invalid mode "+r.opts.Mode)
 	}
@@ -118,6 +119,7 @@ func (r *runner) run() {
 	r.checkEnvFile()
 	r.checkDB()
 	r.checkConfig()
+	r.checkGhostty()
 	r.checkTransportProvider()
 	r.checkLAN()
 	r.checkTailscale()
@@ -188,6 +190,20 @@ func (r *runner) checkConfig() {
 		r.add("transport", Pass, mode)
 	}
 	r.add("web config", Pass, fmt.Sprintf("listen=%s cert_dir=%s", cfg.Web.ListenAddr, doctorCertDir(r.opts.Paths, cfg)))
+}
+
+func (r *runner) checkGhostty() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("ghostty", Warn, err.Error())
+		return
+	}
+	cap := daemon.ProbeGhostty(r.ctx)
+	if strings.EqualFold(strings.TrimSpace(cfg.Terminal.Default), "ghostty") && !cap.Installed {
+		r.add("ghostty", Warn, "terminal.default=ghostty but Ghostty was not found")
+		return
+	}
+	r.add("ghostty", Pass, cap.Detail)
 }
 
 func (r *runner) checkTransportProvider() {

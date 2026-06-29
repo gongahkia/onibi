@@ -51,6 +51,9 @@ func TestLocalRepoOutdated(t *testing.T) {
 	if !strings.Contains(res.Command, "make -C") {
 		t.Fatalf("command = %q", res.Command)
 	}
+	if !strings.Contains(res.Command, "doctor --after-upgrade --offline") {
+		t.Fatalf("command missing after-upgrade doctor: %q", res.Command)
+	}
 }
 
 func TestLocalRepoCurrent(t *testing.T) {
@@ -71,6 +74,75 @@ func TestLocalRepoCurrent(t *testing.T) {
 }
 
 func TestGitHubReleaseOutdated(t *testing.T) {
+	oldStatus := homebrewCaskStatus
+	homebrewCaskStatus = func(context.Context) (string, string) { return "outdated", "outdated" }
+	t.Cleanup(func() { homebrewCaskStatus = oldStatus })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-GitHub-Api-Version"); got == "" {
+			t.Fatalf("missing GitHub API version header")
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://example.com/release"}`))
+	}))
+	t.Cleanup(srv.Close)
+	oldURL := LatestURL
+	t.Cleanup(func() { LatestURL = oldURL })
+	LatestURL = srv.URL
+	res := Check(context.Background(), Options{CurrentVersion: "v1.1.0", CurrentCommit: "abc", RepoDir: filepath.Join(t.TempDir(), "missing"), CheckGitHub: true, Client: srv.Client(), InstallSource: string(InstallSourceHomebrewCask)})
+	if res.Status != StatusOutdated || res.Source != SourceGitHub || res.LatestVersion != "v1.2.0" {
+		t.Fatalf("result = %#v", res)
+	}
+	if res.InstallSource != string(InstallSourceHomebrewCask) || !strings.Contains(res.Command, "brew upgrade --cask") {
+		t.Fatalf("install source/command = %q %q", res.InstallSource, res.Command)
+	}
+	if res.PackageState != "homebrew-outdated" {
+		t.Fatalf("package state = %q", res.PackageState)
+	}
+}
+
+func TestGitHubConditionalNotModifiedUsesCache(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != `"abc"` {
+			t.Fatalf("If-None-Match = %q", r.Header.Get("If-None-Match"))
+		}
+		if r.Header.Get("If-Modified-Since") != "Mon, 01 Jan 2024 00:00:00 GMT" {
+			t.Fatalf("If-Modified-Since = %q", r.Header.Get("If-Modified-Since"))
+		}
+		w.Header().Set("ETag", `"abc"`)
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	t.Cleanup(srv.Close)
+	oldURL := LatestURL
+	t.Cleanup(func() { LatestURL = oldURL })
+	LatestURL = srv.URL
+	cached := Result{
+		Status:         StatusCurrent,
+		Source:         SourceGitHub,
+		CurrentVersion: "v1.2.0",
+		CurrentCommit:  "abc",
+		LatestVersion:  "v1.2.0",
+		Detail:         "cached current",
+		ETag:           `"abc"`,
+		LastModified:   "Mon, 01 Jan 2024 00:00:00 GMT",
+	}
+	res := Check(context.Background(), Options{
+		CurrentVersion:          "v1.2.0",
+		CurrentCommit:           "abc",
+		RepoDir:                 filepath.Join(t.TempDir(), "missing"),
+		CheckGitHub:             true,
+		Client:                  srv.Client(),
+		ConditionalETag:         cached.ETag,
+		ConditionalLastModified: cached.LastModified,
+		CachedResult:            &cached,
+	})
+	if res.Status != StatusCurrent || res.Detail != "cached current" || res.ETag != `"abc"` {
+		t.Fatalf("result = %#v", res)
+	}
+}
+
+func TestGitHubHomebrewTapLagState(t *testing.T) {
+	oldStatus := homebrewCaskStatus
+	homebrewCaskStatus = func(context.Context) (string, string) { return "current", "tap current" }
+	t.Cleanup(func() { homebrewCaskStatus = oldStatus })
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://example.com/release"}`))
 	}))
@@ -78,9 +150,37 @@ func TestGitHubReleaseOutdated(t *testing.T) {
 	oldURL := LatestURL
 	t.Cleanup(func() { LatestURL = oldURL })
 	LatestURL = srv.URL
-	res := Check(context.Background(), Options{CurrentVersion: "v1.1.0", CurrentCommit: "abc", RepoDir: filepath.Join(t.TempDir(), "missing"), CheckGitHub: true, Client: srv.Client()})
-	if res.Status != StatusOutdated || res.Source != SourceGitHub || res.LatestVersion != "v1.2.0" {
+	res := Check(context.Background(), Options{CurrentVersion: "v1.1.0", CurrentCommit: "abc", RepoDir: filepath.Join(t.TempDir(), "missing"), CheckGitHub: true, Client: srv.Client(), InstallSource: string(InstallSourceHomebrewCask)})
+	if res.PackageState != "homebrew-current" || !strings.Contains(res.Detail, "tap may lag GitHub") || !strings.Contains(res.Command, "brew update && brew upgrade --cask") {
 		t.Fatalf("result = %#v", res)
+	}
+}
+
+func TestGitHubReleaseArchiveCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://example.com/release"}`))
+	}))
+	t.Cleanup(srv.Close)
+	oldURL := LatestURL
+	t.Cleanup(func() { LatestURL = oldURL })
+	LatestURL = srv.URL
+	exe := filepath.Join(t.TempDir(), "onibi")
+	res := Check(context.Background(), Options{
+		CurrentVersion: "v1.1.0",
+		CurrentCommit:  "abc",
+		RepoDir:        filepath.Join(t.TempDir(), "missing"),
+		CheckGitHub:    true,
+		Client:         srv.Client(),
+		Executable:     exe,
+		InstallSource:  string(InstallSourceReleaseArchive),
+	})
+	if res.InstallSource != string(InstallSourceReleaseArchive) {
+		t.Fatalf("install source = %q", res.InstallSource)
+	}
+	for _, want := range []string{"curl -fsSL", "onibi_1.2.0_", "checksums.txt", "shasum -a 256 -c", "ONIBI_RELEASE_GPG_KEY", "install -m 0755", filepath.Join(filepath.Dir(exe), "onibi-notify")} {
+		if !strings.Contains(res.Command, want) {
+			t.Fatalf("command missing %q: %q", want, res.Command)
+		}
 	}
 }
 

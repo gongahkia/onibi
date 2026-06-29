@@ -133,6 +133,9 @@ Example edit test:
 ```bash
 ./bin/onibi up
 ./bin/onibi doctor
+./bin/onibi update-check
+./bin/onibi doctor --fix
+./bin/onibi doctor --release --offline
 ./bin/onibi adapters
 ./bin/onibi hooks --show --agent claude
 ./bin/onibi install-hooks --agent claude
@@ -140,14 +143,12 @@ Example edit test:
 
 ## 7. Clean Reset
 
-Stop `onibi up`, then remove local state:
+Stop `onibi up`, inspect the uninstall plan, then remove hooks/service/state:
 
 ```bash
-# macOS
-rm -rf ~/Library/Application\ Support/onibi/
-
-# Linux
-rm -rf ~/.local/share/onibi/
+./bin/onibi uninstall --dry-run --service --hooks --all-hooks --state
+./bin/onibi uninstall --dry-run --json --service --hooks --all-hooks --state
+./bin/onibi uninstall --yes --service --hooks --all-hooks --state
 ```
 
 Then pair again:

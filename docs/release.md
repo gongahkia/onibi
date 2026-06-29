@@ -19,6 +19,9 @@ go test -race -count=1 ./...
 go vet ./...
 staticcheck ./...
 make build
+./bin/onibi update-check --repo .
+./bin/onibi doctor --after-upgrade --offline
+./bin/onibi doctor --release --offline
 goreleaser release --snapshot --clean
 scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
@@ -59,6 +62,11 @@ GoReleaser is configured to sign/notarize only when these env vars are set:
 
 Release artifacts include SBOMs and SHA256 checksums. Tagged public releases
 sign `checksums.txt` with the imported GPG key.
+
+`onibi update-check` prints release-archive upgrade commands that always verify
+the selected tarball against `checksums.txt` before install. If
+`ONIBI_RELEASE_GPG_KEY` contains the public signing key and `gpg` is available,
+the same command also verifies `checksums.txt.sig` before extracting binaries.
 
 No release notes may claim notarization passed unless the tagged release was
 built with those values and verified on a clean Mac using

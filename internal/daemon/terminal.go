@@ -13,7 +13,12 @@ var runTerminalCommand = func(ctx context.Context, name string, args ...string) 
 	return exec.CommandContext(ctx, name, args...).Run()
 }
 
+var terminalOutputCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
 var lookTerminalPath = exec.LookPath
+var findMacAppPath = macAppPath
 var findMacApp = macAppExists
 
 func (d *Daemon) launchVisibleTerminal(ctx context.Context, target string) (string, error) {
@@ -76,9 +81,19 @@ func launchGhostty(ctx context.Context, target string) error {
 }
 
 func launchGhosttyAppleScript(ctx context.Context, target string) error {
+	marker := ghosttyTitleMarker(target)
 	script := `tell application "Ghostty"` + "\n" +
+		`set marker to ` + appleScriptQuote(marker) + "\n" +
+		`repeat with term in terminals` + "\n" +
+		`if name of term contains marker then` + "\n" +
+		`focus term` + "\n" +
+		`activate` + "\n" +
+		`return` + "\n" +
+		`end if` + "\n" +
+		`end repeat` + "\n" +
 		`set cfg to new surface configuration` + "\n" +
-		`set command of cfg to ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
+		`set command of cfg to ` + appleScriptQuote(ghosttyAttachShell(target)) + "\n" +
+		`set environment variables of cfg to {` + appleScriptQuote("ONIBI_TMUX_TARGET="+target) + `}` + "\n" +
 		`set wait after command of cfg to false` + "\n" +
 		`set win to new window with configuration cfg` + "\n" +
 		`activate` + "\n" +
@@ -89,6 +104,15 @@ func launchGhosttyAppleScript(ctx context.Context, target string) error {
 func launchGhosttyFresh(ctx context.Context, target string) error {
 	args := append([]string{"-Fna", "Ghostty.app", "--args", "--wait-after-command=false", "-e"}, tmuxAttachArgs(target)...)
 	return runTerminalCommand(ctx, "open", args...)
+}
+
+func ghosttyAttachShell(target string) string {
+	cmd := "printf '\\033]0;" + ghosttyTitleMarker(target) + "\\a'; exec " + tmuxAttachShell(target)
+	return "/bin/sh -lc " + shellQuote(cmd)
+}
+
+func ghosttyTitleMarker(target string) string {
+	return "onibi:" + target
 }
 
 func launchITerm2(ctx context.Context, target string) error {
@@ -148,20 +172,75 @@ func shellQuote(s string) string {
 }
 
 func macAppExists(names ...string) bool {
+	_, ok := macAppPath(names...)
+	return ok
+}
+
+func macAppPath(names ...string) (string, bool) {
 	roots := []string{"/Applications"}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots, home+"/Applications")
 	}
 	for _, root := range roots {
 		for _, name := range names {
-			if _, err := os.Stat(root + "/" + name); err == nil {
-				return true
+			path := root + "/" + name
+			if _, err := os.Stat(path); err == nil {
+				return path, true
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 func appleScriptQuote(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+}
+
+type GhosttyCapability struct {
+	Supported   bool   `json:"supported"`
+	Installed   bool   `json:"installed"`
+	CLIPath     string `json:"cli_path,omitempty"`
+	AppPath     string `json:"app_path,omitempty"`
+	Version     string `json:"version,omitempty"`
+	AppleScript bool   `json:"applescript"`
+	Detail      string `json:"detail"`
+}
+
+func ProbeGhostty(ctx context.Context) GhosttyCapability {
+	c := GhosttyCapability{Supported: runtime.GOOS == "darwin"}
+	if !c.Supported {
+		c.Detail = "Ghostty handoff is macOS-only; use tmux attach manually"
+		return c
+	}
+	if path, err := lookTerminalPath("ghostty"); err == nil && strings.TrimSpace(path) != "" {
+		c.CLIPath = path
+	}
+	if path, ok := findMacAppPath("Ghostty.app"); ok {
+		c.AppPath = path
+	}
+	c.Installed = c.CLIPath != "" || c.AppPath != ""
+	if path, err := lookTerminalPath("osascript"); err == nil && strings.TrimSpace(path) != "" && c.Installed {
+		c.AppleScript = true
+	}
+	if c.CLIPath != "" {
+		if out, err := terminalOutputCommand(ctx, c.CLIPath, "--version"); err == nil {
+			c.Version = firstLine(strings.TrimSpace(string(out)))
+		}
+	}
+	switch {
+	case !c.Installed:
+		c.Detail = "Ghostty not found; Onibi will fall back to iTerm2, Terminal.app, or manual tmux attach"
+	case c.AppleScript:
+		c.Detail = "Ghostty installed; AppleScript handoff can focus existing Onibi tmux windows"
+	default:
+		c.Detail = "Ghostty installed; AppleScript unavailable, fresh-window fallback only"
+	}
+	return c
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
