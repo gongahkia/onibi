@@ -15,14 +15,51 @@ import (
 
 // DB wraps a *sql.DB with our typed helpers. Constructed via Open.
 type DB struct {
-	sql  *sql.DB
-	path string
+	sql      *sql.DB
+	path     string
+	cryptbox *CryptBox
+}
+
+type OpenOption func(*openOptions) error
+
+type openOptions struct {
+	cryptbox *CryptBox
+}
+
+func WithStoreKey(masterKey []byte) OpenOption {
+	return func(opts *openOptions) error {
+		box, err := NewCryptBox(masterKey)
+		if err != nil {
+			return err
+		}
+		opts.cryptbox = box
+		return nil
+	}
+}
+
+func WithCryptBox(box *CryptBox) OpenOption {
+	return func(opts *openOptions) error {
+		if box == nil {
+			return ErrCryptBoxUnavailable
+		}
+		opts.cryptbox = box
+		return nil
+	}
 }
 
 // Open opens (or creates) the SQLite database at path, applies migrations,
 // and enforces 0600 perms on the file. Pure-Go driver (modernc.org/sqlite)
 // so no cgo required.
-func Open(path string) (*DB, error) {
+func Open(path string, opts ...OpenOption) (*DB, error) {
+	var cfg openOptions
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(&cfg); err != nil {
+			return nil, err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir for db: %w", err)
 	}
@@ -37,7 +74,7 @@ func Open(path string) (*DB, error) {
 	if err := d.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	db := &DB{sql: d, path: path}
+	db := &DB{sql: d, path: path, cryptbox: cfg.cryptbox}
 	if err := db.migrate(); err != nil {
 		return nil, err
 	}
@@ -56,6 +93,8 @@ func (d *DB) Close() error { return d.sql.Close() }
 func (d *DB) SQL() *sql.DB { return d.sql }
 
 func (d *DB) Path() string { return d.path }
+
+func (d *DB) CryptBox() *CryptBox { return d.cryptbox }
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS schema_version (
