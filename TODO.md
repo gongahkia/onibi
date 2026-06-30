@@ -364,8 +364,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1b — L: Trust policies + approval batching
 
-(A) 2026-06-29 Approval batching UI: inside approval overlay add a link "Auto-approve all <tool> in <dir> for 5min"; on tap, append an ephemeral runtime rule with expires="5m"; show countdown chip; not persisted to disk unless user types `onibi trust persist` +phaseQ1 @frontend file:frontend/src/approval.ts id:T2123 accept:5min-window-honored-and-decays
-(B) 2026-06-29 onibi trust list|add|remove|reload|persist CLI: surface current rules and ephemeral overrides; persist writes runtime rules into .onibi/trust.toml +phaseQ1 @backend file:internal/cli/trust.go id:T2124 blocked-by:T2123 accept:CLI-roundtrips-rules
+(B) 2026-06-29 onibi trust list|add|remove|reload|persist CLI: surface current rules and ephemeral overrides; persist writes runtime rules into .onibi/trust.toml +phaseQ1 @backend file:internal/cli/trust.go id:T2124 accept:CLI-roundtrips-rules
 (B) 2026-06-29 Audit every auto-approve in internal/daemon/audit.go with the rule id and matched path; visible via onibi log +phaseQ1 @backend file:internal/daemon/audit.go id:T2125 blocked-by:T2124 accept:audit-event-includes-rule-id
 (B) 2026-06-29 docs/trust-policies.md: examples (read-only auto-approve, dangerous-path always-prompt, time-windowed, per-agent), threat model (rules cannot be persisted via SPA — must be typed via CLI to avoid drive-by) +phaseQ1 @docs file:docs/trust-policies.md id:T2126 blocked-by:T2125
 

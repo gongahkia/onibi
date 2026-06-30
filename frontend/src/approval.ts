@@ -9,9 +9,16 @@ type ApprovalCard = {
   payload: ApprovalRequestedPayload;
   element: HTMLElement;
   approveUntil: number;
+  trustTimer?: number;
+  trustButton?: HTMLButtonElement;
 };
 
 type PostJSON = (path: string, body: Record<string, string>) => Promise<Response>;
+
+type TrustScope = {
+  label: string;
+  pattern: string;
+};
 
 export class ApprovalOverlay {
   private cards = new Map<string, ApprovalCard>();
@@ -67,7 +74,13 @@ export class ApprovalOverlay {
     const approve = button(payload.risk_level === "high" ? "Approve (tap twice)" : "Approve", "primary");
     const deny = button("Deny", "danger");
     const edit = button("Edit", "secondary");
+    const scope = runtimeTrustScope(payload.file_path);
+    const trust = scope === undefined ? undefined : button(`Auto-approve all ${payload.tool} in ${scope.label} for 5min`, "secondary");
+    trust?.classList.add("approval-trust-link");
     actions.append(approve, deny, edit);
+    if (trust !== undefined) {
+      actions.append(trust);
+    }
 
     const editPane = document.createElement("form");
     editPane.className = "approval-edit";
@@ -82,10 +95,13 @@ export class ApprovalOverlay {
 
     const status = document.createElement("div");
     status.className = "approval-status";
-    card.append(header, input, actions, editPane, status);
+    const trustChip = document.createElement("span");
+    trustChip.className = "approval-trust-chip";
+    trustChip.hidden = true;
+    card.append(header, input, actions, editPane, trustChip, status);
     this.root.append(card);
     window.setTimeout(() => card.scrollIntoView({ block: "nearest", inline: "nearest" }), 50);
-    const tracked: ApprovalCard = { payload, element: card, approveUntil: 0 };
+    const tracked: ApprovalCard = { payload, element: card, approveUntil: 0, trustButton: trust };
     this.cards.set(payload.id, tracked);
 
     approve.addEventListener("click", () => {
@@ -109,6 +125,13 @@ export class ApprovalOverlay {
       editPane.hidden = false;
       textarea.focus();
     });
+    trust?.addEventListener("click", () => {
+      if (scope === undefined) {
+        return;
+      }
+      vibrate();
+      void this.addRuntimeTrust(payload, scope, tracked, trustChip, status);
+    });
     cancel.addEventListener("click", () => {
       editPane.hidden = true;
       status.textContent = "";
@@ -125,6 +148,9 @@ export class ApprovalOverlay {
     if (card === undefined) {
       return;
     }
+    if (card.trustTimer !== undefined) {
+      window.clearInterval(card.trustTimer);
+    }
     card.element.remove();
     this.cards.delete(id);
   }
@@ -137,6 +163,53 @@ export class ApprovalOverlay {
       return;
     }
     status.textContent = "Done.";
+  }
+
+  private async addRuntimeTrust(payload: ApprovalRequestedPayload, scope: TrustScope, card: ApprovalCard, chip: HTMLElement, status: HTMLElement): Promise<void> {
+    status.textContent = "Adding runtime trust...";
+    if (card.trustButton !== undefined) {
+      card.trustButton.disabled = true;
+    }
+    const response = await this.postJSON("/trust/runtime", {
+      session_id: payload.session_id,
+      tool: payload.tool,
+      path: scope.pattern,
+      agent: payload.agent,
+      expires: "5m"
+    });
+    if (!response.ok) {
+      status.textContent = await response.text();
+      if (card.trustButton !== undefined) {
+        card.trustButton.disabled = false;
+      }
+      return;
+    }
+    status.textContent = "Runtime trust active.";
+    this.startTrustCountdown(card, chip, Date.now() + 5 * 60 * 1000);
+  }
+
+  private startTrustCountdown(card: ApprovalCard, chip: HTMLElement, expiresAt: number): void {
+    if (card.trustTimer !== undefined) {
+      window.clearInterval(card.trustTimer);
+    }
+    const tick = () => {
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        chip.hidden = true;
+        if (card.trustButton !== undefined) {
+          card.trustButton.disabled = false;
+        }
+        if (card.trustTimer !== undefined) {
+          window.clearInterval(card.trustTimer);
+          card.trustTimer = undefined;
+        }
+        return;
+      }
+      chip.hidden = false;
+      chip.textContent = `auto-approve ${formatRemaining(remaining)}`;
+    };
+    tick();
+    card.trustTimer = window.setInterval(tick, 1000);
   }
 }
 
@@ -198,6 +271,48 @@ function lineCount(value: string): number {
 
 function byteCount(value: string): number {
   return new TextEncoder().encode(value).byteLength;
+}
+
+function runtimeTrustScope(filePath: string | undefined): TrustScope | undefined {
+  const raw = filePath?.trim().replace(/\\/g, "/") ?? "";
+  if (raw === "") {
+    return undefined;
+  }
+  const trimmed = raw.replace(/\/+$/, "");
+  if (trimmed === "") {
+    return undefined;
+  }
+  const dir = raw.endsWith("/") ? trimmed : parentDir(trimmed);
+  if (dir === "" || dir === ".") {
+    return { label: ".", pattern: "**" };
+  }
+  return { label: compactDirLabel(dir), pattern: `${dir.replace(/\/+$/, "")}/**` };
+}
+
+function parentDir(path: string): string {
+  const idx = path.lastIndexOf("/");
+  if (idx < 0) {
+    return "";
+  }
+  if (idx === 0) {
+    return "/";
+  }
+  return path.slice(0, idx);
+}
+
+function compactDirLabel(dir: string): string {
+  if (dir.length <= 32) {
+    return dir;
+  }
+  const parts = dir.split("/").filter((part) => part !== "");
+  return parts.length <= 2 ? dir : `.../${parts.slice(-2).join("/")}`;
+}
+
+function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {

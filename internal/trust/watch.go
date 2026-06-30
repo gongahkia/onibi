@@ -92,7 +92,39 @@ func (w *Watcher) Policy(root string) (Policy, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	p, ok := w.roots[root]
+	if ok {
+		p = pruneExpired(p, time.Now())
+		w.roots[root] = p
+	}
 	return p, ok
+}
+
+func (w *Watcher) AddRuntimeRule(root string, rule Rule) error {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	root = filepath.Clean(root)
+	now := time.Now()
+	if rule.Effect == "" {
+		rule.Effect = EffectAutoApprove
+	}
+	if rule.ExpiresRaw == "" && rule.Expires > 0 {
+		rule.ExpiresRaw = rule.Expires.String()
+	}
+	rule.Runtime = true
+	if err := rule.validate(-1); err != nil {
+		return err
+	}
+	if !rule.Never && rule.ExpiresAt.IsZero() {
+		rule.ExpiresAt = now.Add(rule.Expires)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := pruneExpired(w.roots[root], now)
+	p.Rules = append([]Rule{rule}, p.Rules...)
+	w.roots[root] = p
+	return nil
 }
 
 func (w *Watcher) Run(ctx context.Context) {
@@ -172,15 +204,18 @@ func (w *Watcher) scheduleLocked(root string) {
 func (w *Watcher) loadLocked(root string) (WatchEvent, bool) {
 	path := filepath.Join(root, ".onibi", "trust.toml")
 	prev := w.roots[root]
+	runtimeRules := activeRuntimeRules(prev, time.Now())
 	p, err := Load(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			p = Policy{}
+			p.Rules = append(runtimeRules, p.Rules...)
 			w.roots[root] = p
 			return WatchEvent{Root: root, Path: path, Previous: prev, Policy: p}, true
 		}
 		return WatchEvent{Root: root, Path: path, Previous: prev, Policy: prev, Err: err}, true
 	}
+	p.Rules = append(runtimeRules, p.Rules...)
 	w.roots[root] = p
 	return WatchEvent{Root: root, Path: path, Previous: prev, Policy: p}, true
 }
@@ -219,4 +254,25 @@ func (w *Watcher) emit(events ...WatchEvent) {
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func activeRuntimeRules(p Policy, now time.Time) []Rule {
+	var out []Rule
+	for _, rule := range p.Rules {
+		if rule.Runtime && !rule.expired(now) {
+			out = append(out, rule)
+		}
+	}
+	return out
+}
+
+func pruneExpired(p Policy, now time.Time) Policy {
+	out := p
+	out.Rules = out.Rules[:0]
+	for _, rule := range p.Rules {
+		if !rule.expired(now) {
+			out.Rules = append(out.Rules, rule)
+		}
+	}
+	return out
 }

@@ -121,6 +121,60 @@ agent = "claude"
 	}
 }
 
+func TestAddRuntimeTrustRuleAddsEphemeralRule(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	root := t.TempDir()
+	w, err := trust.NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.AddRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	d.Trust = w
+	s := NewSession("s1", "claude", "claude", nil, 0)
+	s.CWD = root
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	toasts, unsubToasts := d.Events.Subscribe()
+	defer unsubToasts()
+	msg, err := d.AddRuntimeTrustRule(t.Context(), web.TrustRuntimeRequest{
+		SessionID: "s1",
+		Tool:      "Edit",
+		Path:      filepath.Join(root, "src", "**"),
+		Agent:     "claude",
+		Expires:   "5m",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg, "src/**") {
+		t.Fatalf("message = %q", msg)
+	}
+	p, ok := w.Policy(root)
+	if !ok || len(p.Rules) != 1 {
+		t.Fatalf("policy = %#v ok=%v", p, ok)
+	}
+	got, ok := p.Evaluate(trust.Request{Tool: "Edit", Path: "src/main.go", Agent: "claude"})
+	if !ok || !got.Runtime || got.Effect != trust.EffectAutoApprove || got.Expires != 5*time.Minute {
+		t.Fatalf("rule = %#v ok=%v", got, ok)
+	}
+	toast := readTrustWebEvent(t, toasts)
+	if toast.Type != "toast" {
+		t.Fatalf("toast = %#v", toast)
+	}
+	audit, err := db.AuditRecent(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || audit[0].Action != "trust.runtime.add" || !strings.Contains(audit[0].Detail, "path=src/**") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
 func readTrustApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
 	t.Helper()
 	select {

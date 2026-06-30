@@ -138,6 +138,7 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 	switch ev.Type {
 	case approval.EventRequested:
 		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
+		details := approval.ExtractDetails(a.Tool, a.InputJSON)
 		payload := map[string]any{
 			"id":             a.ID,
 			"session_id":     a.SessionID,
@@ -150,6 +151,9 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 		}
 		if a.UnifiedDiff != "" {
 			payload["unified_diff"] = a.UnifiedDiff
+		}
+		if details.FilePath != "" {
+			payload["file_path"] = details.FilePath
 		}
 		return payload
 	case approval.EventExpired:

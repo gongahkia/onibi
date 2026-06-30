@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -86,6 +87,51 @@ func (d *Daemon) publishToast(message string) {
 			"message": message,
 		},
 	})
+}
+
+func (d *Daemon) AddRuntimeTrustRule(ctx context.Context, req web.TrustRuntimeRequest) (string, error) {
+	if d == nil || d.Trust == nil {
+		return "", errors.New("trust watcher unavailable")
+	}
+	if d.Registry == nil {
+		return "", errors.New("session registry unavailable")
+	}
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		return "", errors.New("session_id required")
+	}
+	s, err := d.Registry.Get(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(s.CWD) == "" {
+		return "", errors.New("session cwd required")
+	}
+	tool := strings.TrimSpace(req.Tool)
+	if tool == "" {
+		return "", errors.New("tool required")
+	}
+	path := trustMatchPath(s.CWD, req.Path)
+	if path == "" {
+		return "", errors.New("path required")
+	}
+	expires := strings.TrimSpace(req.Expires)
+	ttl, err := time.ParseDuration(expires)
+	if err != nil || ttl <= 0 {
+		return "", errors.New("expires must be a positive duration")
+	}
+	agent := strings.TrimSpace(req.Agent)
+	if agent == "" {
+		agent = s.Agent
+	}
+	rule := trust.RuntimeRule(trust.Match{Tool: tool, Path: path, Agent: agent}, trust.EffectAutoApprove, ttl, time.Now())
+	if err := d.Trust.AddRuntimeRule(s.CWD, rule); err != nil {
+		return "", err
+	}
+	d.audit(ctx, "trust.runtime.add", s.ID, "", 0, fmt.Sprintf("tool=%s path=%s agent=%s expires=%s", tool, path, agent, expires))
+	msg := fmt.Sprintf("Auto-approving %s in %s for %s.", tool, path, expires)
+	d.publishToast(msg)
+	return msg, nil
 }
 
 func (d *Daemon) handleTrustApproval(ctx context.Context, s *Session, ev intake.Event) (intake.Response, bool) {

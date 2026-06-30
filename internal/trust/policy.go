@@ -29,6 +29,8 @@ type Rule struct {
 	ExpiresRaw string        `toml:"expires"`
 	Expires    time.Duration `toml:"-"`
 	Never      bool          `toml:"-"`
+	Runtime    bool          `toml:"-"`
+	ExpiresAt  time.Time     `toml:"-"`
 }
 
 type Match struct {
@@ -72,7 +74,14 @@ func (p Policy) Validate() error {
 }
 
 func (p Policy) Evaluate(req Request) (Rule, bool) {
+	return p.EvaluateAt(req, time.Now())
+}
+
+func (p Policy) EvaluateAt(req Request, now time.Time) (Rule, bool) {
 	for _, rule := range p.Rules {
+		if rule.expired(now) {
+			continue
+		}
 		if rule.matches(req) {
 			return rule, true
 		}
@@ -80,8 +89,22 @@ func (p Policy) Evaluate(req Request) (Rule, bool) {
 	return Rule{}, false
 }
 
+func RuntimeRule(match Match, effect Effect, ttl time.Duration, now time.Time) Rule {
+	return Rule{
+		Match:      match,
+		Effect:     effect,
+		ExpiresRaw: ttl.String(),
+		Expires:    ttl,
+		Runtime:    true,
+		ExpiresAt:  now.Add(ttl),
+	}
+}
+
 func (r *Rule) validate(i int) error {
 	prefix := fmt.Sprintf("rule %d", i+1)
+	if i < 0 {
+		prefix = "runtime rule"
+	}
 	if r.Match.Tool == "" && r.Match.Path == "" && r.Match.Agent == "" {
 		return fmt.Errorf("%s match required", prefix)
 	}
@@ -133,6 +156,10 @@ func (r Rule) matches(req Request) bool {
 		return false
 	}
 	return true
+}
+
+func (r Rule) expired(now time.Time) bool {
+	return !r.Never && !r.ExpiresAt.IsZero() && !now.Before(r.ExpiresAt)
 }
 
 func globMatch(pattern, value string) bool {

@@ -74,6 +74,9 @@ func TestApprovalEventPayloadIncludesUnifiedDiff(t *testing.T) {
 	if payload["unified_diff"] != "--- old\n+++ new\n@@\n-old\n+new\n" {
 		t.Fatalf("payload = %#v", payload)
 	}
+	if payload["file_path"] != "/tmp/x" {
+		t.Fatalf("payload = %#v", payload)
+	}
 }
 
 func TestWSEventsStreamsAppEvents(t *testing.T) {

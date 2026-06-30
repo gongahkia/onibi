@@ -67,6 +67,20 @@ agent = "codex"
 	}
 }
 
+func TestRuntimeRuleExpiresAtWindow(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	p := Policy{Rules: []Rule{
+		RuntimeRule(Match{Tool: "Edit", Path: "src/**", Agent: "claude"}, EffectAutoApprove, 5*time.Minute, now),
+	}}
+	req := Request{Tool: "Edit", Path: "src/main.go", Agent: "claude"}
+	if got, ok := p.EvaluateAt(req, now.Add(5*time.Minute-time.Nanosecond)); !ok || got.Effect != EffectAutoApprove {
+		t.Fatalf("match before expiry = %#v ok=%v", got, ok)
+	}
+	if _, ok := p.EvaluateAt(req, now.Add(5*time.Minute)); ok {
+		t.Fatal("runtime rule matched at expiry")
+	}
+}
+
 func TestParsePolicyRejectsInvalidRules(t *testing.T) {
 	for _, tc := range []struct {
 		name string

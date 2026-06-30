@@ -86,6 +86,36 @@ func TestWatcherKeepsOldPolicyOnBadToml(t *testing.T) {
 	}
 }
 
+func TestWatcherRuntimeRuleWithRawExpiryDecays(t *testing.T) {
+	root := t.TempDir()
+	w, err := NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.AddRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AddRuntimeRule(root, Rule{
+		Effect:     EffectAutoApprove,
+		ExpiresRaw: "5m",
+		Match:      Match{Tool: "Edit", Path: "src/**"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := w.Policy(root)
+	if !ok || len(p.Rules) != 1 || p.Rules[0].ExpiresAt.IsZero() {
+		t.Fatalf("policy = %#v ok=%v", p, ok)
+	}
+	req := Request{Tool: "Edit", Path: "src/main.go"}
+	if _, ok := p.EvaluateAt(req, p.Rules[0].ExpiresAt.Add(-time.Nanosecond)); !ok {
+		t.Fatal("runtime rule did not match before expiry")
+	}
+	if _, ok := p.EvaluateAt(req, p.Rules[0].ExpiresAt); ok {
+		t.Fatal("runtime rule matched at expiry")
+	}
+}
+
 func waitWatchEvent(t *testing.T, events <-chan WatchEvent, want func(WatchEvent) bool) WatchEvent {
 	t.Helper()
 	deadline := time.After(time.Second)

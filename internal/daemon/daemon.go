@@ -390,6 +390,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			PTYHost:       d.EnsureWebPTYHost,
 			Handover:      d.HandoverSession,
 			Scroll:        d.ScrollSession,
+			TrustRuntime:  d.AddRuntimeTrustRule,
 			RelayKeys:     d.RelayKeys,
 			RequireE2E:    d.RequireWebE2E,
 			Log:           d.Log,
