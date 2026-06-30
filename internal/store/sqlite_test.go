@@ -180,6 +180,40 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 	}
 }
 
+func TestSnapshotSchemaLoadsOnFreshDB(t *testing.T) {
+	db := openTemp(t)
+	snapshotCols := tableColumns(t, db, "snapshots")
+	for _, want := range []string{"id", "session_id", "name", "created_at", "ring_buffer_enc", "cwd_enc", "env_enc", "transcript_offset"} {
+		if !slices.Contains(snapshotCols, want) {
+			t.Fatalf("snapshots missing %q: %#v", want, snapshotCols)
+		}
+	}
+	turnCols := tableColumns(t, db, "transcript_turns")
+	for _, want := range []string{"id", "session_id", "turn_index", "role", "content_enc", "tool_calls_enc", "ts"} {
+		if !slices.Contains(turnCols, want) {
+			t.Fatalf("transcript_turns missing %q: %#v", want, turnCols)
+		}
+	}
+	for _, tc := range []struct {
+		table string
+		col   string
+	}{
+		{"snapshots", "ring_buffer_enc"},
+		{"snapshots", "cwd_enc"},
+		{"snapshots", "env_enc"},
+		{"transcript_turns", "content_enc"},
+		{"transcript_turns", "tool_calls_enc"},
+	} {
+		if typ := tableColumnType(t, db, tc.table, tc.col); typ != "BLOB" {
+			t.Fatalf("%s.%s type = %q, want BLOB", tc.table, tc.col, typ)
+		}
+	}
+	var version int
+	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 8`).Scan(&version); err != nil {
+		t.Fatalf("schema version 8 missing: %v", err)
+	}
+}
+
 func TestEncryptedUpgradeFromPlaintextSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upgrade.sqlite")
 	raw, err := sql.Open("sqlite", path)
@@ -262,4 +296,31 @@ func tableColumns(t *testing.T, db *DB, table string) []string {
 		t.Fatal(err)
 	}
 	return out
+}
+
+func tableColumnType(t *testing.T, db *DB, table, column string) string {
+	t.Helper()
+	rows, err := db.sql.QueryContext(context.Background(), `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == column {
+			return typ
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("%s.%s not found", table, column)
+	return ""
 }

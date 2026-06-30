@@ -224,6 +224,32 @@ CREATE TABLE IF NOT EXISTS prompt_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_queue_session_state_pos ON prompt_queue(session_id, state, position);
 CREATE INDEX IF NOT EXISTS idx_prompt_queue_state ON prompt_queue(state, created_at);
+
+-- encrypted session snapshots and parsed transcript turns
+CREATE TABLE IF NOT EXISTS snapshots (
+  id                TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL,
+  name              TEXT NOT NULL,
+  created_at        INTEGER NOT NULL,
+  ring_buffer_enc   BLOB NOT NULL,
+  cwd_enc           BLOB NOT NULL,
+  env_enc           BLOB NOT NULL,
+  transcript_offset INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_session_created ON snapshots(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_name ON snapshots(name);
+
+CREATE TABLE IF NOT EXISTS transcript_turns (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  turn_index      INTEGER NOT NULL,
+  role            TEXT NOT NULL,
+  content_enc     BLOB NOT NULL,
+  tool_calls_enc  BLOB NOT NULL,
+  ts              INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_turns_session_turn ON transcript_turns(session_id, turn_index);
+CREATE INDEX IF NOT EXISTS idx_transcript_turns_ts ON transcript_turns(ts);
 `
 
 func (d *DB) migrate() error {
@@ -253,7 +279,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "web_sessions", "key_verifier_enc", "BLOB"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
