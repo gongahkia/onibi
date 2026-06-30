@@ -343,8 +343,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: no pure-Go SQLCipher exists in 2026. CGO bindings (mutecomm/go-sqlcipher) break static cross-compile to RPi under `CGO_ENABLED=0`. Use app-layer envelope encryption via existing `internal/envelope/envelope.go` (HKDF-SHA256 → AES-256-GCM, 96-bit nonce). Master key (32 random bytes) stored via `github.com/zalando/go-keyring` (already wrapped in `internal/secrets/`). Trade-off: encrypted columns lose SQL `LIKE`/`WHERE` — acceptable because target tables (`pairing_tokens`, `web_sessions`, `audit_events`, plus new `snapshots`, `transcript_turns`, `trust_policies`, `budgets`, `workspaces`, `push_subscriptions`) are append-only or whole-row-read.
 
-(B) 2026-06-29 Extend internal/doctor/ to verify keychain entry present + decryptable; fail loudly with remediation steps if absent +phaseQ0 @backend file:internal/doctor/ id:T2007 accept:doctor-flags-missing-key
-(C) 2026-06-29 Threat-model paragraph in docs/security.md: at-rest scope, key-storage model, what a stolen laptop still leaks (process memory while running), defense-in-depth notes on go-keyring issue #110 (macOS keychain entry has no ACL by default) +phaseQ0 @docs file:docs/security.md id:T2008 blocked-by:T2007
+(C) 2026-06-29 Threat-model paragraph in docs/security.md: at-rest scope, key-storage model, what a stolen laptop still leaks (process memory while running), defense-in-depth notes on go-keyring issue #110 (macOS keychain entry has no ACL by default) +phaseQ0 @docs file:docs/security.md id:T2008
 
 #### Q0b — E: Cloudflare Quick Tunnel + E2E (supersedes T1300–T1303)
 

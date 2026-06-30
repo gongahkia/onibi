@@ -34,6 +34,8 @@ const (
 	StoreKeyName   = "onibi.store.key.v1"
 )
 
+var ErrStoreKeyNotFound = errors.New("store key not found")
+
 // Store hides whether a secret lives in the OS keystore or a .env file.
 // Open returns one of these wired to the right backend.
 type Store struct {
@@ -90,6 +92,18 @@ func GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	return store.GetOrCreateStoreKey(ctx)
+}
+
+func GetStoreKey(ctx context.Context) ([]byte, error) {
+	path, err := DefaultStoreKeyFallbackPath()
+	if err != nil {
+		return nil, err
+	}
+	store, err := Open(Options{EnvFallbackPath: path, PreferDotenv: forceDotenvStoreKey()})
+	if err != nil {
+		return nil, err
+	}
+	return store.GetStoreKey(ctx)
 }
 
 func SetStoreKey(ctx context.Context, key []byte) error {
@@ -151,6 +165,17 @@ func (s *Store) GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
 	}
 	if !ok {
 		return nil, errors.New("store key write did not persist")
+	}
+	return decodeStoreKey(value)
+}
+
+func (s *Store) GetStoreKey(ctx context.Context) ([]byte, error) {
+	value, ok, err := s.getContext(ctx, StoreKeyName)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrStoreKeyNotFound
 	}
 	return decodeStoreKey(value)
 }

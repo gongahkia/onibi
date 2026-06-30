@@ -3,6 +3,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +120,35 @@ func TestGetOrCreateStoreKeyRejectsInvalidPersistedKey(t *testing.T) {
 	}
 	if _, err := s.GetOrCreateStoreKey(context.Background()); err == nil {
 		t.Fatal("expected invalid persisted key error")
+	}
+}
+
+func TestGetStoreKeyMissing(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "store.key")
+	s, err := Open(Options{EnvFallbackPath: envFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetStoreKey(context.Background()); !errors.Is(err, ErrStoreKeyNotFound) {
+		t.Fatalf("GetStoreKey err = %v", err)
+	}
+}
+
+func TestSetStoreKeyDotenvRoundTrip(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "store.key")
+	s, err := Open(Options{EnvFallbackPath: envFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Repeat([]byte{7}, 32)
+	if err := s.SetStoreKey(context.Background(), key); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, key) {
+		t.Fatal("key mismatch")
 	}
 }

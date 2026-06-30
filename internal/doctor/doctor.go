@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
@@ -116,6 +118,7 @@ func (r *runner) run() {
 	}
 	r.checkStateDir()
 	r.checkEnvFile()
+	r.checkStoreKey()
 	r.checkDB()
 	r.checkConfig()
 	r.checkGhostty()
@@ -166,6 +169,29 @@ func (r *runner) checkEnvFile() {
 	r.add(".env fallback", Pass, "present with 0600 perms")
 }
 
+func (r *runner) checkStoreKey() {
+	key, err := secrets.GetStoreKey(r.ctx)
+	if err != nil {
+		if errors.Is(err, secrets.ErrStoreKeyNotFound) {
+			c := Check{Name: "store key", Status: Fail, Detail: "missing encrypted store key", Code: codeFor("store key")}
+			c.Impact = "Encrypted SQLite state cannot be decrypted."
+			c.SafeFix = "start Onibi once to create a key, or restore the key from backup"
+			c.ManualFix = "verify " + secrets.StoreKeyName + " in the active secret backend or fallback store"
+			c.Retry = "onibi doctor"
+			c.Next = c.Retry
+			r.checks = append(r.checks, c)
+			return
+		}
+		r.add("store key", Fail, err.Error())
+		return
+	}
+	if len(key) != 32 {
+		r.add("store key", Fail, fmt.Sprintf("key length %d want 32", len(key)))
+		return
+	}
+	r.add("store key", Pass, "present")
+}
+
 func (r *runner) checkDB() {
 	db, err := openStoreDB(r.opts.Paths.DBFile)
 	if err != nil {
@@ -173,6 +199,10 @@ func (r *runner) checkDB() {
 		return
 	}
 	defer db.Close()
+	if err := db.VerifyEncryptedState(r.ctx); err != nil {
+		r.add("sqlite db", Fail, "encrypted state decrypt failed: "+err.Error())
+		return
+	}
 	r.add("sqlite db", Pass, r.opts.Paths.DBFile)
 }
 

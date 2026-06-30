@@ -47,6 +47,19 @@ func (d *DB) Rekey(ctx context.Context, newMasterKey []byte) error {
 	return nil
 }
 
+func (d *DB) VerifyEncryptedState(ctx context.Context) error {
+	if d == nil || d.cryptbox == nil {
+		return ErrCryptBoxUnavailable
+	}
+	if _, err := d.rekeyPairingRows(ctx, d.cryptbox); err != nil {
+		return err
+	}
+	if _, err := d.rekeyWebSessionRows(ctx, d.cryptbox); err != nil {
+		return err
+	}
+	return nil
+}
+
 type rekeyPairingRow struct {
 	hash     string
 	tokenEnc []byte

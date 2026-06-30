@@ -8,7 +8,7 @@ import (
 )
 
 func openStoreDB(path string) (*store.DB, error) {
-	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	key, err := secrets.GetStoreKey(context.Background())
 	if err != nil {
 		return nil, err
 	}

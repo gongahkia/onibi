@@ -6,10 +6,48 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/secrets"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web/transport"
 )
+
+func TestDoctorFlagsMissingStoreKey(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "store key")
+	if check.Status != Fail {
+		t.Fatalf("store key check = %#v", check)
+	}
+	if !strings.Contains(check.Detail, "missing") {
+		t.Fatalf("detail = %q", check.Detail)
+	}
+}
+
+func TestDoctorPassesDecryptableStoreKey(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile, store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutWebSession(context.Background(), "cookie", "iPhone", time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	report := Run(context.Background(), Options{Paths: paths})
+	if check := checkNamed(t, report, "store key"); check.Status != Pass {
+		t.Fatalf("store key check = %#v", check)
+	}
+	if check := checkNamed(t, report, "sqlite db"); check.Status != Pass {
+		t.Fatalf("sqlite check = %#v", check)
+	}
+}
 
 func TestDoctorTailscalePassesWithFunnelCaps(t *testing.T) {
 	paths := doctorTestPaths(t, "tailscale")
@@ -54,6 +92,9 @@ func TestDoctorTailscaleSkippedForLAN(t *testing.T) {
 func doctorTestPaths(t *testing.T, mode string) config.Paths {
 	t.Helper()
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "xdg-data"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "run"))
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
