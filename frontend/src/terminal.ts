@@ -1,10 +1,11 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITheme } from "@xterm/xterm";
+import { ghosttyDefaultTheme } from "./themes/ghostty-default";
 import type { TerminalWS } from "./ws";
 import "@xterm/xterm/css/xterm.css";
 
-export type TerminalThemeName = "dark" | "light";
+export type TerminalThemeName = "ghostty-default" | "dark" | "light";
 
 export type TerminalHandle = {
   term: Terminal;
@@ -14,6 +15,7 @@ export type TerminalHandle = {
 const terminalFont = `"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace`;
 
 const themes: Record<TerminalThemeName, ITheme> = {
+  "ghostty-default": ghosttyDefaultTheme,
   dark: {
     background: "#090b0f",
     foreground: "#d7dde8",
@@ -60,7 +62,13 @@ const themes: Record<TerminalThemeName, ITheme> = {
   }
 };
 
-export function createTerminal(container: HTMLElement, theme: TerminalThemeName = "dark"): TerminalHandle {
+export const defaultTerminalTheme: TerminalThemeName = "ghostty-default";
+
+export function isTerminalThemeName(value: string | null): value is TerminalThemeName {
+  return value === "ghostty-default" || value === "dark" || value === "light";
+}
+
+export function createTerminal(container: HTMLElement, theme: TerminalThemeName = defaultTerminalTheme): TerminalHandle {
   const term = new Terminal({
     fontFamily: terminalFont,
     fontSize: 14,

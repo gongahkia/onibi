@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-    <meta name="theme-color" content="#090b0f">
+    <meta name="theme-color" content="#282C34">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Onibi">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -11,6 +11,25 @@
     <title>Onibi</title>
     <style>
       :root {
+        --page-bg: #282C34;
+        --page-fg: #FFFFFF;
+        --chrome-bg: rgba(40, 44, 52, 0.78);
+        --chrome-border: #4a515e;
+        --button-bg: #1d1f21;
+        --button-fg: #FFFFFF;
+        --button-border: #666666;
+        --button-active-bg: #7AA6DA;
+        --button-active-border: #81A2BE;
+        --muted-fg: #C5C8C6;
+        --panel-bg: rgba(29, 31, 33, 0.96);
+        --panel-solid-bg: #1D1F21;
+        --sessions-height: 34px;
+        --softkey-height: 88px;
+        --visual-viewport-height: 100dvh;
+        --keyboard-bottom: 0px;
+        --mono-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace;
+      }
+      :root[data-theme="dark"] {
         --page-bg: #090b0f;
         --page-fg: #d7dde8;
         --chrome-bg: rgba(9, 11, 15, 0.72);
@@ -23,11 +42,6 @@
         --muted-fg: #8d98aa;
         --panel-bg: rgba(13, 17, 23, 0.96);
         --panel-solid-bg: #05070a;
-        --sessions-height: 34px;
-        --softkey-height: 88px;
-        --visual-viewport-height: 100dvh;
-        --keyboard-bottom: 0px;
-        --mono-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace;
       }
       :root[data-theme="light"] {
         --page-bg: #f6f8fa;

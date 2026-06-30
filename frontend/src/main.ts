@@ -1,6 +1,6 @@
 import "./main.css";
 import { TerminalWS } from "./ws";
-import { applyTerminalTheme, attachTerminalIO, createTerminal, installTouchScroll, installViewportResize } from "./terminal";
+import { applyTerminalTheme, attachTerminalIO, createTerminal, defaultTerminalTheme, installTouchScroll, installViewportResize, isTerminalThemeName } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 import { AnomalyOverlay } from "./anomaly";
 import { ApprovalOverlay } from "./approval";
@@ -291,12 +291,23 @@ function setTheme(next: TerminalThemeName): void {
 }
 
 function loadTheme(): TerminalThemeName {
-  return window.localStorage.getItem("onibi-theme") === "light" ? "light" : "dark";
+  const stored = window.localStorage.getItem("onibi-theme");
+  return isTerminalThemeName(stored) ? stored : defaultTerminalTheme;
 }
 
 function applyDocumentTheme(next: TerminalThemeName): void {
   document.documentElement.dataset.theme = next;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#090b0f" : "#f6f8fa");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", documentThemeColor(next));
+}
+
+function documentThemeColor(next: TerminalThemeName): string {
+  if (next === "light") {
+    return "#f6f8fa";
+  }
+  if (next === "dark") {
+    return "#090b0f";
+  }
+  return "#282C34";
 }
 
 function showToast(message: string): void {
