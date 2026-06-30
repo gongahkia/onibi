@@ -371,8 +371,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: rules-only, no ML. Survey: llm-guard (protectai), garak (leondz), Nemo Guardrails. 8 rules selected.
 
-(C) 2026-06-29 docs/anomaly-detection.md: list all 8 rules with examples, how to add custom rules via adapter manifest (F.SPEC risk_overrides) or via .onibi/anomaly-rules.toml +phaseQ1 @docs file:docs/anomaly-detection.md id:T2166
-
 ### Phase Q2 — Session & state model (~5.5 weeks)
 
 #### Q2a — I: Session snapshots + branching
