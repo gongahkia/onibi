@@ -261,6 +261,7 @@ func adaptersCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
 	cmd.AddCommand(adaptersAddCmd())
+	cmd.AddCommand(adaptersValidateCmd())
 	return cmd
 }
 

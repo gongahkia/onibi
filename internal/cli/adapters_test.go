@@ -83,6 +83,46 @@ func TestAdaptersAddManifestRoutesInstallHooks(t *testing.T) {
 	}
 }
 
+func TestAdaptersValidateManifestReportsOK(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "aider.toml")
+	if err := os.WriteFile(src, []byte(testAdapterManifest("aidervalid", filepath.Join(dir, "install.out"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRoot(t, "adapters", "validate", src, "--color", "never")
+	if !strings.Contains(out.String(), "OK aidervalid 1.0.0") {
+		t.Fatalf("out = %q", out.String())
+	}
+}
+
+func TestAdaptersValidateManifestReportsLineNumber(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "bad.toml")
+	body := strings.Join([]string{
+		`name = "badvalidate"`,
+		`version = "1.0.0"`,
+		`kind = "agent"`,
+		`cmd_pattern = { PreToolUse = "*" }`,
+		`hook_install = ["printf ok"]`,
+		`hook_uninstall = ["printf ok"]`,
+		`min_onibi_version = "0.3.0"`,
+		``,
+		`[risk_overrides]`,
+		`Write = "severe"`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err := executeRootAllowError(t, "adapters", "validate", src, "--color", "never")
+	if err == nil {
+		t.Fatal("expected validation failure")
+	}
+	if !strings.Contains(errOut.String(), "bad.toml:9:") || !strings.Contains(errOut.String(), "invalid risk level") {
+		t.Fatalf("stderr = %q err=%v", errOut.String(), err)
+	}
+}
+
 func testAdapterManifest(name, installPath string) string {
 	installCmd := "printf installed > " + strconv.Quote(installPath)
 	uninstallCmd := "printf uninstalled > " + strconv.Quote(installPath)

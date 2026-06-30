@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters"
@@ -97,6 +99,15 @@ func adaptersAddCmd() *cobra.Command {
 	return cmd
 }
 
+func adaptersValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate <path>",
+		Short: "Validate a third-party adapter manifest",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runAdaptersValidate,
+	}
+}
+
 func runAdaptersAdd(cmd *cobra.Command, args []string) error {
 	pin, _ := cmd.Flags().GetString("sha256")
 	src := args[0]
@@ -130,6 +141,26 @@ func runAdaptersAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Added adapter %s -> %s\n", manifest.Name, dest)
+	return nil
+}
+
+func runAdaptersValidate(cmd *cobra.Command, args []string) error {
+	path := args[0]
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	manifest, err := catalog.ParseManifest(body, abs)
+	if err != nil {
+		line := adapterManifestErrorLine(body, err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s:%d: %v\n", abs, line, err)
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "OK %s %s\n", manifest.Name, manifest.Version)
 	return nil
 }
 
@@ -199,6 +230,43 @@ func verifyAdapterManifestSHA256(body []byte, want string) error {
 		return fmt.Errorf("sha256 mismatch: got %s", got)
 	}
 	return nil
+}
+
+func adapterManifestErrorLine(body []byte, err error) int {
+	msg := err.Error()
+	if match := regexp.MustCompile(`(?i)line\s+([0-9]+)`).FindStringSubmatch(msg); len(match) == 2 {
+		if n, convErr := strconv.Atoi(match[1]); convErr == nil && n > 0 {
+			return n
+		}
+	}
+	for key, needle := range map[string]string{
+		"name":              "name",
+		"version":           "version",
+		"kind":              "kind",
+		"cmd_pattern":       "cmd_pattern",
+		"hook_install":      "hook_install",
+		"hook_uninstall":    "hook_uninstall",
+		"risk_overrides":    "risk",
+		"min_onibi_version": "min_onibi_version",
+	} {
+		if strings.Contains(msg, needle) {
+			if line := lineForManifestKey(body, key); line > 0 {
+				return line
+			}
+		}
+	}
+	return 1
+}
+
+func lineForManifestKey(body []byte, key string) int {
+	lines := strings.Split(string(body), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, key+" ") || strings.HasPrefix(trimmed, key+"=") || strings.HasPrefix(trimmed, "["+key+"]") {
+			return i + 1
+		}
+	}
+	return 1
 }
 
 func statusFromInfo(info common.Info, detected bool) adapterStatus {
