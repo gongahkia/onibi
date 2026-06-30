@@ -379,8 +379,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: asciinema cast v2 (https://docs.asciinema.org/manual/asciicast/v2/). File = JSON header line + JSONL events. Header `{"version":2,"width":<cols>,"height":<rows>,"timestamp":<unix>,"title":<session_id>}`. Event `[<seconds-float>, "<code>", "<data>"]` where code = "o" (stdout), "i" (stdin), "r" (resize "COLSxROWS"), "m" (marker). Time relative to recording start, monotonic non-decreasing. Player: https://github.com/asciinema/asciinema-player.
 
-(B) 2026-06-29 Expose recording at GET /sessions/:id/recording.cast (owner cookie required by default; viewer role disallowed); add onibi recordings list|export|delete CLI +phaseQ2 @backend file:internal/cli/recordings.go id:T2224 accept:CLI-exports-cast
-(B) 2026-06-29 Per-session cost cell in Sessions list (sourced from Q1c M); refresh on CostEvent emitted over /ws/events +phaseQ2 @frontend file:frontend/src/sessions.ts id:T2225 blocked-by:T2224 accept:cost-cell-updates-live
+(B) 2026-06-29 Per-session cost cell in Sessions list (sourced from Q1c M); refresh on CostEvent emitted over /ws/events +phaseQ2 @frontend file:frontend/src/sessions.ts id:T2225 accept:cost-cell-updates-live
 (C) 2026-06-29 Cross-machine roster: if multiple onibi daemons exist on a tailnet, discover peers by parsing `tailscale status --json` output (already used elsewhere per TODO §3 rule 9); include in /sessions?include=remote response; tap to context-switch (Sessions view re-roots WS to the peer URL); anti-goal — do NOT add a SaaS relay +phaseQ2 @backend file:internal/web/sessions.go id:T2226 blocked-by:T2225 accept:tailnet-peers-show-in-list
 
 #### Q2c — K: Agent reasoning timeline panel

@@ -44,6 +44,7 @@ type Options struct {
 	Snapshots       func(context.Context) ([]Snapshot, error)
 	SnapshotRestore func(context.Context, string) (SnapshotActionResult, error)
 	SnapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	RecordingPath   func(context.Context, string) (string, bool, error)
 	RelayKeys       *RelayKeys
 	RequireE2E      bool
 	Log             *slog.Logger
@@ -66,6 +67,7 @@ type Server struct {
 	snapshots       func(context.Context) ([]Snapshot, error)
 	snapshotRestore func(context.Context, string) (SnapshotActionResult, error)
 	snapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	recordingPath   func(context.Context, string) (string, bool, error)
 	relayKeys       *RelayKeys
 	requireE2E      bool
 	log             *slog.Logger
@@ -92,6 +94,7 @@ func New(opts Options) *Server {
 		snapshots:       opts.Snapshots,
 		snapshotRestore: opts.SnapshotRestore,
 		snapshotFork:    opts.SnapshotFork,
+		recordingPath:   opts.RecordingPath,
 		relayKeys:       opts.RelayKeys,
 		requireE2E:      opts.RequireE2E,
 		log:             opts.Log,
@@ -106,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
 	mux.HandleFunc("/sessions", s.handleSessions)
+	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
 	mux.HandleFunc("/snapshots/restore", s.handleSnapshotRestore)
