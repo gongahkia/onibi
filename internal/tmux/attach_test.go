@@ -170,6 +170,18 @@ func TestCopyModePageKeys(t *testing.T) {
 	}
 }
 
+func TestEnablePassthroughSetsTargetOption(t *testing.T) {
+	r := &fakeRunner{}
+	c := NewWithRunner(r)
+	if err := c.EnablePassthrough(context.Background(), "onibi-abc"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"tmux", "set-option", "-t", "onibi-abc", "allow-passthrough", "on"}}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestListPanesParsesRows(t *testing.T) {
 	r := &fakeRunner{out: []byte("%1\ts\tw\tclaude\ttitle\n")}
 	c := NewWithRunner(r)

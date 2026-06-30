@@ -255,6 +255,9 @@ func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, er
 	d.webAttachMu.Unlock()
 
 	ctrl := newTmuxController()
+	if err := ctrl.EnablePassthrough(ctx, s.TmuxTarget); err != nil {
+		d.Log.Warn("enable tmux passthrough", "session", s.ID, "target", s.TmuxTarget, "err", err)
+	}
 	_ = ctrl.DetachClients(ctx, s.TmuxTarget)
 	args := tmuxWebAttachArgs(s.TmuxTarget)
 	if len(args) == 0 {

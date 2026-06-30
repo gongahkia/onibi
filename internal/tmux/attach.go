@@ -173,6 +173,14 @@ func (c *Controller) DetachClients(ctx context.Context, target string) error {
 	return err
 }
 
+func (c *Controller) EnablePassthrough(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("tmux target required")
+	}
+	_, err := c.run(ctx, "set-option", "-t", target, "allow-passthrough", "on")
+	return err
+}
+
 func (c *Controller) KillSession(ctx context.Context, target string) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("tmux target required")

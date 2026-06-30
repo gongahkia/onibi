@@ -26,6 +26,7 @@ type Hub struct {
 	seq           uint64
 	coalesceBuf   []byte
 	coalesceTimer *time.Timer
+	transcoder    kittyGraphicsTranscoder
 	closed        bool
 }
 
@@ -196,9 +197,14 @@ func (h *Hub) Write(p []byte) (int, error) {
 		h.mu.Unlock()
 		return len(p), nil
 	}
-	h.ring.Write(p)
-	h.seq += uint64(len(p))
-	h.coalesceBuf = append(h.coalesceBuf, p...)
+	out := h.transcoder.Write(p)
+	if len(out) == 0 {
+		h.mu.Unlock()
+		return len(p), nil
+	}
+	h.ring.Write(out)
+	h.seq += uint64(len(out))
+	h.coalesceBuf = append(h.coalesceBuf, out...)
 	if len(h.coalesceBuf) >= coalesceFlushBytes {
 		h.flushLocked()
 	} else if h.coalesceTimer == nil {
