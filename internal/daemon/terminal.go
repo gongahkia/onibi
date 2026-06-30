@@ -148,6 +148,10 @@ func tmuxAttachArgs(target string) []string {
 	return []string{tmuxPath(), "attach-session", "-t", target}
 }
 
+func tmuxWebAttachArgs(target string) []string {
+	return []string{tmuxPath(), "-T", "RGB,sixel", "attach-session", "-t", target}
+}
+
 func tmuxAttachShell(target string) string {
 	return shellQuote(tmuxPath()) + " attach-session -t " + shellQuote(target)
 }

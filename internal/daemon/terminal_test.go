@@ -212,6 +212,22 @@ func TestTmuxAttachShellUsesAbsolutePathAndQuotesUnsafeTarget(t *testing.T) {
 	}
 }
 
+func TestTmuxWebAttachArgsEnableSixel(t *testing.T) {
+	oldLook := lookTerminalPath
+	t.Cleanup(func() { lookTerminalPath = oldLook })
+	lookTerminalPath = func(name string) (string, error) {
+		if name != "tmux" {
+			return "", os.ErrNotExist
+		}
+		return "/opt/homebrew/bin/tmux", nil
+	}
+	got := strings.Join(tmuxWebAttachArgs("onibi-abc"), " ")
+	want := "/opt/homebrew/bin/tmux -T RGB,sixel attach-session -t onibi-abc"
+	if got != want {
+		t.Fatalf("attach = %q want %q", got, want)
+	}
+}
+
 func TestProbeGhosttyReportsCapability(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS-only launcher")

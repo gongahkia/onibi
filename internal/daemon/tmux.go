@@ -256,7 +256,7 @@ func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, er
 
 	ctrl := newTmuxController()
 	_ = ctrl.DetachClients(ctx, s.TmuxTarget)
-	args := tmuxAttachArgs(s.TmuxTarget)
+	args := tmuxWebAttachArgs(s.TmuxTarget)
 	if len(args) == 0 {
 		return nil, errors.New("tmux attach command unavailable")
 	}

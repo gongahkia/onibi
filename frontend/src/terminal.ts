@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
 import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITheme } from "@xterm/xterm";
 import { catppuccinMochaTheme } from "./themes/catppuccin-mocha";
@@ -99,6 +100,7 @@ export function createTerminal(container: HTMLElement, theme: TerminalThemeName 
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  term.loadAddon(new ImageAddon());
   term.open(container);
   fit.fit();
   return { term, fit };
