@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/store"
@@ -149,6 +150,20 @@ func DefaultName(ctx context.Context, db *store.DB) (string, bool, error) {
 	return name, true, nil
 }
 
+func ClearDefaultName(ctx context.Context, db *store.DB, name string) error {
+	if db == nil {
+		return errors.New("workspace db required")
+	}
+	current, ok, err := DefaultName(ctx, db)
+	if err != nil || !ok {
+		return err
+	}
+	if name == "" || current == name {
+		return db.KVDel(ctx, DefaultWorkspaceKVKey)
+	}
+	return nil
+}
+
 func (s *DBStore) Upsert(ctx context.Context, entry DBEntry) error {
 	entry, err := normalizeDBEntry(entry)
 	if err != nil {
@@ -258,6 +273,13 @@ func normalizeIndexEntry(entry IndexEntry) (IndexEntry, error) {
 	}
 	if entry.LastSeen.IsZero() {
 		entry.LastSeen = time.Now().UTC()
+	}
+	entry.SSHKey = strings.TrimSpace(entry.SSHKey)
+	entry.DefaultTransport = strings.ToLower(strings.TrimSpace(entry.DefaultTransport))
+	if entry.DefaultTransport != "" {
+		if err := validateTransportMode(entry.DefaultTransport); err != nil {
+			return IndexEntry{}, fmt.Errorf("default_transport: %w", err)
+		}
 	}
 	return entry, nil
 }

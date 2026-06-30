@@ -385,7 +385,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: hybrid model — .onibi/workspace.toml per project (committed, shareable defaults) + ~/.onibi/workspaces/<name>.toml (private index, never committed). Inspired by VS Code .code-workspace (https://code.visualstudio.com/docs/editor/workspaces) + asdf .tool-versions.
 
-(A) 2026-06-29 CLI: onibi workspace add|list|use|remove|export|import; export writes portable bundle (workspace.toml + trust.toml + budget.toml minus secrets) suitable for committing to a repo +phaseQ2 @backend file:internal/cli/workspace.go id:T2273 accept:exported-bundle-is-portable
 (B) 2026-06-29 Workspace switcher pill in SPA top bar; tapping shows list; switching re-attaches Sessions view to the new workspace's session set +phaseQ2 @frontend file:frontend/src/main.ts id:T2274 blocked-by:T2273 accept:switch-without-refresh
 (C) 2026-06-29 docs/workspaces.md: team-share pattern (commit .onibi/, git pull, onibi workspace use ./.onibi); difference between committed defaults and private index +phaseQ2 @docs file:docs/workspaces.md id:T2275 blocked-by:T2274
 

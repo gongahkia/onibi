@@ -115,5 +115,65 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 		return ProjectConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.Transports.Default = strings.ToLower(strings.TrimSpace(cfg.Transports.Default))
+	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
+		return ProjectConfig{}, err
+	}
 	return cfg, nil
+}
+
+func SaveProjectConfig(path string, cfg ProjectConfig) error {
+	if cfg.SchemaVersion == 0 {
+		cfg.SchemaVersion = 1
+	}
+	cfg.Transports.Default = strings.ToLower(strings.TrimSpace(cfg.Transports.Default))
+	if cfg.SchemaVersion != 1 {
+		return fmt.Errorf("%s: schema_version must be 1", path)
+	}
+	if err := validateName(cfg.Name); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
+		return err
+	}
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func validateProjectTransports(path string, transports *ProjectTransports) error {
+	if transports == nil {
+		return nil
+	}
+	if transports.Default != "" {
+		if err := validateTransportMode(transports.Default); err != nil {
+			return fmt.Errorf("%s: transports.default: %w", path, err)
+		}
+	}
+	for key, values := range map[string][]string{
+		"transports.web":    transports.Web,
+		"transports.chat":   transports.Chat,
+		"transports.notify": transports.Notify,
+	} {
+		for i, value := range values {
+			value = strings.ToLower(strings.TrimSpace(value))
+			if err := validateTransportMode(value); err != nil {
+				return fmt.Errorf("%s: %s[%d]: %w", path, key, i, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateTransportMode(mode string) error {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "lan", "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
+		return nil
+	default:
+		return fmt.Errorf("unknown transport %q", mode)
+	}
 }
