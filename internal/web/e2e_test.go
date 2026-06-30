@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -75,6 +77,71 @@ func TestRelayKeyBindStoresCommitmentOnly(t *testing.T) {
 	}
 	if err := srv.verifyRelayAttach(context.Background(), sessionID, base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, envelope.KeyBytes))); err == nil {
 		t.Fatal("bad relay verifier accepted")
+	}
+}
+
+func TestHealthzReturnsE2EVerifierForOwnerSession(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleHealthz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var got struct {
+		OK             bool   `json:"ok"`
+		E2E            bool   `json:"e2e"`
+		KeyVerifierHex string `json:"key_verifier_hex"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want, err := relayVerifyToken(key, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || !got.E2E || got.KeyVerifierHex != hex.EncodeToString(want) {
+		t.Fatalf("healthz = %#v", got)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	w = httptest.NewRecorder()
+	srv.handleHealthz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("no-cookie status = %d body = %q", w.Code, w.Body.String())
+	}
+	got = struct {
+		OK             bool   `json:"ok"`
+		E2E            bool   `json:"e2e"`
+		KeyVerifierHex string `json:"key_verifier_hex"`
+	}{}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.E2E || got.KeyVerifierHex != "" {
+		t.Fatalf("no-cookie healthz = %#v", got)
 	}
 }
 

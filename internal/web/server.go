@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -125,11 +126,49 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	resp := healthzResponse{
+		OK:      true,
+		Version: buildinfo.Version,
+	}
+	if verifierHex, ok, err := s.healthzKeyVerifierHex(r); err != nil {
+		s.log.Warn("web health e2e verifier failed", "request_id", requestID(r), "err", err)
+		http.Error(w, "health verifier unavailable", http.StatusInternalServerError)
+		return
+	} else if ok {
+		resp.E2E = true
+		resp.KeyVerifierHex = verifierHex
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":      true,
-		"version": buildinfo.Version,
-	})
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+type healthzResponse struct {
+	OK             bool   `json:"ok"`
+	Version        string `json:"version"`
+	E2E            bool   `json:"e2e"`
+	KeyVerifierHex string `json:"key_verifier_hex,omitempty"`
+}
+
+func (s *Server) healthzKeyVerifierHex(r *http.Request) (string, bool, error) {
+	if s.db == nil {
+		return "", false, nil
+	}
+	cookie, err := r.Cookie(OwnerCookieName)
+	if err != nil || cookie.Value == "" {
+		return "", false, nil
+	}
+	ok, err := s.db.TouchWebSession(r.Context(), cookie.Value, time.Now())
+	if err != nil {
+		return "", false, err
+	}
+	if !ok {
+		return "", false, nil
+	}
+	verifier, ok, err := s.db.WebSessionKeyVerifier(r.Context(), cookie.Value)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return hex.EncodeToString(verifier), true, nil
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
