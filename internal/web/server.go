@@ -114,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/sessions", s.handleSessions)
+	mux.HandleFunc("/files/tree", s.handleFilesTree)
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
