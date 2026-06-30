@@ -10,6 +10,7 @@ import { SoftKeyBar } from "./softkeys";
 import { RelayE2E } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
+import { TimelinePanel } from "./timeline";
 
 type SessionInfo = {
   session_id: string;
@@ -27,6 +28,7 @@ const toolbar = requireElement("toolbar");
 const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
+const timelineRoot = requireElement("timeline");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -40,6 +42,7 @@ let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
+let timeline: TimelinePanel | undefined;
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
@@ -64,6 +67,7 @@ events.addEventListener("event", (event) => {
   sessionList?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
+  timeline?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
   const payload = ((event as CustomEvent<EventEnvelope<ToastPayload>>).detail).payload;
@@ -92,7 +96,8 @@ async function boot(): Promise<void> {
     showTerminalChrome();
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
-    installControls(toolbar, info, snapshots);
+    timeline = new TimelinePanel(timelineRoot, info.session_id);
+    installControls(toolbar, info, snapshots, timeline);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -163,8 +168,9 @@ function eventsURL(token: string): string {
   return `${scheme}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
 }
 
-function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel): void {
+function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel, timelinePanel: TimelinePanel): void {
   root.replaceChildren(
+    controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("MAC", () => postHandover(info, "mac")),
     controlButton("PHONE", () => postHandover(info, "phone")),
@@ -287,6 +293,7 @@ function showListChrome(): void {
   toolbar.hidden = true;
   sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
+  timelineRoot.hidden = true;
   termEl.hidden = true;
   softkeys.hidden = true;
   approvalRoot.hidden = true;
