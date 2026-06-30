@@ -200,6 +200,99 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 	}
 }
 
+func TestViewerRoleDefaultsToOwner(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	if err := db.PutPairingToken(ctx, "role-token", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutWebSession(ctx, "role-session", "iPhone", time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		table string
+		col   string
+		hash  string
+	}{
+		{"pairing_tokens", "token_hash", lookupHash("role-token")},
+		{"web_sessions", "cookie_hash", lookupHash("role-session")},
+	} {
+		var role string
+		if err := db.sql.QueryRowContext(ctx, `SELECT role FROM `+tc.table+` WHERE `+tc.col+` = ?`, tc.hash).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		if role != "owner" {
+			t.Fatalf("%s role = %q, want owner", tc.table, role)
+		}
+	}
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, created_at, last_seen_at, revoked) VALUES ('bad', x'01', x'02', 'admin', 1, 1, 0)`); err == nil {
+		t.Fatal("invalid web session role accepted")
+	}
+}
+
+func TestViewerRoleMigrationBackfillsOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "role-upgrade.sqlite")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+CREATE TABLE pairing_tokens (
+  token_hash TEXT PRIMARY KEY,
+  token_enc BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE web_sessions (
+  cookie_hash TEXT PRIMARY KEY,
+  cookie_enc BLOB NOT NULL,
+  user_agent_enc BLOB NOT NULL,
+  key_verifier_enc BLOB,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  revoked INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed) VALUES ('pair-hash', x'01', 1, 2, 0);
+INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked) VALUES ('session-hash', x'02', x'03', 1, 2, 0);
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	db, err := Open(path, WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, tc := range []struct {
+		table string
+		col   string
+		hash  string
+	}{
+		{"pairing_tokens", "token_hash", "pair-hash"},
+		{"web_sessions", "cookie_hash", "session-hash"},
+	} {
+		if cols := tableColumns(t, db, tc.table); !slices.Contains(cols, "role") {
+			t.Fatalf("%s missing role: %#v", tc.table, cols)
+		}
+		var role string
+		if err := db.sql.QueryRowContext(context.Background(), `SELECT role FROM `+tc.table+` WHERE `+tc.col+` = ?`, tc.hash).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		if role != "owner" {
+			t.Fatalf("%s migrated role = %q, want owner", tc.table, role)
+		}
+	}
+}
+
 func TestSnapshotSchemaLoadsOnFreshDB(t *testing.T) {
 	db := openTemp(t)
 	snapshotCols := tableColumns(t, db, "snapshots")

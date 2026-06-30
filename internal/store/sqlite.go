@@ -126,6 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_kv_expire ON kv(expire);
 CREATE TABLE IF NOT EXISTS pairing_tokens (
   token_hash TEXT PRIMARY KEY,
   token_enc  BLOB NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   consumed   INTEGER NOT NULL DEFAULT 0
@@ -204,6 +205,7 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
   key_verifier_enc BLOB,
+  role         TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
   created_at   INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL,
   revoked      INTEGER NOT NULL DEFAULT 0
@@ -295,6 +297,12 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "web_sessions", "key_verifier_enc", "BLOB"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "pairing_tokens", "role", "TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer'))"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "web_sessions", "role", "TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer'))"); err != nil {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9)")
@@ -396,6 +404,7 @@ func (d *DB) migratePairingTokens(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `CREATE TABLE pairing_tokens_new (
   token_hash TEXT PRIMARY KEY,
   token_enc  BLOB NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   consumed   INTEGER NOT NULL DEFAULT 0
@@ -409,8 +418,8 @@ func (d *DB) migratePairingTokens(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO pairing_tokens_new(token_hash, token_enc, created_at, expires_at, consumed)
-			 VALUES (?, ?, ?, ?, ?)`,
+			`INSERT INTO pairing_tokens_new(token_hash, token_enc, role, created_at, expires_at, consumed)
+			 VALUES (?, ?, 'owner', ?, ?, ?)`,
 			hash, sealed, r.created, r.expires, r.consumed); err != nil {
 			return err
 		}
@@ -462,6 +471,7 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
   key_verifier_enc BLOB,
+  role            TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
   created_at       INTEGER NOT NULL,
   last_seen_at     INTEGER NOT NULL,
   revoked          INTEGER NOT NULL DEFAULT 0
@@ -479,8 +489,8 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, created_at, last_seen_at, revoked)
-			 VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, role, created_at, last_seen_at, revoked)
+			 VALUES (?, ?, ?, NULL, 'owner', ?, ?, ?)`,
 			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked); err != nil {
 			return err
 		}
