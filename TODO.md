@@ -381,8 +381,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q2c — K: Agent reasoning timeline panel
 
-(B) 2026-06-29 Filter chips: tool / approval / anomaly / snapshot / cost; multi-select narrows visible entries +phaseQ2 @frontend file:frontend/src/timeline.ts id:T2253 accept:filters-narrow-list
-(B) 2026-06-29 Mobile-portrait: timeline opens as full-screen modal via top-bar button (not a side drawer); closes back to terminal +phaseQ2 @frontend file:frontend/src/main.ts id:T2254 blocked-by:T2253 accept:fullscreen-modal-on-narrow-viewport
+(B) 2026-06-29 Mobile-portrait: timeline opens as full-screen modal via top-bar button (not a side drawer); closes back to terminal +phaseQ2 @frontend file:frontend/src/main.ts id:T2254 accept:fullscreen-modal-on-narrow-viewport
 
 #### Q2d — AF: Workspaces
 
