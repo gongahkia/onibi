@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/envelope"
 )
 
@@ -36,7 +37,8 @@ func (s *Server) e2eCodec(sessionID string, info string) (*envelope.Codec, error
 		}
 		return nil, nil
 	}
-	return envelope.NewCodec(key, info)
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
+	return envelope.NewCodec(sessionKey, info)
 }
 
 func (s *Server) readJSONBody(w http.ResponseWriter, r *http.Request, ownerSessionID string, dst any) bool {

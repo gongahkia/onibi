@@ -56,7 +56,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	go s.pingLoop(ctx, c)
 	var writeMu sync.Mutex
-	wsE2E := wrapWSCodec(codec)
+	wsE2E := newSeqWSCodec(codec, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
 	if err := writeEvent(ctx, c, &writeMu, wsE2E, "server.hello", map[string]any{
 		"endpoint":   "events",
 		"session_id": sessionID,

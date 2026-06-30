@@ -52,6 +52,7 @@ async function boot(): Promise<void> {
     events.setE2E(relayE2E);
     approvals.setPostJSON(postJSON);
     const info = await sessionInfo();
+    await relayE2E?.bindSession(info.ws_token);
     installControls(toolbar, info);
     new SoftKeyBar({
       root: softkeys,

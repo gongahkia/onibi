@@ -13,6 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -102,7 +103,8 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 	if _, err := keys.BindSession(context.Background(), db, "tok", sessionID); err != nil {
 		t.Fatal(err)
 	}
-	codec, err := envelope.NewCodec(key, "http:POST:/control")
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
+	codec, err := envelope.NewCodec(sessionKey, "http:POST:/control")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	cpty "github.com/creack/pty"
 
+	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
@@ -145,7 +146,8 @@ func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 	}
 	defer c.CloseNow()
 
-	base, err := envelope.NewCodec(key, e2eInfoPTY)
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(ownerSessionID))
+	base, err := envelope.NewCodec(sessionKey, e2eInfoPTY)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -75,7 +75,15 @@ export class TerminalWS extends EventTarget {
 
   private async handleOpen(socket: WebSocket): Promise<void> {
     this.attempts = 0;
-    await this.sendTyped("text", new TextEncoder().encode(JSON.stringify({ type: "attach", session_id: this.sessionId, last_seq: this.lastSeq })), socket);
+    const attach: { type: "attach"; session_id: string; last_seq: number; verify_token?: string } = {
+      type: "attach",
+      session_id: this.sessionId,
+      last_seq: this.lastSeq
+    };
+    if (this.e2e !== undefined) {
+      attach.verify_token = this.e2e.verifyToken();
+    }
+    await this.sendTyped("text", new TextEncoder().encode(JSON.stringify(attach)), socket);
     this.dispatchEvent(new Event("open"));
   }
 
