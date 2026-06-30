@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS pairing_tokens (
   token_hash TEXT PRIMARY KEY,
   token_enc  BLOB NOT NULL,
   role       TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
+  session_id TEXT NOT NULL DEFAULT '',
+  max_uses   INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0),
+  use_count  INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   consumed   INTEGER NOT NULL DEFAULT 0
@@ -305,7 +308,16 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "web_sessions", "role", "TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer'))"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9)")
+	if err := d.ensureColumn(ctx, "pairing_tokens", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "pairing_tokens", "max_uses", "INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0)"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "pairing_tokens", "use_count", "INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)"); err != nil {
+		return err
+	}
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
@@ -405,6 +417,9 @@ func (d *DB) migratePairingTokens(ctx context.Context) error {
   token_hash TEXT PRIMARY KEY,
   token_enc  BLOB NOT NULL,
   role       TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
+  session_id TEXT NOT NULL DEFAULT '',
+  max_uses   INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0),
+  use_count  INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   consumed   INTEGER NOT NULL DEFAULT 0
@@ -418,9 +433,9 @@ func (d *DB) migratePairingTokens(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO pairing_tokens_new(token_hash, token_enc, role, created_at, expires_at, consumed)
-			 VALUES (?, ?, 'owner', ?, ?, ?)`,
-			hash, sealed, r.created, r.expires, r.consumed); err != nil {
+			`INSERT INTO pairing_tokens_new(token_hash, token_enc, role, session_id, max_uses, use_count, created_at, expires_at, consumed)
+			 VALUES (?, ?, 'owner', '', 1, ?, ?, ?, ?)`,
+			hash, sealed, r.consumed, r.created, r.expires, r.consumed); err != nil {
 			return err
 		}
 	}
@@ -612,8 +627,39 @@ func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, err
 // Pairing tokens
 // ----------------------------------------------------------------------------
 
+const (
+	PairRoleOwner  = "owner"
+	PairRoleViewer = "viewer"
+)
+
+type PairingTokenClaim struct {
+	Role      string
+	SessionID string
+}
+
 // PutPairingToken stores a freshly minted token with TTL ttl.
 func (d *DB) PutPairingToken(ctx context.Context, token string, ttl time.Duration) error {
+	return d.PutPairingTokenWithRole(ctx, token, ttl, PairRoleOwner, "", 1)
+}
+
+func (d *DB) PutViewerPairingToken(ctx context.Context, token, sessionID string, ttl time.Duration, maxUses int) error {
+	if sessionID == "" {
+		return errors.New("viewer pair token requires session id")
+	}
+	return d.PutPairingTokenWithRole(ctx, token, ttl, PairRoleViewer, sessionID, maxUses)
+}
+
+func (d *DB) PutPairingTokenWithRole(ctx context.Context, token string, ttl time.Duration, role, sessionID string, maxUses int) error {
+	if !validPairRole(role) {
+		return fmt.Errorf("invalid pair role: %s", role)
+	}
+	if maxUses <= 0 {
+		return errors.New("pair max uses must be positive")
+	}
+	if role == PairRoleOwner {
+		sessionID = ""
+		maxUses = 1
+	}
 	now := time.Now().Unix()
 	hash := lookupHash(token)
 	sealed, err := d.sealString(ctx, "pairing_tokens", hash, "token_enc", token)
@@ -621,32 +667,79 @@ func (d *DB) PutPairingToken(ctx context.Context, token string, ttl time.Duratio
 		return err
 	}
 	_, err = d.sql.ExecContext(ctx,
-		`INSERT INTO pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed) VALUES (?, ?, ?, ?, 0)`,
-		hash, sealed, now, now+int64(ttl.Seconds()))
+		`INSERT INTO pairing_tokens(token_hash, token_enc, role, session_id, max_uses, use_count, created_at, expires_at, consumed)
+		 VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)`,
+		hash, sealed, role, sessionID, maxUses, now, now+int64(ttl.Seconds()))
 	return err
 }
 
-// ConsumePairingToken atomically marks the token consumed iff it is
-// unexpired and not previously consumed. Returns true only on the single
-// winning consume call.
+// ConsumePairingToken atomically claims a token. Owner tokens are single-use;
+// viewer tokens are reusable until max_uses.
 func (d *DB) ConsumePairingToken(ctx context.Context, token string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx,
-		`UPDATE pairing_tokens SET consumed = 1
-		 WHERE token_hash = ? AND consumed = 0 AND expires_at > ?`,
-		lookupHash(token), time.Now().Unix())
+	_, ok, err := d.ClaimPairingToken(ctx, token)
+	return ok, err
+}
+
+func (d *DB) ClaimPairingToken(ctx context.Context, token string) (PairingTokenClaim, bool, error) {
+	hash := lookupHash(token)
+	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return PairingTokenClaim{}, false, err
+	}
+	defer tx.Rollback()
+	var claim PairingTokenClaim
+	var consumed, expiresAt, maxUses, useCount int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT role, session_id, consumed, expires_at, max_uses, use_count
+		   FROM pairing_tokens WHERE token_hash = ?`,
+		hash).Scan(&claim.Role, &claim.SessionID, &consumed, &expiresAt, &maxUses, &useCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PairingTokenClaim{}, false, nil
+	}
+	if err != nil {
+		return PairingTokenClaim{}, false, err
+	}
+	if !validPairRole(claim.Role) {
+		return PairingTokenClaim{}, false, fmt.Errorf("invalid pair role: %s", claim.Role)
+	}
+	now := time.Now().Unix()
+	if expiresAt <= now || useCount >= maxUses || (claim.Role == PairRoleOwner && consumed != 0) {
+		return PairingTokenClaim{}, false, nil
+	}
+	var res sql.Result
+	if claim.Role == PairRoleOwner {
+		res, err = tx.ExecContext(ctx,
+			`UPDATE pairing_tokens SET consumed = 1, use_count = use_count + 1
+			 WHERE token_hash = ? AND role = 'owner' AND consumed = 0 AND expires_at > ? AND use_count < max_uses`,
+			hash, now)
+	} else {
+		res, err = tx.ExecContext(ctx,
+			`UPDATE pairing_tokens SET use_count = use_count + 1
+			 WHERE token_hash = ? AND role = 'viewer' AND expires_at > ? AND use_count < max_uses`,
+			hash, now)
+	}
+	if err != nil {
+		return PairingTokenClaim{}, false, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
+		return PairingTokenClaim{}, false, err
 	}
-	return n == 1, nil
+	if n != 1 {
+		return PairingTokenClaim{}, false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return PairingTokenClaim{}, false, err
+	}
+	return claim, true, nil
 }
 
-// PurgeExpiredPairings deletes expired-and-unconsumed token rows. Run
-// periodically; mostly cosmetic since ConsumePairingToken already gates on
-// expires_at.
+func validPairRole(role string) bool {
+	return role == PairRoleOwner || role == PairRoleViewer
+}
+
+// PurgeExpiredPairings deletes expired token rows. Run periodically; mostly
+// cosmetic since ConsumePairingToken already gates on expires_at.
 func (d *DB) PurgeExpiredPairings(ctx context.Context) error {
 	_, err := d.sql.ExecContext(ctx,
 		`DELETE FROM pairing_tokens WHERE expires_at <= ?`,
@@ -660,6 +753,13 @@ func (d *DB) PurgeExpiredPairings(ctx context.Context) error {
 
 // PutWebSession records an owner browser session.
 func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, now time.Time) error {
+	return d.PutWebSessionWithRole(ctx, sessionID, deviceLabel, PairRoleOwner, now)
+}
+
+func (d *DB) PutWebSessionWithRole(ctx context.Context, sessionID, deviceLabel, role string, now time.Time) error {
+	if !validPairRole(role) {
+		return fmt.Errorf("invalid web session role: %s", role)
+	}
 	ts := now.Unix()
 	hash := lookupHash(sessionID)
 	sessionEnc, err := d.sealString(ctx, "web_sessions", hash, "cookie_enc", sessionID)
@@ -671,14 +771,15 @@ func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, n
 		return err
 	}
 	_, err = d.sql.ExecContext(ctx,
-		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
-		 VALUES (?, ?, ?, ?, ?, 0)
+		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, created_at, last_seen_at, revoked)
+		 VALUES (?, ?, ?, ?, ?, ?, 0)
 		 ON CONFLICT(cookie_hash) DO UPDATE SET
 		   cookie_enc=excluded.cookie_enc,
 		   user_agent_enc=excluded.user_agent_enc,
+		   role=excluded.role,
 		   last_seen_at=excluded.last_seen_at,
 		   revoked=0`,
-		hash, sessionEnc, labelEnc, ts, ts)
+		hash, sessionEnc, labelEnc, role, ts, ts)
 	return err
 }
 

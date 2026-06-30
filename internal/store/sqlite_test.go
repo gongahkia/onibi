@@ -230,6 +230,26 @@ func TestViewerRoleDefaultsToOwner(t *testing.T) {
 	}
 }
 
+func TestViewerPairingTokenClaimsUntilMaxUses(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	if err := db.PutViewerPairingToken(ctx, "viewer-token", "s1", time.Hour, 2); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		claim, ok, err := db.ClaimPairingToken(ctx, "viewer-token")
+		if err != nil || !ok {
+			t.Fatalf("claim %d ok=%v err=%v", i+1, ok, err)
+		}
+		if claim.Role != PairRoleViewer || claim.SessionID != "s1" {
+			t.Fatalf("claim = %#v", claim)
+		}
+	}
+	if _, ok, err := db.ClaimPairingToken(ctx, "viewer-token"); err != nil || ok {
+		t.Fatalf("third claim ok=%v err=%v", ok, err)
+	}
+}
+
 func TestViewerRoleMigrationBackfillsOwner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "role-upgrade.sqlite")
 	raw, err := sql.Open("sqlite", path)

@@ -403,7 +403,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q3d — D: Read-only viewer sharing
 
-(A) 2026-06-29 onibi share <session> CLI: mint a viewer pair token (TTL configurable, default 1h; single-use false; max_viewers configurable); print QR + URL; viewer tokens auto-expire faster than owner tokens (1h vs owner's 5min, but viewer can re-bind without single-use) +phaseQ3 @backend file:internal/cli/share.go id:T2361 blocked-by:T2360 accept:share-emits-viewer-url
 (A) 2026-06-29 Enforce role in internal/web/auth.go on every state-changing endpoint: /control, /handover, /approval/*, PUT /files/content all return 403 for role=viewer; /ws/pty permitted but inbound input frames silently dropped on the server side +phaseQ3 @backend file:internal/web/auth.go id:T2362 blocked-by:T2361 accept:viewer-cannot-control
 (A) 2026-06-29 Frontend role gating: SPA reads /session-info for role on boot; if viewer, soft-key bar shows banner "VIEW ONLY", input forwarding to /ws/pty disabled client-side as well (defense in depth), approval overlay hidden, files panel readonly +phaseQ3 @frontend file:frontend/src/main.ts id:T2363 blocked-by:T2362 accept:viewer-mode-ui-locked
 (B) 2026-06-29 onibi devices shows role per row; onibi unpair --viewer <id> revokes only viewer rows; --all-viewers bulk revoke +phaseQ3 @backend file:internal/cli/unpair.go id:T2364 blocked-by:T2363 accept:role-visible-in-devices

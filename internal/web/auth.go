@@ -31,7 +31,22 @@ func (s *Server) CreateOwnerSession(ctx context.Context, w http.ResponseWriter, 
 	if err != nil {
 		return "", err
 	}
-	if err := s.db.PutWebSession(ctx, sessionID, deviceLabel, time.Now()); err != nil {
+	if err := s.db.PutWebSessionWithRole(ctx, sessionID, deviceLabel, "owner", time.Now()); err != nil {
+		return "", err
+	}
+	setOwnerCookie(w, sessionID)
+	return sessionID, nil
+}
+
+func (s *Server) CreateWebSession(ctx context.Context, w http.ResponseWriter, deviceLabel, role string) (string, error) {
+	if s.db == nil {
+		return "", errors.New("web: db is required")
+	}
+	sessionID, err := newSessionID()
+	if err != nil {
+		return "", err
+	}
+	if err := s.db.PutWebSessionWithRole(ctx, sessionID, deviceLabel, role, time.Now()); err != nil {
 		return "", err
 	}
 	setOwnerCookie(w, sessionID)

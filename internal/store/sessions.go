@@ -69,6 +69,26 @@ func (d *DB) SessionsActive(ctx context.Context) ([]SessionEntry, error) {
 	return scanSessions(rows)
 }
 
+func (d *DB) Session(ctx context.Context, id string) (SessionEntry, bool, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
+		        started_at, COALESCE(last_activity, started_at), ended_at
+		   FROM sessions
+		  WHERE id = ?`, id)
+	if err != nil {
+		return SessionEntry{}, false, err
+	}
+	defer rows.Close()
+	entries, err := scanSessions(rows)
+	if err != nil {
+		return SessionEntry{}, false, err
+	}
+	if len(entries) == 0 {
+		return SessionEntry{}, false, nil
+	}
+	return entries[0], true, nil
+}
+
 func (d *DB) SessionRename(ctx context.Context, id, name string) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE sessions SET name = ? WHERE id = ?`, name, id)
 	return err
