@@ -61,8 +61,8 @@
   <section class="hero" aria-labelledby="title">
     <div class="hero-inner">
       <h1 id="title">Onibi</h1>
-      <p class="lede">Web-controlled coding-agent host with a live phone terminal.</p>
-      <p class="sub">Run coding agents under local PTYs, scan a QR from your phone, approve tool calls in the web cockpit, and keep control local to your machine.</p>
+      <p class="lede">use ghostty wherever text renders.</p>
+      <p class="sub">Run coding agents under local PTYs, scan a QR from your phone, approve tool calls in the Ghostty-themed web cockpit, and keep control local to your machine.</p>
       <code class="install">git clone https://github.com/gongahkia/onibi
 cd onibi
 make install
@@ -78,7 +78,7 @@ onibi up</code>
     <nav id="features" class="feature-map" aria-label="Feature anchors">
       <a href="#approvals"><strong>Approvals</strong><span>Owner-only web decisions for agent tool calls.</span></a>
       <a href="#sessions"><strong>Sessions</strong><span>Local PTY hosting for agents and arbitrary CLI/TUI commands.</span></a>
-      <a href="#mobile"><strong>Mobile Cockpit</strong><span>xterm.js terminal, toolbar controls, and approval cards.</span></a>
+      <a href="#mobile"><strong>Mobile Cockpit</strong><span>Ghostty theme, bundled font, inline images, and approvals.</span></a>
       <a href="#local"><strong>Local First</strong><span>LAN or hotspot pairing, no hosted Onibi account.</span></a>
     </nav>
 
@@ -114,10 +114,11 @@ onibi up</code>
       <div class="split">
         <div>
           <h2>Use the mobile cockpit</h2>
-          <p>The phone UI renders the live PTY with xterm.js and overlays approval cards when hooks block on a decision.</p>
+          <p>The phone UI renders the live PTY with xterm.js, Ghostty defaults, and approval overlays when hooks block on a decision.</p>
         </div>
         <ul class="list">
           <li>Top controls handle interrupt and kill; bottom soft keys handle Esc, Tab, arrows, control keys, paste, and theme.</li>
+          <li>Bundled terminfo, Ghostty themes, JetBrains Mono, Sixel/IIP rendering, and Kitty graphics transcoding keep the cockpit close to the Mac terminal.</li>
           <li>Claude Code approvals can be approved, denied, or edited from the overlay.</li>
           <li>Install the Onibi local CA profile once for iPhone HTTPS trust.</li>
         </ul>
@@ -150,6 +151,7 @@ onibi up</code>
         <a class="doc-link" href="./anomaly-detection.md"><strong>Anomaly Detection</strong><span>Rules, examples, network allowlists, and custom-rule limits.</span></a>
         <a class="doc-link" href="./pricing.md"><strong>Pricing</strong><span>Budget cost table and update notes.</span></a>
         <a class="doc-link" href="./ws-events-protocol.md"><strong>Web Events</strong><span>Event stream protocol for sessions and approvals.</span></a>
+        <a class="doc-link" href="./ghostty-parity.md"><strong>Ghostty Parity</strong><span>Visual smoke for native Ghostty and the web cockpit.</span></a>
         <a class="doc-link" href="./troubleshooting.md"><strong>Troubleshooting</strong><span>Pairing, certificates, WebSockets, hooks, and soft keys.</span></a>
       </div>
       <div class="mini">

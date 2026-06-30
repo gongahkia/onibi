@@ -12,9 +12,9 @@
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
 </p>
 
-Web/chat-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
+use ghostty wherever text renders: a web/chat-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
 
-Onibi runs local shells and coding agents in managed tmux-backed sessions, exposes a phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
+Onibi runs local shells and coding agents in managed tmux-backed sessions, installs `xterm-ghostty` terminfo for the PTY path, exposes a Ghostty-themed phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
 
 Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Release prep is still tracked in [`TODO.md`](./TODO.md).
 
@@ -40,11 +40,12 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ## What Works Now
 
 - Managed tmux-backed session created by `onibi up`.
-- Live xterm.js terminal over `/ws/pty`.
+- Live xterm.js terminal over `/ws/pty` with bundled Ghostty terminfo defaults.
 - Pair-by-QR over local HTTPS.
 - iPhone trusted local CA profile.
 - Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
 - Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
+- Ghostty-default terminal theme, JetBrains Mono font load, Sixel/IIP rendering, and Kitty graphics transcoding to IIP.
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
@@ -121,6 +122,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
+- [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
 - [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
