@@ -72,20 +72,34 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		eventsSent++
 	}
-	if s.approvalQueue == nil {
-		s.log.Info("web events ws waiting without approval queue", "request_id", reqID, "session_id", sessionID)
+	var approvalEvents <-chan approval.Event
+	var unsubApprovals func()
+	if s.approvalQueue != nil {
+		approvalEvents, unsubApprovals = s.approvalQueue.Subscribe()
+		defer unsubApprovals()
+	}
+	var appEvents <-chan Event
+	var unsubAppEvents func()
+	if s.eventBus != nil {
+		appEvents, unsubAppEvents = s.eventBus.Subscribe()
+		defer unsubAppEvents()
+	}
+	if approvalEvents == nil && appEvents == nil {
+		s.log.Info("web events ws waiting without event sources", "request_id", reqID, "session_id", sessionID)
 		<-ctx.Done()
 		return
 	}
-	events, unsub := s.approvalQueue.Subscribe()
-	defer unsub()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case ev, ok := <-events:
+		case ev, ok := <-approvalEvents:
 			if !ok {
-				return
+				approvalEvents = nil
+				if appEvents == nil {
+					return
+				}
+				continue
 			}
 			if err := writeEvent(ctx, c, &writeMu, wsE2E, ev.Type, approvalEventPayload(ev)); err != nil {
 				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "err", err)
@@ -93,6 +107,20 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			eventsSent++
 			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "events_sent", eventsSent)
+		case ev, ok := <-appEvents:
+			if !ok {
+				appEvents = nil
+				if approvalEvents == nil {
+					return
+				}
+				continue
+			}
+			if err := writeEvent(ctx, c, &writeMu, wsE2E, ev.Type, ev.Payload); err != nil {
+				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "err", err)
+				return
+			}
+			eventsSent++
+			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "events_sent", eventsSent)
 		}
 	}
 }

@@ -27,6 +27,11 @@ export type ApprovalDecidedPayload = {
   expires_at?: string;
 };
 
+export type ToastPayload = {
+  message: string;
+  level?: string;
+};
+
 export class EventsWS extends EventTarget {
   private url = "";
   private ws: WebSocket | undefined;

@@ -24,6 +24,7 @@ import (
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
@@ -44,6 +45,8 @@ type Daemon struct {
 	Idle       *IdleDetector
 	Queue      *approval.Queue
 	Sweeper    *approval.Sweeper
+	Events     *web.EventBus
+	Trust      *trust.Watcher
 	BufferSize int
 
 	TerminalDefault         string
@@ -156,6 +159,7 @@ func New(opts Options) *Daemon {
 		DB:                      opts.DB,
 		Log:                     opts.Log,
 		Registry:                NewRegistry(),
+		Events:                  web.NewEventBus(),
 		webAttachHosts:          map[string]*pty.Host{},
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
@@ -363,6 +367,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
+	if err := d.startTrustWatcher(ctx, &wg); err != nil {
+		return err
+	}
 
 	if d.WebAddr != "" {
 		certDir := d.WebCertDir
@@ -377,6 +384,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			TLSCert:       cert,
 			DB:            d.DB,
 			ApprovalQueue: d.Queue,
+			EventBus:      d.Events,
 			PTYHosts:      d.webPTYHosts,
 			SessionIDs:    d.webSessionIDs,
 			PTYHost:       d.EnsureWebPTYHost,

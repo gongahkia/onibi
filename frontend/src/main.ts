@@ -4,6 +4,7 @@ import { applyTerminalTheme, attachTerminalIO, createTerminal, installTouchScrol
 import type { TerminalThemeName } from "./terminal";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
+import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
 import { RelayE2E } from "./e2e";
 
@@ -43,6 +44,12 @@ ws.addEventListener("open", () => {
 });
 ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
 events.addEventListener("event", (event) => approvals.handleEnvelope((event as CustomEvent).detail));
+events.addEventListener("toast", (event) => {
+  const payload = ((event as CustomEvent<EventEnvelope<ToastPayload>>).detail).payload;
+  if (payload.message !== "") {
+    showToast(payload.message);
+  }
+});
 
 void boot();
 

@@ -30,6 +30,7 @@ type Options struct {
 	TLSCert       tls.Certificate
 	DB            *store.DB
 	ApprovalQueue *approval.Queue
+	EventBus      *EventBus
 	PTYHosts      func() map[string]*pty.Host
 	SessionIDs    func() []string
 	PTYHost       func(context.Context, string) (*pty.Host, error)
@@ -44,6 +45,7 @@ type Server struct {
 	tlsCert       tls.Certificate
 	db            *store.DB
 	approvalQueue *approval.Queue
+	eventBus      *EventBus
 	ptyHosts      func() map[string]*pty.Host
 	sessionIDs    func() []string
 	ptyHost       func(context.Context, string) (*pty.Host, error)
@@ -62,6 +64,7 @@ func New(opts Options) *Server {
 		tlsCert:       opts.TLSCert,
 		db:            opts.DB,
 		approvalQueue: opts.ApprovalQueue,
+		eventBus:      opts.EventBus,
 		ptyHosts:      opts.PTYHosts,
 		sessionIDs:    opts.SessionIDs,
 		ptyHost:       opts.PTYHost,

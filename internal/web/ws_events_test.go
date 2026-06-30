@@ -76,6 +76,31 @@ func TestApprovalEventPayloadIncludesUnifiedDiff(t *testing.T) {
 	}
 }
 
+func TestWSEventsStreamsAppEvents(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	bus := NewEventBus()
+	srv := New(Options{DB: db, EventBus: bus})
+	c := dialEventsForTest(t, srv)
+	_ = readEventEnvelope(t, c) // server.hello
+	time.Sleep(20 * time.Millisecond)
+	bus.Publish(Event{Type: "toast", Payload: map[string]any{"message": "Trust policy not reloaded"}})
+	env := readEventEnvelope(t, c)
+	if env.Type != "toast" {
+		t.Fatalf("type = %q", env.Type)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["message"] != "Trust policy not reloaded" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestApprovalPostRejectsUnauthenticated(t *testing.T) {
 	srv, _, cleanup := testEventServer(t)
 	defer cleanup()
