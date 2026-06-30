@@ -9,12 +9,28 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gongahkia/onibi/internal/adapters/catalog"
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 const Agent = "claude"
 const guardKey = "onibi-managed"
+
+func init() {
+	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
+		Name:              Agent,
+		Install:           Install,
+		Uninstall:         Uninstall,
+		Status:            Status,
+		Verify:            VerifyHash,
+		Adopt:             Adopt,
+		ExpectedHooks:     ExpectedHooks,
+		ObservedHooks:     ObservedHooks,
+		TrustInstructions: TrustInstructions,
+		BackupPath:        BackupPath,
+	}, map[string]string{"PreToolUse": "*"}))
+}
 
 type eventSpec struct {
 	event    string
@@ -115,6 +131,28 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 		return err
 	}
 	return common.DeleteRecord(ctx, db, Agent, path)
+}
+
+func Status(ctx context.Context, db *store.DB) common.Info {
+	path, err := SettingsPath()
+	if err != nil {
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+	}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	body, err := ManagedBody(path)
+	if err != nil {
+		if strings.Contains(err.Error(), "onibi-managed Claude hook is missing") {
+			common.MarkNotInstalled(&info)
+			return info
+		}
+		info.Message = err.Error()
+		return info
+	}
+	version := InstalledVersion(path)
+	info.InstalledVersion = common.VersionPtr(version)
+	info.Outdated = version != common.IntegrationVersion
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Claude hooks installed", "onibi install-hooks --agent claude")
+	return info
 }
 
 // VerifyHash returns nil iff the currently installed hook block (Stop +

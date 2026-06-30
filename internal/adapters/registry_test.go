@@ -6,8 +6,57 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/adapters/catalog"
 	"github.com/gongahkia/onibi/internal/store"
 )
+
+func TestManifestRegistryRegisterListGet(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(Manifest{
+		Name:            "zeta",
+		Version:         "1.0.0",
+		Kind:            catalog.KindAgent,
+		CmdPattern:      map[string]string{"PreToolUse": "*"},
+		HookInstall:     []string{"onibi install-hooks --agent zeta"},
+		HookUninstall:   []string{"onibi uninstall --agent zeta --yes"},
+		RiskOverrides:   map[string]string{"Write": "high"},
+		MinOnibiVersion: "0.3.0",
+		Adapter:         Adapter{Name: "zeta"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(Manifest{Name: "alpha", Version: "1.0.0", Kind: catalog.KindAgent, Adapter: Adapter{Name: "alpha"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(Manifest{Name: "alpha", Version: "1.0.1", Kind: catalog.KindAgent}); err == nil {
+		t.Fatal("duplicate adapter registered")
+	}
+	list := r.List()
+	if len(list) != 2 || list[0].Name != "alpha" || list[1].Name != "zeta" {
+		t.Fatalf("list = %#v", list)
+	}
+	list[1].CmdPattern["PreToolUse"] = "Read"
+	got, err := r.Get("zeta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CmdPattern["PreToolUse"] != "*" {
+		t.Fatalf("registry returned mutable manifest: %#v", got.CmdPattern)
+	}
+}
+
+func TestBuiltinAdaptersExposeManifests(t *testing.T) {
+	want := []string{"amp", "claude", "codex", "copilot", "gemini", "goose", "opencode", "pi"}
+	got := List()
+	if len(got) != len(want) {
+		t.Fatalf("manifest count = %d", len(got))
+	}
+	for i, name := range want {
+		if got[i].Name != name || got[i].Kind != catalog.KindAgent || got[i].Adapter.Install == nil {
+			t.Fatalf("manifest[%d] = %#v", i, got[i])
+		}
+	}
+}
 
 func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
 	dir := t.TempDir()

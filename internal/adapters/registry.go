@@ -7,79 +7,52 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gongahkia/onibi/internal/adapters/amp"
-	"github.com/gongahkia/onibi/internal/adapters/claude"
-	"github.com/gongahkia/onibi/internal/adapters/codex"
+	_ "github.com/gongahkia/onibi/internal/adapters/amp"
+	"github.com/gongahkia/onibi/internal/adapters/catalog"
+	_ "github.com/gongahkia/onibi/internal/adapters/claude"
+	_ "github.com/gongahkia/onibi/internal/adapters/codex"
 	"github.com/gongahkia/onibi/internal/adapters/common"
-	"github.com/gongahkia/onibi/internal/adapters/copilot"
-	"github.com/gongahkia/onibi/internal/adapters/gemini"
-	"github.com/gongahkia/onibi/internal/adapters/goose"
-	"github.com/gongahkia/onibi/internal/adapters/opencode"
-	"github.com/gongahkia/onibi/internal/adapters/pi"
+	_ "github.com/gongahkia/onibi/internal/adapters/copilot"
+	_ "github.com/gongahkia/onibi/internal/adapters/gemini"
+	_ "github.com/gongahkia/onibi/internal/adapters/goose"
+	_ "github.com/gongahkia/onibi/internal/adapters/opencode"
+	_ "github.com/gongahkia/onibi/internal/adapters/pi"
 	"github.com/gongahkia/onibi/internal/adapters/shell"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-type Adapter struct {
-	Name              string
-	Install           func(context.Context, *store.DB, string) error
-	Uninstall         func(context.Context, *store.DB) error
-	Status            func(context.Context, *store.DB) common.Info
-	Verify            func(context.Context, *store.DB) error
-	Adopt             func(context.Context, *store.DB) error
-	ExpectedHooks     func(string) ([]common.ExpectedHook, error)
-	ObservedHooks     func() ([]common.ObservedHook, error)
-	TrustInstructions func() []string
-	BackupPath        func(context.Context, *store.DB) string
+type Adapter = catalog.Adapter
+type Manifest = catalog.Manifest
+type Registry interface {
+	Register(Manifest) error
+	List() []Manifest
+	Get(string) (Manifest, error)
 }
 
-func Registry() map[string]Adapter {
-	return map[string]Adapter{
-		"amp":      {Name: "amp", Install: amp.Install, Uninstall: amp.Uninstall, Status: amp.Status, Verify: amp.VerifyHash, Adopt: amp.Adopt, TrustInstructions: amp.TrustInstructions},
-		"claude":   {Name: "claude", Install: claude.Install, Uninstall: claude.Uninstall, Status: claudeStatus, Verify: claude.VerifyHash, Adopt: claude.Adopt, ExpectedHooks: claude.ExpectedHooks, ObservedHooks: claude.ObservedHooks, TrustInstructions: claude.TrustInstructions, BackupPath: claude.BackupPath},
-		"codex":    {Name: "codex", Install: codex.Install, Uninstall: codex.Uninstall, Status: codex.Status, Verify: codex.VerifyHash, Adopt: codex.Adopt, ExpectedHooks: codex.ExpectedHooks, ObservedHooks: codex.ObservedHooks, TrustInstructions: codex.TrustInstructions, BackupPath: codex.BackupPath},
-		"copilot":  {Name: "copilot", Install: copilot.Install, Uninstall: copilot.Uninstall, Status: copilot.Status, Verify: copilot.VerifyHash, Adopt: copilot.Adopt, ExpectedHooks: copilot.ExpectedHooks, ObservedHooks: copilot.ObservedHooks, TrustInstructions: copilot.TrustInstructions, BackupPath: copilot.BackupPath},
-		"gemini":   {Name: "gemini", Install: gemini.Install, Uninstall: gemini.Uninstall, Status: gemini.Status, Verify: gemini.VerifyHash, Adopt: gemini.Adopt},
-		"goose":    {Name: "goose", Install: goose.Install, Uninstall: goose.Uninstall, Status: goose.Status, Verify: goose.VerifyHash, Adopt: goose.Adopt, ExpectedHooks: goose.ExpectedHooks, ObservedHooks: goose.ObservedHooks, BackupPath: goose.BackupPath},
-		"opencode": {Name: "opencode", Install: opencode.Install, Uninstall: opencode.Uninstall, Status: opencode.Status, Verify: opencode.VerifyHash, Adopt: opencode.Adopt, TrustInstructions: opencode.TrustInstructions},
-		"pi":       {Name: "pi", Install: pi.Install, Uninstall: pi.Uninstall, Status: pi.Status, Verify: pi.VerifyHash, Adopt: pi.Adopt, TrustInstructions: pi.TrustInstructions},
-	}
-}
+func NewRegistry() Registry { return catalog.NewRegistry() }
 
-func claudeStatus(ctx context.Context, db *store.DB) common.Info {
-	path, err := claude.SettingsPath()
-	if err != nil {
-		return common.Info{Name: "claude", Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
-	}
-	info := common.Info{Name: "claude", Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
-	body, err := claude.ManagedBody(path)
-	if err != nil {
-		if strings.Contains(err.Error(), "onibi-managed Claude hook is missing") {
-			common.MarkNotInstalled(&info)
-			return info
-		}
-		info.Message = err.Error()
-		return info
-	}
-	version := claude.InstalledVersion(path)
-	info.InstalledVersion = common.VersionPtr(version)
-	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, "claude", path, body, "Claude hooks installed", "onibi install-hooks --agent claude")
-	return info
-}
+func Register(manifest Manifest) error { return catalog.Register(manifest) }
+
+func List() []Manifest { return catalog.List() }
+
+func ManifestFor(name string) (Manifest, error) { return catalog.Get(name) }
 
 func Names() []string {
-	names := make([]string, 0, len(Registry()))
-	for name := range Registry() {
-		names = append(names, name)
+	manifests := catalog.List()
+	names := make([]string, 0, len(manifests))
+	for _, m := range manifests {
+		names = append(names, m.Name)
 	}
 	sort.Strings(names)
 	return names
 }
 
 func Get(name string) (Adapter, bool) {
-	a, ok := Registry()[strings.ToLower(strings.TrimSpace(name))]
-	return a, ok
+	m, err := catalog.Get(strings.ToLower(strings.TrimSpace(name)))
+	if err != nil {
+		return Adapter{}, false
+	}
+	return m.Adapter, true
 }
 
 func InstallShell(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {

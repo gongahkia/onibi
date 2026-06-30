@@ -8,11 +8,27 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gongahkia/onibi/internal/adapters/catalog"
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 const Agent = "copilot"
+
+func init() {
+	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
+		Name:              Agent,
+		Install:           Install,
+		Uninstall:         Uninstall,
+		Status:            Status,
+		Verify:            VerifyHash,
+		Adopt:             Adopt,
+		ExpectedHooks:     ExpectedHooks,
+		ObservedHooks:     ObservedHooks,
+		TrustInstructions: TrustInstructions,
+		BackupPath:        BackupPath,
+	}, map[string]string{"PreToolUse": "*"}))
+}
 
 type eventSpec struct {
 	event    string
