@@ -1,0 +1,13 @@
+-- Onibi migration 0007: encrypt sensitive store columns at rest.
+--
+-- The Go migration in internal/store/sqlite.go rebuilds these tables because
+-- existing SQLite versions can reject DROP COLUMN when indexes or constraints
+-- reference the old plaintext columns.
+--
+-- Fresh schemas use:
+--   pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed)
+--   web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
+--
+-- token_hash/cookie_hash are SHA-256 lookup keys over high-entropy random
+-- tokens. token_enc/cookie_enc/user_agent_enc are AES-GCM frames sealed
+-- through internal/store.CryptBox with row-scoped AAD.

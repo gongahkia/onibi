@@ -27,7 +27,7 @@ func main() {
 		}
 		*state = dir
 	}
-	db, err := store.Open(filepath.Join(*state, "onibi.db"))
+	db, err := store.OpenEphemeral(filepath.Join(*state, "onibi.db"))
 	if err != nil {
 		log.Fatal(err)
 	}

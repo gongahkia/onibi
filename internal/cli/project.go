@@ -135,7 +135,7 @@ func openProjectDB() (*store.DB, func(), error) {
 	if err := paths.EnsureDirs(); err != nil {
 		return nil, nil, err
 	}
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return nil, nil, err
 	}

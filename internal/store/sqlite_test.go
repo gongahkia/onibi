@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -12,7 +13,7 @@ import (
 func openTemp(t *testing.T) *DB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := Open(filepath.Join(dir, "test.sqlite"))
+	db, err := OpenEphemeral(filepath.Join(dir, "test.sqlite"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -113,11 +114,7 @@ func TestPairingExpired(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()
 	tok := "expiredtoken123"
-	// directly insert an expired token to avoid waiting
-	_, err := db.sql.ExecContext(ctx,
-		`INSERT INTO pairing_tokens(token, created_at, expires_at, consumed) VALUES (?, ?, ?, 0)`,
-		tok, time.Now().Add(-time.Hour).Unix(), time.Now().Add(-time.Minute).Unix())
-	if err != nil {
+	if err := db.PutPairingToken(ctx, tok, -time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	ok, err := db.ConsumePairingToken(ctx, tok)
@@ -155,4 +152,114 @@ func TestPairingRaceOnlyOneWins(t *testing.T) {
 	if wins != 1 {
 		t.Fatalf("expected exactly 1 winner, got %d", wins)
 	}
+}
+
+func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
+	db := openTemp(t)
+	pairingCols := tableColumns(t, db, "pairing_tokens")
+	for _, forbidden := range []string{"token"} {
+		if slices.Contains(pairingCols, forbidden) {
+			t.Fatalf("pairing_tokens contains plaintext column %q: %#v", forbidden, pairingCols)
+		}
+	}
+	for _, want := range []string{"token_hash", "token_enc"} {
+		if !slices.Contains(pairingCols, want) {
+			t.Fatalf("pairing_tokens missing %q: %#v", want, pairingCols)
+		}
+	}
+	webCols := tableColumns(t, db, "web_sessions")
+	for _, forbidden := range []string{"session_id", "device_label", "cookie", "user_agent"} {
+		if slices.Contains(webCols, forbidden) {
+			t.Fatalf("web_sessions contains plaintext column %q: %#v", forbidden, webCols)
+		}
+	}
+	for _, want := range []string{"cookie_hash", "cookie_enc", "user_agent_enc"} {
+		if !slices.Contains(webCols, want) {
+			t.Fatalf("web_sessions missing %q: %#v", want, webCols)
+		}
+	}
+}
+
+func TestEncryptedUpgradeFromPlaintextSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "upgrade.sqlite")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+CREATE TABLE pairing_tokens (
+  token TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_pairing_expires ON pairing_tokens(expires_at);
+CREATE TABLE web_sessions (
+  session_id TEXT PRIMARY KEY,
+  device_label TEXT,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at);
+INSERT INTO pairing_tokens(token, created_at, expires_at, consumed) VALUES ('old-token', 1, 4102444800, 0);
+INSERT INTO web_sessions(session_id, device_label, created_at, last_seen_at, revoked) VALUES ('old-session', 'Old iPhone', 1, 2, 0);
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	db, err := Open(path, WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if cols := tableColumns(t, db, "pairing_tokens"); slices.Contains(cols, "token") {
+		t.Fatalf("plaintext token survived upgrade: %#v", cols)
+	}
+	if ok, err := db.ConsumePairingToken(context.Background(), "old-token"); err != nil || !ok {
+		t.Fatalf("consume upgraded token ok=%v err=%v", ok, err)
+	}
+	if cols := tableColumns(t, db, "web_sessions"); slices.Contains(cols, "session_id") || slices.Contains(cols, "device_label") {
+		t.Fatalf("plaintext web columns survived upgrade: %#v", cols)
+	}
+	session, ok, err := db.WebSession(context.Background(), "old-session")
+	if err != nil || !ok {
+		t.Fatalf("web session ok=%v err=%v", ok, err)
+	}
+	if session.SessionID != "old-session" || session.DeviceLabel != "Old iPhone" {
+		t.Fatalf("session = %#v", session)
+	}
+}
+
+func tableColumns(t *testing.T, db *DB, table string) []string {
+	t.Helper()
+	rows, err := db.sql.QueryContext(context.Background(), `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

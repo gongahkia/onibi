@@ -2,13 +2,17 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/envelope"
 
 	_ "modernc.org/sqlite"
 )
@@ -45,6 +49,14 @@ func WithCryptBox(box *CryptBox) OpenOption {
 		opts.cryptbox = box
 		return nil
 	}
+}
+
+func OpenEphemeral(path string) (*DB, error) {
+	key, err := envelope.NewKey()
+	if err != nil {
+		return nil, err
+	}
+	return Open(path, WithStoreKey(key))
 }
 
 // Open opens (or creates) the SQLite database at path, applies migrations,
@@ -112,7 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_kv_expire ON kv(expire);
 -- single-use deeplink pairing tokens; replaces tgterm
 -- first-message-becomes-owner race
 CREATE TABLE IF NOT EXISTS pairing_tokens (
-  token      TEXT PRIMARY KEY,
+  token_hash TEXT PRIMARY KEY,
+  token_enc  BLOB NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   consumed   INTEGER NOT NULL DEFAULT 0
@@ -187,8 +200,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
 
 -- paired web cockpit browser sessions
 CREATE TABLE IF NOT EXISTS web_sessions (
-  session_id   TEXT PRIMARY KEY,
-  device_label TEXT,
+  cookie_hash    TEXT PRIMARY KEY,
+  cookie_enc     BLOB NOT NULL,
+  user_agent_enc BLOB NOT NULL,
   created_at   INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL,
   revoked      INTEGER NOT NULL DEFAULT 0
@@ -217,6 +231,9 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schemaV1); err != nil {
 		return fmt.Errorf("apply schema v1: %w", err)
 	}
+	if err := d.migrateEncryptedTables(ctx); err != nil {
+		return err
+	}
 	if err := d.ensureColumn(ctx, "sessions", "cmd", "TEXT"); err != nil {
 		return err
 	}
@@ -232,17 +249,54 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "sessions", "last_activity", "INTEGER"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
 	return nil
 }
 
-func (d *DB) ensureColumn(ctx context.Context, table, column, decl string) error {
-	rows, err := d.sql.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+func (d *DB) migrateEncryptedTables(ctx context.Context) error {
+	hasPlainToken, err := d.hasColumn(ctx, "pairing_tokens", "token")
 	if err != nil {
 		return err
+	}
+	if hasPlainToken {
+		if err := d.migratePairingTokens(ctx); err != nil {
+			return err
+		}
+	}
+	hasPlainSessionID, err := d.hasColumn(ctx, "web_sessions", "session_id")
+	if err != nil {
+		return err
+	}
+	if hasPlainSessionID {
+		if err := d.migrateWebSessions(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *DB) ensureColumn(ctx context.Context, table, column, decl string) error {
+	ok, err := d.hasColumn(ctx, table, column)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	_, err = d.sql.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+decl)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return nil
+	}
+	return err
+}
+
+func (d *DB) hasColumn(ctx context.Context, table, column string) (bool, error) {
+	rows, err := d.sql.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -252,20 +306,149 @@ func (d *DB) ensureColumn(ctx context.Context, table, column, decl string) error
 		var dflt any
 		var pk int
 		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
-			return err
+			return false, err
 		}
 		if name == column {
-			return nil
+			return true, nil
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (d *DB) migratePairingTokens(ctx context.Context) error {
+	rows, err := d.sql.QueryContext(ctx, `SELECT token, created_at, expires_at, consumed FROM pairing_tokens`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type row struct {
+		token            string
+		created, expires int64
+		consumed         int
+	}
+	var rowsToCopy []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.token, &r.created, &r.expires, &r.consumed); err != nil {
+			return err
+		}
+		rowsToCopy = append(rowsToCopy, r)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = d.sql.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+decl)
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-		return nil
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	return err
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE pairing_tokens_new (
+  token_hash TEXT PRIMARY KEY,
+  token_enc  BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed   INTEGER NOT NULL DEFAULT 0
+)`); err != nil {
+		return err
+	}
+	for _, r := range rowsToCopy {
+		hash := lookupHash(r.token)
+		sealed, err := d.sealString(ctx, "pairing_tokens", hash, "token_enc", r.token)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO pairing_tokens_new(token_hash, token_enc, created_at, expires_at, consumed)
+			 VALUES (?, ?, ?, ?, ?)`,
+			hash, sealed, r.created, r.expires, r.consumed); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS idx_pairing_expires`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE pairing_tokens`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE pairing_tokens_new RENAME TO pairing_tokens`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_pairing_expires ON pairing_tokens(expires_at)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (d *DB) migrateWebSessions(ctx context.Context) error {
+	rows, err := d.sql.QueryContext(ctx, `SELECT session_id, COALESCE(device_label, ''), created_at, last_seen_at, revoked FROM web_sessions`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type row struct {
+		sessionID, deviceLabel string
+		created, lastSeen      int64
+		revoked                int
+	}
+	var rowsToCopy []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.sessionID, &r.deviceLabel, &r.created, &r.lastSeen, &r.revoked); err != nil {
+			return err
+		}
+		rowsToCopy = append(rowsToCopy, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE web_sessions_new (
+  cookie_hash    TEXT PRIMARY KEY,
+  cookie_enc     BLOB NOT NULL,
+  user_agent_enc BLOB NOT NULL,
+  created_at       INTEGER NOT NULL,
+  last_seen_at     INTEGER NOT NULL,
+  revoked          INTEGER NOT NULL DEFAULT 0
+)`); err != nil {
+		return err
+	}
+	for _, r := range rowsToCopy {
+		hash := lookupHash(r.sessionID)
+		sessionEnc, err := d.sealString(ctx, "web_sessions", hash, "cookie_enc", r.sessionID)
+		if err != nil {
+			return err
+		}
+		labelEnc, err := d.sealString(ctx, "web_sessions", hash, "user_agent_enc", r.deviceLabel)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS idx_web_sessions_revoked`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE web_sessions`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE web_sessions_new RENAME TO web_sessions`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ----------------------------------------------------------------------------
@@ -351,9 +534,14 @@ func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, err
 // PutPairingToken stores a freshly minted token with TTL ttl.
 func (d *DB) PutPairingToken(ctx context.Context, token string, ttl time.Duration) error {
 	now := time.Now().Unix()
-	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO pairing_tokens(token, created_at, expires_at, consumed) VALUES (?, ?, ?, 0)`,
-		token, now, now+int64(ttl.Seconds()))
+	hash := lookupHash(token)
+	sealed, err := d.sealString(ctx, "pairing_tokens", hash, "token_enc", token)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.ExecContext(ctx,
+		`INSERT INTO pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed) VALUES (?, ?, ?, ?, 0)`,
+		hash, sealed, now, now+int64(ttl.Seconds()))
 	return err
 }
 
@@ -363,8 +551,8 @@ func (d *DB) PutPairingToken(ctx context.Context, token string, ttl time.Duratio
 func (d *DB) ConsumePairingToken(ctx context.Context, token string) (bool, error) {
 	res, err := d.sql.ExecContext(ctx,
 		`UPDATE pairing_tokens SET consumed = 1
-		 WHERE token = ? AND consumed = 0 AND expires_at > ?`,
-		token, time.Now().Unix())
+		 WHERE token_hash = ? AND consumed = 0 AND expires_at > ?`,
+		lookupHash(token), time.Now().Unix())
 	if err != nil {
 		return false, err
 	}
@@ -392,14 +580,24 @@ func (d *DB) PurgeExpiredPairings(ctx context.Context) error {
 // PutWebSession records an owner browser session.
 func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, now time.Time) error {
 	ts := now.Unix()
-	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO web_sessions(session_id, device_label, created_at, last_seen_at, revoked)
-		 VALUES (?, ?, ?, ?, 0)
-		 ON CONFLICT(session_id) DO UPDATE SET
-		   device_label=excluded.device_label,
+	hash := lookupHash(sessionID)
+	sessionEnc, err := d.sealString(ctx, "web_sessions", hash, "cookie_enc", sessionID)
+	if err != nil {
+		return err
+	}
+	labelEnc, err := d.sealString(ctx, "web_sessions", hash, "user_agent_enc", deviceLabel)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.ExecContext(ctx,
+		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
+		 VALUES (?, ?, ?, ?, ?, 0)
+		 ON CONFLICT(cookie_hash) DO UPDATE SET
+		   cookie_enc=excluded.cookie_enc,
+		   user_agent_enc=excluded.user_agent_enc,
 		   last_seen_at=excluded.last_seen_at,
 		   revoked=0`,
-		sessionID, deviceLabel, ts, ts)
+		hash, sessionEnc, labelEnc, ts, ts)
 	return err
 }
 
@@ -407,8 +605,8 @@ func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, n
 func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Time) (bool, error) {
 	res, err := d.sql.ExecContext(ctx,
 		`UPDATE web_sessions SET last_seen_at = ?
-		 WHERE session_id = ? AND revoked = 0`,
-		now.Unix(), sessionID)
+		 WHERE cookie_hash = ? AND revoked = 0`,
+		now.Unix(), lookupHash(sessionID))
 	if err != nil {
 		return false, err
 	}
@@ -423,8 +621,8 @@ func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Tim
 func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error) {
 	var revoked int
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT revoked FROM web_sessions WHERE session_id = ?`,
-		sessionID).Scan(&revoked)
+		`SELECT revoked FROM web_sessions WHERE cookie_hash = ?`,
+		lookupHash(sessionID)).Scan(&revoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -432,4 +630,27 @@ func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error
 		return false, err
 	}
 	return revoked == 0, nil
+}
+
+func (d *DB) sealString(ctx context.Context, table, rowID, column, value string) ([]byte, error) {
+	if d.cryptbox == nil {
+		return nil, ErrCryptBoxUnavailable
+	}
+	return d.cryptbox.Seal(ctx, []byte(value), RowAAD(table, rowID, column))
+}
+
+func (d *DB) openString(ctx context.Context, table, rowID, column string, sealed []byte) (string, error) {
+	if d.cryptbox == nil {
+		return "", ErrCryptBoxUnavailable
+	}
+	opened, err := d.cryptbox.Open(ctx, sealed, RowAAD(table, rowID, column))
+	if err != nil {
+		return "", err
+	}
+	return string(opened), nil
+}
+
+func lookupHash(value string) string {
+	sum := sha256.Sum256([]byte("onibi-store-lookup-v1\x00" + value))
+	return hex.EncodeToString(sum[:])
 }

@@ -199,7 +199,7 @@ func openCLIStore() (config.Paths, *store.DB, error) {
 	if err := paths.EnsureDirs(); err != nil {
 		return config.Paths{}, nil, err
 	}
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return config.Paths{}, nil, err
 	}

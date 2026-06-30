@@ -380,7 +380,7 @@ func TestHandoverRejectsMissingCookie(t *testing.T) {
 
 func testServer(t *testing.T) (*Server, func()) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

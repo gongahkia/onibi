@@ -11,7 +11,7 @@ import (
 
 func openDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "p.sqlite"))
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "p.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

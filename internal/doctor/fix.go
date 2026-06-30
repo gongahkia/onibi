@@ -12,7 +12,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 type FixReport struct {
@@ -109,7 +108,7 @@ func (f *fixer) fixSocket() {
 }
 
 func (f *fixer) fixHookHashes() {
-	db, err := store.Open(f.opts.Paths.DBFile)
+	db, err := openStoreDB(f.opts.Paths.DBFile)
 	if err != nil {
 		return
 	}

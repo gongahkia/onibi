@@ -99,7 +99,7 @@ func TestApprovalPostDecidesQueue(t *testing.T) {
 
 func testEventServer(t *testing.T) (*Server, *approval.Queue, func()) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

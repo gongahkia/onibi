@@ -84,11 +84,18 @@ func GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := Open(Options{EnvFallbackPath: path})
+	store, err := Open(Options{EnvFallbackPath: path, PreferDotenv: forceDotenvStoreKey()})
 	if err != nil {
 		return nil, err
 	}
 	return store.GetOrCreateStoreKey(ctx)
+}
+
+func forceDotenvStoreKey() bool {
+	if strings.EqualFold(os.Getenv("ONIBI_STORE_KEY_BACKEND"), "dotenv") {
+		return true
+	}
+	return strings.HasSuffix(filepath.Base(os.Args[0]), ".test")
 }
 
 func openKeyring() (keyring.Keyring, error) {

@@ -24,7 +24,6 @@ import (
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/slack"
-	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
 )
@@ -168,7 +167,7 @@ func (r *runner) checkEnvFile() {
 }
 
 func (r *runner) checkDB() {
-	db, err := store.Open(r.opts.Paths.DBFile)
+	db, err := openStoreDB(r.opts.Paths.DBFile)
 	if err != nil {
 		r.add("sqlite db", Fail, err.Error())
 		return
@@ -688,7 +687,7 @@ func (r *runner) checkSessionRuntime() {
 }
 
 func (r *runner) checkHooks() {
-	db, err := store.Open(r.opts.Paths.DBFile)
+	db, err := openStoreDB(r.opts.Paths.DBFile)
 	if err != nil {
 		r.add("hooks", Warn, err.Error())
 		return

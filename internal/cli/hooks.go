@@ -59,7 +59,7 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	shellMinMS := cfg.Shell.MinDuration.Std().Milliseconds()
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return err
 	}

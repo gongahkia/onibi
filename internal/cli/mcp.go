@@ -5,7 +5,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/mcpserver"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 func runMCP(cmd *cobra.Command, _ []string) error {
@@ -16,7 +15,7 @@ func runMCP(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return err
 	}

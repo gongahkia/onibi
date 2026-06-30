@@ -13,7 +13,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/secrets"
-	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
@@ -136,7 +135,7 @@ func updateDoctorCheck(res updatecheck.Result) doctor.Check {
 }
 
 func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor.Check {
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: err.Error(), Code: "telegram_optional", Next: "onibi telegram status"}
 	}

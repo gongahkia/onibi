@@ -20,7 +20,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 // runRun implements `onibi run [agent [args...]]`.
@@ -61,7 +60,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		approvalTTL = 0
 	}
 
-	db, err := store.Open(paths.DBFile)
+	db, err := openDefaultDB()
 	if err != nil {
 		return err
 	}

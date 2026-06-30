@@ -17,7 +17,7 @@ import (
 )
 
 func TestRelayKeyBindStoresCommitmentOnly(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestRelayKeyBindStoresCommitmentOnly(t *testing.T) {
 }
 
 func TestRelayControlBodyRequiresEncryption(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.db"))
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
