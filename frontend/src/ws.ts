@@ -109,7 +109,7 @@ export class TerminalWS extends EventTarget {
         this.handleText(decodeText(frame.data));
         return;
       }
-      this.handleBinary(frame.data.buffer.slice(frame.data.byteOffset, frame.data.byteOffset + frame.data.byteLength));
+      this.handleBinary(arrayBuffer(frame.data));
       return;
     }
     if (typeof event.data === "string") {
@@ -149,4 +149,10 @@ function decodeBase64(value: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const out = new Uint8Array(bytes.byteLength);
+  out.set(bytes);
+  return out.buffer;
 }

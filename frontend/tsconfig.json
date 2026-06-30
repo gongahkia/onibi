@@ -6,6 +6,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2020", "DOM"],
     "types": ["node"],
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true
   },

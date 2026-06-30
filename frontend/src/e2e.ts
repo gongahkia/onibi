@@ -1,5 +1,6 @@
 const version = "onibi.e2e.v1";
 const salt = new TextEncoder().encode("onibi relay e2e salt v1");
+const encoder = new TextEncoder();
 
 type Frame = {
   v: string;
@@ -26,7 +27,7 @@ export class RelayE2E {
       return undefined;
     }
     const raw = decodeBase64URL(encoded);
-    const baseKey = await crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveKey"]);
+    const baseKey = await crypto.subtle.importKey("raw", arrayBuffer(raw), "HKDF", false, ["deriveKey"]);
     history.replaceState(null, document.title, window.location.pathname + window.location.search);
     return new RelayE2E(baseKey);
   }
@@ -47,14 +48,14 @@ export class RelayE2E {
     const nonce = decodeBase64URL(frame.n);
     const data = decodeBase64URL(frame.ct);
     const key = await this.key(info);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, data);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: arrayBuffer(nonce) }, key, arrayBuffer(data));
     return { type: frame.t, data: new Uint8Array(plain) };
   }
 
   private async seal(type: "text" | "binary", data: Uint8Array, info: string): Promise<string> {
     const nonce = crypto.getRandomValues(new Uint8Array(12));
     const key = await this.key(info);
-    const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, data);
+    const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv: arrayBuffer(nonce) }, key, arrayBuffer(data));
     const frame: Frame = {
       v: version,
       t: type,
@@ -68,7 +69,7 @@ export class RelayE2E {
     let cached = this.keys.get(info);
     if (cached === undefined) {
       cached = crypto.subtle.deriveKey(
-        { name: "HKDF", hash: "SHA-256", salt, info: new TextEncoder().encode(info) },
+        { name: "HKDF", hash: "SHA-256", salt: arrayBuffer(salt), info: arrayBuffer(encoder.encode(info)) },
         this.baseKey,
         { name: "AES-GCM", length: 256 },
         false,
@@ -100,4 +101,10 @@ function decodeBase64URL(value: string): Uint8Array {
     out[i] = binary.charCodeAt(i);
   }
   return out;
+}
+
+function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const out = new Uint8Array(bytes.byteLength);
+  out.set(bytes);
+  return out.buffer;
 }
