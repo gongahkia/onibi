@@ -515,6 +515,22 @@
   padding: 10px;
 }
 
+@media (orientation: portrait) and (max-width: 720px) {
+  .timeline-dock {
+    inset: 0;
+    z-index: 14;
+    width: 100vw;
+    height: var(--visual-viewport-height);
+    border: 0;
+    border-radius: 0;
+    padding: calc(env(safe-area-inset-top) + 8px) max(10px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 8px) max(10px, env(safe-area-inset-left));
+  }
+
+  .timeline-payload {
+    max-height: 45dvh;
+  }
+}
+
 .approval-diff .d2h-wrapper {
   min-width: max-content;
   background: var(--panel-solid-bg);

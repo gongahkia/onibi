@@ -381,13 +381,11 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q2c — K: Agent reasoning timeline panel
 
-(B) 2026-06-29 Mobile-portrait: timeline opens as full-screen modal via top-bar button (not a side drawer); closes back to terminal +phaseQ2 @frontend file:frontend/src/main.ts id:T2254 accept:fullscreen-modal-on-narrow-viewport
-
 #### Q2d — AF: Workspaces
 
 > Research locked: hybrid model — .onibi/workspace.toml per project (committed, shareable defaults) + ~/.onibi/workspaces/<name>.toml (private index, never committed). Inspired by VS Code .code-workspace (https://code.visualstudio.com/docs/editor/workspaces) + asdf .tool-versions.
 
-(A) 2026-06-29 Define .onibi/workspace.toml schema in docs/SPEC-workspace.md: name, default_agent, [trust] (inline rules or policy_file=trust.toml reference), [budget], [transports], [hooks] auto_install=[…]; commit example to examples/workspace/.onibi/workspace.toml +phaseQ2 @docs file:docs/SPEC-workspace.md id:T2270 blocked-by:T2254 accept:schema-frozen
+(A) 2026-06-29 Define .onibi/workspace.toml schema in docs/SPEC-workspace.md: name, default_agent, [trust] (inline rules or policy_file=trust.toml reference), [budget], [transports], [hooks] auto_install=[…]; commit example to examples/workspace/.onibi/workspace.toml +phaseQ2 @docs file:docs/SPEC-workspace.md id:T2270 accept:schema-frozen
 (A) 2026-06-29 Global workspace index: ~/.onibi/workspaces/<name>.toml (path, last_seen, ssh_key, default_transport); SQLite-backed table workspaces(name PK, path_enc, ssh_key_ref, last_seen) via Q0a +phaseQ2 @backend file:internal/workspace/store.go id:T2271 blocked-by:T2270 accept:workspace-roundtrips-disk
 (A) 2026-06-29 Resolution rule in internal/cli/up.go: when onibi up starts in a directory containing .onibi/workspace.toml, autoload it; otherwise fall back to user's default workspace (onibi workspace use default) +phaseQ2 @backend file:internal/cli/up.go id:T2272 blocked-by:T2271 accept:cwd-workspace-autoloads
 (A) 2026-06-29 CLI: onibi workspace add|list|use|remove|export|import; export writes portable bundle (workspace.toml + trust.toml + budget.toml minus secrets) suitable for committing to a repo +phaseQ2 @backend file:internal/cli/workspace.go id:T2273 blocked-by:T2272 accept:exported-bundle-is-portable
