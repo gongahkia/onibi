@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/99designs/keyring v1.2.2
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/jaguilar/vt100 v0.0.0-20201024211400-81de19cb81a4
