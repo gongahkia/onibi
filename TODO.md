@@ -364,11 +364,9 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1b — L: Trust policies + approval batching
 
-(B) 2026-06-29 docs/trust-policies.md: examples (read-only auto-approve, dangerous-path always-prompt, time-windowed, per-agent), threat model (rules cannot be persisted via SPA — must be typed via CLI to avoid drive-by) +phaseQ1 @docs file:docs/trust-policies.md id:T2126
-
 #### Q1c — M: Cost / token budget enforcement
 
-(A) 2026-06-29 internal/budget/parser.go: tail ~/.claude/projects/<project-hash>/sessions/<session-id>.jsonl for the active session, extract usage.input_tokens + usage.output_tokens + model field per turn; cache last-read offset in memory; emit a CostEvent on update +phaseQ1 @backend file:internal/budget/parser.go id:T2140 blocked-by:T2126 accept:reads-claude-jsonl-correctly
+(A) 2026-06-29 internal/budget/parser.go: tail ~/.claude/projects/<project-hash>/sessions/<session-id>.jsonl for the active session, extract usage.input_tokens + usage.output_tokens + model field per turn; cache last-read offset in memory; emit a CostEvent on update +phaseQ1 @backend file:internal/budget/parser.go id:T2140 accept:reads-claude-jsonl-correctly
 (A) 2026-06-29 .onibi/budget.toml schema in internal/budget/policy.go: [global] max_tokens_per_day=…; [session] max_tokens=… on_overrun="interrupt"|"kill"|"warn"; cents conversion via fixed table in code per model (claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5 in/out rates), updatable via docs/pricing.md +phaseQ1 @backend file:internal/budget/policy.go id:T2141 blocked-by:T2140 accept:cost-math-matches-anthropic-published-rates
 (A) 2026-06-29 Hook budget check into PreToolUse approval flow: if predicted next-turn token spend would exceed budget, surface a BudgetWarn overlay BEFORE the tool runs; if overrun confirmed post-turn, apply on_overrun action (default interrupt → SIGINT to PTY pgid via syscall.Kill(-pgid, SIGINT)) +phaseQ1 @backend file:internal/daemon/approvals.go id:T2142 blocked-by:T2141 accept:budget-enforces-on-overrun
 (B) 2026-06-29 Expose cost cell in Sessions list view (Q2b) sourced from /sessions/:id/cost endpoint; per-session header in SPA shows daily usage; values update on CostEvent +phaseQ1 @frontend file:frontend/src/sessions.ts id:T2143 blocked-by:T2142 accept:cost-visible-in-UI
