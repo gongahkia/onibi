@@ -416,6 +416,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	if d.WebAddr != "" {
+		if d.DB != nil {
+			if _, err := web.EnsureVAPIDKeys(ctx, d.DB); err != nil {
+				return err
+			}
+		}
 		certDir := d.WebCertDir
 		if certDir == "" {
 			certDir = filepath.Join(d.Paths.StateDir, "web")

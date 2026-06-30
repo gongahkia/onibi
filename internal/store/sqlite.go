@@ -508,6 +508,15 @@ func (d *DB) KVSetString(ctx context.Context, key, value string) error {
 	return d.KVSet(ctx, key, []byte(value), 0)
 }
 
+// KVSetEncryptedString stores an encrypted value in kv with no expiry.
+func (d *DB) KVSetEncryptedString(ctx context.Context, key, value string) error {
+	sealed, err := d.sealString(ctx, "kv", key, "value", value)
+	if err != nil {
+		return err
+	}
+	return d.KVSet(ctx, key, sealed, 0)
+}
+
 // KVGet returns the value and a found bool. Honors expire (returns
 // found=false if expired and best-effort deletes the row).
 func (d *DB) KVGet(ctx context.Context, key string) ([]byte, bool, error) {
@@ -534,6 +543,19 @@ func (d *DB) KVGetString(ctx context.Context, key string) (string, bool, error) 
 		return "", ok, err
 	}
 	return string(v), true, nil
+}
+
+// KVGetEncryptedString retrieves an encrypted string from kv.
+func (d *DB) KVGetEncryptedString(ctx context.Context, key string) (string, bool, error) {
+	sealed, ok, err := d.KVGet(ctx, key)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	opened, err := d.openString(ctx, "kv", key, "value", sealed)
+	if err != nil {
+		return "", true, err
+	}
+	return opened, true, nil
 }
 
 // KVDel deletes a key (no-op if missing).

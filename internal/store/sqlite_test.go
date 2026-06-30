@@ -33,6 +33,25 @@ func TestKVRoundtrip(t *testing.T) {
 	}
 }
 
+func TestEncryptedKVRoundtrip(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	if err := db.KVSetEncryptedString(ctx, "push_vapid_priv_enc", "private-key"); err != nil {
+		t.Fatal(err)
+	}
+	v, ok, err := db.KVGetEncryptedString(ctx, "push_vapid_priv_enc")
+	if err != nil || !ok || v != "private-key" {
+		t.Fatalf("got %q, %v, %v", v, ok, err)
+	}
+	var raw []byte
+	if err := db.sql.QueryRowContext(ctx, `SELECT value FROM kv WHERE key = ?`, "push_vapid_priv_enc").Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) == "private-key" {
+		t.Fatal("encrypted kv stored plaintext")
+	}
+}
+
 func TestKVExpire(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()
