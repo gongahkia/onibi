@@ -364,8 +364,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1b — L: Trust policies + approval batching
 
-(B) 2026-06-29 Audit every auto-approve in internal/daemon/audit.go with the rule id and matched path; visible via onibi log +phaseQ1 @backend file:internal/daemon/audit.go id:T2125 accept:audit-event-includes-rule-id
-(B) 2026-06-29 docs/trust-policies.md: examples (read-only auto-approve, dangerous-path always-prompt, time-windowed, per-agent), threat model (rules cannot be persisted via SPA — must be typed via CLI to avoid drive-by) +phaseQ1 @docs file:docs/trust-policies.md id:T2126 blocked-by:T2125
+(B) 2026-06-29 docs/trust-policies.md: examples (read-only auto-approve, dangerous-path always-prompt, time-windowed, per-agent), threat model (rules cannot be persisted via SPA — must be typed via CLI to avoid drive-by) +phaseQ1 @docs file:docs/trust-policies.md id:T2126
 
 #### Q1c — M: Cost / token budget enforcement
 

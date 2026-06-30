@@ -117,7 +117,7 @@ agent = "claude"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(audit) != 1 || audit[0].Action != "trust.auto_approve" {
+	if len(audit) != 1 || audit[0].Action != "trust.auto_approve" || !strings.Contains(audit[0].Detail, "rule=file:1") || !strings.Contains(audit[0].Detail, "path=src/main.go") {
 		t.Fatalf("audit = %#v", audit)
 	}
 }

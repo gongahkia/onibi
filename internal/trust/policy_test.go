@@ -43,6 +43,9 @@ agent = "claude"
 	if got.Effect != EffectAlwaysPrompt {
 		t.Fatalf("effect = %s", got.Effect)
 	}
+	if got.ID != "file:1" {
+		t.Fatalf("id = %q", got.ID)
+	}
 }
 
 func TestEvaluateRequiresAllMatchFields(t *testing.T) {

@@ -159,10 +159,13 @@ func (p Policy) Evaluate(req Request) (Rule, bool) {
 }
 
 func (p Policy) EvaluateAt(req Request, now time.Time) (Rule, bool) {
+	fileN := 0
+	runtimeN := 0
 	for _, rule := range p.Rules {
 		if rule.expired(now) {
 			continue
 		}
+		rule = indexedRule(rule, &fileN, &runtimeN)
 		if rule.matches(req) {
 			return rule, true
 		}
@@ -277,6 +280,21 @@ func PersistedRule(rule Rule) Rule {
 	rule.ID = ""
 	rule.Runtime = false
 	rule.ExpiresAt = time.Time{}
+	return rule
+}
+
+func indexedRule(rule Rule, fileN, runtimeN *int) Rule {
+	if rule.Runtime {
+		(*runtimeN)++
+		if rule.ID == "" {
+			rule.ID = fmt.Sprintf("runtime:%d", *runtimeN)
+		}
+		return rule
+	}
+	(*fileN)++
+	if rule.ID == "" {
+		rule.ID = fmt.Sprintf("file:%d", *fileN)
+	}
 	return rule
 }
 
