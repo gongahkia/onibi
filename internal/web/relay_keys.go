@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"errors"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 const (
 	relayPairCommitPrefix    = "relay_key_commitment:pair:"
 	relaySessionCommitPrefix = "relay_key_commitment:session:"
+	relayVerifyTokenInfo     = "onibi-verify-token-v1"
 )
 
 type RelayKeys struct {
@@ -66,6 +69,15 @@ func (r *RelayKeys) BindSession(ctx context.Context, db *store.DB, token, sessio
 	if db == nil {
 		return true, nil
 	}
+	verifyToken, err := relayVerifyToken(pair.key, sessionID)
+	if err != nil {
+		return true, err
+	}
+	if ok, err := db.SetWebSessionKeyVerifier(ctx, sessionID, verifyToken); err != nil {
+		return true, err
+	} else if !ok {
+		return true, errors.New("relay session verifier target missing")
+	}
 	if err := db.KVSetString(ctx, relaySessionCommitPrefix+sessionID, envelope.Commitment(pair.key)); err != nil {
 		return true, err
 	}
@@ -83,4 +95,14 @@ func (r *RelayKeys) KeyForSession(sessionID string) ([]byte, bool) {
 		return nil, false
 	}
 	return append([]byte(nil), key...), true
+}
+
+func relayVerifyToken(key []byte, sessionID string) ([]byte, error) {
+	if len(key) != envelope.KeyBytes {
+		return nil, errors.New("relay key must be 32 bytes")
+	}
+	if sessionID == "" {
+		return nil, errors.New("relay session id required")
+	}
+	return hkdf.Key(sha256.New, key, []byte(sessionID), relayVerifyTokenInfo, envelope.KeyBytes)
 }

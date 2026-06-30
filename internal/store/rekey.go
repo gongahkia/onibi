@@ -35,8 +35,8 @@ func (d *DB) Rekey(ctx context.Context, newMasterKey []byte) error {
 	}
 	for _, r := range sessions {
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE web_sessions SET cookie_enc = ?, user_agent_enc = ? WHERE cookie_hash = ?`,
-			r.cookieEnc, r.userAgentEnc, r.hash); err != nil {
+			`UPDATE web_sessions SET cookie_enc = ?, user_agent_enc = ?, key_verifier_enc = ? WHERE cookie_hash = ?`,
+			r.cookieEnc, r.userAgentEnc, r.keyVerifierEnc, r.hash); err != nil {
 			return err
 		}
 	}
@@ -66,9 +66,10 @@ type rekeyPairingRow struct {
 }
 
 type rekeyWebSessionRow struct {
-	hash         string
-	cookieEnc    []byte
-	userAgentEnc []byte
+	hash           string
+	cookieEnc      []byte
+	userAgentEnc   []byte
+	keyVerifierEnc []byte
 }
 
 func (d *DB) rekeyPairingRows(ctx context.Context, newBox *CryptBox) ([]rekeyPairingRow, error) {
@@ -101,7 +102,7 @@ func (d *DB) rekeyPairingRows(ctx context.Context, newBox *CryptBox) ([]rekeyPai
 }
 
 func (d *DB) rekeyWebSessionRows(ctx context.Context, newBox *CryptBox) ([]rekeyWebSessionRow, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT cookie_hash, cookie_enc, user_agent_enc FROM web_sessions`)
+	rows, err := d.sql.QueryContext(ctx, `SELECT cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc FROM web_sessions`)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +110,8 @@ func (d *DB) rekeyWebSessionRows(ctx context.Context, newBox *CryptBox) ([]rekey
 	var out []rekeyWebSessionRow
 	for rows.Next() {
 		var hash string
-		var cookieEnc, userAgentEnc []byte
-		if err := rows.Scan(&hash, &cookieEnc, &userAgentEnc); err != nil {
+		var cookieEnc, userAgentEnc, keyVerifierEnc []byte
+		if err := rows.Scan(&hash, &cookieEnc, &userAgentEnc, &keyVerifierEnc); err != nil {
 			return nil, err
 		}
 		cookie, err := d.openString(ctx, "web_sessions", hash, "cookie_enc", cookieEnc)
@@ -129,7 +130,18 @@ func (d *DB) rekeyWebSessionRows(ctx context.Context, newBox *CryptBox) ([]rekey
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, rekeyWebSessionRow{hash: hash, cookieEnc: nextCookie, userAgentEnc: nextUserAgent})
+		var nextVerifier []byte
+		if len(keyVerifierEnc) > 0 {
+			verifier, err := d.openBytes(ctx, "web_sessions", hash, "key_verifier_enc", keyVerifierEnc)
+			if err != nil {
+				return nil, err
+			}
+			nextVerifier, err = newBox.Seal(ctx, verifier, RowAAD("web_sessions", hash, "key_verifier_enc"))
+			if err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, rekeyWebSessionRow{hash: hash, cookieEnc: nextCookie, userAgentEnc: nextUserAgent, keyVerifierEnc: nextVerifier})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

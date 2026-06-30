@@ -6,8 +6,8 @@
 --
 -- Fresh schemas use:
 --   pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed)
---   web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
+--   web_sessions(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, created_at, last_seen_at, revoked)
 --
 -- token_hash/cookie_hash are SHA-256 lookup keys over high-entropy random
--- tokens. token_enc/cookie_enc/user_agent_enc are AES-GCM frames sealed
--- through internal/store.CryptBox with row-scoped AAD.
+-- tokens. token_enc/cookie_enc/user_agent_enc/key_verifier_enc are
+-- AES-GCM frames sealed through internal/store.CryptBox with row-scoped AAD.

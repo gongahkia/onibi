@@ -22,9 +22,10 @@ const (
 )
 
 type ptyAttachFrame struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	LastSeq   uint64 `json:"last_seq"`
+	Type        string `json:"type"`
+	SessionID   string `json:"session_id"`
+	LastSeq     uint64 `json:"last_seq"`
+	VerifyToken string `json:"verify_token,omitempty"`
 }
 
 type ptyControlFrame struct {
@@ -94,6 +95,13 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("web pty attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
 		return
+	}
+	if wsE2E != nil {
+		if err := s.verifyRelayAttach(ctx, ownerSessionID, attach.VerifyToken); err != nil {
+			s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "bad_relay_verifier", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			_ = c.Close(websocket.StatusPolicyViolation, "bad relay verifier")
+			return
+		}
 	}
 	sessionID = attach.SessionID
 	host, ok := s.hostForSession(ctx, attach.SessionID)

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -19,6 +20,7 @@ var (
 	errAuthMissingCookie = errors.New("missing_owner_cookie")
 	errAuthEmptyCookie   = errors.New("empty_owner_cookie")
 	errAuthInvalidCookie = errors.New("invalid_owner_session")
+	errAuthBadVerifier   = errors.New("bad_relay_verifier")
 )
 
 func (s *Server) CreateOwnerSession(ctx context.Context, w http.ResponseWriter, deviceLabel string) (string, error) {
@@ -98,6 +100,27 @@ func (s *Server) authenticate(r *http.Request) (string, error) {
 func ownerCookiePresent(r *http.Request) bool {
 	cookie, err := r.Cookie(OwnerCookieName)
 	return err == nil && cookie.Value != ""
+}
+
+func (s *Server) verifyRelayAttach(ctx context.Context, sessionID, encoded string) error {
+	if s.db == nil {
+		return errAuthNoDB
+	}
+	if encoded == "" {
+		return errAuthBadVerifier
+	}
+	got, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return errAuthBadVerifier
+	}
+	want, ok, err := s.db.WebSessionKeyVerifier(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if !ok || subtle.ConstantTimeCompare(got, want) != 1 {
+		return errAuthBadVerifier
+	}
+	return nil
 }
 
 func newSessionID() (string, error) {

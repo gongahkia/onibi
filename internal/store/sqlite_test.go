@@ -173,7 +173,7 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 			t.Fatalf("web_sessions contains plaintext column %q: %#v", forbidden, webCols)
 		}
 	}
-	for _, want := range []string{"cookie_hash", "cookie_enc", "user_agent_enc"} {
+	for _, want := range []string{"cookie_hash", "cookie_enc", "user_agent_enc", "key_verifier_enc"} {
 		if !slices.Contains(webCols, want) {
 			t.Fatalf("web_sessions missing %q: %#v", want, webCols)
 		}

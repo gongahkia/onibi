@@ -150,7 +150,16 @@ func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := newSeqWSCodec(base, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
-	attach, err := json.Marshal(ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
+	verifyToken, err := relayVerifyToken(key, ownerSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attach, err := json.Marshal(ptyAttachFrame{
+		Type:        "attach",
+		SessionID:   "s1",
+		LastSeq:     0,
+		VerifyToken: base64.RawURLEncoding.EncodeToString(verifyToken),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

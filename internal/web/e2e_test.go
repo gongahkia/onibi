@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -56,6 +57,23 @@ func TestRelayKeyBindStoresCommitmentOnly(t *testing.T) {
 	got, ok := keys.KeyForSession(sessionID)
 	if !ok || !bytes.Equal(got, key) {
 		t.Fatal("volatile session key missing")
+	}
+	verifyToken, err := relayVerifyToken(key, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok, err := db.WebSessionKeyVerifier(context.Background(), sessionID)
+	if err != nil || !ok {
+		t.Fatalf("stored verifier ok=%v err=%v", ok, err)
+	}
+	if !bytes.Equal(stored, verifyToken) {
+		t.Fatal("stored verifier mismatch")
+	}
+	if err := srv.verifyRelayAttach(context.Background(), sessionID, base64.RawURLEncoding.EncodeToString(verifyToken)); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.verifyRelayAttach(context.Background(), sessionID, base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, envelope.KeyBytes))); err == nil {
+		t.Fatal("bad relay verifier accepted")
 	}
 }
 

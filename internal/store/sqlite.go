@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   cookie_hash    TEXT PRIMARY KEY,
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
+  key_verifier_enc BLOB,
   created_at   INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL,
   revoked      INTEGER NOT NULL DEFAULT 0
@@ -247,6 +248,9 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "sessions", "last_activity", "INTEGER"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "web_sessions", "key_verifier_enc", "BLOB"); err != nil {
 		return err
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7)")
@@ -413,6 +417,7 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
   cookie_hash    TEXT PRIMARY KEY,
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
+  key_verifier_enc BLOB,
   created_at       INTEGER NOT NULL,
   last_seen_at     INTEGER NOT NULL,
   revoked          INTEGER NOT NULL DEFAULT 0
@@ -430,8 +435,8 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, created_at, last_seen_at, revoked)
+			 VALUES (?, ?, ?, NULL, ?, ?, ?)`,
 			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked); err != nil {
 			return err
 		}
@@ -601,6 +606,48 @@ func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, n
 	return err
 }
 
+func (d *DB) SetWebSessionKeyVerifier(ctx context.Context, sessionID string, verifier []byte) (bool, error) {
+	hash := lookupHash(sessionID)
+	sealed, err := d.sealBytes(ctx, "web_sessions", hash, "key_verifier_enc", verifier)
+	if err != nil {
+		return false, err
+	}
+	res, err := d.sql.ExecContext(ctx,
+		`UPDATE web_sessions SET key_verifier_enc = ? WHERE cookie_hash = ? AND revoked = 0`,
+		sealed, hash)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+func (d *DB) WebSessionKeyVerifier(ctx context.Context, sessionID string) ([]byte, bool, error) {
+	hash := lookupHash(sessionID)
+	row := d.sql.QueryRowContext(ctx,
+		`SELECT key_verifier_enc FROM web_sessions WHERE cookie_hash = ? AND revoked = 0`,
+		hash)
+	var sealed []byte
+	err := row.Scan(&sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if len(sealed) == 0 {
+		return nil, false, nil
+	}
+	verifier, err := d.openBytes(ctx, "web_sessions", hash, "key_verifier_enc", sealed)
+	if err != nil {
+		return nil, false, err
+	}
+	return verifier, true, nil
+}
+
 // TouchWebSession updates last_seen_at iff the session is not revoked.
 func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Time) (bool, error) {
 	res, err := d.sql.ExecContext(ctx,
@@ -633,21 +680,33 @@ func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error
 }
 
 func (d *DB) sealString(ctx context.Context, table, rowID, column, value string) ([]byte, error) {
+	return d.sealBytes(ctx, table, rowID, column, []byte(value))
+}
+
+func (d *DB) sealBytes(ctx context.Context, table, rowID, column string, value []byte) ([]byte, error) {
 	if d.cryptbox == nil {
 		return nil, ErrCryptBoxUnavailable
 	}
-	return d.cryptbox.Seal(ctx, []byte(value), RowAAD(table, rowID, column))
+	return d.cryptbox.Seal(ctx, value, RowAAD(table, rowID, column))
 }
 
 func (d *DB) openString(ctx context.Context, table, rowID, column string, sealed []byte) (string, error) {
-	if d.cryptbox == nil {
-		return "", ErrCryptBoxUnavailable
-	}
-	opened, err := d.cryptbox.Open(ctx, sealed, RowAAD(table, rowID, column))
+	opened, err := d.openBytes(ctx, table, rowID, column, sealed)
 	if err != nil {
 		return "", err
 	}
 	return string(opened), nil
+}
+
+func (d *DB) openBytes(ctx context.Context, table, rowID, column string, sealed []byte) ([]byte, error) {
+	if d.cryptbox == nil {
+		return nil, ErrCryptBoxUnavailable
+	}
+	opened, err := d.cryptbox.Open(ctx, sealed, RowAAD(table, rowID, column))
+	if err != nil {
+		return nil, err
+	}
+	return opened, nil
 }
 
 func lookupHash(value string) string {
