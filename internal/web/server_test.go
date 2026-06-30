@@ -138,6 +138,25 @@ func TestPWAStaticFilesRequireAuthAndServe(t *testing.T) {
 	}
 }
 
+func TestSPASessionRouteServesRoot(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/s/s1", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "<!doctype html>") {
+		t.Fatalf("body = %q", w.Body.String())
+	}
+}
+
 func TestWSPTYRejectsMissingCookie(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

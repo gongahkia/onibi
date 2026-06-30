@@ -84,6 +84,105 @@
   text-align: right;
 }
 
+.session-list-view {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  box-sizing: border-box;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top) + 16px) max(14px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 16px) max(14px, env(safe-area-inset-left));
+}
+
+.session-list-view[hidden] {
+  display: none;
+}
+
+.session-list-shell {
+  width: min(100%, 860px);
+  margin: 0 auto;
+}
+
+.session-list-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.session-list-header h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--page-fg);
+  font: 700 18px var(--mono-font);
+}
+
+.session-list-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.session-list-row {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  box-sizing: border-box;
+  border: 1px solid var(--button-border);
+  border-radius: 3px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  padding: 10px;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.session-list-row.last,
+.session-list-row:active {
+  border-color: var(--button-active-border);
+}
+
+.session-list-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.session-list-agent {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--page-fg);
+  font: 700 13px var(--mono-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-list-id {
+  flex: 0 0 auto;
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.session-list-cwd,
+.session-list-meta,
+.session-list-empty {
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-list-empty {
+  border: 1px solid var(--chrome-border);
+  border-radius: 3px;
+  padding: 12px;
+}
+
 .snapshots-dock {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 44px + var(--sessions-height));

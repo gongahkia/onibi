@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
@@ -220,7 +221,7 @@ func (s *Server) healthzKeyVerifierHex(r *http.Request) (string, bool, error) {
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/s/") {
 		http.NotFound(w, r)
 		return
 	}

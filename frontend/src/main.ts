@@ -8,7 +8,7 @@ import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
 import { RelayE2E } from "./e2e";
-import { SessionsPanel } from "./sessions";
+import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 
 type SessionInfo = {
@@ -20,6 +20,7 @@ const termEl = requireElement("term");
 const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
 const toolbar = requireElement("toolbar");
+const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const softkeys = requireElement("softkeys");
@@ -74,8 +75,15 @@ async function boot(): Promise<void> {
     events.setE2E(relayE2E);
     approvals.setPostJSON(postJSON);
     anomalies.setPostJSON(postJSON);
-    const info = await sessionInfo();
+    const routeSession = routeSessionID();
+    if (routeSession === null) {
+      await showSessionsHome();
+      return;
+    }
+    const info = await sessionInfo(routeSession);
     await relayE2E?.bindSession(info.ws_token);
+    saveLastSessionID(info.session_id);
+    showTerminalChrome();
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
     installControls(toolbar, info, snapshots);
@@ -96,11 +104,27 @@ async function boot(): Promise<void> {
   }
 }
 
-async function sessionInfo(): Promise<SessionInfo> {
-  const params = new URLSearchParams(window.location.search);
-  const sessionID = params.get("session_id");
-  const path = sessionID === null ? "/session-info" : `/session-info?session_id=${encodeURIComponent(sessionID)}`;
-  return getJSON<SessionInfo>(path);
+async function showSessionsHome(): Promise<void> {
+  showListChrome();
+  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession);
+  await list.load();
+  splash.hidden = true;
+}
+
+async function sessionInfo(sessionID: string): Promise<SessionInfo> {
+  return getJSON<SessionInfo>(`/session-info?session_id=${encodeURIComponent(sessionID)}`);
+}
+
+function routeSessionID(): string | null {
+  const match = /^\/s\/([^/]+)$/.exec(window.location.pathname);
+  if (match !== null) {
+    return decodeURIComponent(match[1]);
+  }
+  const querySession = new URLSearchParams(window.location.search).get("session_id");
+  if (querySession !== null && querySession.trim() !== "") {
+    return querySession;
+  }
+  return null;
 }
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -171,7 +195,8 @@ function navigateToSession(sessionID: string): void {
   if (sessionID.trim() === "") {
     return;
   }
-  window.location.href = `/?session_id=${encodeURIComponent(sessionID)}`;
+  saveLastSessionID(sessionID);
+  window.location.href = `/s/${encodeURIComponent(sessionID)}`;
 }
 
 function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
@@ -238,6 +263,24 @@ function showToast(message: string): void {
 
 function hideToast(): void {
   toast.hidden = true;
+}
+
+function showListChrome(): void {
+  toolbar.hidden = true;
+  sessionsRoot.hidden = true;
+  snapshotsRoot.hidden = true;
+  termEl.hidden = true;
+  softkeys.hidden = true;
+  approvalRoot.hidden = true;
+  sessionListRoot.hidden = false;
+}
+
+function showTerminalChrome(): void {
+  toolbar.hidden = false;
+  termEl.hidden = false;
+  softkeys.hidden = false;
+  approvalRoot.hidden = false;
+  sessionListRoot.hidden = true;
 }
 
 function installViewportPinning(root: HTMLElement): void {

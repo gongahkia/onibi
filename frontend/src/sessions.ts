@@ -1,5 +1,19 @@
 import type { EventEnvelope } from "./events";
 
+const lastSessionKey = "onibi-last-session-id";
+
+export type SessionSummary = {
+  id: string;
+  agent: string;
+  cwd: string;
+  started_at: string;
+  last_activity: string;
+  pending_approvals_count: number;
+  tokens_used: number;
+  cost_usd: number;
+  role_required: string;
+};
+
 export type SessionCostPayload = {
   session_id: string;
   model?: string;
@@ -16,6 +30,93 @@ export type SessionCostPayload = {
 };
 
 type FetchJSON = <T>(path: string) => Promise<T>;
+
+export class SessionsListView {
+  private rows: SessionSummary[] = [];
+  private loading = false;
+  private status = "";
+
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly fetchJSON: FetchJSON,
+    private readonly navigate: (sessionID: string) => void
+  ) {}
+
+  async load(): Promise<void> {
+    this.loading = true;
+    this.status = "";
+    this.render();
+    try {
+      this.rows = await this.fetchJSON<SessionSummary[]>("/sessions");
+    } catch {
+      this.status = "sessions unavailable";
+    } finally {
+      this.loading = false;
+      this.render();
+    }
+  }
+
+  private render(): void {
+    const shell = document.createElement("section");
+    shell.className = "session-list-shell";
+    const header = document.createElement("div");
+    header.className = "session-list-header";
+    const title = document.createElement("h1");
+    title.textContent = "sessions";
+    const reload = document.createElement("button");
+    reload.type = "button";
+    reload.className = "control-button";
+    reload.textContent = "Reload";
+    reload.addEventListener("click", () => void this.load());
+    header.append(title, reload);
+
+    const body = document.createElement("div");
+    body.className = "session-list-grid";
+    if (this.loading) {
+      body.append(emptyRow("loading"));
+    } else if (this.rows.length === 0) {
+      body.append(emptyRow(this.status || "no active sessions"));
+    } else {
+      for (const row of sortedRows(this.rows)) {
+        body.append(this.sessionButton(row));
+      }
+    }
+    shell.append(header, body);
+    this.root.hidden = false;
+    this.root.replaceChildren(shell);
+  }
+
+  private sessionButton(row: SessionSummary): HTMLButtonElement {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = row.id === lastSessionID() ? "session-list-row last" : "session-list-row";
+    el.title = row.id;
+    const top = document.createElement("span");
+    top.className = "session-list-top";
+    const agent = document.createElement("span");
+    agent.className = "session-list-agent";
+    agent.textContent = row.agent || "session";
+    const id = document.createElement("span");
+    id.className = "session-list-id";
+    id.textContent = shortID(row.id);
+    top.append(agent, id);
+
+    const cwd = document.createElement("span");
+    cwd.className = "session-list-cwd";
+    cwd.textContent = row.cwd;
+
+    const meta = document.createElement("span");
+    meta.className = "session-list-meta";
+    meta.textContent = sessionMeta(row);
+
+    el.append(top, cwd, meta);
+    el.addEventListener("click", () => {
+      saveLastSessionID(row.id);
+      this.navigate(row.id);
+    });
+    return el;
+  }
+}
 
 export class SessionsPanel {
   private readonly sessions = new Map<string, SessionCostPayload | undefined>();
@@ -86,7 +187,8 @@ export class SessionsPanel {
       tab.append(name, value);
       tab.addEventListener("click", () => {
         if (id !== this.currentSessionID) {
-          window.location.href = `/?session_id=${encodeURIComponent(id)}`;
+          saveLastSessionID(id);
+          window.location.href = `/s/${encodeURIComponent(id)}`;
         }
       });
       list.append(tab);
@@ -96,19 +198,74 @@ export class SessionsPanel {
   }
 }
 
+export function saveLastSessionID(id: string): void {
+  if (id.trim() !== "") {
+    window.localStorage.setItem(lastSessionKey, id);
+  }
+}
+
+function lastSessionID(): string {
+  return window.localStorage.getItem(lastSessionKey) ?? "";
+}
+
+function sortedRows(rows: SessionSummary[]): SessionSummary[] {
+  const last = lastSessionID();
+  return [...rows].sort((a, b) => {
+    if (a.id === last) {
+      return -1;
+    }
+    if (b.id === last) {
+      return 1;
+    }
+    return Date.parse(b.last_activity) - Date.parse(a.last_activity);
+  });
+}
+
+function sessionMeta(row: SessionSummary): string {
+  const parts = [`${formatTokens(row.tokens_used)}`];
+  if (row.cost_usd > 0) {
+    parts.push(formatUSD(row.cost_usd));
+  }
+  if (row.pending_approvals_count > 0) {
+    parts.push(`${row.pending_approvals_count} pending`);
+  }
+  parts.push(formatWhen(row.last_activity));
+  parts.push(row.role_required);
+  return parts.join(" / ");
+}
+
+function emptyRow(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "session-list-empty";
+  el.textContent = text;
+  return el;
+}
+
 function formatCost(cost: SessionCostPayload | undefined): string {
   if (cost === undefined) {
     return "0 tok";
   }
   if (cost.cost_known && cost.total_usd !== undefined) {
-    const digits = cost.total_usd > 0 && cost.total_usd < 0.01 ? 4 : 2;
-    return `$${cost.total_usd.toFixed(digits)}`;
+    return formatUSD(cost.total_usd);
   }
-  return `${formatTokens(cost.total_tokens)} tok`;
+  return formatTokens(cost.total_tokens);
+}
+
+function formatUSD(value: number): string {
+  const digits = value > 0 && value < 0.01 ? 4 : 2;
+  return `$${value.toFixed(digits)}`;
 }
 
 function formatTokens(value: number): string {
   return `${Math.max(0, Math.round(value)).toLocaleString("en-US")} tok`;
+}
+
+function formatWhen(raw: string): string {
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) {
+    return "-";
+  }
+  return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function shortID(id: string): string {
