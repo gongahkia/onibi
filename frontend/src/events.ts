@@ -12,6 +12,7 @@ export type ApprovalRequestedPayload = {
   agent: string;
   tool: string;
   scrubbed_input: string;
+  unified_diff?: string;
   risk_level: "low" | "medium" | "high";
   risk_reasons?: string[];
   expires_at: string;

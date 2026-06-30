@@ -1,9 +1,17 @@
 {
+  "_diff2html-ui-slim-BUa9DSNl.js": {
+    "file": "assets/diff2html-ui-slim-BUa9DSNl.js",
+    "name": "diff2html-ui-slim",
+    "isDynamicEntry": true
+  },
   "index.html": {
-    "file": "assets/index-CjL9UlLi.js",
+    "file": "assets/index-C76taA6j.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
+    "dynamicImports": [
+      "_diff2html-ui-slim-BUa9DSNl.js"
+    ],
     "css": [
       "assets/index-DYP7pi_n.css"
     ]

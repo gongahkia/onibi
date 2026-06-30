@@ -1,5 +1,7 @@
 import type { ApprovalDecidedPayload, ApprovalRequestedPayload, EventEnvelope } from "./events";
 
+type Diff2HtmlUIModule = typeof import("diff2html/lib/ui/js/diff2html-ui-slim.js");
+
 type ApprovalCard = {
   payload: ApprovalRequestedPayload;
   element: HTMLElement;
@@ -51,6 +53,9 @@ export class ApprovalOverlay {
     const input = document.createElement("div");
     input.className = "approval-input";
     input.append(...lineNodes(payload.scrubbed_input));
+    if (payload.unified_diff !== undefined && payload.unified_diff !== "") {
+      void loadDiff2HtmlUI();
+    }
 
     const actions = document.createElement("div");
     actions.className = "approval-actions";
@@ -128,6 +133,15 @@ export class ApprovalOverlay {
     }
     status.textContent = "Done.";
   }
+}
+
+let diff2htmlUILoad: Promise<Diff2HtmlUIModule> | undefined;
+
+function loadDiff2HtmlUI(): Promise<Diff2HtmlUIModule> {
+  if (diff2htmlUILoad === undefined) {
+    diff2htmlUILoad = import("diff2html/lib/ui/js/diff2html-ui-slim.js");
+  }
+  return diff2htmlUILoad;
 }
 
 async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {
