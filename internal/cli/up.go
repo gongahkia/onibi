@@ -29,6 +29,7 @@ import (
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/terminfo"
 	"github.com/gongahkia/onibi/internal/web"
 	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 	"github.com/gongahkia/onibi/internal/workspace"
@@ -36,6 +37,7 @@ import (
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
+var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
 		Tailscale:       func() webtransport.Provider { return webtransport.NewTailscale() },
@@ -180,6 +182,11 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if noLogin, _ := cmd.Flags().GetBool("no-login-shell"); noLogin {
 		cfg.Shell.Login = false
 	}
+	terminfoPath, err := ensureGhosttyTerminfo(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("terminfo ready", "name", terminfo.XtermGhostty, "path", terminfoPath)
 	if cfg.Transport.Mode == "telegram" {
 		return runTelegramUp(cmd, paths, db, cfg, logger, started, shellCWD)
 	}
