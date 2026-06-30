@@ -2,6 +2,7 @@ import "./main.css";
 import { TerminalWS } from "./ws";
 import { applyTerminalTheme, attachTerminalIO, createTerminal, installTouchScroll, installViewportResize } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
+import { AnomalyOverlay } from "./anomaly";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
@@ -27,6 +28,7 @@ const { term, fit } = createTerminal(termEl, theme);
 const ws = new TerminalWS();
 const events = new EventsWS();
 const approvals = new ApprovalOverlay(approvalRoot);
+const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
 let sessions: SessionsPanel | undefined;
 
@@ -49,6 +51,7 @@ ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
 events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
   approvals.handleEnvelope(envelope);
+  anomalies.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
@@ -66,6 +69,7 @@ async function boot(): Promise<void> {
     ws.setE2E(relayE2E);
     events.setE2E(relayE2E);
     approvals.setPostJSON(postJSON);
+    anomalies.setPostJSON(postJSON);
     const info = await sessionInfo();
     await relayE2E?.bindSession(info.ws_token);
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);

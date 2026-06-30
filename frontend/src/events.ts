@@ -40,6 +40,15 @@ export type ApprovalDecidedPayload = {
   expires_at?: string;
 };
 
+export type AnomalyRequestedPayload = {
+  approval_id: string;
+  session_id: string;
+  agent?: string;
+  rule_name: string;
+  evidence: string;
+  paused: boolean;
+};
+
 export type ToastPayload = {
   message: string;
   level?: string;

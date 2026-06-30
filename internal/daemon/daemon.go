@@ -412,6 +412,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Handover:      d.HandoverSession,
 			Scroll:        d.ScrollSession,
 			TrustRuntime:  d.AddRuntimeTrustRule,
+			AnomalyAllow:  d.AddAnomalyAllowlistRule,
 			SessionCost:   d.SessionCost,
 			RelayKeys:     d.RelayKeys,
 			RequireE2E:    d.RequireWebE2E,
