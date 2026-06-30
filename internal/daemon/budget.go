@@ -69,8 +69,39 @@ func (d *Daemon) currentClaudeCostSnapshot(ctx context.Context, s *Session, ev i
 func (d *Daemon) publishClaudeCost(ctx context.Context, s *Session, ev intake.Event, cost budget.CostEvent) {
 	d.Events.Publish(web.Event{Type: "cost.updated", Payload: cost})
 	d.audit(ctx, "cost.update", s.ID, "", 0, "model="+cost.Model)
-	daily := d.recordBudgetDailyTokens(cost.TS, cost.InputTokens+cost.OutputTokens)
+	daily := d.recordBudgetCost(cost)
 	d.enforceBudgetOverrun(ctx, s, ev, cost, daily)
+}
+
+func (d *Daemon) SessionCost(ctx context.Context, id string) (web.SessionCost, bool, error) {
+	_ = ctx
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return web.SessionCost{}, false, nil
+	}
+	d.mu.Lock()
+	cost, ok := d.budgetCosts[id]
+	daily := d.budgetDaily[time.Now().UTC().Format("2006-01-02")]
+	d.mu.Unlock()
+	out := web.SessionCost{SessionID: id, DailyTokens: daily}
+	if !ok {
+		return out, true, nil
+	}
+	out.Model = cost.Model
+	out.InputTokens = cost.InputTokens
+	out.OutputTokens = cost.OutputTokens
+	out.TotalInputTokens = cost.TotalInputTokens
+	out.TotalOutputTokens = cost.TotalOutputTokens
+	out.TotalTokens = cost.TotalInputTokens + cost.TotalOutputTokens
+	if !cost.TS.IsZero() {
+		out.UpdatedAt = cost.TS.UTC().Format(time.RFC3339Nano)
+	}
+	if estimate, ok := budget.EstimateCost(cost.Model, cost.TotalInputTokens, cost.TotalOutputTokens); ok {
+		out.CostKnown = true
+		out.TotalMicroCents = estimate.TotalMicroCents
+		out.TotalUSD = estimate.USD()
+	}
+	return out, true, nil
 }
 
 func (d *Daemon) budgetWarningForApproval(ctx context.Context, s *Session, ev intake.Event) *approval.BudgetWarning {
@@ -136,23 +167,30 @@ func (d *Daemon) loadBudgetPolicy(ctx context.Context, s *Session, ev intake.Eve
 	return p, root, true
 }
 
-func (d *Daemon) recordBudgetDailyTokens(ts time.Time, tokens int64) int64 {
+func (d *Daemon) recordBudgetCost(cost budget.CostEvent) int64 {
 	if d == nil {
 		return 0
 	}
+	tokens := cost.InputTokens + cost.OutputTokens
 	if tokens < 0 {
 		tokens = 0
 	}
-	if ts.IsZero() {
-		ts = time.Now().UTC()
+	if cost.TS.IsZero() {
+		cost.TS = time.Now().UTC()
 	}
-	key := ts.UTC().Format("2006-01-02")
+	key := cost.TS.UTC().Format("2006-01-02")
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.budgetDaily == nil {
 		d.budgetDaily = map[string]int64{}
 	}
+	if d.budgetCosts == nil {
+		d.budgetCosts = map[string]budget.CostEvent{}
+	}
 	d.budgetDaily[key] += tokens
+	if strings.TrimSpace(cost.SessionID) != "" {
+		d.budgetCosts[cost.SessionID] = cost
+	}
 	return d.budgetDaily[key]
 }
 

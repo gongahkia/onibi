@@ -273,6 +273,51 @@ func TestSessionInfoReturnsSingleSessionIDWithoutHost(t *testing.T) {
 	}
 }
 
+func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	srv := New(Options{
+		DB:         db,
+		SessionIDs: func() []string { return []string{"s1"} },
+		SessionCost: func(ctx context.Context, id string) (SessionCost, bool, error) {
+			if id != "s1" {
+				return SessionCost{}, false, nil
+			}
+			return SessionCost{
+				SessionID:         id,
+				Model:             "claude-sonnet-4-6",
+				TotalInputTokens:  10,
+				TotalOutputTokens: 5,
+				TotalTokens:       15,
+				DailyTokens:       25,
+				CostKnown:         true,
+				TotalMicroCents:   10500,
+			}, true, nil
+		},
+	})
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/sessions/s1/cost", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var got SessionCost
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionID != "s1" || got.TotalTokens != 15 || got.DailyTokens != 25 || !got.CostKnown {
+		t.Fatalf("cost = %#v", got)
+	}
+}
+
 func TestControlInterruptUsesHostResolver(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

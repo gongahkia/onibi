@@ -7,6 +7,7 @@ import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
 import { RelayE2E } from "./e2e";
+import { SessionsPanel } from "./sessions";
 
 type SessionInfo = {
   session_id: string;
@@ -17,6 +18,7 @@ const termEl = requireElement("term");
 const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
 const toolbar = requireElement("toolbar");
+const sessionsRoot = requireElement("sessions");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -26,6 +28,7 @@ const ws = new TerminalWS();
 const events = new EventsWS();
 const approvals = new ApprovalOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
+let sessions: SessionsPanel | undefined;
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
@@ -43,7 +46,11 @@ ws.addEventListener("open", () => {
   ws.sendResize(term.rows, term.cols);
 });
 ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
-events.addEventListener("event", (event) => approvals.handleEnvelope((event as CustomEvent).detail));
+events.addEventListener("event", (event) => {
+  const envelope = (event as CustomEvent<EventEnvelope>).detail;
+  approvals.handleEnvelope(envelope);
+  sessions?.handleEnvelope(envelope);
+});
 events.addEventListener("toast", (event) => {
   const payload = ((event as CustomEvent<EventEnvelope<ToastPayload>>).detail).payload;
   if (payload.message !== "") {
@@ -61,6 +68,7 @@ async function boot(): Promise<void> {
     approvals.setPostJSON(postJSON);
     const info = await sessionInfo();
     await relayE2E?.bindSession(info.ws_token);
+    sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     installControls(toolbar, info);
     new SoftKeyBar({
       root: softkeys,
@@ -83,11 +91,15 @@ async function sessionInfo(): Promise<SessionInfo> {
   const params = new URLSearchParams(window.location.search);
   const sessionID = params.get("session_id");
   const path = sessionID === null ? "/session-info" : `/session-info?session_id=${encodeURIComponent(sessionID)}`;
+  return getJSON<SessionInfo>(path);
+}
+
+async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin" });
   if (!response.ok) {
-    throw new Error(`session-info ${response.status}`);
+    throw new Error(`${path} ${response.status}`);
   }
-  return (await response.json()) as SessionInfo;
+  return (await response.json()) as T;
 }
 
 function wsURL(token: string): string {

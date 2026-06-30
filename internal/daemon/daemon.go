@@ -75,6 +75,7 @@ type Daemon struct {
 	slackApprovals map[string]slackApprovalRef
 	notified       map[string]bool // session id → already-fired turn-complete once
 	budgetDaily    map[string]int64
+	budgetCosts    map[string]budget.CostEvent
 	budgetOverruns map[string]bool
 	started        time.Time
 
@@ -173,6 +174,7 @@ func New(opts Options) *Daemon {
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
 		budgetDaily:             map[string]int64{},
+		budgetCosts:             map[string]budget.CostEvent{},
 		budgetOverruns:          map[string]bool{},
 		Budget:                  budgetParser,
 		started:                 time.Now(),
@@ -403,6 +405,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Handover:      d.HandoverSession,
 			Scroll:        d.ScrollSession,
 			TrustRuntime:  d.AddRuntimeTrustRule,
+			SessionCost:   d.SessionCost,
 			RelayKeys:     d.RelayKeys,
 			RequireE2E:    d.RequireWebE2E,
 			Log:           d.Log,

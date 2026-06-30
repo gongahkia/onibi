@@ -60,6 +60,13 @@ func TestDaemonPublishesClaudeCostEvent(t *testing.T) {
 	if cost.SessionID != "s1" || cost.ProviderSessionID != providerSession || cost.InputTokens != 12 || cost.OutputTokens != 4 || cost.Model != "claude-sonnet-4-5" {
 		t.Fatalf("cost = %#v", cost)
 	}
+	view, ok, err := d.SessionCost(t.Context(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || view.SessionID != "s1" || view.TotalTokens != 16 || view.DailyTokens != 16 {
+		t.Fatalf("view = %#v ok=%v", view, ok)
+	}
 }
 
 func TestBudgetWarningSuppressesTrustAutoApprove(t *testing.T) {
