@@ -354,7 +354,7 @@
   bottom: calc(var(--keyboard-bottom) + env(safe-area-inset-bottom) + var(--softkey-height) + 8px);
   z-index: 12;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   width: min(420px, calc(100vw - 16px));
   box-sizing: border-box;
   border: 1px solid var(--chrome-border);
@@ -389,6 +389,36 @@
 .timeline-count {
   color: var(--muted-fg);
   font-size: 11px;
+}
+
+.timeline-filters {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.timeline-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.timeline-filter {
+  flex: 0 0 auto;
+  min-height: 26px;
+  border: 1px solid var(--button-border);
+  border-radius: 999px;
+  background: var(--button-bg);
+  color: var(--muted-fg);
+  padding: 0 8px;
+  font: 600 11px var(--mono-font);
+  touch-action: manipulation;
+}
+
+.timeline-filter.active {
+  border-color: var(--button-active-border);
+  background: var(--button-active-bg);
+  color: #fff;
 }
 
 .timeline-list {

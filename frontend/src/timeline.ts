@@ -25,11 +25,15 @@ type Item = {
   key: string;
 };
 
+type FilterKind = "tool" | "approval" | "anomaly" | "snapshot" | "cost";
+
 const maxItems = 500;
+const filterKinds: FilterKind[] = ["tool", "approval", "anomaly", "snapshot", "cost"];
 
 export class TimelinePanel {
   private items: Item[] = [];
   private seen = new Set<string>();
+  private filters = new Set<FilterKind>();
   private open = false;
 
   constructor(
@@ -78,28 +82,63 @@ export class TimelinePanel {
     title.textContent = "timeline";
     const count = document.createElement("div");
     count.className = "timeline-count";
-    count.textContent = String(this.items.length);
+    const visible = this.visibleItems();
+    count.textContent = this.filters.size === 0 ? String(this.items.length) : `${visible.length}/${this.items.length}`;
     const close = button("Close");
     close.addEventListener("click", () => {
       this.open = false;
       this.render();
     });
     header.append(title, count, close);
+    const filters = this.filterRow();
 
     const list = document.createElement("div");
     list.className = "timeline-list";
-    if (this.items.length === 0) {
+    if (visible.length === 0) {
       const empty = document.createElement("div");
       empty.className = "timeline-empty";
       empty.textContent = "no events";
       list.append(empty);
     } else {
-      for (const item of orderedItems(this.items)) {
+      for (const item of visible) {
         list.append(entryNode(item.entry));
       }
     }
     this.root.hidden = false;
-    this.root.replaceChildren(header, list);
+    this.root.replaceChildren(header, filters, list);
+  }
+
+  private filterRow(): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "timeline-filters";
+    for (const filter of filterKinds) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = this.filters.has(filter) ? "timeline-filter active" : "timeline-filter";
+      chip.textContent = filter;
+      chip.setAttribute("aria-pressed", String(this.filters.has(filter)));
+      chip.addEventListener("click", () => {
+        if (this.filters.has(filter)) {
+          this.filters.delete(filter);
+        } else {
+          this.filters.add(filter);
+        }
+        this.render();
+      });
+      row.append(chip);
+    }
+    return row;
+  }
+
+  private visibleItems(): Item[] {
+    const ordered = orderedItems(this.items);
+    if (this.filters.size === 0) {
+      return ordered;
+    }
+    return ordered.filter((item) => {
+      const kind = filterKind(item.entry);
+      return kind !== undefined && this.filters.has(kind);
+    });
   }
 }
 
@@ -179,6 +218,16 @@ function kindIcon(kind: string): string {
     default:
       return "*";
   }
+}
+
+function filterKind(entry: TimelineEntry): FilterKind | undefined {
+  if (entry.kind === "tool_call" || entry.kind === "tool_result") {
+    return "tool";
+  }
+  if (entry.kind === "approval" || entry.kind === "anomaly" || entry.kind === "snapshot" || entry.kind === "cost") {
+    return entry.kind;
+  }
+  return undefined;
 }
 
 function entryKey(entry: TimelineEntry): string {
