@@ -375,13 +375,11 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q2a — I: Session snapshots + branching
 
-(B) 2026-06-29 docs/snapshots.md: limits — transcript-only fork is reliable; full PTY-state restore is best-effort (vim survives; long-running curl does not); document expected behavior per common app +phaseQ2 @docs file:docs/snapshots.md id:T2206
-
 #### Q2b — C: Multi-session dashboard + recordings + cost
 
 > Research locked: asciinema cast v2 (https://docs.asciinema.org/manual/asciicast/v2/). File = JSON header line + JSONL events. Header `{"version":2,"width":<cols>,"height":<rows>,"timestamp":<unix>,"title":<session_id>}`. Event `[<seconds-float>, "<code>", "<data>"]` where code = "o" (stdout), "i" (stdin), "r" (resize "COLSxROWS"), "m" (marker). Time relative to recording start, monotonic non-decreasing. Player: https://github.com/asciinema/asciinema-player.
 
-(A) 2026-06-29 GET /sessions endpoint via internal/web/sessions.go: returns [{id, agent, cwd, started_at, last_activity, pending_approvals_count, tokens_used, cost_usd, role_required}]; reuse Lister from internal/cli/sessions.go +phaseQ2 @backend file:internal/web/sessions.go id:T2220 blocked-by:T2206 accept:list-endpoint-returns-all-sessions
+(A) 2026-06-29 GET /sessions endpoint via internal/web/sessions.go: returns [{id, agent, cwd, started_at, last_activity, pending_approvals_count, tokens_used, cost_usd, role_required}]; reuse Lister from internal/cli/sessions.go +phaseQ2 @backend file:internal/web/sessions.go id:T2220 accept:list-endpoint-returns-all-sessions
 (A) 2026-06-29 Sessions list view frontend/src/sessions.ts: mounted at SPA route "/" BEFORE terminal; tapping a session navigates to "/s/:id" which mounts the existing terminal SPA scoped to that session id; localStorage persists last-active session id for default-on-reopen +phaseQ2 @frontend file:frontend/src/sessions.ts id:T2221 blocked-by:T2220 accept:multi-session-list-clickable
 (A) 2026-06-29 Approval inbox frontend/src/inbox.ts: GET /approvals/pending aggregates pending across all sessions; cards deep-link into each session view +phaseQ2 @backend file:internal/web/approvals.go id:T2222 blocked-by:T2221 accept:inbox-aggregates-cross-session
 (B) 2026-06-29 Asciinema cast v2 recording: internal/web/recording.go taps the PTY hub broadcast and appends ["o", data] lines to <session>.cast; header at session start; resize event ["r","COLSxROWS"]; path ~/.local/share/onibi/recordings/<session>.cast; rotate when file >50MB +phaseQ2 @backend file:internal/web/recording.go id:T2223 blocked-by:T2222 accept:cast-plays-in-asciinema-player
