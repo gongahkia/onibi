@@ -366,13 +366,12 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1c — M: Cost / token budget enforcement
 
-(C) 2026-06-29 docs/budgets.md: example overrun policies + caveat that source is Claude Code JSONL only; other agents (Codex, Gemini, Goose) TBD when their session logs become parseable +phaseQ1 @docs file:docs/budgets.md id:T2145
 
 #### Q1d — Z: Heuristic anomaly detection
 
 > Research locked: rules-only, no ML. Survey: llm-guard (protectai), garak (leondz), Nemo Guardrails. 8 rules selected.
 
-(A) 2026-06-29 internal/anomaly/rules.go with 8 rules: (1) write-burst — more than 20 file writes within 60s sliding window; (2) fork bomb regex `:\(\)\{:\|:\&\};:`; (3) exfil to non-allowlist host — URL extracted from Bash args, host checked against .onibi/network.toml allowlist; (4) secret patterns in args — `AKIA[0-9A-Z]{16}`, `ghp_[A-Za-z0-9]{36}`, `sk-[A-Za-z0-9]{48}`, PEM headers; (5) reverse-shell — `bash -i.*>&.*tcp`, `nc .* -e`; (6) curl-pipe-sh — `curl[^|]+\|[^|]*\bsh\b`; (7) outside-workspace write — abs path resolution + allowlist; (8) tool-loop — same tool+args repeated >5 times within 20 turns +phaseQ1 @backend file:internal/anomaly/rules.go id:T2160 blocked-by:T2145 accept:each-rule-has-table-test
+(A) 2026-06-29 internal/anomaly/rules.go with 8 rules: (1) write-burst — more than 20 file writes within 60s sliding window; (2) fork bomb regex `:\(\)\{:\|:\&\};:`; (3) exfil to non-allowlist host — URL extracted from Bash args, host checked against .onibi/network.toml allowlist; (4) secret patterns in args — `AKIA[0-9A-Z]{16}`, `ghp_[A-Za-z0-9]{36}`, `sk-[A-Za-z0-9]{48}`, PEM headers; (5) reverse-shell — `bash -i.*>&.*tcp`, `nc .* -e`; (6) curl-pipe-sh — `curl[^|]+\|[^|]*\bsh\b`; (7) outside-workspace write — abs path resolution + allowlist; (8) tool-loop — same tool+args repeated >5 times within 20 turns +phaseQ1 @backend file:internal/anomaly/rules.go id:T2160 accept:each-rule-has-table-test
 (A) 2026-06-29 internal/anomaly/window.go: thread-safe sliding-window counters supporting both time-window (60s for rule 1) and turn-window (20 turns for rule 8); reused by rules 1 and 8 +phaseQ1 @backend file:internal/anomaly/window.go id:T2161 blocked-by:T2160 accept:race-safe-window-tests
 (A) 2026-06-29 Plumb the anomaly evaluator into internal/approval/risk.go as behaviorRisk(event) RiskLevel; combine with static risk.Score; any anomaly hit forces RiskLevel to at least High +phaseQ1 @backend file:internal/approval/risk.go id:T2162 blocked-by:T2161 accept:anomaly-promotes-risk-level
 (A) 2026-06-29 On anomaly hit, daemon pauses the PTY via syscall.Kill(-pgid, SIGSTOP) and emits AnomalyCard event on /ws/events with rule_name, evidence (already-scrubbed), session_id; resume on Approve via SIGCONT +phaseQ1 @backend file:internal/daemon/approvals.go id:T2163 blocked-by:T2162 accept:fork-bomb-attempt-pauses-pty
