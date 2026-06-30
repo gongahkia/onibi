@@ -214,6 +214,23 @@ func TestSnapshotSchemaLoadsOnFreshDB(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSchemaLoadsOnFreshDB(t *testing.T) {
+	db := openTemp(t)
+	workspaceCols := tableColumns(t, db, "workspaces")
+	for _, want := range []string{"name", "path_enc", "ssh_key_ref", "last_seen"} {
+		if !slices.Contains(workspaceCols, want) {
+			t.Fatalf("workspaces missing %q: %#v", want, workspaceCols)
+		}
+	}
+	if typ := tableColumnType(t, db, "workspaces", "path_enc"); typ != "BLOB" {
+		t.Fatalf("workspaces.path_enc type = %q, want BLOB", typ)
+	}
+	var version int
+	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 9`).Scan(&version); err != nil {
+		t.Fatalf("schema version 9 missing: %v", err)
+	}
+}
+
 func TestEncryptedUpgradeFromPlaintextSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upgrade.sqlite")
 	raw, err := sql.Open("sqlite", path)

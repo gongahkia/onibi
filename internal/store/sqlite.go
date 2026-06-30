@@ -250,6 +250,14 @@ CREATE TABLE IF NOT EXISTS transcript_turns (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_turns_session_turn ON transcript_turns(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_transcript_turns_ts ON transcript_turns(ts);
+
+CREATE TABLE IF NOT EXISTS workspaces (
+  name        TEXT PRIMARY KEY,
+  path_enc    BLOB NOT NULL,
+  ssh_key_ref TEXT,
+  last_seen   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workspaces_last_seen ON workspaces(last_seen);
 `
 
 func (d *DB) migrate() error {
@@ -279,7 +287,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "web_sessions", "key_verifier_enc", "BLOB"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
