@@ -22,11 +22,17 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 	ev.Session = s.ID
 	d.appendEventOutput(s, ev)
-	if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
-		return resp, nil
+	budgetWarn := d.budgetWarningForApproval(ctx, s, ev)
+	if budgetWarn == nil {
+		if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
+			return resp, nil
+		}
+	} else {
+		d.audit(ctx, "budget.warn", s.ID, "", 0, fmt.Sprintf("scope=%s projected=%d limit=%d action=%s", budgetWarn.Scope, budgetWarn.ProjectedTokens, budgetWarn.LimitTokens, budgetWarn.OnOverrun))
+		d.publishToast(budgetWarn.Message)
 	}
 	unifiedDiff := approvalUnifiedDiff(ev)
-	approvalID, ch, err := d.Queue.Request(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON, unifiedDiff)
+	approvalID, ch, err := d.Queue.RequestWithBudgetWarning(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON, unifiedDiff, budgetWarn)
 	if err != nil {
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}

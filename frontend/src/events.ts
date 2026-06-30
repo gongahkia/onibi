@@ -12,11 +12,23 @@ export type ApprovalRequestedPayload = {
   agent: string;
   tool: string;
   scrubbed_input: string;
+  budget_warning?: BudgetWarningPayload;
   file_path?: string;
   unified_diff?: string;
   risk_level: "low" | "medium" | "high";
   risk_reasons?: string[];
   expires_at: string;
+};
+
+export type BudgetWarningPayload = {
+  scope: string;
+  current_tokens: number;
+  predicted_tokens: number;
+  projected_tokens: number;
+  limit_tokens: number;
+  remaining_tokens: number;
+  on_overrun: string;
+  message: string;
 };
 
 export type ApprovalDecidedPayload = {

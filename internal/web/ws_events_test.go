@@ -68,7 +68,17 @@ func TestApprovalEventPayloadIncludesUnifiedDiff(t *testing.T) {
 			Tool:        "Write",
 			InputJSON:   `{"file_path":"/tmp/x","content":"new"}`,
 			UnifiedDiff: "--- old\n+++ new\n@@\n-old\n+new\n",
-			ExpiresAt:   time.Now(),
+			BudgetWarn: &approval.BudgetWarning{
+				Scope:           "session",
+				CurrentTokens:   8,
+				PredictedTokens: 5,
+				ProjectedTokens: 13,
+				LimitTokens:     10,
+				RemainingTokens: 2,
+				OnOverrun:       "interrupt",
+				Message:         "Predicted session budget overrun",
+			},
+			ExpiresAt: time.Now(),
 		},
 	})
 	if payload["unified_diff"] != "--- old\n+++ new\n@@\n-old\n+new\n" {
@@ -76,6 +86,10 @@ func TestApprovalEventPayloadIncludesUnifiedDiff(t *testing.T) {
 	}
 	if payload["file_path"] != "/tmp/x" {
 		t.Fatalf("payload = %#v", payload)
+	}
+	warn, ok := payload["budget_warning"].(map[string]any)
+	if !ok || warn["scope"] != "session" || warn["projected_tokens"] != int64(13) {
+		t.Fatalf("budget_warning = %#v", payload["budget_warning"])
 	}
 }
 

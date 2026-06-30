@@ -64,6 +64,14 @@ func (p *ClaudeParser) Update(ref SessionRef) (CostEvent, bool, error) {
 	return p.UpdateFile(path, ref)
 }
 
+func (p *ClaudeParser) Current(ref SessionRef) (CostEvent, bool, error) {
+	path, err := p.FindTranscript(ref)
+	if err != nil {
+		return CostEvent{}, false, err
+	}
+	return p.CurrentFile(path)
+}
+
 func (p *ClaudeParser) UpdateFile(path string, ref SessionRef) (CostEvent, bool, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -115,6 +123,21 @@ func (p *ClaudeParser) UpdateFile(path string, ref SessionRef) (CostEvent, bool,
 	event.TotalOutputTokens += event.OutputTokens
 	p.totals[abs] = event
 	return event, true, nil
+}
+
+func (p *ClaudeParser) CurrentFile(path string) (CostEvent, bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return CostEvent{}, false, errors.New("transcript path required")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return CostEvent{}, false, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	event, ok := p.totals[abs]
+	return event, ok, nil
 }
 
 func (p *ClaudeParser) FindTranscript(ref SessionRef) (string, error) {

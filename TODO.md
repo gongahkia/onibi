@@ -366,8 +366,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1c — M: Cost / token budget enforcement
 
-(A) 2026-06-29 Hook budget check into PreToolUse approval flow: if predicted next-turn token spend would exceed budget, surface a BudgetWarn overlay BEFORE the tool runs; if overrun confirmed post-turn, apply on_overrun action (default interrupt → SIGINT to PTY pgid via syscall.Kill(-pgid, SIGINT)) +phaseQ1 @backend file:internal/daemon/approvals.go id:T2142 accept:budget-enforces-on-overrun
-(B) 2026-06-29 Expose cost cell in Sessions list view (Q2b) sourced from /sessions/:id/cost endpoint; per-session header in SPA shows daily usage; values update on CostEvent +phaseQ1 @frontend file:frontend/src/sessions.ts id:T2143 blocked-by:T2142 accept:cost-visible-in-UI
+(B) 2026-06-29 Expose cost cell in Sessions list view (Q2b) sourced from /sessions/:id/cost endpoint; per-session header in SPA shows daily usage; values update on CostEvent +phaseQ1 @frontend file:frontend/src/sessions.ts id:T2143 accept:cost-visible-in-UI
 (B) 2026-06-29 onibi budget show --json CLI: per-session + daily aggregate + remaining capacity in tokens and USD +phaseQ1 @backend file:internal/cli/budget.go id:T2144 blocked-by:T2143 accept:CLI-emits-machine-readable-budget
 (C) 2026-06-29 docs/budgets.md: example overrun policies + caveat that source is Claude Code JSONL only; other agents (Codex, Gemini, Goose) TBD when their session logs become parseable +phaseQ1 @docs file:docs/budgets.md id:T2145 blocked-by:T2144
 

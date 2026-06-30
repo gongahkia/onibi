@@ -320,6 +320,35 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	}
 }
 
+func TestRequestWithBudgetWarningPublishesWarning(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	events, unsub := q.Subscribe()
+	defer unsub()
+	ctx := context.Background()
+	warn := &BudgetWarning{
+		Scope:           "session",
+		CurrentTokens:   8,
+		PredictedTokens: 5,
+		ProjectedTokens: 13,
+		LimitTokens:     10,
+		RemainingTokens: 2,
+		OnOverrun:       "interrupt",
+		Message:         "Predicted session budget overrun",
+	}
+	id, _, err := q.RequestWithBudgetWarning(ctx, "s", "claude", "Bash", `{"command":"ls"}`, "", warn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warn.Scope = "mutated"
+	ev := readApprovalEvent(t, events)
+	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.BudgetWarn == nil {
+		t.Fatalf("event = %#v", ev)
+	}
+	if ev.Approval.BudgetWarn.Scope != "session" || ev.Approval.BudgetWarn.ProjectedTokens != 13 {
+		t.Fatalf("warning = %#v", ev.Approval.BudgetWarn)
+	}
+}
+
 func TestRequestSilentSkipsRequestedEvent(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	events, unsub := q.Subscribe()

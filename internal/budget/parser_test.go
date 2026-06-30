@@ -46,6 +46,13 @@ func TestClaudeParserReadsAndTailsUsage(t *testing.T) {
 	if ev.SessionID != "onibi-s1" || ev.ProviderSessionID != sessionID || ev.Agent != "claude" || ev.Transcript != transcript || ev.Offset <= 0 {
 		t.Fatalf("event metadata = %#v", ev)
 	}
+	current, ok, err := parser.Current(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || current.TotalInputTokens != 17 || current.TotalOutputTokens != 8 || current.Model != "claude-opus-4-7" {
+		t.Fatalf("current = %#v ok=%v", current, ok)
+	}
 	f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)

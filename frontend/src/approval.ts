@@ -68,6 +68,7 @@ export class ApprovalOverlay {
     } else {
       input.append(...lineNodes(payload.scrubbed_input));
     }
+    const budget = budgetWarningNode(payload);
 
     const actions = document.createElement("div");
     actions.className = "approval-actions";
@@ -98,7 +99,11 @@ export class ApprovalOverlay {
     const trustChip = document.createElement("span");
     trustChip.className = "approval-trust-chip";
     trustChip.hidden = true;
-    card.append(header, input, actions, editPane, trustChip, status);
+    if (budget !== undefined) {
+      card.append(header, budget, input, actions, editPane, trustChip, status);
+    } else {
+      card.append(header, input, actions, editPane, trustChip, status);
+    }
     this.root.append(card);
     window.setTimeout(() => card.scrollIntoView({ block: "nearest", inline: "nearest" }), 50);
     const tracked: ApprovalCard = { payload, element: card, approveUntil: 0, trustButton: trust };
@@ -213,6 +218,23 @@ export class ApprovalOverlay {
   }
 }
 
+function budgetWarningNode(payload: ApprovalRequestedPayload): HTMLElement | undefined {
+  const warning = payload.budget_warning;
+  if (warning === undefined) {
+    return undefined;
+  }
+  const box = document.createElement("div");
+  box.className = "approval-budget";
+  const title = document.createElement("div");
+  title.className = "approval-budget-title";
+  title.textContent = warning.message || "Budget warning";
+  const meta = document.createElement("div");
+  meta.className = "approval-budget-meta";
+  meta.textContent = `${warning.scope} ${formatTokens(warning.projected_tokens)} / ${formatTokens(warning.limit_tokens)} tokens; overrun: ${warning.on_overrun}`;
+  box.append(title, meta);
+  return box;
+}
+
 let diff2htmlUILoad: Promise<Diff2HtmlUIModule> | undefined;
 
 function loadDiff2HtmlUI(): Promise<Diff2HtmlUIModule> {
@@ -313,6 +335,10 @@ function formatRemaining(ms: number): string {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatTokens(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("en-US");
 }
 
 async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {

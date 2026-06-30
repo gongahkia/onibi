@@ -74,6 +74,8 @@ type Daemon struct {
 	slackMu        sync.Mutex
 	slackApprovals map[string]slackApprovalRef
 	notified       map[string]bool // session id → already-fired turn-complete once
+	budgetDaily    map[string]int64
+	budgetOverruns map[string]bool
 	started        time.Time
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
@@ -170,6 +172,8 @@ func New(opts Options) *Daemon {
 		webAttachHosts:          map[string]*pty.Host{},
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
+		budgetDaily:             map[string]int64{},
+		budgetOverruns:          map[string]bool{},
 		Budget:                  budgetParser,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,

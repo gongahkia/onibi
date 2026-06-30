@@ -62,6 +62,7 @@ type Approval struct {
 	Tool        string
 	InputJSON   string // raw tool input as provided by the hook
 	UnifiedDiff string // redacted best-effort diff for edit-like tools
+	BudgetWarn  *BudgetWarning
 	State       string
 	EditedJSON  string // populated when State == StateEdited
 	Reason      string // populated when State == StateDenied/Expired/Cancelled
@@ -81,6 +82,17 @@ type Decision struct {
 	Reason       string          `json:"reason,omitempty"`
 	DecidedBy    int64           `json:"decided_by,omitempty"`
 	DecidedAt    int64           `json:"decided_at,omitempty"` // unix sec
+}
+
+type BudgetWarning struct {
+	Scope           string
+	CurrentTokens   int64
+	PredictedTokens int64
+	ProjectedTokens int64
+	LimitTokens     int64
+	RemainingTokens int64
+	OnOverrun       string
+	Message         string
 }
 
 const (

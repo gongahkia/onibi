@@ -94,14 +94,18 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	if len(unifiedDiff) > 0 {
 		diff = unifiedDiff[0]
 	}
-	return q.request(ctx, sessionID, agent, tool, inputJSON, diff, true)
+	return q.request(ctx, sessionID, agent, tool, inputJSON, diff, nil, true)
+}
+
+func (q *Queue) RequestWithBudgetWarning(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, warn *BudgetWarning) (string, <-chan Decision, error) {
+	return q.request(ctx, sessionID, agent, tool, inputJSON, unifiedDiff, warn, true)
 }
 
 func (q *Queue) RequestSilent(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
-	return q.request(ctx, sessionID, agent, tool, inputJSON, "", false)
+	return q.request(ctx, sessionID, agent, tool, inputJSON, "", nil, false)
 }
 
-func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, publish bool) (string, <-chan Decision, error) {
+func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, warn *BudgetWarning, publish bool) (string, <-chan Decision, error) {
 	id, err := newID()
 	if err != nil {
 		return "", nil, err
@@ -131,6 +135,7 @@ func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, 
 				Tool:        tool,
 				InputJSON:   inputJSON,
 				UnifiedDiff: unifiedDiff,
+				BudgetWarn:  cloneBudgetWarning(warn),
 				State:       StatePending,
 				CreatedAt:   now,
 				ExpiresAt:   exp,
@@ -139,6 +144,14 @@ func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, 
 		})
 	}
 	return id, ch, nil
+}
+
+func cloneBudgetWarning(warn *BudgetWarning) *BudgetWarning {
+	if warn == nil {
+		return nil
+	}
+	cp := *warn
+	return &cp
 }
 
 // SetMessage records a legacy rendered-message target.
