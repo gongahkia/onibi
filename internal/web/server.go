@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/control", s.handleControl)
 	mux.HandleFunc("/handover", s.handleHandover)
+	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
 	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
