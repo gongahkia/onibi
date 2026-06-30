@@ -9,6 +9,7 @@ import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
 import { RelayE2E } from "./e2e";
 import { SessionsPanel } from "./sessions";
+import { SnapshotsPanel } from "./snapshots";
 
 type SessionInfo = {
   session_id: string;
@@ -20,6 +21,7 @@ const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
 const toolbar = requireElement("toolbar");
 const sessionsRoot = requireElement("sessions");
+const snapshotsRoot = requireElement("snapshots");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -31,6 +33,7 @@ const approvals = new ApprovalOverlay(approvalRoot);
 const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
 let sessions: SessionsPanel | undefined;
+let snapshots: SnapshotsPanel | undefined;
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
@@ -53,6 +56,7 @@ events.addEventListener("event", (event) => {
   approvals.handleEnvelope(envelope);
   anomalies.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
+  snapshots?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
   const payload = ((event as CustomEvent<EventEnvelope<ToastPayload>>).detail).payload;
@@ -73,7 +77,8 @@ async function boot(): Promise<void> {
     const info = await sessionInfo();
     await relayE2E?.bindSession(info.ws_token);
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
-    installControls(toolbar, info);
+    snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
+    installControls(toolbar, info, snapshots);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -116,8 +121,9 @@ function eventsURL(token: string): string {
   return `${scheme}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
 }
 
-function installControls(root: HTMLElement, info: SessionInfo): void {
+function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel): void {
   root.replaceChildren(
+    controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("MAC", () => postHandover(info, "mac")),
     controlButton("PHONE", () => postHandover(info, "phone")),
     controlButton("INT", () => postControl(info.session_id, "interrupt")),
@@ -161,6 +167,13 @@ function connectTerminal(info: SessionInfo): void {
   ws.connect(wsURL(info.ws_token), info.session_id, 0);
 }
 
+function navigateToSession(sessionID: string): void {
+  if (sessionID.trim() === "") {
+    return;
+  }
+  window.location.href = `/?session_id=${encodeURIComponent(sessionID)}`;
+}
+
 function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
   void (async () => {
     showToast(target === "mac" ? "Opening on Mac..." : "Returning to phone...");
@@ -192,7 +205,7 @@ function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
   })();
 }
 
-async function postJSON(path: string, body: Record<string, string>): Promise<Response> {
+async function postJSON(path: string, body: Record<string, unknown>): Promise<Response> {
   const raw = JSON.stringify(body);
   return fetch(path, {
     method: "POST",

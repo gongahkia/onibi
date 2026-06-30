@@ -375,8 +375,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q2a — I: Session snapshots + branching
 
-(B) 2026-06-29 frontend/src/snapshots.ts Snapshots panel (mounted inside K timeline sidebar): list snapshots; tap to restore in current tab; long-press → fork modal with turn picker and new-prompt textarea +phaseQ2 @frontend file:frontend/src/snapshots.ts id:T2205 accept:phone-can-fork
-(B) 2026-06-29 docs/snapshots.md: limits — transcript-only fork is reliable; full PTY-state restore is best-effort (vim survives; long-running curl does not); document expected behavior per common app +phaseQ2 @docs file:docs/snapshots.md id:T2206 blocked-by:T2205
+(B) 2026-06-29 docs/snapshots.md: limits — transcript-only fork is reliable; full PTY-state restore is best-effort (vim survives; long-running curl does not); document expected behavior per common app +phaseQ2 @docs file:docs/snapshots.md id:T2206
 
 #### Q2b — C: Multi-session dashboard + recordings + cost
 

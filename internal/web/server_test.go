@@ -318,6 +318,94 @@ func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
 	}
 }
 
+func TestSnapshotsEndpointReturnsResolverRows(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.snapshots = func(context.Context) ([]Snapshot, error) {
+		return []Snapshot{{
+			Name:             "branch",
+			SessionID:        "s1",
+			CreatedAt:        "2026-06-30T00:00:00Z",
+			CWD:              "/tmp/repo",
+			TranscriptOffset: 42,
+		}}, nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/snapshots", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var got SnapshotListResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Snapshots) != 1 || got.Snapshots[0].Name != "branch" || got.Snapshots[0].TranscriptOffset != 42 {
+		t.Fatalf("snapshots = %#v", got)
+	}
+}
+
+func TestSnapshotRestoreAndForkCallResolvers(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	restoreCalled := false
+	forkCalled := false
+	srv.snapshotRestore = func(_ context.Context, name string) (SnapshotActionResult, error) {
+		restoreCalled = true
+		if name != "branch" {
+			t.Fatalf("restore name = %q", name)
+		}
+		return SnapshotActionResult{SessionID: "restored", Message: "ok"}, nil
+	}
+	srv.snapshotFork = func(_ context.Context, req SnapshotForkRequest) (SnapshotActionResult, error) {
+		forkCalled = true
+		if req.Name != "branch" || req.Turn != 7 || req.NewPrompt != "continue here" {
+			t.Fatalf("fork req = %#v", req)
+		}
+		return SnapshotActionResult{SessionID: "forked", Message: "ok"}, nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := rr.Result().Cookies()[0]
+	restoreReq := httptest.NewRequest(http.MethodPost, "/snapshots/restore", strings.NewReader(`{"name":"branch"}`))
+	restoreReq.AddCookie(cookie)
+	restoreW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(restoreW, restoreReq)
+	if restoreW.Code != http.StatusOK {
+		t.Fatalf("restore status = %d body = %q", restoreW.Code, restoreW.Body.String())
+	}
+	var restore SnapshotActionResult
+	if err := json.Unmarshal(restoreW.Body.Bytes(), &restore); err != nil {
+		t.Fatal(err)
+	}
+	if restore.SessionID != "restored" || !restoreCalled {
+		t.Fatalf("restore = %#v called=%v", restore, restoreCalled)
+	}
+	forkReq := httptest.NewRequest(http.MethodPost, "/snapshots/fork", strings.NewReader(`{"name":"branch","turn":7,"new_prompt":"continue here"}`))
+	forkReq.AddCookie(cookie)
+	forkW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(forkW, forkReq)
+	if forkW.Code != http.StatusOK {
+		t.Fatalf("fork status = %d body = %q", forkW.Code, forkW.Body.String())
+	}
+	var fork SnapshotActionResult
+	if err := json.Unmarshal(forkW.Body.Bytes(), &fork); err != nil {
+		t.Fatal(err)
+	}
+	if fork.SessionID != "forked" || !forkCalled {
+		t.Fatalf("fork = %#v called=%v", fork, forkCalled)
+	}
+}
+
 func TestControlInterruptUsesHostResolver(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
