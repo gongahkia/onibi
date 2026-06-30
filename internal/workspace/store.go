@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	indexDirPerm  = 0o700
-	indexFilePerm = 0o600
+	DefaultWorkspaceKVKey = "workspace:default"
+	indexDirPerm          = 0o700
+	indexFilePerm         = 0o600
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -122,6 +123,30 @@ func NewDBStore(db *store.DB) (*DBStore, error) {
 		return nil, store.ErrCryptBoxUnavailable
 	}
 	return &DBStore{db: db}, nil
+}
+
+func SetDefaultName(ctx context.Context, db *store.DB, name string) error {
+	if db == nil {
+		return errors.New("workspace db required")
+	}
+	if err := validateName(name); err != nil {
+		return err
+	}
+	return db.KVSetString(ctx, DefaultWorkspaceKVKey, name)
+}
+
+func DefaultName(ctx context.Context, db *store.DB) (string, bool, error) {
+	if db == nil {
+		return "", false, errors.New("workspace db required")
+	}
+	name, ok, err := db.KVGetString(ctx, DefaultWorkspaceKVKey)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	if err := validateName(name); err != nil {
+		return "", false, err
+	}
+	return name, true, nil
 }
 
 func (s *DBStore) Upsert(ctx context.Context, entry DBEntry) error {

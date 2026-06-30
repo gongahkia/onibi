@@ -31,6 +31,7 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 	webtransport "github.com/gongahkia/onibi/internal/web/transport"
+	"github.com/gongahkia/onibi/internal/workspace"
 )
 
 var installServiceRun = runInstallService
@@ -115,6 +116,17 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if err != nil {
 		return err
 	}
+	shellCWD, cwdExplicit, err := shellWorkingDir(cmd)
+	if err != nil {
+		return err
+	}
+	workspaceResolution, err := resolveUpWorkspace(ctx, db, shellCWD, cwdExplicit)
+	if err != nil {
+		return err
+	}
+	if workspaceResolution.Found && workspaceResolution.ShellCWD != "" {
+		shellCWD = workspaceResolution.ShellCWD
+	}
 	logPhase(logger, "config_loaded", phase,
 		"config_path", meta.Path,
 		"config_exists", meta.Exists,
@@ -124,12 +136,28 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"shell_login", cfg.Shell.Login,
 		"approval_ttl", approval.DefaultTTL.String(),
 	)
+	if workspaceResolution.Found {
+		logger.Info("workspace resolved",
+			"source", workspaceResolution.Source,
+			"name", workspaceResolution.Name,
+			"root", workspaceResolution.Root,
+			"file", workspaceResolution.File,
+			"default_transport", workspaceResolution.DefaultTransport,
+			"shell_cwd", shellCWD,
+		)
+	}
 	headerPrinted := false
+	workspaceTransportApplied, err := applyWorkspaceTransport(cmd, &cfg, workspaceResolution)
+	if err != nil {
+		return err
+	}
 	if transport, _ := cmd.Flags().GetString("transport"); strings.TrimSpace(transport) != "" {
 		if err := config.Set(&cfg, "transport.mode", transport); err != nil {
 			return err
 		}
 		logger.Info("transport override applied", "transport", cfg.Transport.Mode)
+	} else if workspaceTransportApplied {
+		logger.Info("workspace transport applied", "transport", cfg.Transport.Mode, "workspace", workspaceResolution.Name)
 	} else {
 		if shouldPromptPairTransport(cmd) {
 			printCLIHeader(cmd, "Onibi up")
@@ -151,10 +179,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	}
 	if noLogin, _ := cmd.Flags().GetBool("no-login-shell"); noLogin {
 		cfg.Shell.Login = false
-	}
-	shellCWD, err := shellWorkingDir(cmd)
-	if err != nil {
-		return err
 	}
 	if cfg.Transport.Mode == "telegram" {
 		return runTelegramUp(cmd, paths, db, cfg, logger, started, shellCWD)
@@ -410,23 +434,102 @@ func tmuxTargetAlreadyGone(err error) bool {
 	return strings.Contains(msg, "can't find session") || strings.Contains(msg, "no server running")
 }
 
-func shellWorkingDir(cmd *cobra.Command) (string, error) {
+type upWorkspaceResolution struct {
+	Found            bool
+	Source           string
+	Name             string
+	Root             string
+	File             string
+	ShellCWD         string
+	DefaultTransport string
+}
+
+func resolveUpWorkspace(ctx context.Context, db *store.DB, startDir string, cwdExplicit bool) (upWorkspaceResolution, error) {
+	projectFile, ok, err := workspace.FindProjectFile(startDir)
+	if err != nil {
+		return upWorkspaceResolution{}, err
+	}
+	if ok {
+		cfg, err := workspace.LoadProjectConfig(projectFile.Path)
+		if err != nil {
+			return upWorkspaceResolution{}, err
+		}
+		return upWorkspaceResolution{
+			Found:            true,
+			Source:           "project",
+			Name:             cfg.Name,
+			Root:             projectFile.Root,
+			File:             projectFile.Path,
+			ShellCWD:         startDir,
+			DefaultTransport: cfg.Transports.Default,
+		}, nil
+	}
+	if cwdExplicit {
+		return upWorkspaceResolution{ShellCWD: startDir}, nil
+	}
+	name, ok, err := workspace.DefaultName(ctx, db)
+	if err != nil || !ok {
+		return upWorkspaceResolution{ShellCWD: startDir}, err
+	}
+	workspaceStore, err := workspace.NewDBStore(db)
+	if err != nil {
+		return upWorkspaceResolution{}, err
+	}
+	entry, ok, err := workspaceStore.Get(ctx, name)
+	if err != nil {
+		return upWorkspaceResolution{}, err
+	}
+	if !ok {
+		return upWorkspaceResolution{}, fmt.Errorf("default workspace %q not found", name)
+	}
+	resolved := upWorkspaceResolution{
+		Found:    true,
+		Source:   "default",
+		Name:     entry.Name,
+		Root:     entry.Path,
+		ShellCWD: entry.Path,
+	}
+	if dir, err := workspace.DefaultIndexDir(); err == nil {
+		indexEntry, err := workspace.LoadIndexEntry(dir, name)
+		if err == nil {
+			resolved.File, _ = workspace.EntryPath(dir, name)
+			resolved.DefaultTransport = indexEntry.DefaultTransport
+		}
+	}
+	return resolved, nil
+}
+
+func applyWorkspaceTransport(cmd *cobra.Command, cfg *config.Config, resolved upWorkspaceResolution) (bool, error) {
+	if !resolved.Found || strings.TrimSpace(resolved.DefaultTransport) == "" {
+		return false, nil
+	}
+	if flag := cmd.Flags().Lookup("transport"); flag != nil && flag.Changed {
+		return false, nil
+	}
+	if err := config.Set(cfg, "transport.mode", resolved.DefaultTransport); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func shellWorkingDir(cmd *cobra.Command) (string, bool, error) {
 	cwd, _ := cmd.Flags().GetString("cwd")
 	if strings.TrimSpace(cwd) == "" {
-		return os.Getwd()
+		dir, err := os.Getwd()
+		return dir, false, err
 	}
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
-		return "", err
+		return "", true, err
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", true, err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("--cwd is not a directory: %s", abs)
+		return "", true, fmt.Errorf("--cwd is not a directory: %s", abs)
 	}
-	return abs, nil
+	return abs, true, nil
 }
 
 func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger *slog.Logger) error {
