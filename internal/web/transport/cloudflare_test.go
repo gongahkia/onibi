@@ -34,7 +34,7 @@ func TestParseTryCloudflareURL(t *testing.T) {
 }
 
 func TestCloudflareQuickEnableAndCleanup(t *testing.T) {
-	proc := newFakeProcess("https://fast-demo.trycloudflare.com")
+	proc := newFakeProcess("https://fast-demo.trycloudflare.com", "INF Registered tunnel connection connIndex=0")
 	runner := &fakeProcessRunner{proc: proc}
 	cf := &CloudflareQuick{Bin: "cloudflared", runner: runner}
 	if err := cf.Enable(context.Background(), 8443); err != nil {
@@ -43,7 +43,7 @@ func TestCloudflareQuickEnableAndCleanup(t *testing.T) {
 	if got, err := cf.URL(context.Background()); err != nil || got != "https://fast-demo.trycloudflare.com" {
 		t.Fatalf("url=%q err=%v", got, err)
 	}
-	want := [][]string{{"cloudflared", "tunnel", "--url", "https://localhost:8443"}}
+	want := [][]string{{"cloudflared", "tunnel", "--url", "https://localhost:8443", "--no-tls-verify"}}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v", runner.calls)
 	}
@@ -144,7 +144,10 @@ func (p *fakeProcess) Lines() <-chan string { return p.lines }
 
 func (p *fakeProcess) Kill() error {
 	p.killed = true
-	p.once.Do(func() { close(p.done) })
+	p.once.Do(func() {
+		close(p.lines)
+		close(p.done)
+	})
 	return nil
 }
 

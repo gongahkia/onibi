@@ -21,6 +21,11 @@ const (
 	wsWriteTimeout   = 5 * time.Second
 )
 
+var (
+	wsPingInterval = 30 * time.Second
+	wsPingTimeout  = 10 * time.Second
+)
+
 type ptyAttachFrame struct {
 	Type        string `json:"type"`
 	SessionID   string `json:"session_id"`
@@ -266,14 +271,14 @@ func writeWSBinary(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, p []b
 }
 
 func (s *Server) pingLoop(ctx context.Context, c *websocket.Conn) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(wsPingInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			pingCtx, cancel := context.WithTimeout(ctx, wsPingTimeout)
 			err := c.Ping(pingCtx)
 			cancel()
 			if err != nil {

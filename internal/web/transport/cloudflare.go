@@ -92,18 +92,19 @@ func (c *CloudflareQuick) Enable(ctx context.Context, localPort int) error {
 	if runner == nil {
 		runner = execProcessRunner{}
 	}
-	proc, err := runner.Start(ctx, c.bin(), "tunnel", "--url", fmt.Sprintf("https://localhost:%d", localPort))
+	proc, err := runner.Start(ctx, c.bin(), "tunnel", "--url", fmt.Sprintf("https://localhost:%d", localPort), "--no-tls-verify")
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
 	c.process = proc
 	c.mu.Unlock()
-	publicURL, err := waitForProcessURL(ctx, cloudflareQuickProvider, proc, parseTryCloudflareURL, cloudflareActivationWait)
+	publicURL, err := waitForQuickTunnelReady(ctx, proc, cloudflareActivationWait)
 	if err != nil {
 		_ = proc.Kill()
 		return err
 	}
+	go drainProcessLines(proc)
 	c.mu.Lock()
 	c.publicURL = publicURL
 	c.mu.Unlock()
@@ -189,6 +190,7 @@ func (c *CloudflareNamed) Enable(ctx context.Context, localPort int) error {
 		_ = proc.Kill()
 		return err
 	}
+	go drainProcessLines(proc)
 	return nil
 }
 
@@ -247,25 +249,33 @@ func namedURL(hostname string) (string, error) {
 	return "https://" + hostname, nil
 }
 
-func waitForProcessURL(ctx context.Context, provider string, proc managedProcess, parse func(string) (string, bool), timeout time.Duration) (string, error) {
+func waitForQuickTunnelReady(ctx context.Context, proc managedProcess, timeout time.Duration) (string, error) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	done := make(chan error, 1)
 	go func() { done <- proc.Wait() }()
+	publicURL := ""
+	registered := false
 	for {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-timer.C:
-			return "", Diagnostic(DiagActivationLag, provider, "public URL did not become ready", nil)
+			return "", Diagnostic(DiagActivationLag, cloudflareQuickProvider, "quick tunnel did not become ready", nil)
 		case err := <-done:
-			return "", processExitError(provider, err)
+			return "", processExitError(cloudflareQuickProvider, err)
 		case line, ok := <-proc.Lines():
 			if !ok {
 				continue
 			}
-			if url, ok := parse(line); ok {
-				return url, nil
+			if url, ok := parseTryCloudflareURL(line); ok {
+				publicURL = url
+			}
+			if strings.Contains(strings.ToLower(line), cloudflareNamedReadySubstring) {
+				registered = true
+			}
+			if publicURL != "" && registered {
+				return publicURL, nil
 			}
 		}
 	}
@@ -309,6 +319,14 @@ func stopManagedProcess(ctx context.Context, provider string, proc managedProces
 		return Diagnostic(DiagCleanup, provider, "process wait timed out", ctx.Err())
 	case <-done:
 		return nil
+	}
+}
+
+func drainProcessLines(proc managedProcess) {
+	if proc == nil {
+		return
+	}
+	for range proc.Lines() {
 	}
 }
 

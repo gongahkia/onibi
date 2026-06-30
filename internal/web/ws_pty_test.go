@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +23,7 @@ import (
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
+	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 )
 
 func TestWSPTYAttachValidLastSeqReturnsDelta(t *testing.T) {
@@ -181,9 +185,85 @@ func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 	}
 }
 
+func TestWSPTYE2EIdlePingKeepsConnectionOpen(t *testing.T) {
+	withWSPingConfig(t, 50*time.Millisecond, 500*time.Millisecond)
+	srv, ownerSessionID, cookie, key, cleanup := e2ePTYServerForTest(t)
+	defer cleanup()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	c, client := dialE2EPTYAt(t, ts.URL, ownerSessionID, cookie, key)
+	defer c.CloseNow()
+	messages, errs := readE2EPTYForTest(t, c, client)
+	select {
+	case err := <-errs:
+		t.Fatalf("idle ws closed early: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	writeE2EWSBinaryForTest(t, c, client, []byte("idle-ok\n"))
+	waitForE2EPTYPayload(t, messages, errs, []byte("idle-ok"))
+}
+
+func TestLiveCloudflareQuickWSPTYE2EIdleFourMinutes(t *testing.T) {
+	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_QUICK_IDLE") != "1" {
+		t.Skip("set ONIBI_LIVE_CLOUDFLARE_QUICK_IDLE=1")
+	}
+	srv, ownerSessionID, cookie, key, cleanup := e2ePTYServerForTest(t)
+	defer cleanup()
+	ts := httptest.NewTLSServer(srv.Handler())
+	defer ts.Close()
+	_, portText, err := net.SplitHostPort(ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := net.LookupPort("tcp", portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cf := webtransport.NewCloudflareQuick()
+	procCtx, procCancel := context.WithCancel(context.Background())
+	defer procCancel()
+	enableDone := make(chan error, 1)
+	go func() { enableDone <- cf.Enable(procCtx, port) }()
+	select {
+	case err := <-enableDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(45 * time.Second):
+		procCancel()
+		t.Fatal("cloudflare quick tunnel activation timed out")
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = cf.Disable(ctx)
+	}()
+	publicURL, err := cf.URL(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("cloudflare url: %s", publicURL)
+	waitForTryCloudflareDNSForTest(t, publicURL, 30*time.Second)
+	c, client := dialE2EPTYAtWithin(t, publicURL, ownerSessionID, cookie, key, 2*time.Minute)
+	defer c.CloseNow()
+	messages, errs := readE2EPTYForTest(t, c, client)
+	select {
+	case err := <-errs:
+		t.Fatalf("cloudflare idle ws closed early: %v", err)
+	case <-time.After(4 * time.Minute):
+	}
+	writeE2EWSBinaryForTest(t, c, client, []byte("cloudflare-idle-ok\n"))
+	waitForE2EPTYPayload(t, messages, errs, []byte("cloudflare-idle-ok"))
+}
+
 func spawnPTYForTest(t *testing.T, script string) *pty.Host {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	return spawnPTYForTestWithTimeout(t, script, 10*time.Second)
+}
+
+func spawnPTYForTestWithTimeout(t *testing.T, script string, timeout time.Duration) *pty.Host {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 	host, err := pty.Spawn(ctx, pty.SpawnOptions{Name: "/bin/sh", Args: []string{"-c", script}})
 	if err != nil {
@@ -255,4 +335,197 @@ func readWSForTest(t *testing.T, c *websocket.Conn) (websocket.MessageType, []by
 		t.Fatal(err)
 	}
 	return typ, p
+}
+
+func withWSPingConfig(t *testing.T, interval, timeout time.Duration) {
+	t.Helper()
+	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
+	wsPingInterval, wsPingTimeout = interval, timeout
+	t.Cleanup(func() {
+		wsPingInterval, wsPingTimeout = oldInterval, oldTimeout
+	})
+}
+
+func e2ePTYServerForTest(t *testing.T) (*Server, string, *http.Cookie, []byte, func()) {
+	t.Helper()
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	host := spawnPTYForTestWithTimeout(t, "cat", 6*time.Minute)
+	srv.ptyHosts = func() map[string]*pty.Host {
+		return map[string]*pty.Host{"s1": host}
+	}
+	rr := httptest.NewRecorder()
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", ownerSessionID); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	return srv, ownerSessionID, rr.Result().Cookies()[0], key, func() { _ = db.Close() }
+}
+
+func dialE2EPTYAt(t *testing.T, baseURL, ownerSessionID string, cookie *http.Cookie, key []byte) (*websocket.Conn, wsCodec) {
+	t.Helper()
+	return dialE2EPTYAtWithin(t, baseURL, ownerSessionID, cookie, key, 10*time.Second)
+}
+
+func dialE2EPTYAtWithin(t *testing.T, baseURL, ownerSessionID string, cookie *http.Cookie, key []byte, timeout time.Duration) (*websocket.Conn, wsCodec) {
+	t.Helper()
+	u := "ws" + strings.TrimPrefix(strings.TrimRight(baseURL, "/"), "http") + "/ws/pty?token=" + ownerSessionID
+	header := http.Header{}
+	header.Add("Cookie", cookie.String())
+	var c *websocket.Conn
+	var err error
+	deadline := time.Now().Add(timeout)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c, _, err = websocket.Dial(ctx, u, &websocket.DialOptions{
+			Subprotocols: []string{ptySubprotocol},
+			HTTPHeader:   header,
+		})
+		cancel()
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	c.SetReadLimit(1 << 20)
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(ownerSessionID))
+	base, err := envelope.NewCodec(sessionKey, e2eInfoPTY)
+	if err != nil {
+		c.CloseNow()
+		t.Fatal(err)
+	}
+	client := newSeqWSCodec(base, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	verifyToken, err := relayVerifyToken(key, ownerSessionID)
+	if err != nil {
+		c.CloseNow()
+		t.Fatal(err)
+	}
+	writeE2EWSJSONForTest(t, c, client, ptyAttachFrame{
+		Type:        "attach",
+		SessionID:   "s1",
+		LastSeq:     0,
+		VerifyToken: base64.RawURLEncoding.EncodeToString(verifyToken),
+	})
+	return c, client
+}
+
+func writeE2EWSJSONForTest(t *testing.T, c *websocket.Conn, client wsCodec, v any) {
+	t.Helper()
+	p, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, sealed, err := client.encrypt(websocket.MessageText, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Write(ctx, typ, sealed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeE2EWSBinaryForTest(t *testing.T, c *websocket.Conn, client wsCodec, p []byte) {
+	t.Helper()
+	typ, sealed, err := client.encrypt(websocket.MessageBinary, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Write(ctx, typ, sealed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readE2EPTYForTest(t *testing.T, c *websocket.Conn, client wsCodec) (<-chan []byte, <-chan error) {
+	t.Helper()
+	messages := make(chan []byte, 16)
+	errs := make(chan error, 1)
+	go func() {
+		for {
+			typ, p, err := c.Read(context.Background())
+			if err != nil {
+				errs <- err
+				return
+			}
+			typ, p, err = client.decrypt(typ, p)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if typ == websocket.MessageBinary || typ == websocket.MessageText {
+				messages <- p
+			}
+		}
+	}()
+	return messages, errs
+}
+
+func waitForE2EPTYPayload(t *testing.T, messages <-chan []byte, errs <-chan error, want []byte) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case p := <-messages:
+			if bytes.Contains(p, want) {
+				return
+			}
+		case err := <-errs:
+			t.Fatalf("ws closed before payload: %v", err)
+		case <-deadline:
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+}
+
+func waitForTryCloudflareDNSForTest(t *testing.T, rawurl string, timeout time.Duration) {
+	t.Helper()
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := u.Hostname()
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "udp", "1.1.1.1:53")
+		},
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		addrs, err := resolver.LookupHost(ctx, host)
+		cancel()
+		if err == nil && len(addrs) > 0 {
+			return
+		}
+		lastErr = err
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("cloudflare dns not ready for %s: %v", host, lastErr)
 }

@@ -216,7 +216,7 @@ Gotify sends approval notifications through the REST message endpoint, validates
 `onibi up --transport=cloudflare-quick` runs:
 
 ```text
-cloudflared tunnel --url https://localhost:<web-port>
+cloudflared tunnel --url https://localhost:<web-port> --no-tls-verify
 ```
 
 Onibi parses the emitted `https://*.trycloudflare.com` URL, waits for activation, and prints a QR with the relay key in the URL fragment:
