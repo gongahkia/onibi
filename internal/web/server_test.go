@@ -318,6 +318,43 @@ func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
 	}
 }
 
+func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionList = func(context.Context) ([]SessionSummary, error) {
+		return []SessionSummary{{
+			ID:                    "s1",
+			Agent:                 "claude",
+			CWD:                   "/tmp/repo",
+			StartedAt:             "2026-06-30T00:00:00Z",
+			LastActivity:          "2026-06-30T00:01:00Z",
+			PendingApprovalsCount: 2,
+			TokensUsed:            120,
+			CostUSD:               0.03,
+			RoleRequired:          "owner",
+		}}, nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var got []SessionSummary
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 || got[0].TokensUsed != 120 || got[0].RoleRequired != "owner" {
+		t.Fatalf("sessions = %#v", got)
+	}
+}
+
 func TestSnapshotsEndpointReturnsResolverRows(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

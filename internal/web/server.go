@@ -33,6 +33,7 @@ type Options struct {
 	EventBus        *EventBus
 	PTYHosts        func() map[string]*pty.Host
 	SessionIDs      func() []string
+	SessionList     func(context.Context) ([]SessionSummary, error)
 	PTYHost         func(context.Context, string) (*pty.Host, error)
 	Handover        func(context.Context, string, string) (string, error)
 	Scroll          func(context.Context, string, string) error
@@ -54,6 +55,7 @@ type Server struct {
 	eventBus        *EventBus
 	ptyHosts        func() map[string]*pty.Host
 	sessionIDs      func() []string
+	sessionList     func(context.Context) ([]SessionSummary, error)
 	ptyHost         func(context.Context, string) (*pty.Host, error)
 	handover        func(context.Context, string, string) (string, error)
 	scroll          func(context.Context, string, string) error
@@ -79,6 +81,7 @@ func New(opts Options) *Server {
 		eventBus:        opts.EventBus,
 		ptyHosts:        opts.PTYHosts,
 		sessionIDs:      opts.SessionIDs,
+		sessionList:     opts.SessionList,
 		ptyHost:         opts.PTYHost,
 		handover:        opts.Handover,
 		scroll:          opts.Scroll,
@@ -101,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
+	mux.HandleFunc("/sessions", s.handleSessions)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
 	mux.HandleFunc("/snapshots/restore", s.handleSnapshotRestore)

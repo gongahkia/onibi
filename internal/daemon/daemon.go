@@ -408,6 +408,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			EventBus:        d.Events,
 			PTYHosts:        d.webPTYHosts,
 			SessionIDs:      d.webSessionIDs,
+			SessionList:     d.WebSessions,
 			PTYHost:         d.EnsureWebPTYHost,
 			Handover:        d.HandoverSession,
 			Scroll:          d.ScrollSession,
