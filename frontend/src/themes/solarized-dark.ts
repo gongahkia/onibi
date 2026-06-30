@@ -1,0 +1,26 @@
+import type { ITheme } from "@xterm/xterm";
+
+export const solarizedDarkTheme: ITheme = {
+  background: "#002B36",
+  foreground: "#839496",
+  cursor: "#839496",
+  cursorAccent: "#073642",
+  selectionBackground: "#073642",
+  selectionForeground: "#93A1A1",
+  black: "#073642",
+  red: "#DC322F",
+  green: "#859900",
+  yellow: "#B58900",
+  blue: "#268BD2",
+  magenta: "#D33682",
+  cyan: "#2AA198",
+  white: "#EEE8D5",
+  brightBlack: "#335E69",
+  brightRed: "#CB4B16",
+  brightGreen: "#586E75",
+  brightYellow: "#657B83",
+  brightBlue: "#839496",
+  brightMagenta: "#6C71C4",
+  brightCyan: "#93A1A1",
+  brightWhite: "#FDF6E3"
+};

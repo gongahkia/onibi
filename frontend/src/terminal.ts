@@ -1,11 +1,15 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITheme } from "@xterm/xterm";
+import { catppuccinMochaTheme } from "./themes/catppuccin-mocha";
 import { ghosttyDefaultTheme } from "./themes/ghostty-default";
+import { solarizedDarkTheme } from "./themes/solarized-dark";
+import { tokyoNightTheme } from "./themes/tokyo-night";
 import type { TerminalWS } from "./ws";
 import "@xterm/xterm/css/xterm.css";
 
-export type TerminalThemeName = "ghostty-default" | "dark" | "light";
+export const terminalThemeNames = ["ghostty-default", "catppuccin-mocha", "tokyo-night", "solarized-dark", "dark", "light"] as const;
+export type TerminalThemeName = (typeof terminalThemeNames)[number];
 
 export type TerminalHandle = {
   term: Terminal;
@@ -16,6 +20,9 @@ const terminalFont = `"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono",
 
 const themes: Record<TerminalThemeName, ITheme> = {
   "ghostty-default": ghosttyDefaultTheme,
+  "catppuccin-mocha": catppuccinMochaTheme,
+  "tokyo-night": tokyoNightTheme,
+  "solarized-dark": solarizedDarkTheme,
   dark: {
     background: "#090b0f",
     foreground: "#d7dde8",
@@ -65,7 +72,20 @@ const themes: Record<TerminalThemeName, ITheme> = {
 export const defaultTerminalTheme: TerminalThemeName = "ghostty-default";
 
 export function isTerminalThemeName(value: string | null): value is TerminalThemeName {
-  return value === "ghostty-default" || value === "dark" || value === "light";
+  return terminalThemeNames.includes(value as TerminalThemeName);
+}
+
+const themeLabels: Record<TerminalThemeName, string> = {
+  "ghostty-default": "Ghostty",
+  "catppuccin-mocha": "Mocha",
+  "tokyo-night": "Tokyo",
+  "solarized-dark": "Solarized",
+  dark: "Dark",
+  light: "Light"
+};
+
+export function terminalThemeLabel(theme: TerminalThemeName): string {
+  return themeLabels[theme];
 }
 
 export function createTerminal(container: HTMLElement, theme: TerminalThemeName = defaultTerminalTheme): TerminalHandle {
