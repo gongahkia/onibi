@@ -13,7 +13,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/pty"
 )
 
@@ -62,6 +61,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
 		return
 	}
+	wsE2E := newSeqWSCodec(codec, ownerSessionID, e2eInfoPTY, e2eDirC2S, e2eDirS2C)
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{ptySubprotocol}})
 	if err != nil {
 		s.log.Warn("web pty ws accept failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
@@ -89,7 +89,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	go s.pingLoop(ctx, c)
 
-	attach, err := readPTYAttach(ctx, c, codec)
+	attach, err := readPTYAttach(ctx, c, wsE2E)
 	if err != nil {
 		s.log.Warn("web pty attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
@@ -113,10 +113,10 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 			Type:       "snapshot",
 			Seq:        replay.Seq,
 			Base64Data: base64.StdEncoding.EncodeToString(replay.Data),
-		}, codec)
+		}, wsE2E)
 	} else if len(replay.Data) > 0 {
 		bytesOut.Add(uint64(len(replay.Data)))
-		err = writeWSBinary(ctx, c, &writeMu, replay.Data, codec)
+		err = writeWSBinary(ctx, c, &writeMu, replay.Data, wsE2E)
 	}
 	if err != nil {
 		s.log.Warn("web pty replay failed", "request_id", reqID, "session_id", attach.SessionID, "err", err, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data))
@@ -128,13 +128,13 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		for p := range ch {
 			bytesOut.Add(uint64(len(p)))
 			if rows, cols, ok := pty.ParseResizeFrame(p); ok {
-				err := writeWSJSON(ctx, c, &writeMu, ptyResizeFrame{Type: "resize", Rows: rows, Cols: cols}, codec)
+				err := writeWSJSON(ctx, c, &writeMu, ptyResizeFrame{Type: "resize", Rows: rows, Cols: cols}, wsE2E)
 				if err != nil {
 					cancel()
 					return
 				}
 			} else {
-				if err := writeWSBinary(ctx, c, &writeMu, p, codec); err != nil {
+				if err := writeWSBinary(ctx, c, &writeMu, p, wsE2E); err != nil {
 					cancel()
 					return
 				}
@@ -151,7 +151,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		bytesIn.Add(uint64(len(p)))
-		if err := handlePTYClientFrame(host, typ, p, codec); err != nil {
+		if err := handlePTYClientFrame(host, typ, p, wsE2E); err != nil {
 			s.log.Warn("web pty client frame rejected", "request_id", reqID, "session_id", attach.SessionID, "message_type", typ.String(), "bytes", len(p), "err", err)
 			_ = c.Close(websocket.StatusPolicyViolation, "invalid frame")
 			return
@@ -159,16 +159,18 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func readPTYAttach(ctx context.Context, c *websocket.Conn, codec *envelope.Codec) (ptyAttachFrame, error) {
+func readPTYAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ptyAttachFrame, error) {
 	readCtx, cancel := context.WithTimeout(ctx, ptyAttachTimeout)
 	defer cancel()
 	typ, p, err := c.Read(readCtx)
 	if err != nil {
 		return ptyAttachFrame{}, err
 	}
-	typ, p, err = wsDecrypt(codec, typ, p)
-	if err != nil {
-		return ptyAttachFrame{}, err
+	if codec != nil {
+		typ, p, err = codec.decrypt(typ, p)
+		if err != nil {
+			return ptyAttachFrame{}, err
+		}
 	}
 	if typ != websocket.MessageText {
 		return ptyAttachFrame{}, errors.New("web: attach must be text")
@@ -183,11 +185,13 @@ func readPTYAttach(ctx context.Context, c *websocket.Conn, codec *envelope.Codec
 	return attach, nil
 }
 
-func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec *envelope.Codec) error {
+func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec) error {
 	var err error
-	typ, p, err = wsDecrypt(codec, typ, p)
-	if err != nil {
-		return err
+	if codec != nil {
+		typ, p, err = codec.decrypt(typ, p)
+		if err != nil {
+			return err
+		}
 	}
 	switch typ {
 	case websocket.MessageBinary:
@@ -218,12 +222,8 @@ func parsePTYControlFrame(p []byte) (ptyControlFrame, bool) {
 	return frame, true
 }
 
-func writeWSJSON(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, v any, codec *envelope.Codec) error {
+func writeWSJSON(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, v any, codec wsCodec) error {
 	p, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	typ, p, err := wsEncrypt(codec, websocket.MessageText, p)
 	if err != nil {
 		return err
 	}
@@ -234,18 +234,26 @@ func writeWSJSON(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, v any, 
 	if codec == nil {
 		return wsjson.Write(writeCtx, c, v)
 	}
-	return c.Write(writeCtx, typ, p)
-}
-
-func writeWSBinary(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, p []byte, codec *envelope.Codec) error {
-	typ, p, err := wsEncrypt(codec, websocket.MessageBinary, p)
+	typ, p, err := codec.encrypt(websocket.MessageText, p)
 	if err != nil {
 		return err
 	}
+	return c.Write(writeCtx, typ, p)
+}
+
+func writeWSBinary(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, p []byte, codec wsCodec) error {
 	writeCtx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 	defer cancel()
 	mu.Lock()
 	defer mu.Unlock()
+	typ := websocket.MessageBinary
+	if codec != nil {
+		var err error
+		typ, p, err = codec.encrypt(websocket.MessageBinary, p)
+		if err != nil {
+			return err
+		}
+	}
 	return c.Write(writeCtx, typ, p)
 }
 

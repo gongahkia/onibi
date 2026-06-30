@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,9 @@ import (
 	"github.com/coder/websocket/wsjson"
 	cpty "github.com/creack/pty"
 
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestWSPTYAttachValidLastSeqReturnsDelta(t *testing.T) {
@@ -96,6 +99,75 @@ func TestWSPTYResizeFrameResizesHost(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("resize did not reach PTY")
+}
+
+func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	host := spawnPTYForTest(t, "cat")
+	srv.ptyHosts = func() map[string]*pty.Host {
+		return map[string]*pty.Host{"s1": host}
+	}
+	rr := httptest.NewRecorder()
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", ownerSessionID); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	u := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/pty?token=" + ownerSessionID
+	header := http.Header{}
+	header.Add("Cookie", rr.Result().Cookies()[0].String())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, u, &websocket.DialOptions{
+		Subprotocols: []string{ptySubprotocol},
+		HTTPHeader:   header,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+
+	base, err := envelope.NewCodec(key, e2eInfoPTY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := newSeqWSCodec(base, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	attach, err := json.Marshal(ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, sealed, err := client.encrypt(websocket.MessageText, attach)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Write(ctx, typ, sealed); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Write(ctx, typ, sealed); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = c.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("close status = %v err=%v", websocket.CloseStatus(err), err)
+	}
 }
 
 func spawnPTYForTest(t *testing.T, script string) *pty.Host {

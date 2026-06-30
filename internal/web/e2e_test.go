@@ -136,3 +136,38 @@ func TestWSEncryptHidesPayload(t *testing.T) {
 		t.Fatalf("opened typ=%v payload=%q", openedType, opened)
 	}
 }
+
+func TestSequencedWSEncryptRejectsReplay(t *testing.T) {
+	key, _ := envelope.NewKey()
+	codec, err := envelope.NewCodec(key, e2eInfoPTY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newSeqWSCodec(codec, "owner-session", e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	client := newSeqWSCodec(codec, "owner-session", e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	typ, sealed, err := client.encrypt(websocket.MessageBinary, []byte("pty secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	openedType, opened, err := server.decrypt(typ, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedType != websocket.MessageBinary || string(opened) != "pty secret" {
+		t.Fatalf("opened typ=%v payload=%q", openedType, opened)
+	}
+	if _, _, err := server.decrypt(typ, sealed); err == nil {
+		t.Fatal("replayed frame decrypted")
+	}
+	typ, sealed, err = client.encrypt(websocket.MessageText, []byte("next"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	openedType, opened, err = server.decrypt(typ, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedType != websocket.MessageText || string(opened) != "next" {
+		t.Fatalf("next opened typ=%v payload=%q", openedType, opened)
+	}
+}
