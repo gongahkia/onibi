@@ -50,6 +50,16 @@ Write = "high"
 `min_onibi_version`
 : Minimum Onibi version required to load the adapter. Versions compare as semantic versions. Development versions may load only when their base version satisfies the constraint.
 
+## Compatibility
+
+Onibi refuses to load an adapter when `min_onibi_version` is greater than the running daemon version. The error must include both versions, for example:
+
+```text
+adapter "example" requires Onibi >= 9.0.0, running v0.3.0
+```
+
+For development builds, Onibi compares the numeric base. For example, `v2-dev` compares as `2.0.0`.
+
 ## Command Restrictions
 
 Hook commands are intentionally restricted. A manifest command is rejected if it contains:

@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -63,6 +65,9 @@ func ValidateManifest(m Manifest) error {
 	if !semverRe.MatchString(m.MinOnibiVersion) {
 		return fmt.Errorf("adapter %q invalid min_onibi_version %q", name, m.MinOnibiVersion)
 	}
+	if err := checkOnibiVersion(m.MinOnibiVersion, buildinfo.Version); err != nil {
+		return fmt.Errorf("adapter %q %w", name, err)
+	}
 	if m.RiskOverrides == nil {
 		return fmt.Errorf("adapter %q risk_overrides required", name)
 	}
@@ -82,6 +87,71 @@ func ValidateManifest(m Manifest) error {
 		}
 	}
 	return nil
+}
+
+func checkOnibiVersion(minVersion, runningVersion string) error {
+	min, err := parseSemver(minVersion)
+	if err != nil {
+		return err
+	}
+	running, err := parseSemver(runningVersion)
+	if err != nil {
+		return fmt.Errorf("cannot verify running Onibi version %q", runningVersion)
+	}
+	if compareSemver(running, min) < 0 {
+		return fmt.Errorf("requires Onibi >= %s, running %s", minVersion, runningVersion)
+	}
+	return nil
+}
+
+type semverParts struct {
+	major int
+	minor int
+	patch int
+}
+
+func parseSemver(version string) (semverParts, error) {
+	original := version
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	i := 0
+	for i < len(version) {
+		c := version[i]
+		if (c >= '0' && c <= '9') || c == '.' {
+			i++
+			continue
+		}
+		break
+	}
+	core := version[:i]
+	if core == "" {
+		return semverParts{}, fmt.Errorf("invalid semver %q", original)
+	}
+	parts := strings.Split(core, ".")
+	if len(parts) > 3 {
+		return semverParts{}, fmt.Errorf("invalid semver %q", original)
+	}
+	nums := [3]int{}
+	for i, part := range parts {
+		if part == "" {
+			return semverParts{}, fmt.Errorf("invalid semver %q", original)
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return semverParts{}, fmt.Errorf("invalid semver %q", original)
+		}
+		nums[i] = n
+	}
+	return semverParts{major: nums[0], minor: nums[1], patch: nums[2]}, nil
+}
+
+func compareSemver(a, b semverParts) int {
+	if a.major != b.major {
+		return a.major - b.major
+	}
+	if a.minor != b.minor {
+		return a.minor - b.minor
+	}
+	return a.patch - b.patch
 }
 
 func WithRuntimeAdapter(m Manifest) Manifest {
