@@ -360,8 +360,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: diff2html v3.4.56 (https://github.com/rtfpessoa/diff2html) — pure JS, no React, ~25KB gz core; pair with existing scrub.go for redaction.
 
-(A) 2026-06-29 Extend frontend/src/approval.ts: when event has unified_diff, render via diff2html Diff2HtmlUI(elem, diff, {drawFileList:false, matching:"lines", outputFormat:"line-by-line"}); mobile-portrait forces line-by-line; landscape uses side-by-side; preserve existing Approve/Deny/Edit buttons +phaseQ1 @frontend file:frontend/src/approval.ts id:T2102 accept:diff-renders-on-iphone-portrait
-(B) 2026-06-29 Bundle minimal diff2html CSS into existing frontend/src/main.css (copy only the selectors used; do NOT import full stylesheet); align diff colors to the current xterm theme tokens +phaseQ1 @frontend file:frontend/src/main.css id:T2103 blocked-by:T2102 accept:diff-bg-matches-terminal-theme
+(B) 2026-06-29 Bundle minimal diff2html CSS into existing frontend/src/main.css (copy only the selectors used; do NOT import full stylesheet); align diff colors to the current xterm theme tokens +phaseQ1 @frontend file:frontend/src/main.css id:T2103 accept:diff-bg-matches-terminal-theme
 (B) 2026-06-29 Large-diff guard: if diff >500 lines OR >50KB, render collapsed with "Show more (N lines)" button; protects mobile Safari rendering +phaseQ1 @frontend file:frontend/src/approval.ts id:T2104 blocked-by:T2103 accept:large-diff-collapses-not-crashes
 (B) 2026-06-29 Real-iPhone smoke: trigger Claude Edit on a 50-line file containing a fake AWS key; approval card shows diff; the key reads `[REDACTED]` in both old and new sides; Approve writes the new file; Deny does not +phaseQ1 @tests id:T2105 blocked-by:T2104 accept:diff-card-passes-on-iphone
 

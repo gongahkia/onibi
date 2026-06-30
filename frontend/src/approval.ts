@@ -52,9 +52,12 @@ export class ApprovalOverlay {
 
     const input = document.createElement("div");
     input.className = "approval-input";
-    input.append(...lineNodes(payload.scrubbed_input));
     if (payload.unified_diff !== undefined && payload.unified_diff !== "") {
-      void loadDiff2HtmlUI();
+      input.classList.add("approval-diff");
+      input.textContent = "Loading diff...";
+      void renderUnifiedDiff(input, payload.unified_diff);
+    } else {
+      input.append(...lineNodes(payload.scrubbed_input));
     }
 
     const actions = document.createElement("div");
@@ -142,6 +145,28 @@ function loadDiff2HtmlUI(): Promise<Diff2HtmlUIModule> {
     diff2htmlUILoad = import("diff2html/lib/ui/js/diff2html-ui-slim.js");
   }
   return diff2htmlUILoad;
+}
+
+async function renderUnifiedDiff(target: HTMLElement, diff: string): Promise<void> {
+  try {
+    const { Diff2HtmlUI } = await loadDiff2HtmlUI();
+    if (!target.isConnected) {
+      return;
+    }
+    target.replaceChildren();
+    const ui = new Diff2HtmlUI(target, diff, {
+      drawFileList: false,
+      matching: "lines",
+      outputFormat: diffOutputFormat()
+    });
+    ui.draw();
+  } catch {
+    target.replaceChildren(...lineNodes(diff));
+  }
+}
+
+function diffOutputFormat(): "line-by-line" | "side-by-side" {
+  return window.matchMedia("(orientation: landscape)").matches ? "side-by-side" : "line-by-line";
 }
 
 async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {
