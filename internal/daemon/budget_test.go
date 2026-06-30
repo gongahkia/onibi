@@ -168,6 +168,20 @@ func TestBudgetOverrunInterruptsSession(t *testing.T) {
 	if len(writes) != 1 || string(writes[0]) != string([]byte{3}) {
 		t.Fatalf("writes = %#v", writes)
 	}
+	view, err := d.BudgetView(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Sessions) != 1 {
+		t.Fatalf("view = %#v", view)
+	}
+	usage := view.Sessions[0]
+	if usage.TotalTokens != 13 || !usage.CostKnown || usage.RemainingTokens == nil || *usage.RemainingTokens != -3 || usage.TotalUSD <= 0 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	if view.Daily.TotalTokens != 13 || !view.Daily.CostKnown || view.Daily.TotalUSD <= 0 || view.Daily.LimitTokens != nil {
+		t.Fatalf("daily = %#v", view.Daily)
+	}
 }
 
 func TestBudgetOverrunKillsSession(t *testing.T) {

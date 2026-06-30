@@ -68,16 +68,18 @@ type Daemon struct {
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 
-	mu             sync.Mutex
-	webAttachMu    sync.Mutex
-	webAttachHosts map[string]*pty.Host
-	slackMu        sync.Mutex
-	slackApprovals map[string]slackApprovalRef
-	notified       map[string]bool // session id → already-fired turn-complete once
-	budgetDaily    map[string]int64
-	budgetCosts    map[string]budget.CostEvent
-	budgetOverruns map[string]bool
-	started        time.Time
+	mu                    sync.Mutex
+	webAttachMu           sync.Mutex
+	webAttachHosts        map[string]*pty.Host
+	slackMu               sync.Mutex
+	slackApprovals        map[string]slackApprovalRef
+	notified              map[string]bool // session id → already-fired turn-complete once
+	budgetDaily           map[string]int64
+	budgetDailyMicroCents map[string]int64
+	budgetDailyUnknown    map[string]bool
+	budgetCosts           map[string]budget.CostEvent
+	budgetOverruns        map[string]bool
+	started               time.Time
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 	SkipRestore  bool
@@ -174,6 +176,8 @@ func New(opts Options) *Daemon {
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
 		budgetDaily:             map[string]int64{},
+		budgetDailyMicroCents:   map[string]int64{},
+		budgetDailyUnknown:      map[string]bool{},
 		budgetCosts:             map[string]budget.CostEvent{},
 		budgetOverruns:          map[string]bool{},
 		Budget:                  budgetParser,

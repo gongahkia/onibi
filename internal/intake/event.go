@@ -15,6 +15,7 @@ const (
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
 	TypeTrust           = "trust"            // RPC: list and mutate trust rules
+	TypeBudget          = "budget"           // RPC: budget usage summary
 	TypePing            = "ping"             // RPC: daemon health probe
 )
 

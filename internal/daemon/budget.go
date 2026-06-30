@@ -184,10 +184,21 @@ func (d *Daemon) recordBudgetCost(cost budget.CostEvent) int64 {
 	if d.budgetDaily == nil {
 		d.budgetDaily = map[string]int64{}
 	}
+	if d.budgetDailyMicroCents == nil {
+		d.budgetDailyMicroCents = map[string]int64{}
+	}
+	if d.budgetDailyUnknown == nil {
+		d.budgetDailyUnknown = map[string]bool{}
+	}
 	if d.budgetCosts == nil {
 		d.budgetCosts = map[string]budget.CostEvent{}
 	}
 	d.budgetDaily[key] += tokens
+	if estimate, ok := budget.EstimateCost(cost.Model, cost.InputTokens, cost.OutputTokens); ok {
+		d.budgetDailyMicroCents[key] += estimate.TotalMicroCents
+	} else if tokens > 0 {
+		d.budgetDailyUnknown[key] = true
+	}
 	if strings.TrimSpace(cost.SessionID) != "" {
 		d.budgetCosts[cost.SessionID] = cost
 	}

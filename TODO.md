@@ -366,8 +366,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q1c — M: Cost / token budget enforcement
 
-(B) 2026-06-29 onibi budget show --json CLI: per-session + daily aggregate + remaining capacity in tokens and USD +phaseQ1 @backend file:internal/cli/budget.go id:T2144 accept:CLI-emits-machine-readable-budget
-(C) 2026-06-29 docs/budgets.md: example overrun policies + caveat that source is Claude Code JSONL only; other agents (Codex, Gemini, Goose) TBD when their session logs become parseable +phaseQ1 @docs file:docs/budgets.md id:T2145 blocked-by:T2144
+(C) 2026-06-29 docs/budgets.md: example overrun policies + caveat that source is Claude Code JSONL only; other agents (Codex, Gemini, Goose) TBD when their session logs become parseable +phaseQ1 @docs file:docs/budgets.md id:T2145
 
 #### Q1d — Z: Heuristic anomaly detection
 
