@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/gotify"
@@ -47,6 +48,7 @@ type Daemon struct {
 	Sweeper    *approval.Sweeper
 	Events     *web.EventBus
 	Trust      *trust.Watcher
+	Budget     *budget.ClaudeParser
 	BufferSize int
 
 	TerminalDefault         string
@@ -105,6 +107,7 @@ type Options struct {
 	Gotify                  GotifyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
+	Budget                  *budget.ClaudeParser
 	SkipRestore             bool
 }
 
@@ -154,6 +157,10 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
+	budgetParser := opts.Budget
+	if budgetParser == nil {
+		budgetParser = budget.NewClaudeParser("")
+	}
 	d := &Daemon{
 		Paths:                   opts.Paths,
 		DB:                      opts.DB,
@@ -163,6 +170,7 @@ func New(opts Options) *Daemon {
 		webAttachHosts:          map[string]*pty.Host{},
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
+		Budget:                  budgetParser,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
 		SkipRestore:             opts.SkipRestore,
@@ -589,6 +597,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
+		d.updateClaudeCost(ctx, s, ev)
 		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
 	case intake.TypeAgentMessage:
 		s, reason := d.sessionForEvent(ev)
@@ -597,6 +606,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
+		d.updateClaudeCost(ctx, s, ev)
 		return nil
 	case intake.TypeCmdDone:
 		return d.notifyCmdDone(ctx, ev)
@@ -607,6 +617,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
+		d.updateClaudeCost(ctx, s, ev)
 		d.markSessionEnded(ctx, s)
 		return nil
 	default:
