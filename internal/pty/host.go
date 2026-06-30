@@ -7,9 +7,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	cpty "github.com/creack/pty"
+
+	"github.com/gongahkia/onibi/internal/terminfo"
 )
 
 // phase 01 design: Spawn owns the sole PTY read loop, feeds Hub, and exposes
@@ -19,8 +22,9 @@ import (
 // DefaultRows/Cols approximates a typical terminal. PTY size matters for
 // TUI agents (Claude Code) that draw based on the reported dimensions.
 const (
-	DefaultRows = 40
-	DefaultCols = 100
+	DefaultRows  = 40
+	DefaultCols  = 100
+	fallbackTerm = "xterm-256color"
 )
 
 // Host owns a child process and its controlling PTY. Construct via Spawn.
@@ -70,10 +74,11 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
 	}
+	env := appendTerminalEnvDefaults(opts.Env)
 	if opts.ReplaceEnv {
-		cmd.Env = append([]string{}, opts.Env...)
+		cmd.Env = env
 	} else {
-		cmd.Env = append(os.Environ(), opts.Env...)
+		cmd.Env = append(os.Environ(), env...)
 	}
 
 	master, err := cpty.StartWithSize(cmd, &cpty.Winsize{Rows: opts.Rows, Cols: opts.Cols})
@@ -83,6 +88,38 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	h := &Host{Cmd: cmd, Master: master, hub: NewHub(DefaultRingSize)}
 	go h.readMaster()
 	return h, nil
+}
+
+func appendTerminalEnvDefaults(env []string) []string {
+	out := append([]string{}, env...)
+	if !hasEnvKey(out, "TERM") {
+		out = append(out, "TERM="+defaultTerm())
+	}
+	if !hasEnvKey(out, "COLORTERM") {
+		out = append(out, "COLORTERM=truecolor")
+	}
+	return out
+}
+
+func defaultTerm() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fallbackTerm
+	}
+	if _, ok := terminfo.InstalledPath(home); ok {
+		return terminfo.XtermGhostty
+	}
+	return fallbackTerm
+}
+
+func hasEnvKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func NewVirtualHost(write func([]byte) (int, error), close func() error, wait func() error) *Host {
