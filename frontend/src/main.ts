@@ -13,6 +13,7 @@ import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
 import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
+import { subscribePushFromGesture } from "./push";
 
 type SessionInfo = {
   session_id: string;
@@ -195,6 +196,7 @@ function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: S
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("FILES", () => filesPanel.toggle()),
+    controlButton("PUSH", () => enablePush()),
     controlButton("MAC", () => postHandover(info, "mac")),
     controlButton("PHONE", () => postHandover(info, "phone")),
     controlButton("INT", () => postControl(info.session_id, "interrupt")),
@@ -228,6 +230,17 @@ function controlButton(label: string, action: () => void): HTMLButtonElement {
     }
   });
   return el;
+}
+
+function enablePush(): void {
+  void (async () => {
+    try {
+      await subscribePushFromGesture(postJSON);
+      showToast("Push enabled.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Push unavailable.");
+    }
+  })();
 }
 
 function postControl(sessionID: string, action: string): void {
