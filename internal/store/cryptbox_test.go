@@ -66,3 +66,55 @@ func TestOpenWithStoreKeyInjectsCryptBox(t *testing.T) {
 		t.Fatalf("opened = %q", opened)
 	}
 }
+
+func TestCryptBoxRejectsWrongAAD(t *testing.T) {
+	box := newTestCryptBox(t)
+	sealed, err := box.Seal(context.Background(), []byte("secret"), RowAAD("table", "row-1", "col"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := box.Open(context.Background(), sealed, RowAAD("table", "row-2", "col")); err == nil {
+		t.Fatal("expected AAD mismatch error")
+	}
+}
+
+func TestCryptBoxRejectsTamperedCiphertext(t *testing.T) {
+	box := newTestCryptBox(t)
+	sealed, err := box.Seal(context.Background(), []byte("secret"), RowAAD("table", "row-1", "col"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed[len(sealed)-2] ^= 1
+	if _, err := box.Open(context.Background(), sealed, RowAAD("table", "row-1", "col")); err == nil {
+		t.Fatal("expected tampered ciphertext error")
+	}
+}
+
+func TestCryptBoxEmptyPlaintext(t *testing.T) {
+	box := newTestCryptBox(t)
+	aad := RowAAD("table", "row-1", "col")
+	sealed, err := box.Seal(context.Background(), nil, aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := box.Open(context.Background(), sealed, aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opened) != 0 {
+		t.Fatalf("opened len = %d", len(opened))
+	}
+}
+
+func newTestCryptBox(t *testing.T) *CryptBox {
+	t.Helper()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := NewCryptBox(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return box
+}
