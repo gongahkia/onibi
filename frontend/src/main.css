@@ -130,6 +130,11 @@
   min-width: 3ch;
 }
 
+.approval-diff-summary {
+  margin-bottom: 8px;
+  color: var(--muted-fg);
+}
+
 @media (orientation: portrait) {
   .approval-diff .d2h-files-diff {
     display: block;

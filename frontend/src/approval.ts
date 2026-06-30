@@ -2,6 +2,9 @@ import type { ApprovalDecidedPayload, ApprovalRequestedPayload, EventEnvelope } 
 
 type Diff2HtmlUIModule = typeof import("diff2html/lib/ui/js/diff2html-ui-slim.js");
 
+const maxInlineDiffLines = 500;
+const maxInlineDiffBytes = 50 * 1024;
+
 type ApprovalCard = {
   payload: ApprovalRequestedPayload;
   element: HTMLElement;
@@ -54,8 +57,7 @@ export class ApprovalOverlay {
     input.className = "approval-input";
     if (payload.unified_diff !== undefined && payload.unified_diff !== "") {
       input.classList.add("approval-diff");
-      input.textContent = "Loading diff...";
-      void renderUnifiedDiff(input, payload.unified_diff);
+      prepareUnifiedDiff(input, payload.unified_diff);
     } else {
       input.append(...lineNodes(payload.scrubbed_input));
     }
@@ -147,6 +149,24 @@ function loadDiff2HtmlUI(): Promise<Diff2HtmlUIModule> {
   return diff2htmlUILoad;
 }
 
+function prepareUnifiedDiff(target: HTMLElement, diff: string): void {
+  const lines = lineCount(diff);
+  if (lines > maxInlineDiffLines || byteCount(diff) > maxInlineDiffBytes) {
+    const summary = document.createElement("div");
+    summary.className = "approval-diff-summary";
+    summary.textContent = `${lines} line diff`;
+    const show = button(`Show more (${lines} lines)`, "secondary");
+    show.addEventListener("click", () => {
+      target.textContent = "Loading diff...";
+      void renderUnifiedDiff(target, diff);
+    }, { once: true });
+    target.replaceChildren(summary, show);
+    return;
+  }
+  target.textContent = "Loading diff...";
+  void renderUnifiedDiff(target, diff);
+}
+
 async function renderUnifiedDiff(target: HTMLElement, diff: string): Promise<void> {
   try {
     const { Diff2HtmlUI } = await loadDiff2HtmlUI();
@@ -167,6 +187,17 @@ async function renderUnifiedDiff(target: HTMLElement, diff: string): Promise<voi
 
 function diffOutputFormat(): "line-by-line" | "side-by-side" {
   return window.matchMedia("(orientation: landscape)").matches ? "side-by-side" : "line-by-line";
+}
+
+function lineCount(value: string): number {
+  if (value === "") {
+    return 0;
+  }
+  return value.split(/\r\n|\r|\n/).length;
+}
+
+function byteCount(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 async function defaultPostJSON(path: string, body: Record<string, string>): Promise<Response> {
