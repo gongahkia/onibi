@@ -125,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/sw.js", s.handleStaticFile("dist/sw.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/icons/", s.handleIcons)
 	mux.HandleFunc("/assets/", s.handleAssets)
+	mux.HandleFunc("/fonts/", s.handleFonts)
 	mux.HandleFunc("/control", s.handleControl)
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
@@ -301,6 +302,25 @@ func (s *Server) handleIcons(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.StripPrefix("/icons/", http.FileServer(http.FS(icons))).ServeHTTP(w, r)
+}
+
+func (s *Server) handleFonts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := s.authenticate(r); err != nil {
+		s.log.Warn("web font auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "remote", remoteHost(r.RemoteAddr), "path", r.URL.Path)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	fonts, err := fs.Sub(webstatic.FS, "fonts")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.StripPrefix("/fonts/", http.FileServer(http.FS(fonts))).ServeHTTP(w, r)
 }
 
 func (s *Server) handleStaticFile(path, contentType string) http.HandlerFunc {

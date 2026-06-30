@@ -119,6 +119,7 @@ func TestPWAStaticFilesRequireAuthAndServe(t *testing.T) {
 		{"/manifest.webmanifest", "application/manifest+json"},
 		{"/sw.js", "application/javascript"},
 		{"/icons/onibi-192.png", "image/png"},
+		{"/fonts/JetBrainsMono-Regular.woff2", "font/woff2"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		req.AddCookie(cookie)
