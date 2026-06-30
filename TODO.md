@@ -385,8 +385,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: hybrid model — .onibi/workspace.toml per project (committed, shareable defaults) + ~/.onibi/workspaces/<name>.toml (private index, never committed). Inspired by VS Code .code-workspace (https://code.visualstudio.com/docs/editor/workspaces) + asdf .tool-versions.
 
-(C) 2026-06-29 docs/workspaces.md: team-share pattern (commit .onibi/, git pull, onibi workspace use ./.onibi); difference between committed defaults and private index +phaseQ2 @docs file:docs/workspaces.md id:T2275
-
 ### Phase Q3 — Cockpit visual + sharing (~5.5 weeks)
 
 #### Q3a — B: Ghostty depth (supersedes T1500–T1504)

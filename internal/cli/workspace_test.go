@@ -93,6 +93,26 @@ func TestWorkspaceImportBundleUse(t *testing.T) {
 	}
 }
 
+func TestWorkspaceUsePathImportsAndSetsDefault(t *testing.T) {
+	workspaceTestHome(t)
+	repo := filepath.Join(t.TempDir(), "repo")
+	onibiDir := filepath.Join(repo, ".onibi")
+	if err := os.MkdirAll(onibiDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(onibiDir, "workspace.toml"), []byte("schema_version = 1\nname = \"gamma\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRoot(t, "workspace", "use", onibiDir, "--color", "never")
+	if !strings.Contains(out.String(), "Workspace default: gamma") {
+		t.Fatalf("out = %q", out.String())
+	}
+	out, _ = executeRoot(t, "workspace", "list", "--color", "never")
+	if !strings.Contains(out.String(), "* gamma") || !strings.Contains(out.String(), repo) {
+		t.Fatalf("list = %q", out.String())
+	}
+}
+
 func workspaceTestHome(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()

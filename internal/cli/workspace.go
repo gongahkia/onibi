@@ -44,7 +44,7 @@ func workspaceCmd() *cobra.Command {
 		RunE:  runWorkspaceList,
 	}
 	use := &cobra.Command{
-		Use:   "use <name>",
+		Use:   "use <name|path>",
 		Short: "Set the default workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runWorkspaceUse,
@@ -158,10 +158,13 @@ func runWorkspaceUse(cmd *cobra.Command, args []string) error {
 	ctx := nonNilContext(cmd.Context())
 	entry, ok, err := wsStore.Get(ctx, name)
 	if err != nil {
+		if pathErr := runWorkspaceUsePath(cmd, db, wsStore, args[0]); pathErr == nil {
+			return nil
+		}
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("workspace %q not found", name)
+		return runWorkspaceUsePath(cmd, db, wsStore, args[0])
 	}
 	entry.LastSeen = time.Now().UTC()
 	if err := wsStore.Upsert(ctx, entry); err != nil {
@@ -175,6 +178,31 @@ func runWorkspaceUse(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Workspace default: %s\n", name)
+	return nil
+}
+
+func runWorkspaceUsePath(cmd *cobra.Command, db *store.DB, wsStore *onibiworkspace.DBStore, arg string) error {
+	projectFile, err := projectFileFromArg(arg)
+	if err != nil {
+		return fmt.Errorf("workspace %q not found", arg)
+	}
+	cfg, err := onibiworkspace.LoadProjectConfig(projectFile.Path)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := saveWorkspaceBinding(nonNilContext(cmd.Context()), wsStore, onibiworkspace.IndexEntry{
+		Name:             cfg.Name,
+		Path:             projectFile.Root,
+		LastSeen:         now,
+		DefaultTransport: cfg.Transports.Default,
+	}); err != nil {
+		return err
+	}
+	if err := onibiworkspace.SetDefaultName(nonNilContext(cmd.Context()), db, cfg.Name); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Workspace default: %s\n", cfg.Name)
 	return nil
 }
 

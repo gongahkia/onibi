@@ -121,6 +121,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
+- [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
 - [`docs/pricing.md`](./docs/pricing.md): budget pricing table and update notes.
