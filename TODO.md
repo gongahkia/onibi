@@ -395,7 +395,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: Shiki v4.3.0 (https://shiki.style) — TextMate grammars, matches VS Code output, ~100KB gz core, lazy per-language loads. Reuses existing terminal theme so file view and terminal share a palette.
 
-(A) 2026-06-29 PUT /files/content?session=<id>&path=<rel> writes via approval queue: emits synthetic FileEdit event with unified diff (Q1a G fires); returns 202 with approval_id; client polls /approval/<id> or waits on /ws/events; never bypasses approval +phaseQ3 @backend file:internal/web/files.go id:T2322 blocked-by:T2321 accept:writes-respect-approval-queue
 (A) 2026-06-29 frontend/src/files.ts file tree panel: collapsible left drawer; clicking a file opens viewer pane; viewer renders via codeToHtml(src, {lang: detectFromExt(path), theme: currentTerminalTheme}); language detection by extension +phaseQ3 @frontend file:frontend/src/files.ts id:T2323 blocked-by:T2322 accept:js-files-syntax-highlight
 (A) 2026-06-29 Add shiki@^4.3.0 to frontend/package.json; lazy import('shiki/langs/go.mjs') etc. per file extension; pre-bundle ts/js/json/go/python/rust/zig/markdown +phaseQ3 @build file:frontend/package.json id:T2324 blocked-by:T2323 accept:size-check-passes-with-lazy-langs
 (B) 2026-06-29 Edit mode toggle in viewer header (✎ icon) → contenteditable monospace; tap Save → PUT through approval queue (T2322) → diff card overlay (G) appears for confirmation +phaseQ3 @frontend file:frontend/src/files.ts id:T2325 blocked-by:T2324 accept:edit-cycles-through-approval

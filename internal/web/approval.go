@@ -17,6 +17,10 @@ type approvalDecisionRequest struct {
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
+	if r.Method == http.MethodGet {
+		s.handleApprovalGet(w, r, started)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -85,6 +89,47 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (s *Server) handleApprovalGet(w http.ResponseWriter, r *http.Request, started time.Time) {
+	if _, ok := s.requireHTTPAuth(w, r); !ok {
+		return
+	}
+	if s.approvalQueue == nil {
+		s.log.Warn("web approval status failed", "request_id", requestID(r), "reason", "queue_unavailable", "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		http.Error(w, "approval queue unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "approval id required", http.StatusBadRequest)
+		return
+	}
+	a, err := s.approvalQueue.Get(r.Context(), id)
+	if err != nil {
+		s.log.Warn("web approval status lookup failed", "request_id", requestID(r), "approval_id", id, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		writeApprovalError(w, err)
+		return
+	}
+	payload := map[string]any{
+		"id":         a.ID,
+		"session_id": a.SessionID,
+		"agent":      a.Agent,
+		"tool":       a.Tool,
+		"state":      a.State,
+		"expires_at": a.ExpiresAt.UTC().Format(time.RFC3339Nano),
+	}
+	if a.Reason != "" {
+		payload["reason"] = a.Reason
+	}
+	if !a.DecidedAt.IsZero() {
+		payload["decided_at"] = a.DecidedAt.Unix()
+	}
+	if details := approvals.ExtractDetails(a.Tool, a.InputJSON); details.FilePath != "" {
+		payload["file_path"] = details.FilePath
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func mapApprovalVerdict(v string) (approvals.Verdict, error) {

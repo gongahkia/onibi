@@ -42,18 +42,25 @@ func (s *Server) e2eCodec(sessionID string, info string) (*envelope.Codec, error
 }
 
 func (s *Server) readJSONBody(w http.ResponseWriter, r *http.Request, ownerSessionID string, dst any) bool {
+	return s.readJSONBodyLimit(w, r, ownerSessionID, dst, 1<<20)
+}
+
+func (s *Server) readJSONBodyLimit(w http.ResponseWriter, r *http.Request, ownerSessionID string, dst any, limit int64) bool {
+	if limit <= 0 {
+		limit = 1 << 20
+	}
 	codec, err := s.e2eCodec(ownerSessionID, "http:"+r.Method+":"+r.URL.Path)
 	if err != nil {
 		s.log.Warn("web e2e unavailable", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "err", err)
 		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
 		return false
 	}
-	body, err := envelope.ReadAllLimited(http.MaxBytesReader(w, r.Body, 1<<20), 1<<20)
+	body, err := envelope.ReadAllLimited(http.MaxBytesReader(w, r.Body, limit+1), limit)
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return false
 	}
-	if len(body) > 1<<20 {
+	if int64(len(body)) > limit {
 		http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
 		return false
 	}
