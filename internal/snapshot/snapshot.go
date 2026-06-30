@@ -18,10 +18,11 @@ import (
 	"github.com/gongahkia/onibi/internal/pty"
 )
 
-type Session interface {
+type Source interface {
 	SnapshotID() string
 	SnapshotName() string
 	SnapshotAgent() string
+	SnapshotCommand() string
 	SnapshotCWD() string
 	SnapshotPID() int
 	SnapshotHost() *pty.Host
@@ -32,6 +33,7 @@ type Snapshot struct {
 	SessionID        string
 	SessionName      string
 	Agent            string
+	Command          string
 	PID              int
 	CreatedAt        time.Time
 	RingBuffer       []byte
@@ -47,11 +49,11 @@ type Options struct {
 
 var execCommandContext = exec.CommandContext
 
-func Take(s Session) (Snapshot, error) {
+func Take(s Source) (Snapshot, error) {
 	return TakeContext(context.Background(), s, Options{})
 }
 
-func TakeContext(ctx context.Context, s Session, opts Options) (Snapshot, error) {
+func TakeContext(ctx context.Context, s Source, opts Options) (Snapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -75,6 +77,7 @@ func TakeContext(ctx context.Context, s Session, opts Options) (Snapshot, error)
 		SessionID:   id,
 		SessionName: strings.TrimSpace(s.SnapshotName()),
 		Agent:       strings.TrimSpace(s.SnapshotAgent()),
+		Command:     strings.TrimSpace(s.SnapshotCommand()),
 		PID:         pid,
 		CreatedAt:   time.Now().UTC(),
 		RingBuffer:  captureRing(s),
@@ -87,7 +90,7 @@ func TakeContext(ctx context.Context, s Session, opts Options) (Snapshot, error)
 	return out, nil
 }
 
-func captureRing(s Session) []byte {
+func captureRing(s Source) []byte {
 	if h := s.SnapshotHost(); h != nil {
 		if replay := h.ReplaySince(0); len(replay.Data) > 0 {
 			return append([]byte(nil), replay.Data...)

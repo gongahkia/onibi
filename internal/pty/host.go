@@ -170,6 +170,13 @@ func (h *Host) ReplaySince(seq uint64) Replay {
 	return h.hub.ReplaySince(seq)
 }
 
+func (h *Host) SeedReplay(p []byte) {
+	if h == nil || h.hub == nil || len(p) == 0 {
+		return
+	}
+	_, _ = h.hub.Write(p)
+}
+
 func (h *Host) Resize(rows, cols uint16) error {
 	if rows == 0 || cols == 0 {
 		return errors.New("pty: rows and cols must be non-zero")

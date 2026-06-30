@@ -26,6 +26,7 @@ type fakeSession struct {
 func (s fakeSession) SnapshotID() string      { return s.id }
 func (s fakeSession) SnapshotName() string    { return s.name }
 func (s fakeSession) SnapshotAgent() string   { return s.agent }
+func (s fakeSession) SnapshotCommand() string { return "echo ok" }
 func (s fakeSession) SnapshotCWD() string     { return s.cwd }
 func (s fakeSession) SnapshotPID() int        { return s.pid }
 func (s fakeSession) SnapshotHost() *pty.Host { return s.host }

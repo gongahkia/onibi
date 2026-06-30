@@ -23,6 +23,13 @@ func (s *Session) SnapshotAgent() string {
 	return s.Agent
 }
 
+func (s *Session) SnapshotCommand() string {
+	if s == nil {
+		return ""
+	}
+	return s.Cmd
+}
+
 func (s *Session) SnapshotCWD() string {
 	if s == nil {
 		return ""
