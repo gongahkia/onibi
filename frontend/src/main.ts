@@ -1,3 +1,4 @@
+import "./main.css";
 import { TerminalWS } from "./ws";
 import { applyTerminalTheme, attachTerminalIO, createTerminal, installTouchScroll, installViewportResize } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
