@@ -101,7 +101,7 @@ async function boot(): Promise<void> {
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
     timeline = new TimelinePanel(timelineRoot, info.session_id);
-    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, () => theme);
+    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, putJSON, () => theme, showToast);
     installControls(toolbar, info, snapshots, timeline, filesPanel);
     new SoftKeyBar({
       root: softkeys,
@@ -278,12 +278,21 @@ function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
 }
 
 async function postJSON(path: string, body: Record<string, unknown>): Promise<Response> {
+  return sendJSON("POST", path, body);
+}
+
+async function putJSON(path: string, body: Record<string, unknown>): Promise<Response> {
+  return sendJSON("PUT", path, body);
+}
+
+async function sendJSON(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<Response> {
   const raw = JSON.stringify(body);
+  const routePath = new URL(path, window.location.href).pathname;
   return fetch(path, {
-    method: "POST",
+    method,
     credentials: "same-origin",
     headers: { "Content-Type": relayE2E === undefined ? "application/json" : "application/vnd.onibi.e2e+json" },
-    body: relayE2E === undefined ? raw : await relayE2E.sealText(raw, `http:POST:${path}`)
+    body: relayE2E === undefined ? raw : await relayE2E.sealText(raw, `http:${method}:${routePath}`)
   });
 }
 

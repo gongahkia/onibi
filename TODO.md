@@ -395,7 +395,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: Shiki v4.3.0 (https://shiki.style) — TextMate grammars, matches VS Code output, ~100KB gz core, lazy per-language loads. Reuses existing terminal theme so file view and terminal share a palette.
 
-(B) 2026-06-29 Edit mode toggle in viewer header (✎ icon) → contenteditable monospace; tap Save → PUT through approval queue (T2322) → diff card overlay (G) appears for confirmation +phaseQ3 @frontend file:frontend/src/files.ts id:T2325 blocked-by:T2324 accept:edit-cycles-through-approval
 (B) 2026-06-29 docs/files-panel.md security model: file ops scoped to session cwd, mediated by approval queue, no path escape, max-size guard, viewer role denied +phaseQ3 @docs file:docs/files-panel.md id:T2326 blocked-by:T2325
 
 #### Q3c — AD: Web Push (iOS 16.4+ PWA)

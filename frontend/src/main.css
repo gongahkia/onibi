@@ -762,9 +762,33 @@
   box-sizing: border-box;
   border-bottom: 1px solid var(--chrome-border);
   padding: 0 8px;
+}
+
+.files-viewer-title,
+.files-viewer-status {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.files-viewer-title {
+  flex: 1 1 auto;
+}
+
+.files-viewer-status {
+  flex: 0 1 auto;
+  max-width: 22ch;
+}
+
+.files-viewer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.files-viewer-actions .control-button {
+  min-width: 36px;
 }
 
 .files-code-shell {
@@ -794,6 +818,14 @@
 
 .files-code-shell code {
   font-family: var(--mono-font);
+}
+
+.files-editor {
+  outline: none;
+}
+
+.files-editor:focus {
+  box-shadow: inset 0 0 0 1px var(--button-active-border);
 }
 
 .files-empty {

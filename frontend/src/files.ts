@@ -1,6 +1,7 @@
 import type { TerminalThemeName } from "./terminal";
 
 type FetchJSON = <T>(path: string) => Promise<T>;
+type SendJSON = (path: string, body: Record<string, unknown>) => Promise<Response>;
 
 type FileTreeResponse = {
   session_id: string;
@@ -58,16 +59,24 @@ let highlighterPromise: Promise<ShikiHighlighter> | undefined;
 export class FilesPanel {
   private tree: FileTreeResponse | undefined;
   private selectedPath = "";
+  private selectedBinary = false;
+  private currentContent = "";
+  private editContent = "";
   private viewerHTML = "";
   private status = "";
+  private viewerStatus = "";
   private loadingTree = false;
   private openSeq = 0;
+  private editing = false;
+  private editor: HTMLElement | undefined;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly sessionID: string,
     private readonly fetchJSON: FetchJSON,
-    private readonly getTheme: () => TerminalThemeName
+    private readonly sendJSON: SendJSON,
+    private readonly getTheme: () => TerminalThemeName,
+    private readonly showToast: (message: string) => void
   ) {}
 
   toggle(): void {
@@ -101,6 +110,11 @@ export class FilesPanel {
   private async openFile(path: string): Promise<void> {
     const seq = ++this.openSeq;
     this.selectedPath = path;
+    this.selectedBinary = false;
+    this.currentContent = "";
+    this.editContent = "";
+    this.editing = false;
+    this.viewerStatus = "";
     this.viewerHTML = `<div class="files-empty">loading</div>`;
     this.render();
     try {
@@ -109,9 +123,12 @@ export class FilesPanel {
         return;
       }
       if (file.binary) {
+        this.selectedBinary = true;
         this.viewerHTML = `<div class="files-empty">binary ${escapeHTML(file.mime)} / ${formatBytes(file.size)}</div>`;
       } else {
-        this.viewerHTML = await codeToHtml(file.content ?? "", { lang: detectFromExt(file.path), theme: this.getTheme() });
+        this.currentContent = file.content ?? "";
+        this.editContent = this.currentContent;
+        this.viewerHTML = await codeToHtml(this.currentContent, { lang: detectFromExt(file.path), theme: this.getTheme() });
       }
       this.render();
     } catch {
@@ -161,10 +178,35 @@ export class FilesPanel {
     viewer.className = "files-viewer";
     const viewerHead = document.createElement("div");
     viewerHead.className = "files-viewer-head";
-    viewerHead.textContent = this.selectedPath || this.tree?.root || "";
+    const viewerTitle = document.createElement("div");
+    viewerTitle.className = "files-viewer-title";
+    viewerTitle.textContent = this.selectedPath || this.tree?.root || "";
+    const viewerStatus = document.createElement("div");
+    viewerStatus.className = "files-viewer-status";
+    viewerStatus.textContent = this.viewerStatus;
+    const viewerActions = document.createElement("div");
+    viewerActions.className = "files-viewer-actions";
+    if (this.selectedPath !== "" && !this.selectedBinary) {
+      if (this.editing) {
+        viewerActions.append(panelButton("Save", () => void this.saveEdit()), panelButton("Cancel", () => this.cancelEdit()));
+      } else {
+        viewerActions.append(panelButton("✎", () => this.startEdit()));
+      }
+    }
+    viewerHead.append(viewerTitle, viewerStatus, viewerActions);
     const code = document.createElement("div");
     code.className = "files-code-shell";
-    code.innerHTML = this.viewerHTML || `<div class="files-empty">select a file</div>`;
+    if (this.editing) {
+      this.editor = document.createElement("pre");
+      this.editor.className = "files-code files-editor";
+      this.editor.contentEditable = "true";
+      this.editor.spellcheck = false;
+      this.editor.textContent = this.editContent;
+      code.append(this.editor);
+    } else {
+      this.editor = undefined;
+      code.innerHTML = this.viewerHTML || `<div class="files-empty">select a file</div>`;
+    }
     viewer.append(viewerHead, code);
 
     body.append(tree, viewer);
@@ -193,6 +235,47 @@ export class FilesPanel {
     button.title = entry.path;
     button.addEventListener("click", () => void this.openFile(entry.path));
     return button;
+  }
+
+  private startEdit(): void {
+    this.editing = true;
+    this.editContent = this.currentContent;
+    this.viewerStatus = "";
+    this.render();
+    this.editor?.focus();
+  }
+
+  private cancelEdit(): void {
+    this.editing = false;
+    this.editContent = this.currentContent;
+    this.viewerStatus = "";
+    this.render();
+  }
+
+  private async saveEdit(): Promise<void> {
+    if (this.selectedPath === "" || this.editor === undefined) {
+      return;
+    }
+    this.editContent = this.editor.textContent ?? "";
+    this.viewerStatus = "queueing";
+    this.render();
+    const path = `/files/content?session=${encodeURIComponent(this.sessionID)}&path=${encodeURIComponent(this.selectedPath)}`;
+    const response = await this.sendJSON(path, { content: this.editContent });
+    if (!response.ok) {
+      this.viewerStatus = await response.text();
+      this.render();
+      return;
+    }
+    let approvalID = "";
+    try {
+      approvalID = ((await response.json()) as { approval_id?: string }).approval_id ?? "";
+    } catch {
+      approvalID = "";
+    }
+    this.editing = false;
+    this.viewerStatus = approvalID === "" ? "pending approval" : `approval ${shortID(approvalID)}`;
+    this.showToast("File edit queued for approval.");
+    this.render();
   }
 }
 
@@ -326,6 +409,10 @@ function formatBytes(size: number): string {
     return `${(size / 1024).toFixed(1)} KiB`;
   }
   return `${(size / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function shortID(id: string): string {
+  return id.length <= 8 ? id : id.slice(0, 8);
 }
 
 function escapeHTML(value: string): string {
