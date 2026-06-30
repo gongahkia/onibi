@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -91,6 +92,18 @@ func GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
 	return store.GetOrCreateStoreKey(ctx)
 }
 
+func SetStoreKey(ctx context.Context, key []byte) error {
+	path, err := DefaultStoreKeyFallbackPath()
+	if err != nil {
+		return err
+	}
+	store, err := Open(Options{EnvFallbackPath: path, PreferDotenv: forceDotenvStoreKey()})
+	if err != nil {
+		return err
+	}
+	return store.SetStoreKey(ctx, key)
+}
+
 func forceDotenvStoreKey() bool {
 	if strings.EqualFold(os.Getenv("ONIBI_STORE_KEY_BACKEND"), "dotenv") {
 		return true
@@ -140,6 +153,30 @@ func (s *Store) GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("store key write did not persist")
 	}
 	return decodeStoreKey(value)
+}
+
+func (s *Store) SetStoreKey(ctx context.Context, key []byte) error {
+	if len(key) != envelope.KeyBytes {
+		return fmt.Errorf("store key must be %d bytes", envelope.KeyBytes)
+	}
+	if err := s.setContext(ctx, StoreKeyName, base64.RawURLEncoding.EncodeToString(key)); err != nil {
+		return err
+	}
+	value, ok, err := s.getContext(ctx, StoreKeyName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("store key write did not persist")
+	}
+	opened, err := decodeStoreKey(value)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(opened, key) {
+		return errors.New("store key readback mismatch")
+	}
+	return nil
 }
 
 // Set stores value under key. For .env, writes the file atomically with
