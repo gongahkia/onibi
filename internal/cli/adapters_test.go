@@ -123,6 +123,24 @@ func TestAdaptersValidateManifestReportsLineNumber(t *testing.T) {
 	}
 }
 
+func TestExampleAiderAdapterValidatesAddsAndInstalls(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	t.Setenv("ONIBI_ADAPTERS_DIR", filepath.Join(home, ".config", "onibi", "adapters"))
+	path := filepath.Join("..", "..", "examples", "aider-adapter", "aider.toml")
+	executeRoot(t, "adapters", "validate", path, "--color", "never")
+	executeRoot(t, "adapters", "add", path, "--color", "never")
+	executeRoot(t, "install-hooks", "--agent", "aider", "--color", "never")
+	for _, want := range []string{
+		filepath.Join(home, ".config", "onibi", "aider", "aider.onibi.conf.yml"),
+		filepath.Join(home, ".local", "bin", "onibi-aider-event"),
+		filepath.Join(home, ".local", "bin", "onibi-aider-approval"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testAdapterManifest(name, installPath string) string {
 	installCmd := "printf installed > " + strconv.Quote(installPath)
 	uninstallCmd := "printf uninstalled > " + strconv.Quote(installPath)

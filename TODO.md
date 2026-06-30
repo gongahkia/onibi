@@ -352,8 +352,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q0c — F: Plugin / adapter SDK + SPEC.md
 
-(B) 2026-06-29 examples/aider-adapter/aider.toml + README: walks through onibi adapters add ./examples/aider-adapter/aider.toml then onibi install-hooks --agent aider then a sample approval flow +phaseQ0 @docs file:examples/aider-adapter/ id:T2064 accept:reference-adapter-works-end-to-end
-(B) 2026-06-29 Compat section in SPEC.md: adapters declaring min_onibi_version higher than the running daemon refuse to load with a clear human-readable error +phaseQ0 @docs file:docs/SPEC-adapters.md id:T2065 blocked-by:T2064 accept:incompatible-adapter-rejected
+(B) 2026-06-29 Compat section in SPEC.md: adapters declaring min_onibi_version higher than the running daemon refuse to load with a clear human-readable error +phaseQ0 @docs file:docs/SPEC-adapters.md id:T2065 accept:incompatible-adapter-rejected
 (C) 2026-06-29 docs/adapters-registry.md: link-list of community-shipped adapters; do NOT host a SaaS registry; pure README list maintained by PRs +phaseQ0 @docs file:docs/adapters-registry.md id:T2066 blocked-by:T2065
 
 ### Phase Q1 — Approval UX & policy (~3 weeks)
