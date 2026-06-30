@@ -399,7 +399,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked. Hard prereqs (any miss = silent failure): HTTPS end-to-end (no HTTP→HTTPS redirect on the SW path), manifest.webmanifest with display:"standalone", Add-to-Home-Screen required (PushManager is undefined in Safari tab), Notification.requestPermission() inside a user-tap handler. Library: github.com/SherClockHolmes/webpush-go (VAPID + RFC 8291 aes128gcm). iOS-only gotchas: NO silent push — every push event MUST showNotification() or Apple revokes the subscription; NO background sync; SW unreliable post-reboot — refresh subscription on app open. EU DMA users: standalone disabled → zero push support; acknowledge in docs.
 
-(B) 2026-06-29 docs/web-push.md: prerequisites, EU DMA caveat (standalone disabled in EU = no push), troubleshooting (no notif → check standalone mode + permission + VAPID key + 410-Gone log) +phaseQ3 @docs file:docs/web-push.md id:T2345 blocked-by:T2344
 (B) 2026-06-29 Real-iPhone test: install to Home Screen, lock screen, trigger Claude Write from laptop, expect notification on lock screen, tap → opens session with approval card pre-rendered (deep-link via ?approval= query) +phaseQ3 @tests id:T2346 blocked-by:T2345 accept:lock-screen-notification-arrives
 
 #### Q3d — D: Read-only viewer sharing
