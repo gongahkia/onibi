@@ -123,6 +123,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
+- [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
 - [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
