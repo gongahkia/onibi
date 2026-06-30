@@ -371,8 +371,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: rules-only, no ML. Survey: llm-guard (protectai), garak (leondz), Nemo Guardrails. 8 rules selected.
 
-(B) 2026-06-29 Test harness: 8 synthetic agent-action transcripts in internal/anomaly/testdata/ (one per rule); assert each fires exactly its matching rule with zero false positives on a clean control transcript +phaseQ1 @tests file:internal/anomaly/rules_test.go id:T2165 accept:zero-false-positives-on-clean-fixtures
-(C) 2026-06-29 docs/anomaly-detection.md: list all 8 rules with examples, how to add custom rules via adapter manifest (F.SPEC risk_overrides) or via .onibi/anomaly-rules.toml +phaseQ1 @docs file:docs/anomaly-detection.md id:T2166 blocked-by:T2165
+(C) 2026-06-29 docs/anomaly-detection.md: list all 8 rules with examples, how to add custom rules via adapter manifest (F.SPEC risk_overrides) or via .onibi/anomaly-rules.toml +phaseQ1 @docs file:docs/anomaly-detection.md id:T2166
 
 ### Phase Q2 — Session & state model (~5.5 weeks)
 
