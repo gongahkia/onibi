@@ -1,3 +1,4 @@
+import { terminalThemeLabel, terminalThemeNames } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 
 type SoftKeyBarOptions = {
@@ -37,7 +38,7 @@ const keys: KeyDef[] = [
 export class SoftKeyBar {
   private modifier: Modifier | undefined;
   private readonly buttons = new Map<Modifier, HTMLButtonElement>();
-  private readonly themeButton: HTMLButtonElement;
+  private readonly themePicker: HTMLSelectElement;
 
   constructor(private readonly options: SoftKeyBarOptions) {
     const frag = document.createDocumentFragment();
@@ -49,12 +50,8 @@ export class SoftKeyBar {
     frag.append(this.pageButton("PgUp", options.pageUp));
     frag.append(this.pageButton("PgDn", options.pageDown));
     frag.append(this.pasteButton());
-    this.themeButton = this.button(themeLabel(options.getTheme()));
-    this.themeButton.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      this.toggleTheme();
-    });
-    frag.append(this.themeButton);
+    this.themePicker = this.themeSelect(options.getTheme());
+    frag.append(this.themePicker);
     options.root.replaceChildren(frag);
   }
 
@@ -139,13 +136,6 @@ export class SoftKeyBar {
     this.options.focus();
   }
 
-  private toggleTheme(): void {
-    const next = this.options.getTheme() === "dark" ? "light" : "dark";
-    this.options.setTheme(next);
-    this.themeButton.textContent = themeLabel(next);
-    this.options.focus();
-  }
-
   private renderModifier(): void {
     for (const [modifier, button] of this.buttons) {
       button.classList.toggle("active", this.modifier === modifier);
@@ -161,10 +151,25 @@ export class SoftKeyBar {
     el.tabIndex = -1;
     return el;
   }
-}
 
-function themeLabel(theme: TerminalThemeName): string {
-  return theme === "dark" ? "Light" : "Dark";
+  private themeSelect(current: TerminalThemeName): HTMLSelectElement {
+    const el = document.createElement("select");
+    el.className = "softkey-button softkey-theme";
+    el.tabIndex = -1;
+    for (const theme of terminalThemeNames) {
+      const option = document.createElement("option");
+      option.value = theme;
+      option.textContent = terminalThemeLabel(theme);
+      el.append(option);
+    }
+    el.value = current;
+    el.addEventListener("change", () => {
+      const next = el.value as TerminalThemeName;
+      this.options.setTheme(next);
+      this.options.focus();
+    });
+    return el;
+  }
 }
 
 function bytes(...values: number[]): Uint8Array {

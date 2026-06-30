@@ -307,6 +307,15 @@ function documentThemeColor(next: TerminalThemeName): string {
   if (next === "dark") {
     return "#090b0f";
   }
+  if (next === "catppuccin-mocha") {
+    return "#1E1E2E";
+  }
+  if (next === "tokyo-night") {
+    return "#1A1B26";
+  }
+  if (next === "solarized-dark") {
+    return "#002B36";
+  }
   return "#282C34";
 }
 
