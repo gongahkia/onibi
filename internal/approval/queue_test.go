@@ -287,12 +287,12 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	events, unsub := q.Subscribe()
 	defer unsub()
 	ctx := context.Background()
-	id, _, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	id, _, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`, "diff")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ev := readApprovalEvent(t, events)
-	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending {
+	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending || ev.Approval.UnifiedDiff != "diff" {
 		t.Fatalf("request event = %#v", ev)
 	}
 	if err := q.Decide(ctx, id, VerdictDeny, "", "no", 1); err != nil {

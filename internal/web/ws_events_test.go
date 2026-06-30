@@ -58,6 +58,24 @@ func TestWSEventsStreamsApprovalRequestAndDecision(t *testing.T) {
 	}
 }
 
+func TestApprovalEventPayloadIncludesUnifiedDiff(t *testing.T) {
+	payload := approvalEventPayload(approval.Event{
+		Type: approval.EventRequested,
+		Approval: approval.Approval{
+			ID:          "a1",
+			SessionID:   "s1",
+			Agent:       "claude",
+			Tool:        "Write",
+			InputJSON:   `{"file_path":"/tmp/x","content":"new"}`,
+			UnifiedDiff: "--- old\n+++ new\n@@\n-old\n+new\n",
+			ExpiresAt:   time.Now(),
+		},
+	})
+	if payload["unified_diff"] != "--- old\n+++ new\n@@\n-old\n+new\n" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestApprovalPostRejectsUnauthenticated(t *testing.T) {
 	srv, _, cleanup := testEventServer(t)
 	defer cleanup()

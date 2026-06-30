@@ -110,7 +110,7 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 	switch ev.Type {
 	case approval.EventRequested:
 		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
-		return map[string]any{
+		payload := map[string]any{
 			"id":             a.ID,
 			"session_id":     a.SessionID,
 			"agent":          a.Agent,
@@ -120,6 +120,10 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 			"risk_reasons":   risk.Reasons,
 			"expires_at":     a.ExpiresAt.UTC().Format(time.RFC3339Nano),
 		}
+		if a.UnifiedDiff != "" {
+			payload["unified_diff"] = a.UnifiedDiff
+		}
+		return payload
 	case approval.EventExpired:
 		return map[string]any{
 			"id":         a.ID,

@@ -89,7 +89,7 @@ func (q *Queue) Subscribe() (<-chan Event, func()) {
 //   - reading the Decision from the returned channel
 //   - context-cancelling if it gives up (no need to call Cancel — the
 //     waiter map is GC'd when the approval is decided OR purged)
-func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
+func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON string, unifiedDiff ...string) (string, <-chan Decision, error) {
 	id, err := newID()
 	if err != nil {
 		return "", nil, err
@@ -109,17 +109,22 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	q.mu.Lock()
 	q.waiters[id] = ch
 	q.mu.Unlock()
+	diff := ""
+	if len(unifiedDiff) > 0 {
+		diff = unifiedDiff[0]
+	}
 	q.publish(Event{
 		Type: EventRequested,
 		Approval: Approval{
-			ID:        id,
-			SessionID: sessionID,
-			Agent:     agent,
-			Tool:      tool,
-			InputJSON: inputJSON,
-			State:     StatePending,
-			CreatedAt: now,
-			ExpiresAt: exp,
+			ID:          id,
+			SessionID:   sessionID,
+			Agent:       agent,
+			Tool:        tool,
+			InputJSON:   inputJSON,
+			UnifiedDiff: diff,
+			State:       StatePending,
+			CreatedAt:   now,
+			ExpiresAt:   exp,
 		},
 		At: now,
 	})

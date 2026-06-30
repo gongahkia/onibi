@@ -56,20 +56,21 @@ func StateForVerdict(v Verdict) string {
 // Approval is the in-memory record of a pending or decided approval.
 // Persistence schema lives in internal/store (table: approvals).
 type Approval struct {
-	ID         string
-	SessionID  string
-	Agent      string
-	Tool       string
-	InputJSON  string // raw tool input as provided by the hook
-	State      string
-	EditedJSON string // populated when State == StateEdited
-	Reason     string // populated when State == StateDenied/Expired/Cancelled
-	MsgID      int64  // legacy rendered-message id
-	ChatID     int64  // legacy target id
-	CreatedAt  time.Time
-	DecidedAt  time.Time
-	ExpiresAt  time.Time
-	DecidedBy  int64 // deciding actor id (audit)
+	ID          string
+	SessionID   string
+	Agent       string
+	Tool        string
+	InputJSON   string // raw tool input as provided by the hook
+	UnifiedDiff string // redacted best-effort diff for edit-like tools
+	State       string
+	EditedJSON  string // populated when State == StateEdited
+	Reason      string // populated when State == StateDenied/Expired/Cancelled
+	MsgID       int64  // legacy rendered-message id
+	ChatID      int64  // legacy target id
+	CreatedAt   time.Time
+	DecidedAt   time.Time
+	ExpiresAt   time.Time
+	DecidedBy   int64 // deciding actor id (audit)
 }
 
 // Decision is what the queue returns to the parked waiter (the blocked hook).
