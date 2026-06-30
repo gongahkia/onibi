@@ -9,10 +9,32 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/gongahkia/onibi/internal/anomaly"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/web"
 )
+
+const anomalyRequestedEvent = "anomaly.requested"
+
+var signalAnomalyProcessGroup = signalSessionProcessGroup
+
+type anomalyEvent struct {
+	ApprovalID string `json:"approval_id"`
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent,omitempty"`
+	RuleName   string `json:"rule_name"`
+	Evidence   string `json:"evidence"`
+	Paused     bool   `json:"paused"`
+}
+
+type approvalAnomaly struct {
+	finding anomaly.Finding
+	paused  bool
+}
 
 func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	s, reason := d.sessionForEvent(ev)
@@ -22,12 +44,13 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 	ev.Session = s.ID
 	d.appendEventOutput(s, ev)
+	hit := d.detectApprovalAnomaly(ctx, s, ev)
 	budgetWarn := d.budgetWarningForApproval(ctx, s, ev)
-	if budgetWarn == nil {
+	if budgetWarn == nil && hit == nil {
 		if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
 			return resp, nil
 		}
-	} else {
+	} else if budgetWarn != nil {
 		d.audit(ctx, "budget.warn", s.ID, "", 0, fmt.Sprintf("scope=%s projected=%d limit=%d action=%s", budgetWarn.Scope, budgetWarn.ProjectedTokens, budgetWarn.LimitTokens, budgetWarn.OnOverrun))
 		d.publishToast(budgetWarn.Message)
 	}
@@ -36,6 +59,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	if err != nil {
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}
+	d.publishApprovalAnomaly(approvalID, s, ev, hit)
 	a, getErr := d.Queue.Get(ctx, approvalID)
 	if getErr != nil {
 		return intake.Response{Decision: "cancelled", Reason: getErr.Error()}, nil
@@ -47,11 +71,114 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	d.audit(ctx, "approval.request", ev.Session, ev.InputJSON, 0, fmt.Sprintf("tool=%s id=%s", ev.Tool, approvalID))
 	select {
 	case dec := <-ch:
+		d.resumeApprovalAnomaly(ctx, s, hit, dec)
 		return responseForDecision(dec, ev), nil
 	case <-ctx.Done():
 		_ = d.Queue.Cancel(context.Background(), approvalID, "daemon shutdown")
 		return intake.Response{Decision: "cancelled", Reason: "daemon shutdown"}, nil
 	}
+}
+
+func (d *Daemon) detectApprovalAnomaly(ctx context.Context, s *Session, ev intake.Event) *approvalAnomaly {
+	action, history, opts := d.recordApprovalAnomalyAction(ctx, s, ev)
+	findings := anomaly.EvaluateOne(history, action, opts)
+	if len(findings) == 0 {
+		return nil
+	}
+	hit := &approvalAnomaly{finding: findings[0]}
+	d.noteAnomaly(ctx, "anomaly."+hit.finding.RuleName)
+	d.audit(ctx, "anomaly.hit", s.ID, ev.InputJSON, 0, "rule="+hit.finding.RuleName)
+	if err := d.pauseSessionForAnomaly(ctx, s, hit.finding); err != nil {
+		d.audit(ctx, "anomaly.pause_error", s.ID, ev.InputJSON, 0, err.Error())
+		return hit
+	}
+	hit.paused = true
+	d.audit(ctx, "anomaly.pause", s.ID, ev.InputJSON, 0, "rule="+hit.finding.RuleName)
+	return hit
+}
+
+func (d *Daemon) recordApprovalAnomalyAction(ctx context.Context, s *Session, ev intake.Event) (anomaly.Action, []anomaly.Action, anomaly.Options) {
+	root := budgetRoot(s, ev)
+	opts := anomaly.Options{WorkspaceRoot: root}
+	if root != "" {
+		loaded, err := anomaly.LoadOptions(root)
+		if err != nil {
+			d.audit(ctx, "anomaly.policy.error", s.ID, "", 0, "root="+root+" err="+err.Error())
+		} else {
+			opts = loaded
+		}
+	}
+	key := s.ID
+	d.mu.Lock()
+	if d.anomalyHistory == nil {
+		d.anomalyHistory = map[string][]anomaly.Action{}
+	}
+	history := append([]anomaly.Action(nil), d.anomalyHistory[key]...)
+	action := anomaly.Action{
+		SessionID: ev.Session,
+		Agent:     ev.Agent,
+		Tool:      ev.Tool,
+		InputJSON: ev.InputJSON,
+		FilePath:  ev.FilePath,
+		CWD:       root,
+		At:        time.Now().UTC(),
+		Turn:      len(history) + 1,
+	}
+	next := append(history, action)
+	if len(next) > 200 {
+		next = next[len(next)-200:]
+	}
+	d.anomalyHistory[key] = next
+	d.mu.Unlock()
+	return action, history, opts
+}
+
+func (d *Daemon) pauseSessionForAnomaly(ctx context.Context, s *Session, finding anomaly.Finding) error {
+	_ = ctx
+	_ = finding
+	if s == nil {
+		return errNoSessionProcessGroup
+	}
+	return signalAnomalyProcessGroup(s, syscall.SIGSTOP)
+}
+
+func (d *Daemon) resumeApprovalAnomaly(ctx context.Context, s *Session, hit *approvalAnomaly, dec approval.Decision) {
+	if hit == nil || !hit.paused || (dec.Verdict != approval.VerdictApprove && dec.Verdict != approval.VerdictEdit) {
+		return
+	}
+	if err := signalAnomalyProcessGroup(s, syscall.SIGCONT); err != nil {
+		d.audit(ctx, "anomaly.resume_error", s.ID, "", 0, err.Error())
+		return
+	}
+	d.audit(ctx, "anomaly.resume", s.ID, "", 0, "rule="+hit.finding.RuleName)
+}
+
+func (d *Daemon) publishApprovalAnomaly(approvalID string, s *Session, ev intake.Event, hit *approvalAnomaly) {
+	if hit == nil || d == nil || d.Events == nil {
+		return
+	}
+	d.Events.Publish(web.Event{Type: anomalyRequestedEvent, Payload: anomalyEvent{
+		ApprovalID: approvalID,
+		SessionID:  s.ID,
+		Agent:      ev.Agent,
+		RuleName:   hit.finding.RuleName,
+		Evidence:   approvalAnomalyEvidence(hit.finding, ev),
+		Paused:     hit.paused,
+	}})
+}
+
+func approvalAnomalyEvidence(finding anomaly.Finding, ev intake.Event) string {
+	var parts []string
+	if strings.TrimSpace(finding.Evidence) != "" {
+		parts = append(parts, finding.Evidence)
+	}
+	if strings.TrimSpace(ev.InputJSON) != "" {
+		parts = append(parts, ev.InputJSON)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return approval.Scrub(strings.Join(parts, "\n"))
 }
 
 func (d *Daemon) handleDemoApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {

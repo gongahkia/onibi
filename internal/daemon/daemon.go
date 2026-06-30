@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/anomaly"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/config"
@@ -79,6 +80,7 @@ type Daemon struct {
 	budgetDailyUnknown    map[string]bool
 	budgetCosts           map[string]budget.CostEvent
 	budgetOverruns        map[string]bool
+	anomalyHistory        map[string][]anomaly.Action
 	started               time.Time
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
@@ -180,6 +182,7 @@ func New(opts Options) *Daemon {
 		budgetDailyUnknown:      map[string]bool{},
 		budgetCosts:             map[string]budget.CostEvent{},
 		budgetOverruns:          map[string]bool{},
+		anomalyHistory:          map[string][]anomaly.Action{},
 		Budget:                  budgetParser,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
