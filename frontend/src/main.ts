@@ -11,6 +11,7 @@ import { RelayE2E } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
+import { WorkspaceSwitcher } from "./workspaces";
 
 type SessionInfo = {
   session_id: string;
@@ -43,6 +44,7 @@ let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
+let workspaceSwitcher: WorkspaceSwitcher | undefined;
 
 attachTerminalIO(term, ws);
 installViewportResize(term, fit, ws);
@@ -117,8 +119,15 @@ async function boot(): Promise<void> {
 
 async function showSessionsHome(): Promise<void> {
   showListChrome();
-  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession);
+  const workspaceControl = document.createElement("div");
+  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, workspaceControl);
   sessionList = list;
+  workspaceSwitcher = new WorkspaceSwitcher(workspaceControl, getJSON, postJSON, (name) => {
+    list.setWorkspace(name);
+    setRouteWorkspace(name);
+  }, showToast);
+  await workspaceSwitcher.load();
+  list.setWorkspace(workspaceSwitcher.current(), false);
   await list.load();
   await connectSessionListEvents();
   splash.hidden = true;
@@ -148,6 +157,16 @@ function routeSessionID(): string | null {
     return querySession;
   }
   return null;
+}
+
+function setRouteWorkspace(name: string): void {
+  const url = new URL(window.location.href);
+  if (name.trim() === "") {
+    url.searchParams.delete("workspace");
+  } else {
+    url.searchParams.set("workspace", name.trim());
+  }
+  window.history.replaceState(null, "", url);
 }
 
 async function getJSON<T>(path: string): Promise<T> {

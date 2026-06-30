@@ -8,6 +8,7 @@ import (
 
 type SessionListOptions struct {
 	IncludeRemote bool
+	Workspace     string
 }
 
 type SessionSummary struct {
@@ -47,7 +48,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func sessionListOptions(r *http.Request) SessionListOptions {
-	return SessionListOptions{IncludeRemote: includeRemoteSessions(r.URL.Query()["include"])}
+	return SessionListOptions{
+		IncludeRemote: includeRemoteSessions(r.URL.Query()["include"]),
+		Workspace:     strings.TrimSpace(r.URL.Query().Get("workspace")),
+	}
 }
 
 func includeRemoteSessions(values []string) bool {

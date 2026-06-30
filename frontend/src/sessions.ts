@@ -38,11 +38,13 @@ export class SessionsListView {
   private rows: SessionSummary[] = [];
   private loading = false;
   private status = "";
+  private workspace = "";
 
   constructor(
     private readonly root: HTMLElement,
     private readonly fetchJSON: FetchJSON,
-    private readonly navigate: (sessionID: string) => void
+    private readonly navigate: (sessionID: string) => void,
+    private readonly workspaceControl?: HTMLElement
   ) {}
 
   async load(): Promise<void> {
@@ -50,11 +52,21 @@ export class SessionsListView {
     this.status = "";
     this.render();
     try {
-      this.rows = await this.fetchJSON<SessionSummary[]>("/sessions?include=remote");
+      this.rows = await this.fetchJSON<SessionSummary[]>(this.sessionsPath());
     } catch {
       this.status = "sessions unavailable";
     } finally {
       this.loading = false;
+      this.render();
+    }
+  }
+
+  setWorkspace(name: string, reload = true): void {
+    this.workspace = name.trim();
+    this.rows = [];
+    if (reload) {
+      void this.load();
+    } else {
       this.render();
     }
   }
@@ -75,6 +87,15 @@ export class SessionsListView {
       return;
     }
     void this.loadCost(payload.session_id);
+  }
+
+  private sessionsPath(): string {
+    const params = new URLSearchParams();
+    params.set("include", this.workspace === "" ? "remote" : "local");
+    if (this.workspace !== "") {
+      params.set("workspace", this.workspace);
+    }
+    return `/sessions?${params.toString()}`;
   }
 
   private async loadCost(id: string): Promise<void> {
@@ -111,7 +132,11 @@ export class SessionsListView {
     reload.className = "control-button";
     reload.textContent = "Reload";
     reload.addEventListener("click", () => void this.load());
-    header.append(title, reload);
+    header.append(title);
+    if (this.workspaceControl !== undefined) {
+      header.append(this.workspaceControl);
+    }
+    header.append(reload);
 
     const body = document.createElement("div");
     body.className = "session-list-grid";

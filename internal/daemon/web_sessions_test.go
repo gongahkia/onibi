@@ -10,6 +10,7 @@ import (
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
+	"github.com/gongahkia/onibi/internal/workspace"
 )
 
 func TestWebSessionsAggregatesActiveRows(t *testing.T) {
@@ -79,5 +80,37 @@ func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
 	}
 	if !slices.Contains(probed, "https://peer.tail.ts.net/") || !slices.Contains(probed, "https://plain.tail.ts.net/") {
 		t.Fatalf("probed = %#v", probed)
+	}
+}
+
+func TestWebSessionsFiltersWorkspace(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	alphaRoot := filepath.Join(t.TempDir(), "alpha")
+	betaRoot := filepath.Join(t.TempDir(), "beta")
+	if err := db.SessionUpsertStart(ctx, "s1", "main", "claude", filepath.Join(alphaRoot, "pkg"), "claude", "pty", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SessionUpsertStart(ctx, "s2", "other", "codex", betaRoot, "codex", "pty", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	wsStore, err := workspace.NewDBStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wsStore.Upsert(ctx, workspace.DBEntry{Name: "alpha", Path: alphaRoot, LastSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db})
+	rows, err := d.WebSessions(ctx, web.SessionListOptions{Workspace: "alpha", IncludeRemote: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != "s1" {
+		t.Fatalf("rows = %#v", rows)
 	}
 }
