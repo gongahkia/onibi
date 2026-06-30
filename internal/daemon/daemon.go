@@ -50,6 +50,7 @@ type Daemon struct {
 	Events     *web.EventBus
 	Trust      *trust.Watcher
 	Budget     *budget.ClaudeParser
+	Recorder   *web.Recorder
 	BufferSize int
 
 	TerminalDefault         string
@@ -115,6 +116,7 @@ type Options struct {
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	Budget                  *budget.ClaudeParser
+	Recorder                *web.Recorder
 	SkipRestore             bool
 }
 
@@ -168,6 +170,10 @@ func New(opts Options) *Daemon {
 	if budgetParser == nil {
 		budgetParser = budget.NewClaudeParser("")
 	}
+	recorder := opts.Recorder
+	if recorder == nil && strings.TrimSpace(opts.Paths.StateDir) != "" {
+		recorder = web.NewRecorder(filepath.Join(opts.Paths.StateDir, "recordings"))
+	}
 	d := &Daemon{
 		Paths:                   opts.Paths,
 		DB:                      opts.DB,
@@ -184,6 +190,7 @@ func New(opts Options) *Daemon {
 		budgetOverruns:          map[string]bool{},
 		anomalyHistory:          map[string][]anomaly.Action{},
 		Budget:                  budgetParser,
+		Recorder:                recorder,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
 		SkipRestore:             opts.SkipRestore,
@@ -284,10 +291,20 @@ func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args [
 		return nil, err
 	}
 	d.persistSessionStart(ctx, s, cwd)
+	d.startRecording(s)
 
 	go d.readLoop(s)
 	go d.waitHost(s)
 	return s, nil
+}
+
+func (d *Daemon) startRecording(s *Session) {
+	if d == nil || d.Recorder == nil || s == nil || s.Host == nil {
+		return
+	}
+	if err := d.Recorder.Record(context.Background(), s.ID, s.Host); err != nil {
+		d.Log.Warn("start recording", slog.String("session", s.ID), slog.Any("err", err))
+	}
 }
 
 func (d *Daemon) bufferSize() int {
