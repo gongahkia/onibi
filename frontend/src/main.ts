@@ -13,7 +13,7 @@ import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
 import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
-import { subscribePushFromGesture } from "./push";
+import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 
 type SessionInfo = {
   session_id: string;
@@ -97,6 +97,7 @@ async function boot(): Promise<void> {
     }
     const info = await sessionInfo(routeSession);
     await relayE2E?.bindSession(info.ws_token);
+    refreshPushOnOpen();
     saveLastSessionID(info.session_id);
     showTerminalChrome();
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
@@ -134,6 +135,7 @@ async function showSessionsHome(): Promise<void> {
   list.setWorkspace(workspaceSwitcher.current(), false);
   await list.load();
   await connectSessionListEvents();
+  refreshPushOnOpen();
   splash.hidden = true;
 }
 
@@ -241,6 +243,10 @@ function enablePush(): void {
       showToast(err instanceof Error ? err.message : "Push unavailable.");
     }
   })();
+}
+
+function refreshPushOnOpen(): void {
+  void refreshPushSubscription(postJSON).catch(() => {});
 }
 
 function postControl(sessionID: string, action: string): void {
