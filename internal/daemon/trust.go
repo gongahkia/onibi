@@ -3,10 +3,14 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -82,4 +86,88 @@ func (d *Daemon) publishToast(message string) {
 			"message": message,
 		},
 	})
+}
+
+func (d *Daemon) handleTrustApproval(ctx context.Context, s *Session, ev intake.Event) (intake.Response, bool) {
+	if d == nil || d.Trust == nil || d.Queue == nil || s == nil {
+		return intake.Response{}, false
+	}
+	p, ok := d.Trust.Policy(s.CWD)
+	if !ok {
+		return intake.Response{}, false
+	}
+	rule, ok := p.Evaluate(trustRequestForApproval(s, ev))
+	if !ok {
+		return intake.Response{}, false
+	}
+	switch rule.Effect {
+	case trust.EffectAutoApprove:
+		return d.finishTrustApproval(ctx, s, ev, approval.VerdictApprove, "auto-approved by trust policy", "trust.auto_approve", "Auto-approved "+ev.Tool+" by trust policy"), true
+	case trust.EffectDeny:
+		return d.finishTrustApproval(ctx, s, ev, approval.VerdictDeny, "denied by trust policy", "trust.deny", "Denied "+ev.Tool+" by trust policy"), true
+	default:
+		return intake.Response{}, false
+	}
+}
+
+func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.Event, verdict approval.Verdict, reason, action, toast string) intake.Response {
+	req := trustRequestForApproval(s, ev)
+	agent := strings.TrimSpace(ev.Agent)
+	if agent == "" && s != nil {
+		agent = s.Agent
+	}
+	id, ch, err := d.Queue.RequestSilent(ctx, ev.Session, agent, ev.Tool, ev.InputJSON)
+	if err != nil {
+		return intake.Response{Decision: "cancelled", Reason: err.Error()}
+	}
+	if err := d.Queue.Decide(ctx, id, verdict, "", reason, 0); err != nil {
+		return intake.Response{Decision: "cancelled", Reason: err.Error()}
+	}
+	d.audit(ctx, action, s.ID, ev.InputJSON, 0, fmt.Sprintf("tool=%s path=%s approval=%s", ev.Tool, req.Path, id))
+	d.publishToast(toast)
+	select {
+	case dec := <-ch:
+		return responseForDecision(dec, ev)
+	default:
+		if verdict == approval.VerdictApprove {
+			return intake.Response{Decision: string(approval.VerdictApprove)}
+		}
+		return intake.Response{Decision: "denied", Reason: reason}
+	}
+}
+
+func trustRequestForApproval(s *Session, ev intake.Event) trust.Request {
+	path := strings.TrimSpace(ev.FilePath)
+	if path == "" {
+		path = approval.ExtractDetails(ev.Tool, ev.InputJSON).FilePath
+	}
+	agent := strings.TrimSpace(ev.Agent)
+	if agent == "" && s != nil {
+		agent = s.Agent
+	}
+	root := ""
+	if s != nil {
+		root = s.CWD
+	}
+	if root == "" {
+		root = ev.CWD
+	}
+	return trust.Request{
+		Tool:  ev.Tool,
+		Path:  trustMatchPath(root, path),
+		Agent: agent,
+	}
+}
+
+func trustMatchPath(root, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) && strings.TrimSpace(root) != "" {
+		if rel, err := filepath.Rel(root, path); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(filepath.Clean(path))
 }

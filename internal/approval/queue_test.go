@@ -320,6 +320,32 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	}
 }
 
+func TestRequestSilentSkipsRequestedEvent(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	events, unsub := q.Subscribe()
+	defer unsub()
+	ctx := context.Background()
+	id, ch, err := q.RequestSilent(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected event before decision: %#v", ev)
+	default:
+	}
+	if err := q.Decide(ctx, id, VerdictApprove, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-ch; got.Verdict != VerdictApprove {
+		t.Fatalf("verdict = %s", got.Verdict)
+	}
+	ev := readApprovalEvent(t, events)
+	if ev.Type != EventDecided || ev.Approval.ID != id {
+		t.Fatalf("event = %#v", ev)
+	}
+}
+
 func readApprovalEvent(t *testing.T, events <-chan Event) Event {
 	t.Helper()
 	select {

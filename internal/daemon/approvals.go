@@ -22,6 +22,9 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 	ev.Session = s.ID
 	d.appendEventOutput(s, ev)
+	if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
+		return resp, nil
+	}
 	unifiedDiff := approvalUnifiedDiff(ev)
 	approvalID, ch, err := d.Queue.Request(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON, unifiedDiff)
 	if err != nil {

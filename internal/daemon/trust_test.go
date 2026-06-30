@@ -2,11 +2,16 @@ package daemon
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/trust"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
 func TestTrustWatchEventAuditsReloadAndPublishesErrorToast(t *testing.T) {
@@ -44,5 +49,96 @@ func TestTrustWatchEventAuditsReloadAndPublishesErrorToast(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("toast not published")
+	}
+}
+
+func TestTrustAutoApproveBypassesApprovalCard(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".onibi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".onibi", "trust.toml"), []byte(`[[rule]]
+effect = "auto_approve"
+expires = "never"
+[rule.match]
+tool = "Edit"
+path = "src/**/*.go"
+agent = "claude"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := trust.NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.AddRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	d.Trust = w
+	s := NewSession("s1", "claude", "claude", nil, 0)
+	s.CWD = root
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	events, unsub := d.Queue.Subscribe()
+	defer unsub()
+	toasts, unsubToasts := d.Events.Subscribe()
+	defer unsubToasts()
+	resp, err := d.handleApprovalRequest(t.Context(), intake.Event{
+		Type:      intake.TypeApprovalRequest,
+		Session:   "s1",
+		Managed:   true,
+		Agent:     "claude",
+		Tool:      "Edit",
+		InputJSON: `{"file_path":"src/main.go","old_string":"a","new_string":"b"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != string(approval.VerdictApprove) {
+		t.Fatalf("response = %#v", resp)
+	}
+	ev := readTrustApprovalEvent(t, events)
+	if ev.Type == approval.EventRequested {
+		t.Fatalf("unexpected requested event = %#v", ev)
+	}
+	if ev.Type != approval.EventDecided || ev.Decision.Verdict != approval.VerdictApprove {
+		t.Fatalf("approval event = %#v", ev)
+	}
+	toast := readTrustWebEvent(t, toasts)
+	if toast.Type != "toast" {
+		t.Fatalf("toast = %#v", toast)
+	}
+	audit, err := db.AuditRecent(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || audit[0].Action != "trust.auto_approve" {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+func readTrustApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("approval event not delivered")
+		return approval.Event{}
+	}
+}
+
+func readTrustWebEvent(t *testing.T, events <-chan web.Event) web.Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("web event not delivered")
+		return web.Event{}
 	}
 }
