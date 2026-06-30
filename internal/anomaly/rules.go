@@ -57,8 +57,10 @@ type Rule struct {
 }
 
 type Context struct {
-	History []Action
-	Options Options
+	History         []Action
+	Options         Options
+	WriteBurstCount int
+	ToolLoopCount   int
 }
 
 var Rules = []Rule{
@@ -116,9 +118,10 @@ func LoadOptions(root string) (Options, error) {
 
 func Evaluate(actions []Action, opts Options) []Finding {
 	normalized := normalizeActions(actions)
+	state := newWindowState()
 	var out []Finding
 	for i, action := range normalized {
-		ctx := Context{History: normalized[:i], Options: opts}
+		ctx := state.context(normalized[:i], action, opts)
 		for _, rule := range Rules {
 			if finding, ok := rule.Evaluate(ctx, action); ok {
 				out = append(out, finding)
@@ -131,7 +134,11 @@ func Evaluate(actions []Action, opts Options) []Finding {
 func EvaluateOne(history []Action, action Action, opts Options) []Finding {
 	actions := normalizeActions(append(append([]Action(nil), history...), action))
 	current := actions[len(actions)-1]
-	ctx := Context{History: actions[:len(actions)-1], Options: opts}
+	state := newWindowState()
+	for _, prev := range actions[:len(actions)-1] {
+		state.counts(prev)
+	}
+	ctx := state.context(actions[:len(actions)-1], current, opts)
 	var out []Finding
 	for _, rule := range Rules {
 		if finding, ok := rule.Evaluate(ctx, current); ok {
@@ -145,19 +152,7 @@ func evalWriteBurst(ctx Context, action Action) (Finding, bool) {
 	if !isWriteAction(action) {
 		return Finding{}, false
 	}
-	start := action.At.Add(-60 * time.Second)
-	count := 1
-	for i := len(ctx.History) - 1; i >= 0; i-- {
-		prev := ctx.History[i]
-		if !sameSession(prev, action) || !isWriteAction(prev) {
-			continue
-		}
-		if !action.At.IsZero() && !prev.At.IsZero() && prev.At.Before(start) {
-			break
-		}
-		count++
-	}
-	if count <= 20 {
+	if ctx.WriteBurstCount <= 20 {
 		return Finding{}, false
 	}
 	return finding(RuleWriteBurst, action, "21+ writes within 60s"), true
@@ -229,27 +224,36 @@ func evalOutsideWorkspaceWrite(ctx Context, action Action) (Finding, bool) {
 }
 
 func evalToolLoop(ctx Context, action Action) (Finding, bool) {
-	fp := fingerprint(action)
-	count := 1
-	for i := len(ctx.History) - 1; i >= 0; i-- {
-		prev := ctx.History[i]
-		if !sameSession(prev, action) {
-			continue
-		}
-		if action.Turn > 0 && prev.Turn > 0 && action.Turn-prev.Turn > 20 {
-			break
-		}
-		if action.Turn == 0 && count+len(ctx.History)-1-i > 20 {
-			break
-		}
-		if fingerprint(prev) == fp {
-			count++
-		}
-	}
-	if count <= 5 {
+	if ctx.ToolLoopCount <= 5 {
 		return Finding{}, false
 	}
 	return finding(RuleToolLoop, action, "same tool+args repeated 6+ times within 20 turns"), true
+}
+
+type windowState struct {
+	writes *WindowCounter
+	loops  *WindowCounter
+}
+
+func newWindowState() *windowState {
+	return &windowState{
+		writes: NewWindowCounter(60*time.Second, 0),
+		loops:  NewWindowCounter(0, 20),
+	}
+}
+
+func (s *windowState) context(history []Action, action Action, opts Options) Context {
+	writes, loops := s.counts(action)
+	return Context{History: history, Options: opts, WriteBurstCount: writes, ToolLoopCount: loops}
+}
+
+func (s *windowState) counts(action Action) (int, int) {
+	writes := 0
+	if isWriteAction(action) {
+		writes = s.writes.Add("write:"+sessionKey(action), action.At, action.Turn)
+	}
+	loops := s.loops.Add("loop:"+sessionKey(action)+":"+fingerprint(action), action.At, action.Turn)
+	return writes, loops
 }
 
 func normalizeActions(actions []Action) []Action {
@@ -423,8 +427,12 @@ func firstString(m map[string]any, keys ...string) string {
 	return ""
 }
 
-func sameSession(a, b Action) bool {
-	return strings.TrimSpace(a.SessionID) == "" || strings.TrimSpace(b.SessionID) == "" || a.SessionID == b.SessionID
+func sessionKey(action Action) string {
+	id := strings.TrimSpace(action.SessionID)
+	if id == "" {
+		return "_"
+	}
+	return id
 }
 
 func HasRule(findings []Finding, rule string) bool {
