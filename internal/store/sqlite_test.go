@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -247,6 +248,64 @@ func TestWorkspaceSchemaLoadsOnFreshDB(t *testing.T) {
 	var version int
 	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 9`).Scan(&version); err != nil {
 		t.Fatalf("schema version 9 missing: %v", err)
+	}
+}
+
+func TestPushSubscriptionSchemaLoadsOnFreshDB(t *testing.T) {
+	db := openTemp(t)
+	cols := tableColumns(t, db, "push_subscriptions")
+	for _, want := range []string{"endpoint_hash", "endpoint_enc", "p256dh_enc", "auth_enc", "created_at", "last_seen_at"} {
+		if !slices.Contains(cols, want) {
+			t.Fatalf("push_subscriptions missing %q: %#v", want, cols)
+		}
+	}
+	for _, col := range []string{"endpoint_enc", "p256dh_enc", "auth_enc"} {
+		if typ := tableColumnType(t, db, "push_subscriptions", col); typ != "BLOB" {
+			t.Fatalf("push_subscriptions.%s type = %q, want BLOB", col, typ)
+		}
+	}
+}
+
+func TestPushSubscriptionRoundtripEncrypted(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	endpoint := "https://push.example.invalid/sub/1"
+	if err := db.PutPushSubscription(ctx, endpoint, "p256dh-key", "auth-secret", time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	subs, err := db.PushSubscriptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 || subs[0].Endpoint != endpoint || subs[0].P256dh != "p256dh-key" || subs[0].Auth != "auth-secret" {
+		t.Fatalf("subscriptions = %#v", subs)
+	}
+	var endpointEnc, p256dhEnc, authEnc []byte
+	if err := db.sql.QueryRowContext(ctx, `SELECT endpoint_enc, p256dh_enc, auth_enc FROM push_subscriptions WHERE endpoint_hash = ?`, lookupHash(endpoint)).Scan(&endpointEnc, &p256dhEnc, &authEnc); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+		want string
+	}{
+		{"endpoint", endpointEnc, endpoint},
+		{"p256dh", p256dhEnc, "p256dh-key"},
+		{"auth", authEnc, "auth-secret"},
+	} {
+		if bytes.Contains(tc.raw, []byte(tc.want)) {
+			t.Fatalf("%s stored plaintext", tc.name)
+		}
+	}
+	if err := db.DeletePushSubscription(ctx, endpoint); err != nil {
+		t.Fatal(err)
+	}
+	subs, err = db.PushSubscriptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("subscriptions after delete = %#v", subs)
 	}
 }
 

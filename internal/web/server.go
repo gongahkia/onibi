@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/files/tree", s.handleFilesTree)
 	mux.HandleFunc("/files/content", s.handleFilesContent)
 	mux.HandleFunc("/push/vapid-public-key", s.handlePushVAPIDPublicKey)
+	mux.HandleFunc("/push/subscribe", s.handlePushSubscribe)
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)

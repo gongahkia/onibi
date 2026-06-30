@@ -18,6 +18,7 @@ import (
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/slack"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
 const matrixKVSince = "matrix.since"
@@ -529,6 +530,12 @@ func (d *Daemon) runGotifyNotifier(ctx context.Context, c *gotify.Client) {
 			return
 		}
 		d.audit(ctx, "notify.gotify.sent", a.SessionID, "", 0, "approval="+a.ID)
+	})
+}
+
+func (d *Daemon) runWebPushNotifier(ctx context.Context) {
+	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		web.SendApprovalPushNotifications(ctx, d.DB, a, d.Log)
 	})
 }
 

@@ -527,6 +527,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.runGotifyNotifier(ctx, gotify.New(d.Gotify.BaseURL, d.Gotify.AppToken, d.Gotify.ClientToken))
 		}()
 	}
+	if d.DB != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.runWebPushNotifier(ctx)
+		}()
+	}
 
 	wg.Add(1)
 	go func() {

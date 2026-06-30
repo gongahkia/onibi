@@ -258,6 +258,16 @@ CREATE TABLE IF NOT EXISTS workspaces (
   last_seen   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workspaces_last_seen ON workspaces(last_seen);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint_hash TEXT PRIMARY KEY,
+  endpoint_enc  BLOB NOT NULL,
+  p256dh_enc    BLOB NOT NULL,
+  auth_enc      BLOB NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_seen_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_seen ON push_subscriptions(last_seen_at);
 `
 
 func (d *DB) migrate() error {
@@ -733,6 +743,95 @@ func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error
 		return false, err
 	}
 	return revoked == 0, nil
+}
+
+type PushSubscription struct {
+	Endpoint   string
+	P256dh     string
+	Auth       string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+}
+
+func (d *DB) PutPushSubscription(ctx context.Context, endpoint, p256dh, auth string, now time.Time) error {
+	endpoint = strings.TrimSpace(endpoint)
+	p256dh = strings.TrimSpace(p256dh)
+	auth = strings.TrimSpace(auth)
+	if endpoint == "" || p256dh == "" || auth == "" {
+		return errors.New("push subscription endpoint and keys required")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	hash := lookupHash(endpoint)
+	endpointEnc, err := d.sealString(ctx, "push_subscriptions", hash, "endpoint_enc", endpoint)
+	if err != nil {
+		return err
+	}
+	p256dhEnc, err := d.sealString(ctx, "push_subscriptions", hash, "p256dh_enc", p256dh)
+	if err != nil {
+		return err
+	}
+	authEnc, err := d.sealString(ctx, "push_subscriptions", hash, "auth_enc", auth)
+	if err != nil {
+		return err
+	}
+	ts := now.Unix()
+	_, err = d.sql.ExecContext(ctx,
+		`INSERT INTO push_subscriptions(endpoint_hash, endpoint_enc, p256dh_enc, auth_enc, created_at, last_seen_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(endpoint_hash) DO UPDATE SET
+		   endpoint_enc=excluded.endpoint_enc,
+		   p256dh_enc=excluded.p256dh_enc,
+		   auth_enc=excluded.auth_enc,
+		   last_seen_at=excluded.last_seen_at`,
+		hash, endpointEnc, p256dhEnc, authEnc, ts, ts)
+	return err
+}
+
+func (d *DB) PushSubscriptions(ctx context.Context) ([]PushSubscription, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT endpoint_hash, endpoint_enc, p256dh_enc, auth_enc, created_at, last_seen_at
+		   FROM push_subscriptions
+		  ORDER BY last_seen_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PushSubscription
+	for rows.Next() {
+		var hash string
+		var endpointEnc, p256dhEnc, authEnc []byte
+		var createdAt, lastSeenAt int64
+		if err := rows.Scan(&hash, &endpointEnc, &p256dhEnc, &authEnc, &createdAt, &lastSeenAt); err != nil {
+			return nil, err
+		}
+		endpoint, err := d.openString(ctx, "push_subscriptions", hash, "endpoint_enc", endpointEnc)
+		if err != nil {
+			return nil, err
+		}
+		p256dh, err := d.openString(ctx, "push_subscriptions", hash, "p256dh_enc", p256dhEnc)
+		if err != nil {
+			return nil, err
+		}
+		auth, err := d.openString(ctx, "push_subscriptions", hash, "auth_enc", authEnc)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, PushSubscription{
+			Endpoint:   endpoint,
+			P256dh:     p256dh,
+			Auth:       auth,
+			CreatedAt:  time.Unix(createdAt, 0),
+			LastSeenAt: time.Unix(lastSeenAt, 0),
+		})
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) DeletePushSubscription(ctx context.Context, endpoint string) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint_hash = ?`, lookupHash(strings.TrimSpace(endpoint)))
+	return err
 }
 
 func (d *DB) sealString(ctx context.Context, table, rowID, column, value string) ([]byte, error) {
