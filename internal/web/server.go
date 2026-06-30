@@ -332,6 +332,13 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if r.URL.Query().Get("events") == "1" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"ws_token": ownerSessionID,
+		})
+		return
+	}
 	sessionIDs := s.activeSessionIDs()
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID != "" {

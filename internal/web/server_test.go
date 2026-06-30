@@ -292,6 +292,31 @@ func TestSessionInfoReturnsSingleSessionIDWithoutHost(t *testing.T) {
 	}
 }
 
+func TestSessionInfoEventsTokenSkipsSessionSelection(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionIDs = func() []string { return []string{"s1", "s2"} }
+	rr := httptest.NewRecorder()
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/session-info?events=1", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleSessionInfo(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	got := map[string]string{}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["ws_token"] != ownerSessionID || got["session_id"] != "" {
+		t.Fatalf("session-info = %#v", got)
+	}
+}
+
 func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {

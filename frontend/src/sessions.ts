@@ -56,6 +56,46 @@ export class SessionsListView {
     }
   }
 
+  handleEnvelope(envelope: EventEnvelope): void {
+    if (envelope.type === "session.started") {
+      const payload = envelope.payload as { session_id?: string };
+      if (payload.session_id !== undefined && payload.session_id !== "" && !this.rows.some((row) => row.id === payload.session_id)) {
+        void this.load();
+      }
+      return;
+    }
+    if (envelope.type !== "cost.updated") {
+      return;
+    }
+    const payload = envelope.payload as { session_id?: string };
+    if (payload.session_id === undefined || payload.session_id === "") {
+      return;
+    }
+    void this.loadCost(payload.session_id);
+  }
+
+  private async loadCost(id: string): Promise<void> {
+    try {
+      const cost = await this.fetchJSON<SessionCostPayload>(`/sessions/${encodeURIComponent(id)}/cost`);
+      const index = this.rows.findIndex((row) => row.id === id);
+      if (index < 0) {
+        await this.load();
+        return;
+      }
+      const rows = [...this.rows];
+      rows[index] = {
+        ...rows[index],
+        tokens_used: cost.total_tokens,
+        cost_usd: cost.cost_known && cost.total_usd !== undefined ? cost.total_usd : 0,
+        last_activity: cost.updated_at ?? rows[index].last_activity
+      };
+      this.rows = rows;
+      this.render();
+    } catch {
+      return;
+    }
+  }
+
   private render(): void {
     const shell = document.createElement("section");
     shell.className = "session-list-shell";

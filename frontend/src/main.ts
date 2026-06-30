@@ -16,6 +16,10 @@ type SessionInfo = {
   ws_token: string;
 };
 
+type EventsInfo = {
+  ws_token: string;
+};
+
 const termEl = requireElement("term");
 const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
@@ -33,6 +37,7 @@ const events = new EventsWS();
 const approvals = new ApprovalOverlay(approvalRoot);
 const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
+let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 
@@ -56,6 +61,7 @@ events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
   approvals.handleEnvelope(envelope);
   anomalies.handleEnvelope(envelope);
+  sessionList?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
 });
@@ -107,12 +113,24 @@ async function boot(): Promise<void> {
 async function showSessionsHome(): Promise<void> {
   showListChrome();
   const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession);
+  sessionList = list;
   await list.load();
+  await connectSessionListEvents();
   splash.hidden = true;
 }
 
 async function sessionInfo(sessionID: string): Promise<SessionInfo> {
   return getJSON<SessionInfo>(`/session-info?session_id=${encodeURIComponent(sessionID)}`);
+}
+
+async function connectSessionListEvents(): Promise<void> {
+  try {
+    const info = await getJSON<EventsInfo>("/session-info?events=1");
+    await relayE2E?.bindSession(info.ws_token);
+    events.connect(eventsURL(info.ws_token));
+  } catch {
+    return;
+  }
 }
 
 function routeSessionID(): string | null {
