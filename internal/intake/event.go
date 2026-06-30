@@ -14,6 +14,7 @@ const (
 	TypeSessionShow     = "session_show"     // RPC: open a visible terminal for a session
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
+	TypeTrust           = "trust"            // RPC: list and mutate trust rules
 	TypePing            = "ping"             // RPC: daemon health probe
 )
 
@@ -55,6 +56,13 @@ type Event struct {
 	ExpiresAt  int64  `json:"expires_at,omitempty"`
 	InputJSON  string `json:"input_json,omitempty"`
 	RawJSON    string `json:"raw_json,omitempty"` // raw provider hook payload
+
+	// trust RPC
+	TrustAction string `json:"trust_action,omitempty"`
+	TrustRoot   string `json:"trust_root,omitempty"`
+	TrustRuleID string `json:"trust_rule_id,omitempty"`
+	Effect      string `json:"effect,omitempty"`
+	Expires     string `json:"expires,omitempty"`
 
 	TS int64 `json:"ts,omitempty"` // unix epoch seconds; if 0, server fills
 }

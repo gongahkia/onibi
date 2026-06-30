@@ -5,6 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,9 +103,14 @@ func (w *Watcher) Policy(root string) (Policy, bool) {
 }
 
 func (w *Watcher) AddRuntimeRule(root string, rule Rule) error {
+	_, err := w.AddRuntimeRuleWithID(root, rule)
+	return err
+}
+
+func (w *Watcher) AddRuntimeRuleWithID(root string, rule Rule) (Rule, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
-		return err
+		return Rule{}, err
 	}
 	root = filepath.Clean(root)
 	now := time.Now()
@@ -114,7 +122,10 @@ func (w *Watcher) AddRuntimeRule(root string, rule Rule) error {
 	}
 	rule.Runtime = true
 	if err := rule.validate(-1); err != nil {
-		return err
+		return Rule{}, err
+	}
+	if strings.TrimSpace(rule.ID) == "" {
+		rule.ID = NewRuntimeID()
 	}
 	if !rule.Never && rule.ExpiresAt.IsZero() {
 		rule.ExpiresAt = now.Add(rule.Expires)
@@ -124,7 +135,131 @@ func (w *Watcher) AddRuntimeRule(root string, rule Rule) error {
 	p := pruneExpired(w.roots[root], now)
 	p.Rules = append([]Rule{rule}, p.Rules...)
 	w.roots[root] = p
-	return nil
+	return rule, nil
+}
+
+func (w *Watcher) View(root string) (View, error) {
+	root = strings.TrimSpace(root)
+	now := time.Now()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var roots []string
+	if root != "" {
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			return View{}, err
+		}
+		roots = []string{filepath.Clean(abs)}
+	} else {
+		for r := range w.roots {
+			roots = append(roots, r)
+		}
+		sort.Strings(roots)
+	}
+	view := View{}
+	for _, r := range roots {
+		p := pruneExpired(w.roots[r], now)
+		w.roots[r] = p
+		view.Roots = append(view.Roots, ViewForPolicy(r, p, now))
+	}
+	return view, nil
+}
+
+func (w *Watcher) Reload(root string) (WatchEvent, bool, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return WatchEvent{}, false, err
+	}
+	root = filepath.Clean(root)
+	w.mu.Lock()
+	ev, ok := w.loadLocked(root)
+	w.mu.Unlock()
+	if ok {
+		w.emit(ev)
+	}
+	return ev, ok, nil
+}
+
+func (w *Watcher) RemoveRule(root, id string) (bool, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return false, err
+	}
+	root = filepath.Clean(root)
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false, errors.New("rule id required")
+	}
+	if strings.HasPrefix(id, "file:") {
+		return w.removeFileRule(root, id)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := pruneExpired(w.roots[root], time.Now())
+	out := p
+	out.Rules = out.Rules[:0]
+	removed := false
+	for _, rule := range p.Rules {
+		if rule.Runtime && rule.ID == id {
+			removed = true
+			continue
+		}
+		out.Rules = append(out.Rules, rule)
+	}
+	w.roots[root] = out
+	return removed, nil
+}
+
+func (w *Watcher) PersistRuntimeRules(root string) (int, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return 0, err
+	}
+	root = filepath.Clean(root)
+	path := PolicyPath(root)
+	now := time.Now()
+	w.mu.Lock()
+	prev := pruneExpired(w.roots[root], now)
+	var runtimeRules []Rule
+	persisted := map[string]bool{}
+	for _, rule := range prev.Rules {
+		if rule.Runtime && !rule.expired(now) {
+			runtimeRules = append(runtimeRules, PersistedRule(rule))
+			persisted[rule.ID] = true
+		}
+	}
+	w.mu.Unlock()
+	if len(runtimeRules) == 0 {
+		return 0, nil
+	}
+	disk, err := Load(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
+		disk = Policy{}
+	}
+	disk.Rules = append(disk.Rules, runtimeRules...)
+	if err := Save(path, disk); err != nil {
+		return 0, err
+	}
+	w.mu.Lock()
+	current := pruneExpired(w.roots[root], now)
+	noRuntime := current
+	noRuntime.Rules = noRuntime.Rules[:0]
+	for _, rule := range current.Rules {
+		if rule.Runtime && persisted[rule.ID] {
+			continue
+		}
+		noRuntime.Rules = append(noRuntime.Rules, rule)
+	}
+	w.roots[root] = noRuntime
+	ev, ok := w.loadLocked(root)
+	w.mu.Unlock()
+	if ok {
+		w.emit(ev)
+	}
+	return len(runtimeRules), nil
 }
 
 func (w *Watcher) Run(ctx context.Context) {
@@ -202,7 +337,7 @@ func (w *Watcher) scheduleLocked(root string) {
 }
 
 func (w *Watcher) loadLocked(root string) (WatchEvent, bool) {
-	path := filepath.Join(root, ".onibi", "trust.toml")
+	path := PolicyPath(root)
 	prev := w.roots[root]
 	runtimeRules := activeRuntimeRules(prev, time.Now())
 	p, err := Load(path)
@@ -254,6 +389,32 @@ func (w *Watcher) emit(events ...WatchEvent) {
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func (w *Watcher) removeFileRule(root, id string) (bool, error) {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "file:"))
+	if err != nil || n <= 0 {
+		return false, errors.New("invalid file rule id")
+	}
+	path := PolicyPath(root)
+	disk, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+	if n > len(disk.Rules) {
+		return false, nil
+	}
+	disk.Rules = append(disk.Rules[:n-1], disk.Rules[n:]...)
+	if err := Save(path, disk); err != nil {
+		return false, err
+	}
+	w.mu.Lock()
+	ev, ok := w.loadLocked(root)
+	w.mu.Unlock()
+	if ok {
+		w.emit(ev)
+	}
+	return true, nil
 }
 
 func activeRuntimeRules(p Policy, now time.Time) []Rule {

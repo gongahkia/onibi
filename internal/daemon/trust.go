@@ -125,6 +125,7 @@ func (d *Daemon) AddRuntimeTrustRule(ctx context.Context, req web.TrustRuntimeRe
 		agent = s.Agent
 	}
 	rule := trust.RuntimeRule(trust.Match{Tool: tool, Path: path, Agent: agent}, trust.EffectAutoApprove, ttl, time.Now())
+	rule.ExpiresRaw = expires
 	if err := d.Trust.AddRuntimeRule(s.CWD, rule); err != nil {
 		return "", err
 	}

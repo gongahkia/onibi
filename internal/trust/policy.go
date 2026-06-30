@@ -1,6 +1,8 @@
 package trust
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +26,7 @@ type Policy struct {
 }
 
 type Rule struct {
+	ID         string        `toml:"-"`
 	Match      Match         `toml:"match"`
 	Effect     Effect        `toml:"effect"`
 	ExpiresRaw string        `toml:"expires"`
@@ -45,12 +48,49 @@ type Request struct {
 	Agent string
 }
 
+type View struct {
+	Roots []RootView `json:"roots"`
+}
+
+type RootView struct {
+	Root       string     `json:"root"`
+	PolicyPath string     `json:"policy_path"`
+	Rules      []RuleView `json:"rules"`
+}
+
+type RuleView struct {
+	ID        string `json:"id"`
+	Source    string `json:"source"`
+	Runtime   bool   `json:"runtime"`
+	Effect    Effect `json:"effect"`
+	Expires   string `json:"expires"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+}
+
 func Load(path string) (Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Policy{}, err
 	}
 	return Parse(data)
+}
+
+func Save(path string, p Policy) error {
+	p = filePolicy(p)
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	data, err := toml.Marshal(p)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 func Parse(data []byte) (Policy, error) {
@@ -73,6 +113,47 @@ func (p Policy) Validate() error {
 	return nil
 }
 
+func PolicyPath(root string) string {
+	return filepath.Join(root, ".onibi", "trust.toml")
+}
+
+func ViewForPolicy(root string, p Policy, now time.Time) RootView {
+	root = filepath.Clean(root)
+	view := RootView{Root: root, PolicyPath: PolicyPath(root)}
+	fileN := 0
+	runtimeN := 0
+	for _, rule := range p.Rules {
+		if rule.expired(now) {
+			continue
+		}
+		source := "file"
+		id := ""
+		if rule.Runtime {
+			source = "runtime"
+			runtimeN++
+			id = rule.ID
+			if id == "" {
+				id = fmt.Sprintf("runtime:%d", runtimeN)
+			}
+		} else {
+			fileN++
+			id = fmt.Sprintf("file:%d", fileN)
+		}
+		view.Rules = append(view.Rules, RuleView{
+			ID:        id,
+			Source:    source,
+			Runtime:   rule.Runtime,
+			Effect:    rule.Effect,
+			Expires:   rule.ExpiresRaw,
+			ExpiresAt: expiresAtString(rule),
+			Tool:      rule.Match.Tool,
+			Path:      rule.Match.Path,
+			Agent:     rule.Match.Agent,
+		})
+	}
+	return view
+}
+
 func (p Policy) Evaluate(req Request) (Rule, bool) {
 	return p.EvaluateAt(req, time.Now())
 }
@@ -91,6 +172,7 @@ func (p Policy) EvaluateAt(req Request, now time.Time) (Rule, bool) {
 
 func RuntimeRule(match Match, effect Effect, ttl time.Duration, now time.Time) Rule {
 	return Rule{
+		ID:         NewRuntimeID(),
 		Match:      match,
 		Effect:     effect,
 		ExpiresRaw: ttl.String(),
@@ -98,6 +180,14 @@ func RuntimeRule(match Match, effect Effect, ttl time.Duration, now time.Time) R
 		Runtime:    true,
 		ExpiresAt:  now.Add(ttl),
 	}
+}
+
+func NewRuntimeID() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return "runtime:" + hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("runtime:%d", time.Now().UnixNano())
 }
 
 func (r *Rule) validate(i int) error {
@@ -160,6 +250,34 @@ func (r Rule) matches(req Request) bool {
 
 func (r Rule) expired(now time.Time) bool {
 	return !r.Never && !r.ExpiresAt.IsZero() && !now.Before(r.ExpiresAt)
+}
+
+func expiresAtString(rule Rule) string {
+	if rule.ExpiresAt.IsZero() {
+		return ""
+	}
+	return rule.ExpiresAt.UTC().Format(time.RFC3339Nano)
+}
+
+func filePolicy(p Policy) Policy {
+	out := Policy{Rules: make([]Rule, 0, len(p.Rules))}
+	for _, rule := range p.Rules {
+		if rule.Runtime {
+			continue
+		}
+		rule.ID = ""
+		rule.Runtime = false
+		rule.ExpiresAt = time.Time{}
+		out.Rules = append(out.Rules, rule)
+	}
+	return out
+}
+
+func PersistedRule(rule Rule) Rule {
+	rule.ID = ""
+	rule.Runtime = false
+	rule.ExpiresAt = time.Time{}
+	return rule
 }
 
 func globMatch(pattern, value string) bool {

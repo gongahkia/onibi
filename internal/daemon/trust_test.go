@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -173,6 +174,83 @@ func TestAddRuntimeTrustRuleAddsEphemeralRule(t *testing.T) {
 	if len(audit) != 1 || audit[0].Action != "trust.runtime.add" || !strings.Contains(audit[0].Detail, "path=src/**") {
 		t.Fatalf("audit = %#v", audit)
 	}
+}
+
+func TestTrustRPCRoundTripsRuntimeRules(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	root := t.TempDir()
+	w, err := trust.NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	d.Trust = w
+	add, err := d.handleTrustRPC(t.Context(), intake.Event{
+		Type:        intake.TypeTrust,
+		TrustAction: "add",
+		TrustRoot:   root,
+		Tool:        "Edit",
+		FilePath:    "src/**",
+		Agent:       "claude",
+		Expires:     "5m",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.TrimSpace(strings.TrimPrefix(add.Text, "added "))
+	if !strings.HasPrefix(id, "runtime:") {
+		t.Fatalf("add = %#v", add)
+	}
+	list, err := d.handleTrustRPC(t.Context(), intake.Event{Type: intake.TypeTrust, TrustAction: "list", TrustRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := decodeTrustView(t, list.Text)
+	if len(view.Roots) != 1 || len(view.Roots[0].Rules) != 1 || view.Roots[0].Rules[0].ID != id || view.Roots[0].Rules[0].Source != "runtime" {
+		t.Fatalf("view = %#v", view)
+	}
+	persist, err := d.handleTrustRPC(t.Context(), intake.Event{Type: intake.TypeTrust, TrustAction: "persist", TrustRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persist.Text != "persisted 1 runtime rule(s)" {
+		t.Fatalf("persist = %#v", persist)
+	}
+	disk, err := trust.Load(trust.PolicyPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disk.Rules) != 1 || disk.Rules[0].Runtime || disk.Rules[0].Match.Path != "src/**" {
+		t.Fatalf("disk = %#v", disk)
+	}
+	list, err = d.handleTrustRPC(t.Context(), intake.Event{Type: intake.TypeTrust, TrustAction: "list", TrustRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view = decodeTrustView(t, list.Text)
+	if len(view.Roots[0].Rules) != 1 || view.Roots[0].Rules[0].ID != "file:1" || view.Roots[0].Rules[0].Source != "file" {
+		t.Fatalf("view after persist = %#v", view)
+	}
+	if _, err := d.handleTrustRPC(t.Context(), intake.Event{Type: intake.TypeTrust, TrustAction: "remove", TrustRoot: root, TrustRuleID: "file:1"}); err != nil {
+		t.Fatal(err)
+	}
+	disk, err = trust.Load(trust.PolicyPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disk.Rules) != 0 {
+		t.Fatalf("disk after remove = %#v", disk)
+	}
+}
+
+func decodeTrustView(t *testing.T, text string) trust.View {
+	t.Helper()
+	var view trust.View
+	if err := json.Unmarshal([]byte(text), &view); err != nil {
+		t.Fatal(err)
+	}
+	return view
 }
 
 func readTrustApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
