@@ -352,8 +352,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q0c — F: Plugin / adapter SDK + SPEC.md
 
-(A) 2026-06-29 onibi adapters add <path> subcommand: read local TOML, validate against SPEC, copy to ~/.config/onibi/adapters/<name>.toml, register; URL form (onibi adapters add https://…) fetches with crypto/tls-verified TLS and requires --sha256=<hex> pinning flag +phaseQ0 @backend file:internal/cli/adapters.go id:T2062 accept:third-party-toml-loads-and-routes-hooks
-(A) 2026-06-29 onibi adapters validate <path> for authors: same schema check, emits a human-readable report with line numbers on schema violations +phaseQ0 @backend file:internal/cli/adapters.go id:T2063 blocked-by:T2062 accept:malformed-manifest-rejected-with-line-numbers
+(A) 2026-06-29 onibi adapters validate <path> for authors: same schema check, emits a human-readable report with line numbers on schema violations +phaseQ0 @backend file:internal/cli/adapters.go id:T2063 accept:malformed-manifest-rejected-with-line-numbers
 (B) 2026-06-29 examples/aider-adapter/aider.toml + README: walks through onibi adapters add ./examples/aider-adapter/aider.toml then onibi install-hooks --agent aider then a sample approval flow +phaseQ0 @docs file:examples/aider-adapter/ id:T2064 blocked-by:T2063 accept:reference-adapter-works-end-to-end
 (B) 2026-06-29 Compat section in SPEC.md: adapters declaring min_onibi_version higher than the running daemon refuse to load with a clear human-readable error +phaseQ0 @docs file:docs/SPEC-adapters.md id:T2065 blocked-by:T2064 accept:incompatible-adapter-rejected
 (C) 2026-06-29 docs/adapters-registry.md: link-list of community-shipped adapters; do NOT host a SaaS registry; pure README list maintained by PRs +phaseQ0 @docs file:docs/adapters-registry.md id:T2066 blocked-by:T2065

@@ -31,14 +31,22 @@ type Registry interface {
 
 func NewRegistry() Registry { return catalog.NewRegistry() }
 
-func Register(manifest Manifest) error { return catalog.Register(manifest) }
+func Register(manifest Manifest) error { return catalog.Register(catalog.WithRuntimeAdapter(manifest)) }
 
-func List() []Manifest { return catalog.List() }
+func List() []Manifest {
+	_ = LoadExternalManifests()
+	return catalog.List()
+}
 
-func ManifestFor(name string) (Manifest, error) { return catalog.Get(name) }
+func ManifestFor(name string) (Manifest, error) {
+	if err := LoadExternalManifests(); err != nil {
+		return Manifest{}, err
+	}
+	return catalog.Get(name)
+}
 
 func Names() []string {
-	manifests := catalog.List()
+	manifests := List()
 	names := make([]string, 0, len(manifests))
 	for _, m := range manifests {
 		names = append(names, m.Name)
@@ -48,6 +56,9 @@ func Names() []string {
 }
 
 func Get(name string) (Adapter, bool) {
+	if err := LoadExternalManifests(); err != nil {
+		return Adapter{}, false
+	}
 	m, err := catalog.Get(strings.ToLower(strings.TrimSpace(name)))
 	if err != nil {
 		return Adapter{}, false

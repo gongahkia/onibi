@@ -64,6 +64,9 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
+	if err := adapters.LoadExternalManifests(); err != nil {
+		return err
+	}
 
 	notifyBin := ""
 	if !uninstall {

@@ -33,15 +33,16 @@ type Adapter struct {
 }
 
 type Manifest struct {
-	Name            string
-	Version         string
-	Kind            Kind
-	CmdPattern      map[string]string
-	HookInstall     []string
-	HookUninstall   []string
-	RiskOverrides   map[string]string
-	MinOnibiVersion string
-	Adapter         Adapter
+	Name            string            `toml:"name"`
+	Version         string            `toml:"version"`
+	Kind            Kind              `toml:"kind"`
+	CmdPattern      map[string]string `toml:"cmd_pattern"`
+	HookInstall     []string          `toml:"hook_install"`
+	HookUninstall   []string          `toml:"hook_uninstall"`
+	RiskOverrides   map[string]string `toml:"risk_overrides"`
+	MinOnibiVersion string            `toml:"min_onibi_version"`
+	SourcePath      string            `toml:"-"`
+	Adapter         Adapter           `toml:"-"`
 }
 
 type Registry interface {

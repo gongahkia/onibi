@@ -260,6 +260,7 @@ func adaptersCmd() *cobra.Command {
 		RunE:    runAdapters,
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
+	cmd.AddCommand(adaptersAddCmd())
 	return cmd
 }
 
