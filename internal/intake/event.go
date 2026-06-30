@@ -16,6 +16,7 @@ const (
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
 	TypeTrust           = "trust"            // RPC: list and mutate trust rules
 	TypeBudget          = "budget"           // RPC: budget usage summary
+	TypeSnapshot        = "snapshot"         // RPC: snapshot lifecycle
 	TypePing            = "ping"             // RPC: daemon health probe
 )
 
@@ -64,6 +65,11 @@ type Event struct {
 	TrustRuleID string `json:"trust_rule_id,omitempty"`
 	Effect      string `json:"effect,omitempty"`
 	Expires     string `json:"expires,omitempty"`
+
+	// snapshot RPC
+	SnapshotAction string `json:"snapshot_action,omitempty"`
+	SnapshotName   string `json:"snapshot_name,omitempty"`
+	SnapshotTurn   int    `json:"snapshot_turn,omitempty"`
 
 	TS int64 `json:"ts,omitempty"` // unix epoch seconds; if 0, server fills
 }

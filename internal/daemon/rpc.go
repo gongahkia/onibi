@@ -98,6 +98,8 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		return d.handleTrustRPC(ctx, ev)
 	case intake.TypeBudget:
 		return d.handleBudgetRPC(ctx, ev)
+	case intake.TypeSnapshot:
+		return d.handleSnapshotRPC(ctx, ev)
 	default:
 		return intake.Response{}, errors.New("unknown rpc type")
 	}

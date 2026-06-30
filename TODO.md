@@ -375,8 +375,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q2a — I: Session snapshots + branching
 
-(A) 2026-06-29 CLI: onibi snapshot <session> <name>, onibi restore <name>, onibi fork <name> @turn-N "new prompt", onibi snapshots list|delete +phaseQ2 @backend file:internal/cli/snapshot.go id:T2204 accept:CLI-roundtrips-fork
-(B) 2026-06-29 frontend/src/snapshots.ts Snapshots panel (mounted inside K timeline sidebar): list snapshots; tap to restore in current tab; long-press → fork modal with turn picker and new-prompt textarea +phaseQ2 @frontend file:frontend/src/snapshots.ts id:T2205 blocked-by:T2204 accept:phone-can-fork
+(B) 2026-06-29 frontend/src/snapshots.ts Snapshots panel (mounted inside K timeline sidebar): list snapshots; tap to restore in current tab; long-press → fork modal with turn picker and new-prompt textarea +phaseQ2 @frontend file:frontend/src/snapshots.ts id:T2205 accept:phone-can-fork
 (B) 2026-06-29 docs/snapshots.md: limits — transcript-only fork is reliable; full PTY-state restore is best-effort (vim survives; long-running curl does not); document expected behavior per common app +phaseQ2 @docs file:docs/snapshots.md id:T2206 blocked-by:T2205
 
 #### Q2b — C: Multi-session dashboard + recordings + cost

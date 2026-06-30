@@ -63,6 +63,55 @@ func hideCmd() *cobra.Command {
 	return cmd
 }
 
+func snapshotCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "snapshot <session> <name>",
+		Short: "Save a session snapshot",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runSnapshotTake,
+	}
+}
+
+func restoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <name>",
+		Short: "Restore a saved snapshot",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runSnapshotRestore,
+	}
+}
+
+func forkCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   `fork <name> @turn-N "new prompt"`,
+		Short: "Fork a snapshot from a transcript turn",
+		Args:  cobra.ExactArgs(3),
+		RunE:  runSnapshotFork,
+	}
+}
+
+func snapshotsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "snapshots",
+		Short: "List or delete saved snapshots",
+		RunE:  runSnapshotsList,
+	}
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List saved snapshots",
+		RunE:  runSnapshotsList,
+	}
+	del := &cobra.Command{
+		Use:     "delete <name>",
+		Aliases: []string{"rm", "remove"},
+		Short:   "Delete a saved snapshot",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runSnapshotDelete,
+	}
+	cmd.AddCommand(list, del)
+	return cmd
+}
+
 func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")
