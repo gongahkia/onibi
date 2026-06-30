@@ -12,6 +12,7 @@ import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
 import { WorkspaceSwitcher } from "./workspaces";
+import { FilesPanel } from "./files";
 
 type SessionInfo = {
   session_id: string;
@@ -30,6 +31,7 @@ const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const timelineRoot = requireElement("timeline");
+const filesRoot = requireElement("files");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -99,7 +101,8 @@ async function boot(): Promise<void> {
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
     timeline = new TimelinePanel(timelineRoot, info.session_id);
-    installControls(toolbar, info, snapshots, timeline);
+    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, () => theme);
+    installControls(toolbar, info, snapshots, timeline, filesPanel);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -187,10 +190,11 @@ function eventsURL(token: string): string {
   return `${scheme}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
 }
 
-function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel, timelinePanel: TimelinePanel): void {
+function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel, timelinePanel: TimelinePanel, filesPanel: FilesPanel): void {
   root.replaceChildren(
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
+    controlButton("FILES", () => filesPanel.toggle()),
     controlButton("MAC", () => postHandover(info, "mac")),
     controlButton("PHONE", () => postHandover(info, "phone")),
     controlButton("INT", () => postControl(info.session_id, "interrupt")),
@@ -333,6 +337,7 @@ function showListChrome(): void {
   sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
   timelineRoot.hidden = true;
+  filesRoot.hidden = true;
   termEl.hidden = true;
   softkeys.hidden = true;
   approvalRoot.hidden = true;

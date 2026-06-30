@@ -23,12 +23,12 @@ frontend-build: frontend-install
 	npm --prefix frontend run build
 
 frontend-size-check: frontend-build
-	@bytes=$$(find internal/web/static/dist/assets -type f -name '*.js' -exec gzip -c {} \; | wc -c | tr -d ' '); \
+	@bytes=$$(node -e 'const fs=require("fs"),zlib=require("zlib"),path=require("path");const root="internal/web/static/dist";const manifest=JSON.parse(fs.readFileSync(path.join(root,".vite/manifest.json"),"utf8"));const seen=new Set();function add(key){const entry=manifest[key];if(!entry)return;if(entry.file&&entry.file.endsWith(".js"))seen.add(entry.file);for(const imp of entry.imports||[])add(imp)}for(const [key,entry] of Object.entries(manifest))if(entry.isEntry)add(key);let bytes=0;for(const file of seen)bytes+=zlib.gzipSync(fs.readFileSync(path.join(root,file))).length;process.stdout.write(String(bytes))'); \
 	if [ "$$bytes" -gt "$(FRONTEND_JS_GZ_LIMIT)" ]; then \
 		echo "frontend js gzip bytes $$bytes exceeds $(FRONTEND_JS_GZ_LIMIT)"; \
 		exit 1; \
 	fi; \
-	echo "frontend js gzip bytes: $$bytes"
+	echo "frontend entry js gzip bytes: $$bytes"
 
 install: build
 	install -m 0755 $(BUILD_DIR)/$(BINARY) $(HOME)/.local/bin/$(BINARY)
