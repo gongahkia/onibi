@@ -9,7 +9,7 @@ import (
 	"github.com/gongahkia/onibi/internal/web"
 )
 
-func (d *Daemon) WebSessions(ctx context.Context) ([]web.SessionSummary, error) {
+func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) ([]web.SessionSummary, error) {
 	if d == nil {
 		return nil, errors.New("daemon unavailable")
 	}
@@ -39,6 +39,14 @@ func (d *Daemon) WebSessions(ctx context.Context) ([]web.SessionSummary, error) 
 			RoleRequired:          "owner",
 		})
 	}
+	if opts.IncludeRemote {
+		remote, err := d.tailnetPeerSessions(ctx)
+		if err != nil {
+			d.Log.Debug("tailnet peer discovery failed", "err", err)
+		} else {
+			out = append(out, remote...)
+		}
+	}
 	return out, nil
 }
 
@@ -66,7 +74,7 @@ func (d *Daemon) webSessionRows(ctx context.Context) ([]store.SessionEntry, erro
 
 func (d *Daemon) pendingApprovalCounts(ctx context.Context) (map[string]int, error) {
 	out := map[string]int{}
-	if d.Queue == nil {
+	if d.Queue == nil || d.DB == nil {
 		return out, nil
 	}
 	pending, err := d.Queue.Pending(ctx)

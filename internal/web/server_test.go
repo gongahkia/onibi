@@ -365,7 +365,9 @@ func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
 func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
-	srv.sessionList = func(context.Context) ([]SessionSummary, error) {
+	var gotOpts SessionListOptions
+	srv.sessionList = func(_ context.Context, opts SessionListOptions) ([]SessionSummary, error) {
+		gotOpts = opts
 		return []SessionSummary{{
 			ID:                    "s1",
 			Agent:                 "claude",
@@ -383,7 +385,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sessions?include=local,remote", nil)
 	req.AddCookie(rr.Result().Cookies()[0])
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -396,6 +398,9 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 || got[0].TokensUsed != 120 || got[0].RoleRequired != "owner" {
 		t.Fatalf("sessions = %#v", got)
+	}
+	if !gotOpts.IncludeRemote {
+		t.Fatalf("options = %#v", gotOpts)
 	}
 }
 

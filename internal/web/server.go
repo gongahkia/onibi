@@ -34,7 +34,7 @@ type Options struct {
 	EventBus        *EventBus
 	PTYHosts        func() map[string]*pty.Host
 	SessionIDs      func() []string
-	SessionList     func(context.Context) ([]SessionSummary, error)
+	SessionList     func(context.Context, SessionListOptions) ([]SessionSummary, error)
 	PTYHost         func(context.Context, string) (*pty.Host, error)
 	Handover        func(context.Context, string, string) (string, error)
 	Scroll          func(context.Context, string, string) error
@@ -57,7 +57,7 @@ type Server struct {
 	eventBus        *EventBus
 	ptyHosts        func() map[string]*pty.Host
 	sessionIDs      func() []string
-	sessionList     func(context.Context) ([]SessionSummary, error)
+	sessionList     func(context.Context, SessionListOptions) ([]SessionSummary, error)
 	ptyHost         func(context.Context, string) (*pty.Host, error)
 	handover        func(context.Context, string, string) (string, error)
 	scroll          func(context.Context, string, string) error

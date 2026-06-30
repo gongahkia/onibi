@@ -12,6 +12,9 @@ export type SessionSummary = {
   tokens_used: number;
   cost_usd: number;
   role_required: string;
+  remote?: boolean;
+  peer_name?: string;
+  remote_url?: string;
 };
 
 export type SessionCostPayload = {
@@ -47,7 +50,7 @@ export class SessionsListView {
     this.status = "";
     this.render();
     try {
-      this.rows = await this.fetchJSON<SessionSummary[]>("/sessions");
+      this.rows = await this.fetchJSON<SessionSummary[]>("/sessions?include=remote");
     } catch {
       this.status = "sessions unavailable";
     } finally {
@@ -129,13 +132,13 @@ export class SessionsListView {
   private sessionButton(row: SessionSummary): HTMLButtonElement {
     const el = document.createElement("button");
     el.type = "button";
-    el.className = row.id === lastSessionID() ? "session-list-row last" : "session-list-row";
+    el.className = sessionRowClass(row);
     el.title = row.id;
     const top = document.createElement("span");
     top.className = "session-list-top";
     const agent = document.createElement("span");
     agent.className = "session-list-agent";
-    agent.textContent = row.agent || "session";
+    agent.textContent = sessionTitle(row);
     const id = document.createElement("span");
     id.className = "session-list-id";
     id.textContent = shortID(row.id);
@@ -143,7 +146,7 @@ export class SessionsListView {
 
     const cwd = document.createElement("span");
     cwd.className = "session-list-cwd";
-    cwd.textContent = row.cwd;
+    cwd.textContent = row.remote === true && row.remote_url !== undefined ? row.remote_url : row.cwd;
 
     const meta = document.createElement("span");
     meta.className = "session-list-meta";
@@ -151,6 +154,10 @@ export class SessionsListView {
 
     el.append(top, cwd, meta);
     el.addEventListener("click", () => {
+      if (row.remote_url !== undefined && row.remote_url !== "") {
+        window.location.href = row.remote_url;
+        return;
+      }
       saveLastSessionID(row.id);
       this.navigate(row.id);
     });
@@ -257,11 +264,14 @@ function sortedRows(rows: SessionSummary[]): SessionSummary[] {
     if (b.id === last) {
       return 1;
     }
-    return Date.parse(b.last_activity) - Date.parse(a.last_activity);
+    return sessionTime(b) - sessionTime(a);
   });
 }
 
 function sessionMeta(row: SessionSummary): string {
+  if (row.remote === true) {
+    return "remote";
+  }
   const parts = [`${formatTokens(row.tokens_used)}`];
   if (row.cost_usd > 0) {
     parts.push(formatUSD(row.cost_usd));
@@ -272,6 +282,29 @@ function sessionMeta(row: SessionSummary): string {
   parts.push(formatWhen(row.last_activity));
   parts.push(row.role_required);
   return parts.join(" / ");
+}
+
+function sessionRowClass(row: SessionSummary): string {
+  const classes = ["session-list-row"];
+  if (row.id === lastSessionID()) {
+    classes.push("last");
+  }
+  if (row.remote === true) {
+    classes.push("remote");
+  }
+  return classes.join(" ");
+}
+
+function sessionTitle(row: SessionSummary): string {
+  if (row.remote === true) {
+    return (row.peer_name ?? row.agent) || "remote";
+  }
+  return row.agent || "session";
+}
+
+function sessionTime(row: SessionSummary): number {
+  const ts = Date.parse(row.last_activity);
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 function emptyRow(text: string): HTMLElement {

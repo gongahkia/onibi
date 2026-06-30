@@ -379,11 +379,9 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked: asciinema cast v2 (https://docs.asciinema.org/manual/asciicast/v2/). File = JSON header line + JSONL events. Header `{"version":2,"width":<cols>,"height":<rows>,"timestamp":<unix>,"title":<session_id>}`. Event `[<seconds-float>, "<code>", "<data>"]` where code = "o" (stdout), "i" (stdin), "r" (resize "COLSxROWS"), "m" (marker). Time relative to recording start, monotonic non-decreasing. Player: https://github.com/asciinema/asciinema-player.
 
-(C) 2026-06-29 Cross-machine roster: if multiple onibi daemons exist on a tailnet, discover peers by parsing `tailscale status --json` output (already used elsewhere per TODO §3 rule 9); include in /sessions?include=remote response; tap to context-switch (Sessions view re-roots WS to the peer URL); anti-goal — do NOT add a SaaS relay +phaseQ2 @backend file:internal/web/sessions.go id:T2226 accept:tailnet-peers-show-in-list
-
 #### Q2c — K: Agent reasoning timeline panel
 
-(A) 2026-06-29 internal/timeline/stream.go: parse Claude Code session JSONL into TimelineEvent records — turn, tool_call, tool_result, approval, hook_fired, anomaly, snapshot, cost; reuse Q1c parser +phaseQ2 @backend file:internal/timeline/stream.go id:T2250 blocked-by:T2226 accept:emits-event-per-turn
+(A) 2026-06-29 internal/timeline/stream.go: parse Claude Code session JSONL into TimelineEvent records — turn, tool_call, tool_result, approval, hook_fired, anomaly, snapshot, cost; reuse Q1c parser +phaseQ2 @backend file:internal/timeline/stream.go id:T2250 accept:emits-event-per-turn
 (A) 2026-06-29 Expose timeline over existing /ws/events (no SSE per TODO §3 rule 6) with new message type timeline.entry; emit retroactively on first attach (last 200 events) then live thereafter +phaseQ2 @backend file:internal/web/ws_events.go id:T2251 blocked-by:T2250 accept:ws-emits-timeline-entries
 (A) 2026-06-29 frontend/src/timeline.ts: collapsible right-side drawer; each entry shows icon (turn/tool/approval/anomaly/snapshot/cost), one-line summary, expandable to full payload; snapshots from Q2a render inline at their chronological position +phaseQ2 @frontend file:frontend/src/timeline.ts id:T2252 blocked-by:T2251 accept:timeline-collapses-and-expands
 (B) 2026-06-29 Filter chips: tool / approval / anomaly / snapshot / cost; multi-select narrows visible entries +phaseQ2 @frontend file:frontend/src/timeline.ts id:T2253 blocked-by:T2252 accept:filters-narrow-list

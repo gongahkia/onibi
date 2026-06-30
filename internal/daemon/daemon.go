@@ -83,6 +83,8 @@ type Daemon struct {
 	budgetOverruns        map[string]bool
 	anomalyHistory        map[string][]anomaly.Action
 	started               time.Time
+	tailnetStatus         func(context.Context) ([]byte, error)
+	tailnetHealth         func(context.Context, string) (bool, error)
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 	SkipRestore  bool
@@ -117,6 +119,8 @@ type Options struct {
 	ProviderOutputOverrides ProviderOutputOverrides
 	Budget                  *budget.ClaudeParser
 	Recorder                *web.Recorder
+	TailnetStatus           func(context.Context) ([]byte, error)
+	TailnetHealth           func(context.Context, string) (bool, error)
 	SkipRestore             bool
 }
 
@@ -211,6 +215,8 @@ func New(opts Options) *Daemon {
 		Gotify:                  opts.Gotify,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
+		tailnetStatus:           tailnetStatusOrDefault(opts.TailnetStatus),
+		tailnetHealth:           tailnetHealthOrDefault(opts.TailnetHealth),
 	}
 
 	// approval queue + expiry sweeper

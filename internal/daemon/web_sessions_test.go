@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
 func TestWebSessionsAggregatesActiveRows(t *testing.T) {
@@ -35,7 +38,7 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 		TS:                time.Now().UTC(),
 	}
 	d.mu.Unlock()
-	rows, err := d.WebSessions(t.Context())
+	rows, err := d.WebSessions(t.Context(), web.SessionListOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,5 +51,33 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 	}
 	if first.StartedAt == "" || first.LastActivity == "" {
 		t.Fatalf("missing times: %#v", first)
+	}
+}
+
+func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
+	status := `{"BackendState":"Running","Self":{"DNSName":"self.tail.ts.net."},"Peer":{"n1":{"DNSName":"peer.tail.ts.net.","HostName":"work-mac"},"n2":{"DNSName":"plain.tail.ts.net.","HostName":"no-daemon"}}}`
+	var probed []string
+	d := New(Options{
+		TailnetStatus: func(context.Context) ([]byte, error) {
+			return []byte(status), nil
+		},
+		TailnetHealth: func(_ context.Context, url string) (bool, error) {
+			probed = append(probed, url)
+			return url == "https://peer.tail.ts.net/", nil
+		},
+	})
+	rows, err := d.WebSessions(t.Context(), web.SessionListOptions{IncludeRemote: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v", rows)
+	}
+	got := rows[0]
+	if !got.Remote || got.PeerName != "work-mac" || got.RemoteURL != "https://peer.tail.ts.net/" || got.RoleRequired != "remote" {
+		t.Fatalf("remote row = %#v", got)
+	}
+	if !slices.Contains(probed, "https://peer.tail.ts.net/") || !slices.Contains(probed, "https://plain.tail.ts.net/") {
+		t.Fatalf("probed = %#v", probed)
 	}
 }
