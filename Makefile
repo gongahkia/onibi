@@ -1,4 +1,4 @@
-.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-dry release-smoke reproducible-build
+.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-e2e-gate release-dry release-smoke reproducible-build
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -13,6 +13,7 @@ build: frontend-size-check
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/onibi
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(NOTIFY_BINARY) ./clients/onibi-notify
+	$(MAKE) release-e2e-gate
 
 # frontend dist is embedded by Go, so compile it before binaries.
 frontend-install:
@@ -57,6 +58,11 @@ gen-readme:
 
 gen-readme-check:
 	go run ./cmd/gen-readme --check
+
+release-e2e-gate:
+	@tag=$$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null || true); \
+	ONIBI_RELEASE_TAG="$$tag" scripts/release-e2e-gate.sh "$(BUILD_DIR)/$(BINARY)"; \
+	ONIBI_RELEASE_TAG="$$tag" scripts/release-e2e-gate.sh "$(BUILD_DIR)/$(NOTIFY_BINARY)"
 
 release-dry:
 	@command -v goreleaser >/dev/null 2>&1 || (echo "goreleaser not installed: brew install goreleaser" && exit 1)
