@@ -117,6 +117,29 @@ func TestResolvePairTransportAutoFallsBackToLAN(t *testing.T) {
 	}
 }
 
+func TestCloudflareQuickForcesRelayE2E(t *testing.T) {
+	if !webtransport.IsRelayMode("cloudflare-quick") {
+		t.Fatal("cloudflare-quick did not require relay e2e")
+	}
+}
+
+func TestRelayPairURLFragmentKeepsKeyOutOfRequestPath(t *testing.T) {
+	got := appendURLFragment("https://fast-demo.trycloudflare.com/pair/tok", "k=abc123")
+	if got != "https://fast-demo.trycloudflare.com/pair/tok#k=abc123" {
+		t.Fatalf("url = %q", got)
+	}
+	if strings.Contains(strings.Split(got, "#")[0], "abc123") {
+		t.Fatalf("key leaked before fragment: %q", got)
+	}
+}
+
+func TestRedactPairURLDropsRelayKeyFragment(t *testing.T) {
+	got := redactPairURL("https://fast-demo.trycloudflare.com/pair/tok#k=abc123")
+	if got != "https://fast-demo.trycloudflare.com/pair/<redacted>" {
+		t.Fatalf("redacted = %q", got)
+	}
+}
+
 func withDefaultState(t *testing.T) config.Paths {
 	t.Helper()
 	dir := t.TempDir()
