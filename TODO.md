@@ -403,7 +403,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q3d — D: Read-only viewer sharing
 
-(A) 2026-06-29 Frontend role gating: SPA reads /session-info for role on boot; if viewer, soft-key bar shows banner "VIEW ONLY", input forwarding to /ws/pty disabled client-side as well (defense in depth), approval overlay hidden, files panel readonly +phaseQ3 @frontend file:frontend/src/main.ts id:T2363 blocked-by:T2362 accept:viewer-mode-ui-locked
 (B) 2026-06-29 onibi devices shows role per row; onibi unpair --viewer <id> revokes only viewer rows; --all-viewers bulk revoke +phaseQ3 @backend file:internal/cli/unpair.go id:T2364 blocked-by:T2363 accept:role-visible-in-devices
 (B) 2026-06-29 Audit every viewer attach/detach in internal/daemon/audit.go with viewer ID, source IP, user-agent +phaseQ3 @backend file:internal/daemon/audit.go id:T2365 blocked-by:T2364 accept:viewer-attach-logged
 (B) 2026-06-29 docs/sharing.md threat model: viewer sees content but cannot steer; recommended TTLs; anti-pattern — don't share to untrusted teammate while editing secrets, they SEE the secrets in the live PTY stream +phaseQ3 @docs file:docs/sharing.md id:T2366 blocked-by:T2365

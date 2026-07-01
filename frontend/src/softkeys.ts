@@ -10,6 +10,7 @@ type SoftKeyBarOptions = {
   focus: () => void;
   getTheme: () => TerminalThemeName;
   setTheme: (theme: TerminalThemeName) => void;
+  readOnly?: boolean;
 };
 
 type Modifier = "ctrl" | "alt";
@@ -42,6 +43,16 @@ export class SoftKeyBar {
 
   constructor(private readonly options: SoftKeyBarOptions) {
     const frag = document.createDocumentFragment();
+    if (options.readOnly === true) {
+      const banner = document.createElement("div");
+      banner.className = "softkey-view-only";
+      banner.textContent = "VIEW ONLY";
+      frag.append(banner);
+      this.themePicker = this.themeSelect(options.getTheme());
+      frag.append(this.themePicker);
+      options.root.replaceChildren(frag);
+      return;
+    }
     frag.append(this.modifierButton("Ctrl", "ctrl"));
     frag.append(this.modifierButton("Alt", "alt"));
     for (const key of keys) {

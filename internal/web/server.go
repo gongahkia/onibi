@@ -357,14 +357,15 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ownerSessionID, ok := s.requireHTTPAuth(w, r)
+	auth, ok := s.requireHTTPAuthInfo(w, r)
 	if !ok {
 		return
 	}
 	if r.URL.Query().Get("events") == "1" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"ws_token": ownerSessionID,
+			"ws_token": auth.ID,
+			"role":     auth.Role,
 		})
 		return
 	}
@@ -387,7 +388,8 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"session_id": sessionID,
-		"ws_token":   ownerSessionID,
+		"ws_token":   auth.ID,
+		"role":       auth.Role,
 	})
 }
 

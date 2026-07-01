@@ -110,9 +110,17 @@ export function applyTerminalTheme(term: Terminal, theme: TerminalThemeName): vo
   term.options.theme = themes[theme];
 }
 
-export function attachTerminalIO(term: Terminal, ws: TerminalWS): IDisposable {
-  const data = term.onData((input) => ws.sendText(input)); // text frame; server distinguishes JSON controls from input
-  const binary = term.onBinary((input) => ws.sendBinary(binaryStringBytes(input))); // binary frame for opaque sequences
+export function attachTerminalIO(term: Terminal, ws: TerminalWS, enabled: () => boolean = () => true): IDisposable {
+  const data = term.onData((input) => {
+    if (enabled()) {
+      ws.sendText(input);
+    }
+  });
+  const binary = term.onBinary((input) => {
+    if (enabled()) {
+      ws.sendBinary(binaryStringBytes(input));
+    }
+  });
   return {
     dispose() {
       data.dispose();

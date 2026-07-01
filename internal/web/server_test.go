@@ -264,7 +264,7 @@ func TestSessionInfoReturnsSinglePTYHost(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["session_id"] != "local-shell" || got["ws_token"] == "" {
+	if got["session_id"] != "local-shell" || got["ws_token"] == "" || got["role"] != store.PairRoleOwner {
 		t.Fatalf("session-info = %#v", got)
 	}
 }
@@ -289,7 +289,32 @@ func TestSessionInfoReturnsSingleSessionIDWithoutHost(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["session_id"] != "s1" || got["ws_token"] == "" {
+	if got["session_id"] != "s1" || got["ws_token"] == "" || got["role"] != store.PairRoleOwner {
+		t.Fatalf("session-info = %#v", got)
+	}
+}
+
+func TestSessionInfoReturnsViewerRole(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionIDs = func() []string { return []string{"s1"} }
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/session-info?session_id=s1", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleSessionInfo(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	got := map[string]string{}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["role"] != store.PairRoleViewer || got["session_id"] != "s1" || got["ws_token"] == "" {
 		t.Fatalf("session-info = %#v", got)
 	}
 }
@@ -314,7 +339,7 @@ func TestSessionInfoEventsTokenSkipsSessionSelection(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["ws_token"] != ownerSessionID || got["session_id"] != "" {
+	if got["ws_token"] != ownerSessionID || got["session_id"] != "" || got["role"] != store.PairRoleOwner {
 		t.Fatalf("session-info = %#v", got)
 	}
 }

@@ -18,11 +18,15 @@ import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 type SessionInfo = {
   session_id: string;
   ws_token: string;
+  role: SessionRole;
 };
 
 type EventsInfo = {
   ws_token: string;
+  role: SessionRole;
 };
+
+type SessionRole = "owner" | "viewer";
 
 const termEl = requireElement("term");
 const splash = requireElement("splash");
@@ -48,8 +52,10 @@ let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
+let terminalInputEnabled = false;
+let viewerMode = false;
 
-attachTerminalIO(term, ws);
+attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
 installTouchScroll(term, termEl);
 installViewportPinning(termEl);
@@ -67,8 +73,10 @@ ws.addEventListener("open", () => {
 ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
 events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
-  approvals.handleEnvelope(envelope);
-  anomalies.handleEnvelope(envelope);
+  if (!viewerMode) {
+    approvals.handleEnvelope(envelope);
+    anomalies.handleEnvelope(envelope);
+  }
   sessionList?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
@@ -96,14 +104,16 @@ async function boot(): Promise<void> {
       return;
     }
     const info = await sessionInfo(routeSession);
+    viewerMode = info.role === "viewer";
+    terminalInputEnabled = !viewerMode;
     await relayE2E?.bindSession(info.ws_token);
     refreshPushOnOpen();
     saveLastSessionID(info.session_id);
-    showTerminalChrome();
+    showTerminalChrome(viewerMode);
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
     timeline = new TimelinePanel(timelineRoot, info.session_id);
-    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, putJSON, () => theme, showToast);
+    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, putJSON, () => theme, showToast, viewerMode);
     installControls(toolbar, info, snapshots, timeline, filesPanel);
     new SoftKeyBar({
       root: softkeys,
@@ -113,7 +123,8 @@ async function boot(): Promise<void> {
       pageDown: () => postControl(info.session_id, "page_down"),
       focus: () => term.focus(),
       getTheme: () => theme,
-      setTheme: setTheme
+      setTheme: setTheme,
+      readOnly: viewerMode
     });
     connectTerminal(info);
     events.connect(eventsURL(info.ws_token));
@@ -123,6 +134,8 @@ async function boot(): Promise<void> {
 }
 
 async function showSessionsHome(): Promise<void> {
+  viewerMode = false;
+  terminalInputEnabled = false;
   showListChrome();
   const workspaceControl = document.createElement("div");
   const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, workspaceControl);
@@ -146,6 +159,7 @@ async function sessionInfo(sessionID: string): Promise<SessionInfo> {
 async function connectSessionListEvents(): Promise<void> {
   try {
     const info = await getJSON<EventsInfo>("/session-info?events=1");
+    viewerMode = info.role === "viewer";
     await relayE2E?.bindSession(info.ws_token);
     events.connect(eventsURL(info.ws_token));
   } catch {
@@ -194,16 +208,21 @@ function eventsURL(token: string): string {
 }
 
 function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel, timelinePanel: TimelinePanel, filesPanel: FilesPanel): void {
-  root.replaceChildren(
+  const controls = [
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("FILES", () => filesPanel.toggle()),
-    controlButton("PUSH", () => enablePush()),
-    controlButton("MAC", () => postHandover(info, "mac")),
-    controlButton("PHONE", () => postHandover(info, "phone")),
-    controlButton("INT", () => postControl(info.session_id, "interrupt")),
-    controlButton("KILL", () => postControl(info.session_id, "kill"))
-  );
+    controlButton("PUSH", () => enablePush())
+  ];
+  if (info.role !== "viewer") {
+    controls.push(
+      controlButton("MAC", () => postHandover(info, "mac")),
+      controlButton("PHONE", () => postHandover(info, "phone")),
+      controlButton("INT", () => postControl(info.session_id, "interrupt")),
+      controlButton("KILL", () => postControl(info.session_id, "kill"))
+    );
+  }
+  root.replaceChildren(...controls);
 }
 
 function controlButton(label: string, action: () => void): HTMLButtonElement {
@@ -372,11 +391,11 @@ function showListChrome(): void {
   sessionListRoot.hidden = false;
 }
 
-function showTerminalChrome(): void {
+function showTerminalChrome(readOnly: boolean): void {
   toolbar.hidden = false;
   termEl.hidden = false;
   softkeys.hidden = false;
-  approvalRoot.hidden = false;
+  approvalRoot.hidden = readOnly;
   sessionListRoot.hidden = true;
 }
 

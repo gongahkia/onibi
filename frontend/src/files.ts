@@ -76,7 +76,8 @@ export class FilesPanel {
     private readonly fetchJSON: FetchJSON,
     private readonly sendJSON: SendJSON,
     private readonly getTheme: () => TerminalThemeName,
-    private readonly showToast: (message: string) => void
+    private readonly showToast: (message: string) => void,
+    private readonly readOnly = false
   ) {}
 
   toggle(): void {
@@ -186,7 +187,7 @@ export class FilesPanel {
     viewerStatus.textContent = this.viewerStatus;
     const viewerActions = document.createElement("div");
     viewerActions.className = "files-viewer-actions";
-    if (this.selectedPath !== "" && !this.selectedBinary) {
+    if (this.selectedPath !== "" && !this.selectedBinary && !this.readOnly) {
       if (this.editing) {
         viewerActions.append(panelButton("Save", () => void this.saveEdit()), panelButton("Cancel", () => this.cancelEdit()));
       } else {
@@ -238,6 +239,9 @@ export class FilesPanel {
   }
 
   private startEdit(): void {
+    if (this.readOnly) {
+      return;
+    }
     this.editing = true;
     this.editContent = this.currentContent;
     this.viewerStatus = "";
@@ -253,7 +257,7 @@ export class FilesPanel {
   }
 
   private async saveEdit(): Promise<void> {
-    if (this.selectedPath === "" || this.editor === undefined) {
+    if (this.readOnly || this.selectedPath === "" || this.editor === undefined) {
       return;
     }
     this.editContent = this.editor.textContent ?? "";

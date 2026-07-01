@@ -75,13 +75,21 @@ func setOwnerCookie(w http.ResponseWriter, sessionID string) {
 }
 
 func (s *Server) requireHTTPAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	auth, ok := s.requireHTTPAuthInfo(w, r)
+	if !ok {
+		return "", false
+	}
+	return auth.ID, true
+}
+
+func (s *Server) requireHTTPAuthInfo(w http.ResponseWriter, r *http.Request) (authenticatedSession, bool) {
 	auth, err := s.authenticate(r)
 	if err != nil {
 		s.log.Warn("web http auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "path", safeRequestPath(r.URL.Path), "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return "", false
+		return authenticatedSession{}, false
 	}
-	return auth.ID, true
+	return auth, true
 }
 
 func (s *Server) requireOwnerHTTPAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
