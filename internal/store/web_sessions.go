@@ -71,6 +71,26 @@ func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, erro
 	return n == 1, nil
 }
 
+func (d *DB) RevokeWebSessionWithRole(ctx context.Context, sessionID, role string) (bool, error) {
+	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1 WHERE cookie_hash = ? AND role = ? AND revoked = 0`, lookupHash(sessionID), role)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+func (d *DB) RevokeWebSessionsByRole(ctx context.Context, role string) (int64, error) {
+	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1 WHERE role = ? AND revoked = 0`, role)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (d *DB) WebSessionRole(ctx context.Context, sessionID string) (string, bool, error) {
 	var role string
 	err := d.sql.QueryRowContext(ctx,
