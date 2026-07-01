@@ -14,6 +14,7 @@ import { TimelinePanel } from "./timeline";
 import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
+import { startFirstRunTour } from "./tour";
 
 type SessionInfo = {
   session_id: string;
@@ -128,6 +129,9 @@ async function boot(): Promise<void> {
     });
     connectTerminal(info);
     events.connect(eventsURL(info.ws_token));
+    if (!viewerMode) {
+      startFirstRunTour();
+    }
   } catch {
     splash.textContent = "session unavailable";
   }
@@ -150,6 +154,7 @@ async function showSessionsHome(): Promise<void> {
   await connectSessionListEvents();
   refreshPushOnOpen();
   splash.hidden = true;
+  startFirstRunTour();
 }
 
 async function sessionInfo(sessionID: string): Promise<SessionInfo> {
@@ -211,13 +216,13 @@ function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: S
   const controls = [
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
-    controlButton("FILES", () => filesPanel.toggle()),
+    controlButton("FILES", () => filesPanel.toggle(), "files"),
     controlButton("PUSH", () => enablePush())
   ];
   if (info.role !== "viewer") {
     controls.push(
-      controlButton("MAC", () => postHandover(info, "mac")),
-      controlButton("PHONE", () => postHandover(info, "phone")),
+      controlButton("MAC", () => postHandover(info, "mac"), "handover-mac"),
+      controlButton("PHONE", () => postHandover(info, "phone"), "handover-phone"),
       controlButton("INT", () => postControl(info.session_id, "interrupt")),
       controlButton("KILL", () => postControl(info.session_id, "kill"))
     );
@@ -225,7 +230,7 @@ function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: S
   root.replaceChildren(...controls);
 }
 
-function controlButton(label: string, action: () => void): HTMLButtonElement {
+function controlButton(label: string, action: () => void, tourID = ""): HTMLButtonElement {
   const el = document.createElement("button");
   let firedAt = 0;
   const fire = (event: Event) => {
@@ -241,6 +246,9 @@ function controlButton(label: string, action: () => void): HTMLButtonElement {
   el.className = "control-button";
   el.textContent = label;
   el.tabIndex = -1;
+  if (tourID !== "") {
+    el.dataset.tour = tourID;
+  }
   el.addEventListener("pointerdown", fire);
   el.addEventListener("touchstart", fire, { passive: false });
   el.addEventListener("click", (event) => {

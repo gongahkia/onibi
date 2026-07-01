@@ -419,8 +419,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q4c — X: Guided demo + first-run tour
 
-(A) 2026-06-29 frontend/src/tour.ts SPA first-run tour: gated on localStorage onibi-tour-done absent; step-through tooltips for 8 steps — pair flow → terminal mount → MAC/PHONE handover → approval card → soft-key bar → trust/policy hint → files panel hint → done; takes ≤60s; skip button always visible +phaseQ4 @frontend file:frontend/src/tour.ts id:T2451 accept:tour-completes-in-60s
-(B) 2026-06-29 Demo screencast: record `onibi demo` end-to-end via `asciinema rec`, save to docs/demo.cast (committed); embed asciinema-player web component in docs/index.html landing +phaseQ4 @docs file:docs/demo.cast id:T2452 blocked-by:T2451 accept:cast-plays-on-landing-page
+(B) 2026-06-29 Demo screencast: record `onibi demo` end-to-end via `asciinema rec`, save to docs/demo.cast (committed); embed asciinema-player web component in docs/index.html landing +phaseQ4 @docs file:docs/demo.cast id:T2452 accept:cast-plays-on-landing-page
 
 #### Q4d — AB: In-place self-update
 
