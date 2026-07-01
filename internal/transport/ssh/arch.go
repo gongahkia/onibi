@@ -60,3 +60,10 @@ func (p Platform) ArtifactSuffix() string {
 	}
 	return p.GOOS + "_" + p.GOARCH
 }
+
+func (p Platform) ReleaseDirName() string {
+	if p.GOARCH == "arm" && p.GOARM != "" {
+		return p.GOOS + "-armv" + p.GOARM
+	}
+	return p.GOOS + "-" + p.GOARCH
+}

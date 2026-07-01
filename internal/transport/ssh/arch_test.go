@@ -55,3 +55,22 @@ func TestPlatformArtifactSuffix(t *testing.T) {
 		}
 	}
 }
+
+func TestPlatformReleaseDirName(t *testing.T) {
+	tests := []struct {
+		platform Platform
+		want     string
+	}{
+		{platform: Platform{GOOS: "linux", GOARCH: "arm64"}, want: "linux-arm64"},
+		{platform: Platform{GOOS: "linux", GOARCH: "arm", GOARM: "7"}, want: "linux-armv7"},
+		{platform: Platform{GOOS: "linux", GOARCH: "arm", GOARM: "6"}, want: "linux-armv6"},
+		{platform: Platform{GOOS: "linux", GOARCH: "amd64"}, want: "linux-amd64"},
+		{platform: Platform{GOOS: "darwin", GOARCH: "arm64"}, want: "darwin-arm64"},
+		{platform: Platform{GOOS: "darwin", GOARCH: "amd64"}, want: "darwin-amd64"},
+	}
+	for _, tt := range tests {
+		if got := tt.platform.ReleaseDirName(); got != tt.want {
+			t.Fatalf("release dir = %q, want %q", got, tt.want)
+		}
+	}
+}
