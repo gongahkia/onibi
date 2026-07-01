@@ -63,6 +63,7 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ./bin/onibi show
 ./bin/onibi hide --headless
 ./bin/onibi pair
+./bin/onibi share <session-id>
 ./bin/onibi telegram setup
 ./bin/onibi devices
 ./bin/onibi unpair <device-id>
@@ -83,6 +84,7 @@ Useful CLI flags:
 - `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
 - `telegram`: `setup`, `status`, `disable`; `up --transport=telegram` starts chat-native text control.
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
+- `share`: `--ttl <duration>`, `--max-viewers <n>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--no-update`, `--refresh-update`, `--json`, `--strict`.
 - `doctor`: `--fix`, `--release`, `--after-upgrade`, `--explain`, `--offline`, `--json`.
 - `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--shell <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
@@ -124,6 +126,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
 - [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
+- [`docs/sharing.md`](./docs/sharing.md): read-only viewer sharing threat model and TTL guidance.
 - [`docs/web-push.md`](./docs/web-push.md): iOS web push setup and troubleshooting.
 - [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
