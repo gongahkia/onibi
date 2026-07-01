@@ -175,6 +175,18 @@ func updateCheckCmd() *cobra.Command {
 	return cmd
 }
 
+func updateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Check or apply an Onibi release update",
+		Args:  cobra.ExactArgs(0),
+		RunE:  runUpdate,
+	}
+	cmd.Flags().String("channel", "stable", "release channel: stable or beta")
+	cmd.Flags().Bool("check-only", false, "print latest release without applying it")
+	return cmd
+}
+
 func demoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "demo",
