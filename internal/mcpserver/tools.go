@@ -78,6 +78,19 @@ type pendingApprovalRow struct {
 	ExpiresAt     string   `json:"expires_at,omitempty"`
 }
 
+type decideApprovalInput struct {
+	ApprovalID string `json:"approval_id"`
+	Verdict    string `json:"verdict"`
+	EditedArgs string `json:"edited_args,omitempty"`
+}
+
+type decideApprovalOutput struct {
+	OK        bool   `json:"ok"`
+	State     string `json:"state"`
+	Verdict   string `json:"verdict"`
+	Delivered bool   `json:"delivered"`
+}
+
 var listSessionsOutputSchema = json.RawMessage(`{
   "type":"array",
   "items":{
@@ -165,6 +178,16 @@ func listPendingApprovalsTool() mcp.Tool {
 	)
 }
 
+func decideApprovalTool() mcp.Tool {
+	return mcp.NewTool("onibi_decide_approval",
+		mcp.WithDescription("Decide a pending Onibi approval. High-risk approve/edit decisions are refused over MCP."),
+		mcp.WithString("approval_id", mcp.Description("approval id"), mcp.Required()),
+		mcp.WithString("verdict", mcp.Description("approve, deny, or edit"), mcp.Required()),
+		mcp.WithString("edited_args", mcp.Description("edited tool input JSON for edit verdict")),
+		mcp.WithOutputSchema[decideApprovalOutput](),
+	)
+}
+
 func fetchTranscriptTool() mcp.Tool {
 	return mcp.NewTool("onibi_fetch_transcript",
 		mcp.WithDescription("Fetch scrubbed transcript turns for an Onibi session."),
@@ -230,6 +253,51 @@ func (s *Server) listPendingApprovals(ctx context.Context, _ listPendingApproval
 		})
 	}
 	return out, nil
+}
+
+func (s *Server) decideApproval(ctx context.Context, in decideApprovalInput) (decideApprovalOutput, error) {
+	if s.db == nil {
+		return decideApprovalOutput{}, errors.New("session DB unavailable")
+	}
+	id := strings.TrimSpace(in.ApprovalID)
+	if id == "" {
+		return decideApprovalOutput{}, errors.New("approval_id required")
+	}
+	verdict, err := mcpApprovalVerdict(in.Verdict)
+	if err != nil {
+		return decideApprovalOutput{}, err
+	}
+	q := approval.New(s.db, approval.DefaultTTL)
+	a, err := q.Get(ctx, id)
+	if err != nil {
+		return decideApprovalOutput{}, err
+	}
+	if approval.ClassifyRisk(a.Tool, a.InputJSON).Level == approval.RiskHigh && (verdict == approval.VerdictApprove || verdict == approval.VerdictEdit) {
+		return decideApprovalOutput{}, errors.New("high-risk approval requires human decision in the web cockpit")
+	}
+	edited := strings.TrimSpace(in.EditedArgs)
+	if verdict == approval.VerdictEdit {
+		if edited == "" {
+			return decideApprovalOutput{}, errors.New("edited_args required")
+		}
+		if err := approval.ValidateEditedInput(a.Tool, a.InputJSON, edited); err != nil {
+			return decideApprovalOutput{}, err
+		}
+	}
+	reason := ""
+	if verdict == approval.VerdictDeny {
+		reason = "denied via MCP"
+	}
+	res, err := q.DecideWithResult(ctx, id, verdict, edited, reason, 0)
+	if err != nil {
+		return decideApprovalOutput{}, err
+	}
+	return decideApprovalOutput{
+		OK:        true,
+		State:     approval.StateForVerdict(res.Decision.Verdict),
+		Verdict:   string(res.Decision.Verdict),
+		Delivered: res.Delivered,
+	}, nil
 }
 
 func (s *Server) fetchTranscript(ctx context.Context, in fetchTranscriptInput) ([]transcriptTurn, error) {
@@ -321,6 +389,19 @@ func formatSessionTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func mcpApprovalVerdict(v string) (approval.Verdict, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "approve":
+		return approval.VerdictApprove, nil
+	case "deny":
+		return approval.VerdictDeny, nil
+	case "edit", "edited":
+		return approval.VerdictEdit, nil
+	default:
+		return "", errors.New("verdict must be approve, deny, or edit")
+	}
 }
 
 func readTranscriptTurns(path string, sinceTurn, maxTurns int) ([]transcriptTurn, error) {

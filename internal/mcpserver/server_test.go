@@ -47,6 +47,7 @@ func TestToolSchemasListed(t *testing.T) {
 		"onibi_kill_session":           {"session_id", "force"},
 		"onibi_fetch_transcript":       {"session_id", "since_turn", "max_turns"},
 		"onibi_list_pending_approvals": {},
+		"onibi_decide_approval":        {"approval_id", "verdict", "edited_args"},
 		"onibi_notify":                 {"session", "agent", "text"},
 		"onibi_approval_request":       {"session", "agent", "tool", "input_json", "timeout_seconds"},
 		"onibi_session_list":           {"all", "n"},
@@ -149,6 +150,58 @@ func TestListPendingApprovalsToolMatchesWebInbox(t *testing.T) {
 	}
 	if out[1].ID != secondID || out[1].SessionID != "s2" || out[1].Tool != "Write" {
 		t.Fatalf("second = %+v", out[1])
+	}
+}
+
+func TestDecideApprovalToolApprovesLowRisk(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	q := approval.New(db, approval.DefaultTTL)
+	id, _, err := q.Request(ctx, "s1", "claude", "Bash", `{"command":"go test ./..."}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db}))
+
+	out := callToolOK[decideApprovalOutput](t, session, "onibi_decide_approval", map[string]any{
+		"approval_id": id,
+		"verdict":     "approve",
+	})
+	if !out.OK || out.State != approval.StateApproved || out.Verdict != string(approval.VerdictApprove) {
+		t.Fatalf("decision = %+v", out)
+	}
+	got, err := q.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != approval.StateApproved {
+		t.Fatalf("approval = %+v", got)
+	}
+}
+
+func TestDecideApprovalToolRefusesHighRiskApprove(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	q := approval.New(db, approval.DefaultTTL)
+	id, _, err := q.Request(ctx, "s1", "claude", "Bash", `{"command":"rm -rf /tmp/x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db}))
+
+	res := callTool(t, session, "onibi_decide_approval", map[string]any{
+		"approval_id": id,
+		"verdict":     "approve",
+	})
+	if !res.IsError || !strings.Contains(toolResultText(t, res), "high-risk approval requires human decision") {
+		t.Fatalf("result = %#v", res)
+	}
+	got, err := q.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != approval.StatePending {
+		t.Fatalf("approval = %+v", got)
 	}
 }
 
