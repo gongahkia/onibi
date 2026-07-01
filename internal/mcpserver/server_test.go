@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserverlib "github.com/mark3labs/mcp-go/server"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -40,6 +41,7 @@ func TestToolSchemasListed(t *testing.T) {
 		got[tool.Name] = tool
 	}
 	want := map[string][]string{
+		"onibi_list_sessions":    {"include_remote"},
 		"onibi_notify":           {"session", "agent", "text"},
 		"onibi_approval_request": {"session", "agent", "tool", "input_json", "timeout_seconds"},
 		"onibi_session_list":     {"all", "n"},
@@ -179,6 +181,31 @@ func TestSessionListReadsDB(t *testing.T) {
 	}
 	if out.Sessions[1].ID != "ended" || !out.Sessions[1].Ended || out.Sessions[1].EndedAt == "" {
 		t.Fatalf("second session = %+v", out.Sessions[1])
+	}
+}
+
+func TestListSessionsToolShape(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	if err := db.SessionUpsertStart(ctx, "active", "codex", "codex", "/tmp/repo", "codex", "pty", "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := approval.New(db, approval.DefaultTTL).Request(ctx, "active", "codex", "Bash", `{"command":"ls"}`); err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db}))
+
+	out := callToolOK[[]listSessionsRow](t, session, "onibi_list_sessions", map[string]any{"include_remote": false})
+	if len(out) != 1 {
+		t.Fatalf("sessions = %+v", out)
+	}
+	got := out[0]
+	if got.ID != "active" || got.Agent != "codex" || got.CWD != "/tmp/repo" || got.PendingApprovalsCount != 1 {
+		t.Fatalf("session = %+v", got)
+	}
+	if got.StartedAt == "" || got.LastActivity == "" || got.RoleRequired != "owner" || got.TokensUsed != 0 || got.CostUSD != 0 || got.Workspace != "" {
+		t.Fatalf("session metadata = %+v", got)
 	}
 }
 
