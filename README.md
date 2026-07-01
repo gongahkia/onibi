@@ -122,6 +122,7 @@ After `./bin/onibi up` and phone pairing:
 - [`TODO.md`](./TODO.md): authoritative v3 task list.
 - [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
+- [`docs/ssh-transport.md`](./docs/ssh-transport.md): SSH remote bootstrap, tunnel, service, and teardown model.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.

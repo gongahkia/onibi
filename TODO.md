@@ -412,13 +412,12 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 (B) 2026-06-29 Resource ceiling discipline: linux/arm64 stripped onibi binary must be ≤14MB; idle RSS on RPi 5 must be ≤80MB measured via `ps -o rss -p <pid>`; gate in scripts/rpi-smoke.sh +phaseQ4 @tests file:scripts/rpi-smoke.sh id:T2408 blocked-by:T2407 accept:rss-under-budget
 (B) 2026-06-29 Real Raspberry Pi 5 4GB test: physical Pi on user's LAN; onibi up --ssh pi@raspberrypi.local; phone pairs over the local tunnel; drive vim for 2 min on the Pi; verify RSS stays under 80MB; SIGINT tears down cleanly with no orphaned tmux sessions on the Pi +phaseQ4 @tests id:T2409 blocked-by:T2408 accept:rpi-smoke-passes
-(B) 2026-06-29 docs/ssh-transport.md: bootstrap flow diagram, known-hosts policy, why user-systemd over root, RPi memory tips (swap, zram), teardown semantics +phaseQ4 @docs file:docs/ssh-transport.md id:T2410 blocked-by:T2409
 
 #### Q4b — Y: Onibi-as-MCP server depth
 
 > Research locked. MCP spec rev 2025-11-25 (https://modelcontextprotocol.io/specification). Go SDK: github.com/mark3labs/mcp-go (community, mature) — recommended; github.com/modelcontextprotocol/go-sdk is newer official. Primitives: tools, resources, prompts. Onibi exposes 6 tools + 1 resource so any MCP client (Claude itself, Cursor, Continue) can list/inspect/kill onibi sessions, query approvals, fetch transcripts.
 
-(A) 2026-06-29 Audit internal/mcpserver/server.go SDK choice; if not on mark3labs/mcp-go at a stable tag, migrate; pin version in go.mod +phaseQ4 @backend file:internal/mcpserver/server.go id:T2430 blocked-by:T2410 accept:sdk-pinned
+(A) 2026-06-29 Audit internal/mcpserver/server.go SDK choice; if not on mark3labs/mcp-go at a stable tag, migrate; pin version in go.mod +phaseQ4 @backend file:internal/mcpserver/server.go id:T2430 accept:sdk-pinned
 (A) 2026-06-29 Implement tool onibi_list_sessions: input schema {include_remote: bool default false}; output [{id, agent, cwd, started_at, last_activity, pending_approvals_count, tokens_used, cost_usd, role_required, workspace}] +phaseQ4 @backend file:internal/mcpserver/tools.go id:T2431 blocked-by:T2430 accept:claude-mcp-call-returns-sessions
 (A) 2026-06-29 Implement tool onibi_kill_session: input {session_id, force: bool default false}; calls daemon kill path; returns {killed: bool, signal: string}; refuses if the local socket user is not the same UID +phaseQ4 @backend file:internal/mcpserver/tools.go id:T2432 blocked-by:T2431 accept:kill-works-via-mcp
 (A) 2026-06-29 Implement tool onibi_fetch_transcript: input {session_id, since_turn: int default 0, max_turns: int default 50}; output array of turn records (role, content, tool_calls) scrubbed via internal/approval/scrub.go +phaseQ4 @backend file:internal/mcpserver/tools.go id:T2433 blocked-by:T2432 accept:transcript-returned
