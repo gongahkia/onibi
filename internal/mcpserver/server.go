@@ -16,13 +16,15 @@ import (
 )
 
 type Options struct {
-	SocketPath string
-	DB         *store.DB
+	SocketPath    string
+	DB            *store.DB
+	ClaudeBaseDir string
 }
 
 type Server struct {
-	socketPath string
-	db         *store.DB
+	socketPath    string
+	db            *store.DB
+	claudeBaseDir string
 }
 
 type output struct {
@@ -89,10 +91,11 @@ type peekOutput struct {
 }
 
 func New(opts Options) *server.MCPServer {
-	s := &Server{socketPath: opts.SocketPath, db: opts.DB}
+	s := &Server{socketPath: opts.SocketPath, db: opts.DB, claudeBaseDir: opts.ClaudeBaseDir}
 	srv := server.NewMCPServer("onibi", buildinfo.Version, server.WithRecovery())
 	srv.AddTool(listSessionsTool(), s.listSessions)
 	addStructuredTool(srv, killSessionTool(), s.killSession)
+	addStructuredTool(srv, fetchTranscriptTool(), s.fetchTranscript)
 	addStructuredTool(srv, mcp.NewTool("onibi_notify",
 		mcp.WithDescription("Send a fail-open status message to the Onibi daemon."),
 		mcp.WithInputSchema[notifyInput](),

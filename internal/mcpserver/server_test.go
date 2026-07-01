@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	mcpserverlib "github.com/mark3labs/mcp-go/server"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -43,6 +45,7 @@ func TestToolSchemasListed(t *testing.T) {
 	want := map[string][]string{
 		"onibi_list_sessions":    {"include_remote"},
 		"onibi_kill_session":     {"session_id", "force"},
+		"onibi_fetch_transcript": {"session_id", "since_turn", "max_turns"},
 		"onibi_notify":           {"session", "agent", "text"},
 		"onibi_approval_request": {"session", "agent", "tool", "input_json", "timeout_seconds"},
 		"onibi_session_list":     {"all", "n"},
@@ -66,6 +69,53 @@ func TestToolSchemasListed(t *testing.T) {
 				t.Fatalf("%s schema missing %s: %s", name, field, b)
 			}
 		}
+	}
+}
+
+func TestFetchTranscriptReturnsScrubbedTurns(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	cwd := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	writeMCPClaudeTranscript(t, base, cwd, strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"password=\"supersecret\""}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo ok","api_key":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]}}`,
+		"",
+	}, "\n"))
+	if err := db.SessionUpsertStart(ctx, "s1", "claude", "claude", cwd, "claude", "pty", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db, ClaudeBaseDir: base}))
+
+	out := callToolOK[[]transcriptTurn](t, session, "onibi_fetch_transcript", map[string]any{
+		"session_id": "s1",
+		"since_turn": 0,
+		"max_turns":  2,
+	})
+	if len(out) != 2 {
+		t.Fatalf("turns = %+v", out)
+	}
+	if out[0].TurnIndex != 1 || out[0].Role != "user" || out[0].Content != `password="[REDACTED]"` || len(out[0].ToolCalls) != 0 {
+		t.Fatalf("first turn = %+v", out[0])
+	}
+	if out[1].TurnIndex != 2 || out[1].Role != "assistant" || out[1].Content != "done" || len(out[1].ToolCalls) != 1 {
+		t.Fatalf("second turn = %+v", out[1])
+	}
+	input, ok := out[1].ToolCalls[0].Input.(map[string]any)
+	if !ok || input["command"] != "echo ok" || input["api_key"] != "[REDACTED]" {
+		t.Fatalf("tool input = %#v", out[1].ToolCalls[0].Input)
+	}
+
+	out = callToolOK[[]transcriptTurn](t, session, "onibi_fetch_transcript", map[string]any{
+		"session_id": "s1",
+		"since_turn": 1,
+		"max_turns":  1,
+	})
+	if len(out) != 1 || out[0].TurnIndex != 2 {
+		t.Fatalf("since turn = %+v", out)
 	}
 }
 
@@ -355,6 +405,22 @@ func newMCPTestDB(t *testing.T) *store.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func writeMCPClaudeTranscript(t *testing.T, base, cwd, body string) string {
+	t.Helper()
+	key, err := budget.ClaudeProjectKey(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(base, "projects", key, "abc.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func callToolOK[T any](t *testing.T, session *mcpclient.Client, name string, args map[string]any) T {
