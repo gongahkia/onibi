@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 const (
@@ -57,10 +58,12 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ownerSessionID, ok := s.requireWSAuth(w, r)
+	auth, ok := s.requireWSAuthInfo(w, r)
 	if !ok {
 		return
 	}
+	ownerSessionID := auth.ID
+	readOnly := auth.Role == store.PairRoleViewer
 	codec, err := s.e2eCodec(ownerSessionID, e2eInfoPTY)
 	if err != nil {
 		s.log.Warn("web pty e2e unavailable", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
@@ -78,7 +81,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	var sessionID string
 	var bytesIn atomic.Uint64
 	var bytesOut atomic.Uint64
-	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr))
+	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr), "role", auth.Role)
 	defer func() {
 		s.log.Info("web pty ws closed",
 			"request_id", reqID,
@@ -164,7 +167,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		bytesIn.Add(uint64(len(p)))
-		if err := handlePTYClientFrame(host, typ, p, wsE2E); err != nil {
+		if err := handlePTYClientFrame(host, typ, p, wsE2E, readOnly); err != nil {
 			s.log.Warn("web pty client frame rejected", "request_id", reqID, "session_id", attach.SessionID, "message_type", typ.String(), "bytes", len(p), "err", err)
 			_ = c.Close(websocket.StatusPolicyViolation, "invalid frame")
 			return
@@ -198,7 +201,7 @@ func readPTYAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ptyAt
 	return attach, nil
 }
 
-func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec) error {
+func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec, readOnly bool) error {
 	var err error
 	if codec != nil {
 		typ, p, err = codec.decrypt(typ, p)
@@ -208,6 +211,9 @@ func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, c
 	}
 	switch typ {
 	case websocket.MessageBinary:
+		if readOnly {
+			return nil
+		}
 		_, err := host.Write(p)
 		return err
 	case websocket.MessageText:
@@ -215,6 +221,9 @@ func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, c
 			if frame.Type == "resize" {
 				return host.Resize(frame.Rows, frame.Cols)
 			}
+			return nil
+		}
+		if readOnly {
 			return nil
 		}
 		_, err := host.Write(p)

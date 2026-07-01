@@ -71,6 +71,20 @@ func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, erro
 	return n == 1, nil
 }
 
+func (d *DB) WebSessionRole(ctx context.Context, sessionID string) (string, bool, error) {
+	var role string
+	err := d.sql.QueryRowContext(ctx,
+		`SELECT role FROM web_sessions WHERE cookie_hash = ? AND revoked = 0`,
+		lookupHash(sessionID)).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return role, true, nil
+}
+
 func (d *DB) WebSession(ctx context.Context, sessionID string) (WebSession, bool, error) {
 	hash := lookupHash(sessionID)
 	row := d.sql.QueryRowContext(ctx,

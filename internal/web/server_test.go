@@ -610,6 +610,26 @@ func TestControlPageUpUsesScrollResolver(t *testing.T) {
 	}
 }
 
+func TestControlRejectsViewer(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.scroll = func(context.Context, string, string) error {
+		t.Fatal("scroll resolver should not be called")
+		return nil
+	}
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleControl(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
 func TestHandoverCallsResolver(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
@@ -635,6 +655,26 @@ func TestHandoverCallsResolver(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("handover resolver was not called")
+	}
+}
+
+func TestHandoverRejectsViewer(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.handover = func(context.Context, string, string) (string, error) {
+		t.Fatal("handover resolver should not be called")
+		return "", nil
+	}
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/handover", strings.NewReader(`{"session_id":"s1","target":"mac"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.handleHandover(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
 	}
 }
 

@@ -169,6 +169,22 @@ func TestFilesContentPutDenyDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestFilesContentPutRejectsViewer(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "src/main.go", "old\n")
+	fx := setupFileApprovalServer(t, root)
+	defer fx.cleanup()
+	rr := httptest.NewRecorder()
+	if _, err := fx.srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	fx.cookie = rr.Result().Cookies()[0]
+	_ = requestFilePut(t, fx, "src/main.go", "new\n", http.StatusForbidden)
+	if got := mustReadFile(t, filepath.Join(root, "src/main.go")); got != "old\n" {
+		t.Fatalf("viewer write applied: %q", got)
+	}
+}
+
 func TestFilesContentPutBlocksTraversal(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "repo")

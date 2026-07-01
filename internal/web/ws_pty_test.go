@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -104,6 +105,23 @@ func TestWSPTYResizeFrameResizesHost(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("resize did not reach PTY")
+}
+
+func TestWSPTYViewerInputFramesAreDropped(t *testing.T) {
+	host := spawnPTYForTest(t, "cat")
+	c := dialPTYForTestWithRole(t, host, store.PairRoleViewer)
+	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
+	writeWSBinaryForTest(t, c, []byte("viewer-blocked\n"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	_, p, err := c.Read(ctx)
+	if err == nil {
+		t.Fatalf("viewer input reached pty: %q", p)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("viewer ws closed instead of dropping input: %v", err)
+	}
 }
 
 func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
@@ -274,6 +292,10 @@ func spawnPTYForTestWithTimeout(t *testing.T, script string, timeout time.Durati
 }
 
 func dialPTYForTest(t *testing.T, host *pty.Host) *websocket.Conn {
+	return dialPTYForTestWithRole(t, host, store.PairRoleOwner)
+}
+
+func dialPTYForTestWithRole(t *testing.T, host *pty.Host, role string) *websocket.Conn {
 	t.Helper()
 	srv, cleanup := testServer(t)
 	t.Cleanup(cleanup)
@@ -281,7 +303,7 @@ func dialPTYForTest(t *testing.T, host *pty.Host) *websocket.Conn {
 		return map[string]*pty.Host{"s1": host}
 	}
 	rr := httptest.NewRecorder()
-	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	ownerSessionID, err := srv.CreateWebSession(context.Background(), rr, "test device", role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,6 +344,15 @@ func writeWSJSONForTest(t *testing.T, c *websocket.Conn, v any) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := wsjson.Write(ctx, c, v); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeWSBinaryForTest(t *testing.T, c *websocket.Conn, p []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Write(ctx, websocket.MessageBinary, p); err != nil {
 		t.Fatal(err)
 	}
 }

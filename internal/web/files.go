@@ -176,7 +176,7 @@ func (s *Server) handleFilesContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFilesContentPut(w http.ResponseWriter, r *http.Request) {
-	ownerSessionID, ok := s.requireHTTPAuth(w, r)
+	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
 	if !ok {
 		return
 	}
