@@ -43,14 +43,15 @@ func TestToolSchemasListed(t *testing.T) {
 		got[tool.Name] = tool
 	}
 	want := map[string][]string{
-		"onibi_list_sessions":    {"include_remote"},
-		"onibi_kill_session":     {"session_id", "force"},
-		"onibi_fetch_transcript": {"session_id", "since_turn", "max_turns"},
-		"onibi_notify":           {"session", "agent", "text"},
-		"onibi_approval_request": {"session", "agent", "tool", "input_json", "timeout_seconds"},
-		"onibi_session_list":     {"all", "n"},
-		"onibi_session_input":    {"session", "text", "enter"},
-		"onibi_session_peek":     {"session", "tail_bytes"},
+		"onibi_list_sessions":          {"include_remote"},
+		"onibi_kill_session":           {"session_id", "force"},
+		"onibi_fetch_transcript":       {"session_id", "since_turn", "max_turns"},
+		"onibi_list_pending_approvals": {},
+		"onibi_notify":                 {"session", "agent", "text"},
+		"onibi_approval_request":       {"session", "agent", "tool", "input_json", "timeout_seconds"},
+		"onibi_session_list":           {"all", "n"},
+		"onibi_session_input":          {"session", "text", "enter"},
+		"onibi_session_peek":           {"session", "tail_bytes"},
 	}
 	for name, fields := range want {
 		tool, ok := got[name]
@@ -116,6 +117,38 @@ func TestFetchTranscriptReturnsScrubbedTurns(t *testing.T) {
 	})
 	if len(out) != 1 || out[0].TurnIndex != 2 {
 		t.Fatalf("since turn = %+v", out)
+	}
+}
+
+func TestListPendingApprovalsToolMatchesWebInbox(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	q := approval.New(db, approval.DefaultTTL)
+	firstID, _, err := q.Request(ctx, "s1", "claude", "Bash", `{"command":"rm -rf /tmp/x","token":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, _, err := q.Request(ctx, "s2", "codex", "Write", `{"file_path":"/tmp/a","content":"x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db}))
+
+	out := callToolOK[[]pendingApprovalRow](t, session, "onibi_list_pending_approvals", map[string]any{})
+	if len(out) != 2 {
+		t.Fatalf("approvals = %+v", out)
+	}
+	if out[0].ID != firstID || out[0].SessionID != "s1" || out[0].Tool != "Bash" || out[0].RiskLevel != approval.RiskHigh {
+		t.Fatalf("first = %+v", out[0])
+	}
+	if strings.Contains(out[0].ArgsScrubbed, "ghp_") || !strings.Contains(out[0].ArgsScrubbed, "[REDACTED]") {
+		t.Fatalf("args_scrubbed = %q", out[0].ArgsScrubbed)
+	}
+	if out[0].ScrubbedInput != out[0].ArgsScrubbed || len(out[0].RiskReasons) == 0 || out[0].ExpiresAt == "" {
+		t.Fatalf("first metadata = %+v", out[0])
+	}
+	if out[1].ID != secondID || out[1].SessionID != "s2" || out[1].Tool != "Write" {
+		t.Fatalf("second = %+v", out[1])
 	}
 }
 

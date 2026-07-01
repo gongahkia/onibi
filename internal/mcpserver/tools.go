@@ -64,6 +64,20 @@ type transcriptToolCall struct {
 	Input any    `json:"input,omitempty"`
 }
 
+type listPendingApprovalsInput struct{}
+
+type pendingApprovalRow struct {
+	ID            string   `json:"id"`
+	SessionID     string   `json:"session_id"`
+	Tool          string   `json:"tool"`
+	ArgsScrubbed  string   `json:"args_scrubbed"`
+	RiskLevel     string   `json:"risk_level"`
+	Agent         string   `json:"agent,omitempty"`
+	ScrubbedInput string   `json:"scrubbed_input,omitempty"`
+	RiskReasons   []string `json:"risk_reasons,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
+}
+
 var listSessionsOutputSchema = json.RawMessage(`{
   "type":"array",
   "items":{
@@ -81,6 +95,25 @@ var listSessionsOutputSchema = json.RawMessage(`{
       "workspace":{"type":"string"}
     },
     "required":["id","agent","cwd","started_at","last_activity","pending_approvals_count","tokens_used","cost_usd","role_required","workspace"]
+  }
+}`)
+
+var listPendingApprovalsOutputSchema = json.RawMessage(`{
+  "type":"array",
+  "items":{
+    "type":"object",
+    "properties":{
+      "id":{"type":"string"},
+      "session_id":{"type":"string"},
+      "tool":{"type":"string"},
+      "args_scrubbed":{"type":"string"},
+      "risk_level":{"type":"string"},
+      "agent":{"type":"string"},
+      "scrubbed_input":{"type":"string"},
+      "risk_reasons":{"type":"array","items":{"type":"string"}},
+      "expires_at":{"type":"string"}
+    },
+    "required":["id","session_id","tool","args_scrubbed","risk_level"]
   }
 }`)
 
@@ -125,6 +158,13 @@ func killSessionTool() mcp.Tool {
 	)
 }
 
+func listPendingApprovalsTool() mcp.Tool {
+	return mcp.NewTool("onibi_list_pending_approvals",
+		mcp.WithDescription("List pending Onibi approvals across all sessions."),
+		mcp.WithRawOutputSchema(listPendingApprovalsOutputSchema),
+	)
+}
+
 func fetchTranscriptTool() mcp.Tool {
 	return mcp.NewTool("onibi_fetch_transcript",
 		mcp.WithDescription("Fetch scrubbed transcript turns for an Onibi session."),
@@ -163,6 +203,33 @@ func (s *Server) killSession(_ context.Context, in killSessionInput) (killSessio
 		return killSessionOutput{}, errors.New(resp.Reason)
 	}
 	return killSessionOutput{Killed: true, Signal: "SIGKILL"}, nil
+}
+
+func (s *Server) listPendingApprovals(ctx context.Context, _ listPendingApprovalsInput) ([]pendingApprovalRow, error) {
+	if s.db == nil {
+		return nil, errors.New("session DB unavailable")
+	}
+	pending, err := approval.New(s.db, approval.DefaultTTL).Pending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pendingApprovalRow, 0, len(pending))
+	for _, a := range pending {
+		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
+		scrubbed := approval.Scrub(a.InputJSON)
+		out = append(out, pendingApprovalRow{
+			ID:            a.ID,
+			SessionID:     a.SessionID,
+			Tool:          a.Tool,
+			ArgsScrubbed:  scrubbed,
+			RiskLevel:     risk.Level,
+			Agent:         a.Agent,
+			ScrubbedInput: scrubbed,
+			RiskReasons:   risk.Reasons,
+			ExpiresAt:     formatSessionTime(a.ExpiresAt),
+		})
+	}
+	return out, nil
 }
 
 func (s *Server) fetchTranscript(ctx context.Context, in fetchTranscriptInput) ([]transcriptTurn, error) {
