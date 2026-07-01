@@ -186,6 +186,9 @@ func (d *Daemon) handleDemoApprovalRequest(ctx context.Context, ev intake.Event)
 	if err != nil {
 		return intake.Response{}, err
 	}
+	if strings.EqualFold(strings.TrimSpace(ev.Action), "request") {
+		return intake.Response{Decision: "pending", Text: "demo approval requested: " + approvalID}, nil
+	}
 	select {
 	case dec := <-ch:
 		return responseForDecision(dec, ev), nil

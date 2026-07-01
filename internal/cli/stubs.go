@@ -181,6 +181,7 @@ func demoCmd() *cobra.Command {
 		Short: "Run guided local demos",
 		RunE:  runDemo,
 	}
+	cmd.Flags().Duration("duration", 90*time.Second, "scripted demo duration")
 	cmd.Flags().Bool("approval", false, "create a local test approval")
 	addDemoApprovalFlags(cmd)
 	approval := &cobra.Command{

@@ -46,6 +46,35 @@ func TestApprovalUnifiedDiffWriteScrubsBeforeDiff(t *testing.T) {
 	}
 }
 
+func TestDemoApprovalRequestReturnsPending(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	approvalEvents, unsubscribe := d.Queue.Subscribe()
+	defer unsubscribe()
+	resp, err := d.handleDemoApprovalRequest(t.Context(), intake.Event{
+		Type:      intake.TypeDemoApproval,
+		Session:   "demo-session",
+		Agent:     "demo",
+		Tool:      "Bash",
+		InputJSON: `{"command":"echo onibi demo approval"}`,
+		Action:    "request",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "pending" || !strings.Contains(resp.Text, "demo approval requested:") {
+		t.Fatalf("response = %#v", resp)
+	}
+	select {
+	case ev := <-approvalEvents:
+		if ev.Type != approval.EventRequested || ev.Approval.SessionID != "demo-session" || ev.Approval.Agent != "demo" {
+			t.Fatalf("approval event = %#v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval event not published")
+	}
+}
+
 func TestAnomalyForkBombPausesAndResumesOnApprove(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})
