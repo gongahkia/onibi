@@ -11,6 +11,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/jaguilar/vt100 v0.0.0-20201024211400-81de19cb81a4
 	github.com/mark3labs/mcp-go v0.55.1
+	github.com/minio/selfupdate v0.6.0
 	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/pkg/sftp v1.13.9
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
@@ -25,6 +26,7 @@ require (
 )
 
 require (
+	aead.dev/minisign v0.2.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/danieljoos/wincred v1.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

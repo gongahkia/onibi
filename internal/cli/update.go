@@ -1,30 +1,50 @@
 package cli
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/minio/selfupdate"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/openpgp"
 )
 
 const updateTimeout = 10 * time.Second
+const maxUpdateArchiveBytes = 200 << 20
+const maxUpdateMetaBytes = 4 << 20
 
 var (
-	updateLatestURL   = "https://api.github.com/repos/gongahkia/onibi/releases/latest"
-	updateReleasesURL = "https://api.github.com/repos/gongahkia/onibi/releases?per_page=1"
-	updateHTTPClient  = http.DefaultClient
+	updateLatestURL        = "https://api.github.com/repos/gongahkia/onibi/releases/latest"
+	updateReleasesURL      = "https://api.github.com/repos/gongahkia/onibi/releases?per_page=1"
+	updateHTTPClient       = http.DefaultClient
+	updateReleasePublicKey = ``
+	updateApply            = func(binary []byte) error { return selfupdate.Apply(bytes.NewReader(binary), selfupdate.Options{}) }
+	updateCodeSignVerify   = defaultUpdateCodeSignVerify
 )
 
 type updateRelease struct {
 	TagName    string `json:"tag_name"`
 	HTMLURL    string `json:"html_url"`
 	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
 }
 
 func runUpdate(cmd *cobra.Command, _ []string) error {
@@ -50,7 +70,11 @@ func runUpdate(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	return errors.New("update apply is not implemented yet; use --check-only")
+	if err := applyUpdateRelease(ctx, rel); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "updated to %s\n", rel.TagName)
+	return nil
 }
 
 func fetchUpdateRelease(ctx context.Context, channel string) (updateRelease, error) {
@@ -111,6 +135,216 @@ func getUpdateJSON(ctx context.Context, url string, out any) error {
 		return fmt.Errorf("parse release: %w", err)
 	}
 	return nil
+}
+
+func applyUpdateRelease(ctx context.Context, rel updateRelease) error {
+	asset := updateAssetName(rel.TagName)
+	if asset == "" {
+		return errors.New("release tag is empty")
+	}
+	archiveURL := updateAssetURL(rel, asset)
+	checksumsURL := updateAssetURL(rel, "checksums.txt")
+	signatureURL := updateAssetURL(rel, "checksums.txt.sig")
+	checksums, err := getUpdateBytes(ctx, checksumsURL, maxUpdateMetaBytes)
+	if err != nil {
+		return err
+	}
+	signature, err := getUpdateBytes(ctx, signatureURL, maxUpdateMetaBytes)
+	if err != nil {
+		return err
+	}
+	if err := verifyUpdateSignature(checksums, signature); err != nil {
+		return err
+	}
+	archiveBytes, err := getUpdateBytes(ctx, archiveURL, maxUpdateArchiveBytes)
+	if err != nil {
+		return err
+	}
+	if err := verifyUpdateChecksum(asset, archiveBytes, checksums); err != nil {
+		return err
+	}
+	binary, err := extractOnibiBinary(archiveBytes)
+	if err != nil {
+		return err
+	}
+	if err := verifyUpdateBinary(ctx, binary); err != nil {
+		return err
+	}
+	return updateApply(binary)
+}
+
+func getUpdateBytes(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "onibi-update")
+	if token := updateGitHubToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := updateHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", filepath.Base(req.URL.Path), err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download %s: HTTP %d", filepath.Base(req.URL.Path), resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", filepath.Base(req.URL.Path), err)
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("download %s: exceeds %d bytes", filepath.Base(req.URL.Path), limit)
+	}
+	return body, nil
+}
+
+func verifyUpdateSignature(checksums, signature []byte) error {
+	key := strings.TrimSpace(updateReleasePublicKey)
+	if key == "" {
+		return errors.New("release public key not configured")
+	}
+	ring, err := openpgp.ReadArmoredKeyRing(strings.NewReader(key))
+	if err != nil {
+		return fmt.Errorf("parse release public key: %w", err)
+	}
+	if _, err := openpgp.CheckDetachedSignature(ring, bytes.NewReader(checksums), bytes.NewReader(signature)); err != nil {
+		return fmt.Errorf("verify checksums signature: %w", err)
+	}
+	return nil
+}
+
+func verifyUpdateChecksum(asset string, archiveBytes, checksums []byte) error {
+	want := ""
+	for _, line := range strings.Split(string(checksums), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[len(fields)-1] == asset {
+			want = strings.ToLower(fields[0])
+			break
+		}
+	}
+	if want == "" {
+		return fmt.Errorf("checksums.txt missing %s", asset)
+	}
+	gotBytes := sha256.Sum256(archiveBytes)
+	got := fmt.Sprintf("%x", gotBytes[:])
+	if got != want {
+		return fmt.Errorf("checksum mismatch for %s", asset)
+	}
+	return nil
+}
+
+func extractOnibiBinary(archiveBytes []byte) ([]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read archive: %w", err)
+		}
+		name := strings.TrimSpace(header.Name)
+		clean := path.Clean(name)
+		if name == "" || path.IsAbs(name) || clean == "." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+			return nil, fmt.Errorf("unsafe archive path %q", header.Name)
+		}
+		if clean != "onibi" {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return nil, errors.New("archive onibi entry is not a regular file")
+		}
+		binary, err := io.ReadAll(io.LimitReader(tr, maxUpdateArchiveBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("read onibi binary: %w", err)
+		}
+		if len(binary) == 0 {
+			return nil, errors.New("archive onibi binary is empty")
+		}
+		if len(binary) > maxUpdateArchiveBytes {
+			return nil, errors.New("archive onibi binary exceeds limit")
+		}
+		return binary, nil
+	}
+	return nil, errors.New("archive missing onibi binary")
+}
+
+func verifyUpdateBinary(ctx context.Context, binary []byte) error {
+	tmp, err := os.CreateTemp("", "onibi-update-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(binary); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, 0o755); err != nil {
+		return err
+	}
+	return updateCodeSignVerify(ctx, name)
+}
+
+func defaultUpdateCodeSignVerify(ctx context.Context, binaryPath string) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	out, err := exec.CommandContext(ctx, "codesign", "--verify", binaryPath).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("codesign verify: %s", msg)
+	}
+	return nil
+}
+
+func updateAssetName(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return ""
+	}
+	version := strings.TrimPrefix(tag, "v")
+	return fmt.Sprintf("onibi_%s_%s_%s.tar.gz", version, runtime.GOOS, updateArchiveArch(runtime.GOARCH))
+}
+
+func updateArchiveArch(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64"
+	case "386":
+		return "i386"
+	default:
+		return goarch
+	}
+}
+
+func updateAssetURL(rel updateRelease, name string) string {
+	for _, asset := range rel.Assets {
+		if asset.Name == name && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+			return strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+	}
+	base := strings.TrimRight(rel.HTMLURL, "/")
+	tag := strings.TrimSpace(rel.TagName)
+	if strings.Contains(base, "/releases/tag/") {
+		base = strings.TrimSuffix(base[:strings.LastIndex(base, "/releases/tag/")], "/") + "/releases/download/" + tag
+	} else if base == "" {
+		base = "https://github.com/gongahkia/onibi/releases/download/" + tag
+	}
+	return strings.TrimRight(base, "/") + "/" + name
 }
 
 func updateGitHubToken() string {
