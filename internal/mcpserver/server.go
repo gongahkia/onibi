@@ -98,6 +98,7 @@ func New(opts Options) *server.MCPServer {
 	addStructuredTool(srv, fetchTranscriptTool(), s.fetchTranscript)
 	addStructuredTool(srv, listPendingApprovalsTool(), s.listPendingApprovals)
 	addStructuredTool(srv, decideApprovalTool(), s.decideApproval)
+	addStructuredTool(srv, tailLogsTool(), s.tailLogs)
 	addStructuredTool(srv, mcp.NewTool("onibi_notify",
 		mcp.WithDescription("Send a fail-open status message to the Onibi daemon."),
 		mcp.WithInputSchema[notifyInput](),

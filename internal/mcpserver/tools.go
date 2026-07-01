@@ -16,6 +16,7 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 type listSessionsInput struct {
@@ -89,6 +90,25 @@ type decideApprovalOutput struct {
 	State     string `json:"state"`
 	Verdict   string `json:"verdict"`
 	Delivered bool   `json:"delivered"`
+}
+
+type tailLogsInput struct {
+	SessionID string `json:"session_id"`
+	Lines     int    `json:"lines,omitempty"`
+}
+
+type tailLogsOutput struct {
+	Audit   []tailAuditRow `json:"audit"`
+	PTYTail string         `json:"pty_tail"`
+}
+
+type tailAuditRow struct {
+	ID          int64  `json:"id"`
+	TS          string `json:"ts"`
+	Action      string `json:"action"`
+	SessionID   string `json:"session_id"`
+	PayloadHash string `json:"payload_hash,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 }
 
 var listSessionsOutputSchema = json.RawMessage(`{
@@ -185,6 +205,15 @@ func decideApprovalTool() mcp.Tool {
 		mcp.WithString("verdict", mcp.Description("approve, deny, or edit"), mcp.Required()),
 		mcp.WithString("edited_args", mcp.Description("edited tool input JSON for edit verdict")),
 		mcp.WithOutputSchema[decideApprovalOutput](),
+	)
+}
+
+func tailLogsTool() mcp.Tool {
+	return mcp.NewTool("onibi_tail_logs",
+		mcp.WithDescription("Return recent audit rows and scrubbed PTY tail for a session."),
+		mcp.WithString("session_id", mcp.Description("session id"), mcp.Required()),
+		mcp.WithInteger("lines", mcp.Description("maximum audit lines and approximate terminal lines"), mcp.DefaultNumber(200)),
+		mcp.WithOutputSchema[tailLogsOutput](),
 	)
 }
 
@@ -300,6 +329,36 @@ func (s *Server) decideApproval(ctx context.Context, in decideApprovalInput) (de
 	}, nil
 }
 
+func (s *Server) tailLogs(ctx context.Context, in tailLogsInput) (tailLogsOutput, error) {
+	sessionID := strings.TrimSpace(in.SessionID)
+	if sessionID == "" {
+		return tailLogsOutput{}, errors.New("session_id required")
+	}
+	lines := in.Lines
+	if lines <= 0 {
+		lines = 200
+	}
+	if lines > 1000 {
+		lines = 1000
+	}
+	audit, err := s.auditRowsForSession(ctx, sessionID, lines)
+	if err != nil {
+		return tailLogsOutput{}, err
+	}
+	resp, err := intake.Request(s.socketPath, intake.Event{
+		Type:    intake.TypeSessionPeek,
+		Session: sessionID,
+		Limit:   tailBytesForLines(lines),
+	}, 10*time.Second)
+	if err != nil {
+		return tailLogsOutput{}, err
+	}
+	if resp.Reason != "" {
+		return tailLogsOutput{}, errors.New(resp.Reason)
+	}
+	return tailLogsOutput{Audit: audit, PTYTail: approval.Scrub(resp.Text)}, nil
+}
+
 func (s *Server) fetchTranscript(ctx context.Context, in fetchTranscriptInput) ([]transcriptTurn, error) {
 	sessionID := strings.TrimSpace(in.SessionID)
 	if sessionID == "" {
@@ -369,6 +428,42 @@ func (s *Server) listSessionRows(ctx context.Context, in listSessionsInput) ([]l
 	return out, nil
 }
 
+func (s *Server) auditRowsForSession(ctx context.Context, sessionID string, n int) ([]tailAuditRow, error) {
+	if s.db == nil {
+		return nil, errors.New("session DB unavailable")
+	}
+	rows, err := s.db.SQL().QueryContext(ctx,
+		`SELECT id, ts, action, COALESCE(session_id, ''), COALESCE(payload_hash, ''),
+		        COALESCE(detail, '')
+		   FROM audit
+		  WHERE session_id = ?
+		  ORDER BY ts DESC, id DESC
+		  LIMIT ?`,
+		sessionID, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []tailAuditRow{}
+	for rows.Next() {
+		var row store.AuditEntry
+		var ts int64
+		if err := rows.Scan(&row.ID, &ts, &row.Action, &row.SessionID, &row.PayloadHash, &row.Detail); err != nil {
+			return nil, err
+		}
+		row.TS = time.Unix(ts, 0)
+		out = append(out, tailAuditRow{
+			ID:          row.ID,
+			TS:          formatSessionTime(row.TS),
+			Action:      row.Action,
+			SessionID:   row.SessionID,
+			PayloadHash: row.PayloadHash,
+			Detail:      approval.Scrub(row.Detail),
+		})
+	}
+	return out, rows.Err()
+}
+
 func (s *Server) pendingApprovalCounts(ctx context.Context) (map[string]int, error) {
 	if s.db == nil {
 		return nil, errors.New("session DB unavailable")
@@ -389,6 +484,17 @@ func formatSessionTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func tailBytesForLines(lines int) int {
+	n := lines * 200
+	if n < 4096 {
+		return 4096
+	}
+	if n > 512*1024 {
+		return 512 * 1024
+	}
+	return n
 }
 
 func mcpApprovalVerdict(v string) (approval.Verdict, error) {

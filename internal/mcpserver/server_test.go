@@ -48,6 +48,7 @@ func TestToolSchemasListed(t *testing.T) {
 		"onibi_fetch_transcript":       {"session_id", "since_turn", "max_turns"},
 		"onibi_list_pending_approvals": {},
 		"onibi_decide_approval":        {"approval_id", "verdict", "edited_args"},
+		"onibi_tail_logs":              {"session_id", "lines"},
 		"onibi_notify":                 {"session", "agent", "text"},
 		"onibi_approval_request":       {"session", "agent", "tool", "input_json", "timeout_seconds"},
 		"onibi_session_list":           {"all", "n"},
@@ -202,6 +203,42 @@ func TestDecideApprovalToolRefusesHighRiskApprove(t *testing.T) {
 	}
 	if got.State != approval.StatePending {
 		t.Fatalf("approval = %+v", got)
+	}
+}
+
+func TestTailLogsTool(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	if err := db.AuditAppend(ctx, "prompt.sent", "s1", "payload", 0, `token="supersecret"`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AuditAppend(ctx, "prompt.sent", "other", "payload", 0, "ignore"); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan intake.Event, 1)
+	sock := startIntakeForMCPTest(t, nil, nil, func(_ context.Context, ev intake.Event) (intake.Response, error) {
+		got <- ev
+		return intake.Response{Text: `tail token="supersecret"`}, nil
+	})
+	session := connectMCPTest(t, New(Options{SocketPath: sock, DB: db}))
+
+	out := callToolOK[tailLogsOutput](t, session, "onibi_tail_logs", map[string]any{
+		"session_id": "s1",
+		"lines":      2,
+	})
+	if len(out.Audit) != 1 || out.Audit[0].SessionID != "s1" || out.Audit[0].Detail != `token="[REDACTED]"` {
+		t.Fatalf("audit = %+v", out.Audit)
+	}
+	if strings.Contains(out.PTYTail, "supersecret") || !strings.Contains(out.PTYTail, "[REDACTED]") {
+		t.Fatalf("pty tail = %q", out.PTYTail)
+	}
+	select {
+	case ev := <-got:
+		if ev.Type != intake.TypeSessionPeek || ev.Session != "s1" || ev.Limit < 4096 {
+			t.Fatalf("event = %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("session peek event not delivered")
 	}
 }
 
