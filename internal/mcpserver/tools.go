@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/intake"
 )
 
 type listSessionsInput struct {
@@ -27,6 +28,16 @@ type listSessionsRow struct {
 	CostUSD               float64 `json:"cost_usd"`
 	RoleRequired          string  `json:"role_required"`
 	Workspace             string  `json:"workspace"`
+}
+
+type killSessionInput struct {
+	SessionID string `json:"session_id"`
+	Force     bool   `json:"force,omitempty"`
+}
+
+type killSessionOutput struct {
+	Killed bool   `json:"killed"`
+	Signal string `json:"signal"`
 }
 
 var listSessionsOutputSchema = json.RawMessage(`{
@@ -57,6 +68,15 @@ func listSessionsTool() mcp.Tool {
 	)
 }
 
+func killSessionTool() mcp.Tool {
+	return mcp.NewTool("onibi_kill_session",
+		mcp.WithDescription("Kill a live Onibi-controlled session through the daemon."),
+		mcp.WithString("session_id", mcp.Description("session id"), mcp.Required()),
+		mcp.WithBoolean("force", mcp.Description("force kill"), mcp.DefaultBool(false)),
+		mcp.WithOutputSchema[killSessionOutput](),
+	)
+}
+
 func (s *Server) listSessions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var in listSessionsInput
 	if err := req.BindArguments(&in); err != nil {
@@ -67,6 +87,24 @@ func (s *Server) listSessions(ctx context.Context, req mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultStructuredOnly(rows), nil
+}
+
+func (s *Server) killSession(_ context.Context, in killSessionInput) (killSessionOutput, error) {
+	if strings.TrimSpace(in.SessionID) == "" {
+		return killSessionOutput{}, errors.New("session_id required")
+	}
+	resp, err := intake.Request(s.socketPath, intake.Event{
+		Type:    intake.TypeSessionControl,
+		Session: in.SessionID,
+		Action:  "kill",
+	}, 10*time.Second)
+	if err != nil {
+		return killSessionOutput{}, err
+	}
+	if resp.Reason != "" {
+		return killSessionOutput{}, errors.New(resp.Reason)
+	}
+	return killSessionOutput{Killed: true, Signal: "SIGKILL"}, nil
 }
 
 func (s *Server) listSessionRows(ctx context.Context, in listSessionsInput) ([]listSessionsRow, error) {

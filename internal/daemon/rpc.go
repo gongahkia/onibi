@@ -92,6 +92,15 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 			mode = "ended"
 		}
 		return intake.Response{SessionID: ev.Session, Mode: mode, Text: msg}, nil
+	case intake.TypeSessionControl:
+		action := strings.ToLower(strings.TrimSpace(ev.Action))
+		if action != "interrupt" && action != "kill" {
+			return intake.Response{}, errors.New("session_control action must be interrupt or kill")
+		}
+		if err := d.ControlSession(ctx, ev.Session, action); err != nil {
+			return intake.Response{}, err
+		}
+		return intake.Response{SessionID: ev.Session, Text: action}, nil
 	case intake.TypeDemoApproval:
 		return d.handleDemoApprovalRequest(ctx, ev)
 	case intake.TypeTrust:

@@ -13,6 +13,7 @@ const (
 	TypeSessionNew      = "session_new"      // RPC: create a tmux-backed session
 	TypeSessionShow     = "session_show"     // RPC: open a visible terminal for a session
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
+	TypeSessionControl  = "session_control"  // RPC: interrupt or kill a session
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
 	TypeTrust           = "trust"            // RPC: list and mutate trust rules
 	TypeBudget          = "budget"           // RPC: budget usage summary
@@ -40,13 +41,14 @@ type Event struct {
 	Elapsed int64  `json:"elapsed_ms,omitempty"`
 
 	// agent_*
-	Text  string   `json:"text,omitempty"`  // optional human-readable detail
-	Tail  string   `json:"tail,omitempty"`  // optional output tail provided by hook
-	Enter bool     `json:"enter,omitempty"` // session_input: append newline
-	Limit int      `json:"limit,omitempty"` // session_peek: tail bytes
-	Mode  string   `json:"mode,omitempty"`  // session_new: headless|visible; session_hide: headless|end
-	Name  string   `json:"name,omitempty"`  // session_new: optional label
-	Args  []string `json:"args,omitempty"`  // session_new: command args
+	Text   string   `json:"text,omitempty"`   // optional human-readable detail
+	Tail   string   `json:"tail,omitempty"`   // optional output tail provided by hook
+	Enter  bool     `json:"enter,omitempty"`  // session_input: append newline
+	Limit  int      `json:"limit,omitempty"`  // session_peek: tail bytes
+	Mode   string   `json:"mode,omitempty"`   // session_new: headless|visible; session_hide: headless|end
+	Action string   `json:"action,omitempty"` // session_control: interrupt|kill
+	Name   string   `json:"name,omitempty"`   // session_new: optional label
+	Args   []string `json:"args,omitempty"`   // session_new: command args
 
 	// approval_request (Phase 3 — schema reserved now)
 	ApprovalID string `json:"approval_id,omitempty"`

@@ -92,6 +92,7 @@ func New(opts Options) *server.MCPServer {
 	s := &Server{socketPath: opts.SocketPath, db: opts.DB}
 	srv := server.NewMCPServer("onibi", buildinfo.Version, server.WithRecovery())
 	srv.AddTool(listSessionsTool(), s.listSessions)
+	addStructuredTool(srv, killSessionTool(), s.killSession)
 	addStructuredTool(srv, mcp.NewTool("onibi_notify",
 		mcp.WithDescription("Send a fail-open status message to the Onibi daemon."),
 		mcp.WithInputSchema[notifyInput](),

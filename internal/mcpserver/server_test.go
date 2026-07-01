@@ -42,6 +42,7 @@ func TestToolSchemasListed(t *testing.T) {
 	}
 	want := map[string][]string{
 		"onibi_list_sessions":    {"include_remote"},
+		"onibi_kill_session":     {"session_id", "force"},
 		"onibi_notify":           {"session", "agent", "text"},
 		"onibi_approval_request": {"session", "agent", "tool", "input_json", "timeout_seconds"},
 		"onibi_session_list":     {"all", "n"},
@@ -245,6 +246,31 @@ func TestSessionInputDispatches(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("session input event not delivered")
+	}
+}
+
+func TestKillSessionToolDispatches(t *testing.T) {
+	got := make(chan intake.Event, 1)
+	sock := startIntakeForMCPTest(t, nil, nil, func(_ context.Context, ev intake.Event) (intake.Response, error) {
+		got <- ev
+		return intake.Response{Text: "kill"}, nil
+	})
+	session := connectMCPTest(t, New(Options{SocketPath: sock}))
+
+	out := callToolOK[killSessionOutput](t, session, "onibi_kill_session", map[string]any{
+		"session_id": "s1",
+		"force":      true,
+	})
+	if !out.Killed || out.Signal != "SIGKILL" {
+		t.Fatalf("output = %+v", out)
+	}
+	select {
+	case ev := <-got:
+		if ev.Type != intake.TypeSessionControl || ev.Session != "s1" || ev.Action != "kill" {
+			t.Fatalf("event = %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("session control event not delivered")
 	}
 }
 
