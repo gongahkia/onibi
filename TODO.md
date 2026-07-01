@@ -419,13 +419,11 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q4c — X: Guided demo + first-run tour
 
-(B) 2026-06-29 Demo screencast: record `onibi demo` end-to-end via `asciinema rec`, save to docs/demo.cast (committed); embed asciinema-player web component in docs/index.html landing +phaseQ4 @docs file:docs/demo.cast id:T2452 accept:cast-plays-on-landing-page
-
 #### Q4d — AB: In-place self-update
 
 > Research locked. Library: github.com/minio/selfupdate (active 2026). github.com/inconshreveable/go-update is archived 2026-04-25. Flow: pinned-TLS manifest fetch → SHA-256 + GPG-signature verify → selfupdate.Apply (atomic rename, auto-rollback on failure) → re-exec via syscall.Exec. macOS: replacement binary must be Developer-ID-signed + notarized with stapler ticket embedded (existing GoReleaser notarize config handles this).
 
-(A) 2026-06-29 internal/cli/update.go: `onibi update [--channel=stable|beta] [--check-only]`; stable URL https://api.github.com/repos/gongahkia/onibi/releases/latest; beta lists `…/releases?per_page=1` and picks the latest pre-release +phaseQ4 @backend file:internal/cli/update.go id:T2460 blocked-by:T2452 accept:check-only-prints-latest
+(A) 2026-06-29 internal/cli/update.go: `onibi update [--channel=stable|beta] [--check-only]`; stable URL https://api.github.com/repos/gongahkia/onibi/releases/latest; beta lists `…/releases?per_page=1` and picks the latest pre-release +phaseQ4 @backend file:internal/cli/update.go id:T2460 accept:check-only-prints-latest
 (A) 2026-06-29 Verify chain: download checksums.txt + checksums.txt.sig + selected archive; verify signature via embedded GPG public key (build-time constant from .goreleaser GPG fingerprint); verify SHA-256 of archive; extract binary; on macOS additionally run `codesign --verify` on extracted binary; only then call selfupdate.Apply(binary, selfupdate.Options{}) +phaseQ4 @backend file:internal/cli/update.go id:T2461 blocked-by:T2460 accept:checksum-mismatch-aborts
 (A) 2026-06-29 Re-exec post-update via syscall.Exec(newPath, os.Args, os.Environ()) on Linux/macOS; on Windows defer to next start (out of v0.4 scope); if user-mode service is installed, restart it via systemctl --user restart onibi (or launchctl kickstart) +phaseQ4 @backend file:internal/cli/update.go id:T2462 blocked-by:T2461 accept:new-binary-takes-effect
 (B) 2026-06-29 Rollback path: previous binary retained at ~/.local/share/onibi/onibi.prev (selfupdate already does atomic-rename); `onibi update --rollback` swaps it back +phaseQ4 @backend file:internal/cli/update.go id:T2463 blocked-by:T2462 accept:rollback-works
