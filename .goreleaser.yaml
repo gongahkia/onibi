@@ -18,6 +18,13 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
     ldflags:
       - -s -w
       - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
@@ -43,6 +50,13 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
     ldflags:
       - -s -w
     hooks:
@@ -59,6 +73,7 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - LICENSE
