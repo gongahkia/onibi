@@ -78,19 +78,25 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.CloseNow()
 	reqID := requestID(r)
+	remote := remoteHost(r.RemoteAddr)
+	userAgent := trimForLog(r.UserAgent(), 160)
 	var sessionID string
+	viewerAttached := false
 	var bytesIn atomic.Uint64
 	var bytesOut atomic.Uint64
-	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr), "role", auth.Role)
+	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remote, "role", auth.Role)
 	defer func() {
 		s.log.Info("web pty ws closed",
 			"request_id", reqID,
 			"session_id", sessionID,
-			"remote", remoteHost(r.RemoteAddr),
+			"remote", remote,
 			"duration_ms", time.Since(started).Milliseconds(),
 			"bytes_from_client", bytesIn.Load(),
 			"bytes_to_client", bytesOut.Load(),
 		)
+		if viewerAttached {
+			s.auditViewerEvent(context.Background(), "viewer.detach", sessionID, ownerSessionID, remote, userAgent)
+		}
 	}()
 	c.SetReadLimit(1 << 20)
 
@@ -100,13 +106,13 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 
 	attach, err := readPTYAttach(ctx, c, wsE2E)
 	if err != nil {
-		s.log.Warn("web pty attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		s.log.Warn("web pty attach failed", "request_id", reqID, "err", err, "remote", remote, "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
 		return
 	}
 	if wsE2E != nil {
 		if err := s.verifyRelayAttach(ctx, ownerSessionID, attach.VerifyToken); err != nil {
-			s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "bad_relay_verifier", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "bad_relay_verifier", "err", err, "remote", remote, "duration_ms", time.Since(started).Milliseconds())
 			_ = c.Close(websocket.StatusPolicyViolation, "bad relay verifier")
 			return
 		}
@@ -114,11 +120,15 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	sessionID = attach.SessionID
 	host, ok := s.hostForSession(ctx, attach.SessionID)
 	if !ok {
-		s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "unknown_session", "session_id", attach.SessionID, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		s.log.Warn("web pty attach failed", "request_id", reqID, "reason", "unknown_session", "session_id", attach.SessionID, "remote", remote, "duration_ms", time.Since(started).Milliseconds())
 		_ = c.Close(websocket.StatusPolicyViolation, "unknown session")
 		return
 	}
 	s.log.Info("web pty attached", "request_id", reqID, "session_id", attach.SessionID, "last_seq", attach.LastSeq, "attach_latency_ms", time.Since(started).Milliseconds())
+	if readOnly {
+		s.auditViewerEvent(context.Background(), "viewer.attach", sessionID, ownerSessionID, remote, userAgent)
+		viewerAttached = true
+	}
 
 	replay, ch, unsub := host.SubscribeFrom(ctx, pty.DefaultSubscriberBuffer, attach.LastSeq)
 	defer unsub()

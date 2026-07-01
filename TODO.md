@@ -403,7 +403,6 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 #### Q3d — D: Read-only viewer sharing
 
-(B) 2026-06-29 Audit every viewer attach/detach in internal/daemon/audit.go with viewer ID, source IP, user-agent +phaseQ3 @backend file:internal/daemon/audit.go id:T2365 blocked-by:T2364 accept:viewer-attach-logged
 (B) 2026-06-29 docs/sharing.md threat model: viewer sees content but cannot steer; recommended TTLs; anti-pattern — don't share to untrusted teammate while editing secrets, they SEE the secrets in the live PTY stream +phaseQ3 @docs file:docs/sharing.md id:T2366 blocked-by:T2365
 
 ### Phase Q4 — Reach, distinction, hygiene (~4 weeks)
