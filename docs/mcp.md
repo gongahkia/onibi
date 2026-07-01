@@ -1,31 +1,25 @@
 # MCP
 
-Onibi exposes a local MCP stdio server so MCP-capable clients can inspect sessions, send notifications, request approvals, and write to live sessions through the Onibi daemon.
+Onibi exposes a local MCP stdio server. MCP clients can inspect sessions, fetch transcripts, list/deny approvals, kill sessions, and write to live PTYs through the Onibi daemon.
 
-Run it with:
+Run it directly:
 
 ```bash
 onibi mcp
 ```
 
-The MCP process is local. It opens the same SQLite DB as the CLI and connects to the same same-UID Unix socket as hooks for daemon-backed tools.
+The process is local. It opens the same SQLite DB as the CLI and uses the same same-UID Unix socket as hooks for daemon-backed actions.
 
-## Client Config
+## Install
 
-Claude Desktop-style config:
+Claude config path:
 
-```json
-{
-  "mcpServers": {
-    "onibi": {
-      "command": "/Users/you/.local/bin/onibi",
-      "args": ["mcp"]
-    }
-  }
-}
+```bash
+mkdir -p ~/.claude
+$EDITOR ~/.claude/mcp.json
 ```
 
-If `onibi` is already on `PATH`, this is enough:
+Minimal config:
 
 ```json
 {
@@ -38,56 +32,253 @@ If `onibi` is already on `PATH`, this is enough:
 }
 ```
 
-The daemon should already be running for every tool except `onibi_session_list`:
+If the client does not inherit your shell `PATH`, use an absolute command:
+
+```json
+{
+  "mcpServers": {
+    "onibi": {
+      "command": "/Users/you/.local/bin/onibi",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Start the daemon before daemon-backed tools:
 
 ```bash
 onibi up
 onibi doctor --mode installed
 ```
 
-## Auth Model
+## Auth
 
-MCP clients do not talk to the phone browser directly. They talk to `onibi mcp` over stdio. For daemon actions, `onibi mcp` connects to the local Unix socket.
+MCP clients do not talk to the phone browser. They talk to `onibi mcp` over stdio. Daemon actions go through the local Unix socket.
 
 The socket enforces same-UID peer credentials:
 
-- macOS: `LOCAL_PEERCRED`.
-- Linux: `SO_PEERCRED`.
+| OS | check |
+|---|---|
+| macOS | `LOCAL_PEERCRED` |
+| Linux | `SO_PEERCRED` |
 
-There is no network listener, bearer token, or remote MCP auth layer. A different OS user cannot use the socket unless the operating system reports the same effective UID.
+There is no network listener, bearer token, or remote MCP auth layer.
 
-## Tool Summary
+## Tools
 
-| Tool | Needs live daemon | Reads DB | Writes socket | Purpose |
-|---|---:|---:|---:|---|
-| `onibi_notify` | Yes | No | Yes | Send a status event through the daemon. |
-| `onibi_approval_request` | Yes | No | Yes | Block for an owner approval decision. |
-| `onibi_session_list` | No | Yes | No | List recorded sessions from SQLite. |
-| `onibi_session_input` | Yes | No | Yes | Write text into a live session. |
-| `onibi_session_peek` | Yes | No | Yes | Read recent output from a live session. |
+| Tool | Daemon | DB | Purpose |
+|---|---:|---:|---|
+| `onibi_list_sessions` | No | Yes | Current session inventory for MCP clients. |
+| `onibi_kill_session` | Yes | No | Kill a live Onibi session. |
+| `onibi_fetch_transcript` | No | Yes + Claude JSONL | Fetch scrubbed transcript turns. |
+| `onibi_list_pending_approvals` | No | Yes | List pending approvals across sessions. |
+| `onibi_decide_approval` | No | Yes | Approve, deny, or edit low/medium-risk approvals. |
+| `onibi_tail_logs` | Yes | Yes | Return scrubbed audit rows and PTY tail. |
+| `onibi_notify` | Yes | No | Send a status event. |
+| `onibi_approval_request` | Yes | No | Create an approval and wait for owner decision. |
+| `onibi_session_list` | No | Yes | Legacy session list wrapper. |
+| `onibi_session_input` | Yes | No | Write text into a live PTY. |
+| `onibi_session_peek` | Yes | No | Read recent PTY output. |
 
-## `onibi_notify`
+## Resources
 
-Input schema:
+`onibi://sessions/{id}/transcript`
+
+Returns `application/json` text containing scrubbed transcript turns:
+
+```json
+[
+  {
+    "turn_index": 1,
+    "role": "assistant",
+    "content": "done",
+    "tool_calls": [
+      {
+        "id": "toolu_1",
+        "name": "Bash",
+        "input": {
+          "command": "git status --short"
+        }
+      }
+    ]
+  }
+]
+```
+
+Current transcript source is Claude JSONL under `~/.claude/projects/...`. Non-Claude agents return a resource error until their transcript formats are implemented.
+
+## Schemas
+
+### `onibi_list_sessions`
+
+Input:
 
 ```json
 {
-  "session": "string, optional",
-  "agent": "string, optional",
-  "text": "string, required"
+  "include_remote": false
 }
 ```
 
-Output schema:
+Output:
+
+```json
+[
+  {
+    "id": "s1",
+    "agent": "claude",
+    "cwd": "/repo",
+    "started_at": "2026-06-29T12:00:00Z",
+    "last_activity": "2026-06-29T12:01:00Z",
+    "pending_approvals_count": 1,
+    "tokens_used": 0,
+    "cost_usd": 0,
+    "role_required": "owner",
+    "workspace": ""
+  }
+]
+```
+
+### `onibi_kill_session`
+
+Input:
+
+```json
+{
+  "session_id": "s1",
+  "force": false
+}
+```
+
+Output:
+
+```json
+{
+  "killed": true,
+  "signal": "SIGKILL"
+}
+```
+
+### `onibi_fetch_transcript`
+
+Input:
+
+```json
+{
+  "session_id": "s1",
+  "since_turn": 0,
+  "max_turns": 50
+}
+```
+
+Output is an array of scrubbed turns:
+
+```json
+[
+  {
+    "turn_index": 2,
+    "role": "assistant",
+    "content": "done",
+    "tool_calls": []
+  }
+]
+```
+
+`max_turns <= 0` defaults to 50. Tool calls and content are scrubbed with `internal/approval/scrub.go`.
+
+### `onibi_list_pending_approvals`
+
+Input:
+
+```json
+{}
+```
+
+Output:
+
+```json
+[
+  {
+    "id": "appr_1",
+    "session_id": "s1",
+    "tool": "Bash",
+    "args_scrubbed": "{\"command\":\"git status --short\"}",
+    "risk_level": "low",
+    "agent": "claude",
+    "scrubbed_input": "{\"command\":\"git status --short\"}",
+    "risk_reasons": [],
+    "expires_at": "2026-06-29T12:05:00Z"
+  }
+]
+```
+
+This uses the same risk classifier and scrubber as the web approval inbox.
+
+### `onibi_decide_approval`
+
+Input:
+
+```json
+{
+  "approval_id": "appr_1",
+  "verdict": "approve",
+  "edited_args": ""
+}
+```
+
+`verdict` accepts `approve`, `deny`, or `edit`. `edited_args` is required for `edit` and must pass the tool input schema validator.
+
+Output:
 
 ```json
 {
   "ok": true,
-  "message": "queued"
+  "state": "approved",
+  "verdict": "approve",
+  "delivered": false
 }
 ```
 
-Example:
+High-risk policy:
+
+- MCP refuses `approve` and `edit` when `risk_level` is `high`.
+- High-risk approval must be decided by a human in the web cockpit.
+- `deny` remains allowed.
+
+### `onibi_tail_logs`
+
+Input:
+
+```json
+{
+  "session_id": "s1",
+  "lines": 200
+}
+```
+
+Output:
+
+```json
+{
+  "audit": [
+    {
+      "id": 42,
+      "ts": "2026-06-29T12:00:00Z",
+      "action": "approval.request",
+      "session_id": "s1",
+      "payload_hash": "sha256...",
+      "detail": "tool=Bash id=appr_1"
+    }
+  ],
+  "pty_tail": "recent terminal output"
+}
+```
+
+Audit detail and PTY tail are scrubbed.
+
+### Legacy / Utility Tools
+
+`onibi_notify`:
 
 ```json
 {
@@ -97,43 +288,7 @@ Example:
 }
 ```
 
-Daemon down response:
-
-```json
-{
-  "ok": false,
-  "message": "daemon unavailable: dial unix ..."
-}
-```
-
-Validation errors are MCP tool errors. Example: missing `text` returns `text required`.
-
-## `onibi_approval_request`
-
-Input schema:
-
-```json
-{
-  "session": "string, optional",
-  "agent": "string, optional",
-  "tool": "string, required",
-  "input_json": "string, required; must itself be valid JSON",
-  "timeout_seconds": "integer, optional"
-}
-```
-
-Output schema:
-
-```json
-{
-  "decision": "approve | deny | edited | expired | cancelled",
-  "updated_input": "string, optional",
-  "reason": "string, optional",
-  "decided_by": 123456789
-}
-```
-
-Example:
+`onibi_approval_request`:
 
 ```json
 {
@@ -145,70 +300,7 @@ Example:
 }
 ```
 
-Approve response:
-
-```json
-{
-  "decision": "approve",
-  "decided_by": 123456789
-}
-```
-
-Edited response:
-
-```json
-{
-  "decision": "edited",
-  "updated_input": "{\"command\":\"git status --short --branch\"}",
-  "decided_by": 123456789
-}
-```
-
-Validation errors are MCP tool errors:
-
-- Missing `tool`: `tool required`.
-- Invalid `input_json`: `input_json must be valid JSON`.
-- Daemon unavailable or socket timeout: MCP tool error from the Unix socket request.
-
-Timeout behavior:
-
-- `timeout_seconds <= 0`: client waits up to 6 minutes.
-- `timeout_seconds > 10 minutes`: capped to 10 minutes.
-- Approval TTL is owned by the daemon approval queue, normally 5 minutes or 60 seconds in paranoid mode.
-
-## `onibi_session_list`
-
-Input schema:
-
-```json
-{
-  "all": "boolean, optional; include ended sessions",
-  "n": "integer, optional; max sessions"
-}
-```
-
-Output schema:
-
-```json
-{
-  "sessions": [
-    {
-      "id": "s1",
-      "name": "codex",
-      "agent": "codex",
-      "cwd": "/repo",
-      "command": "codex",
-      "transport": "pty",
-      "tmux_target": "",
-      "started_at": "2026-06-14T12:00:00Z",
-      "ended_at": "",
-      "ended": false
-    }
-  ]
-}
-```
-
-Example:
+`onibi_session_list`:
 
 ```json
 {
@@ -217,39 +309,7 @@ Example:
 }
 ```
 
-Notes:
-
-- Does not require the daemon socket.
-- Requires the local SQLite DB.
-- `n <= 0` defaults to 50.
-- `n > 200` is capped to 200.
-
-Error shape:
-
-- DB missing or unavailable: MCP tool error.
-
-## `onibi_session_input`
-
-Input schema:
-
-```json
-{
-  "session": "string, optional when exactly one live session exists",
-  "text": "string, required",
-  "enter": "boolean, optional"
-}
-```
-
-Output schema:
-
-```json
-{
-  "ok": true,
-  "message": "sent to codex (s1)"
-}
-```
-
-Example:
+`onibi_session_input`:
 
 ```json
 {
@@ -259,39 +319,7 @@ Example:
 }
 ```
 
-Daemon behavior:
-
-- If `enter` is true and `text` does not end in `\n`, the daemon appends a newline.
-- Empty text is rejected.
-- If `session` is empty and exactly one live session exists, that session is selected.
-- If no live session or multiple live sessions exist, the daemon returns an error.
-
-Error shape:
-
-- Missing `text`: MCP tool error `text required`.
-- Daemon unavailable: MCP tool error from Unix socket dial/read.
-- Daemon rejection: MCP tool error with the daemon reason.
-
-## `onibi_session_peek`
-
-Input schema:
-
-```json
-{
-  "session": "string, optional when exactly one live session exists",
-  "tail_bytes": "integer, optional"
-}
-```
-
-Output schema:
-
-```json
-{
-  "text": "recent session output"
-}
-```
-
-Example:
+`onibi_session_peek`:
 
 ```json
 {
@@ -300,17 +328,100 @@ Example:
 }
 ```
 
-Daemon behavior:
+## Example Calls
 
-- Reads the session ring buffer snapshot.
-- `tail_bytes <= 0` defaults to 8000.
-- `tail_bytes > 65536` is capped to 8000 by the daemon RPC path.
-- Session selection follows the same rules as `onibi_session_input`.
+Typical agent-control flow:
 
-Error shape:
+1. Call `onibi_list_sessions`.
+2. Pick a session id.
+3. Call `onibi_fetch_transcript`.
+4. Call `onibi_list_pending_approvals`.
+5. Deny unsafe approvals with `onibi_decide_approval`.
+6. Send input with `onibi_session_input`.
 
-- Daemon unavailable: MCP tool error from Unix socket dial/read.
-- Daemon rejection: MCP tool error with the daemon reason.
+Example arguments:
+
+```json
+{
+  "session_id": "s1",
+  "since_turn": 10,
+  "max_turns": 20
+}
+```
+
+```json
+{
+  "approval_id": "appr_1",
+  "verdict": "deny"
+}
+```
+
+```json
+{
+  "session": "s1",
+  "text": "run the unit tests now",
+  "enter": true
+}
+```
+
+## Sample Agent-Control Script
+
+Run from this repo or any Go module with `github.com/mark3labs/mcp-go` available:
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	c := mcpclient.NewClient(transport.NewCommand("onibi", "mcp"))
+	if err := c.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	init := mcp.InitializeRequest{}
+	init.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	init.Params.ClientInfo = mcp.Implementation{Name: "onibi-agent-control", Version: "dev"}
+	if _, err := c.Initialize(ctx, init); err != nil {
+		log.Fatal(err)
+	}
+
+	sessions := call(ctx, c, "onibi_list_sessions", map[string]any{"include_remote": false})
+	fmt.Println(string(sessions))
+
+	pending := call(ctx, c, "onibi_list_pending_approvals", map[string]any{})
+	fmt.Println(string(pending))
+}
+
+func call(ctx context.Context, c *mcpclient.Client, name string, args map[string]any) []byte {
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if res.IsError {
+		log.Fatalf("%s: %+v", name, res.Content)
+	}
+	b, err := json.MarshalIndent(res.StructuredContent, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	return b
+}
+```
 
 ## Troubleshooting
 
@@ -328,19 +439,11 @@ onibi up
 onibi doctor --mode installed
 ```
 
-MCP client cannot find `onibi`:
+Client cannot find `onibi`:
 
 ```bash
 which onibi
 onibi version
 ```
 
-Use an absolute `command` path in the MCP client config when the client does not inherit your shell `PATH`.
-
-Session input fails with ambiguous target:
-
-```bash
-onibi sessions
-```
-
-Then call the MCP tool again with a concrete `session` id.
+Use an absolute `command` path in `~/.claude/mcp.json` when needed.
