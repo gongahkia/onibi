@@ -122,6 +122,51 @@ func TestFetchTranscriptReturnsScrubbedTurns(t *testing.T) {
 	}
 }
 
+func TestTranscriptResourceReads(t *testing.T) {
+	db := newMCPTestDB(t)
+	ctx := context.Background()
+	cwd := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	writeMCPClaudeTranscript(t, base, cwd, strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":"token=\"supersecret\""}}`,
+		"",
+	}, "\n"))
+	if err := db.SessionUpsertStart(ctx, "s1", "claude", "claude", cwd, "claude", "pty", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	session := connectMCPTest(t, New(Options{DB: db, ClaudeBaseDir: base}))
+
+	templates, err := session.ListResourceTemplates(ctx, mcp.ListResourceTemplatesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(templates.ResourceTemplates) != 1 || templates.ResourceTemplates[0].URITemplate.Raw() != transcriptResourceTemplate {
+		t.Fatalf("templates = %+v", templates.ResourceTemplates)
+	}
+	res, err := session.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: "onibi://sessions/s1/transcript"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Contents) != 1 {
+		t.Fatalf("contents = %+v", res.Contents)
+	}
+	text, ok := res.Contents[0].(mcp.TextResourceContents)
+	if !ok || text.MIMEType != "application/json" {
+		t.Fatalf("content = %#v", res.Contents[0])
+	}
+	var turns []transcriptTurn
+	if err := json.Unmarshal([]byte(text.Text), &turns); err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 || turns[1].Content != `token="[REDACTED]"` {
+		t.Fatalf("turns = %+v", turns)
+	}
+}
+
 func TestListPendingApprovalsToolMatchesWebInbox(t *testing.T) {
 	db := newMCPTestDB(t)
 	ctx := context.Background()

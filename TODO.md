@@ -417,8 +417,7 @@ x 2026-06-29 Require typed confirmation for uninstall --state unless --yes is se
 
 > Research locked. MCP spec rev 2025-11-25 (https://modelcontextprotocol.io/specification). Go SDK: github.com/mark3labs/mcp-go (community, mature) — recommended; github.com/modelcontextprotocol/go-sdk is newer official. Primitives: tools, resources, prompts. Onibi exposes 6 tools + 1 resource so any MCP client (Claude itself, Cursor, Continue) can list/inspect/kill onibi sessions, query approvals, fetch transcripts.
 
-(B) 2026-06-29 Expose resource onibi://sessions/{id}/transcript for streamed read access from MCP clients +phaseQ4 @backend file:internal/mcpserver/resources.go id:T2437 accept:resource-reads-stream
-(B) 2026-06-29 Update docs/mcp.md: install (add `onibi` server to ~/.claude/mcp.json pointing to `onibi mcp`), example calls, tool schemas, refusal policy on high-risk, sample agent-controls-agent script +phaseQ4 @docs file:docs/mcp.md id:T2438 blocked-by:T2437
+(B) 2026-06-29 Update docs/mcp.md: install (add `onibi` server to ~/.claude/mcp.json pointing to `onibi mcp`), example calls, tool schemas, refusal policy on high-risk, sample agent-controls-agent script +phaseQ4 @docs file:docs/mcp.md id:T2438
 
 #### Q4c — X: Guided demo + first-run tour
 

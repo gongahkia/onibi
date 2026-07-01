@@ -92,7 +92,7 @@ type peekOutput struct {
 
 func New(opts Options) *server.MCPServer {
 	s := &Server{socketPath: opts.SocketPath, db: opts.DB, claudeBaseDir: opts.ClaudeBaseDir}
-	srv := server.NewMCPServer("onibi", buildinfo.Version, server.WithRecovery())
+	srv := server.NewMCPServer("onibi", buildinfo.Version, server.WithRecovery(), server.WithResourceCapabilities(false, true))
 	srv.AddTool(listSessionsTool(), s.listSessions)
 	addStructuredTool(srv, killSessionTool(), s.killSession)
 	addStructuredTool(srv, fetchTranscriptTool(), s.fetchTranscript)
@@ -124,6 +124,7 @@ func New(opts Options) *server.MCPServer {
 		mcp.WithInputSchema[peekInput](),
 		mcp.WithOutputSchema[peekOutput](),
 	), s.sessionPeek)
+	registerResources(srv, s)
 	return srv
 }
 
