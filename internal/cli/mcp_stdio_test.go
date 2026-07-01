@@ -5,35 +5,37 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func TestMCPCommandStdioSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.Command(os.Args[0], "-test.run=TestMCPCommandStdioHelper")
-	cmd.Env = append(os.Environ(),
+	env := []string{
 		"ONIBI_MCP_STDIO_HELPER=1",
-		"HOME="+t.TempDir(),
-	)
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0"}, nil)
-	session, err := client.Connect(ctx, &mcp.CommandTransport{
-		Command:           cmd,
-		TerminateDuration: time.Second,
-	}, nil)
-	if err != nil {
+		"HOME=" + t.TempDir(),
+	}
+	client := mcpclient.NewClient(transport.NewCommandWithEnv(os.Args[0], env, "-test.run=TestMCPCommandStdioHelper"))
+	if err := client.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = session.Close() })
-	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+	req := mcp.InitializeRequest{}
+	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	req.Params.ClientInfo = mcp.Implementation{Name: "test-client", Version: "v0"}
+	if _, err := client.Initialize(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	res, err := client.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
 		Name:      "onibi_session_list",
 		Arguments: map[string]any{"n": 1},
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

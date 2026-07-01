@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/intake"
@@ -86,24 +88,58 @@ type peekOutput struct {
 	Text string `json:"text"`
 }
 
-func New(opts Options) *mcp.Server {
+func New(opts Options) *server.MCPServer {
 	s := &Server{socketPath: opts.SocketPath, db: opts.DB}
-	srv := mcp.NewServer(&mcp.Implementation{Name: "onibi", Version: buildinfo.Version}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "onibi_notify", Description: "Send a fail-open status message to the Onibi daemon."}, s.notify)
-	mcp.AddTool(srv, &mcp.Tool{Name: "onibi_approval_request", Description: "Request owner approval through Onibi and wait for the decision."}, s.approvalRequest)
-	mcp.AddTool(srv, &mcp.Tool{Name: "onibi_session_list", Description: "List Onibi sessions recorded by the daemon."}, s.sessionList)
-	mcp.AddTool(srv, &mcp.Tool{Name: "onibi_session_input", Description: "Write text into a live Onibi-controlled PTY session."}, s.sessionInput)
-	mcp.AddTool(srv, &mcp.Tool{Name: "onibi_session_peek", Description: "Read recent output from a live Onibi-controlled session."}, s.sessionPeek)
+	srv := server.NewMCPServer("onibi", buildinfo.Version, server.WithRecovery())
+	addStructuredTool(srv, mcp.NewTool("onibi_notify",
+		mcp.WithDescription("Send a fail-open status message to the Onibi daemon."),
+		mcp.WithInputSchema[notifyInput](),
+		mcp.WithOutputSchema[output](),
+	), s.notify)
+	addStructuredTool(srv, mcp.NewTool("onibi_approval_request",
+		mcp.WithDescription("Request owner approval through Onibi and wait for the decision."),
+		mcp.WithInputSchema[approvalInput](),
+		mcp.WithOutputSchema[approvalOutput](),
+	), s.approvalRequest)
+	addStructuredTool(srv, mcp.NewTool("onibi_session_list",
+		mcp.WithDescription("List Onibi sessions recorded by the daemon."),
+		mcp.WithInputSchema[sessionsInput](),
+		mcp.WithOutputSchema[sessionsOutput](),
+	), s.sessionList)
+	addStructuredTool(srv, mcp.NewTool("onibi_session_input",
+		mcp.WithDescription("Write text into a live Onibi-controlled PTY session."),
+		mcp.WithInputSchema[sessionInputInput](),
+		mcp.WithOutputSchema[output](),
+	), s.sessionInput)
+	addStructuredTool(srv, mcp.NewTool("onibi_session_peek",
+		mcp.WithDescription("Read recent output from a live Onibi-controlled session."),
+		mcp.WithInputSchema[peekInput](),
+		mcp.WithOutputSchema[peekOutput](),
+	), s.sessionPeek)
 	return srv
 }
 
 func Run(ctx context.Context, opts Options) error {
-	return New(opts).Run(ctx, &mcp.StdioTransport{})
+	return server.NewStdioServer(New(opts)).Listen(ctx, os.Stdin, os.Stdout)
 }
 
-func (s *Server) notify(_ context.Context, _ *mcp.CallToolRequest, in notifyInput) (*mcp.CallToolResult, output, error) {
+func addStructuredTool[I, O any](srv *server.MCPServer, tool mcp.Tool, handler func(context.Context, I) (O, error)) {
+	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var in I
+		if err := req.BindArguments(&in); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		out, err := handler(ctx, in)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultStructuredOnly(out), nil
+	})
+}
+
+func (s *Server) notify(_ context.Context, in notifyInput) (output, error) {
 	if in.Text == "" {
-		return nil, output{}, errors.New("text required")
+		return output{}, errors.New("text required")
 	}
 	err := intake.Send(s.socketPath, intake.Event{
 		Type:    intake.TypeAgentMessage,
@@ -113,17 +149,17 @@ func (s *Server) notify(_ context.Context, _ *mcp.CallToolRequest, in notifyInpu
 		Text:    in.Text,
 	})
 	if err != nil {
-		return nil, output{OK: false, Message: "daemon unavailable: " + err.Error()}, nil
+		return output{OK: false, Message: "daemon unavailable: " + err.Error()}, nil
 	}
-	return nil, output{OK: true, Message: "queued"}, nil
+	return output{OK: true, Message: "queued"}, nil
 }
 
-func (s *Server) approvalRequest(ctx context.Context, _ *mcp.CallToolRequest, in approvalInput) (*mcp.CallToolResult, approvalOutput, error) {
+func (s *Server) approvalRequest(ctx context.Context, in approvalInput) (approvalOutput, error) {
 	if in.Tool == "" {
-		return nil, approvalOutput{}, errors.New("tool required")
+		return approvalOutput{}, errors.New("tool required")
 	}
 	if !json.Valid([]byte(in.InputJSON)) {
-		return nil, approvalOutput{}, errors.New("input_json must be valid JSON")
+		return approvalOutput{}, errors.New("input_json must be valid JSON")
 	}
 	timeout := time.Duration(in.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
@@ -141,10 +177,9 @@ func (s *Server) approvalRequest(ctx context.Context, _ *mcp.CallToolRequest, in
 		InputJSON: in.InputJSON,
 	}, timeout)
 	if err != nil {
-		return nil, approvalOutput{}, err
+		return approvalOutput{}, err
 	}
-	_ = ctx
-	return nil, approvalOutput{
+	return approvalOutput{
 		Decision:     resp.Decision,
 		UpdatedInput: resp.UpdatedInput,
 		Reason:       resp.Reason,
@@ -152,9 +187,9 @@ func (s *Server) approvalRequest(ctx context.Context, _ *mcp.CallToolRequest, in
 	}, nil
 }
 
-func (s *Server) sessionList(ctx context.Context, _ *mcp.CallToolRequest, in sessionsInput) (*mcp.CallToolResult, sessionsOutput, error) {
+func (s *Server) sessionList(ctx context.Context, in sessionsInput) (sessionsOutput, error) {
 	if s.db == nil {
-		return nil, sessionsOutput{}, errors.New("session DB unavailable")
+		return sessionsOutput{}, errors.New("session DB unavailable")
 	}
 	n := in.N
 	if n <= 0 {
@@ -165,7 +200,7 @@ func (s *Server) sessionList(ctx context.Context, _ *mcp.CallToolRequest, in ses
 	}
 	rows, err := s.db.SessionsRecent(ctx, n, in.All)
 	if err != nil {
-		return nil, sessionsOutput{}, err
+		return sessionsOutput{}, err
 	}
 	out := sessionsOutput{Sessions: make([]sessionRow, 0, len(rows))}
 	for _, r := range rows {
@@ -185,12 +220,12 @@ func (s *Server) sessionList(ctx context.Context, _ *mcp.CallToolRequest, in ses
 		}
 		out.Sessions = append(out.Sessions, row)
 	}
-	return nil, out, nil
+	return out, nil
 }
 
-func (s *Server) sessionInput(_ context.Context, _ *mcp.CallToolRequest, in sessionInputInput) (*mcp.CallToolResult, output, error) {
+func (s *Server) sessionInput(_ context.Context, in sessionInputInput) (output, error) {
 	if in.Text == "" {
-		return nil, output{}, errors.New("text required")
+		return output{}, errors.New("text required")
 	}
 	resp, err := intake.Request(s.socketPath, intake.Event{
 		Type:    intake.TypeSessionInput,
@@ -199,25 +234,25 @@ func (s *Server) sessionInput(_ context.Context, _ *mcp.CallToolRequest, in sess
 		Enter:   in.Enter,
 	}, 10*time.Second)
 	if err != nil {
-		return nil, output{}, err
+		return output{}, err
 	}
 	if resp.Reason != "" {
-		return nil, output{}, errors.New(resp.Reason)
+		return output{}, errors.New(resp.Reason)
 	}
-	return nil, output{OK: true, Message: resp.Text}, nil
+	return output{OK: true, Message: resp.Text}, nil
 }
 
-func (s *Server) sessionPeek(_ context.Context, _ *mcp.CallToolRequest, in peekInput) (*mcp.CallToolResult, peekOutput, error) {
+func (s *Server) sessionPeek(_ context.Context, in peekInput) (peekOutput, error) {
 	resp, err := intake.Request(s.socketPath, intake.Event{
 		Type:    intake.TypeSessionPeek,
 		Session: in.Session,
 		Limit:   in.TailBytes,
 	}, 10*time.Second)
 	if err != nil {
-		return nil, peekOutput{}, err
+		return peekOutput{}, err
 	}
 	if resp.Reason != "" {
-		return nil, peekOutput{}, errors.New(resp.Reason)
+		return peekOutput{}, errors.New(resp.Reason)
 	}
-	return nil, peekOutput{Text: resp.Text}, nil
+	return peekOutput{Text: resp.Text}, nil
 }

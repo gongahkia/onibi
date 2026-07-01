@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserverlib "github.com/mark3labs/mcp-go/server"
 
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
@@ -29,11 +31,11 @@ func TestToolSchemasListed(t *testing.T) {
 	session := connectMCPTest(t, New(Options{}))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	res, err := session.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]*mcp.Tool{}
+	got := map[string]mcp.Tool{}
 	for _, tool := range res.Tools {
 		got[tool.Name] = tool
 	}
@@ -45,11 +47,11 @@ func TestToolSchemasListed(t *testing.T) {
 		"onibi_session_peek":     {"session", "tail_bytes"},
 	}
 	for name, fields := range want {
-		tool := got[name]
-		if tool == nil {
+		tool, ok := got[name]
+		if !ok {
 			t.Fatalf("missing tool %s", name)
 		}
-		if tool.InputSchema == nil || tool.OutputSchema == nil {
+		if tool.InputSchema.Type == "" || tool.OutputSchema.Type == "" {
 			t.Fatalf("%s missing schema: input=%v output=%v", name, tool.InputSchema, tool.OutputSchema)
 		}
 		b, err := json.Marshal(tool.InputSchema)
@@ -244,21 +246,25 @@ func TestSessionPeekReturnsTail(t *testing.T) {
 	}
 }
 
-func connectMCPTest(t *testing.T, server *mcp.Server) *mcp.ClientSession {
+func connectMCPTest(t *testing.T, srv *mcpserverlib.MCPServer) *mcpclient.Client {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(cancel)
-	t1, t2 := mcp.NewInMemoryTransports()
-	if _, err := server.Connect(ctx, t1, nil); err != nil {
-		t.Fatal(err)
-	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0"}, nil)
-	session, err := client.Connect(ctx, t2, nil)
+	c, err := mcpclient.NewInProcessClient(srv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = session.Close() })
-	return session
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	req := mcp.InitializeRequest{}
+	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	req.Params.ClientInfo = mcp.Implementation{Name: "test-client", Version: "v0"}
+	if _, err := c.Initialize(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
 }
 
 func startIntakeForMCPTest(t *testing.T, handler intake.Handler, approval intake.ApprovalHandler, rpc intake.RPCHandler) string {
@@ -298,7 +304,7 @@ func newMCPTestDB(t *testing.T) *store.DB {
 	return db
 }
 
-func callToolOK[T any](t *testing.T, session *mcp.ClientSession, name string, args map[string]any) T {
+func callToolOK[T any](t *testing.T, session *mcpclient.Client, name string, args map[string]any) T {
 	t.Helper()
 	res := callTool(t, session, name, args)
 	if res.IsError {
@@ -307,11 +313,11 @@ func callToolOK[T any](t *testing.T, session *mcp.ClientSession, name string, ar
 	return structuredContent[T](t, res)
 }
 
-func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+func callTool(t *testing.T, session *mcpclient.Client, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	res, err := session.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,6 +339,21 @@ func structuredContent[T any](t *testing.T, res *mcp.CallToolResult) T {
 
 func toolResultText(t *testing.T, res *mcp.CallToolResult) string {
 	t.Helper()
+	var out strings.Builder
+	for _, content := range res.Content {
+		if text, ok := content.(mcp.TextContent); ok {
+			out.WriteString(text.Text)
+			continue
+		}
+		b, err := json.Marshal(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.Write(b)
+	}
+	if out.Len() > 0 {
+		return out.String()
+	}
 	b, err := json.Marshal(res.Content)
 	if err != nil {
 		t.Fatal(err)
