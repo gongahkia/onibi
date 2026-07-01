@@ -15,6 +15,7 @@ type Mode string
 
 const (
 	ModeLAN             Mode = "lan"
+	ModeLANLoopback     Mode = "lan-loopback"
 	ModeTailscale       Mode = "tailscale"
 	ModeTelegram        Mode = "telegram"
 	ModeCloudflareQuick Mode = "cloudflare-quick"
@@ -111,6 +112,8 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 	switch mode {
 	case ModeLAN:
 		return LANResolved(opts.Port, opts.LANHosts, opts.FallbackHost), nil
+	case ModeLANLoopback:
+		return Resolved{Mode: ModeLANLoopback, Port: opts.Port, LANHosts: []string{"127.0.0.1"}}, nil
 	case ModeTailscale:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
 	case ModeCloudflareQuick:
@@ -135,6 +138,8 @@ func NormalizeMode(mode string) Mode {
 	switch Mode(strings.ToLower(strings.TrimSpace(mode))) {
 	case ModeLAN:
 		return ModeLAN
+	case ModeLANLoopback:
+		return ModeLANLoopback
 	case ModeTailscale:
 		return ModeTailscale
 	case ModeTelegram:
@@ -153,7 +158,7 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, auto"
+	return "lan, lan-loopback, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, auto"
 }
 
 func IsRelayMode(mode string) bool {

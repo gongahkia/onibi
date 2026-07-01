@@ -32,6 +32,34 @@ func (c *Client) InstallService(platform Platform, opts ServiceOptions) error {
 	}
 }
 
+func (c *Client) ServiceStatus(platform Platform) (string, error) {
+	if err := ValidatePlatform(platform); err != nil {
+		return "", err
+	}
+	switch platform.GOOS {
+	case "linux":
+		return c.RunOutput(systemdStatusCommand())
+	case "darwin":
+		return c.RunOutput(launchdStatusCommand())
+	default:
+		return "", fmt.Errorf("ssh: unsupported service os: %s", platform.GOOS)
+	}
+}
+
+func (c *Client) Teardown(platform Platform) error {
+	if err := ValidatePlatform(platform); err != nil {
+		return err
+	}
+	switch platform.GOOS {
+	case "linux":
+		return c.runRemote(systemdTeardownCommand())
+	case "darwin":
+		return c.runRemote(launchdTeardownCommand())
+	default:
+		return fmt.Errorf("ssh: unsupported service os: %s", platform.GOOS)
+	}
+}
+
 func serviceTransport(opts ServiceOptions) (string, error) {
 	transport := strings.TrimSpace(opts.Transport)
 	if transport == "" {
@@ -108,4 +136,31 @@ func launchdInstallCommand(transport string) string {
 
 func writeRemoteFileCommand(pathExpr, content string) string {
 	return "cat > " + pathExpr + " <<'ONIBI_REMOTE_FILE'\n" + content + "ONIBI_REMOTE_FILE"
+}
+
+func systemdStatusCommand() string {
+	return "systemctl --user status --no-pager --lines=0 " + remoteSystemdUnit
+}
+
+func launchdStatusCommand() string {
+	return `launchctl print "gui/$(id -u)/` + remoteLaunchdID + `"`
+}
+
+func systemdTeardownCommand() string {
+	return strings.Join([]string{
+		"set -eu",
+		"systemctl --user disable --now " + remoteSystemdUnit + " >/dev/null 2>&1 || true",
+		`rm -f "$HOME/.config/systemd/user/` + remoteSystemdUnit + `"`,
+		"systemctl --user daemon-reload >/dev/null 2>&1 || true",
+		`rm -f "$HOME/.local/bin/onibi" "$HOME/.local/bin/onibi-notify"`,
+	}, "\n")
+}
+
+func launchdTeardownCommand() string {
+	return strings.Join([]string{
+		"set -eu",
+		`launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/` + remoteLaunchdID + `.plist" >/dev/null 2>&1 || true`,
+		`rm -f "$HOME/Library/LaunchAgents/` + remoteLaunchdID + `.plist"`,
+		`rm -f "$HOME/.local/bin/onibi" "$HOME/.local/bin/onibi-notify"`,
+	}, "\n")
 }

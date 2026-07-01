@@ -37,6 +37,7 @@ import (
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
+var sshUpRun = runSSHUp
 var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
@@ -61,6 +62,8 @@ func upCmd() *cobra.Command {
 	cmd.Flags().Bool("visible", false, "open the managed session in a Mac terminal immediately")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
 	cmd.Flags().String("log-file", "", "also write up logs to this file")
+	cmd.Flags().String("ssh", "", "bootstrap and tunnel a remote host, user@host[:port]")
+	cmd.Flags().String("ssh-key", "", "SSH private key path for --ssh")
 	return cmd
 }
 
@@ -71,6 +74,9 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 	if err := paths.EnsureDirs(); err != nil {
 		return err
+	}
+	if target, _ := cmd.Flags().GetString("ssh"); strings.TrimSpace(target) != "" {
+		return sshUpRun(cmd, target)
 	}
 	db, err := openDefaultDB()
 	if err != nil {

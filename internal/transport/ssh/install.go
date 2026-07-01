@@ -138,16 +138,21 @@ func uploadExecutable(sc *sftp.Client, local, remote string) error {
 }
 
 func (c *Client) runRemote(cmd string) error {
+	_, err := c.RunOutput(cmd)
+	return err
+}
+
+func (c *Client) RunOutput(cmd string) (string, error) {
 	session, err := c.NewSession()
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer session.Close()
 	out, err := session.CombinedOutput(cmd)
 	if err != nil {
-		return fmt.Errorf("ssh: remote command failed: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("ssh: remote command failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return string(out), nil
 }
 
 func installCommand(tempDir, remoteDir, token string) string {

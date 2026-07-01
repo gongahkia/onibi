@@ -25,3 +25,14 @@ func TestWebPairURLsFallsBackToLocalhost(t *testing.T) {
 		t.Fatalf("urls = %#v", got)
 	}
 }
+
+func TestLANLoopbackResolved(t *testing.T) {
+	pt, err := Resolve(t.Context(), ResolverOptions{Mode: "lan-loopback", Port: 18443})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pt.URLs("tok")
+	if pt.Mode != ModeLANLoopback || len(got) != 1 || got[0] != "https://127.0.0.1:18443/pair/tok" {
+		t.Fatalf("mode=%q urls=%#v", pt.Mode, got)
+	}
+}

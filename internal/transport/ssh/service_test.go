@@ -53,3 +53,16 @@ func TestServiceTransportDefault(t *testing.T) {
 		t.Fatal("expected invalid transport error")
 	}
 }
+
+func TestServiceStatusAndTeardownCommands(t *testing.T) {
+	for _, want := range []string{"systemctl --user status --no-pager --lines=0 onibi.service", "launchctl print"} {
+		if got := systemdStatusCommand() + "\n" + launchdStatusCommand(); !strings.Contains(got, want) {
+			t.Fatalf("status command missing %q", want)
+		}
+	}
+	for _, want := range []string{"disable --now onibi.service", "rm -f \"$HOME/.local/bin/onibi\"", "LaunchAgents/io.onibi.plist"} {
+		if got := systemdTeardownCommand() + "\n" + launchdTeardownCommand(); !strings.Contains(got, want) {
+			t.Fatalf("teardown command missing %q", want)
+		}
+	}
+}
