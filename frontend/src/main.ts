@@ -224,7 +224,7 @@ function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: S
       controlButton("MAC", () => postHandover(info, "mac"), "handover-mac"),
       controlButton("PHONE", () => postHandover(info, "phone"), "handover-phone"),
       controlButton("INT", () => postControl(info.session_id, "interrupt")),
-      controlButton("KILL", () => postControl(info.session_id, "kill"))
+      controlButton("KILL", killGate(info.session_id))
     );
   }
   root.replaceChildren(...controls);
@@ -233,12 +233,14 @@ function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: S
 function controlButton(label: string, action: () => void, tourID = ""): HTMLButtonElement {
   const el = document.createElement("button");
   let firedAt = 0;
+  let skipNextClick = false;
   const fire = (event: Event) => {
     event.preventDefault();
     if (Date.now() - firedAt < 250) {
       return;
     }
     firedAt = Date.now();
+    skipNextClick = true;
     action();
     term.focus();
   };
@@ -253,12 +255,28 @@ function controlButton(label: string, action: () => void, tourID = ""): HTMLButt
   el.addEventListener("touchstart", fire, { passive: false });
   el.addEventListener("click", (event) => {
     event.preventDefault();
-    if (Date.now() - firedAt > 500) {
-      action();
-      term.focus();
+    if (skipNextClick) {
+      skipNextClick = false;
+      return;
     }
+    action();
+    term.focus();
   });
   return el;
+}
+
+function killGate(sessionID: string): () => void {
+  let armedUntil = 0;
+  return () => {
+    const now = Date.now();
+    if (armedUntil < now) {
+      armedUntil = now + 2000;
+      showToast("Tap KILL again to send SIGKILL.");
+      return;
+    }
+    armedUntil = 0;
+    postControl(sessionID, "kill");
+  };
 }
 
 function enablePush(): void {
