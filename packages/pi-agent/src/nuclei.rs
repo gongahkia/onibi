@@ -1,10 +1,10 @@
 use std::fmt::{Display, Formatter};
 
 pub const PINNED_NUCLEI_TEMPLATES_REVISION: &str = "cce82b61d26bed35074cd57bc9d0aebd703a81d3";
-pub const PINNED_NUCLEI_BINARY_VERSION: &str = "v3.9.0";
-pub const PINNED_NUCLEI_LINUX_ARM64_ASSET: &str = "nuclei_3.9.0_linux_arm64.zip";
+pub const PINNED_NUCLEI_BINARY_VERSION: &str = "v3.10.0";
+pub const PINNED_NUCLEI_LINUX_ARM64_ASSET: &str = "nuclei_3.10.0_linux_arm64.zip";
 pub const PINNED_NUCLEI_LINUX_ARM64_SHA256: &str =
-    "733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850";
+    "b0ddb1f0cc894b7fa79e45043d00a5ffd2cc9fc15e169bf567d1a384eae51427";
 pub const DEFAULT_NUCLEI_BINARY_PATH: &str = "/opt/kelp-pi/bin/nuclei";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

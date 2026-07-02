@@ -360,6 +360,7 @@ if [ "$skip_nuclei" != "1" ]; then
 else
   log "skipping Nuclei install"
 fi
+"$scripts_dir/write-scanner-strategy.sh" / >/dev/null
 
 log "creating users and data directories"
 systemd-sysusers /usr/lib/sysusers.d/kelp-pi-agent.conf

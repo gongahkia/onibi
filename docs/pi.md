@@ -145,6 +145,16 @@ Action tags map to fixed policy classes:
 
 Only `read`, `evidence-import`, and `retrieval-query` may become granular auto-allow candidates. `scanner-active`, `policy-mutation`, and `bundle-sign` require explicit operator accountability.
 
+## Scanner Aarch64 Strategy
+
+Sources checked 2026-07-02: ProjectDiscovery `nuclei` GitHub release `v3.10.0` (<https://github.com/projectdiscovery/nuclei/releases/tag/v3.10.0>), Debian/Raspberry Pi OS Bookworm `nmap` (<https://packages.debian.org/bookworm/nmap>), and ZAP official Docker/download docs (<https://www.zaproxy.org/docs/docker/about/>, <https://www.zaproxy.org/download/>).
+
+- Nuclei: bundled from `projectdiscovery/nuclei` release asset `nuclei_3.10.0_linux_arm64.zip`; archive SHA-256 `b0ddb1f0cc894b7fa79e45043d00a5ffd2cc9fc15e169bf567d1a384eae51427`; installed binary SHA-256 `579859c6192abd8204ec22ab88e39de8f138d955c283ed99a59fdb3cea451803`; templates remain pinned by revision.
+- Nmap: installed from the signed Raspberry Pi OS/Debian apt repository as package `nmap`; readiness records `nmap --version` because package hashes are owned by apt repository metadata.
+- ZAP: not installed by default on the 4GB Pi profile; only enable through an operator-supplied container image digest (`KELP_PI_ZAP_IMAGE_DIGEST`) so field runs never use a mutable tag as evidence.
+
+The installer and image staging write `/etc/kelp-pi/scanners.json`. `kelp-pi-validate-node` fails if the scanner strategy is absent, if Nuclei hashes drift, if Nmap is unavailable, or if ZAP is enabled without an immutable digest.
+
 ## Evidence And Bundles
 
 Target outputs:

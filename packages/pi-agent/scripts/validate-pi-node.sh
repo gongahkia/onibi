@@ -10,11 +10,15 @@ dnsmasq_config="${KELP_PI_DNSMASQ_CONFIG:-/etc/dnsmasq.d/kelp-pi-captive.conf}"
 boot_config="${KELP_PI_BOOT_CONFIG:-/boot/firmware/config.txt}"
 nuclei_bin="${KELP_PI_NUCLEI_BIN:-/opt/kelp-pi/bin/nuclei}"
 nuclei_manifest="${KELP_PI_NUCLEI_MANIFEST:-/etc/kelp-pi/nuclei-binary.json}"
-nuclei_version="v3.9.0"
-nuclei_asset_sha256="733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850"
-nuclei_binary_sha256="6b6f19f038f959c2ec90d9f3e3f039256987d1eb78d5c292d7ec9a384513e27f"
+scanner_strategy="${KELP_PI_SCANNER_STRATEGY:-/etc/kelp-pi/scanners.json}"
+nmap_bin="${KELP_PI_NMAP_BIN:-/usr/bin/nmap}"
+nuclei_version="v3.10.0"
+nuclei_asset_sha256="b0ddb1f0cc894b7fa79e45043d00a5ffd2cc9fc15e169bf567d1a384eae51427"
+nuclei_binary_sha256="579859c6192abd8204ec22ab88e39de8f138d955c283ed99a59fdb3cea451803"
 portal_ip="${KELP_PI_PORTAL_IP:-10.42.0.1}"
 egress_probe="${KELP_PI_EGRESS_PROBE:-https://example.com}"
+enable_zap="${KELP_PI_ENABLE_ZAP:-0}"
+zap_image_digest="${KELP_PI_ZAP_IMAGE_DIGEST:-}"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -103,6 +107,12 @@ score="$(systemd-analyze security "$service" --no-pager | awk '/Overall exposure
 awk -v score="$score" 'BEGIN { exit !(score < 3.0) }' || fail "systemd security score $score >= 3.0"
 pass "systemd security score $score"
 
+[ -f "$scanner_strategy" ] || fail "$scanner_strategy missing"
+grep -q '"schemaVersion": "kelp.pi.scanners.v1"' "$scanner_strategy" || fail "scanner strategy schema mismatch"
+grep -q '"package": "nmap"' "$scanner_strategy" || fail "scanner strategy missing nmap package policy"
+grep -q '"hash_policy": "set KELP_PI_ZAP_IMAGE_DIGEST' "$scanner_strategy" || fail "scanner strategy missing ZAP digest policy"
+pass "scanner strategy manifest: $scanner_strategy"
+
 [ -x "$nuclei_bin" ] || fail "$nuclei_bin missing or not executable"
 [ -f "$nuclei_manifest" ] || fail "$nuclei_manifest missing"
 grep -q "\"version\":\"$nuclei_version\"" "$nuclei_manifest" || fail "nuclei manifest version mismatch"
@@ -111,6 +121,19 @@ grep -q "\"binary_sha256\":\"$nuclei_binary_sha256\"" "$nuclei_manifest" || fail
 installed_nuclei_sha256="$(hash_file "$nuclei_bin")"
 [ "$installed_nuclei_sha256" = "$nuclei_binary_sha256" ] || fail "nuclei installed binary sha256 mismatch"
 pass "nuclei pinned binary sha256=$installed_nuclei_sha256"
+
+[ -x "$nmap_bin" ] || fail "$nmap_bin missing or not executable"
+nmap_version="$("$nmap_bin" --version | sed -n '1p')"
+[ -n "$nmap_version" ] || fail "nmap version unavailable"
+pass "nmap apt package runtime version: $nmap_version"
+
+if [ "$enable_zap" = "1" ]; then
+  [ -n "$zap_image_digest" ] || fail "ZAP enabled requires KELP_PI_ZAP_IMAGE_DIGEST"
+  pass "ZAP opt-in image digest pinned: $zap_image_digest"
+else
+  grep -q '"enabled_by_default": false' "$scanner_strategy" || fail "ZAP must be disabled by default"
+  pass "ZAP opt-in disabled; digest required before enable"
+fi
 
 [ -f "$nm_profile" ] || fail "$nm_profile missing"
 printf '%s\n' 'NetworkManager AP profile proof:'

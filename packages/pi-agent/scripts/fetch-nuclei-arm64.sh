@@ -3,9 +3,9 @@ set -eu
 
 [ "${1:-}" = "--" ] && shift
 root="${1:-${KELP_PI_IMAGE_ROOT:-}}"
-version="v3.9.0"
-asset="nuclei_3.9.0_linux_arm64.zip"
-sha256="733ceb77896fc5a9cafb70d07cabdd43fd9f186c28cbc335eec5b78d5c35d850"
+version="v3.10.0"
+asset="nuclei_3.10.0_linux_arm64.zip"
+sha256="b0ddb1f0cc894b7fa79e45043d00a5ffd2cc9fc15e169bf567d1a384eae51427"
 url="https://github.com/projectdiscovery/nuclei/releases/download/$version/$asset"
 
 [ -n "$root" ] || {
