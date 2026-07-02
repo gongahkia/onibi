@@ -82,6 +82,27 @@ jobs:
           go build -o /tmp/onibi ./cmd/onibi
           go build -o /tmp/onibi-notify ./clients/onibi-notify
 
+  runtime-deps:
+    name: no runtime dependency downloads
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: install trace tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ncurses-bin strace tmux
+      - name: build audit binary
+        run: go build -o /tmp/onibi ./cmd/onibi
+      - name: audit onibi up
+        env:
+          ONIBI_BINARY: /tmp/onibi
+          ONIBI_RUNTIME_AUDIT_SECONDS: 30
+        run: scripts/no-runtime-deps-check.sh
+
   release-smoke:
     name: release smoke
     runs-on: ubuntu-latest
