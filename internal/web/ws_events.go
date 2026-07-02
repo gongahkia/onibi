@@ -62,6 +62,19 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	go s.pingLoop(ctx, c)
 	var writeMu sync.Mutex
 	wsE2E := newSeqWSCodec(codec, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
+	var approvalEvents <-chan approval.Event
+	var unsubApprovals func()
+	if s.approvalQueue != nil {
+		approvalEvents, unsubApprovals = s.approvalQueue.Subscribe()
+		defer unsubApprovals()
+	}
+	var appEvents <-chan Event
+	var unsubAppEvents func()
+	if s.eventBus != nil {
+		appEvents, unsubAppEvents = s.eventBus.Subscribe()
+		defer unsubAppEvents()
+	}
+	sentApprovalRequests := map[string]bool{}
 	if err := writeEvent(ctx, c, &writeMu, wsE2E, "server.hello", map[string]any{
 		"endpoint":   "events",
 		"session_id": sessionID,
@@ -82,17 +95,20 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventsSent += n
-	var approvalEvents <-chan approval.Event
-	var unsubApprovals func()
 	if s.approvalQueue != nil {
-		approvalEvents, unsubApprovals = s.approvalQueue.Subscribe()
-		defer unsubApprovals()
-	}
-	var appEvents <-chan Event
-	var unsubAppEvents func()
-	if s.eventBus != nil {
-		appEvents, unsubAppEvents = s.eventBus.Subscribe()
-		defer unsubAppEvents()
+		pending, err := s.approvalQueue.Pending(ctx)
+		if err != nil {
+			s.log.Warn("web pending approval replay failed", "request_id", reqID, "session_id", sessionID, "err", err)
+		}
+		for _, a := range pending {
+			ev := approval.Event{Type: approval.EventRequested, Approval: *a, At: time.Now()}
+			if err := writeEvent(ctx, c, &writeMu, wsE2E, ev.Type, approvalEventPayload(ev)); err != nil {
+				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "err", err)
+				return
+			}
+			sentApprovalRequests[a.ID] = true
+			eventsSent++
+		}
 	}
 	if approvalEvents == nil && appEvents == nil {
 		s.log.Info("web events ws waiting without event sources", "request_id", reqID, "session_id", sessionID)
@@ -111,9 +127,15 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
+			if ev.Type == approval.EventRequested && sentApprovalRequests[ev.Approval.ID] {
+				continue
+			}
 			if err := writeEvent(ctx, c, &writeMu, wsE2E, ev.Type, approvalEventPayload(ev)); err != nil {
 				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "err", err)
 				return
+			}
+			if ev.Type == approval.EventRequested {
+				sentApprovalRequests[ev.Approval.ID] = true
 			}
 			eventsSent++
 			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "events_sent", eventsSent)

@@ -1,5 +1,7 @@
 package cli
 
+//lint:file-ignore SA1019 release artifacts use OpenPGP signatures
+
 import (
 	"archive/tar"
 	"bytes"
@@ -392,7 +394,7 @@ func extractOnibiBinary(archiveBytes []byte) ([]byte, error) {
 		if clean != "onibi" {
 			continue
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg && header.Typeflag != 0 {
 			return nil, errors.New("archive onibi entry is not a regular file")
 		}
 		binary, err := io.ReadAll(io.LimitReader(tr, maxUpdateArchiveBytes+1))

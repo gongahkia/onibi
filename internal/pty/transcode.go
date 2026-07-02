@@ -47,12 +47,14 @@ func (t *kittyGraphicsTranscoder) Write(p []byte) []byte {
 		data = append(append([]byte{}, t.carry...), p...)
 		t.carry = t.carry[:0]
 	}
-	start, wrapped, ok := nextKittySequence(data, 0)
+	_, _, ok := nextKittySequence(data, 0)
 	if !ok {
 		return data
 	}
 	out := make([]byte, 0, len(data))
 	cursor := 0
+	var start int
+	var wrapped bool
 	for {
 		start, wrapped, ok = nextKittySequence(data, cursor)
 		if !ok {

@@ -86,25 +86,6 @@ type wsCodec interface {
 	decrypt(websocket.MessageType, []byte) (websocket.MessageType, []byte, error)
 }
 
-type envelopeWSCodec struct {
-	codec *envelope.Codec
-}
-
-func wrapWSCodec(codec *envelope.Codec) wsCodec {
-	if codec == nil {
-		return nil
-	}
-	return envelopeWSCodec{codec: codec}
-}
-
-func (c envelopeWSCodec) encrypt(typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	return wsEncrypt(c.codec, typ, p)
-}
-
-func (c envelopeWSCodec) decrypt(typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	return wsDecrypt(c.codec, typ, p)
-}
-
 type seqWSCodec struct {
 	codec     *envelope.Codec
 	sessionID string

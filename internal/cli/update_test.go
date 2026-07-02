@@ -1,5 +1,7 @@
 package cli
 
+//lint:file-ignore SA1019 update tests generate OpenPGP signatures
+
 import (
 	"archive/tar"
 	"bytes"

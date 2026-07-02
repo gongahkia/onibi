@@ -115,9 +115,7 @@ func (p *parser) parseLine(line []byte, offset int64) ([]TimelineEvent, error) {
 		ev.Payload = top
 		out = append(out, ev)
 	}
-	for _, ev := range p.toolEvents(top, base) {
-		out = append(out, ev)
-	}
+	out = append(out, p.toolEvents(top, base)...)
 	if ev, ok, err := p.costEvent(line, base); err != nil {
 		return nil, err
 	} else if ok {
