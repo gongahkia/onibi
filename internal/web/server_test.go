@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -652,6 +653,82 @@ func TestControlRejectsViewer(t *testing.T) {
 	srv.handleControl(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
+func TestControlErrorsAreJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		setup  func(*Server)
+		status int
+		msg    string
+	}{
+		{
+			name:   "scroll unavailable",
+			body:   `{"session_id":"s1","action":"page_up"}`,
+			status: http.StatusNotImplemented,
+			msg:    "scroll unavailable",
+		},
+		{
+			name: "scroll failed",
+			body: `{"session_id":"s1","action":"page_down"}`,
+			setup: func(s *Server) {
+				s.scroll = func(context.Context, string, string) error {
+					return errors.New("scroll failed")
+				}
+			},
+			status: http.StatusBadRequest,
+			msg:    "scroll failed",
+		},
+		{
+			name:   "session not found",
+			body:   `{"session_id":"missing","action":"interrupt"}`,
+			status: http.StatusNotFound,
+			msg:    "session not found",
+		},
+		{
+			name: "bad action",
+			body: `{"session_id":"s1","action":"bad"}`,
+			setup: func(s *Server) {
+				s.ptyHosts = func() map[string]*pty.Host {
+					return map[string]*pty.Host{"s1": pty.NewVirtualHost(nil, nil, nil)}
+				}
+			},
+			status: http.StatusBadRequest,
+			msg:    "bad action",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cleanup := testServer(t)
+			defer cleanup()
+			if tc.setup != nil {
+				tc.setup(srv)
+			}
+			rr := httptest.NewRecorder()
+			if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(tc.body))
+			req.AddCookie(rr.Result().Cookies()[0])
+			w := httptest.NewRecorder()
+			srv.handleControl(w, req)
+			if w.Code != tc.status {
+				t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+			}
+			if ct := w.Result().Header.Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("content-type = %q", ct)
+			}
+			var got struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Message != tc.msg {
+				t.Fatalf("message = %q", got.Message)
+			}
+		})
 	}
 }
 
