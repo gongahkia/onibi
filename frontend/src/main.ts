@@ -1,6 +1,6 @@
 import "./main.css";
 import { TerminalWS } from "./ws";
-import { applyTerminalTheme, attachTerminalIO, createTerminal, defaultTerminalTheme, installTouchScroll, installViewportResize, isTerminalThemeName } from "./terminal";
+import { applyTerminalTheme, attachTerminalIO, clampTerminalFontSize, createTerminal, defaultTerminalFontSize, defaultTerminalTheme, installTouchScroll, installViewportResize, isTerminalThemeName, logCrampedPortraitCols, terminalFontSizeKey } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 import { AnomalyOverlay } from "./anomaly";
 import { ApprovalOverlay } from "./approval";
@@ -55,9 +55,6 @@ let timeline: TimelinePanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
-const terminalFontSizeKey = "onibi-font-size";
-const minTerminalFontSize = 10;
-const maxTerminalFontSize = 22;
 
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
@@ -72,6 +69,7 @@ ws.addEventListener("open", () => {
   splash.hidden = true;
   hideToast();
   fit.fit();
+  logCrampedPortraitCols(term);
   ws.sendResize(term.rows, term.cols);
 });
 ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
@@ -387,11 +385,12 @@ function setTheme(next: TerminalThemeName): void {
 }
 
 function changeTerminalFontSize(delta: number): void {
-  const current = typeof term.options.fontSize === "number" ? term.options.fontSize : 14;
-  const next = Math.min(maxTerminalFontSize, Math.max(minTerminalFontSize, current + delta));
+  const current = typeof term.options.fontSize === "number" ? term.options.fontSize : defaultTerminalFontSize;
+  const next = clampTerminalFontSize(current + delta);
   term.options.fontSize = next;
   window.localStorage.setItem(terminalFontSizeKey, String(next));
   fit.fit();
+  logCrampedPortraitCols(term);
   ws.sendResize(term.rows, term.cols);
 }
 

@@ -18,6 +18,11 @@ export type TerminalHandle = {
 };
 
 const terminalFont = `"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace`;
+export const terminalFontSizeKey = "onibi-font-size";
+export const defaultTerminalFontSize = 14;
+const minTerminalFontSize = 10;
+const maxTerminalFontSize = 22;
+let loggedCrampedPortrait = false;
 
 const themes: Record<TerminalThemeName, ITheme> = {
   "ghostty-default": ghosttyDefaultTheme,
@@ -92,7 +97,7 @@ export function terminalThemeLabel(theme: TerminalThemeName): string {
 export function createTerminal(container: HTMLElement, theme: TerminalThemeName = defaultTerminalTheme): TerminalHandle {
   const term = new Terminal({
     fontFamily: terminalFont,
-    fontSize: 14,
+    fontSize: loadTerminalFontSize(),
     cursorBlink: true,
     convertEol: false,
     scrollback: 5000,
@@ -103,11 +108,33 @@ export function createTerminal(container: HTMLElement, theme: TerminalThemeName 
   term.loadAddon(new ImageAddon());
   term.open(container);
   fit.fit();
+  logCrampedPortraitCols(term);
   return { term, fit };
 }
 
 export function applyTerminalTheme(term: Terminal, theme: TerminalThemeName): void {
   term.options.theme = themes[theme];
+}
+
+export function clampTerminalFontSize(size: number): number {
+  return Math.min(maxTerminalFontSize, Math.max(minTerminalFontSize, size));
+}
+
+export function loadTerminalFontSize(): number {
+  const stored = window.localStorage.getItem(terminalFontSizeKey);
+  if (stored === null) {
+    return defaultTerminalFontSize;
+  }
+  const size = Number(stored);
+  return Number.isFinite(size) ? clampTerminalFontSize(size) : defaultTerminalFontSize;
+}
+
+export function logCrampedPortraitCols(term: Terminal): void {
+  if (loggedCrampedPortrait || !window.matchMedia("(orientation: portrait)").matches || term.cols >= 40) {
+    return;
+  }
+  loggedCrampedPortrait = true;
+  console.info(`[ONIBI] portrait cols=${term.cols}`);
 }
 
 export function attachTerminalIO(term: Terminal, ws: TerminalWS, enabled: () => boolean = () => true): IDisposable {
@@ -137,6 +164,7 @@ export function installViewportResize(term: Terminal, fit: FitAddon, ws: Termina
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       fit.fit();
+      logCrampedPortraitCols(term);
       if (term.rows === lastRows && term.cols === lastCols) {
         return;
       }
