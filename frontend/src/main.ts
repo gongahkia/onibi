@@ -55,6 +55,9 @@ let timeline: TimelinePanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
+const terminalFontSizeKey = "onibi-font-size";
+const minTerminalFontSize = 10;
+const maxTerminalFontSize = 22;
 
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
@@ -125,6 +128,8 @@ async function boot(): Promise<void> {
       focus: () => term.focus(),
       getTheme: () => theme,
       setTheme: setTheme,
+      decreaseFontSize: () => changeTerminalFontSize(-1),
+      increaseFontSize: () => changeTerminalFontSize(1),
       readOnly: viewerMode
     });
     connectTerminal(info);
@@ -379,6 +384,15 @@ function setTheme(next: TerminalThemeName): void {
   window.localStorage.setItem("onibi-theme", next);
   applyDocumentTheme(next);
   applyTerminalTheme(term, next);
+}
+
+function changeTerminalFontSize(delta: number): void {
+  const current = typeof term.options.fontSize === "number" ? term.options.fontSize : 14;
+  const next = Math.min(maxTerminalFontSize, Math.max(minTerminalFontSize, current + delta));
+  term.options.fontSize = next;
+  window.localStorage.setItem(terminalFontSizeKey, String(next));
+  fit.fit();
+  ws.sendResize(term.rows, term.cols);
 }
 
 function loadTheme(): TerminalThemeName {

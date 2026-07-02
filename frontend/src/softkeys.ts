@@ -10,6 +10,8 @@ type SoftKeyBarOptions = {
   focus: () => void;
   getTheme: () => TerminalThemeName;
   setTheme: (theme: TerminalThemeName) => void;
+  decreaseFontSize: () => void;
+  increaseFontSize: () => void;
   readOnly?: boolean;
 };
 
@@ -48,6 +50,8 @@ export class SoftKeyBar {
       banner.className = "softkey-view-only";
       banner.textContent = "VIEW ONLY";
       frag.append(banner);
+      frag.append(this.actionButton("A-", options.decreaseFontSize));
+      frag.append(this.actionButton("A+", options.increaseFontSize));
       this.themePicker = this.themeSelect(options.getTheme());
       frag.append(this.themePicker);
       options.root.replaceChildren(frag);
@@ -60,6 +64,8 @@ export class SoftKeyBar {
     }
     frag.append(this.pageButton("PgUp", options.pageUp));
     frag.append(this.pageButton("PgDn", options.pageDown));
+    frag.append(this.actionButton("A-", options.decreaseFontSize));
+    frag.append(this.actionButton("A+", options.increaseFontSize));
     frag.append(this.pasteButton());
     this.themePicker = this.themeSelect(options.getTheme());
     frag.append(this.themePicker);
@@ -121,6 +127,16 @@ export class SoftKeyBar {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
+    });
+    return el;
+  }
+
+  private actionButton(label: string, action: () => void): HTMLButtonElement {
+    const el = this.button(label);
+    el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      action();
+      this.options.focus();
     });
     return el;
   }
