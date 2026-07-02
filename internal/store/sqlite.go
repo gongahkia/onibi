@@ -264,6 +264,15 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 CREATE INDEX IF NOT EXISTS idx_workspaces_last_seen ON workspaces(last_seen);
 
+CREATE TABLE IF NOT EXISTS profiles (
+  name         TEXT PRIMARY KEY,
+  data_enc     BLOB NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_profiles_last_used ON profiles(last_used_at DESC, name ASC);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint_hash TEXT PRIMARY KEY,
   endpoint_enc  BLOB NOT NULL,
@@ -317,7 +326,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "pairing_tokens", "use_count", "INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}

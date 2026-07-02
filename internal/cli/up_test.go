@@ -53,6 +53,28 @@ func TestUpStartsWebPair(t *testing.T) {
 	}
 }
 
+func TestUpAppliesProfileFlags(t *testing.T) {
+	withDefaultState(t)
+	cwd := t.TempDir()
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--cwd", cwd, "--color", "never")
+	oldWebPair := webPairRun
+	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
+		transport, _ := cmd.Flags().GetString("transport")
+		agent, _ := cmd.Flags().GetString("agent")
+		gotCWD, _ := cmd.Flags().GetString("cwd")
+		if transport != "tailscale" || agent != "sh" || gotCWD != cwd {
+			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
+		}
+		cmd.Println("profile pair stub")
+		return nil
+	}
+	t.Cleanup(func() { webPairRun = oldWebPair })
+	out, _ := executeRoot(t, "up", "work", "--color", "never")
+	if !strings.Contains(out.String(), "profile pair stub") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
 func TestWebPairURLsIncludesFallbacks(t *testing.T) {
 	got := webPairURLs("tok", 8443, []string{"192.168.1.31", "host.local", ""}, "host.local")
 	want := []string{
@@ -215,6 +237,38 @@ func TestResolveUpWorkspaceDoesNotFallbackWhenCWDExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resolved.Found || resolved.ShellCWD != start {
+		t.Fatalf("resolved = %#v", resolved)
+	}
+}
+
+func TestResolveNamedUpWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	db := openUpTestDB(t)
+	ctx := context.Background()
+	wsPath := filepath.Join(t.TempDir(), "named-workspace")
+	if err := os.MkdirAll(wsPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wsStore, err := workspace.NewDBStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wsStore.Upsert(ctx, workspace.DBEntry{Name: "named", Path: wsPath, LastSeen: time.Unix(2, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	indexDir, err := workspace.DefaultIndexDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.SaveIndexEntry(indexDir, workspace.IndexEntry{Name: "named", Path: wsPath, LastSeen: time.Unix(2, 0).UTC(), DefaultTransport: "cloudflare-quick"}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := resolveNamedUpWorkspace(ctx, db, t.TempDir(), false, "named")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Found || resolved.Source != "named" || resolved.Name != "named" || resolved.ShellCWD != wsPath || resolved.DefaultTransport != "cloudflare-quick" {
 		t.Fatalf("resolved = %#v", resolved)
 	}
 }

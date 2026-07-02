@@ -50,12 +50,15 @@ var newTransportProviders = func() webtransport.ProviderFactory {
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "up",
+		Use:     "up [profile]",
 		Aliases: []string{"start"},
 		Short:   "Start the local web cockpit and print a pairing QR",
+		Args:    cobra.MaximumNArgs(1),
 		RunE:    runUp,
 	}
 	cmd.Flags().String("transport", "", "pairing transport: "+webtransport.SupportedModeList())
+	cmd.Flags().String("agent", "", "agent executable for the managed session")
+	cmd.Flags().String("workspace", "", "workspace name for the managed session")
 	cmd.Flags().String("shell", "", "shell executable for local cockpit session")
 	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
@@ -67,7 +70,7 @@ func upCmd() *cobra.Command {
 	return cmd
 }
 
-func runUp(cmd *cobra.Command, _ []string) error {
+func runUp(cmd *cobra.Command, args []string) error {
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
@@ -83,6 +86,11 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
+	if len(args) == 1 {
+		if err := applyUpProfile(cmd, db, args[0]); err != nil {
+			return err
+		}
+	}
 
 	return webPairRun(cmd, paths, db)
 }
@@ -128,7 +136,13 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	workspaceResolution, err := resolveUpWorkspace(ctx, db, shellCWD, cwdExplicit)
+	workspaceName, _ := cmd.Flags().GetString("workspace")
+	var workspaceResolution upWorkspaceResolution
+	if strings.TrimSpace(workspaceName) != "" {
+		workspaceResolution, err = resolveNamedUpWorkspace(ctx, db, shellCWD, cwdExplicit, workspaceName)
+	} else {
+		workspaceResolution, err = resolveUpWorkspace(ctx, db, shellCWD, cwdExplicit)
+	}
 	if err != nil {
 		return err
 	}
@@ -244,7 +258,8 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		SkipRestore:             true,
 	})
 	phase = time.Now()
-	session, err := startManagedWebPairShell(ctx, d, cfg, shellCWD, logger)
+	agentName, _ := cmd.Flags().GetString("agent")
+	session, err := startManagedWebPairSession(ctx, d, cfg, shellCWD, agentName, logger)
 	if err != nil {
 		return err
 	}
@@ -425,6 +440,29 @@ func startManagedWebPairShell(ctx context.Context, d *daemon.Daemon, cfg config.
 	return session, nil
 }
 
+func startManagedWebPairSession(ctx context.Context, d *daemon.Daemon, cfg config.Config, cwd, agentName string, logger *slog.Logger) (*daemon.Session, error) {
+	agentName = strings.TrimSpace(agentName)
+	if agentName == "" {
+		return startManagedWebPairShell(ctx, d, cfg, cwd, logger)
+	}
+	bin, err := exec.LookPath(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("agent %q not found in PATH: %w", agentName, err)
+	}
+	session, err := d.StartManagedTmuxSession(ctx, agentName, agentName, bin, nil, cwd)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("web pair agent started",
+		"session_id", session.ID,
+		"tmux_target", session.TmuxTarget,
+		"agent", agentName,
+		"command", bin,
+		"cwd", cwd,
+	)
+	return session, nil
+}
+
 func cleanupManagedWebPairShell(logger *slog.Logger, d *daemon.Daemon, sessionID, tmuxTarget string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if _, err := d.HideSession(ctx, sessionID, "end"); err != nil {
@@ -514,6 +552,39 @@ func resolveUpWorkspace(ctx context.Context, db *store.DB, startDir string, cwdE
 	return resolved, nil
 }
 
+func resolveNamedUpWorkspace(ctx context.Context, db *store.DB, startDir string, cwdExplicit bool, name string) (upWorkspaceResolution, error) {
+	name = strings.TrimSpace(name)
+	workspaceStore, err := workspace.NewDBStore(db)
+	if err != nil {
+		return upWorkspaceResolution{}, err
+	}
+	entry, ok, err := workspaceStore.Get(ctx, name)
+	if err != nil {
+		return upWorkspaceResolution{}, err
+	}
+	if !ok {
+		return upWorkspaceResolution{}, fmt.Errorf("workspace %q not found", name)
+	}
+	resolved := upWorkspaceResolution{
+		Found:    true,
+		Source:   "named",
+		Name:     entry.Name,
+		Root:     entry.Path,
+		ShellCWD: entry.Path,
+	}
+	if cwdExplicit {
+		resolved.ShellCWD = startDir
+	}
+	if dir, err := workspace.DefaultIndexDir(); err == nil {
+		indexEntry, err := workspace.LoadIndexEntry(dir, name)
+		if err == nil {
+			resolved.File, _ = workspace.EntryPath(dir, name)
+			resolved.DefaultTransport = indexEntry.DefaultTransport
+		}
+	}
+	return resolved, nil
+}
+
 func applyWorkspaceTransport(cmd *cobra.Command, cfg *config.Config, resolved upWorkspaceResolution) (bool, error) {
 	if !resolved.Found || strings.TrimSpace(resolved.DefaultTransport) == "" {
 		return false, nil
@@ -525,6 +596,40 @@ func applyWorkspaceTransport(cmd *cobra.Command, cfg *config.Config, resolved up
 		return false, err
 	}
 	return true, nil
+}
+
+func applyUpProfile(cmd *cobra.Command, db *store.DB, name string) error {
+	profile, ok, err := db.ProfileGet(nonNilContext(cmd.Context()), name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	setProfileFlag := func(flag, value string) error {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil
+		}
+		f := cmd.Flags().Lookup(flag)
+		if f == nil || f.Changed {
+			return nil
+		}
+		return cmd.Flags().Set(flag, value)
+	}
+	if err := setProfileFlag("transport", profile.Transport); err != nil {
+		return err
+	}
+	if err := setProfileFlag("agent", profile.Agent); err != nil {
+		return err
+	}
+	if err := setProfileFlag("workspace", profile.Workspace); err != nil {
+		return err
+	}
+	if err := setProfileFlag("cwd", profile.CWD); err != nil {
+		return err
+	}
+	return db.ProfileTouch(nonNilContext(cmd.Context()), profile.Name, time.Now().UTC())
 }
 
 func shellWorkingDir(cmd *cobra.Command) (string, bool, error) {
