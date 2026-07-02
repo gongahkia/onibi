@@ -6,17 +6,18 @@ repo_ref="${KELP_PI_REF:-main}"
 source_dir="${KELP_PI_SOURCE_DIR:-/opt/kelp/src}"
 release_repo="${KELP_PI_RELEASE_REPO:-gongahkia/kelp}"
 release_tag="${KELP_PI_RELEASE_TAG:-latest}"
-release_asset="${KELP_PI_RELEASE_ASSET:-kelp-pi-agent-aarch64}"
-agent_url="${KELP_PI_AGENT_URL:-}"
-agent_sha256="${KELP_PI_AGENT_SHA256:-}"
+release_asset="${KELP_PI_RELEASE_ASSET:-kelp-pi-aarch64}"
+package_url="${KELP_PI_PACKAGE_URL:-${KELP_PI_AGENT_URL:-}}"
+package_sha256="${KELP_PI_PACKAGE_SHA256:-${KELP_PI_AGENT_SHA256:-}}"
 device_id="${KELP_PI_DEVICE_ID:-$(hostname)}"
 skip_apt="${KELP_PI_SKIP_APT:-0}"
 skip_nuclei="${KELP_PI_SKIP_NUCLEI:-0}"
 skip_start="${KELP_PI_SKIP_START:-0}"
 allow_non_pi5="${KELP_PI_ALLOW_NON_PI5:-0}"
-build_from_source="${KELP_PI_BUILD_FROM_SOURCE:-0}"
-fallback_source="${KELP_PI_RELEASE_FALLBACK_SOURCE:-0}"
 preflight_only="${KELP_PI_PREFLIGHT_ONLY:-0}"
+install_root="${KELP_PI_INSTALL_ROOT:-/opt/kelp-pi}"
+data_dir="${KELP_PI_DATA_DIR:-/var/lib/kelp-pi}"
+model_id="${KELP_PI_MODEL_ID:-qwen3-0.6b-q4_k_m}"
 current_step="startup"
 
 usage() {
@@ -26,15 +27,14 @@ usage: install-kelp-pi.sh [options]
 Options:
   --release-repo OWNER/REPO  GitHub release repo. Default: gongahkia/kelp
   --release-tag TAG          GitHub release tag. Default: latest
-  --release-asset NAME       Release binary asset. Default: kelp-pi-agent-aarch64
-  --agent-url URL            Custom prebuilt aarch64 kelp-pi-agent binary URL
-  --agent-sha256 SHA256      Expected SHA-256 for --agent-url
-  --build-from-source        Build kelp-pi-agent locally instead of using release binary
-  --fallback-source          Build from source if release binary download fails
+  --release-asset NAME       Release package asset. Default: kelp-pi-aarch64
+  --package-url URL          Custom prebuilt aarch64 kelp-pi package URL
+  --package-sha256 SHA256    Expected SHA-256 for --package-url
   --repo URL                 Git repo to clone for install scripts. Default: https://github.com/gongahkia/kelp.git
   --ref REF                  Git branch/tag to install scripts from. Default: main
   --source-dir DIR           Source checkout path. Default: /opt/kelp/src
   --device-id ID             Pi key label. Default: hostname
+  --model-id ID              Model manifest ID to fetch and verify. Default: qwen3-0.6b-q4_k_m
   --skip-apt                 Do not install apt packages
   --skip-nuclei              Do not download pinned Nuclei
   --skip-start               Install files but do not start systemd service
@@ -181,23 +181,15 @@ while [ $# -gt 0 ]; do
       release_asset="$2"
       shift 2
       ;;
-    --agent-url)
-      [ $# -ge 2 ] || fail "--agent-url requires a value"
-      agent_url="$2"
+    --package-url|--agent-url)
+      [ $# -ge 2 ] || fail "$1 requires a value"
+      package_url="$2"
       shift 2
       ;;
-    --agent-sha256)
-      [ $# -ge 2 ] || fail "--agent-sha256 requires a value"
-      agent_sha256="$2"
+    --package-sha256|--agent-sha256)
+      [ $# -ge 2 ] || fail "$1 requires a value"
+      package_sha256="$2"
       shift 2
-      ;;
-    --build-from-source)
-      build_from_source=1
-      shift
-      ;;
-    --fallback-source)
-      fallback_source=1
-      shift
       ;;
     --repo)
       [ $# -ge 2 ] || fail "--repo requires a value"
@@ -217,6 +209,11 @@ while [ $# -gt 0 ]; do
     --device-id)
       [ $# -ge 2 ] || fail "--device-id requires a value"
       device_id="$2"
+      shift 2
+      ;;
+    --model-id)
+      [ $# -ge 2 ] || fail "--model-id requires a value"
+      model_id="$2"
       shift 2
       ;;
     --skip-apt)
@@ -266,11 +263,7 @@ if [ "$skip_apt" != "1" ]; then
   wait_for_apt
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  packages="ca-certificates curl git unzip file jq nftables network-manager dnsmasq iproute2 iputils-ping dnsutils tcpdump nmap sudo"
-  if [ "$build_from_source" = "1" ] || [ "$fallback_source" = "1" ]; then
-    packages="$packages build-essential cargo pkg-config"
-    check_disk "$(dirname "$source_dir")" 5242880
-  fi
+  packages="ca-certificates curl git tar unzip file jq nftables network-manager dnsmasq iproute2 iputils-ping dnsutils tcpdump nmap sudo"
   apt-get install -y --no-install-recommends $packages
 fi
 
@@ -278,6 +271,10 @@ need curl
 need git
 need install
 need awk
+need tar
+need file
+need grep
+need runuser
 need systemctl
 need systemd-sysusers
 need systemd-tmpfiles
@@ -304,76 +301,77 @@ pi_dir="$source_dir/packages/pi-agent"
 scripts_dir="$pi_dir/scripts"
 [ -x "$scripts_dir/install-systemd.sh" ] || fail "source checkout missing Pi scripts"
 
-agent_source="release"
-if [ -n "$agent_url" ]; then
-  agent_source="custom-url"
-  [ -n "$agent_sha256" ] || fail "--agent-url requires --agent-sha256"
-  log "downloading custom kelp-pi-agent binary"
-  agent_build="$tmp/kelp-pi-agent"
-  download "$agent_url" "$agent_build"
-  actual="$(hash_file "$agent_build")"
-  [ "$actual" = "$agent_sha256" ] || fail "agent sha256 mismatch: expected $agent_sha256 found $actual"
-  chmod 0755 "$agent_build"
-elif [ "$build_from_source" = "1" ]; then
-  agent_source="source"
-  log "building kelp-pi-agent from source"
-  need cargo
-  (cd "$pi_dir" && cargo build --release --locked)
-  agent_build="$pi_dir/target/release/kelp-pi-agent"
-  agent_sha256="$(hash_file "$agent_build")"
+package_source="release"
+package_archive="$tmp/$release_asset"
+if [ -n "$package_url" ]; then
+  package_source="custom-url"
+  [ -n "$package_sha256" ] || fail "--package-url requires --package-sha256"
+  log "downloading custom kelp-pi package"
+  download "$package_url" "$package_archive"
 else
-  log "downloading release kelp-pi-agent binary"
-  agent_url="$(release_url "$release_asset")"
+  log "downloading release kelp-pi package"
+  package_url="$(release_url "$release_asset")"
   checksum_url="$(release_url "$release_asset.sha256")"
-  agent_build="$tmp/kelp-pi-agent"
-  if ! download "$agent_url" "$agent_build" || ! download "$checksum_url" "$tmp/$release_asset.sha256"; then
-    if [ "$fallback_source" = "1" ]; then
-      agent_source="source"
-      log "release binary unavailable; building from source"
-      need cargo
-      (cd "$pi_dir" && cargo build --release --locked)
-      agent_build="$pi_dir/target/release/kelp-pi-agent"
-      agent_sha256="$(hash_file "$agent_build")"
-    else
-      fail "release asset unavailable; publish $release_asset and $release_asset.sha256 or rerun with --build-from-source"
-    fi
-  else
-    agent_sha256="$(awk '{ print $1 }' "$tmp/$release_asset.sha256")"
-    actual="$(hash_file "$agent_build")"
-    [ "$actual" = "$agent_sha256" ] || fail "agent sha256 mismatch: expected $agent_sha256 found $actual"
-    chmod 0755 "$agent_build"
-  fi
+  download "$package_url" "$package_archive" || fail "release asset unavailable: $package_url"
+  download "$checksum_url" "$tmp/$release_asset.sha256" || fail "release checksum unavailable: $checksum_url"
+  package_sha256="$(awk '{ print $1 }' "$tmp/$release_asset.sha256")"
 fi
 
-"$agent_build" version >/dev/null || fail "downloaded agent binary does not run"
+actual="$(hash_file "$package_archive")"
+[ "$actual" = "$package_sha256" ] || fail "package sha256 mismatch: expected $package_sha256 found $actual"
 
-log "installing agent, systemd units, and helper commands"
-KELP_PI_AGENT_BUILD="$agent_build" "$scripts_dir/install-agent-binary.sh" /
+log "extracting kelp-pi package"
+package_stage="$tmp/package"
+install -d "$package_stage"
+tar -xzf "$package_archive" -C "$package_stage"
+[ -x "$package_stage/bin/kelp-pi" ] || fail "package missing bin/kelp-pi"
+[ -x "$package_stage/run-kelp-pi.sh" ] || fail "package missing run-kelp-pi.sh"
+[ -s "$package_stage/package-manifest.json" ] || fail "package missing package-manifest.json"
+[ -s "$package_stage/policies/appsec-agent-baseline.toml" ] || fail "package missing policy pack"
+[ -s "$package_stage/models/manifest.toml" ] || fail "package missing model manifest"
+file "$package_stage/bin/kelp-pi" | grep -Eq 'ELF 64-bit.*(ARM aarch64|aarch64)' || fail "kelp-pi binary is not ELF aarch64"
+
+log "installing kelp-pi runtime and systemd unit"
+install -d "$(dirname "$install_root")" /usr/local/bin
+rm -rf "$install_root"
+mv "$package_stage" "$install_root"
+ln -sfn "$install_root/run-kelp-pi.sh" /usr/local/bin/kelp-pi
 "$scripts_dir/install-systemd.sh" /
-"$scripts_dir/install-field-tools.sh" /
+
+"$install_root/run-kelp-pi.sh" version >/dev/null || fail "installed kelp-pi binary does not run"
+
+log "creating users and data directories"
+systemd-sysusers /usr/lib/sysusers.d/kelp-pi-agent.conf
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/kelp-pi-agent.conf
+install -d -m 0750 -o kelp-pi -g kelp-pi "$data_dir/policies" "$data_dir/models"
+install -m 0644 -o kelp-pi -g kelp-pi "$install_root/policies/appsec-agent-baseline.toml" "$data_dir/policies/appsec-agent-baseline.toml"
+install -m 0644 -o kelp-pi -g kelp-pi "$install_root/models/manifest.toml" "$data_dir/models/manifest.toml"
+
+as_kelp_pi() {
+  runuser -u kelp-pi -- env LD_LIBRARY_PATH="$install_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    sh -c 'cd "$1" && shift && exec "$@"' sh "$data_dir" "$install_root/run-kelp-pi.sh" "$@"
+}
 
 if [ "$skip_nuclei" != "1" ]; then
   log "installing pinned Nuclei ARM64 binary"
   if ! "$scripts_dir/fetch-nuclei-arm64.sh" /; then
-    fail "Nuclei install failed; rerun with --skip-nuclei to install agent only"
+    fail "Nuclei install failed; rerun with --skip-nuclei to install runtime only"
   fi
 else
   log "skipping Nuclei install"
 fi
 "$scripts_dir/write-scanner-strategy.sh" / >/dev/null
 
-log "creating users and data directories"
-systemd-sysusers /usr/lib/sysusers.d/kelp-pi-agent.conf
-systemd-tmpfiles --create /usr/lib/tmpfiles.d/kelp-pi-agent.conf
-
 if [ ! -f /var/lib/kelp-pi/keys/pi-ed25519.key.json ]; then
   log "generating Pi identity key"
-  runuser -u kelp-pi -- /usr/local/bin/kelp-pi-agent keygen \
-    --key-dir /var/lib/kelp-pi/keys \
-    --label "$device_id" >/dev/null
+  as_kelp_pi keygen --data-dir "$data_dir" --label "$device_id" >/dev/null
 else
   log "keeping existing Pi identity key"
 fi
+
+log "fetching and verifying model $model_id"
+as_kelp_pi model fetch --data-dir "$data_dir" --manifest models/manifest.toml --id "$model_id" >/dev/null
+as_kelp_pi model verify --data-dir "$data_dir" --manifest models/manifest.toml --id "$model_id" >/dev/null
 
 log "writing install metadata"
 install -d /etc/kelp-pi
@@ -381,31 +379,33 @@ installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > /etc/kelp-pi/install.json <<META
 {
   "installed_at": "$installed_at",
-  "agent_source": "$agent_source",
-  "agent_url": "$agent_url",
-  "agent_sha256": "$agent_sha256",
+  "package_source": "$package_source",
+  "package_url": "$package_url",
+  "package_sha256": "$package_sha256",
   "release_repo": "$release_repo",
   "release_tag": "$release_tag",
   "release_asset": "$release_asset",
   "repo_url": "$repo_url",
   "repo_ref": "$repo_ref",
-  "source_dir": "$source_dir"
+  "source_dir": "$source_dir",
+  "install_root": "$install_root",
+  "data_dir": "$data_dir",
+  "model_id": "$model_id"
 }
 META
 
 log "starting service"
 systemctl daemon-reload
 if [ "$skip_start" != "1" ]; then
-  if ! systemctl enable --now kelp-pi-agent.service; then
-    journalctl -u kelp-pi-agent.service -n 80 --no-pager >&2 || true
+  if ! systemctl enable --now kelp-pi.service; then
+    journalctl -u kelp-pi.service -n 80 --no-pager >&2 || true
     fail "service start failed"
   fi
 fi
 
 log "checking installation"
-/usr/local/bin/kelp-pi status
-if ! runuser -u kelp-pi -- /usr/local/bin/kelp-pi-agent doctor --data-dir /var/lib/kelp-pi >/dev/null; then
-  journalctl -u kelp-pi-agent.service -n 80 --no-pager >&2 || true
+if ! as_kelp_pi doctor --data-dir "$data_dir" --policy policies/appsec-agent-baseline.toml --models models/manifest.toml >/dev/null; then
+  journalctl -u kelp-pi.service -n 80 --no-pager >&2 || true
   fail "doctor failed after install"
 fi
 
@@ -414,17 +414,10 @@ cat <<'DONE'
 Kelp Pi is installed.
 
 Next:
-  kelp-pi
-  kelp-pi models install qwen2.5:0.5b
-  kelp-pi doctor
-  kelp-pi logs
+  kelp-pi doctor --data-dir /var/lib/kelp-pi --policy /var/lib/kelp-pi/policies/appsec-agent-baseline.toml --models /var/lib/kelp-pi/models/manifest.toml
+  kelp-pi model warm --data-dir /var/lib/kelp-pi --manifest /var/lib/kelp-pi/models/manifest.toml --id qwen3-0.6b-q4_k_m
+  kelp-pi chat --data-dir /var/lib/kelp-pi
 
 Network/AP hardening is not auto-applied because it can disconnect headless SSH.
-When ready:
-  sudo kelp-pi network-render 'replace-with-a-long-wpa3-passphrase' --allow-outbound control.example.com:443
-  sudo kelp-pi network-apply
-  sudo reboot
-
-Full hardware acceptance after network setup:
-  sudo kelp-pi validate-node
+Use /opt/kelp/src/packages/pi-agent/scripts for field validation and recovery helpers.
 DONE

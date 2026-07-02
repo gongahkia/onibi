@@ -66,8 +66,7 @@ describe("Kelp Pi CLI", () => {
         checks: expect.arrayContaining([
           expect.objectContaining({ id: "pi-profile", status: "pass" }),
           expect.objectContaining({ id: "pi-release-asset", status: "pass" }),
-          expect.objectContaining({ id: "command:kelp-pi-agent", status: "pass" }),
-          expect.objectContaining({ id: "command:kelp-pi-helper", status: "pass" }),
+          expect.objectContaining({ id: "command:kelp-pi", status: "pass" }),
           expect.objectContaining({ id: "remote:kelp-pi-agent", status: "warn" })
         ])
       });
@@ -181,7 +180,10 @@ describe("Kelp Pi CLI", () => {
         "--ssh-user",
         "operator",
         "--dry-run",
-        "--fallback-source"
+        "--package-url",
+        "https://example.com/kelp-pi-aarch64",
+        "--package-sha256",
+        "0".repeat(64)
       ])
     ).resolves.toMatchObject({
       ok: true,
@@ -190,9 +192,23 @@ describe("Kelp Pi CLI", () => {
       command: expect.arrayContaining(["ssh", "operator@pi.local", "sh", "-s"]),
       installerUrl:
         "https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh",
-      installerArgs: expect.arrayContaining(["--fallback-source"]),
+      installerArgs: expect.arrayContaining([
+        "--package-url",
+        "https://example.com/kelp-pi-aarch64",
+        "--package-sha256",
+        "0".repeat(64)
+      ]),
       remoteScript: expect.stringContaining("curl -fsSL")
     });
+    const result = await runPiCliCommand([
+      "bootstrap",
+      "--host",
+      "pi.local",
+      "--ssh-user",
+      "operator",
+      "--dry-run"
+    ]);
+    expect(result.remoteScript).toContain("kelp-pi doctor --data-dir /var/lib/kelp-pi");
   });
 
   it("renders remote network recovery dry run", async () => {
@@ -246,17 +262,17 @@ describe("Kelp Pi CLI", () => {
       ok: true,
       checks: expect.arrayContaining([
         expect.objectContaining({
-          id: "release-online:kelp-pi-agent-aarch64",
+          id: "release-online:kelp-pi-aarch64",
           status: "pass"
         }),
         expect.objectContaining({
-          id: "release-online:kelp-pi-agent-aarch64.sha256",
+          id: "release-online:kelp-pi-aarch64.sha256",
           status: "pass"
         })
       ])
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://github.com/gongahkia/kelp/releases/latest/download/kelp-pi-agent-aarch64",
+      "https://github.com/gongahkia/kelp/releases/latest/download/kelp-pi-aarch64",
       { method: "HEAD", redirect: "manual" }
     );
   });

@@ -134,12 +134,12 @@ Release install target:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/gongahkia/kelp/main/scripts/install-kelp-pi.sh | sudo sh
-$ kelp-pi doctor
-$ kelp-pi model warm --id qwen3-0.6b-q4_k_m
-$ kelp-pi chat
+$ kelp-pi doctor --data-dir /var/lib/kelp-pi --policy /var/lib/kelp-pi/policies/appsec-agent-baseline.toml --models /var/lib/kelp-pi/models/manifest.toml
+$ kelp-pi model warm --data-dir /var/lib/kelp-pi --manifest /var/lib/kelp-pi/models/manifest.toml --id qwen3-0.6b-q4_k_m
+$ kelp-pi chat --data-dir /var/lib/kelp-pi
 ```
 
-Installer rewrite is still open. Current installer still reflects the legacy Rust/Ollama path.
+The installer downloads the `kelp-pi-aarch64` release package, verifies its SHA-256, installs `/opt/kelp-pi`, stages policy/model manifests under `/var/lib/kelp-pi`, installs pinned scanner assets, fetches/verifies the primary GGUF, and starts `kelp-pi.service`.
 
 ## Recovery
 

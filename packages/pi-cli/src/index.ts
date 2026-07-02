@@ -107,7 +107,7 @@ export async function runPiCliCommand(args: readonly string[] = []): Promise<Jso
         {
           name: "bootstrap",
           usage:
-            "kelp-claw pi bootstrap --host HOST --ssh-user USER --yes [--build-from-source|--fallback-source] [--dry-run]"
+            "kelp-claw pi bootstrap --host HOST --ssh-user USER --yes [--package-url URL --package-sha256 SHA256] [--dry-run]"
         },
         {
           name: "lab init",
@@ -362,10 +362,7 @@ async function doctorCommand(args: readonly string[]): Promise<JsonRecord> {
   const host = option(args, "--host") ?? process.env.KELP_PI_HOST ?? labConfig.host;
   const strict = hasFlag(args, "--strict") || process.env.KELP_PI_REQUIRED === "1";
   const checkReleaseOnline = hasFlag(args, "--check-release-online");
-  const agentBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi-agent";
-  const helperBin = option(args, "--helper-bin") ?? process.env.KELP_PI_HELPER_BIN ?? "kelp-pi";
-  const cargoBin = option(args, "--cargo-bin") ?? process.env.KELP_PI_CARGO_BIN ?? "cargo";
-  const crossBin = option(args, "--cross-bin") ?? process.env.KELP_PI_CROSS_BIN ?? "cross";
+  const kelpBin = option(args, "--agent-bin") ?? process.env.KELP_PI_AGENT_BIN ?? "kelp-pi";
   const controlEndpoint =
     option(args, "--control-endpoint") ??
     process.env.KELP_PI_CONTROL_ENDPOINT ??
@@ -378,26 +375,14 @@ async function doctorCommand(args: readonly string[]): Promise<JsonRecord> {
   const releaseRepo =
     option(args, "--release-repo") ?? process.env.KELP_PI_RELEASE_REPO ?? "gongahkia/kelp";
   const releaseAsset =
-    option(args, "--release-asset") ?? process.env.KELP_PI_RELEASE_ASSET ?? "kelp-pi-agent-aarch64";
+    option(args, "--release-asset") ?? process.env.KELP_PI_RELEASE_ASSET ?? "kelp-pi-aarch64";
   const checks: PiDoctorCheck[] = [
     profileCheck(profile),
     releaseAssetCheck(releaseRepo, releaseAsset),
     envValueCheck("KELP_PI_HOST", host, strict),
     envValueCheck("KELP_PI_CONTROL_URL", controlUrl, strict),
-    await localCommandCheck(agentBin, ["version"], {
-      id: "command:kelp-pi-agent",
-      required: false
-    }),
-    await localCommandCheck(helperBin, ["version"], {
-      id: "command:kelp-pi-helper",
-      required: false
-    }),
-    await localCommandCheck(cargoBin, ["--version"], {
-      id: "command:cargo",
-      required: false
-    }),
-    await localCommandCheck(crossBin, ["--version"], {
-      id: "command:cross",
+    await localCommandCheck(kelpBin, ["version"], {
+      id: "command:kelp-pi",
       required: false
     }),
     ...(host
@@ -437,7 +422,8 @@ async function bootstrapCommand(args: readonly string[]): Promise<JsonRecord> {
   const installerArgs = piBootstrapInstallerArgs(args);
   const remoteScript = `set -eu
 curl -fsSL ${shQuote(installerUrl)} | sudo sh -s -- ${installerArgs.map(shQuote).join(" ")}
-kelp-pi status
+cd /var/lib/kelp-pi
+kelp-pi doctor --data-dir /var/lib/kelp-pi --policy /var/lib/kelp-pi/policies/appsec-agent-baseline.toml --models /var/lib/kelp-pi/models/manifest.toml
 `;
   const sshArgs = sshCommandArgs(remote, ["sh", "-s"]);
   if (hasFlag(args, "--dry-run")) {
@@ -473,16 +459,15 @@ function piBootstrapInstallerArgs(args: readonly string[]): readonly string[] {
     "--release-repo",
     "--release-tag",
     "--release-asset",
-    "--agent-url",
-    "--agent-sha256",
+    "--package-url",
+    "--package-sha256",
     "--repo",
     "--ref",
     "--source-dir",
-    "--device-id"
+    "--device-id",
+    "--model-id"
   ];
   const flagOptions = [
-    "--build-from-source",
-    "--fallback-source",
     "--skip-apt",
     "--skip-nuclei",
     "--skip-start",
@@ -1381,14 +1366,14 @@ function profileCheck(profile: string): PiDoctorCheck {
 }
 
 function releaseAssetCheck(releaseRepo: string, releaseAsset: string): PiDoctorCheck {
-  const ok = releaseRepo.length > 0 && releaseAsset === "kelp-pi-agent-aarch64";
+  const ok = releaseRepo.length > 0 && releaseAsset === "kelp-pi-aarch64";
   return {
     id: "pi-release-asset",
     status: ok ? "pass" : "fail",
     required: true,
     message: ok
       ? "Pi release asset naming is configured for aarch64."
-      : "Pi release asset must default to kelp-pi-agent-aarch64.",
+      : "Pi release asset must default to kelp-pi-aarch64.",
     details: { releaseRepo, releaseAsset }
   };
 }
@@ -1418,17 +1403,8 @@ function piDoctorRecommendations(checks: readonly PiDoctorCheck[]): readonly str
       "Set KELP_PI_CONTROL_URL or KELP_PI_CONTROL_ENDPOINT before managed-AP outbound validation."
     );
   }
-  if (checks.some((check) => check.id === "command:kelp-pi-agent" && check.status !== "pass")) {
-    recommendations.add("Install kelp-pi-agent on a Raspberry Pi 5 before hardware acceptance.");
-  }
-  if (checks.some((check) => check.id === "command:kelp-pi-helper" && check.status !== "pass")) {
-    recommendations.add("Run scripts/install-kelp-pi.sh on the Pi to install the kelp-pi helper.");
-  }
-  if (checks.some((check) => check.id === "command:cargo" && check.status !== "pass")) {
-    recommendations.add("Install Rust cargo before local Pi agent source builds.");
-  }
-  if (checks.some((check) => check.id === "command:cross" && check.status !== "pass")) {
-    recommendations.add("Install cross before local aarch64 Pi agent release builds.");
+  if (checks.some((check) => check.id === "command:kelp-pi" && check.status !== "pass")) {
+    recommendations.add("Run scripts/install-kelp-pi.sh on the Pi to install the kelp-pi runtime.");
   }
   if (checks.some((check) => check.id === "remote:kelp-pi-agent" && check.status !== "pass")) {
     recommendations.add("Install and start kelp-pi-agent on the configured Pi host.");

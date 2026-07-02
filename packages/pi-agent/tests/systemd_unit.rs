@@ -34,7 +34,7 @@ fn zig_service_unit_points_at_kelp_runtime() {
     assert_eq!(service.get("Group").map(String::as_str), Some("kelp-pi"));
     assert_eq!(
         service.get("ExecStart").map(String::as_str),
-        Some("/opt/kelp-pi/bin/kelp-pi doctor --data-dir /var/lib/kelp-pi")
+        Some("/opt/kelp-pi/run-kelp-pi.sh doctor --data-dir /var/lib/kelp-pi --policy policies/appsec-agent-baseline.toml --models models/manifest.toml")
     );
     assert_eq!(
         service.get("StateDirectory").map(String::as_str),

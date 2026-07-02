@@ -7,6 +7,7 @@ BIN="${KELP_PI_BINARY:-zig-out/bin/kelp-pi}"
 TARGET="${KELP_PI_PACKAGE_TARGET:-host}"
 REQUIRE_LLAMA_LIBS="${KELP_PI_REQUIRE_LLAMA_LIBS:-0}"
 MODEL_MANIFEST="${KELP_PI_MODEL_MANIFEST:-models/manifest.toml}"
+POLICY_PACK="${KELP_PI_POLICY:-policies/appsec-agent-baseline.toml}"
 
 node scripts/verify-model-manifest.mjs "$MODEL_MANIFEST" >/dev/null
 
@@ -14,6 +15,14 @@ if [ ! -f "$BIN" ]; then
   echo "missing binary $BIN" >&2
   exit 66
 fi
+[ -f "$MODEL_MANIFEST" ] || {
+  echo "missing model manifest $MODEL_MANIFEST" >&2
+  exit 66
+}
+[ -f "$POLICY_PACK" ] || {
+  echo "missing policy pack $POLICY_PACK" >&2
+  exit 66
+}
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{ print $1 }'
@@ -24,8 +33,10 @@ json_escape() {
 }
 
 rm -rf "$OUT"
-mkdir -p "$OUT/bin"
+mkdir -p "$OUT/bin" "$OUT/models" "$OUT/policies"
 cp "$BIN" "$OUT/bin/kelp-pi"
+cp "$MODEL_MANIFEST" "$OUT/models/manifest.toml"
+cp "$POLICY_PACK" "$OUT/policies/appsec-agent-baseline.toml"
 
 if [ -d "$PREFIX/lib" ]; then
   mkdir -p "$OUT/lib"
@@ -47,6 +58,8 @@ chmod 0755 "$OUT/run-kelp-pi.sh"
 
 binary_file="$(file "$OUT/bin/kelp-pi" 2>/dev/null || true)"
 binary_sha="$(sha256_file "$OUT/bin/kelp-pi")"
+model_manifest_sha="$(sha256_file "$OUT/models/manifest.toml")"
+policy_sha="$(sha256_file "$OUT/policies/appsec-agent-baseline.toml")"
 llama_commit="$(git -C vendor/llama.cpp rev-parse HEAD 2>/dev/null || printf 'unknown')"
 manifest="$OUT/package-manifest.json"
 {
@@ -54,6 +67,8 @@ manifest="$OUT/package-manifest.json"
   printf '  "schemaVersion": "kelp.pi.package.v1",\n'
   printf '  "target": "%s",\n' "$(json_escape "$TARGET")"
   printf '  "binary": {"path": "bin/kelp-pi", "sha256": "%s", "file": "%s"},\n' "$binary_sha" "$(json_escape "$binary_file")"
+  printf '  "modelManifest": {"path": "models/manifest.toml", "sha256": "%s"},\n' "$model_manifest_sha"
+  printf '  "policy": {"path": "policies/appsec-agent-baseline.toml", "sha256": "%s"},\n' "$policy_sha"
   printf '  "llamaCommit": "%s",\n' "$(json_escape "$llama_commit")"
   printf '  "libraries": [\n'
   first=1

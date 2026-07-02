@@ -2,14 +2,14 @@
 Description=Kelp Pi Runtime
 After=network-online.target
 Wants=network-online.target
-ConditionPathIsExecutable=/opt/kelp-pi/bin/kelp-pi
+ConditionPathIsExecutable=/opt/kelp-pi/run-kelp-pi.sh
 
 [Service]
 Type=oneshot
 User=kelp-pi
 Group=kelp-pi
 WorkingDirectory=/var/lib/kelp-pi
-ExecStart=/opt/kelp-pi/bin/kelp-pi doctor --data-dir /var/lib/kelp-pi
+ExecStart=/opt/kelp-pi/run-kelp-pi.sh doctor --data-dir /var/lib/kelp-pi --policy policies/appsec-agent-baseline.toml --models models/manifest.toml
 UMask=0077
 StateDirectory=kelp-pi
 StateDirectoryMode=0750
