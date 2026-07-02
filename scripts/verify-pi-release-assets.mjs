@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import { verifyReleaseModelManifest } from "./verify-model-manifest.mjs";
 
 const repo = process.env.KELP_PI_RELEASE_REPO ?? process.env.GITHUB_REPOSITORY ?? "gongahkia/kelp";
 const tag = process.env.KELP_PI_RELEASE_TAG ?? process.env.RELEASE_TAG ?? "latest";
 const asset = process.env.KELP_PI_RELEASE_ASSET ?? "kelp-pi-agent-aarch64";
+const modelManifest = process.env.KELP_PI_MODEL_MANIFEST ?? "models/manifest.toml";
 const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+
+await verifyReleaseModelManifest(modelManifest);
 
 const assetUrl = releaseDownloadUrl(repo, tag, asset);
 const checksumUrl = releaseDownloadUrl(repo, tag, `${asset}.sha256`);

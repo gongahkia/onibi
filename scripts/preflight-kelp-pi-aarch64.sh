@@ -5,6 +5,7 @@ PACKAGE_DIR="${KELP_PI_PACKAGE_DIR:-.kelp-pi/dist/kelp-pi-linux-aarch64}"
 MANIFEST="$PACKAGE_DIR/package-manifest.json"
 BIN="$PACKAGE_DIR/bin/kelp-pi"
 LIB_DIR="$PACKAGE_DIR/lib"
+MODEL_MANIFEST="${KELP_PI_MODEL_MANIFEST:-models/manifest.toml}"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -23,6 +24,8 @@ need awk
 need file
 need grep
 need node
+
+node scripts/verify-model-manifest.mjs "$MODEL_MANIFEST" >/dev/null
 
 [ -s "$MANIFEST" ] || fail "missing package manifest: $MANIFEST"
 [ -x "$BIN" ] || fail "missing packaged binary: $BIN"

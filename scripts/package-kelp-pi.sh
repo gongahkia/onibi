@@ -6,6 +6,9 @@ OUT="${KELP_PI_PACKAGE_DIR:-.kelp-pi/dist/kelp-pi}"
 BIN="${KELP_PI_BINARY:-zig-out/bin/kelp-pi}"
 TARGET="${KELP_PI_PACKAGE_TARGET:-host}"
 REQUIRE_LLAMA_LIBS="${KELP_PI_REQUIRE_LLAMA_LIBS:-0}"
+MODEL_MANIFEST="${KELP_PI_MODEL_MANIFEST:-models/manifest.toml}"
+
+node scripts/verify-model-manifest.mjs "$MODEL_MANIFEST" >/dev/null
 
 if [ ! -f "$BIN" ]; then
   echo "missing binary $BIN" >&2
