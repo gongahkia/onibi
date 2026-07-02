@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,6 +183,13 @@ func (r Resolved) URLs(token string) []string {
 	return WebPairURLs(token, r.Port, r.LANHosts, r.FallbackHost)
 }
 
+func (r Resolved) TargetURLs() []string {
+	if strings.TrimSpace(r.BaseURL) != "" {
+		return []string{strings.TrimRight(r.BaseURL, "/")}
+	}
+	return WebURLs(r.Port, r.LANHosts, r.FallbackHost)
+}
+
 func (r Resolved) RedactedBaseURL() string {
 	if strings.TrimSpace(r.BaseURL) == "" {
 		return ""
@@ -217,6 +226,26 @@ func WebPairURLs(token string, port int, lanHosts []string, fallback string) []s
 		}
 		seen[host] = true
 		return append(urls, setup.WebPairURL("https", host, port, token))
+	}
+	var urls []string
+	for _, host := range lanHosts {
+		urls = add(host, urls)
+	}
+	urls = add(fallback, urls)
+	if len(urls) == 0 {
+		urls = add("localhost", urls)
+	}
+	return urls
+}
+
+func WebURLs(port int, lanHosts []string, fallback string) []string {
+	seen := map[string]bool{}
+	add := func(host string, urls []string) []string {
+		if host == "" || seen[host] {
+			return urls
+		}
+		seen[host] = true
+		return append(urls, "https://"+net.JoinHostPort(host, strconv.Itoa(port)))
 	}
 	var urls []string
 	for _, host := range lanHosts {
