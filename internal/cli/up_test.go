@@ -75,6 +75,47 @@ func TestUpAppliesProfileFlags(t *testing.T) {
 	}
 }
 
+func TestUpNoArgRecallsLastUsedProfile(t *testing.T) {
+	withDefaultState(t)
+	cwd := t.TempDir()
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--cwd", cwd, "--use", "--color", "never")
+	oldWebPair := webPairRun
+	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
+		transport, _ := cmd.Flags().GetString("transport")
+		agent, _ := cmd.Flags().GetString("agent")
+		gotCWD, _ := cmd.Flags().GetString("cwd")
+		if transport != "tailscale" || agent != "sh" || gotCWD != cwd {
+			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
+		}
+		cmd.Println("last profile stub")
+		return nil
+	}
+	t.Cleanup(func() { webPairRun = oldWebPair })
+	out, _ := executeRoot(t, "up", "--color", "never")
+	if !strings.Contains(out.String(), "last profile stub") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
+func TestUpNoArgFallsBackWithoutLastUsedProfile(t *testing.T) {
+	withDefaultState(t)
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--color", "never")
+	oldWebPair := webPairRun
+	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
+		transport, _ := cmd.Flags().GetString("transport")
+		if transport != "" {
+			t.Fatalf("transport = %q", transport)
+		}
+		cmd.Println("fallback stub")
+		return nil
+	}
+	t.Cleanup(func() { webPairRun = oldWebPair })
+	out, _ := executeRoot(t, "up", "--color", "never")
+	if !strings.Contains(out.String(), "fallback stub") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
 func TestWebPairURLsIncludesFallbacks(t *testing.T) {
 	got := webPairURLs("tok", 8443, []string{"192.168.1.31", "host.local", ""}, "host.local")
 	want := []string{

@@ -90,6 +90,10 @@ func runUp(cmd *cobra.Command, args []string) error {
 		if err := applyUpProfile(cmd, db, args[0]); err != nil {
 			return err
 		}
+	} else if shouldRecallLastProfile(cmd) {
+		if err := applyLastUsedProfile(cmd, db); err != nil {
+			return err
+		}
 	}
 
 	return webPairRun(cmd, paths, db)
@@ -630,6 +634,26 @@ func applyUpProfile(cmd *cobra.Command, db *store.DB, name string) error {
 		return err
 	}
 	return db.ProfileTouch(nonNilContext(cmd.Context()), profile.Name, time.Now().UTC())
+}
+
+func shouldRecallLastProfile(cmd *cobra.Command) bool {
+	for _, name := range []string{"transport", "agent", "workspace", "cwd", "shell"} {
+		if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+			return false
+		}
+	}
+	return true
+}
+
+func applyLastUsedProfile(cmd *cobra.Command, db *store.DB) error {
+	profiles, err := db.ProfileList(nonNilContext(cmd.Context()))
+	if err != nil {
+		return err
+	}
+	if len(profiles) == 0 || profiles[0].LastUsedAt.IsZero() {
+		return nil
+	}
+	return applyUpProfile(cmd, db, profiles[0].Name)
 }
 
 func shellWorkingDir(cmd *cobra.Command) (string, bool, error) {
