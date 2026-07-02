@@ -545,6 +545,27 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 	}
 	events, unsub := d.Queue.Subscribe()
 	defer unsub()
+	sent := map[string]bool{}
+	sendOnce := func(a *approval.Approval) {
+		if a == nil || sent[a.ID] {
+			return
+		}
+		sent[a.ID] = true
+		send(a)
+	}
+	pending, err := d.Queue.Pending(ctx)
+	if err != nil {
+		d.Log.Warn("notify approval replay failed", slog.Any("err", err))
+	} else {
+		for _, a := range pending {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				sendOnce(a)
+			}
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -555,7 +576,7 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 			}
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
-				send(&a)
+				sendOnce(&a)
 			}
 		}
 	}

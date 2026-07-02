@@ -109,3 +109,26 @@ func TestNotifyProviderConformanceForwardsApprovalRequests(t *testing.T) {
 		t.Fatal("approval was not forwarded")
 	}
 }
+
+func TestNotifyProviderConformanceReplaysPendingApprovalRequests(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	id, _, err := d.Queue.Request(ctx, "s1", "claude", "Write", `{"file_path":"/tmp/x"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(chan *approval.Approval, 1)
+	go d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		seen <- a
+	})
+	select {
+	case got := <-seen:
+		if got.ID != id || got.Tool != "Write" {
+			t.Fatalf("approval = %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pending approval was not replayed")
+	}
+}
