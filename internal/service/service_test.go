@@ -100,3 +100,39 @@ func TestInstallSystemdWritesUnitAndEnables(t *testing.T) {
 		t.Fatalf("calls = %#v", r.calls)
 	}
 }
+
+func TestRestartLaunchdKickstartsAgent(t *testing.T) {
+	r := &fakeRunner{}
+	m := &Manager{
+		Paths:      testPaths(t),
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "darwin",
+		Home:       t.TempDir(),
+		UID:        501,
+	}
+	if err := m.Restart(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 1 || r.calls[0].name != "launchctl" || strings.Join(r.calls[0].args, " ") != "kickstart -k gui/501/"+Label {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestRestartSystemdRestartsUserUnit(t *testing.T) {
+	r := &fakeRunner{}
+	m := &Manager{
+		Paths:      testPaths(t),
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "linux",
+		Home:       t.TempDir(),
+		UID:        1000,
+	}
+	if err := m.Restart(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 1 || r.calls[0].name != "systemctl" || strings.Join(r.calls[0].args, " ") != "--user restart "+UnitName {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}

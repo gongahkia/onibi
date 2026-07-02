@@ -17,9 +17,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/service"
 	"github.com/minio/selfupdate"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/openpgp"
@@ -40,6 +42,8 @@ var (
 	updateCodeSignVerify = defaultUpdateCodeSignVerify
 	updateDefaultPaths   = config.DefaultPaths
 	updateExecutablePath = os.Executable
+	updateRestartService = restartUpdatedService
+	updateExec           = syscall.Exec
 )
 
 type updateRelease struct {
@@ -93,7 +97,7 @@ func runUpdate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "updated to %s\n", rel.TagName)
-	return nil
+	return activateUpdatedBinary(ctx, paths)
 }
 
 func fetchUpdateRelease(ctx context.Context, channel string) (updateRelease, error) {
@@ -210,6 +214,38 @@ func rollbackUpdate(cmd *cobra.Command) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "rolled back %s\n", target)
 	return nil
+}
+
+func activateUpdatedBinary(ctx context.Context, paths config.Paths) error {
+	target, err := updateExecutablePath()
+	if err != nil {
+		return err
+	}
+	restarted, err := updateRestartService(ctx, paths, target)
+	if err != nil {
+		return err
+	}
+	if restarted || runtime.GOOS == "windows" {
+		return nil
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return nil
+	}
+	return updateExec(target, os.Args, os.Environ())
+}
+
+func restartUpdatedService(ctx context.Context, paths config.Paths, executable string) (bool, error) {
+	m, err := service.NewManager(paths, executable)
+	if err != nil {
+		return false, err
+	}
+	if !m.Status(ctx).Installed {
+		return false, nil
+	}
+	if err := m.Restart(ctx); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 func updatePreviousPath(paths config.Paths) string {

@@ -105,6 +105,20 @@ func (m *Manager) Uninstall(ctx context.Context) error {
 	}
 }
 
+func (m *Manager) Restart(ctx context.Context) error {
+	if err := m.ensure(); err != nil {
+		return err
+	}
+	switch m.GOOS {
+	case "darwin":
+		return m.restartLaunchd(ctx)
+	case "linux":
+		return m.restartSystemd(ctx)
+	default:
+		return fmt.Errorf("unsupported os: %s", m.GOOS)
+	}
+}
+
 // Status reports whether the service file exists and appears to be running.
 func (m *Manager) Status(ctx context.Context) Status {
 	if err := m.ensure(); err != nil {

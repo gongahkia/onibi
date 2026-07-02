@@ -38,6 +38,13 @@ func (m *Manager) uninstallSystemd(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) restartSystemd(ctx context.Context) error {
+	if out, err := m.Runner.Run(ctx, "systemctl", "--user", "restart", UnitName); err != nil {
+		return fmt.Errorf("systemctl restart: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (m *Manager) systemdStatus(ctx context.Context) Status {
 	path, err := m.ServicePath()
 	if err != nil {

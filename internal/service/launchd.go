@@ -40,6 +40,14 @@ func (m *Manager) uninstallLaunchd(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) restartLaunchd(ctx context.Context) error {
+	target := fmt.Sprintf("gui/%d/%s", m.UID, Label)
+	if out, err := m.Runner.Run(ctx, "launchctl", "kickstart", "-k", target); err != nil {
+		return fmt.Errorf("launchctl kickstart: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (m *Manager) launchdStatus(ctx context.Context) Status {
 	path, err := m.ServicePath()
 	if err != nil {

@@ -58,8 +58,11 @@ func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
 	oldKey := updateReleasePublicKey
 	oldApply := updateApply
 	oldCodeSign := updateCodeSignVerify
+	oldRestart := updateRestartService
+	oldExec := updateExec
 	var applied []byte
 	var oldSavePath string
+	var execPath string
 	var verified bool
 	updateReleasePublicKey = pub
 	updateApply = func(next []byte, previous string) error {
@@ -74,10 +77,19 @@ func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
 		}
 		return nil
 	}
+	updateRestartService = func(context.Context, config.Paths, string) (bool, error) {
+		return false, nil
+	}
+	updateExec = func(path string, _ []string, _ []string) error {
+		execPath = path
+		return nil
+	}
 	t.Cleanup(func() {
 		updateReleasePublicKey = oldKey
 		updateApply = oldApply
 		updateCodeSignVerify = oldCodeSign
+		updateRestartService = oldRestart
+		updateExec = oldExec
 	})
 	out, _ := executeRoot(t, "update", "--channel", "stable", "--color", "never")
 	if !strings.Contains(out.String(), "updated to v1.2.3") {
@@ -88,6 +100,69 @@ func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
 	}
 	if filepath.Base(oldSavePath) != "onibi.prev" {
 		t.Fatalf("old save path = %q", oldSavePath)
+	}
+	if execPath == "" {
+		t.Fatal("updated binary was not re-execed")
+	}
+}
+
+func TestActivateUpdatedBinaryRestartsInstalledService(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "onibi")
+	paths := config.Paths{StateDir: t.TempDir(), LogDir: t.TempDir()}
+	oldExecutable := updateExecutablePath
+	oldRestart := updateRestartService
+	oldExec := updateExec
+	var restarted bool
+	updateExecutablePath = func() (string, error) { return target, nil }
+	updateRestartService = func(_ context.Context, gotPaths config.Paths, executable string) (bool, error) {
+		if gotPaths.StateDir != paths.StateDir || executable != target {
+			t.Fatalf("restart args paths=%#v executable=%q", gotPaths, executable)
+		}
+		restarted = true
+		return true, nil
+	}
+	updateExec = func(string, []string, []string) error {
+		t.Fatal("exec should not run when service restarts")
+		return nil
+	}
+	t.Cleanup(func() {
+		updateExecutablePath = oldExecutable
+		updateRestartService = oldRestart
+		updateExec = oldExec
+	})
+	if err := activateUpdatedBinary(context.Background(), paths); err != nil {
+		t.Fatal(err)
+	}
+	if !restarted {
+		t.Fatal("service was not restarted")
+	}
+}
+
+func TestActivateUpdatedBinaryExecsWithoutService(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "onibi")
+	paths := config.Paths{StateDir: t.TempDir(), LogDir: t.TempDir()}
+	oldExecutable := updateExecutablePath
+	oldRestart := updateRestartService
+	oldExec := updateExec
+	var execPath string
+	updateExecutablePath = func() (string, error) { return target, nil }
+	updateRestartService = func(context.Context, config.Paths, string) (bool, error) {
+		return false, nil
+	}
+	updateExec = func(path string, _ []string, _ []string) error {
+		execPath = path
+		return nil
+	}
+	t.Cleanup(func() {
+		updateExecutablePath = oldExecutable
+		updateRestartService = oldRestart
+		updateExec = oldExec
+	})
+	if err := activateUpdatedBinary(context.Background(), paths); err != nil {
+		t.Fatal(err)
+	}
+	if execPath != target {
+		t.Fatalf("exec path = %q", execPath)
 	}
 }
 
