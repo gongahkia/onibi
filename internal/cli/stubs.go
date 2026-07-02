@@ -184,6 +184,7 @@ func updateCmd() *cobra.Command {
 	}
 	cmd.Flags().String("channel", "stable", "release channel: stable or beta")
 	cmd.Flags().Bool("check-only", false, "print latest release without applying it")
+	cmd.Flags().Bool("rollback", false, "restore the previous self-update binary")
 	return cmd
 }
 

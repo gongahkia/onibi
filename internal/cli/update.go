@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/minio/selfupdate"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/openpgp"
@@ -33,8 +34,12 @@ var (
 	updateReleasesURL      = "https://api.github.com/repos/gongahkia/onibi/releases?per_page=1"
 	updateHTTPClient       = http.DefaultClient
 	updateReleasePublicKey = ``
-	updateApply            = func(binary []byte) error { return selfupdate.Apply(bytes.NewReader(binary), selfupdate.Options{}) }
-	updateCodeSignVerify   = defaultUpdateCodeSignVerify
+	updateApply            = func(binary []byte, oldSavePath string) error {
+		return selfupdate.Apply(bytes.NewReader(binary), selfupdate.Options{OldSavePath: oldSavePath})
+	}
+	updateCodeSignVerify = defaultUpdateCodeSignVerify
+	updateDefaultPaths   = config.DefaultPaths
+	updateExecutablePath = os.Executable
 )
 
 type updateRelease struct {
@@ -50,6 +55,13 @@ type updateRelease struct {
 func runUpdate(cmd *cobra.Command, _ []string) error {
 	channel, _ := cmd.Flags().GetString("channel")
 	checkOnly, _ := cmd.Flags().GetBool("check-only")
+	rollback, _ := cmd.Flags().GetBool("rollback")
+	if rollback {
+		if checkOnly {
+			return errors.New("--rollback cannot be combined with --check-only")
+		}
+		return rollbackUpdate(cmd)
+	}
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	if channel == "" {
 		channel = "stable"
@@ -70,7 +82,14 @@ func runUpdate(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	if err := applyUpdateRelease(ctx, rel); err != nil {
+	paths, err := updateDefaultPaths()
+	if err != nil {
+		return err
+	}
+	if err := paths.EnsureDirs(); err != nil {
+		return err
+	}
+	if err := applyUpdateRelease(ctx, rel, updatePreviousPath(paths)); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "updated to %s\n", rel.TagName)
@@ -137,7 +156,7 @@ func getUpdateJSON(ctx context.Context, url string, out any) error {
 	return nil
 }
 
-func applyUpdateRelease(ctx context.Context, rel updateRelease) error {
+func applyUpdateRelease(ctx context.Context, rel updateRelease, oldSavePath string) error {
 	asset := updateAssetName(rel.TagName)
 	if asset == "" {
 		return errors.New("release tag is empty")
@@ -170,7 +189,86 @@ func applyUpdateRelease(ctx context.Context, rel updateRelease) error {
 	if err := verifyUpdateBinary(ctx, binary); err != nil {
 		return err
 	}
-	return updateApply(binary)
+	return updateApply(binary, oldSavePath)
+}
+
+func rollbackUpdate(cmd *cobra.Command) error {
+	paths, err := updateDefaultPaths()
+	if err != nil {
+		return err
+	}
+	if err := paths.EnsureDirs(); err != nil {
+		return err
+	}
+	target, err := updateExecutablePath()
+	if err != nil {
+		return err
+	}
+	previous := updatePreviousPath(paths)
+	if err := rollbackUpdateBinary(target, previous); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "rolled back %s\n", target)
+	return nil
+}
+
+func updatePreviousPath(paths config.Paths) string {
+	return filepath.Join(paths.StateDir, "onibi.prev")
+}
+
+func rollbackUpdateBinary(targetPath, previousPath string) error {
+	if _, err := os.Stat(previousPath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("rollback binary not found: %s", previousPath)
+	} else if err != nil {
+		return err
+	}
+	currentSavePath := previousPath + ".current"
+	_ = os.Remove(currentSavePath)
+	if err := moveUpdateFile(targetPath, currentSavePath); err != nil {
+		return fmt.Errorf("save current binary: %w", err)
+	}
+	if err := moveUpdateFile(previousPath, targetPath); err != nil {
+		_ = moveUpdateFile(currentSavePath, targetPath)
+		return fmt.Errorf("restore previous binary: %w", err)
+	}
+	if err := moveUpdateFile(currentSavePath, previousPath); err != nil {
+		return fmt.Errorf("retain replaced binary: %w", err)
+	}
+	return nil
+}
+
+func moveUpdateFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if err := copyUpdateFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
+func copyUpdateFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(dst, info.Mode().Perm())
 }
 
 func getUpdateBytes(ctx context.Context, rawURL string, limit int64) ([]byte, error) {

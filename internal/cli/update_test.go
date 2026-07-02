@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/config"
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/armor"
 )
@@ -37,6 +39,7 @@ func TestUpdateCheckOnlyBetaPrintsLatestPrerelease(t *testing.T) {
 }
 
 func TestUpdateApplyGuardUntilVerificationExists(t *testing.T) {
+	withUpdateTempHome(t)
 	withFakeUpdateAPI(t)
 	out, errOut, err := executeRootAllowError(t, "update", "--channel", "stable", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "release public key not configured") {
@@ -45,6 +48,7 @@ func TestUpdateApplyGuardUntilVerificationExists(t *testing.T) {
 }
 
 func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
+	withUpdateTempHome(t)
 	binary := []byte("#!/bin/sh\necho onibi\n")
 	archive := testUpdateArchive(t, map[string][]byte{"onibi": binary})
 	asset := updateAssetName("v1.2.3")
@@ -55,10 +59,12 @@ func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
 	oldApply := updateApply
 	oldCodeSign := updateCodeSignVerify
 	var applied []byte
+	var oldSavePath string
 	var verified bool
 	updateReleasePublicKey = pub
-	updateApply = func(next []byte) error {
+	updateApply = func(next []byte, previous string) error {
 		applied = append([]byte(nil), next...)
+		oldSavePath = previous
 		return nil
 	}
 	updateCodeSignVerify = func(_ context.Context, path string) error {
@@ -80,9 +86,47 @@ func TestUpdateApplyVerifiesAndAppliesBinary(t *testing.T) {
 	if !bytes.Equal(applied, binary) || !verified {
 		t.Fatalf("applied=%q verified=%v", applied, verified)
 	}
+	if filepath.Base(oldSavePath) != "onibi.prev" {
+		t.Fatalf("old save path = %q", oldSavePath)
+	}
+}
+
+func TestUpdateRollbackSwapsPreviousBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "xdg-data"))
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := paths.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(t.TempDir(), "onibi")
+	if err := os.WriteFile(current, []byte("current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	previous := updatePreviousPath(paths)
+	if err := os.WriteFile(previous, []byte("previous"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldExecutable := updateExecutablePath
+	updateExecutablePath = func() (string, error) { return current, nil }
+	t.Cleanup(func() { updateExecutablePath = oldExecutable })
+	out, _ := executeRoot(t, "update", "--rollback", "--color", "never")
+	if !strings.Contains(out.String(), "rolled back") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if got, err := os.ReadFile(current); err != nil || string(got) != "previous" {
+		t.Fatalf("current = %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(previous); err != nil || string(got) != "current" {
+		t.Fatalf("previous = %q err=%v", got, err)
+	}
 }
 
 func TestUpdateChecksumMismatchAborts(t *testing.T) {
+	withUpdateTempHome(t)
 	archive := testUpdateArchive(t, map[string][]byte{"onibi": []byte("binary")})
 	checksums := []byte(strings.Repeat("0", 64) + "  " + updateAssetName("v1.2.3") + "\n")
 	pub, sig := testUpdateSignature(t, checksums)
@@ -95,6 +139,7 @@ func TestUpdateChecksumMismatchAborts(t *testing.T) {
 }
 
 func TestUpdateBadSignatureAborts(t *testing.T) {
+	withUpdateTempHome(t)
 	archive := testUpdateArchive(t, map[string][]byte{"onibi": []byte("binary")})
 	checksums := testUpdateChecksums(updateAssetName("v1.2.3"), archive)
 	pub, _ := testUpdateSignature(t, checksums)
@@ -107,6 +152,7 @@ func TestUpdateBadSignatureAborts(t *testing.T) {
 }
 
 func TestUpdateUnsafeArchivePathAborts(t *testing.T) {
+	withUpdateTempHome(t)
 	archive := testUpdateArchive(t, map[string][]byte{"../onibi": []byte("binary")})
 	checksums := testUpdateChecksums(updateAssetName("v1.2.3"), archive)
 	pub, sig := testUpdateSignature(t, checksums)
@@ -119,6 +165,7 @@ func TestUpdateUnsafeArchivePathAborts(t *testing.T) {
 }
 
 func TestUpdateCodeSignFailureAborts(t *testing.T) {
+	withUpdateTempHome(t)
 	archive := testUpdateArchive(t, map[string][]byte{"onibi": []byte("binary")})
 	checksums := testUpdateChecksums(updateAssetName("v1.2.3"), archive)
 	pub, sig := testUpdateSignature(t, checksums)
@@ -188,6 +235,13 @@ func withUpdatePublicKey(t *testing.T, key string) {
 	old := updateReleasePublicKey
 	updateReleasePublicKey = key
 	t.Cleanup(func() { updateReleasePublicKey = old })
+}
+
+func withUpdateTempHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "xdg-data"))
 }
 
 var osReadFile = func(name string) ([]byte, error) { return os.ReadFile(name) }
