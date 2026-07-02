@@ -217,6 +217,8 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 		TelegramToken:         token,
 		TelegramOwnerID:       ownerID,
 		TelegramPair:          pairCode,
+		UpdateAuto:            cfg.Update.Auto,
+		UpdateChannel:         cfg.Update.Channel,
 		SkipRestore:           true,
 	})
 	session, err := startManagedWebPairShell(cmd.Context(), d, cfg, shellCWD, logger)

@@ -27,6 +27,7 @@ import (
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/trust"
+	"github.com/gongahkia/onibi/internal/updatecheck"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
@@ -69,6 +70,11 @@ type Daemon struct {
 	Gotify                  GotifyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
+	UpdateAuto              bool
+	UpdateChannel           string
+	UpdateCheckInterval     time.Duration
+	UpdateCheckTimeout      time.Duration
+	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 
 	mu                    sync.Mutex
 	webAttachMu           sync.Mutex
@@ -117,6 +123,11 @@ type Options struct {
 	Gotify                  GotifyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
+	UpdateAuto              bool
+	UpdateChannel           string
+	UpdateCheckInterval     time.Duration
+	UpdateCheckTimeout      time.Duration
+	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 	Budget                  *budget.ClaudeParser
 	Recorder                *web.Recorder
 	TailnetStatus           func(context.Context) ([]byte, error)
@@ -170,6 +181,18 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
+	if opts.UpdateChannel = strings.ToLower(strings.TrimSpace(opts.UpdateChannel)); opts.UpdateChannel == "" {
+		opts.UpdateChannel = "stable"
+	}
+	if opts.UpdateCheckInterval <= 0 {
+		opts.UpdateCheckInterval = autoUpdateCheckInterval
+	}
+	if opts.UpdateCheckTimeout <= 0 {
+		opts.UpdateCheckTimeout = autoUpdateCheckTimeout
+	}
+	if opts.UpdateCheck == nil {
+		opts.UpdateCheck = updatecheck.Check
+	}
 	budgetParser := opts.Budget
 	if budgetParser == nil {
 		budgetParser = budget.NewClaudeParser("")
@@ -215,6 +238,11 @@ func New(opts Options) *Daemon {
 		Gotify:                  opts.Gotify,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
+		UpdateAuto:              opts.UpdateAuto,
+		UpdateChannel:           opts.UpdateChannel,
+		UpdateCheckInterval:     opts.UpdateCheckInterval,
+		UpdateCheckTimeout:      opts.UpdateCheckTimeout,
+		UpdateCheck:             opts.UpdateCheck,
 		tailnetStatus:           tailnetStatusOrDefault(opts.TailnetStatus),
 		tailnetHealth:           tailnetHealthOrDefault(opts.TailnetHealth),
 	}
@@ -414,6 +442,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.startTrustWatcher(ctx, &wg); err != nil {
 		return err
 	}
+	d.startAutoUpdateChecks(ctx, &wg)
 
 	if d.WebAddr != "" {
 		if d.DB != nil {

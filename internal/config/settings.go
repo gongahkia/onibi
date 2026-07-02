@@ -45,6 +45,7 @@ type Config struct {
 	Transport Transport `yaml:"transport" json:"transport"`
 	Provider  Provider  `yaml:"provider" json:"provider"`
 	Terminal  Terminal  `yaml:"terminal" json:"terminal"`
+	Update    Update    `yaml:"update" json:"update"`
 }
 
 type Daemon struct {
@@ -63,6 +64,11 @@ type Shell struct {
 
 type Terminal struct {
 	Default string `yaml:"default" json:"default"`
+}
+
+type Update struct {
+	Auto    bool   `yaml:"auto" json:"auto"`
+	Channel string `yaml:"channel" json:"channel"`
 }
 
 type Web struct {
@@ -130,6 +136,7 @@ func Default() Config {
 		Terminal: Terminal{
 			Default: "auto",
 		},
+		Update: Update{Channel: "stable"},
 	}
 }
 
@@ -241,6 +248,11 @@ func (c Config) Validate() error {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
 	default:
 		return fmt.Errorf("terminal.default must be one of auto, ghostty, iterm2, terminal, none")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Update.Channel)) {
+	case "stable":
+	default:
+		return fmt.Errorf("update.channel must be stable")
 	}
 	return nil
 }
@@ -385,6 +397,14 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Provider.Output.Redaction = strings.ToLower(strings.TrimSpace(value))
 	case "terminal.default":
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(value))
+	case "update.auto":
+		v, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("update.auto must be boolean")
+		}
+		cfg.Update.Auto = v
+	case "update.channel":
+		cfg.Update.Channel = strings.ToLower(strings.TrimSpace(value))
 	default:
 		if handled, err := setProviderOutputOverride(&cfg.Provider.Output, strings.ToLower(strings.TrimSpace(key)), value); handled {
 			if err != nil {
@@ -431,6 +451,10 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Provider.Output.Redaction, nil
 	case "terminal.default":
 		return cfg.Terminal.Default, nil
+	case "update.auto":
+		return strconv.FormatBool(cfg.Update.Auto), nil
+	case "update.channel":
+		return cfg.Update.Channel, nil
 	default:
 		if handled, value := getProviderOutputOverride(cfg.Provider.Output, strings.ToLower(strings.TrimSpace(key))); handled {
 			return value, nil
@@ -453,6 +477,8 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
 		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
+		{"update.auto", strconv.FormatBool(def.Update.Auto), strconv.FormatBool(cfg.Update.Auto), meta.Explicit["update.auto"], "opt-in daemon update checks at startup and every 24h"},
+		{"update.channel", def.Update.Channel, cfg.Update.Channel, meta.Explicit["update.channel"], "update channel: stable"},
 		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},
 		{"provider.output.max_bytes", strconv.Itoa(def.Provider.Output.MaxBytes), strconv.Itoa(cfg.Provider.Output.MaxBytes), meta.Explicit["provider.output.max_bytes"], "maximum provider reply bytes per session command"},
 		{"provider.output.redaction", def.Provider.Output.Redaction, cfg.Provider.Output.Redaction, meta.Explicit["provider.output.redaction"], "provider output redaction: default, strict, or off"},
@@ -479,6 +505,7 @@ type rawConfig struct {
 	Transport rawTransport `yaml:"transport"`
 	Provider  rawProvider  `yaml:"provider"`
 	Terminal  rawTerminal  `yaml:"terminal"`
+	Update    rawUpdate    `yaml:"update"`
 }
 
 type rawDaemon struct {
@@ -497,6 +524,11 @@ type rawShell struct {
 
 type rawTerminal struct {
 	Default *string `yaml:"default"`
+}
+
+type rawUpdate struct {
+	Auto    *bool   `yaml:"auto"`
+	Channel *string `yaml:"channel"`
 }
 
 type rawWeb struct {
@@ -599,6 +631,14 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
 		meta.Explicit["terminal.default"] = true
+	}
+	if raw.Update.Auto != nil {
+		cfg.Update.Auto = *raw.Update.Auto
+		meta.Explicit["update.auto"] = true
+	}
+	if raw.Update.Channel != nil {
+		cfg.Update.Channel = strings.ToLower(strings.TrimSpace(*raw.Update.Channel))
+		meta.Explicit["update.channel"] = true
 	}
 }
 

@@ -47,6 +47,8 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Gotify:                  opts.Gotify,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
+		UpdateAuto:              cfg.Update.Auto,
+		UpdateChannel:           cfg.Update.Channel,
 		SkipRestore:             true,
 	})
 	var session *daemon.Session

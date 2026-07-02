@@ -26,11 +26,14 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if cfg.Daemon.ApprovalTimeout.Std() != 5*time.Minute {
 		t.Fatalf("approval timeout = %s", cfg.Daemon.ApprovalTimeout)
 	}
+	if cfg.Update.Auto || cfg.Update.Channel != "stable" {
+		t.Fatalf("update defaults = %#v", cfg.Update)
+	}
 }
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	paths := testPaths(t)
-	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nweb:\n  listen_addr: ':9443'\ntransport:\n  mode: auto\nterminal:\n  default: iterm\n")
+	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nweb:\n  listen_addr: ':9443'\ntransport:\n  mode: auto\nterminal:\n  default: iterm\nupdate:\n  auto: true\n  channel: stable\n")
 	if err := os.WriteFile(paths.Config, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +44,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] || !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -58,6 +61,9 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	}
 	if cfg.Terminal.Default != "iterm" {
 		t.Fatalf("terminal.default = %s", cfg.Terminal.Default)
+	}
+	if !cfg.Update.Auto || cfg.Update.Channel != "stable" {
+		t.Fatalf("update config = %#v", cfg.Update)
 	}
 	if cfg.Web.ListenAddr != ":9443" || cfg.Transport.Mode != "auto" {
 		t.Fatalf("web/transport config = %#v %#v", cfg.Web, cfg.Transport)
@@ -107,6 +113,18 @@ func TestSetValidates(t *testing.T) {
 	}
 	if got, _ := Get(cfg, "terminal.default"); got != "iterm2" {
 		t.Fatalf("terminal.default = %s", got)
+	}
+	if err := Set(&cfg, "update.auto", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "update.auto"); got != "true" {
+		t.Fatalf("update.auto = %s", got)
+	}
+	if err := Set(&cfg, "update.channel", "stable"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "update.channel"); got != "stable" {
+		t.Fatalf("update.channel = %s", got)
 	}
 	if err := Set(&cfg, "provider.output.max_chunks", "3"); err != nil {
 		t.Fatal(err)
@@ -189,6 +207,14 @@ func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
+func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
+	cfg := Default()
+	err := Set(&cfg, "update.channel", "beta")
+	if err == nil || !strings.Contains(err.Error(), "update.channel must be stable") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestTransportModeValues(t *testing.T) {
 	for _, value := range []string{"lan", "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto"} {
 		t.Run(value, func(t *testing.T) {
@@ -226,6 +252,27 @@ func TestSaveLoadTerminalDefault(t *testing.T) {
 	}
 	if loaded.Terminal.Default != "iterm2" {
 		t.Fatalf("terminal.default = %s", loaded.Terminal.Default)
+	}
+}
+
+func TestSaveLoadUpdateConfig(t *testing.T) {
+	paths := testPaths(t)
+	cfg := Default()
+	if err := Set(&cfg, "update.auto", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(paths.Config, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, meta, err := Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
+		t.Fatalf("explicit map missing update keys: %#v", meta.Explicit)
+	}
+	if !loaded.Update.Auto || loaded.Update.Channel != "stable" {
+		t.Fatalf("update config = %#v", loaded.Update)
 	}
 }
 

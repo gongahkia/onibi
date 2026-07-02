@@ -90,6 +90,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		TerminalDefault:       cfg.Terminal.Default,
 		WebAddr:               cfg.Web.ListenAddr,
 		WebCertDir:            certDir(paths, cfg),
+		UpdateAuto:            cfg.Update.Auto,
+		UpdateChannel:         cfg.Update.Channel,
 	})
 
 	if attachTmux != "" {
