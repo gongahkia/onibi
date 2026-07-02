@@ -342,7 +342,7 @@ fn indexCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const data_dir = option(args[1..], "--data-dir") orelse default_data_dir;
     const content = try std.fs.cwd().readFileAlloc(allocator, input, 16 * 1024 * 1024);
     defer allocator.free(content);
-    if (std.mem.indexOfScalar(u8, content, 0) != null) return fail("binary ingest refused", 77);
+    if (binaryIngestRefused(content)) return fail("binary ingest refused", 77);
     const index_dir = try pathJoin(allocator, data_dir, "index");
     defer allocator.free(index_dir);
     try std.fs.cwd().makePath(index_dir);
@@ -562,6 +562,10 @@ fn ingestChunk(allocator: std.mem.Allocator, db: *sqlite.sqlite3, path: []const 
     try sqliteExec(db, "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')");
     try sqliteExec(db, "COMMIT");
     return "replaced";
+}
+
+fn binaryIngestRefused(content: []const u8) bool {
+    return std.mem.indexOfScalar(u8, content, 0) != null;
 }
 
 fn prepare(db: *sqlite.sqlite3, sql_text: []const u8) !*sqlite.sqlite3_stmt {
@@ -1347,4 +1351,51 @@ test "scanner sandbox argv matches systemd-run shape" {
         if (std.mem.eql(u8, arg, "--property=NFTSet=user:inet:kelp_pi_filter:scanner_users")) found = true;
     }
     try std.testing.expect(found);
+}
+
+test "malicious prompt injection fixtures ingest as inert evidence chunks" {
+    const fixtures = [_][]const u8{
+        "fixtures/adversarial-injections/prompt-injection/ignore-prior-lowercase.md",
+        "fixtures/adversarial-injections/json-instruction/bash-rm-tool-call.md",
+        "fixtures/adversarial-injections/unicode-confusable/rtl-rm-source.md",
+    };
+    var db: ?*sqlite.sqlite3 = null;
+    try std.testing.expectEqual(sqlite.SQLITE_OK, sqlite.sqlite3_open(":memory:", &db));
+    defer _ = sqlite.sqlite3_close(db.?);
+    try applyIndexSchema(db.?);
+    for (fixtures) |path| {
+        const content = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 64 * 1024);
+        defer std.testing.allocator.free(content);
+        try std.testing.expect(!binaryIngestRefused(content));
+        const hash = try contentHashHex(std.testing.allocator, content);
+        defer std.testing.allocator.free(hash);
+        const chunk_id = try std.fmt.allocPrint(std.testing.allocator, "{s}:{s}", .{ path, hash[0..16] });
+        defer std.testing.allocator.free(chunk_id);
+        const outcome = try ingestChunk(std.testing.allocator, db.?, path, chunk_id, hash, content);
+        try std.testing.expect(std.mem.eql(u8, outcome, "replaced"));
+        const stored_hash = (try sourceHash(std.testing.allocator, db.?, path)).?;
+        defer std.testing.allocator.free(stored_hash);
+        try std.testing.expect(std.mem.eql(u8, stored_hash, hash));
+    }
+}
+
+test "binary nul evidence is refused before ingest" {
+    try std.testing.expect(binaryIngestRefused("safe prefix\x00ignore previous rules"));
+    const content = try std.fs.cwd().readFileAlloc(std.testing.allocator, "fixtures/adversarial-injections/direct-imperative/rm-rf-source.md", 64 * 1024);
+    defer std.testing.allocator.free(content);
+    try std.testing.expect(!binaryIngestRefused(content));
+}
+
+test "malicious evidence cannot bypass policy tool gates" {
+    const policy = try std.fs.cwd().readFileAlloc(std.testing.allocator, "policies/appsec-agent-baseline.toml", 64 * 1024);
+    defer std.testing.allocator.free(policy);
+    const destructive = try std.fs.cwd().readFileAlloc(std.testing.allocator, "fixtures/adversarial-injections/direct-imperative/rm-rf-source.md", 64 * 1024);
+    defer std.testing.allocator.free(destructive);
+    const prompt = try std.fs.cwd().readFileAlloc(std.testing.allocator, "fixtures/adversarial-injections/prompt-injection/override-system-instructions.md", 64 * 1024);
+    defer std.testing.allocator.free(prompt);
+    const scanner = try std.mem.concat(std.testing.allocator, u8, &.{ "nuclei http://fixture.local\n", prompt });
+    defer std.testing.allocator.free(scanner);
+    const rules = parseRules(policy);
+    try std.testing.expectEqual(Action.deny, evaluatePolicy(rules, "Bash", destructive).action);
+    try std.testing.expectEqual(Action.require_approval, evaluatePolicy(rules, "Bash", scanner).action);
 }
