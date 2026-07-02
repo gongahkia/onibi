@@ -169,7 +169,7 @@ pub fn main() !void {
     if (std.mem.eql(u8, command, "bundle")) return bundleCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "verify-bundle")) return verifyBundle(allocator, args[2..]);
     if (std.mem.eql(u8, command, "model")) return modelCommand(allocator, args[2..]);
-    if (std.mem.eql(u8, command, "chat")) return chatCommand(args[2..]);
+    if (std.mem.eql(u8, command, "chat")) return chatCommand(allocator, args[2..]);
     return fail("unknown command", 64);
 }
 
@@ -429,10 +429,12 @@ fn modelCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     return fail("usage: kelp-pi model <fetch|warm|verify|prompt> --id MODEL_ID", 64);
 }
 
-fn chatCommand(args: []const []const u8) !void {
+fn chatCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const data_dir = option(args, "--data-dir") orelse default_data_dir;
+    const session_id = option(args, "--session-id") orelse option(args, "--session") orelse "local";
+    if (!safePathSegment(session_id)) return fail("chat session id contains unsafe characters", 64);
     var out = std.fs.File.stdout().deprecatedWriter();
-    try out.print("kelp-pi chat session=local data-dir={s}\n", .{data_dir});
+    try out.print("kelp-pi chat session={s} data-dir={s}\n", .{ session_id, data_dir });
     try out.print("> ", .{});
     var stdin = std.fs.File.stdin().deprecatedReader();
     var buffer: [4096]u8 = undefined;
@@ -442,21 +444,73 @@ fn chatCommand(args: []const []const u8) !void {
             try out.print("> ", .{});
             continue;
         }
+        try appendTranscriptRecord(allocator, data_dir, session_id, "user", line);
         if (std.mem.eql(u8, line, "exit") or std.mem.indexOf(u8, line, "<finish") != null) {
+            try appendTranscriptRecord(allocator, data_dir, session_id, "assistant", "{\"ok\":true,\"finished\":true}");
             try out.print("{{\"ok\":true,\"finished\":true}}\n", .{});
             break;
         }
         if (attr(line, "query")) |query| {
+            try appendTranscriptRecord(allocator, data_dir, session_id, "assistant", "tool=ask");
             try out.print("{{\"tool\":\"ask\",\"query\":\"{s}\"}}\n", .{query});
         } else if (attr(line, "target")) |target| {
+            try appendTranscriptRecord(allocator, data_dir, session_id, "assistant", "tool=scan policy=require-approval");
             try out.print("{{\"tool\":\"scan\",\"target\":\"{s}\",\"policy\":\"require-approval\"}}\n", .{target});
         } else {
+            try appendTranscriptRecord(allocator, data_dir, session_id, "assistant", line);
             try out.print("{{\"ok\":true,\"echo\":\"", .{});
             try writeJsonEscaped(&out, line);
             try out.print("\"}}\n", .{});
         }
         try out.print("> ", .{});
     }
+}
+
+fn writeBundleTranscript(allocator: std.mem.Allocator, data_dir: []const u8, output: []const u8, run_id: []const u8) !void {
+    const out_path = try pathJoin(allocator, output, "transcript.jsonl");
+    defer allocator.free(out_path);
+    if (safePathSegment(run_id)) {
+        const run_transcript = try transcriptFilePath(allocator, data_dir, run_id);
+        defer allocator.free(run_transcript);
+        if (fileExists(run_transcript)) {
+            const bytes = try std.fs.cwd().readFileAlloc(allocator, run_transcript, 16 * 1024 * 1024);
+            defer allocator.free(bytes);
+            return writeFileWithParents(out_path, bytes);
+        }
+    }
+    const local_transcript = try transcriptFilePath(allocator, data_dir, "local");
+    defer allocator.free(local_transcript);
+    if (fileExists(local_transcript)) {
+        const bytes = try std.fs.cwd().readFileAlloc(allocator, local_transcript, 16 * 1024 * 1024);
+        defer allocator.free(bytes);
+        return writeFileWithParents(out_path, bytes);
+    }
+    try writeFileWithParents(out_path, "");
+}
+
+fn appendTranscriptRecord(allocator: std.mem.Allocator, data_dir: []const u8, session_id: []const u8, role: []const u8, content: []const u8) !void {
+    if (!safePathSegment(session_id)) return error.UnsafePathSegment;
+    const session_dir = try pathJoin3(allocator, data_dir, "sessions", session_id);
+    defer allocator.free(session_dir);
+    try std.fs.cwd().makePath(session_dir);
+    const transcript_path = try pathJoin(allocator, session_dir, "transcript.jsonl");
+    defer allocator.free(transcript_path);
+    var file = try std.fs.cwd().createFile(transcript_path, .{ .truncate = false });
+    defer file.close();
+    try file.seekFromEnd(0);
+    var writer = file.deprecatedWriter();
+    try writer.writeAll("{\"schemaVersion\":\"kelp.pi.transcript.v1\",\"sessionId\":\"");
+    try writeJsonEscaped(&writer, session_id);
+    try writer.print("\",\"tsUnix\":{},\"role\":\"{s}\",\"content\":\"", .{ std.time.timestamp(), role });
+    try writeJsonEscaped(&writer, content);
+    try writer.writeAll("\"}\n");
+}
+
+fn transcriptFilePath(allocator: std.mem.Allocator, data_dir: []const u8, session_id: []const u8) ![]u8 {
+    if (!safePathSegment(session_id)) return error.UnsafePathSegment;
+    const session_dir = try pathJoin3(allocator, data_dir, "sessions", session_id);
+    defer allocator.free(session_dir);
+    return pathJoin(allocator, session_dir, "transcript.jsonl");
 }
 
 fn modelFetch(allocator: std.mem.Allocator, model: ModelEntry, model_path: []const u8) !void {
@@ -679,6 +733,7 @@ fn writeBundleCoreFiles(allocator: std.mem.Allocator, data_dir: []const u8, work
     const policy_path = try pathJoin(allocator, output, "policy-decisions.json");
     defer allocator.free(policy_path);
     try writeFileWithParents(policy_path, "{\"schemaVersion\":\"kelpclaw.pi.policy-decisions.v1\",\"policyPack\":\"appsec-agent-baseline\",\"decisions\":[]}\n");
+    try writeBundleTranscript(allocator, data_dir, output, run_id);
     const findings_out = try pathJoin(allocator, output, "normalized-findings.json");
     defer allocator.free(findings_out);
     const findings_in = try pathJoin3(allocator, workspace, "normalized", "findings.json");
@@ -707,7 +762,7 @@ fn writeBundleCoreFiles(allocator: std.mem.Allocator, data_dir: []const u8, work
 }
 
 fn writeSignedManifest(allocator: std.mem.Allocator, output: []const u8, run_id: []const u8, key: KeyMaterial) ![]u8 {
-    const files = [_][]const u8{ "result.json", "policy-decisions.json", "normalized-findings.json", "audit-log.jsonl", "index.html" };
+    const files = [_][]const u8{ "result.json", "policy-decisions.json", "transcript.jsonl", "normalized-findings.json", "audit-log.jsonl", "index.html" };
     var manifest: std.ArrayList(u8) = .empty;
     defer manifest.deinit(allocator);
     var writer = manifest.writer(allocator);
@@ -1018,6 +1073,14 @@ fn pathJoin(allocator: std.mem.Allocator, left: []const u8, right: []const u8) !
 
 fn pathJoin3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []const u8) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ a, b, c });
+}
+
+fn safePathSegment(value: []const u8) bool {
+    if (value.len == 0 or value.len > 128) return false;
+    for (value) |byte| {
+        if (!(std.ascii.isAlphanumeric(byte) or byte == '-' or byte == '_' or byte == '.')) return false;
+    }
+    return true;
 }
 
 fn contentHashHex(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
@@ -1398,4 +1461,52 @@ test "malicious evidence cannot bypass policy tool gates" {
     const rules = parseRules(policy);
     try std.testing.expectEqual(Action.deny, evaluatePolicy(rules, "Bash", destructive).action);
     try std.testing.expectEqual(Action.require_approval, evaluatePolicy(rules, "Bash", scanner).action);
+}
+
+test "transcript records append across turns" {
+    const root = try testTempPath(std.testing.allocator, "transcript-append");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    try appendTranscriptRecord(std.testing.allocator, root, "session-a", "user", "hello");
+    const transcript_path = try transcriptFilePath(std.testing.allocator, root, "session-a");
+    defer std.testing.allocator.free(transcript_path);
+    const first = try std.fs.cwd().readFileAlloc(std.testing.allocator, transcript_path, 64 * 1024);
+    defer std.testing.allocator.free(first);
+    try appendTranscriptRecord(std.testing.allocator, root, "session-a", "assistant", "world");
+    const second = try std.fs.cwd().readFileAlloc(std.testing.allocator, transcript_path, 64 * 1024);
+    defer std.testing.allocator.free(second);
+    try std.testing.expect(second.len > first.len);
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, second, "\n"));
+    try std.testing.expect(std.mem.indexOf(u8, second, "\"role\":\"user\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second, "\"role\":\"assistant\"") != null);
+}
+
+test "bundle core files include session transcript in manifest" {
+    const root = try testTempPath(std.testing.allocator, "transcript-bundle");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    const data_dir = try pathJoin(std.testing.allocator, root, "data");
+    defer std.testing.allocator.free(data_dir);
+    const output = try pathJoin(std.testing.allocator, root, "bundle");
+    defer std.testing.allocator.free(output);
+    try appendTranscriptRecord(std.testing.allocator, data_dir, "run-a", "user", "bundle me");
+    try writeBundleCoreFiles(std.testing.allocator, data_dir, ".", output, "run-a");
+    const transcript_out = try pathJoin(std.testing.allocator, output, "transcript.jsonl");
+    defer std.testing.allocator.free(transcript_out);
+    const transcript = try std.fs.cwd().readFileAlloc(std.testing.allocator, transcript_out, 64 * 1024);
+    defer std.testing.allocator.free(transcript);
+    try std.testing.expect(std.mem.indexOf(u8, transcript, "bundle me") != null);
+    var key = try generateKeyMaterial(std.testing.allocator);
+    defer freeKeyMaterial(std.testing.allocator, &key);
+    const manifest = try writeSignedManifest(std.testing.allocator, output, "run-a", key);
+    defer std.testing.allocator.free(manifest);
+    try std.testing.expect(std.mem.indexOf(u8, manifest, "\"path\":\"transcript.jsonl\"") != null);
+}
+
+fn testTempPath(allocator: std.mem.Allocator, prefix: []const u8) ![]u8 {
+    var random_bytes: [8]u8 = undefined;
+    std.crypto.random.bytes(&random_bytes);
+    const suffix = try hexAlloc(allocator, &random_bytes);
+    defer allocator.free(suffix);
+    return std.fmt.allocPrint(allocator, ".zig-cache/{s}-{s}", .{ prefix, suffix });
 }
