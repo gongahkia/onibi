@@ -13,6 +13,7 @@ const tsBundleDir = join(root, "ts-bundle");
 const piDataDir = join(root, "pi-data");
 const piWorkspace = join(root, "pi-workspace");
 const piBundleDir = join(root, "pi-bundle");
+const smokeMinFreeBytes = "1";
 const requiredDataDirs = [
   "corpus",
   "evidence",
@@ -147,7 +148,9 @@ async function createPiFixtureBundle() {
     "--workspace",
     piWorkspace,
     "--raw-path",
-    "raw/nuclei.jsonl"
+    "raw/nuclei.jsonl",
+    "--min-free-bytes",
+    smokeMinFreeBytes
   ]);
   run("cargo", [
     ...pi,

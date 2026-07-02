@@ -16,6 +16,7 @@ const importedBundleDir = join(root, "laptop", "imported-pi-bundle");
 const exportEnvelope = join(root, "bundle-export-envelope.json");
 const cpKey = join(root, "cp-key.json");
 const agentBin = join(repoRoot, "packages/pi-agent/target/debug/kelp-pi-agent");
+const smokeMinFreeBytes = "1";
 const requiredDataDirs = [
   "corpus",
   "evidence",
@@ -139,7 +140,9 @@ try {
     "--workspace",
     workspace,
     "--raw-path",
-    "raw/nuclei.jsonl"
+    "raw/nuclei.jsonl",
+    "--min-free-bytes",
+    smokeMinFreeBytes
   ]);
   run("cargo", [
     ...pi,

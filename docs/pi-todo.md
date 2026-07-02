@@ -12,7 +12,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Add model manifest: `models/manifest.toml`.
 - [x] Add package scripts for Zig build/test/format.
 - [x] Fill final GGUF SHA-256 after downloading the selected model.
-- [ ] Add release gate that fails when model SHA-256 is blank.
+- [x] Add release gate that fails when model SHA-256 is blank.
 
 ## P1 - Zig Parity
 
@@ -63,7 +63,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [ ] Implement hash-chained audit log.
 - [x] Sign bundle manifest with Pi Ed25519 key.
 - [x] Verify bundle hashes and signatures on host.
-- [ ] Preserve legacy replay/equivalence smoke coverage until Zig parity.
+- [x] Preserve legacy replay/equivalence smoke coverage until Zig parity.
 
 ## P6 - Installer And Ops
 

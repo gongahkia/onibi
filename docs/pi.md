@@ -159,6 +159,15 @@ Target outputs:
 
 Current Zig implementation signs `manifest.json` with the Pi Ed25519 key and verifies manifest file hashes/signature. Append-only transcript and audit-chain signing remain open.
 
+### Legacy Bundle Smoke Coverage
+
+Keep `pnpm test:pi-bundle-smoke` in CI until Zig bundle generation can replace both legacy checks:
+
+- Replay smoke: Pi-produced bundle fetch/import verifies on the laptop CLI with policy sync audit events present.
+- Equivalence smoke: legacy TypeScript and Pi bundle contracts expose the same reviewer-required files, manifest/signature paths, run ID, status, compatibility, and policy pack fields.
+
+Delete `scripts/pi-bundle-replay-smoke.mjs`, `scripts/pi-bundle-equivalence-smoke.mjs`, and their package scripts only after Zig `kelp-pi bundle assemble`, export/import, and host verification cover those same contracts without `packages/pi-agent` or `packages/cli`.
+
 ## Legacy Mapping
 
 | Existing path                     | Target                                        |
