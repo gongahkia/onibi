@@ -16,7 +16,7 @@ use ghostty wherever text renders: a web/chat-controlled coding-agent host with 
 
 Onibi runs local shells and coding agents in managed tmux-backed sessions, installs `xterm-ghostty` terminfo for the PTY path, exposes a Ghostty-themed phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
 
-Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Release prep is still tracked in [`TODO.md`](./TODO.md).
+Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Remaining work is tracked in GitHub issues.
 
 ## Quick Start
 
@@ -119,7 +119,6 @@ After `./bin/onibi up` and phone pairing:
 
 ## Docs
 
-- [`TODO.md`](./TODO.md): authoritative v3 task list.
 - [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
 - [`docs/ssh-transport.md`](./docs/ssh-transport.md): SSH remote bootstrap, tunnel, service, and teardown model.

@@ -23,9 +23,9 @@ func TestSendSessionTextAndCaptureTmux(t *testing.T) {
 	r := &tmuxRunner{results: [][]byte{
 		nil,
 		nil,
-		[]byte("$ ls\nREADME.md\nTODO.md\n"),
-		[]byte("$ ls\nREADME.md\nTODO.md\n"),
-		[]byte("$ ls\nREADME.md\nTODO.md\n"),
+		[]byte("$ ls\nREADME.md\nCHANGELOG.md\n"),
+		[]byte("$ ls\nREADME.md\nCHANGELOG.md\n"),
+		[]byte("$ ls\nREADME.md\nCHANGELOG.md\n"),
 	}}
 	old := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
@@ -42,7 +42,7 @@ func TestSendSessionTextAndCaptureTmux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "README.md") || !strings.Contains(out, "TODO.md") {
+	if !strings.Contains(out, "README.md") || !strings.Contains(out, "CHANGELOG.md") {
 		t.Fatalf("out = %q", out)
 	}
 	if !containsCall(r.calls, "send-keys", "-t", "onibi-s1", "-l", "--", "ls") {
