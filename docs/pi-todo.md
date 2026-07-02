@@ -68,8 +68,8 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 ## P6 - Installer And Ops
 
 - [ ] Rewrite `scripts/install-kelp-pi.sh` for `kelp-pi-aarch64`.
-- [ ] Port hardened systemd directives from `packages/pi-agent/systemd/`.
-- [ ] Add systemd-analyze security target below 3.0.
+- [x] Port hardened systemd directives from `packages/pi-agent/systemd/`.
+- [x] Add systemd-analyze security target below 3.0.
 - [ ] Add network/AP hardening only after a recovery path exists.
 - [x] Add SSH acceptance harness using `.kelp-pi/acceptance.env`.
 - [x] Gate SSH acceptance on remote llama-linked pass and `model warm loaded:true`.

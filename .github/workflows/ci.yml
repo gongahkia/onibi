@@ -112,13 +112,19 @@ jobs:
       - name: Build Pi agent
         run: cross build --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
 
-      - name: Verify Pi agent systemd unit
+      - name: Verify Pi systemd units
         run: |
           sudo install -m 0755 packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent /usr/local/bin/kelp-pi-agent
+          sudo install -d /opt/kelp-pi/bin
+          sudo install -m 0755 packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent /opt/kelp-pi/bin/kelp-pi
           sudo useradd --system --home-dir /var/lib/kelp-pi --shell /usr/sbin/nologin kelp-pi
           sudo mkdir -p /etc/kelp-pi /var/lib/kelp-pi/{corpus,evidence,bundles,index,audit,keys,policy,scope}
-          sudo systemd-analyze verify packages/pi-agent/systemd/kelp-pi-agent.service
-          systemd-analyze security --offline=yes --threshold=3.0 packages/pi-agent/systemd/kelp-pi-agent.service
+          for unit in packages/pi-agent/systemd/kelp-pi-agent.service packages/pi-agent/systemd/kelp-pi.service; do
+            echo "systemd unit syntax: ${unit}"
+            sudo systemd-analyze verify "${unit}"
+            echo "systemd security threshold <3.0: ${unit}"
+            systemd-analyze security --offline=yes --threshold=2.99 --no-pager "${unit}"
+          done
 
       - name: Install ARM64 binutils
         run: |

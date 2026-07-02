@@ -22,10 +22,12 @@ need install
 
 install -d "$root/etc/systemd/system" "$root/usr/lib/sysusers.d" "$root/usr/lib/tmpfiles.d"
 install -m 0644 "$crate_dir/systemd/kelp-pi-agent.service" "$root/etc/systemd/system/kelp-pi-agent.service"
+install -m 0644 "$crate_dir/systemd/kelp-pi.service" "$root/etc/systemd/system/kelp-pi.service"
 install -m 0644 "$crate_dir/systemd/kelp-pi-agent.sysusers.conf" "$root/usr/lib/sysusers.d/kelp-pi-agent.conf"
 install -m 0644 "$crate_dir/systemd/kelp-pi-agent.tmpfiles.conf" "$root/usr/lib/tmpfiles.d/kelp-pi-agent.conf"
 
 printf '%s\n' \
   "$root/etc/systemd/system/kelp-pi-agent.service" \
+  "$root/etc/systemd/system/kelp-pi.service" \
   "$root/usr/lib/sysusers.d/kelp-pi-agent.conf" \
   "$root/usr/lib/tmpfiles.d/kelp-pi-agent.conf"

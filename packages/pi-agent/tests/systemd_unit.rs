@@ -4,7 +4,7 @@ use std::path::Path;
 
 #[test]
 fn service_unit_points_at_agent_daemon() {
-    let unit = parse_unit(&unit_path());
+    let unit = parse_unit(&unit_path("kelp-pi-agent.service"));
     let service = unit.get("Service").expect("service section");
 
     assert_eq!(service.get("Type").map(String::as_str), Some("simple"));
@@ -25,9 +25,68 @@ fn service_unit_points_at_agent_daemon() {
 }
 
 #[test]
-fn service_unit_keeps_required_hardening_directives() {
-    let unit = parse_unit(&unit_path());
+fn zig_service_unit_points_at_kelp_runtime() {
+    let unit = parse_unit(&unit_path("kelp-pi.service"));
     let service = unit.get("Service").expect("service section");
+
+    assert_eq!(service.get("Type").map(String::as_str), Some("oneshot"));
+    assert_eq!(service.get("User").map(String::as_str), Some("kelp-pi"));
+    assert_eq!(service.get("Group").map(String::as_str), Some("kelp-pi"));
+    assert_eq!(
+        service.get("ExecStart").map(String::as_str),
+        Some("/opt/kelp-pi/bin/kelp-pi doctor --data-dir /var/lib/kelp-pi")
+    );
+    assert_eq!(
+        service.get("StateDirectory").map(String::as_str),
+        Some("kelp-pi")
+    );
+    assert_eq!(
+        service.get("ReadWritePaths").map(String::as_str),
+        Some("/var/lib/kelp-pi")
+    );
+    assert_eq!(
+        service.get("ReadOnlyPaths").map(String::as_str),
+        Some("/etc/kelp-pi /opt/kelp-pi")
+    );
+}
+
+#[test]
+fn service_units_keep_required_hardening_directives() {
+    for unit in ["kelp-pi-agent.service", "kelp-pi.service"] {
+        let unit = parse_unit(unit_path(unit));
+        assert_required_hardening(unit.get("Service").expect("service section"));
+    }
+}
+
+#[test]
+fn installer_stages_agent_and_zig_units() {
+    let script = fs::read_to_string(format!(
+        "{}/scripts/install-systemd.sh",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("read installer");
+
+    assert!(script.contains("systemd/kelp-pi-agent.service"));
+    assert!(script.contains("systemd/kelp-pi.service"));
+    assert!(script.contains("etc/systemd/system/kelp-pi-agent.service"));
+    assert!(script.contains("etc/systemd/system/kelp-pi.service"));
+}
+
+#[test]
+fn ci_gates_agent_and_zig_units_below_security_threshold() {
+    let workflow = fs::read_to_string(format!(
+        "{}/../../.github/workflows/ci.yml",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("read ci workflow");
+
+    assert!(workflow.contains("packages/pi-agent/systemd/kelp-pi-agent.service"));
+    assert!(workflow.contains("packages/pi-agent/systemd/kelp-pi.service"));
+    assert!(workflow.contains("systemd-analyze verify"));
+    assert!(workflow.contains("systemd-analyze security --offline=yes --threshold=2.99 --no-pager"));
+}
+
+fn assert_required_hardening(service: &BTreeMap<String, String>) {
     let required = [
         ("ProtectSystem", "strict"),
         ("ProtectHome", "true"),
@@ -41,8 +100,13 @@ fn service_unit_keeps_required_hardening_directives() {
         ("LockPersonality", "true"),
         ("MemoryDenyWriteExecute", "true"),
         ("KeyringMode", "private"),
+        ("RemoveIPC", "true"),
+        ("ProtectProc", "invisible"),
+        ("ProcSubset", "pid"),
         ("DevicePolicy", "closed"),
         ("SystemCallArchitectures", "native"),
+        ("SystemCallFilter", "@system-service"),
+        ("RestrictAddressFamilies", "AF_UNIX AF_INET AF_INET6"),
     ];
 
     for (key, value) in required {
@@ -121,11 +185,8 @@ fn tmpfiles_provisions_agent_directories() {
     }
 }
 
-fn unit_path() -> String {
-    format!(
-        "{}/systemd/kelp-pi-agent.service",
-        env!("CARGO_MANIFEST_DIR")
-    )
+fn unit_path(name: &str) -> String {
+    format!("{}/systemd/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
 fn parse_records(path: impl AsRef<Path>) -> Vec<Vec<String>> {

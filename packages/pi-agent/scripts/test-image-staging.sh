@@ -34,7 +34,8 @@ test -x "$root/usr/local/bin/kelp-pi-agent" || fail "agent binary missing"
 if command -v file >/dev/null 2>&1; then
   file "$root/usr/local/bin/kelp-pi-agent" | grep -q 'ARM aarch64' || fail "agent binary is not aarch64"
 fi
-test -f "$root/etc/systemd/system/kelp-pi-agent.service" || fail "systemd unit missing"
+test -f "$root/etc/systemd/system/kelp-pi-agent.service" || fail "agent systemd unit missing"
+test -f "$root/etc/systemd/system/kelp-pi.service" || fail "kelp-pi systemd unit missing"
 test -f "$root/usr/lib/sysusers.d/kelp-pi-agent.conf" || fail "sysusers file missing"
 test -f "$root/usr/lib/tmpfiles.d/kelp-pi-agent.conf" || fail "tmpfiles file missing"
 test -x "$root/usr/local/bin/kelp-pi" || fail "operator helper missing"
