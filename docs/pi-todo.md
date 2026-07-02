@@ -55,7 +55,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Pin Nuclei/Nmap/ZAP install or bundle strategy for aarch64.
 - [x] Add unprivileged `systemd-run` sandbox command path.
 - [x] Reload nftables scanner target set before sandboxed execution.
-- [ ] Persist raw scanner output and normalized findings.
+- [x] Persist raw scanner output and normalized findings.
 
 ## P5 - Bundles And Audit
 

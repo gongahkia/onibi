@@ -299,6 +299,14 @@ fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const nft_bin = option(args[1..], "--nft-bin") orelse default_nft_bin;
     const sandbox = hasFlag(args[1..], "--sandbox");
     const dry_run = hasFlag(args[1..], "--dry-run");
+    const run_id = option(args[1..], "--run-id") orelse "local";
+    if (!safePathSegment(run_id)) return fail("scan run id contains unsafe characters", 64);
+    var workspace_alloc: ?[]u8 = null;
+    defer if (workspace_alloc) |workspace_path| allocator.free(workspace_path);
+    const workspace = option(args[1..], "--workspace") orelse blk: {
+        workspace_alloc = try pathJoin3(allocator, data_dir, "scans", run_id);
+        break :blk workspace_alloc.?;
+    };
 
     const command = try std.fmt.allocPrint(allocator, "{s} {s}", .{ scanner, target });
     defer allocator.free(command);
@@ -327,12 +335,82 @@ fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const result = try std.process.Child.run(.{ .allocator = allocator, .argv = command_argv, .max_output_bytes = 10 * 1024 * 1024 });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
+    try persistScannerRun(allocator, workspace, run_id, scanner, target, result.stdout, result.stderr);
     const success = switch (result.term) {
         .Exited => |code| code == 0,
         else => false,
     };
     var out = std.fs.File.stdout().deprecatedWriter();
-    try out.print("{{\"ok\":{},\"scanner\":\"{s}\",\"target\":\"{s}\",\"sandboxed\":{},\"stdoutBytes\":{},\"stderrBytes\":{}}}\n", .{ success, scanner, target, sandbox, result.stdout.len, result.stderr.len });
+    try out.print("{{\"ok\":{},\"scanner\":\"{s}\",\"target\":\"{s}\",\"runId\":\"{s}\",\"workspace\":\"{s}\",\"sandboxed\":{},\"stdoutBytes\":{},\"stderrBytes\":{}}}\n", .{ success, scanner, target, run_id, workspace, sandbox, result.stdout.len, result.stderr.len });
+}
+
+fn persistScannerRun(allocator: std.mem.Allocator, workspace: []const u8, run_id: []const u8, scanner: []const u8, target: []const u8, stdout: []const u8, stderr: []const u8) !void {
+    const raw_dir = try pathJoin(allocator, workspace, "raw");
+    defer allocator.free(raw_dir);
+    try std.fs.cwd().makePath(raw_dir);
+    const stdout_name = try std.fmt.allocPrint(allocator, "{s}.stdout", .{scanner});
+    defer allocator.free(stdout_name);
+    const stderr_name = try std.fmt.allocPrint(allocator, "{s}.stderr", .{scanner});
+    defer allocator.free(stderr_name);
+    const stdout_path = try pathJoin(allocator, raw_dir, stdout_name);
+    defer allocator.free(stdout_path);
+    const stderr_path = try pathJoin(allocator, raw_dir, stderr_name);
+    defer allocator.free(stderr_path);
+    try writeFileWithParents(stdout_path, stdout);
+    try writeFileWithParents(stderr_path, stderr);
+    const metadata_path = try pathJoin(allocator, workspace, "scan.json");
+    defer allocator.free(metadata_path);
+    var metadata: std.ArrayList(u8) = .empty;
+    defer metadata.deinit(allocator);
+    var metadata_writer = metadata.writer(allocator);
+    try metadata_writer.print("{{\"schemaVersion\":\"kelp.pi.scan.v1\",\"runId\":\"", .{});
+    try writeJsonEscaped(&metadata_writer, run_id);
+    try metadata_writer.writeAll("\",\"scanner\":\"");
+    try writeJsonEscaped(&metadata_writer, scanner);
+    try metadata_writer.writeAll("\",\"target\":\"");
+    try writeJsonEscaped(&metadata_writer, target);
+    try metadata_writer.print("\",\"rawStdout\":\"raw/{s}\",\"rawStderr\":\"raw/{s}\"}}\n", .{ stdout_name, stderr_name });
+    try writeFileWithParents(metadata_path, metadata.items);
+    try writeNormalizedScannerFindings(allocator, workspace, scanner, stdout_name, stdout);
+}
+
+fn writeNormalizedScannerFindings(allocator: std.mem.Allocator, workspace: []const u8, scanner: []const u8, raw_stdout_name: []const u8, stdout: []const u8) !void {
+    const normalized_dir = try pathJoin(allocator, workspace, "normalized");
+    defer allocator.free(normalized_dir);
+    try std.fs.cwd().makePath(normalized_dir);
+    const findings_path = try pathJoin(allocator, normalized_dir, "findings.json");
+    defer allocator.free(findings_path);
+    var findings: std.ArrayList(u8) = .empty;
+    defer findings.deinit(allocator);
+    var writer = findings.writer(allocator);
+    try writer.writeAll("{\"schemaVersion\":\"kelp.pi.normalized-findings.v1\",\"findings\":[");
+    var count: usize = 0;
+    if (std.mem.eql(u8, scanner, "nuclei")) {
+        var lines = std.mem.splitScalar(u8, stdout, '\n');
+        while (lines.next()) |raw_line| {
+            const line = std.mem.trim(u8, raw_line, " \t\r");
+            if (line.len == 0) continue;
+            if (count != 0) try writer.writeAll(",");
+            const template_id = extractJsonField(line, "template-id") orelse "nuclei";
+            const matched_at = extractJsonField(line, "matched-at") orelse "";
+            const severity = extractJsonField(line, "severity") orelse "unknown";
+            const name = extractJsonField(line, "name") orelse template_id;
+            try writer.writeAll("{\"scanner\":\"nuclei\",\"templateId\":\"");
+            try writeJsonEscaped(&writer, template_id);
+            try writer.writeAll("\",\"name\":\"");
+            try writeJsonEscaped(&writer, name);
+            try writer.writeAll("\",\"severity\":\"");
+            try writeJsonEscaped(&writer, severity);
+            try writer.writeAll("\",\"matchedAt\":\"");
+            try writeJsonEscaped(&writer, matched_at);
+            try writer.writeAll("\",\"rawPath\":\"raw/");
+            try writeJsonEscaped(&writer, raw_stdout_name);
+            try writer.writeAll("\"}");
+            count += 1;
+        }
+    }
+    try writer.writeAll("]}\n");
+    try writeFileWithParents(findings_path, findings.items);
 }
 
 fn indexCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -1501,6 +1579,33 @@ test "bundle core files include session transcript in manifest" {
     const manifest = try writeSignedManifest(std.testing.allocator, output, "run-a", key);
     defer std.testing.allocator.free(manifest);
     try std.testing.expect(std.mem.indexOf(u8, manifest, "\"path\":\"transcript.jsonl\"") != null);
+}
+
+test "scanner fixture output persists raw and normalized findings" {
+    const root = try testTempPath(std.testing.allocator, "scanner-persist");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    const workspace = try pathJoin(std.testing.allocator, root, "workspace");
+    defer std.testing.allocator.free(workspace);
+    const stdout_payload =
+        "{\"template-id\":\"fixture-check\",\"matched-at\":\"http://fixture.local\",\"info\":{\"name\":\"Fixture Finding\",\"severity\":\"medium\"}}\n";
+    try persistScannerRun(std.testing.allocator, workspace, "run-a", "nuclei", "http://fixture.local", stdout_payload, "fixture stderr\n");
+    const stdout_path = try pathJoin3(std.testing.allocator, workspace, "raw", "nuclei.stdout");
+    defer std.testing.allocator.free(stdout_path);
+    const stderr_path = try pathJoin3(std.testing.allocator, workspace, "raw", "nuclei.stderr");
+    defer std.testing.allocator.free(stderr_path);
+    const normalized_path = try pathJoin3(std.testing.allocator, workspace, "normalized", "findings.json");
+    defer std.testing.allocator.free(normalized_path);
+    const stdout = try std.fs.cwd().readFileAlloc(std.testing.allocator, stdout_path, 64 * 1024);
+    defer std.testing.allocator.free(stdout);
+    const stderr = try std.fs.cwd().readFileAlloc(std.testing.allocator, stderr_path, 64 * 1024);
+    defer std.testing.allocator.free(stderr);
+    const normalized = try std.fs.cwd().readFileAlloc(std.testing.allocator, normalized_path, 64 * 1024);
+    defer std.testing.allocator.free(normalized);
+    try std.testing.expect(std.mem.indexOf(u8, stdout, "fixture-check") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr, "fixture stderr") != null);
+    try std.testing.expect(std.mem.indexOf(u8, normalized, "\"templateId\":\"fixture-check\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, normalized, "\"severity\":\"medium\"") != null);
 }
 
 fn testTempPath(allocator: std.mem.Allocator, prefix: []const u8) ![]u8 {
