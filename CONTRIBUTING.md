@@ -1,5 +1,17 @@
 # Contributing
 
+## Local Source Quickstart
+
+```sh
+make build
+./bin/onibi install-hooks --agent claude
+./bin/onibi up
+```
+
+Use the source-built `./bin/onibi` path for local development and docs changes.
+
+## Checks
+
 Run the local checks before opening a PR:
 
 ```sh

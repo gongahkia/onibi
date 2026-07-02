@@ -21,13 +21,13 @@ Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux 
 ## Quick Start
 
 ```bash
-make build
-./bin/onibi install-hooks --agent claude
-./bin/onibi up
+brew install gongahkia/onibi/onibi
+onibi install-hooks --agent claude
+onibi up
 ```
 
-`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `./bin/onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
-Run `./bin/onibi status`, `./bin/onibi update-check`, and `./bin/onibi doctor --fix` when validating an install or upgrade.
+`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
+Run `onibi status`, `onibi update-check`, and `onibi doctor --fix` when validating an install or upgrade. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:
 
