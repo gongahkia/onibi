@@ -15,6 +15,7 @@ class Onibi < Formula
   def install
     bin.install "onibi"
     bin.install "onibi-notify"
+    generate_completions_from_executable(bin/"onibi", "completion")
   end
 
   test do
