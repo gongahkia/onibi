@@ -116,6 +116,34 @@ func TestUpNoArgFallsBackWithoutLastUsedProfile(t *testing.T) {
 	}
 }
 
+func TestUpDetachInstallsServiceAndPrintsPIDLog(t *testing.T) {
+	paths := withDefaultState(t)
+	oldInstall := installServiceRun
+	oldPID := upServicePID
+	installed := false
+	installServiceRun = func(cmd *cobra.Command, _ []string) error {
+		installed = true
+		cmd.Println("service install stub")
+		return nil
+	}
+	upServicePID = func(context.Context) (int, bool, error) {
+		return 4242, true, nil
+	}
+	t.Cleanup(func() {
+		installServiceRun = oldInstall
+		upServicePID = oldPID
+	})
+	out, _ := executeRoot(t, "up", "--detach", "--color", "never")
+	for _, want := range []string{"service install stub", "PID: 4242", filepath.Join(paths.LogDir, "onibi.log")} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("detach output missing %q: %q", want, out.String())
+		}
+	}
+	if !installed {
+		t.Fatal("install service was not called")
+	}
+}
+
 func TestWebPairURLsIncludesFallbacks(t *testing.T) {
 	got := webPairURLs("tok", 8443, []string{"192.168.1.31", "host.local", ""}, "host.local")
 	want := []string{

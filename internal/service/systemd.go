@@ -45,6 +45,15 @@ func (m *Manager) restartSystemd(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) systemdPID(ctx context.Context) (int, bool, error) {
+	out, err := m.Runner.Run(ctx, "systemctl", "--user", "show", "--property", "MainPID", "--value", UnitName)
+	if err != nil {
+		return 0, false, fmt.Errorf("systemctl show MainPID: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	pid, ok := parsePID(string(out))
+	return pid, ok, nil
+}
+
 func (m *Manager) systemdStatus(ctx context.Context) Status {
 	path, err := m.ServicePath()
 	if err != nil {

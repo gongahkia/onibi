@@ -38,6 +38,13 @@ import (
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
 var sshUpRun = runSSHUp
+var upServicePID = func(ctx context.Context) (int, bool, error) {
+	m, err := serviceManager()
+	if err != nil {
+		return 0, false, err
+	}
+	return m.PID(ctx)
+}
 var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
@@ -63,6 +70,7 @@ func upCmd() *cobra.Command {
 	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
 	cmd.Flags().Bool("visible", false, "open the managed session in a Mac terminal immediately")
+	cmd.Flags().Bool("detach", false, "start the background service and return")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
 	cmd.Flags().String("log-file", "", "also write up logs to this file")
 	cmd.Flags().String("ssh", "", "bootstrap and tunnel a remote host, user@host[:port]")
@@ -77,6 +85,13 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 	if err := paths.EnsureDirs(); err != nil {
 		return err
+	}
+	detach, _ := cmd.Flags().GetBool("detach")
+	if detach {
+		if len(args) > 0 {
+			return errors.New("--detach cannot be combined with a profile")
+		}
+		return runUpDetach(cmd, paths)
 	}
 	if target, _ := cmd.Flags().GetString("ssh"); strings.TrimSpace(target) != "" {
 		return sshUpRun(cmd, target)
@@ -97,6 +112,24 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 
 	return webPairRun(cmd, paths, db)
+}
+
+func runUpDetach(cmd *cobra.Command, paths config.Paths) error {
+	if err := installServiceRun(cmd, nil); err != nil {
+		return err
+	}
+	pid, ok, err := upServicePID(nonNilContext(cmd.Context()))
+	if err != nil {
+		return err
+	}
+	pidText := "unavailable"
+	if ok {
+		pidText = strconv.Itoa(pid)
+	}
+	logPath := filepath.Join(paths.LogDir, "onibi.log")
+	fmt.Fprintf(cmd.OutOrStdout(), "PID: %s\n", pidText)
+	fmt.Fprintf(cmd.OutOrStdout(), "Log: %s\n", logPath)
+	return nil
 }
 
 func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {

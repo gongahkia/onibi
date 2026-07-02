@@ -136,3 +136,41 @@ func TestRestartSystemdRestartsUserUnit(t *testing.T) {
 		t.Fatalf("calls = %#v", r.calls)
 	}
 }
+
+func TestLaunchdPIDParsesPrintOutput(t *testing.T) {
+	r := &fakeRunner{out: []byte("state = running\npid = 12345\n")}
+	m := &Manager{
+		Paths:      testPaths(t),
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "darwin",
+		Home:       t.TempDir(),
+		UID:        501,
+	}
+	pid, ok, err := m.PID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || pid != 12345 {
+		t.Fatalf("pid=%d ok=%v", pid, ok)
+	}
+}
+
+func TestSystemdPIDParsesMainPID(t *testing.T) {
+	r := &fakeRunner{out: []byte("23456\n")}
+	m := &Manager{
+		Paths:      testPaths(t),
+		Executable: "/usr/local/bin/onibi",
+		Runner:     r,
+		GOOS:       "linux",
+		Home:       t.TempDir(),
+		UID:        1000,
+	}
+	pid, ok, err := m.PID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || pid != 23456 {
+		t.Fatalf("pid=%d ok=%v", pid, ok)
+	}
+}

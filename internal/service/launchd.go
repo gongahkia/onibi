@@ -48,6 +48,21 @@ func (m *Manager) restartLaunchd(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) launchdPID(ctx context.Context) (int, bool, error) {
+	out, err := m.Runner.Run(ctx, "launchctl", "print", fmt.Sprintf("gui/%d/%s", m.UID, Label))
+	if err != nil {
+		return 0, false, fmt.Errorf("launchctl print: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "pid = ") {
+			pid, ok := parsePID(strings.TrimPrefix(line, "pid = "))
+			return pid, ok, nil
+		}
+	}
+	return 0, false, nil
+}
+
 func (m *Manager) launchdStatus(ctx context.Context) Status {
 	path, err := m.ServicePath()
 	if err != nil {

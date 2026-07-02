@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/gongahkia/onibi/internal/config"
 )
@@ -119,6 +121,20 @@ func (m *Manager) Restart(ctx context.Context) error {
 	}
 }
 
+func (m *Manager) PID(ctx context.Context) (int, bool, error) {
+	if err := m.ensure(); err != nil {
+		return 0, false, err
+	}
+	switch m.GOOS {
+	case "darwin":
+		return m.launchdPID(ctx)
+	case "linux":
+		return m.systemdPID(ctx)
+	default:
+		return 0, false, fmt.Errorf("unsupported os: %s", m.GOOS)
+	}
+}
+
 // Status reports whether the service file exists and appears to be running.
 func (m *Manager) Status(ctx context.Context) Status {
 	if err := m.ensure(); err != nil {
@@ -132,6 +148,14 @@ func (m *Manager) Status(ctx context.Context) Status {
 	default:
 		return Status{Detail: "unsupported os: " + m.GOOS}
 	}
+}
+
+func parsePID(raw string) (int, bool) {
+	pid, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 // ServicePath returns the service-file path for the manager platform.
