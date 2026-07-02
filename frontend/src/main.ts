@@ -294,8 +294,22 @@ function refreshPushOnOpen(): void {
   void refreshPushSubscription(postJSON).catch(() => {});
 }
 
-function postControl(sessionID: string, action: string): void {
-  void postJSON("/control", { session_id: sessionID, action });
+async function postControl(sessionID: string, action: string): Promise<void> {
+  try {
+    const response = await postJSON("/control", { session_id: sessionID, action });
+    if (!response.ok) {
+      const text = await response.text();
+      let body = {} as { message?: unknown };
+      try {
+        body = text === "" ? {} : (JSON.parse(text) as { message?: unknown });
+      } catch {
+        body = {};
+      }
+      showToast(typeof body.message === "string" ? body.message : text.trim() || `control ${response.status}`);
+    }
+  } catch {
+    showToast("Control failed.");
+  }
 }
 
 function connectTerminal(info: SessionInfo): void {
