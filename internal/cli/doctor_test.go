@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -122,6 +123,17 @@ func TestDoctorReleaseModeIncludesUpdateTelegramAndAfterUpgrade(t *testing.T) {
 		if !hasDoctorCheck(report, want) {
 			t.Fatalf("missing %q in %#v", want, report.Checks)
 		}
+	}
+}
+
+func TestTelegramOptionalDoctorUsesEnvToken(t *testing.T) {
+	paths := withDefaultState(t)
+	withDotenvSecretStore(t)
+	t.Setenv(telegramTokenEnv, cliTelegramTestToken)
+
+	check := telegramOptionalDoctorCheck(context.Background(), paths)
+	if check.Status != doctor.Warn || check.Detail != "partially configured" {
+		t.Fatalf("check = %+v", check)
 	}
 }
 

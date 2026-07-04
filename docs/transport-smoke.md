@@ -35,9 +35,11 @@ ONIBI_LIVE_TAILSCALE=1 go test ./internal/web/transport -run LiveTailscale
 
 ```bash
 ONIBI_LIVE_TELEGRAM_TOKEN=... ONIBI_LIVE_TELEGRAM_CHAT_ID=... go test ./internal/telegram ./internal/daemon -run LiveTelegram
+ONIBI_TELEGRAM_TOKEN="$ONIBI_LIVE_TELEGRAM_TOKEN" onibi telegram status --check
 ```
 
-- Run `onibi telegram setup`, then `onibi up --transport=telegram`.
+- Run `onibi telegram setup` or `onibi telegram setup --no-check --token "$ONIBI_LIVE_TELEGRAM_TOKEN"` for offline secret-store setup.
+- Run `onibi telegram status --check`, then `onibi up --transport=telegram`.
 - Pair with `/start <code>`.
 - Check `/new shell`, plain text input, long output chunking, `/target`, approval Approve/Deny/Edit, and restart persistence.
 - Optional: repeat with `ONIBI_LIVE_CLAUDE=1` and `ONIBI_LIVE_CODEX=1` using real agent approval flows.

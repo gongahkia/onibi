@@ -24,6 +24,8 @@ import (
 var newTelegramClient = telegram.NewClient
 var openSecretStore = secrets.Open
 
+const telegramTokenEnv = "ONIBI_TELEGRAM_TOKEN"
+
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "telegram",
@@ -36,6 +38,7 @@ func telegramCmd() *cobra.Command {
 		RunE:  runTelegramSetup,
 	}
 	setup.Flags().String("token", "", "BotFather token")
+	setup.Flags().Bool("no-check", false, "store token after local syntax validation only")
 	status := &cobra.Command{
 		Use:   "status",
 		Short: "Show Telegram setup state",
@@ -65,9 +68,17 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-	user, err := validateTelegramToken(cmd.Context(), token)
-	if err != nil {
-		return err
+	noCheck, _ := cmd.Flags().GetBool("no-check")
+	var user telegram.User
+	if noCheck {
+		if !telegram.ValidBotToken(token) {
+			return errors.New("token does not look like a BotFather token")
+		}
+	} else {
+		user, err = validateTelegramToken(cmd.Context(), token)
+		if err != nil {
+			return err
+		}
 	}
 	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
@@ -76,13 +87,24 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 	if err := st.Set(daemon.TelegramSecretBotToken, strings.TrimSpace(token)); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s Stored Telegram bot @%s\n", styleFor(cmd).green("[OK]"), user.Username)
+	if noCheck {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Stored Telegram bot token (live check skipped)\n", styleFor(cmd).green("[OK]"))
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Stored Telegram bot @%s\n", styleFor(cmd).green("[OK]"), user.Username)
+	}
 	if _, ok, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID); !ok {
 		code, err := ensureTelegramPairCode(cmd.Context(), db)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to @%s while `onibi up --transport=telegram` is running.\n", code, user.Username)
+		if noCheck {
+			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s while `onibi up --transport=telegram` is running.\n", code)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to @%s while `onibi up --transport=telegram` is running.\n", code, user.Username)
+		}
+	}
+	if noCheck {
+		fmt.Fprintln(cmd.OutOrStdout(), "Check: onibi telegram status --check")
 	}
 	return nil
 }
@@ -98,11 +120,17 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	token, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
+	secretBackend := string(st.Backend())
+	if envToken := strings.TrimSpace(os.Getenv(telegramTokenEnv)); envToken != "" {
+		token = envToken
+		tokenOK = true
+		secretBackend = "env"
+	}
 	owner, ownerOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID)
 	liveCheck, _ := cmd.Flags().GetBool("check")
 	report := telegramStatusReport{
 		Token:         tokenOK,
-		SecretBackend: string(st.Backend()),
+		SecretBackend: secretBackend,
 		OwnerPaired:   ownerOK,
 		OwnerChatID:   owner,
 		Check:         liveCheck,
@@ -126,7 +154,7 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	}
 	style := styleFor(cmd)
 	rows := [][]string{
-		{"token", style.bool(tokenOK), string(st.Backend())},
+		{"token", style.bool(report.Token), report.SecretBackend},
 		{"owner_chat_id", style.bool(ownerOK), owner},
 	}
 	if liveCheck {
@@ -160,7 +188,11 @@ func telegramStatusNext(report telegramStatusReport) []string {
 		return next
 	}
 	if report.Check && report.TokenValid != nil && !*report.TokenValid {
-		next = append(next, "onibi telegram setup")
+		if report.SecretBackend == "env" {
+			next = append(next, "set "+telegramTokenEnv)
+		} else {
+			next = append(next, "onibi telegram setup")
+		}
 		return next
 	}
 	if !report.OwnerPaired {
@@ -244,7 +276,7 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 }
 
 func telegramTokenForUp(cmd *cobra.Command, paths config.Paths) (string, telegram.User, error) {
-	if token := strings.TrimSpace(os.Getenv("ONIBI_TELEGRAM_TOKEN")); token != "" {
+	if token := strings.TrimSpace(os.Getenv(telegramTokenEnv)); token != "" {
 		u, err := validateTelegramToken(cmd.Context(), token)
 		return token, u, err
 	}
@@ -259,7 +291,7 @@ func telegramTokenForUp(cmd *cobra.Command, paths config.Paths) (string, telegra
 		return token, u, err
 	}
 	if !inputIsTerminal(cmd.InOrStdin()) {
-		return "", telegram.User{}, errors.New("telegram token missing; run `onibi telegram setup` or set ONIBI_TELEGRAM_TOKEN")
+		return "", telegram.User{}, errors.New("telegram token missing; run `onibi telegram setup` or set " + telegramTokenEnv)
 	}
 	token, err := promptTelegramToken(cmd)
 	if err != nil {

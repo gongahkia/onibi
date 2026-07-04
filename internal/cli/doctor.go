@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -144,7 +145,8 @@ func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor
 	if err != nil {
 		return doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: err.Error(), Code: "telegram_optional", Next: "onibi telegram status"}
 	}
-	_, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
+	_, storedTokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
+	tokenOK := storedTokenOK || strings.TrimSpace(os.Getenv(telegramTokenEnv)) != ""
 	_, ownerOK, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
 	if !tokenOK && !ownerOK {
 		return doctor.Check{Name: "telegram optional", Status: doctor.Pass, Detail: "not configured; optional", Code: "telegram_optional"}

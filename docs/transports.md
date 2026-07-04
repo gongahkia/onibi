@@ -79,8 +79,11 @@ Operational notes:
 
 ```bash
 onibi telegram setup
+onibi telegram status --check
 onibi up --transport=telegram
 ```
+
+Use `onibi telegram setup --no-check --token "$ONIBI_TELEGRAM_TOKEN"` only when you need offline secret-store setup; run `onibi telegram status --check` before live use.
 
 Natural text input:
 

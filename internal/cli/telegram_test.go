@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -65,6 +66,53 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 		if _, ok, err := db.KVGetString(context.Background(), key); err != nil || ok {
 			t.Fatalf("%s after disable ok=%v err=%v", key, ok, err)
 		}
+	}
+}
+
+func TestTelegramSetupNoCheckStoresLocalToken(t *testing.T) {
+	paths := withDefaultState(t)
+	withDotenvSecretStore(t)
+	old := newTelegramClient
+	newTelegramClient = func(string) *telegram.Client {
+		t.Fatal("no-check must not call Telegram")
+		return nil
+	}
+	t.Cleanup(func() { newTelegramClient = old })
+
+	out, _ := executeRoot(t, "telegram", "setup", "--no-check", "--token", cliTelegramTestToken, "--color", "never")
+	for _, want := range []string{"live check skipped", "Pair: send /start", "Check: onibi telegram status --check"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("setup output missing %q:\n%s", want, out.String())
+		}
+	}
+	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := st.Get(daemon.TelegramSecretBotToken); err != nil || !ok || got != cliTelegramTestToken {
+		t.Fatalf("stored token got=%q ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestTelegramStatusUsesEnvToken(t *testing.T) {
+	withDefaultState(t)
+	withDotenvSecretStore(t)
+	withFakeTelegramClient(t)
+	t.Setenv(telegramTokenEnv, cliTelegramTestToken)
+
+	out, _ := executeRoot(t, "telegram", "status", "--json", "--check", "--color", "never")
+	var status telegramStatusReport
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status json: %v\n%s", err, out.String())
+	}
+	if !status.Token || status.SecretBackend != "env" || status.TokenValid == nil || !*status.TokenValid {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestTelegramRemainsExplicitOptInDefaultTransport(t *testing.T) {
+	if got := config.Default().Transport.Mode; got != "lan" {
+		t.Fatalf("default transport = %q", got)
 	}
 }
 
