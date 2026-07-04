@@ -63,6 +63,12 @@ GoReleaser is configured to sign/notarize only when these env vars are set:
 Release artifacts include SBOMs and SHA256 checksums. Tagged public releases
 sign `checksums.txt` with the imported GPG key.
 
+The release workflow exports the imported GPG public key and GoReleaser embeds
+it into the `onibi` binary through `buildinfo.ReleasePublicKeyB64`. `onibi
+update` refuses to apply a release unless `checksums.txt.sig` verifies with that
+embedded key, the selected archive hash matches `checksums.txt`, and, on macOS,
+the extracted binary passes `codesign --verify`.
+
 `onibi update-check` prints release-archive upgrade commands that always verify
 the selected tarball against `checksums.txt` before install. If
 `ONIBI_RELEASE_GPG_KEY` contains the public signing key and `gpg` is available,

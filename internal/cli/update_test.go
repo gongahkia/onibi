@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/armor"
@@ -225,6 +227,22 @@ func TestUpdateBadSignatureAborts(t *testing.T) {
 	_, _, err := executeRootAllowError(t, "update", "--channel", "stable", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "verify checksums signature") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUpdateUsesEmbeddedReleasePublicKey(t *testing.T) {
+	oldOverride := updateReleasePublicKey
+	oldEmbedded := buildinfo.ReleasePublicKeyB64
+	updateReleasePublicKey = ""
+	t.Cleanup(func() {
+		updateReleasePublicKey = oldOverride
+		buildinfo.ReleasePublicKeyB64 = oldEmbedded
+	})
+	checksums := []byte("abc")
+	pub, sig := testUpdateSignature(t, checksums)
+	buildinfo.ReleasePublicKeyB64 = base64.StdEncoding.EncodeToString([]byte(pub))
+	if err := verifyUpdateSignature(checksums, sig); err != nil {
+		t.Fatalf("verifyUpdateSignature: %v", err)
 	}
 }
 

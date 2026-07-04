@@ -47,6 +47,14 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: export gpg public key
+        id: export_gpg_public_key
+        env:
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+        run: |
+          key="$(gpg --armor --export "$GPG_FINGERPRINT" | base64 | tr -d '\n')"
+          test -n "$key"
+          echo "key_b64=$key" >> "$GITHUB_OUTPUT"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
@@ -54,6 +62,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GPG_PUBLIC_KEY_B64: ${{ steps.export_gpg_public_key.outputs.key_b64 }}
           # Public tags require Apple signing/notarization and tap publish secrets.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}

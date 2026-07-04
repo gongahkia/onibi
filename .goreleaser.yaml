@@ -30,6 +30,7 @@ builds:
       - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
       - -X github.com/gongahkia/onibi/internal/buildinfo.Commit={{.Commit}}
       - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
+      - -X github.com/gongahkia/onibi/internal/buildinfo.ReleasePublicKeyB64={{ envOrDefault "GPG_PUBLIC_KEY_B64" "" }}
     hooks:
       post:
         - cmd: scripts/release-e2e-gate.sh "{{ .Path }}"

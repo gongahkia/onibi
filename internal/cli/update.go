@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/minio/selfupdate"
@@ -337,7 +338,7 @@ func getUpdateBytes(ctx context.Context, rawURL string, limit int64) ([]byte, er
 }
 
 func verifyUpdateSignature(checksums, signature []byte) error {
-	key := strings.TrimSpace(updateReleasePublicKey)
+	key := updateVerificationPublicKey()
 	if key == "" {
 		return errors.New("release public key not configured")
 	}
@@ -349,6 +350,13 @@ func verifyUpdateSignature(checksums, signature []byte) error {
 		return fmt.Errorf("verify checksums signature: %w", err)
 	}
 	return nil
+}
+
+func updateVerificationPublicKey() string {
+	if key := strings.TrimSpace(updateReleasePublicKey); key != "" {
+		return key
+	}
+	return buildinfo.ReleasePublicKey()
 }
 
 func verifyUpdateChecksum(asset string, archiveBytes, checksums []byte) error {
