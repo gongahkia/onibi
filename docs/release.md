@@ -74,6 +74,11 @@ the selected tarball against `checksums.txt` before install. If
 `ONIBI_RELEASE_GPG_KEY` contains the public signing key and `gpg` is available,
 the same command also verifies `checksums.txt.sig` before extracting binaries.
 
+`scripts/install.sh` is the curl installer template. Publish it only after
+replacing `__ONIBI_RELEASE_GPG_KEY_B64__` with the same base64 public key used by
+the release workflow. The unrendered template fails closed instead of installing
+without signature verification.
+
 No release notes may claim notarization passed unless the tagged release was
 built with those values and verified on a clean Mac using
 `scripts/manual-e2e-release.md`.
