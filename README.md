@@ -65,6 +65,7 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ./bin/onibi pair
 ./bin/onibi share <session-id>
 ./bin/onibi telegram setup
+./bin/onibi cloudflare setup
 ./bin/onibi devices
 ./bin/onibi unpair <device-id>
 ./bin/onibi install-hooks --interactive

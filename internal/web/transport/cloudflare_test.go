@@ -2,7 +2,10 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
@@ -94,6 +97,54 @@ func TestCloudflareNamedEnableRunState(t *testing.T) {
 	}
 }
 
+func TestCloudflareNamedEnableWithKeychainAPIToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts/account-1/cfd_tunnel/tunnel-id/token" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer cf-api-token-1234567890" {
+			t.Fatalf("authorization = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": "cf-tunnel-token"})
+	}))
+	t.Cleanup(srv.Close)
+	proc := newFakeProcess("INF Registered tunnel connection connIndex=0")
+	pr := &fakeProcessRunner{proc: proc}
+	cf := &CloudflareNamed{
+		Bin:        "cloudflared",
+		Tunnel:     "named",
+		TunnelID:   "tunnel-id",
+		Hostname:   "app.example.com",
+		AccountID:  "account-1",
+		APIToken:   "cf-api-token-1234567890",
+		APIBaseURL: srv.URL,
+		HTTPClient: srv.Client(),
+		processes:  pr,
+	}
+	if err := cf.Enable(context.Background(), 8443); err != nil {
+		t.Fatal(err)
+	}
+	if len(pr.calls) != 0 {
+		t.Fatalf("token leaked through args: %#v", pr.calls)
+	}
+	wantEnvCalls := []envProcessCall{{
+		env:  []string{"TUNNEL_TOKEN=cf-tunnel-token"},
+		call: []string{"cloudflared", "tunnel", "run"},
+	}}
+	if !reflect.DeepEqual(pr.envCalls, wantEnvCalls) {
+		t.Fatalf("env calls = %#v", pr.envCalls)
+	}
+}
+
+func TestCloudflareNamedAPITokenRequiresAccountID(t *testing.T) {
+	cf := &CloudflareNamed{Bin: "cloudflared", Tunnel: "named", TunnelID: "tunnel-id", Hostname: "app.example.com", APIToken: "cf-api-token-1234567890"}
+	err := cf.Check(context.Background())
+	var diag *DiagnosticError
+	if !errors.As(err, &diag) || diag.Code != DiagAuthMissing || !strings.Contains(err.Error(), CloudflareAccountIDEnv) {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
 type fakeCommandRunner struct {
 	outputs map[string][]byte
 	errs    map[string]error
@@ -115,13 +166,24 @@ func (r *fakeCommandRunner) Run(_ context.Context, name string, args ...string) 
 }
 
 type fakeProcessRunner struct {
-	proc  *fakeProcess
-	calls [][]string
+	proc     *fakeProcess
+	calls    [][]string
+	envCalls []envProcessCall
 }
 
 func (r *fakeProcessRunner) Start(_ context.Context, name string, args ...string) (managedProcess, error) {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	return r.proc, nil
+}
+
+func (r *fakeProcessRunner) StartEnv(_ context.Context, env []string, name string, args ...string) (managedProcess, error) {
+	r.envCalls = append(r.envCalls, envProcessCall{env: append([]string(nil), env...), call: append([]string{name}, args...)})
+	return r.proc, nil
+}
+
+type envProcessCall struct {
+	env  []string
+	call []string
 }
 
 type fakeProcess struct {

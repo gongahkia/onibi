@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -12,18 +14,28 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/secrets"
 )
 
 const (
 	CloudflaredBinEnv             = "ONIBI_CLOUDFLARED_BIN"
 	CloudflareTunnelEnv           = "ONIBI_CLOUDFLARE_TUNNEL"
 	CloudflareTunnelNameEnv       = "ONIBI_CLOUDFLARE_TUNNEL_NAME"
+	CloudflareTunnelIDEnv         = "ONIBI_CLOUDFLARE_TUNNEL_ID"
 	CloudflareHostnameEnv         = "ONIBI_CLOUDFLARE_HOSTNAME"
+	CloudflareAccountIDEnv        = "ONIBI_CLOUDFLARE_ACCOUNT_ID"
+	CloudflareAPITokenEnv         = "ONIBI_CLOUDFLARE_API_TOKEN"
+	CloudflareTunnelTokenEnv      = "ONIBI_CLOUDFLARE_TUNNEL_TOKEN"
+	CloudflareAPIBaseEnv          = "ONIBI_CLOUDFLARE_API_BASE"
 	CloudflareNamedTeardownEnv    = "ONIBI_CLOUDFLARE_TEARDOWN"
+	CloudflareSecretAPIToken      = "CLOUDFLARE_API_TOKEN"
 	cloudflareQuickProvider       = "cloudflare-quick"
 	cloudflareNamedProvider       = "cloudflare-named"
 	cloudflareActivationWait      = 20 * time.Second
 	cloudflareNamedReadySubstring = "registered tunnel connection"
+	defaultCloudflareAPIBase      = "https://api.cloudflare.com/client/v4"
 )
 
 var tryCloudflareURLRe = regexp.MustCompile(`https://[A-Za-z0-9-]+\.trycloudflare\.com\b`)
@@ -38,16 +50,22 @@ type CloudflareQuick struct {
 }
 
 type CloudflareNamed struct {
-	Bin       string
-	Tunnel    string
-	Hostname  string
-	Teardown  bool
-	runner    commandRunner
-	processes processRunner
-	lookPath  func(string) (string, error)
-	mu        sync.Mutex
-	process   managedProcess
-	publicURL string
+	Bin         string
+	Tunnel      string
+	TunnelID    string
+	Hostname    string
+	AccountID   string
+	APIToken    string
+	TunnelToken string
+	APIBaseURL  string
+	HTTPClient  *http.Client
+	Teardown    bool
+	runner      commandRunner
+	processes   processRunner
+	lookPath    func(string) (string, error)
+	mu          sync.Mutex
+	process     managedProcess
+	publicURL   string
 }
 
 func NewCloudflareQuick() *CloudflareQuick {
@@ -60,13 +78,19 @@ func NewCloudflareNamedFromEnv() *CloudflareNamed {
 		tunnel = strings.TrimSpace(os.Getenv(CloudflareTunnelNameEnv))
 	}
 	return &CloudflareNamed{
-		Bin:       cloudflaredBin(),
-		Tunnel:    tunnel,
-		Hostname:  strings.TrimSpace(os.Getenv(CloudflareHostnameEnv)),
-		Teardown:  truthy(os.Getenv(CloudflareNamedTeardownEnv)),
-		runner:    execCommandRunner{},
-		processes: execProcessRunner{},
-		lookPath:  exec.LookPath,
+		Bin:         cloudflaredBin(),
+		Tunnel:      tunnel,
+		TunnelID:    strings.TrimSpace(os.Getenv(CloudflareTunnelIDEnv)),
+		Hostname:    strings.TrimSpace(os.Getenv(CloudflareHostnameEnv)),
+		AccountID:   strings.TrimSpace(os.Getenv(CloudflareAccountIDEnv)),
+		APIToken:    cloudflareAPIToken(),
+		TunnelToken: strings.TrimSpace(os.Getenv(CloudflareTunnelTokenEnv)),
+		APIBaseURL:  cloudflareAPIBase(),
+		HTTPClient:  http.DefaultClient,
+		Teardown:    truthy(os.Getenv(CloudflareNamedTeardownEnv)),
+		runner:      execCommandRunner{},
+		processes:   execProcessRunner{},
+		lookPath:    exec.LookPath,
 	}
 }
 
@@ -75,6 +99,25 @@ func cloudflaredBin() string {
 		return bin
 	}
 	return "cloudflared"
+}
+
+func cloudflareAPIToken() string {
+	if token := strings.TrimSpace(os.Getenv(CloudflareAPITokenEnv)); token != "" {
+		return token
+	}
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return ""
+	}
+	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	if err != nil {
+		return ""
+	}
+	token, ok, err := st.Get(CloudflareSecretAPIToken)
+	if err != nil || !ok {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 func (c *CloudflareQuick) Check(context.Context) error {
@@ -146,6 +189,10 @@ func (c *CloudflareNamed) Check(ctx context.Context) error {
 	if _, err := namedURL(c.Hostname); err != nil {
 		return err
 	}
+	if c.usesTokenAuth() {
+		_, err := c.resolveTunnelToken(ctx)
+		return err
+	}
 	runner := c.runner
 	if runner == nil {
 		runner = execCommandRunner{}
@@ -178,7 +225,14 @@ func (c *CloudflareNamed) Enable(ctx context.Context, localPort int) error {
 	if runner == nil {
 		runner = execProcessRunner{}
 	}
-	proc, err := runner.Start(ctx, c.bin(), "tunnel", "run", c.Tunnel)
+	var proc managedProcess
+	if token, tokenErr := c.resolveTunnelToken(ctx); tokenErr != nil {
+		return tokenErr
+	} else if token != "" {
+		proc, err = startCloudflaredWithToken(ctx, runner, c.bin(), token)
+	} else {
+		proc, err = runner.Start(ctx, c.bin(), "tunnel", "run", c.Tunnel)
+	}
 	if err != nil {
 		return err
 	}
@@ -217,6 +271,136 @@ func (c *CloudflareNamed) bin() string {
 		return "cloudflared"
 	}
 	return strings.TrimSpace(c.Bin)
+}
+
+func (c *CloudflareNamed) usesTokenAuth() bool {
+	return strings.TrimSpace(c.TunnelToken) != "" || strings.TrimSpace(c.APIToken) != ""
+}
+
+func (c *CloudflareNamed) resolveTunnelToken(ctx context.Context) (string, error) {
+	if token := strings.TrimSpace(c.TunnelToken); token != "" {
+		return token, nil
+	}
+	apiToken := strings.TrimSpace(c.APIToken)
+	if apiToken == "" {
+		return "", nil
+	}
+	accountID := strings.TrimSpace(c.AccountID)
+	if accountID == "" {
+		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "ONIBI_CLOUDFLARE_ACCOUNT_ID required for keychain API token auth", nil)
+	}
+	tunnelID := strings.TrimSpace(c.TunnelID)
+	if tunnelID == "" {
+		tunnelID = strings.TrimSpace(c.Tunnel)
+	}
+	if tunnelID == "" {
+		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, CloudflareTunnelIDEnv+" required for keychain API token auth", nil)
+	}
+	token, err := fetchCloudflareTunnelToken(ctx, c.httpClient(), c.apiBaseURL(), accountID, tunnelID, apiToken)
+	if err != nil {
+		return "", err
+	}
+	c.TunnelToken = token
+	return token, nil
+}
+
+func (c *CloudflareNamed) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return http.DefaultClient
+}
+
+func (c *CloudflareNamed) apiBaseURL() string {
+	if strings.TrimSpace(c.APIBaseURL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.APIBaseURL), "/")
+	}
+	return defaultCloudflareAPIBase
+}
+
+func startCloudflaredWithToken(ctx context.Context, runner processRunner, bin, token string) (managedProcess, error) {
+	envRunner, ok := runner.(envProcessRunner)
+	if !ok {
+		return nil, Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "process runner cannot pass TUNNEL_TOKEN securely", nil)
+	}
+	return envRunner.StartEnv(ctx, []string{"TUNNEL_TOKEN=" + token}, bin, "tunnel", "run")
+}
+
+func cloudflareAPIBase() string {
+	if base := strings.TrimSpace(os.Getenv(CloudflareAPIBaseEnv)); base != "" {
+		return strings.TrimRight(base, "/")
+	}
+	return defaultCloudflareAPIBase
+}
+
+type cloudflareTunnelTokenResponse struct {
+	Success bool `json:"success"`
+	Result  any  `json:"result"`
+	Errors  []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+func fetchCloudflareTunnelToken(ctx context.Context, client *http.Client, baseURL, accountID, tunnelID, apiToken string) (string, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	u := strings.TrimRight(baseURL, "/") + "/accounts/" + url.PathEscape(accountID) + "/cfd_tunnel/" + url.PathEscape(tunnelID) + "/token"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	var out cloudflareTunnelTokenResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "Cloudflare tunnel token response was not JSON", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !out.Success {
+		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, cloudflareAPIErrorMessage(resp.StatusCode, out.Errors), nil)
+	}
+	token := cloudflareTunnelTokenValue(out.Result)
+	if token == "" {
+		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "Cloudflare tunnel token response missing token", nil)
+	}
+	return token, nil
+}
+
+func cloudflareAPIErrorMessage(status int, errs []struct {
+	Message string `json:"message"`
+}) string {
+	var parts []string
+	for _, e := range errs {
+		if msg := strings.TrimSpace(e.Message); msg != "" {
+			parts = append(parts, msg)
+		}
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("Cloudflare tunnel token request failed with status %d", status)
+	}
+	return fmt.Sprintf("Cloudflare tunnel token request failed with status %d: %s", status, strings.Join(parts, "; "))
+}
+
+func cloudflareTunnelTokenValue(v any) string {
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x)
+	case map[string]any:
+		for _, key := range []string{"token", "tunnel_token"} {
+			if s, ok := x[key].(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
 }
 
 func parseTryCloudflareURL(line string) (string, bool) {

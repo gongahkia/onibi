@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
 type processRunner interface {
 	Start(context.Context, string, ...string) (managedProcess, error)
+}
+
+type envProcessRunner interface {
+	StartEnv(context.Context, []string, string, ...string) (managedProcess, error)
 }
 
 type managedProcess interface {
@@ -24,6 +30,39 @@ type execProcessRunner struct{}
 
 func (execProcessRunner) Start(ctx context.Context, name string, args ...string) (managedProcess, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	return startManagedCommand(cmd)
+}
+
+func (execProcessRunner) StartEnv(ctx context.Context, env []string, name string, args ...string) (managedProcess, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = mergedEnv(env)
+	return startManagedCommand(cmd)
+}
+
+func mergedEnv(overrides []string) []string {
+	out := os.Environ()
+	for _, override := range overrides {
+		key, _, ok := strings.Cut(override, "=")
+		if !ok || key == "" {
+			continue
+		}
+		replaced := false
+		for i, existing := range out {
+			existingKey, _, _ := strings.Cut(existing, "=")
+			if existingKey == key {
+				out[i] = override
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, override)
+		}
+	}
+	return out
+}
+
+func startManagedCommand(cmd *exec.Cmd) (managedProcess, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
