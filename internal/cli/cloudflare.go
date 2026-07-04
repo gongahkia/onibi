@@ -58,7 +58,7 @@ func runCloudflareSetup(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if !validCloudflareAPIToken(token) {
-		return errors.New("Cloudflare API token required")
+		return errors.New("cloudflare API token required")
 	}
 	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
@@ -175,7 +175,7 @@ func runCloudflareDisable(cmd *cobra.Command, _ []string) error {
 
 func promptCloudflareAPIToken(cmd *cobra.Command) (string, error) {
 	if !inputIsTerminal(cmd.InOrStdin()) {
-		return "", errors.New("Cloudflare API token required")
+		return "", errors.New("cloudflare API token required")
 	}
 	fmt.Fprint(cmd.OutOrStdout(), "Paste Cloudflare API token: ")
 	sc := bufio.NewScanner(cmd.InOrStdin())
@@ -184,7 +184,7 @@ func promptCloudflareAPIToken(cmd *cobra.Command) (string, error) {
 	}
 	token := strings.TrimSpace(sc.Text())
 	if !validCloudflareAPIToken(token) {
-		return "", errors.New("Cloudflare API token required")
+		return "", errors.New("cloudflare API token required")
 	}
 	return token, nil
 }
