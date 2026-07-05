@@ -25,6 +25,7 @@ const (
 var (
 	wsPingInterval = 30 * time.Second
 	wsPingTimeout  = 10 * time.Second
+	wsPingMu       sync.RWMutex
 )
 
 type ptyAttachFrame struct {
@@ -290,14 +291,16 @@ func writeWSBinary(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, p []b
 }
 
 func (s *Server) pingLoop(ctx context.Context, c *websocket.Conn) {
-	ticker := time.NewTicker(wsPingInterval)
+	interval, _ := currentWSPingConfig()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pingCtx, cancel := context.WithTimeout(ctx, wsPingTimeout)
+			_, timeout := currentWSPingConfig()
+			pingCtx, cancel := context.WithTimeout(ctx, timeout)
 			err := c.Ping(pingCtx)
 			cancel()
 			if err != nil {
@@ -306,4 +309,10 @@ func (s *Server) pingLoop(ctx context.Context, c *websocket.Conn) {
 			}
 		}
 	}
+}
+
+func currentWSPingConfig() (time.Duration, time.Duration) {
+	wsPingMu.RLock()
+	defer wsPingMu.RUnlock()
+	return wsPingInterval, wsPingTimeout
 }

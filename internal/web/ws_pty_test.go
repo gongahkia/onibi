@@ -441,10 +441,14 @@ func assertViewerAuditEntry(t *testing.T, entry store.AuditEntry, sessionID, vie
 
 func withWSPingConfig(t *testing.T, interval, timeout time.Duration) {
 	t.Helper()
+	wsPingMu.Lock()
 	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
 	wsPingInterval, wsPingTimeout = interval, timeout
+	wsPingMu.Unlock()
 	t.Cleanup(func() {
+		wsPingMu.Lock()
 		wsPingInterval, wsPingTimeout = oldInterval, oldTimeout
+		wsPingMu.Unlock()
 	})
 }
 
