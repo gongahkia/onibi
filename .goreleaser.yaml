@@ -25,6 +25,14 @@ builds:
     ignore:
       - goos: darwin
         goarch: arm
+    overrides:
+      - goos: linux
+        goarch: arm64
+        goarm64: v8.0
+        tags:
+          - onibi_rpi
+        gcflags:
+          - all=-l
     ldflags:
       - -s -w
       - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
