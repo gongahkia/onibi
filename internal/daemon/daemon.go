@@ -17,14 +17,8 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pty"
-	"github.com/gongahkia/onibi/internal/pushover"
-	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/gongahkia/onibi/internal/updatecheck"
@@ -491,78 +485,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
-	if strings.TrimSpace(d.TelegramToken) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				d.Log.Error("telegram bridge", slog.Any("err", err))
-				cancel()
-			}
-		}()
-	}
-
-	if strings.TrimSpace(d.Matrix.AccessToken) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := d.runMatrixBridge(ctx, matrix.New(d.Matrix.Homeserver, d.Matrix.AccessToken)); err != nil && !errors.Is(err, context.Canceled) {
-				d.Log.Error("matrix bridge", slog.Any("err", err))
-				cancel()
-			}
-		}()
-	}
-
-	if strings.TrimSpace(d.Slack.AppToken) != "" || strings.TrimSpace(d.Slack.BotToken) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := d.runSlackBridge(ctx, slack.New(d.Slack.AppToken, d.Slack.BotToken)); err != nil && !errors.Is(err, context.Canceled) {
-				d.Log.Error("slack bridge", slog.Any("err", err))
-				cancel()
-			}
-		}()
-	}
-
-	if strings.TrimSpace(d.Discord.Token) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := d.runDiscordBridge(ctx, discord.New(d.Discord.Token)); err != nil && !errors.Is(err, context.Canceled) {
-				d.Log.Error("discord bridge", slog.Any("err", err))
-				cancel()
-			}
-		}()
-	}
-
-	if strings.TrimSpace(d.Pushover.Token) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.runPushoverNotifier(ctx, pushover.New(d.Pushover.Token, d.Pushover.UserKey))
-		}()
-	}
-	if strings.TrimSpace(d.Ntfy.Topic) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.runNtfyNotifier(ctx, ntfy.New(d.Ntfy.BaseURL, d.Ntfy.Topic, d.Ntfy.Token))
-		}()
-	}
-	if strings.TrimSpace(d.Gotify.AppToken) != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.runGotifyNotifier(ctx, gotify.New(d.Gotify.BaseURL, d.Gotify.AppToken, d.Gotify.ClientToken))
-		}()
-	}
-	if d.DB != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.runWebPushNotifier(ctx)
-		}()
-	}
+	d.startTelegramBridge(ctx, &wg, cancel)
+	d.startMatrixBridge(ctx, &wg, cancel)
+	d.startSlackBridge(ctx, &wg, cancel)
+	d.startDiscordBridge(ctx, &wg, cancel)
+	d.startPushoverNotifier(ctx, &wg)
+	d.startNtfyNotifier(ctx, &wg)
+	d.startGotifyNotifier(ctx, &wg)
+	d.startWebPushNotifier(ctx, &wg)
 
 	wg.Add(1)
 	go func() {

@@ -1,3 +1,5 @@
+//go:build !onibi_rpi
+
 package daemon
 
 import (
@@ -22,11 +24,6 @@ import (
 )
 
 const matrixKVSince = "matrix.since"
-
-type slackApprovalRef struct {
-	Channel string
-	TS      string
-}
 
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if c == nil {

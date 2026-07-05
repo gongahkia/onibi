@@ -127,4 +127,4 @@ Memory tips:
 - Measure after the phone has disconnected and the service is idle.
 - Use `onibi ssh teardown ...` before reprovisioning or switching artifacts.
 
-Current local size check: the stripped `linux/arm64` binary was still above the 14 MB TODO ceiling during T2408 verification, so release gating remains blocked there.
+Current local size check: `scripts/rpi-smoke.sh --size-only` builds the tagged Pi resource binary and gates it under the 14 MiB ceiling. Physical RSS validation still requires a Raspberry Pi target via `scripts/rpi-smoke.sh --target pi@raspberrypi.local`.

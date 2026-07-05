@@ -7,6 +7,8 @@ idle_seconds="${ONIBI_RPI_IDLE_SECONDS:-5}"
 target="${ONIBI_RPI_TARGET:-}"
 binary="${ONIBI_RPI_BINARY:-}"
 remote_dir="${ONIBI_RPI_REMOTE_DIR:-/tmp/onibi-rpi-smoke.$$}"
+build_tags="${ONIBI_RPI_BUILD_TAGS:-onibi_rpi}"
+gcflags="${ONIBI_RPI_GCFLAGS:-all=-l}"
 size_only=false
 keep_remote=false
 
@@ -21,6 +23,8 @@ Gates:
 Environment:
   ONIBI_RPI_TARGET=user@raspberrypi.local
   ONIBI_RPI_BINARY=/path/to/linux-arm64/onibi
+  ONIBI_RPI_BUILD_TAGS=onibi_rpi
+  ONIBI_RPI_GCFLAGS=all=-l
   ONIBI_RPI_IDLE_SECONDS=5
 EOF
 }
@@ -42,7 +46,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 if [[ -z "$binary" ]]; then
   binary="$tmp/onibi"
-  CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o "$binary" ./cmd/onibi
+  CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -tags "$build_tags" -gcflags "$gcflags" -ldflags='-s -w -buildid=' -o "$binary" ./cmd/onibi
 fi
 
 if [[ ! -x "$binary" ]]; then
@@ -90,9 +94,11 @@ bin="$dir/onibi"
 home="$dir/home"
 runtime="$dir/run"
 data="$home/.local/share"
-mkdir -p "$home" "$runtime" "$data"
+config="$home/.config"
+cache="$home/.cache"
+mkdir -p "$home" "$runtime" "$data" "$config" "$cache"
 chmod 0755 "$bin"
-HOME="$home" XDG_DATA_HOME="$data" XDG_RUNTIME_DIR="$runtime" "$bin" run --log-file "$dir/onibi.log" >"$dir/stdout.log" 2>"$dir/stderr.log" &
+HOME="$home" XDG_DATA_HOME="$data" XDG_CONFIG_HOME="$config" XDG_CACHE_HOME="$cache" XDG_RUNTIME_DIR="$runtime" "$bin" up --transport=lan-loopback --no-qr --shell sh --no-login-shell --log-file "$dir/onibi.log" >"$dir/stdout.log" 2>"$dir/stderr.log" &
 pid="$!"
 cleanup() {
   kill "$pid" >/dev/null 2>&1 || true

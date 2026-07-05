@@ -331,34 +331,22 @@ function shikiHighlighter(): Promise<ShikiHighlighter> {
 async function loadShikiHighlighter(): Promise<ShikiHighlighter> {
   const shiki = (await import("shiki/core")) as ShikiCoreModule;
   const engine = (await import("shiki/engine/javascript")) as ShikiEngineModule;
-  const [githubDark, githubLight, catppuccinMocha, tokyoNight, solarizedDark] = await Promise.all([
+  const [githubDark, githubLight] = await Promise.all([
     import("shiki/themes/github-dark.mjs") as Promise<ShikiThemeModule>,
-    import("shiki/themes/github-light.mjs") as Promise<ShikiThemeModule>,
-    import("shiki/themes/catppuccin-mocha.mjs") as Promise<ShikiThemeModule>,
-    import("shiki/themes/tokyo-night.mjs") as Promise<ShikiThemeModule>,
-    import("shiki/themes/solarized-dark.mjs") as Promise<ShikiThemeModule>
+    import("shiki/themes/github-light.mjs") as Promise<ShikiThemeModule>
   ]);
   const langs = await Promise.all([
     import("shiki/langs/bash.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/c.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/css.mjs") as Promise<ShikiLangModule>,
     import("shiki/langs/go.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/html.mjs") as Promise<ShikiLangModule>,
     import("shiki/langs/javascript.mjs") as Promise<ShikiLangModule>,
     import("shiki/langs/json.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/jsx.mjs") as Promise<ShikiLangModule>,
     import("shiki/langs/markdown.mjs") as Promise<ShikiLangModule>,
     import("shiki/langs/python.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/rust.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/swift.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/tsx.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/typescript.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/yaml.mjs") as Promise<ShikiLangModule>,
-    import("shiki/langs/zig.mjs") as Promise<ShikiLangModule>
+    import("shiki/langs/typescript.mjs") as Promise<ShikiLangModule>
   ]);
   return shiki.createHighlighterCore({
     engine: engine.createJavaScriptRegexEngine(),
-    themes: [githubDark.default, githubLight.default, catppuccinMocha.default, tokyoNight.default, solarizedDark.default],
+    themes: [githubDark.default, githubLight.default],
     langs: langs.flatMap((lang) => lang.default)
   });
 }
@@ -372,12 +360,6 @@ function shikiLang(lang: string): string {
 
 function shikiTheme(theme: TerminalThemeName): string {
   switch (theme) {
-    case "catppuccin-mocha":
-      return "catppuccin-mocha";
-    case "tokyo-night":
-      return "tokyo-night";
-    case "solarized-dark":
-      return "solarized-dark";
     case "light":
       return "github-light";
     default:

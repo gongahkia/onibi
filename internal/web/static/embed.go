@@ -1,3 +1,5 @@
+//go:build !onibi_rpi
+
 package static
 
 import "embed"

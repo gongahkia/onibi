@@ -1,3 +1,5 @@
+//go:build !onibi_rpi
+
 // Command onibi is the entry point. Subcommands wired in internal/cli.
 package main
 

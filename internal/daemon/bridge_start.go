@@ -1,0 +1,118 @@
+//go:build !onibi_rpi
+
+package daemon
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"sync"
+
+	"github.com/gongahkia/onibi/internal/discord"
+	"github.com/gongahkia/onibi/internal/gotify"
+	"github.com/gongahkia/onibi/internal/matrix"
+	"github.com/gongahkia/onibi/internal/ntfy"
+	"github.com/gongahkia/onibi/internal/pushover"
+	"github.com/gongahkia/onibi/internal/slack"
+)
+
+func (d *Daemon) startTelegramBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if strings.TrimSpace(d.TelegramToken) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("telegram bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
+func (d *Daemon) startMatrixBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if strings.TrimSpace(d.Matrix.AccessToken) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runMatrixBridge(ctx, matrix.New(d.Matrix.Homeserver, d.Matrix.AccessToken)); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("matrix bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
+func (d *Daemon) startSlackBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if strings.TrimSpace(d.Slack.AppToken) == "" && strings.TrimSpace(d.Slack.BotToken) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runSlackBridge(ctx, slack.New(d.Slack.AppToken, d.Slack.BotToken)); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("slack bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
+func (d *Daemon) startDiscordBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if strings.TrimSpace(d.Discord.Token) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runDiscordBridge(ctx, discord.New(d.Discord.Token)); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("discord bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
+func (d *Daemon) startPushoverNotifier(ctx context.Context, wg *sync.WaitGroup) {
+	if strings.TrimSpace(d.Pushover.Token) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runPushoverNotifier(ctx, pushover.New(d.Pushover.Token, d.Pushover.UserKey))
+	}()
+}
+
+func (d *Daemon) startNtfyNotifier(ctx context.Context, wg *sync.WaitGroup) {
+	if strings.TrimSpace(d.Ntfy.Topic) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runNtfyNotifier(ctx, ntfy.New(d.Ntfy.BaseURL, d.Ntfy.Topic, d.Ntfy.Token))
+	}()
+}
+
+func (d *Daemon) startGotifyNotifier(ctx context.Context, wg *sync.WaitGroup) {
+	if strings.TrimSpace(d.Gotify.AppToken) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runGotifyNotifier(ctx, gotify.New(d.Gotify.BaseURL, d.Gotify.AppToken, d.Gotify.ClientToken))
+	}()
+}
+
+func (d *Daemon) startWebPushNotifier(ctx context.Context, wg *sync.WaitGroup) {
+	if d.DB == nil {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runWebPushNotifier(ctx)
+	}()
+}
