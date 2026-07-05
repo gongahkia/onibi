@@ -2,7 +2,7 @@
 
 `onibi up --ssh user@host[:port]` bootstraps a remote host over SSH, starts Onibi as that remote user, and keeps a local loopback tunnel open for phone pairing.
 
-Use this when the terminal should run on a Raspberry Pi or another SSH host, but the paired phone should still connect to a local URL printed by the laptop.
+Use this when the terminal should run on an SSH host, but the paired phone should still connect to a local URL printed by the laptop.
 
 ## Bootstrap flow
 
@@ -41,7 +41,7 @@ remote pair URL minted through onibi pair
 Example:
 
 ```bash
-onibi up --ssh pi@raspberrypi.local --ssh-key ~/.ssh/id_ed25519
+onibi up --ssh user@example.internal --ssh-key ~/.ssh/id_ed25519
 ```
 
 If `--ssh-key` is omitted, Onibi tries `~/.ssh/id_ed25519`, `~/.ssh/id_ecdsa`, then `~/.ssh/id_rsa`.
@@ -55,7 +55,7 @@ Onibi uses `~/.ssh/known_hosts` by default.
 - Host-key mismatches fail instead of prompting.
 - Onibi does not use an insecure host-key callback.
 
-For first contact, verify the fingerprint out of band before accepting it. For rebuilt Pis, remove the stale key with `ssh-keygen -R <host>` only after confirming the host was intentionally reprovisioned.
+For first contact, verify the fingerprint out of band before accepting it. For rebuilt hosts, remove the stale key with `ssh-keygen -R <host>` only after confirming the host was intentionally reprovisioned.
 
 ## Service model
 
@@ -90,13 +90,13 @@ Ctrl-C in the local `onibi up --ssh ...` command closes the local tunnel and SSH
 Check the remote service:
 
 ```bash
-onibi ssh status pi@raspberrypi.local
+onibi ssh status user@example.internal
 ```
 
 Remove the remote service and installed binaries:
 
 ```bash
-onibi ssh teardown pi@raspberrypi.local
+onibi ssh teardown user@example.internal
 ```
 
 Teardown stops and disables the user service, removes the unit or plist, and removes:
@@ -108,9 +108,9 @@ $HOME/.local/bin/onibi-notify
 
 It does not delete Onibi state, certificates, logs, shell history, or tmux state from the remote home directory.
 
-## Raspberry Pi memory notes
+## Remote resource notes
 
-The active target budget is idle RSS under 80 MB on Raspberry Pi 5 4 GB. The physical Pi smoke is tracked separately in T2409; this page does not claim that result.
+The default remote smoke budget is a stripped `linux/arm64` binary under 14 MiB and idle RSS under 80 MiB. Those limits are intentionally conservative for small always-on SSH hosts; larger servers may raise them with `ONIBI_SSH_MAX_BINARY_BYTES` and `ONIBI_SSH_MAX_RSS_KIB`.
 
 Operational checks:
 
@@ -121,10 +121,10 @@ ps -o pid,rss,comm -p "$pid"
 
 Memory tips:
 
-- Prefer a 64-bit Pi OS on Pi 5 so the `linux/arm64` artifact is selected.
+- Prefer a 64-bit Linux OS on arm64 hosts so the `linux/arm64` artifact is selected.
 - Keep swap or zram configured at the OS level if agents, builds, or language servers run beside Onibi.
 - Stop unused remote sessions before measuring idle RSS.
 - Measure after the phone has disconnected and the service is idle.
 - Use `onibi ssh teardown ...` before reprovisioning or switching artifacts.
 
-Current local size check: `scripts/rpi-smoke.sh --size-only` builds the tagged Pi resource binary and gates it under the 14 MiB ceiling. Physical RSS validation still requires a Raspberry Pi target via `scripts/rpi-smoke.sh --target pi@raspberrypi.local`; target mode also sends SIGINT and fails if new `onibi-*` tmux sessions remain.
+Current local size check: `scripts/ssh-smoke.sh --size-only` builds the tagged remote SSH binary and gates it under the 14 MiB ceiling. RSS validation still requires a real SSH target via `scripts/ssh-smoke.sh --target user@example.internal`; target mode also sends SIGINT and fails if new `onibi-*` tmux sessions remain.

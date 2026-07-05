@@ -1,4 +1,4 @@
-//go:build onibi_rpi
+//go:build onibi_remote
 
 package main
 
@@ -49,7 +49,7 @@ func run(args []string) error {
 		fmt.Printf("onibi %s\ncommit %s\ndate %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
 		return nil
 	default:
-		return fmt.Errorf("unsupported Pi build command %q", args[0])
+		return fmt.Errorf("unsupported remote build command %q", args[0])
 	}
 }
 
@@ -65,7 +65,7 @@ func runUp(args []string) error {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return errors.New("pi build supports only onibi up flags")
+		return errors.New("remote build supports only onibi up flags")
 	}
 	paths, err := config.DefaultPaths()
 	if err != nil {

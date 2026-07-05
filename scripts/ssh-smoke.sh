@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-max_binary_bytes="${ONIBI_RPI_MAX_BINARY_BYTES:-14680064}"
-max_rss_kib="${ONIBI_RPI_MAX_RSS_KIB:-81920}"
-idle_seconds="${ONIBI_RPI_IDLE_SECONDS:-5}"
-sigint_timeout_seconds="${ONIBI_RPI_SIGINT_TIMEOUT_SECONDS:-5}"
-target="${ONIBI_RPI_TARGET:-}"
-binary="${ONIBI_RPI_BINARY:-}"
-remote_dir="${ONIBI_RPI_REMOTE_DIR:-/tmp/onibi-rpi-smoke.$$}"
-build_tags="${ONIBI_RPI_BUILD_TAGS:-onibi_rpi}"
-gcflags="${ONIBI_RPI_GCFLAGS:-all=-l}"
+max_binary_bytes="${ONIBI_SSH_MAX_BINARY_BYTES:-14680064}"
+max_rss_kib="${ONIBI_SSH_MAX_RSS_KIB:-81920}"
+idle_seconds="${ONIBI_SSH_IDLE_SECONDS:-5}"
+sigint_timeout_seconds="${ONIBI_SSH_SIGINT_TIMEOUT_SECONDS:-5}"
+target="${ONIBI_SSH_TARGET:-}"
+binary="${ONIBI_SSH_BINARY:-}"
+remote_dir="${ONIBI_SSH_REMOTE_DIR:-/tmp/onibi-ssh-smoke.$$}"
+build_tags="${ONIBI_SSH_BUILD_TAGS:-onibi_remote}"
+gcflags="${ONIBI_SSH_GCFLAGS:-all=-l}"
 size_only=false
 keep_remote=false
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/rpi-smoke.sh [--size-only] [--binary <path>] [--target user@host] [--remote-dir <path>] [--keep-remote]
+usage: scripts/ssh-smoke.sh [--size-only] [--binary <path>] [--target user@host] [--remote-dir <path>] [--keep-remote]
 
 Gates:
-  linux/arm64 stripped onibi binary <= ONIBI_RPI_MAX_BINARY_BYTES (default 14680064, 14 MiB)
-  idle RSS on target <= ONIBI_RPI_MAX_RSS_KIB (default 81920, 80 MiB)
+  linux/arm64 stripped onibi binary <= ONIBI_SSH_MAX_BINARY_BYTES (default 14680064, 14 MiB)
+  idle RSS on target <= ONIBI_SSH_MAX_RSS_KIB (default 81920, 80 MiB)
   SIGINT leaves no new onibi-* tmux sessions on target
 
 Environment:
-  ONIBI_RPI_TARGET=user@raspberrypi.local
-  ONIBI_RPI_BINARY=/path/to/linux-arm64/onibi
-  ONIBI_RPI_BUILD_TAGS=onibi_rpi
-  ONIBI_RPI_GCFLAGS=all=-l
-  ONIBI_RPI_IDLE_SECONDS=5
-  ONIBI_RPI_SIGINT_TIMEOUT_SECONDS=5
+  ONIBI_SSH_TARGET=user@host
+  ONIBI_SSH_BINARY=/path/to/linux-arm64/onibi
+  ONIBI_SSH_BUILD_TAGS=onibi_remote
+  ONIBI_SSH_GCFLAGS=all=-l
+  ONIBI_SSH_IDLE_SECONDS=5
+  ONIBI_SSH_SIGINT_TIMEOUT_SECONDS=5
 EOF
 }
 
@@ -68,7 +68,7 @@ if "$size_only"; then
   exit 0
 fi
 if [[ -z "$target" ]]; then
-  echo "missing --target or ONIBI_RPI_TARGET for RSS gate; use --size-only for local size gate" >&2
+  echo "missing --target or ONIBI_SSH_TARGET for RSS gate; use --size-only for local size gate" >&2
   exit 2
 fi
 

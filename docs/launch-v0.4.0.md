@@ -20,7 +20,7 @@ The second thread is MCP recursion. `onibi mcp` exposes local stdio tools for li
 
 Cloudflare support moved from "public tunnel" to "public tunnel with app-layer E2E." Quick Tunnel URLs carry only the relay key fragment to the browser, while terminal bytes, event payloads, control requests, approval decisions, and user input are encrypted with per-pair HKDF + AES-GCM before crossing the relay. Named Tunnels now have explicit setup/status/disable commands and can fetch tunnel tokens through the Cloudflare API without putting tokens in process args.
 
-The Raspberry Pi work is about making remote terminals boring. `onibi up --ssh pi@raspberrypi.local` detects the remote platform, uploads matching `onibi` and `onibi-notify` binaries, installs a user service, starts loopback-only Onibi on the Pi, then opens a local SSH tunnel so the phone still pairs through the laptop. The Pi 5 resource gate is intentionally strict and still tracked separately from the physical smoke.
+The SSH transport work is about making remote terminals boring. `onibi up --ssh user@host` detects the remote platform, uploads matching `onibi` and `onibi-notify` binaries, installs a user service, starts loopback-only Onibi on the remote host, then opens a local SSH tunnel so the phone still pairs through the laptop. The small-server resource gate is intentionally strict and still tracked separately from the physical smoke.
 
 I am posting this as a release draft, not a claim that every external smoke has passed. The remaining release checklist is explicit about signed updates, Homebrew/curl installs, fresh-machine validation, and physical-device tests.
 
@@ -32,4 +32,4 @@ Technical notes:
 - Cloudflare Quick is treated as an untrusted relay; the app payload is encrypted above the tunnel.
 - MCP approval decisions refuse high-risk approve/edit paths.
 - The SSH transport uses user services and known-host verification; it does not install root services on the remote host.
-- The Pi 5 binary-size/RSS gates are intentionally not hidden behind release prose. If they fail, the release checklist should say so.
+- The remote SSH binary-size/RSS gates are intentionally not hidden behind release prose. If they fail, the release checklist should say so.

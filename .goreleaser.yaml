@@ -30,7 +30,7 @@ builds:
         goarch: arm64
         goarm64: v8.0
         tags:
-          - onibi_rpi
+          - onibi_remote
         gcflags:
           - all=-l
     ldflags:

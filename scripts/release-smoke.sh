@@ -59,12 +59,12 @@ for os in darwin linux; do
   done
 done
 
-rpi_bins=("$dist"/onibi_linux_arm64*/onibi)
-if ((${#rpi_bins[@]} != 1)); then
-  echo "expected one linux/arm64 onibi release binary, got ${#rpi_bins[@]}" >&2
+remote_bins=("$dist"/onibi_linux_arm64*/onibi)
+if ((${#remote_bins[@]} != 1)); then
+  echo "expected one linux/arm64 onibi release binary, got ${#remote_bins[@]}" >&2
   exit 1
 fi
-scripts/rpi-smoke.sh --size-only --binary "${rpi_bins[0]}"
+scripts/ssh-smoke.sh --size-only --binary "${remote_bins[0]}"
 
 for tarball in "${artifacts[@]}"; do
   work="$tmp/$(basename "$tarball" .tar.gz)"

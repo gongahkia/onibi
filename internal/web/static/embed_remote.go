@@ -1,4 +1,4 @@
-//go:build onibi_rpi
+//go:build onibi_remote
 
 package static
 
