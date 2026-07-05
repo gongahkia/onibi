@@ -127,4 +127,4 @@ Memory tips:
 - Measure after the phone has disconnected and the service is idle.
 - Use `onibi ssh teardown ...` before reprovisioning or switching artifacts.
 
-Current local size check: `scripts/rpi-smoke.sh --size-only` builds the tagged Pi resource binary and gates it under the 14 MiB ceiling. Physical RSS validation still requires a Raspberry Pi target via `scripts/rpi-smoke.sh --target pi@raspberrypi.local`.
+Current local size check: `scripts/rpi-smoke.sh --size-only` builds the tagged Pi resource binary and gates it under the 14 MiB ceiling. Physical RSS validation still requires a Raspberry Pi target via `scripts/rpi-smoke.sh --target pi@raspberrypi.local`; target mode also sends SIGINT and fails if new `onibi-*` tmux sessions remain.

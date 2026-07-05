@@ -127,9 +127,7 @@ func runUp(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = d.ControlSession(context.Background(), session.ID, "kill")
-	}()
+	defer cleanupShell(d, session)
 	if _, err := d.EnsureWebPTYHost(ctx, session.ID); err != nil {
 		return err
 	}
@@ -210,10 +208,29 @@ func spawnShell(ctx context.Context, d *daemon.Daemon, cfg config.Config) (*daem
 	if err != nil {
 		return nil, fmt.Errorf("shell %q not found in PATH: %w", shellName, err)
 	}
-	if cfg.Shell.Login {
-		return d.SpawnAgentWithArgv0(ctx, "shell", "shell", bin, nil, nil, "-"+filepath.Base(bin))
+	return d.StartManagedTmuxSession(ctx, "shell", "shell", bin, nil, "")
+}
+
+func cleanupShell(d *daemon.Daemon, s *daemon.Session) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, _ = d.HideSession(ctx, s.ID, "end")
+	cancel()
+	if strings.TrimSpace(s.TmuxTarget) == "" {
+		return
 	}
-	return d.SpawnAgent(ctx, "shell", "shell", bin, nil, nil)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.KillTmuxTarget(ctx, s.TmuxTarget); err != nil && !tmuxTargetAlreadyGone(err) {
+		fmt.Fprintf(os.Stderr, "managed tmux cleanup failed: %v\n", err)
+	}
+}
+
+func tmuxTargetAlreadyGone(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "can't find session") || strings.Contains(msg, "no server running")
 }
 
 func listenPort(addr string) (int, error) {

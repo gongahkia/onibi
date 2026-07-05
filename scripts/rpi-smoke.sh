@@ -4,6 +4,7 @@ set -euo pipefail
 max_binary_bytes="${ONIBI_RPI_MAX_BINARY_BYTES:-14680064}"
 max_rss_kib="${ONIBI_RPI_MAX_RSS_KIB:-81920}"
 idle_seconds="${ONIBI_RPI_IDLE_SECONDS:-5}"
+sigint_timeout_seconds="${ONIBI_RPI_SIGINT_TIMEOUT_SECONDS:-5}"
 target="${ONIBI_RPI_TARGET:-}"
 binary="${ONIBI_RPI_BINARY:-}"
 remote_dir="${ONIBI_RPI_REMOTE_DIR:-/tmp/onibi-rpi-smoke.$$}"
@@ -19,6 +20,7 @@ usage: scripts/rpi-smoke.sh [--size-only] [--binary <path>] [--target user@host]
 Gates:
   linux/arm64 stripped onibi binary <= ONIBI_RPI_MAX_BINARY_BYTES (default 14680064, 14 MiB)
   idle RSS on target <= ONIBI_RPI_MAX_RSS_KIB (default 81920, 80 MiB)
+  SIGINT leaves no new onibi-* tmux sessions on target
 
 Environment:
   ONIBI_RPI_TARGET=user@raspberrypi.local
@@ -26,6 +28,7 @@ Environment:
   ONIBI_RPI_BUILD_TAGS=onibi_rpi
   ONIBI_RPI_GCFLAGS=all=-l
   ONIBI_RPI_IDLE_SECONDS=5
+  ONIBI_RPI_SIGINT_TIMEOUT_SECONDS=5
 EOF
 }
 
@@ -85,11 +88,12 @@ REMOTE
 }
 trap 'rm -rf "$tmp"; cleanup_remote' EXIT
 
-ssh "$target" 'sh -s' -- "$remote_dir" "$max_rss_kib" "$idle_seconds" <<'REMOTE'
+ssh "$target" 'sh -s' -- "$remote_dir" "$max_rss_kib" "$idle_seconds" "$sigint_timeout_seconds" <<'REMOTE'
 set -eu
 dir="$1"
 max_rss="$2"
 idle="$3"
+sigint_timeout="$4"
 bin="$dir/onibi"
 home="$dir/home"
 runtime="$dir/run"
@@ -98,10 +102,24 @@ config="$home/.config"
 cache="$home/.cache"
 mkdir -p "$home" "$runtime" "$data" "$config" "$cache"
 chmod 0755 "$bin"
+list_onibi_tmux() {
+  if command -v tmux >/dev/null 2>&1; then
+    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^onibi-' || true
+  fi
+}
+new_tmux_sessions() {
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    if ! grep -Fxq "$session" "$dir/tmux-before.txt"; then
+      printf '%s\n' "$session"
+    fi
+  done < "$dir/tmux-after.txt"
+}
+list_onibi_tmux >"$dir/tmux-before.txt"
 HOME="$home" XDG_DATA_HOME="$data" XDG_CONFIG_HOME="$config" XDG_CACHE_HOME="$cache" XDG_RUNTIME_DIR="$runtime" "$bin" up --transport=lan-loopback --no-qr --shell sh --no-login-shell --log-file "$dir/onibi.log" >"$dir/stdout.log" 2>"$dir/stderr.log" &
 pid="$!"
 cleanup() {
-  kill "$pid" >/dev/null 2>&1 || true
+  kill -TERM "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -121,4 +139,26 @@ if [ "$rss" -gt "$max_rss" ]; then
   exit 1
 fi
 echo "idle RSS ok: ${rss}/${max_rss} KiB"
+kill -INT "$pid" >/dev/null 2>&1 || true
+for _ in $(seq 1 "$sigint_timeout"); do
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+if kill -0 "$pid" >/dev/null 2>&1; then
+  cat "$dir/stderr.log" >&2 || true
+  echo "onibi still running after SIGINT" >&2
+  exit 1
+fi
+wait "$pid" >/dev/null 2>&1 || true
+trap - EXIT INT TERM
+list_onibi_tmux >"$dir/tmux-after.txt"
+orphans="$(new_tmux_sessions)"
+if [ -n "$orphans" ]; then
+  echo "new onibi tmux sessions remained after SIGINT:" >&2
+  printf '%s\n' "$orphans" >&2
+  exit 1
+fi
+echo "SIGINT cleanup ok: no new onibi-* tmux sessions"
 REMOTE

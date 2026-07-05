@@ -1,3 +1,5 @@
+//go:build !onibi_rpi
+
 package daemon
 
 import (
@@ -5,14 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
@@ -362,16 +362,6 @@ func TestNewTelegramPairCodeSixDigits(t *testing.T) {
 			t.Fatalf("code = %q", code)
 		}
 	}
-}
-
-func openDaemonTestDB(t *testing.T) *store.DB {
-	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
 }
 
 type telegramAPISpy struct {
