@@ -419,5 +419,5 @@ Next:
   kelp-pi chat --data-dir /var/lib/kelp-pi
 
 Network/AP hardening is not auto-applied because it can disconnect headless SSH.
-Use /opt/kelp/src/packages/pi-agent/scripts for field validation and recovery helpers.
+Review docs/pi-recovery.md, then use scripts/apply-kelp-pi-network-hardening.sh.
 DONE

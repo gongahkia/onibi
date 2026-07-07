@@ -143,4 +143,4 @@ The installer downloads the `kelp-pi-aarch64` release package, verifies its SHA-
 
 ## Recovery
 
-Until the installer is rewritten, avoid applying network/AP hardening from old docs. Hardened AP mode, DNS sinkholing, nftables allowlists, and read-only root are target controls, not current Zig scaffold behavior.
+Network/AP hardening is opt-in because it can disconnect headless SSH. Review `docs/pi-recovery.md`, render with `scripts/apply-kelp-pi-network-hardening.sh --render-dir .kelp-pi/network-preview`, and only apply after recovery access exists.
