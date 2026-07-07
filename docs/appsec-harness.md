@@ -29,7 +29,7 @@ $ kelp-pi scope set --host http://fixture.local --until 2026-12-31T00:00:00Z
 $ kelp-pi approval-request --scope-id default --command 'nuclei http://fixture.local'
 $ kelp-pi scan nuclei --target http://fixture.local --approval-token <token> --dry-run
 $ kelp-pi index ingest --input findings.json --path evidence/findings.json
-$ kelp-pi ask "default"
+$ kelp-pi ask "default" --emit-finding --finding-title "Default admin marker"
 $ kelp-pi bundle assemble --run-id local --workspace . --output audit-bundle
 $ kelp-pi verify-bundle audit-bundle
 ```

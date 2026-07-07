@@ -47,7 +47,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 
 - [x] Replace JSONL stub with SQLite FTS5.
 - [x] Store chunk IDs from path + content hash.
-- [ ] Require citations for every generated finding.
+- [x] Require citations for every generated finding.
 - [x] Add malicious corpus tests for prompt injection and binary ingest refusal.
 
 ## P4 - Scanner Orchestration

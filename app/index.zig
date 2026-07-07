@@ -4,6 +4,13 @@ const sqlite = @cImport({
     @cInclude("sqlite3.h");
 });
 
+const Citation = struct {
+    path: []const u8,
+    chunk_id: []const u8,
+    start_byte: i64,
+    end_byte: i64,
+};
+
 pub fn indexCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0 or !std.mem.eql(u8, args[0], "ingest")) return common.fail("usage: kelp-pi index ingest --input PATH [--path PATH]", 64);
     const input = common.option(args[1..], "--input") orelse return common.fail("index ingest requires --input", 64);
@@ -30,20 +37,23 @@ pub fn indexCommand(allocator: std.mem.Allocator, args: []const []const u8) !voi
 }
 
 pub fn askCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len == 0) return common.fail("usage: kelp-pi ask QUERY [--data-dir DIR] [--top-k N]", 64);
+    if (args.len == 0) return common.fail("usage: kelp-pi ask QUERY [--data-dir DIR] [--top-k N] [--emit-finding]", 64);
     const query = args[0];
     const data_dir = common.option(args[1..], "--data-dir") orelse common.default_data_dir;
     const top_k = common.parseUsize(common.option(args[1..], "--top-k") orelse "3", 3);
+    const emit_finding = common.hasFlag(args[1..], "--emit-finding");
+    const finding_title = common.option(args[1..], "--finding-title") orelse query;
     const db_path = try common.pathJoin3(allocator, data_dir, "index", "chunks.sqlite3");
     defer allocator.free(db_path);
     if (!common.fileExists(db_path)) {
-        var out = std.fs.File.stdout().deprecatedWriter();
-        return out.print("{{\"query\":\"{s}\",\"topK\":{},\"noAnswer\":{{\"reason\":\"no index\",\"threshold\":{},\"maxScore\":null}},\"citations\":[],\"results\":[]}}\n", .{ query, top_k, common.default_no_answer_threshold });
+        return printNoAnswer(query, top_k, "no index", emit_finding);
     }
     const db = try sqliteOpen(db_path);
     defer _ = sqlite.sqlite3_close(db);
     try applyIndexSchema(db);
-    try searchChunks(allocator, db, query, top_k);
+    const citations = try collectCitations(allocator, db, query, top_k);
+    defer freeCitations(allocator, citations);
+    try printAskResponse(allocator, query, top_k, citations, emit_finding, finding_title);
 }
 
 fn sqliteOpen(path: []const u8) !*sqlite.sqlite3 {
@@ -157,7 +167,7 @@ fn execUpsertSource(db: *sqlite.sqlite3, path: []const u8, hash: []const u8, siz
     if (sqlite.sqlite3_step(stmt) != sqlite.SQLITE_DONE) return error.SqliteStep;
 }
 
-fn searchChunks(allocator: std.mem.Allocator, db: *sqlite.sqlite3, query: []const u8, top_k: usize) !void {
+fn collectCitations(allocator: std.mem.Allocator, db: *sqlite.sqlite3, query: []const u8, top_k: usize) ![]Citation {
     const stmt = try prepare(db,
         \\SELECT chunks.id, chunks.path, chunks.heading_path, chunks.start_byte, chunks.end_byte, -bm25(chunks_fts) AS score, chunks.content
         \\FROM chunks_fts JOIN chunks ON chunks_fts.rowid = chunks.rowid
@@ -166,35 +176,89 @@ fn searchChunks(allocator: std.mem.Allocator, db: *sqlite.sqlite3, query: []cons
     defer _ = sqlite.sqlite3_finalize(stmt);
     try bindText(stmt, 1, query);
     if (sqlite.sqlite3_bind_int64(stmt, 2, @intCast(@max(top_k, 1))) != sqlite.SQLITE_OK) return error.SqliteBind;
-    var out = std.fs.File.stdout().deprecatedWriter();
-    var rows: usize = 0;
-    try out.print("{{\"query\":\"", .{});
-    try common.writeJsonEscaped(&out, query);
-    try out.print("\",\"topK\":{},\"noAnswer\":", .{@max(top_k, 1)});
-    var body: std.ArrayList(u8) = .empty;
-    defer body.deinit(allocator);
-    var body_writer = body.writer(allocator);
-    try body_writer.writeAll("\"citations\":[");
+    var citations: std.ArrayList(Citation) = .empty;
+    errdefer freeCitations(allocator, citations.items);
     while (true) {
         const rc = sqlite.sqlite3_step(stmt);
         if (rc == sqlite.SQLITE_DONE) break;
         if (rc != sqlite.SQLITE_ROW) return error.SqliteStep;
-        if (rows != 0) try body_writer.writeAll(",");
         const id = columnText(stmt, 0);
         const path = columnText(stmt, 1);
-        try body_writer.writeAll("{\"path\":\"");
-        try common.writeJsonEscaped(&body_writer, path);
-        try body_writer.writeAll("\",\"headingPath\":[],\"chunkId\":\"");
-        try common.writeJsonEscaped(&body_writer, id);
-        try body_writer.print("\",\"startByte\":{},\"endByte\":{}}}", .{ sqlite.sqlite3_column_int64(stmt, 3), sqlite.sqlite3_column_int64(stmt, 4) });
-        rows += 1;
+        const path_copy = try allocator.dupe(u8, path);
+        errdefer allocator.free(path_copy);
+        const id_copy = try allocator.dupe(u8, id);
+        errdefer allocator.free(id_copy);
+        try citations.append(allocator, .{
+            .path = path_copy,
+            .chunk_id = id_copy,
+            .start_byte = sqlite.sqlite3_column_int64(stmt, 3),
+            .end_byte = sqlite.sqlite3_column_int64(stmt, 4),
+        });
     }
-    try body_writer.writeAll("],\"results\":[]");
-    if (rows == 0) {
-        try out.print("{{\"reason\":\"no matching chunks\",\"threshold\":{},\"maxScore\":null}},\"citations\":[],\"results\":[]}}\n", .{common.default_no_answer_threshold});
+    return citations.toOwnedSlice(allocator);
+}
+
+fn printAskResponse(allocator: std.mem.Allocator, query: []const u8, top_k: usize, citations: []const Citation, emit_finding: bool, finding_title: []const u8) !void {
+    if (citations.len == 0) return printNoAnswer(query, top_k, "no matching chunks", emit_finding);
+    var out = std.fs.File.stdout().deprecatedWriter();
+    try out.print("{{\"query\":\"", .{});
+    try common.writeJsonEscaped(&out, query);
+    try out.print("\",\"topK\":{},\"noAnswer\":null,\"citations\":[", .{@max(top_k, 1)});
+    try writeCitations(&out, citations);
+    try out.writeAll("],\"results\":[]");
+    if (emit_finding) {
+        const finding = try buildGeneratedFindingJson(allocator, finding_title, citations);
+        defer allocator.free(finding);
+        try out.print(",\"generatedFindings\":[{s}]", .{finding});
+    }
+    try out.writeAll("}\n");
+}
+
+fn printNoAnswer(query: []const u8, top_k: usize, reason: []const u8, emit_finding: bool) !void {
+    var out = std.fs.File.stdout().deprecatedWriter();
+    if (emit_finding) {
+        try out.print("{{\"ok\":false,\"query\":\"", .{});
+        try common.writeJsonEscaped(&out, query);
+        try out.print("\",\"topK\":{},\"reason\":\"generated finding requires at least one citation\",\"citations\":[],\"generatedFindings\":[]}}\n", .{@max(top_k, 1)});
     } else {
-        try out.print("null,{s}}}\n", .{body.items});
+        try out.print("{{\"query\":\"", .{});
+        try common.writeJsonEscaped(&out, query);
+        try out.print("\",\"topK\":{},\"noAnswer\":{{\"reason\":\"{s}\",\"threshold\":{},\"maxScore\":null}},\"citations\":[],\"results\":[]}}\n", .{ @max(top_k, 1), reason, common.default_no_answer_threshold });
     }
+}
+
+fn buildGeneratedFindingJson(allocator: std.mem.Allocator, title: []const u8, citations: []const Citation) ![]u8 {
+    if (citations.len == 0) return error.MissingCitation;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    var writer = out.writer(allocator);
+    try writer.writeAll("{\"id\":\"generated:");
+    try common.writeJsonEscaped(&writer, citations[0].chunk_id);
+    try writer.writeAll("\",\"title\":\"");
+    try common.writeJsonEscaped(&writer, title);
+    try writer.writeAll("\",\"severity\":\"informational\",\"confidence\":\"low\",\"citations\":[");
+    try writeCitations(&writer, citations);
+    try writer.writeAll("]}");
+    return out.toOwnedSlice(allocator);
+}
+
+fn writeCitations(writer: anytype, citations: []const Citation) !void {
+    for (citations, 0..) |citation, index| {
+        if (index != 0) try writer.writeAll(",");
+        try writer.writeAll("{\"path\":\"");
+        try common.writeJsonEscaped(writer, citation.path);
+        try writer.writeAll("\",\"headingPath\":[],\"chunkId\":\"");
+        try common.writeJsonEscaped(writer, citation.chunk_id);
+        try writer.print("\",\"startByte\":{},\"endByte\":{}}}", .{ citation.start_byte, citation.end_byte });
+    }
+}
+
+fn freeCitations(allocator: std.mem.Allocator, citations: []const Citation) void {
+    for (citations) |citation| {
+        allocator.free(citation.path);
+        allocator.free(citation.chunk_id);
+    }
+    allocator.free(citations);
 }
 
 fn columnText(stmt: *sqlite.sqlite3_stmt, index: c_int) []const u8 {
@@ -235,4 +299,22 @@ test "binary nul evidence is refused before ingest" {
     const content = try std.fs.cwd().readFileAlloc(std.testing.allocator, "fixtures/adversarial-injections/direct-imperative/rm-rf-source.md", 64 * 1024);
     defer std.testing.allocator.free(content);
     try std.testing.expect(!binaryIngestRefused(content));
+}
+
+test "generated finding is refused without citations" {
+    try std.testing.expectError(error.MissingCitation, buildGeneratedFindingJson(std.testing.allocator, "uncited", &.{}));
+}
+
+test "generated finding carries citation metadata" {
+    const citations = [_]Citation{.{
+        .path = "evidence/findings.json",
+        .chunk_id = "evidence/findings.json:abc123",
+        .start_byte = 0,
+        .end_byte = 42,
+    }};
+    const finding = try buildGeneratedFindingJson(std.testing.allocator, "default admin marker", &citations);
+    defer std.testing.allocator.free(finding);
+    try std.testing.expect(std.mem.indexOf(u8, finding, "\"citations\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, finding, "\"path\":\"evidence/findings.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, finding, "\"chunkId\":\"evidence/findings.json:abc123\"") != null);
 }
