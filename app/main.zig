@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const bundle = @import("bundle.zig");
 const chat = @import("chat.zig");
 const common = @import("common.zig");
@@ -25,22 +26,25 @@ pub fn main() !void {
     if (std.mem.eql(u8, command, "policy")) return policy.policyCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "approval-request")) return scope.approvalRequest(allocator, args[2..]);
     if (std.mem.eql(u8, command, "approve")) return scope.approve(allocator, args[2..]);
+    if (std.mem.eql(u8, command, "audit")) return audit.auditCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "scope")) return scope.scopeCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "scan")) return scanner.scanCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "index")) return index.indexCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "ask")) return index.askCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "bundle")) return bundle.bundleCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "verify-bundle")) return bundle.verifyBundle(allocator, args[2..]);
+    if (std.mem.eql(u8, command, "verify-audit-log")) return audit.verifyAuditLogCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "model")) return model.modelCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "chat")) return chat.chatCommand(allocator, args[2..]);
     return common.fail("unknown command", 64);
 }
 
 fn usage() !void {
-    return common.printLine("usage: kelp-pi <chat|doctor|keygen|policy|approval-request|approve|scope|scan|index|ask|bundle|verify-bundle|model|version>");
+    return common.printLine("usage: kelp-pi <chat|doctor|keygen|policy|approval-request|approve|audit|scope|scan|index|ask|bundle|verify-bundle|verify-audit-log|model|version>");
 }
 
 test {
+    std.testing.refAllDecls(@import("audit.zig"));
     std.testing.refAllDecls(@import("bundle.zig"));
     std.testing.refAllDecls(@import("chat.zig"));
     std.testing.refAllDecls(@import("doctor.zig"));

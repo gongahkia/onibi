@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const common = @import("common.zig");
 const policy = @import("policy.zig");
 const scope = @import("scope.zig");
@@ -34,9 +35,16 @@ pub fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     const policy_text = try std.fs.cwd().readFileAlloc(allocator, common.default_policy_path, 1024 * 1024);
     defer allocator.free(policy_text);
     const decision = policy.evaluatePolicy(policy.parseRules(policy_text), "Bash", command);
+    const policy_detail = try std.fmt.allocPrint(allocator, "action={s}; rule={s}; command={s}", .{ actionText(decision.action), decision.selected_rule, command });
+    defer allocator.free(policy_detail);
+    try audit.appendEvent(allocator, data_dir, "policy.decision", scanner, policy_detail);
     if (decision.action == .deny) return policy.printDecision(decision);
-    if (!scope.targetInScope(allocator, data_dir, target)) return common.printJsonStatus(false, "deny", "target outside active scope");
+    if (!scope.targetInScope(allocator, data_dir, target)) {
+        try audit.appendEvent(allocator, data_dir, "scan.refused", scanner, target);
+        return common.printJsonStatus(false, "deny", "target outside active scope");
+    }
     if (decision.action == .require_approval and (token == null or !scope.approvalApproved(allocator, data_dir, token.?))) {
+        try audit.appendEvent(allocator, data_dir, "scan.refused", scanner, "approved token required");
         return common.printJsonStatus(false, "require-approval", "approved token required");
     }
 
@@ -48,6 +56,7 @@ pub fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     defer freeArgv(allocator, command_argv);
 
     if (dry_run) {
+        try audit.appendEvent(allocator, data_dir, "scan.dry_run", scanner, target);
         return printScanDryRun(scanner, scanner_bin, target, sandbox, command_argv);
     }
     if (sandbox) {
@@ -61,8 +70,18 @@ pub fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         .Exited => |code| code == 0,
         else => false,
     };
+    try audit.appendEvent(allocator, data_dir, "scan.completed", scanner, target);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("{{\"ok\":{},\"scanner\":\"{s}\",\"target\":\"{s}\",\"runId\":\"{s}\",\"workspace\":\"{s}\",\"sandboxed\":{},\"stdoutBytes\":{},\"stderrBytes\":{}}}\n", .{ success, scanner, target, run_id, workspace, sandbox, result.stdout.len, result.stderr.len });
+}
+
+fn actionText(action: policy.Action) []const u8 {
+    return switch (action) {
+        .allow => "allow",
+        .log_only => "log-only",
+        .require_approval => "require-approval",
+        .deny => "deny",
+    };
 }
 
 fn persistScannerRun(allocator: std.mem.Allocator, workspace: []const u8, run_id: []const u8, scanner: []const u8, target: []const u8, stdout: []const u8, stderr: []const u8) !void {

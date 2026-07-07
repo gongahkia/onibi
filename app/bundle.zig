@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const common = @import("common.zig");
 const chat = @import("chat.zig");
 const keys = @import("keys.zig");
@@ -14,6 +15,7 @@ pub fn bundleCommand(allocator: std.mem.Allocator, args: []const []const u8) !vo
     try std.fs.cwd().makePath(output);
     var key = try keys.loadOrCreateKey(allocator, key_dir);
     defer keys.freeKeyMaterial(allocator, &key);
+    try audit.appendEvent(allocator, data_dir, "bundle.assemble", run_id, output);
     try writeBundleCoreFiles(allocator, data_dir, workspace, output, run_id);
     const manifest_payload = try writeSignedManifest(allocator, output, run_id, key);
     defer allocator.free(manifest_payload);
@@ -89,13 +91,24 @@ fn writeBundleCoreFiles(allocator: std.mem.Allocator, data_dir: []const u8, work
     } else {
         try common.writeFileWithParents(audit_out, "");
     }
+    const audit_head_out = try common.pathJoin(allocator, output, "audit-head.json");
+    defer allocator.free(audit_head_out);
+    const audit_head_in = try audit.auditHeadPath(allocator, data_dir);
+    defer allocator.free(audit_head_in);
+    if (common.fileExists(audit_head_in)) {
+        const bytes = try std.fs.cwd().readFileAlloc(allocator, audit_head_in, 4096);
+        defer allocator.free(bytes);
+        try common.writeFileWithParents(audit_head_out, bytes);
+    } else {
+        try common.writeFileWithParents(audit_head_out, "{\"schemaVersion\":\"kelp.pi.audit-head.v1\",\"entries\":0,\"headHash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}\n");
+    }
     const index_path = try common.pathJoin(allocator, output, "index.html");
     defer allocator.free(index_path);
     try common.writeFileWithParents(index_path, "<!doctype html><title>Kelp Pi Audit Bundle</title><h1>Kelp Pi Audit Bundle</h1>\n");
 }
 
 fn writeSignedManifest(allocator: std.mem.Allocator, output: []const u8, run_id: []const u8, key: keys.KeyMaterial) ![]u8 {
-    const files = [_][]const u8{ "result.json", "policy-decisions.json", "transcript.jsonl", "normalized-findings.json", "audit-log.jsonl", "index.html" };
+    const files = [_][]const u8{ "result.json", "policy-decisions.json", "transcript.jsonl", "normalized-findings.json", "audit-log.jsonl", "audit-head.json", "index.html" };
     var manifest: std.ArrayList(u8) = .empty;
     defer manifest.deinit(allocator);
     var writer = manifest.writer(allocator);

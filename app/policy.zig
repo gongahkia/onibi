@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const common = @import("common.zig");
 
 pub const Action = enum {
@@ -85,10 +86,15 @@ pub fn policyCommand(allocator: std.mem.Allocator, args: []const []const u8) !vo
     if (args.len == 0 or !std.mem.eql(u8, args[0], "check")) return common.fail("usage: kelp-pi policy check --tool TOOL --command CMD", 64);
     const tool = common.option(args[1..], "--tool") orelse "Bash";
     const command = common.option(args[1..], "--command") orelse "";
+    const data_dir = common.option(args[1..], "--data-dir") orelse common.default_data_dir;
     const policy_path = common.option(args[1..], "--policy") orelse common.default_policy_path;
     const policy_text = try std.fs.cwd().readFileAlloc(allocator, policy_path, 1024 * 1024);
     defer allocator.free(policy_text);
-    return printDecision(evaluatePolicy(parseRules(policy_text), tool, command));
+    const decision = evaluatePolicy(parseRules(policy_text), tool, command);
+    const detail = try std.fmt.allocPrint(allocator, "action={s}; rule={s}; command={s}", .{ decision.action.text(), decision.selected_rule, command });
+    defer allocator.free(detail);
+    try audit.appendEvent(allocator, data_dir, "policy.decision", tool, detail);
+    return printDecision(decision);
 }
 
 pub fn parseRules(text: []const u8) RuleSet {

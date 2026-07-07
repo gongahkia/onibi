@@ -60,7 +60,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 ## P5 - Bundles And Audit
 
 - [x] Implement append-only transcript JSONL.
-- [ ] Implement hash-chained audit log.
+- [x] Implement hash-chained audit log.
 - [x] Sign bundle manifest with Pi Ed25519 key.
 - [x] Verify bundle hashes and signatures on host.
 - [x] Preserve legacy replay/equivalence smoke coverage until Zig parity.

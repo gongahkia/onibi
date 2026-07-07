@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const common = @import("common.zig");
 
 pub fn approvalRequest(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -26,6 +27,7 @@ pub fn approvalRequest(allocator: std.mem.Allocator, args: []const []const u8) !
     );
     defer allocator.free(payload);
     try common.writeFileWithParents(record_path, payload);
+    try audit.appendEvent(allocator, data_dir, "approval.requested", token, command);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("{{\"ok\":true,\"token\":\"{s}\",\"path\":\"{s}\",\"status\":\"pending\",\"expiresAtUnix\":{}}}\n", .{ token, record_path, now + ttl });
 }
@@ -40,6 +42,7 @@ pub fn approve(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const updated = try replaceStatusApproved(allocator, existing);
     defer allocator.free(updated);
     try common.writeFileWithParents(record_path, updated);
+    try audit.appendEvent(allocator, data_dir, "approval.approved", token, record_path);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("{{\"ok\":true,\"token\":\"{s}\",\"status\":\"approved\"}}\n", .{token});
 }
@@ -62,6 +65,7 @@ pub fn scopeCommand(allocator: std.mem.Allocator, args: []const []const u8) !voi
     );
     defer allocator.free(payload);
     try common.writeFileWithParents(scope_path, payload);
+    try audit.appendEvent(allocator, data_dir, "scope.set", scope_id, host);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("{{\"ok\":true,\"scopeId\":\"{s}\",\"host\":\"{s}\",\"path\":\"{s}\"}}\n", .{ scope_id, host, scope_path });
 }

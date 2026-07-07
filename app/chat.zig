@@ -1,4 +1,5 @@
 const std = @import("std");
+const audit = @import("audit.zig");
 const common = @import("common.zig");
 
 pub fn chatCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -54,6 +55,7 @@ pub fn appendTranscriptRecord(allocator: std.mem.Allocator, data_dir: []const u8
     try writer.print("\",\"tsUnix\":{},\"role\":\"{s}\",\"content\":\"", .{ std.time.timestamp(), role });
     try common.writeJsonEscaped(&writer, content);
     try writer.writeAll("\"}\n");
+    try audit.appendEvent(allocator, data_dir, "transcript.write", session_id, role);
 }
 
 pub fn transcriptFilePath(allocator: std.mem.Allocator, data_dir: []const u8, session_id: []const u8) ![]u8 {

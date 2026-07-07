@@ -167,7 +167,7 @@ Target outputs:
 - Static `index.html`.
 - Manifest, file hashes, Ed25519 signature, and public key.
 
-Current Zig implementation signs `manifest.json` with the Pi Ed25519 key and verifies manifest file hashes/signature. Append-only transcript and audit-chain signing remain open.
+Current Zig implementation signs `manifest.json` with the Pi Ed25519 key, verifies manifest file hashes/signature, and writes a hash-chained audit log with a head sidecar.
 
 ### Legacy Bundle Smoke Coverage
 
