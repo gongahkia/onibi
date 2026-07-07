@@ -411,9 +411,15 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
         "kelp.appsec.triage.agent-1"
       );
+      await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
+        '"correlationStatus": "linked"'
+      );
       await expect(readFile(join(outDir, "appsec-run.json"), "utf8")).resolves.toContain(
         '"labMode": true'
       );
+      expect(
+        JSON.parse(await readFile(join(outDir, "appsec-run.json"), "utf8")).correlation
+      ).toEqual([expect.objectContaining({ triageFindingId: "agent-1", status: "linked" })]);
       await expect(
         JSON.parse(await readFile(join(outDir, "appsec-qa.json"), "utf8"))
       ).toMatchObject({
@@ -428,6 +434,9 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       );
       await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
         "Status: valid"
+      );
+      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
+        "Scanner Correlation"
       );
       await expect(
         readFile(join(outDir, "audit-bundle", "appsec-qa.json"), "utf8")
@@ -445,6 +454,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-qa-"));
     const sarifPath = join(tempDir, "scanner.sarif");
     const emptyAgent = join(tempDir, "empty-agent.js");
+    const uncorrelatedAgent = join(tempDir, "uncorrelated-agent.js");
     const invalidAgent = join(tempDir, "invalid-evidence-agent.js");
     const keyDir = join(tempDir, "keys");
 
@@ -465,6 +475,28 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         "utf8"
       );
       await chmod(emptyAgent, 0o755);
+      await writeFile(
+        uncorrelatedAgent,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "No evidence IDs.",
+  triageFindings: [{
+    id: "no-evidence-ref",
+    title: "No evidence reference",
+    severity: "medium",
+    confidence: "low",
+    evidenceIds: [],
+    rationale: "Test uncorrelated finding.",
+    recommendedAction: "Add evidence IDs."
+  }],
+  recommendedNextSteps: [],
+  limitations: []
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(uncorrelatedAgent, 0o755);
       await writeFile(
         invalidAgent,
         `#!/usr/bin/env node
@@ -495,7 +527,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         "--dockerfile",
         "Dockerfile",
         "--agent-command",
-        emptyAgent,
+        uncorrelatedAgent,
         "--skip-docker-build",
         "--run-id",
         "appsec-qa.warning",
@@ -509,9 +541,18 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       expect(warningQa).toMatchObject({ valid: true, failed: false, errorCount: 0 });
       expect(warningQa.issues).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ code: "appsec-empty-scanner-imports", level: "warning" })
+          expect.objectContaining({ code: "appsec-empty-scanner-imports", level: "warning" }),
+          expect.objectContaining({
+            code: "appsec-agent-finding-uncorrelated",
+            level: "warning"
+          })
         ])
       );
+      expect(
+        JSON.parse(await readFile(join(warningOut, "appsec-run.json"), "utf8")).correlation
+      ).toEqual([
+        expect.objectContaining({ triageFindingId: "no-evidence-ref", status: "no-evidence" })
+      ]);
       await expect(
         readFile(join(warningOut, "audit-bundle", "appsec-qa.json"), "utf8")
       ).resolves.toContain("appsec-empty-scanner-imports");
@@ -523,7 +564,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         "--dockerfile",
         "Dockerfile",
         "--agent-command",
-        emptyAgent,
+        uncorrelatedAgent,
         "--skip-docker-build",
         "--fail-on-qa",
         "error",
@@ -546,7 +587,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         "--dockerfile",
         "Dockerfile",
         "--agent-command",
-        emptyAgent,
+        uncorrelatedAgent,
         "--skip-docker-build",
         "--fail-on-qa",
         "warning",
@@ -587,6 +628,15 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       await expect(readFile(join(invalidOut, "appsec-qa.json"), "utf8")).resolves.toContain(
         "appsec-agent-finding-invalid-evidence-id"
       );
+      expect(
+        JSON.parse(await readFile(join(invalidOut, "appsec-run.json"), "utf8")).correlation
+      ).toEqual([
+        expect.objectContaining({
+          triageFindingId: "bad-evidence-ref",
+          status: "missing-evidence",
+          missingEvidenceIds: ["missing-evidence-id"]
+        })
+      ]);
       process.exitCode = undefined;
 
       const unsignedOut = join(tempDir, "unsigned-out");

@@ -24,6 +24,7 @@ import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/
 
 type AppsecStatus = "succeeded" | "failed" | "blocked";
 type AppsecQaFailThreshold = "none" | "warning" | "error";
+type AppsecCorrelationStatus = "linked" | "missing-evidence" | "no-evidence";
 
 interface CommandResult {
   readonly command: readonly string[];
@@ -64,6 +65,14 @@ interface AppsecQaResult {
   readonly errorCount: number;
   readonly warningCount: number;
   readonly issues: readonly EvidenceQaIssue[];
+}
+
+interface AppsecCorrelationRecord {
+  readonly triageFindingId: string;
+  readonly status: AppsecCorrelationStatus;
+  readonly evidenceIds: readonly string[];
+  readonly linkedEvidenceIds: readonly string[];
+  readonly missingEvidenceIds: readonly string[];
 }
 
 interface AppsecAuditBundleManifest {
@@ -225,6 +234,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   await writeFile(join(outDir, "agent.stderr.log"), agent.stderr, "utf8");
 
   const triage = await readTriageOutput(triageOutputPath, !agentBlocked);
+  const correlations = correlateAppsecFindings(triage, evidenceState.findings.findings);
   const baseStatus: AppsecStatus =
     buildBlocked || agentBlocked
       ? "blocked"
@@ -234,14 +244,15 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const sarif = appsecSarif({
     runId,
     evidenceFindings: evidenceState.findings.findings,
-    triage: triage.ok ? triage.output : undefined
+    triage: triage.ok ? triage.output : undefined,
+    correlations
   });
   await writeJson(join(outDir, "findings.sarif"), sarif);
   const qa = await appsecQa({
     evidenceWorkspace,
     scannerImports: imports,
-    evidenceFindings: evidenceState.findings.findings,
     triage,
+    correlations,
     sarifPath: join(outDir, "findings.sarif"),
     signed: !hasFlag(args, "--no-sign"),
     failThreshold: appsecQaFailThreshold(args)
@@ -268,6 +279,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
       command: agent.command
     },
     scannerImports: imports,
+    correlation: correlations,
     qa,
     evidence: {
       workspace: evidenceWorkspace,
@@ -306,6 +318,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     bundleDir,
     runId,
     qa,
+    correlations,
     keyDir: resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"),
     signed: !hasFlag(args, "--no-sign")
   });
@@ -521,11 +534,44 @@ function appsecAgentFinding(value: unknown, index: number): AppsecAgentFinding {
   };
 }
 
+function correlateAppsecFindings(
+  triage: Awaited<ReturnType<typeof readTriageOutput>>,
+  evidenceFindings: readonly NormalizedEvidenceFinding[]
+): readonly AppsecCorrelationRecord[] {
+  if (!triage.ok) return [];
+  const evidenceIds = new Set(evidenceFindings.map((finding) => finding.id));
+  return triage.output.triageFindings.map((finding) => {
+    const linkedEvidenceIds = finding.evidenceIds.filter((evidenceId) =>
+      evidenceIds.has(evidenceId)
+    );
+    const missingEvidenceIds = finding.evidenceIds.filter(
+      (evidenceId) => !evidenceIds.has(evidenceId)
+    );
+    const status: AppsecCorrelationStatus =
+      finding.evidenceIds.length === 0
+        ? "no-evidence"
+        : missingEvidenceIds.length > 0
+          ? "missing-evidence"
+          : "linked";
+    return {
+      triageFindingId: finding.id,
+      status,
+      evidenceIds: [...finding.evidenceIds],
+      linkedEvidenceIds,
+      missingEvidenceIds
+    };
+  });
+}
+
 function appsecSarif(input: {
   readonly runId: string;
   readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
   readonly triage?: AppsecTriageOutput | undefined;
+  readonly correlations: readonly AppsecCorrelationRecord[];
 }): JsonRecord {
+  const correlationByFindingId = new Map(
+    input.correlations.map((correlation) => [correlation.triageFindingId, correlation])
+  );
   const evidenceResults = input.evidenceFindings.map((finding) => ({
     ruleId: `kelp.appsec.evidence.${safeRuleId(finding.id)}`,
     level: sarifLevel(finding.severity),
@@ -549,6 +595,9 @@ function appsecSarif(input: {
       severity: finding.severity,
       confidence: finding.confidence,
       evidenceIds: [...finding.evidenceIds],
+      correlationStatus: correlationByFindingId.get(finding.id)?.status ?? "no-evidence",
+      linkedEvidenceIds: correlationByFindingId.get(finding.id)?.linkedEvidenceIds ?? [],
+      missingEvidenceIds: correlationByFindingId.get(finding.id)?.missingEvidenceIds ?? [],
       rationale: finding.rationale,
       recommendedAction: finding.recommendedAction
     }
@@ -575,8 +624,8 @@ function appsecSarif(input: {
 async function appsecQa(input: {
   readonly evidenceWorkspace: string;
   readonly scannerImports: readonly EvidenceImportResult[];
-  readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
   readonly triage: Awaited<ReturnType<typeof readTriageOutput>>;
+  readonly correlations: readonly AppsecCorrelationRecord[];
   readonly sarifPath: string;
   readonly signed: boolean;
   readonly failThreshold: AppsecQaFailThreshold;
@@ -612,25 +661,22 @@ async function appsecQa(input: {
       message: input.triage.error
     });
   } else {
-    const evidenceIds = new Set(input.evidenceFindings.map((finding) => finding.id));
-    for (const finding of input.triage.output.triageFindings) {
-      if (finding.evidenceIds.length === 0) {
+    for (const correlation of input.correlations) {
+      if (correlation.status === "no-evidence") {
         issues.push({
           level: "warning",
           code: "appsec-agent-finding-uncorrelated",
           message: "Agent triage finding does not cite scanner evidence IDs.",
-          subject: finding.id
+          subject: correlation.triageFindingId
         });
       }
-      for (const evidenceId of finding.evidenceIds) {
-        if (!evidenceIds.has(evidenceId)) {
-          issues.push({
-            level: "error",
-            code: "appsec-agent-finding-invalid-evidence-id",
-            message: `Agent triage finding cites unknown evidence ID ${evidenceId}.`,
-            subject: finding.id
-          });
-        }
+      if (correlation.status === "missing-evidence") {
+        issues.push({
+          level: "error",
+          code: "appsec-agent-finding-invalid-evidence-id",
+          message: `Agent triage finding cites unknown evidence IDs: ${correlation.missingEvidenceIds.join(", ")}.`,
+          subject: correlation.triageFindingId
+        });
       }
     }
   }
@@ -667,6 +713,7 @@ async function writeAuditBundle(input: {
   readonly bundleDir: string;
   readonly runId: string;
   readonly qa: AppsecQaResult;
+  readonly correlations: readonly AppsecCorrelationRecord[];
   readonly keyDir: string;
   readonly signed: boolean;
 }): Promise<void> {
@@ -692,7 +739,7 @@ async function writeAuditBundle(input: {
   }
   await writeFile(
     join(input.bundleDir, "index.html"),
-    appsecIndexHtml(input.runId, copied, input.qa),
+    appsecIndexHtml(input.runId, copied, input.qa, input.correlations),
     "utf8"
   );
   copied.push("index.html");
@@ -717,11 +764,22 @@ async function writeAuditBundle(input: {
   });
 }
 
-function appsecIndexHtml(runId: string, files: readonly string[], qa: AppsecQaResult): string {
+function appsecIndexHtml(
+  runId: string,
+  files: readonly string[],
+  qa: AppsecQaResult,
+  correlations: readonly AppsecCorrelationRecord[]
+): string {
   const qaRows = qa.issues
     .map(
       (issue) =>
         `<tr><td>${escapeHtml(issue.level)}</td><td>${escapeHtml(issue.code)}</td><td>${escapeHtml(issue.message)}</td><td>${escapeHtml(issue.subject ?? "")}</td></tr>`
+    )
+    .join("");
+  const correlationRows = correlations
+    .map(
+      (correlation) =>
+        `<tr><td>${escapeHtml(correlation.triageFindingId)}</td><td>${escapeHtml(correlation.status)}</td><td>${escapeHtml(correlation.linkedEvidenceIds.join(", "))}</td><td>${escapeHtml(correlation.missingEvidenceIds.join(", "))}</td></tr>`
     )
     .join("");
   return `<!doctype html>
@@ -733,6 +791,8 @@ function appsecIndexHtml(runId: string, files: readonly string[], qa: AppsecQaRe
 <h2>QA</h2>
 <p>Status: ${qa.valid ? "valid" : "invalid"}; threshold: ${escapeHtml(qa.failThreshold)}; errors: ${qa.errorCount}; warnings: ${qa.warningCount}</p>
 <table><thead><tr><th>Level</th><th>Code</th><th>Message</th><th>Subject</th></tr></thead><tbody>${qaRows || '<tr><td colspan="4">No QA issues.</td></tr>'}</tbody></table>
+<h2>Scanner Correlation</h2>
+<table><thead><tr><th>Triage Finding</th><th>Status</th><th>Linked Evidence</th><th>Missing Evidence</th></tr></thead><tbody>${correlationRows || '<tr><td colspan="4">No triage findings.</td></tr>'}</tbody></table>
 <h2>Files</h2>
 <ul>${files.map((file) => `<li>${escapeHtml(file)}</li>`).join("")}</ul>
 </body>
