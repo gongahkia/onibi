@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<NessusClientData_v2>
+  <Report name="benchmark">
+    <ReportHost name="127.0.0.1">
+      <ReportItem port="22" protocol="tcp" severity="2" pluginID="10881" pluginName="SSH Protocol Versions Supported">
+        <description>The SSH service supports a legacy protocol configuration.</description>
+        <solution>Disable legacy protocol support.</solution>
+        <cwe>CWE-327</cwe>
+        <see_also>https://example.test/ssh-hardening</see_also>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>

@@ -1,6 +1,7 @@
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   addEvidenceFile,
@@ -299,6 +300,177 @@ describe("KelpClaw evidence workspace", () => {
       await rm(current, { recursive: true, force: true });
     }
   });
+
+  it("keeps AppSec benchmark scanner parser output stable", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-benchmark-"));
+    const benchmarkRoot = appsecBenchmarkRoot();
+    const scanners = join(benchmarkRoot, "scanners");
+    const expected = JSON.parse(
+      await readFile(join(benchmarkRoot, "expected", "benchmark.json"), "utf8")
+    );
+
+    try {
+      await createEvidenceWorkspace(tempDir);
+      const imports = [
+        await importSarifEvidence(tempDir, join(scanners, "sarif.sarif")),
+        await importNucleiEvidence(tempDir, join(scanners, "nuclei.jsonl")),
+        await importZapEvidence(tempDir, join(scanners, "zap.json")),
+        await importNmapEvidence(tempDir, join(scanners, "nmap.xml")),
+        await importBurpEvidence(tempDir, join(scanners, "burp.xml")),
+        await importNessusEvidence(tempDir, join(scanners, "nessus.xml"))
+      ];
+      expect(imports.map((result) => result.metadata.format).sort()).toEqual(
+        expected.expectedScannerFormats
+      );
+      expect(imports.reduce((sum, result) => sum + result.importedFindings, 0)).toBe(
+        expected.expectedImportedFindings
+      );
+
+      const state = await loadEvidenceWorkspace(tempDir);
+      const snapshot = state.findings.findings
+        .map((finding) => ({
+          title: finding.title,
+          severity: finding.severity,
+          asset: finding.asset,
+          weaknessIds: finding.weaknessIds,
+          mappings: finding.mappings,
+          sourceTools: finding.sourceReferences.map((source) => source.tool).sort(),
+          upstreamId: finding.provenance.upstreamId
+        }))
+        .sort((left, right) => left.title.localeCompare(right.title));
+      expect(snapshot.map((finding) => finding.title)).toEqual(expected.expectedTitles);
+      expect(snapshot).toMatchInlineSnapshot(`
+        [
+          {
+            "asset": "context/app.py",
+            "mappings": {
+              "cwe": [
+                "CWE-1392",
+              ],
+              "owaspAsvs": [
+                "V2.1.1",
+              ],
+              "owaspLlmTop10": [],
+              "owaspTop10": [
+                "A07:2021",
+              ],
+            },
+            "severity": "medium",
+            "sourceTools": [
+              "sarif",
+            ],
+            "title": "Default admin marker exposed",
+            "upstreamId": "BENCH_DEFAULT_ADMIN",
+            "weaknessIds": [
+              "CWE-1392",
+            ],
+          },
+          {
+            "asset": "http://127.0.0.1:8080/login",
+            "mappings": {
+              "cwe": [
+                "CWE-693",
+              ],
+              "owaspAsvs": [
+                "V5.1.4",
+              ],
+              "owaspLlmTop10": [],
+              "owaspTop10": [
+                "A05:2021",
+              ],
+            },
+            "severity": "medium",
+            "sourceTools": [
+              "zap",
+            ],
+            "title": "Missing security header",
+            "upstreamId": "10016",
+            "weaknessIds": [
+              "CWE-693",
+            ],
+          },
+          {
+            "asset": "127.0.0.1",
+            "mappings": {
+              "cwe": [],
+              "owaspAsvs": [],
+              "owaspLlmTop10": [],
+              "owaspTop10": [],
+            },
+            "severity": "info",
+            "sourceTools": [
+              "nmap",
+            ],
+            "title": "Open tcp/8080 on 127.0.0.1",
+            "upstreamId": "open-port",
+            "weaknessIds": [],
+          },
+          {
+            "asset": "http://127.0.0.1:8080",
+            "mappings": {
+              "cwe": [],
+              "owaspAsvs": [],
+              "owaspLlmTop10": [],
+              "owaspTop10": [],
+            },
+            "severity": "high",
+            "sourceTools": [
+              "burp",
+            ],
+            "title": "Reflected test marker",
+            "upstreamId": "1049088",
+            "weaknessIds": [],
+          },
+          {
+            "asset": "127.0.0.1",
+            "mappings": {
+              "cwe": [
+                "CWE-327",
+              ],
+              "owaspAsvs": [],
+              "owaspLlmTop10": [],
+              "owaspTop10": [],
+            },
+            "severity": "medium",
+            "sourceTools": [
+              "nessus",
+            ],
+            "title": "SSH Protocol Versions Supported",
+            "upstreamId": "10881",
+            "weaknessIds": [
+              "CWE-327",
+            ],
+          },
+          {
+            "asset": "http://127.0.0.1:8080/debug/env",
+            "mappings": {
+              "cwe": [
+                "CWE-200",
+              ],
+              "owaspAsvs": [
+                "V14.2.1",
+              ],
+              "owaspLlmTop10": [],
+              "owaspTop10": [
+                "A05:2021",
+              ],
+            },
+            "severity": "high",
+            "sourceTools": [
+              "nuclei",
+            ],
+            "title": "Unauthenticated debug endpoint",
+            "upstreamId": "bench-debug-env",
+            "weaknessIds": [
+              "CWE-200",
+            ],
+          },
+        ]
+      `);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function firstFinding(root: string) {
@@ -451,4 +623,10 @@ function nessusFixture(): string {
   </Report>
 </NessusClientData_v2>
 `;
+}
+
+function appsecBenchmarkRoot(): string {
+  return fileURLToPath(
+    new URL("../../../fixtures/appsec-benchmarks/multi-scanner", import.meta.url)
+  );
 }

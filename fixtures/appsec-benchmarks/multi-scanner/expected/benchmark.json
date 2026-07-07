@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "kelpclaw.appsec.benchmark.v1",
+  "name": "multi-scanner",
+  "expectedScannerFormats": ["burp", "nessus", "nmap", "nuclei", "sarif", "zap"],
+  "expectedImportedFindings": 6,
+  "expectedTriageFindings": 1,
+  "expectedCorrelationStatus": "linked",
+  "expectedTriageFindingId": "benchmark-multi-scanner",
+  "expectedTitles": [
+    "Default admin marker exposed",
+    "Missing security header",
+    "Open tcp/8080 on 127.0.0.1",
+    "Reflected test marker",
+    "SSH Protocol Versions Supported",
+    "Unauthenticated debug endpoint"
+  ]
+}

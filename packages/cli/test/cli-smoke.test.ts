@@ -606,6 +606,99 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     }
   });
 
+  it("runs the offline AppSec benchmark fixture suite", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-benchmark-"));
+    const repoRoot = join(process.cwd(), "../..");
+    const benchmarkRoot = join(repoRoot, "fixtures", "appsec-benchmarks", "multi-scanner");
+    const scanners = join(benchmarkRoot, "scanners");
+    const expected = JSON.parse(
+      await readFile(join(benchmarkRoot, "expected", "benchmark.json"), "utf8")
+    );
+    const outDir = join(tempDir, "out");
+
+    try {
+      const result = await appsecAudit([
+        "--context",
+        join(benchmarkRoot, "context"),
+        "--dockerfile",
+        "Dockerfile",
+        "--skip-docker-build",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        join(benchmarkRoot, "agents", "multi-scanner-triage.mjs"),
+        "--sarif",
+        join(scanners, "sarif.sarif"),
+        "--nuclei-jsonl",
+        join(scanners, "nuclei.jsonl"),
+        "--zap-json",
+        join(scanners, "zap.json"),
+        "--nmap-xml",
+        join(scanners, "nmap.xml"),
+        "--burp-xml",
+        join(scanners, "burp.xml"),
+        "--nessus-xml",
+        join(scanners, "nessus.xml"),
+        "--run-id",
+        "appsec-benchmark.multi-scanner",
+        "--out",
+        outDir,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+
+      expect(result).toMatchObject({
+        ok: true,
+        status: "succeeded",
+        importedFindings: expected.expectedImportedFindings,
+        docker: { built: false },
+        agent: { ran: true, exitCode: 0 }
+      });
+      const run = JSON.parse(await readFile(join(outDir, "appsec-run.json"), "utf8"));
+      expect(run).toMatchObject({
+        schemaVersion: "kelpclaw.appsec.run.v1",
+        runId: "appsec-benchmark.multi-scanner",
+        status: "succeeded",
+        scannerImports: expect.arrayContaining(
+          expected.expectedScannerFormats.map((format: string) =>
+            expect.objectContaining({ metadata: expect.objectContaining({ format }) })
+          )
+        ),
+        evidence: { importedFindings: expected.expectedImportedFindings },
+        triage: {
+          triageFindings: [
+            expect.objectContaining({
+              id: expected.expectedTriageFindingId,
+              evidenceIds: expect.any(Array)
+            })
+          ]
+        }
+      });
+      expect(run.triage.triageFindings).toHaveLength(expected.expectedTriageFindings);
+      expect(run.triage.triageFindings[0].evidenceIds).toHaveLength(
+        expected.expectedImportedFindings
+      );
+      expect(run.correlation).toEqual([
+        expect.objectContaining({
+          triageFindingId: expected.expectedTriageFindingId,
+          status: expected.expectedCorrelationStatus,
+          linkedEvidenceIds: expect.any(Array)
+        })
+      ]);
+      expect(run.correlation[0].linkedEvidenceIds).toHaveLength(expected.expectedImportedFindings);
+      const sarif = await readFile(join(outDir, "findings.sarif"), "utf8");
+      expect(sarif).toContain("kelp.appsec.triage.benchmark-multi-scanner");
+      expect(sarif).toContain("kelp.appsec.evidence.");
+      await expect(verifyAuditBundle([join(outDir, "audit-bundle")])).resolves.toMatchObject({
+        ok: true,
+        files: { checked: expect.any(Number) },
+        signature: { valid: true }
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("gates AppSec lab validation commands", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-validation-"));
     const agentBin = join(tempDir, "empty-agent.js");
