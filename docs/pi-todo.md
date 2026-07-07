@@ -26,7 +26,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Implement signed `bundle assemble` and `verify-bundle`.
 - [x] Implement `model fetch`, `model verify`, and `model warm` hash/GGUF checks.
 - [x] Implement `chat` shell scaffold.
-- [ ] Split `app/main.zig` into modules after behavior stabilizes.
+- [x] Split `app/main.zig` into modules after behavior stabilizes.
 - [x] Port Rust `policy_sync`, `scan_scope`, `acceptance_manifest`, `storage_quota`, and `outbox_replay` tests.
 
 ## P2 - llama.cpp
