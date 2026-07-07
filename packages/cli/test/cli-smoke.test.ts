@@ -532,6 +532,80 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     }
   });
 
+  it("runs AppSec agent wrapper fixtures and fails invalid output", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-wrapper-"));
+    const repoRoot = join(process.cwd(), "../..");
+    const wrapperRoot = join(repoRoot, "examples", "appsec-agent-wrappers");
+    const sarifPath = join(tempDir, "scanner.sarif");
+    const keyDir = join(tempDir, "keys");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(sarifPath, JSON.stringify(cliSarifFixture("warning"), null, 2), "utf8");
+
+      const validOut = join(tempDir, "valid-out");
+      const valid = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--skip-docker-build",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        join(wrapperRoot, "deterministic-fixture.mjs"),
+        "--sarif",
+        sarifPath,
+        "--run-id",
+        "appsec-wrapper.valid",
+        "--out",
+        validOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(valid).toMatchObject({ ok: true, status: "succeeded", importedFindings: 1 });
+      expect(JSON.parse(await readFile(join(validOut, "appsec-run.json"), "utf8"))).toMatchObject({
+        triage: {
+          summary: "deterministic wrapper fixture correlated 1 scanner finding(s).",
+          triageFindings: [expect.objectContaining({ evidenceIds: expect.any(Array) })]
+        }
+      });
+
+      const invalidOut = join(tempDir, "invalid-out");
+      const invalid = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--skip-docker-build",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        join(wrapperRoot, "invalid-output-fixture.mjs"),
+        "--sarif",
+        sarifPath,
+        "--run-id",
+        "appsec-wrapper.invalid",
+        "--out",
+        invalidOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(invalid).toMatchObject({ ok: false, status: "failed" });
+      expect(JSON.parse(await readFile(join(invalidOut, "appsec-run.json"), "utf8"))).toMatchObject(
+        {
+          triage: {
+            error: expect.stringContaining("Unable to read AppSec triage output")
+          }
+        }
+      );
+      process.exitCode = undefined;
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("gates AppSec lab validation commands", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-validation-"));
     const agentBin = join(tempDir, "empty-agent.js");

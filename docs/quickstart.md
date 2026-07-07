@@ -40,6 +40,9 @@ Verify:
 $ kelp-claw verify-audit-bundle .kelpclaw/appsec/local/audit-bundle
 ```
 
+Ready wrappers for Codex CLI, Claude Code, Goose, custom commands, and
+deterministic fixtures are in `examples/appsec-agent-wrappers/`.
+
 AppSec QA writes `appsec-qa.json` into the output directory and audit bundle.
 `--fail-on-qa error` fails only on QA errors; `--fail-on-qa warning` also fails
 on warnings. Without `--fail-on-qa`, QA issues are recorded but do not fail the
