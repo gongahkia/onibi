@@ -1,15 +1,63 @@
 {
   "name": "@kelpclaw/cli",
   "version": "0.1.0",
-  "private": true,
+  "description": "Local AppSec and agent-governance CLI for KelpClaw.",
+  "license": "MIT",
+  "private": false,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "bin": {
     "kelp-claw": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "appsec",
+    "agent",
+    "audit",
+    "governance",
+    "raspberry-pi"
+  ],
+  "homepage": "https://github.com/gongahkia/kelp#readme",
+  "bugs": {
+    "url": "https://github.com/gongahkia/kelp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongahkia/kelp.git",
+    "directory": "packages/cli"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bundledDependencies": [
+    "@kelpclaw/adapters",
+    "@kelpclaw/agent-hooks",
+    "@kelpclaw/codegen",
+    "@kelpclaw/evidence",
+    "@kelpclaw/pi-cli",
+    "@kelpclaw/policy",
+    "@kelpclaw/web-intel",
+    "@kelpclaw/workflow-spec"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "pack:dry-run": "node ../../scripts/pack-cli-release.mjs --dry-run",
+    "pack:smoke": "node ../../scripts/pack-cli-release.mjs --smoke",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
