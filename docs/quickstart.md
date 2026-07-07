@@ -76,6 +76,15 @@ $ kelp-claw appsec audit \
   --nessus-xml nessus.xml
 ```
 
+Imported AppSec findings use deterministic `evidence:<sha256-prefix>` IDs derived
+from the scanner tool, upstream rule/template/plugin ID, rule/name, asset,
+location, weakness IDs, and normalized title. Upstream IDs are preserved in
+`sourceReferences[].metadata` and `provenance`.
+
+IDs are stable for equivalent normalized scanner findings across reruns and
+input file paths. They can change when scanners rename rules, report different
+asset/location values, or alter weakness mappings.
+
 ## PR Workflow
 
 ```yaml

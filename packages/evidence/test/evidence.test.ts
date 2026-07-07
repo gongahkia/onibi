@@ -13,6 +13,7 @@ import {
   importNucleiEvidence,
   importSarifEvidence,
   importZapEvidence,
+  loadEvidenceWorkspace,
   qaEvidenceWorkspace,
   renderEvidenceWorkspaceHtml,
   signEvidenceWorkspace,
@@ -153,6 +154,97 @@ describe("KelpClaw evidence workspace", () => {
     }
   });
 
+  it("derives stable AppSec finding IDs across scanner reruns", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-stable-ids-"));
+    const sarifA = join(tempDir, "scanner-a.sarif");
+    const sarifB = join(tempDir, "scanner-b.sarif");
+    const sarifOther = join(tempDir, "scanner-other.sarif");
+    const nucleiA = join(tempDir, "nuclei-a.jsonl");
+    const nucleiB = join(tempDir, "nuclei-b.jsonl");
+    const nucleiOther = join(tempDir, "nuclei-other.jsonl");
+    const zapA = join(tempDir, "zap-a.json");
+    const zapB = join(tempDir, "zap-b.json");
+    const zapOther = join(tempDir, "zap-other.json");
+
+    try {
+      await writeFile(sarifA, `${JSON.stringify(sarifFixture("warning"), null, 2)}\n`, "utf8");
+      await writeFile(sarifB, `${JSON.stringify(sarifFixture("warning"), null, 2)}\n`, "utf8");
+      await writeFile(
+        sarifOther,
+        `${JSON.stringify(sarifFixture("warning", { uri: "skills/other/SKILL.md" }), null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(nucleiA, `${JSON.stringify(nucleiFixture())}\n`, "utf8");
+      await writeFile(nucleiB, `${JSON.stringify(nucleiFixture())}\n`, "utf8");
+      await writeFile(
+        nucleiOther,
+        `${JSON.stringify({ ...nucleiFixture(), "matched-at": "https://admin.example.test" })}\n`,
+        "utf8"
+      );
+      await writeFile(zapA, `${JSON.stringify(zapFixture(), null, 2)}\n`, "utf8");
+      await writeFile(zapB, `${JSON.stringify(zapFixture(), null, 2)}\n`, "utf8");
+      await writeFile(
+        zapOther,
+        `${JSON.stringify(zapFixture({ uri: "https://app.example.test/settings" }), null, 2)}\n`,
+        "utf8"
+      );
+
+      const sarifWorkspaceA = join(tempDir, "sarif-a-workspace");
+      await importSarifEvidence(sarifWorkspaceA, sarifA);
+      await importSarifEvidence(sarifWorkspaceA, sarifB);
+      expect((await loadEvidenceWorkspace(sarifWorkspaceA)).findings.findings).toHaveLength(1);
+      const sarifFindingA = await firstFinding(sarifWorkspaceA);
+      const sarifWorkspaceB = join(tempDir, "sarif-b-workspace");
+      await importSarifEvidence(sarifWorkspaceB, sarifB);
+      const sarifFindingB = await firstFinding(sarifWorkspaceB);
+      const sarifWorkspaceOther = join(tempDir, "sarif-other-workspace");
+      await importSarifEvidence(sarifWorkspaceOther, sarifOther);
+      const sarifFindingOther = await firstFinding(sarifWorkspaceOther);
+      expect(sarifFindingA.id).toBe(sarifFindingB.id);
+      expect(sarifFindingA.id).not.toBe(sarifFindingOther.id);
+      expect(sarifFindingA.provenance).toMatchObject({ upstreamId: "KC001", ruleId: "KC001" });
+      expect(sarifFindingA.sourceReferences[0]?.metadata).toMatchObject({
+        upstreamId: "KC001",
+        ruleId: "KC001"
+      });
+
+      const nucleiWorkspaceA = join(tempDir, "nuclei-a-workspace");
+      const nucleiWorkspaceB = join(tempDir, "nuclei-b-workspace");
+      const nucleiWorkspaceOther = join(tempDir, "nuclei-other-workspace");
+      await importNucleiEvidence(nucleiWorkspaceA, nucleiA);
+      await importNucleiEvidence(nucleiWorkspaceA, nucleiB);
+      await importNucleiEvidence(nucleiWorkspaceB, nucleiB);
+      await importNucleiEvidence(nucleiWorkspaceOther, nucleiOther);
+      expect((await loadEvidenceWorkspace(nucleiWorkspaceA)).findings.findings).toHaveLength(1);
+      const nucleiFindingA = await firstFinding(nucleiWorkspaceA);
+      const nucleiFindingB = await firstFinding(nucleiWorkspaceB);
+      const nucleiFindingOther = await firstFinding(nucleiWorkspaceOther);
+      expect(nucleiFindingA.id).toBe(nucleiFindingB.id);
+      expect(nucleiFindingA.id).not.toBe(nucleiFindingOther.id);
+      expect(nucleiFindingA.provenance).toMatchObject({
+        upstreamId: "http-missing-security-headers",
+        templateId: "http-missing-security-headers"
+      });
+
+      const zapWorkspaceA = join(tempDir, "zap-a-workspace");
+      const zapWorkspaceB = join(tempDir, "zap-b-workspace");
+      const zapWorkspaceOther = join(tempDir, "zap-other-workspace");
+      await importZapEvidence(zapWorkspaceA, zapA);
+      await importZapEvidence(zapWorkspaceA, zapB);
+      await importZapEvidence(zapWorkspaceB, zapB);
+      await importZapEvidence(zapWorkspaceOther, zapOther);
+      expect((await loadEvidenceWorkspace(zapWorkspaceA)).findings.findings).toHaveLength(1);
+      const zapFindingA = await firstFinding(zapWorkspaceA);
+      const zapFindingB = await firstFinding(zapWorkspaceB);
+      const zapFindingOther = await firstFinding(zapWorkspaceOther);
+      expect(zapFindingA.id).toBe(zapFindingB.id);
+      expect(zapFindingA.id).not.toBe(zapFindingOther.id);
+      expect(zapFindingA.provenance).toMatchObject({ upstreamId: "10016", pluginId: "10016" });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports QA and retest lifecycle for evidence workspaces", async () => {
     const baseline = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-baseline-"));
     const current = await mkdtemp(join(tmpdir(), "kelpclaw-evidence-current-"));
@@ -191,7 +283,17 @@ describe("KelpClaw evidence workspace", () => {
   });
 });
 
-function sarifFixture(level: "warning" | "error") {
+async function firstFinding(root: string) {
+  const state = await loadEvidenceWorkspace(root);
+  const [finding] = state.findings.findings;
+  expect(finding).toBeDefined();
+  return finding!;
+}
+
+function sarifFixture(
+  level: "warning" | "error",
+  location: { readonly uri?: string; readonly startLine?: number } = {}
+) {
   return {
     version: "2.1.0",
     runs: [
@@ -218,8 +320,8 @@ function sarifFixture(level: "warning" | "error") {
             locations: [
               {
                 physicalLocation: {
-                  artifactLocation: { uri: "skills/demo/SKILL.md" },
-                  region: { startLine: 7 }
+                  artifactLocation: { uri: location.uri ?? "skills/demo/SKILL.md" },
+                  region: { startLine: location.startLine ?? 7 }
                 }
               }
             ]
@@ -279,7 +381,7 @@ function burpFixture(): string {
 `;
 }
 
-function zapFixture() {
+function zapFixture(instance: { readonly uri?: string; readonly param?: string } = {}) {
   return {
     site: [
       {
@@ -294,7 +396,12 @@ function zapFixture() {
             solution: "Set defensive response headers.",
             cweid: "CWE-693",
             reference: "https://example.test/zap-reference",
-            instances: [{ uri: "https://app.example.test/login", param: "X-XSS-Protection" }]
+            instances: [
+              {
+                uri: instance.uri ?? "https://app.example.test/login",
+                param: instance.param ?? "X-XSS-Protection"
+              }
+            ]
           }
         ]
       }

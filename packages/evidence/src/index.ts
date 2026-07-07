@@ -1112,10 +1112,12 @@ async function parseNucleiJsonlFile(
       findings.push(
         scannerFinding({
           tool: input.format,
-          idParts: [templateId, asset ?? "", matcherName ?? ""],
+          upstreamId: templateId,
+          ruleName: title,
           title,
           severity: scannerSeverity(stringField(info, "severity")),
           ...(asset ? { asset } : {}),
+          ...(matcherName ? { location: matcherName } : {}),
           description: stringField(info, "description"),
           remediation: stringField(info, "remediation"),
           weaknessIds: cweIds(...stringArrayOrCsvField(info, "classification")),
@@ -1184,7 +1186,8 @@ async function parseNmapFile(
       findings.push(
         scannerFinding({
           tool: input.format,
-          idParts: [hostAddress, protocol, portId, serviceLabel],
+          upstreamId: "open-port",
+          ruleName: "Open port",
           title: `Open ${protocol}/${portId} on ${hostAddress}`,
           severity: "info",
           asset: hostAddress,
@@ -1240,7 +1243,8 @@ async function parseBurpXmlFile(
     findings.push(
       scannerFinding({
         tool: input.format,
-        idParts: [issueType ?? title, host ?? "", pathText ?? ""],
+        upstreamId: issueType ?? title,
+        ruleName: title,
         title,
         severity: scannerSeverity(xmlTagText(issueBlock, "severity")),
         ...(host ? { asset: host } : {}),
@@ -1301,7 +1305,8 @@ async function parseZapJsonFile(
         findings.push(
           scannerFinding({
             tool: input.format,
-            idParts: [pluginId ?? title, asset ?? "", instanceParam ?? ""],
+            upstreamId: pluginId ?? alertRef ?? title,
+            ruleName: title,
             title,
             severity: scannerSeverity(
               stringField(alert, "riskdesc") ??
@@ -1309,6 +1314,7 @@ async function parseZapJsonFile(
                 stringField(alert, "riskcode")
             ),
             ...(asset ? { asset } : {}),
+            ...(instanceParam ? { location: instanceParam } : {}),
             description: stringField(alert, "desc"),
             remediation: stringField(alert, "solution"),
             weaknessIds: cweIds(cwe),
@@ -1356,7 +1362,8 @@ async function parseNessusXmlFile(
       findings.push(
         scannerFinding({
           tool: input.format,
-          idParts: [pluginId, hostName, protocol, port],
+          upstreamId: pluginId,
+          ruleName: pluginName,
           title: pluginName,
           severity: nessusSeverity(xmlAttr(itemAttrs, "severity")),
           asset: hostName,
@@ -1412,15 +1419,18 @@ function sarifFindingFromResult(
   const locator = `run[${input.runIndex}]/result[${input.resultIndex}]`;
   const weaknessIds = sarifWeaknessIds(rule, result);
   const resultLevel = stringField(result, "level");
+  const ruleName = stringField(rule, "name");
+  const upstreamResultId = stringField(result, "guid") ?? stringField(result, "correlationGuid");
   return {
-    id: deterministicEvidenceId(
-      "sarif",
-      input.toolName ?? "",
-      ruleId,
-      asset ?? "",
-      String(location?.startLine ?? ""),
-      message ?? ""
-    ),
+    id: deterministicAppsecFindingId({
+      tool: input.toolName ?? "sarif",
+      upstreamId: ruleId,
+      ruleName,
+      title,
+      asset,
+      location: locationLabel(location),
+      weaknessIds
+    }),
     title,
     severity: sarifSeverity(result, rule),
     confidence: "tool-observed",
@@ -1454,8 +1464,10 @@ function sarifFindingFromResult(
         rawPath: input.rawPath,
         locator,
         metadata: {
+          upstreamId: ruleId,
           ruleId,
           ...(input.toolName ? { toolName: input.toolName } : {}),
+          ...(upstreamResultId ? { upstreamResultId } : {}),
           ...(resultLevel ? { level: resultLevel } : {}),
           ...(asset ? { uri: asset } : {}),
           ...(location?.startLine !== undefined ? { startLine: location.startLine } : {})
@@ -1477,7 +1489,9 @@ function sarifFindingFromResult(
     provenance: {
       tool: "sarif",
       type: "result",
+      upstreamId: ruleId,
       ...(input.toolName ? { sarifTool: input.toolName } : {}),
+      ...(upstreamResultId ? { upstreamResultId } : {}),
       ruleId
     }
   };
@@ -1485,7 +1499,8 @@ function sarifFindingFromResult(
 
 function scannerFinding(input: {
   readonly tool: PassiveScannerFormat;
-  readonly idParts: readonly string[];
+  readonly upstreamId?: string | undefined;
+  readonly ruleName?: string | undefined;
   readonly title: string;
   readonly severity: EvidenceSeverity;
   readonly asset?: string | undefined;
@@ -1512,8 +1527,21 @@ function scannerFinding(input: {
       )
     )
   ].sort();
+  const sourceMetadata = {
+    ...(input.upstreamId ? { upstreamId: input.upstreamId } : {}),
+    ...(input.ruleName ? { ruleName: input.ruleName } : {}),
+    ...input.source
+  };
   return {
-    id: deterministicEvidenceId(input.tool, ...input.idParts),
+    id: deterministicAppsecFindingId({
+      tool: input.tool,
+      upstreamId: input.upstreamId,
+      ruleName: input.ruleName,
+      title: input.title,
+      asset: input.asset,
+      location: input.location,
+      weaknessIds
+    }),
     title: input.title,
     severity: input.severity,
     confidence: "tool-observed",
@@ -1538,21 +1566,21 @@ function scannerFinding(input: {
         inputSha256: input.inputSha256,
         rawPath: input.rawPath,
         locator: input.locator,
-        metadata: input.source
+        metadata: sourceMetadata
       }
     ],
     affectedInstances: [
       {
         asset: input.asset ?? "unknown",
         ...(input.location ? { location: input.location } : {}),
-        metadata: input.source
+        metadata: sourceMetadata
       }
     ],
     firstSeen: now,
     lastSeen: now,
     provenance: {
       tool: input.tool,
-      ...input.source
+      ...sourceMetadata
     }
   };
 }
@@ -2152,6 +2180,39 @@ function deterministicEvidenceId(...parts: readonly string[]): string {
     .update(parts.map((part) => part.trim().toLowerCase()).join("\x1f"))
     .digest("hex")
     .slice(0, 24)}`;
+}
+
+function deterministicAppsecFindingId(input: {
+  readonly tool: string;
+  readonly upstreamId?: string | undefined;
+  readonly ruleName?: string | undefined;
+  readonly title: string;
+  readonly asset?: string | undefined;
+  readonly location?: string | undefined;
+  readonly weaknessIds: readonly string[];
+}): string {
+  const payload = {
+    schemaVersion: "kelpclaw.appsec.finding-id.v1",
+    tool: normalizeFindingIdPart(input.tool),
+    upstreamId: normalizeFindingIdPart(input.upstreamId),
+    ruleName: normalizeFindingIdPart(input.ruleName),
+    asset: normalizeFindingIdPart(input.asset),
+    location: normalizeFindingIdPart(input.location),
+    weaknessIds: input.weaknessIds.map((id) => normalizeFindingIdPart(id).toUpperCase()).sort(),
+    title: normalizeFindingTitle(input.title)
+  };
+  return `evidence:${createHash("sha256")
+    .update(stableJsonStringify(payload as JsonValue))
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+function normalizeFindingTitle(value: string): string {
+  return normalizeFindingIdPart(value);
+}
+
+function normalizeFindingIdPart(value: string | undefined): string {
+  return (value ?? "").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
 function hashJson(value: unknown): string {
