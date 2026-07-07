@@ -30,6 +30,7 @@ $ kelp-claw appsec audit \
   --context . \
   --dockerfile Dockerfile \
   --agent-command ./appsec-agent.sh \
+  --fail-on-qa error \
   --out .kelpclaw/appsec/local
 ```
 
@@ -38,6 +39,11 @@ Verify:
 ```console
 $ kelp-claw verify-audit-bundle .kelpclaw/appsec/local/audit-bundle
 ```
+
+AppSec QA writes `appsec-qa.json` into the output directory and audit bundle.
+`--fail-on-qa error` fails only on QA errors; `--fail-on-qa warning` also fails
+on warnings. Without `--fail-on-qa`, QA issues are recorded but do not fail the
+audit.
 
 ## Scanner Evidence
 

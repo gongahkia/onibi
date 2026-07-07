@@ -8,10 +8,12 @@ import {
   importNessusEvidence,
   importNmapEvidence,
   importNucleiEvidence,
+  qaEvidenceWorkspace,
   importSarifEvidence,
   importZapEvidence,
   loadEvidenceWorkspace,
   signEvidenceWorkspace,
+  type EvidenceQaIssue,
   type EvidenceImportResult,
   type NormalizedEvidenceFinding
 } from "@kelpclaw/evidence";
@@ -19,6 +21,7 @@ import { evaluatePolicy, requirePolicyPack, type PolicyDecision } from "@kelpcla
 import { stableJsonStringify, type JsonRecord, type JsonValue } from "@kelpclaw/workflow-spec";
 
 type AppsecStatus = "succeeded" | "failed" | "blocked";
+type AppsecQaFailThreshold = "none" | "warning" | "error";
 
 interface CommandResult {
   readonly command: readonly string[];
@@ -49,6 +52,16 @@ interface AppsecPolicyRecord {
   readonly tool: string;
   readonly args: JsonRecord;
   readonly decision: PolicyDecision;
+}
+
+interface AppsecQaResult {
+  readonly schemaVersion: "kelpclaw.appsec.qa.v1";
+  readonly valid: boolean;
+  readonly failed: boolean;
+  readonly failThreshold: AppsecQaFailThreshold;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly issues: readonly EvidenceQaIssue[];
 }
 
 interface AppsecAuditBundleManifest {
@@ -208,12 +221,28 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   await writeFile(join(outDir, "agent.stderr.log"), agent.stderr, "utf8");
 
   const triage = await readTriageOutput(triageOutputPath, !agentBlocked);
-  const status: AppsecStatus =
+  const baseStatus: AppsecStatus =
     buildBlocked || agentBlocked
       ? "blocked"
       : build.exitCode !== 0 || agent.exitCode !== 0 || !triage.ok
         ? "failed"
         : "succeeded";
+  const sarif = appsecSarif({
+    runId,
+    evidenceFindings: evidenceState.findings.findings,
+    triage: triage.ok ? triage.output : undefined
+  });
+  await writeJson(join(outDir, "findings.sarif"), sarif);
+  const qa = await appsecQa({
+    evidenceWorkspace,
+    scannerImports: imports,
+    evidenceFindings: evidenceState.findings.findings,
+    triage,
+    sarifPath: join(outDir, "findings.sarif"),
+    signed: !hasFlag(args, "--no-sign"),
+    failThreshold: appsecQaFailThreshold(args)
+  });
+  const status: AppsecStatus = baseStatus === "succeeded" && qa.failed ? "failed" : baseStatus;
   const appsecRun = {
     schemaVersion: "kelpclaw.appsec.run.v1",
     runId,
@@ -235,6 +264,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
       command: agent.command
     },
     scannerImports: imports,
+    qa,
     evidence: {
       workspace: evidenceWorkspace,
       importedFindings: evidenceState.findings.findings.length,
@@ -244,6 +274,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     triage: triage.ok ? triage.output : { error: triage.error }
   };
   await writeJson(join(outDir, "appsec-run.json"), appsecRun);
+  await writeJson(join(outDir, "appsec-qa.json"), qa);
   await writeJson(join(outDir, "policy-decisions.json"), {
     policyPack: policyPack.name,
     policyPackDescription: policyPack.description,
@@ -257,18 +288,20 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     status,
     outDir,
     policyPack: policyPack.name,
-    labMode
+    labMode,
+    qa: {
+      valid: qa.valid,
+      failed: qa.failed,
+      failThreshold: qa.failThreshold,
+      errorCount: qa.errorCount,
+      warningCount: qa.warningCount
+    }
   });
-  const sarif = appsecSarif({
-    runId,
-    evidenceFindings: evidenceState.findings.findings,
-    triage: triage.ok ? triage.output : undefined
-  });
-  await writeJson(join(outDir, "findings.sarif"), sarif);
   await writeAuditBundle({
     outDir,
     bundleDir,
     runId,
+    qa,
     keyDir: resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"),
     signed: !hasFlag(args, "--no-sign")
   });
@@ -475,10 +508,101 @@ function appsecSarif(input: {
   } as unknown as JsonRecord;
 }
 
+async function appsecQa(input: {
+  readonly evidenceWorkspace: string;
+  readonly scannerImports: readonly EvidenceImportResult[];
+  readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
+  readonly triage: Awaited<ReturnType<typeof readTriageOutput>>;
+  readonly sarifPath: string;
+  readonly signed: boolean;
+  readonly failThreshold: AppsecQaFailThreshold;
+}): Promise<AppsecQaResult> {
+  const evidenceQa = await qaEvidenceWorkspace(input.evidenceWorkspace);
+  const issues: EvidenceQaIssue[] = [...evidenceQa.issues];
+  if (input.scannerImports.length === 0) {
+    issues.push({
+      level: "warning",
+      code: "appsec-empty-scanner-imports",
+      message: "AppSec audit has no passive scanner imports."
+    });
+  }
+  if (!(await fileExists(input.sarifPath))) {
+    issues.push({
+      level: "error",
+      code: "appsec-sarif-missing",
+      message: "AppSec SARIF output is missing.",
+      path: input.sarifPath
+    });
+  }
+  if (!input.signed) {
+    issues.push({
+      level: "warning",
+      code: "appsec-audit-bundle-unsigned",
+      message: "AppSec audit bundle was generated without a manifest signature."
+    });
+  }
+  if (!input.triage.ok) {
+    issues.push({
+      level: "error",
+      code: "appsec-triage-invalid",
+      message: input.triage.error
+    });
+  } else {
+    const evidenceIds = new Set(input.evidenceFindings.map((finding) => finding.id));
+    for (const finding of input.triage.output.triageFindings) {
+      if (finding.evidenceIds.length === 0) {
+        issues.push({
+          level: "warning",
+          code: "appsec-agent-finding-uncorrelated",
+          message: "Agent triage finding does not cite scanner evidence IDs.",
+          subject: finding.id
+        });
+      }
+      for (const evidenceId of finding.evidenceIds) {
+        if (!evidenceIds.has(evidenceId)) {
+          issues.push({
+            level: "error",
+            code: "appsec-agent-finding-invalid-evidence-id",
+            message: `Agent triage finding cites unknown evidence ID ${evidenceId}.`,
+            subject: finding.id
+          });
+        }
+      }
+    }
+  }
+  const errorCount = issues.filter((issue) => issue.level === "error").length;
+  const warningCount = issues.filter((issue) => issue.level === "warning").length;
+  return {
+    schemaVersion: "kelpclaw.appsec.qa.v1",
+    valid: errorCount === 0,
+    failed: appsecQaFails(input.failThreshold, errorCount, warningCount),
+    failThreshold: input.failThreshold,
+    errorCount,
+    warningCount,
+    issues: issues.sort(
+      (left, right) =>
+        left.level.localeCompare(right.level) ||
+        left.code.localeCompare(right.code) ||
+        (left.subject ?? "").localeCompare(right.subject ?? "")
+    )
+  };
+}
+
+function appsecQaFails(
+  threshold: AppsecQaFailThreshold,
+  errorCount: number,
+  warningCount: number
+): boolean {
+  if (threshold === "none") return false;
+  if (threshold === "error") return errorCount > 0;
+  return errorCount > 0 || warningCount > 0;
+}
+
 async function writeAuditBundle(input: {
   readonly outDir: string;
   readonly bundleDir: string;
   readonly runId: string;
+  readonly qa: AppsecQaResult;
   readonly keyDir: string;
   readonly signed: boolean;
 }): Promise<void> {
@@ -487,6 +611,7 @@ async function writeAuditBundle(input: {
     "appsec-input.json",
     "appsec-triage.json",
     "result.json",
+    "appsec-qa.json",
     "policy-decisions.json",
     "findings.sarif",
     "docker-build.stdout.log",
@@ -503,7 +628,7 @@ async function writeAuditBundle(input: {
   }
   await writeFile(
     join(input.bundleDir, "index.html"),
-    appsecIndexHtml(input.runId, copied),
+    appsecIndexHtml(input.runId, copied, input.qa),
     "utf8"
   );
   copied.push("index.html");
@@ -528,13 +653,23 @@ async function writeAuditBundle(input: {
   });
 }
 
-function appsecIndexHtml(runId: string, files: readonly string[]): string {
+function appsecIndexHtml(runId: string, files: readonly string[], qa: AppsecQaResult): string {
+  const qaRows = qa.issues
+    .map(
+      (issue) =>
+        `<tr><td>${escapeHtml(issue.level)}</td><td>${escapeHtml(issue.code)}</td><td>${escapeHtml(issue.message)}</td><td>${escapeHtml(issue.subject ?? "")}</td></tr>`
+    )
+    .join("");
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>KelpClaw AppSec Audit Bundle</title></head>
 <body>
 <h1>KelpClaw AppSec Audit Bundle</h1>
 <p>Run: ${escapeHtml(runId)}</p>
+<h2>QA</h2>
+<p>Status: ${qa.valid ? "valid" : "invalid"}; threshold: ${escapeHtml(qa.failThreshold)}; errors: ${qa.errorCount}; warnings: ${qa.warningCount}</p>
+<table><thead><tr><th>Level</th><th>Code</th><th>Message</th><th>Subject</th></tr></thead><tbody>${qaRows || '<tr><td colspan="4">No QA issues.</td></tr>'}</tbody></table>
+<h2>Files</h2>
 <ul>${files.map((file) => `<li>${escapeHtml(file)}</li>`).join("")}</ul>
 </body>
 </html>
@@ -796,6 +931,15 @@ function options(args: readonly string[], name: string): readonly string[] {
 
 function hasFlag(args: readonly string[], name: string): boolean {
   return args.includes(name);
+}
+
+function appsecQaFailThreshold(args: readonly string[]): AppsecQaFailThreshold {
+  const value = option(args, "--fail-on-qa");
+  if (!value && hasFlag(args, "--fail-on-qa")) return "error";
+  if (!value || value === "false" || value === "none") return "none";
+  if (value === "true" || value === "error") return "error";
+  if (value === "warning") return "warning";
+  throw new Error("--fail-on-qa must be one of none, warning, or error.");
 }
 
 function requiredOption(args: readonly string[], name: string): string {

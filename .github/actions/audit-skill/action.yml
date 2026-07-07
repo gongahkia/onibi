@@ -141,6 +141,9 @@ runs:
           if [ "${{ inputs.lab-mode }}" = "true" ]; then
             APPSEC_ARGS+=(--lab-mode)
           fi
+          if [ "${{ inputs.fail-on-qa }}" = "true" ]; then
+            APPSEC_ARGS+=(--fail-on-qa error)
+          fi
           if [ -n "${{ inputs.sarif }}" ]; then
             APPSEC_ARGS+=(--sarif "${{ inputs.sarif }}")
           fi
@@ -171,17 +174,13 @@ runs:
           echo "artifact-path=$APPSEC_OUT" >> "$GITHUB_OUTPUT"
           echo "sarif-path=$APPSEC_OUT/findings.sarif" >> "$GITHUB_OUTPUT"
           node packages/cli/dist/index.js verify-audit-bundle "$BUNDLE_PATH" > .kelpclaw/appsec-bundle-verify.json
-          set +e
-          node packages/cli/dist/index.js evidence qa --workspace "$APPSEC_OUT/evidence-workspace" > .kelpclaw/appsec-qa.json
-          QA_EXIT=$?
-          set -e
-          cat .kelpclaw/appsec-qa.json
+          cat "$APPSEC_OUT/appsec-qa.json"
           node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
           const fs = require("node:fs");
           const result = JSON.parse(fs.readFileSync(".kelpclaw/appsec-output.json", "utf8"));
           const run = JSON.parse(fs.readFileSync(`${result.outDir}/appsec-run.json`, "utf8"));
           const verify = JSON.parse(fs.readFileSync(".kelpclaw/appsec-bundle-verify.json", "utf8"));
-          const qa = JSON.parse(fs.readFileSync(".kelpclaw/appsec-qa.json", "utf8"));
+          const qa = JSON.parse(fs.readFileSync(`${result.outDir}/appsec-qa.json`, "utf8"));
           const imports = run.scannerImports || [];
           const triageFindings = Array.isArray(run.triage?.triageFindings) ? run.triage.triageFindings : [];
           const correlated = triageFindings.filter((finding) => Array.isArray(finding.evidenceIds) && finding.evidenceIds.length > 0).length;
@@ -201,9 +200,6 @@ runs:
           NODE
           if [ "$APPSEC_EXIT" -ne 0 ]; then
             exit "$APPSEC_EXIT"
-          fi
-          if [ "${{ inputs.fail-on-qa }}" = "true" ] && [ "$QA_EXIT" -ne 0 ]; then
-            exit "$QA_EXIT"
           fi
           exit "$APPSEC_EXIT"
         fi

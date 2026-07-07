@@ -413,14 +413,206 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       await expect(readFile(join(outDir, "appsec-run.json"), "utf8")).resolves.toContain(
         '"labMode": true'
       );
+      await expect(
+        JSON.parse(await readFile(join(outDir, "appsec-qa.json"), "utf8"))
+      ).toMatchObject({
+        valid: true,
+        failed: false,
+        errorCount: 0,
+        warningCount: 0,
+        issues: []
+      });
       await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
         "KelpClaw AppSec Audit Bundle"
       );
+      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
+        "Status: valid"
+      );
+      await expect(
+        readFile(join(outDir, "audit-bundle", "appsec-qa.json"), "utf8")
+      ).resolves.toContain("kelpclaw.appsec.qa.v1");
       await expect(verifyAuditBundle([join(outDir, "audit-bundle")])).resolves.toMatchObject({
         ok: true,
         signature: { valid: true }
       });
     } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes AppSec QA artifacts and honors warning/error thresholds", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-qa-"));
+    const sarifPath = join(tempDir, "scanner.sarif");
+    const emptyAgent = join(tempDir, "empty-agent.js");
+    const invalidAgent = join(tempDir, "invalid-evidence-agent.js");
+    const keyDir = join(tempDir, "keys");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(sarifPath, JSON.stringify(cliSarifFixture("warning"), null, 2), "utf8");
+      await writeFile(
+        emptyAgent,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "No findings.",
+  triageFindings: [],
+  recommendedNextSteps: [],
+  limitations: []
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(emptyAgent, 0o755);
+      await writeFile(
+        invalidAgent,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "Invalid evidence reference.",
+  triageFindings: [{
+    id: "bad-evidence-ref",
+    title: "Bad evidence reference",
+    severity: "high",
+    confidence: "medium",
+    evidenceIds: ["missing-evidence-id"],
+    rationale: "Test invalid reference.",
+    recommendedAction: "Fix reference."
+  }],
+  recommendedNextSteps: [],
+  limitations: []
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(invalidAgent, 0o755);
+
+      const warningOut = join(tempDir, "warning-out");
+      const warningResult = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        emptyAgent,
+        "--skip-docker-build",
+        "--run-id",
+        "appsec-qa.warning",
+        "--out",
+        warningOut,
+        "--key-dir",
+        keyDir
+      ]);
+      const warningQa = JSON.parse(await readFile(join(warningOut, "appsec-qa.json"), "utf8"));
+      expect(warningResult).toMatchObject({ ok: true, status: "succeeded" });
+      expect(warningQa).toMatchObject({ valid: true, failed: false, errorCount: 0 });
+      expect(warningQa.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "appsec-empty-scanner-imports", level: "warning" })
+        ])
+      );
+      await expect(
+        readFile(join(warningOut, "audit-bundle", "appsec-qa.json"), "utf8")
+      ).resolves.toContain("appsec-empty-scanner-imports");
+
+      const errorThresholdOut = join(tempDir, "error-threshold-out");
+      const errorThresholdResult = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        emptyAgent,
+        "--skip-docker-build",
+        "--fail-on-qa",
+        "error",
+        "--run-id",
+        "appsec-qa.error-threshold",
+        "--out",
+        errorThresholdOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(errorThresholdResult).toMatchObject({ ok: true, status: "succeeded" });
+      await expect(readFile(join(errorThresholdOut, "appsec-qa.json"), "utf8")).resolves.toContain(
+        '"failThreshold": "error"'
+      );
+
+      const warningThresholdOut = join(tempDir, "warning-threshold-out");
+      const warningThresholdResult = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        emptyAgent,
+        "--skip-docker-build",
+        "--fail-on-qa",
+        "warning",
+        "--run-id",
+        "appsec-qa.warning-threshold",
+        "--out",
+        warningThresholdOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(warningThresholdResult).toMatchObject({ ok: false, status: "failed" });
+      await expect(
+        readFile(join(warningThresholdOut, "appsec-qa.json"), "utf8")
+      ).resolves.toContain('"failed": true');
+      process.exitCode = undefined;
+
+      const invalidOut = join(tempDir, "invalid-out");
+      const invalidResult = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        invalidAgent,
+        "--skip-docker-build",
+        "--sarif",
+        sarifPath,
+        "--fail-on-qa",
+        "error",
+        "--run-id",
+        "appsec-qa.invalid",
+        "--out",
+        invalidOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(invalidResult).toMatchObject({ ok: false, status: "failed" });
+      await expect(readFile(join(invalidOut, "appsec-qa.json"), "utf8")).resolves.toContain(
+        "appsec-agent-finding-invalid-evidence-id"
+      );
+      process.exitCode = undefined;
+
+      const unsignedOut = join(tempDir, "unsigned-out");
+      const unsignedResult = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        emptyAgent,
+        "--skip-docker-build",
+        "--sarif",
+        sarifPath,
+        "--no-sign",
+        "--run-id",
+        "appsec-qa.unsigned",
+        "--out",
+        unsignedOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(unsignedResult).toMatchObject({ ok: true, status: "succeeded" });
+      await expect(readFile(join(unsignedOut, "appsec-qa.json"), "utf8")).resolves.toContain(
+        "appsec-audit-bundle-unsigned"
+      );
+    } finally {
+      process.exitCode = undefined;
       await rm(tempDir, { recursive: true, force: true });
     }
   });
@@ -1581,7 +1773,8 @@ rm -rf /tmp/kelpclaw-inventory-fail
     expect(action).toContain("--nmap-xml");
     expect(action).toContain("--burp-xml");
     expect(action).toContain("--nessus-xml");
-    expect(action).toContain("evidence qa");
+    expect(action).toContain("--fail-on-qa error");
+    expect(action).toContain("appsec-qa.json");
     expect(action).toContain("Evidence QA");
     expect(action).toContain("Correlated triage findings");
     expect(action).toContain("inventory scan");
