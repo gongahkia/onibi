@@ -476,6 +476,62 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     }
   });
 
+  it("runs the AppSec harness example without Docker", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-example-"));
+    const repoRoot = join(process.cwd(), "../..");
+    const exampleRoot = join(repoRoot, "examples", "appsec-vulnerable-target");
+    const outDir = join(tempDir, "out");
+
+    try {
+      const result = await appsecAudit([
+        "--context",
+        exampleRoot,
+        "--dockerfile",
+        "Dockerfile",
+        "--skip-docker-build",
+        "--agent-command",
+        process.execPath,
+        "--agent-arg",
+        join(exampleRoot, "sample-triage-agent.mjs"),
+        "--sarif",
+        join(exampleRoot, "fixtures", "sample.sarif"),
+        "--nuclei-jsonl",
+        join(exampleRoot, "fixtures", "nuclei.jsonl"),
+        "--run-id",
+        "appsec-example.test",
+        "--out",
+        outDir,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+
+      expect(result).toMatchObject({
+        ok: true,
+        status: "succeeded",
+        importedFindings: 2,
+        docker: { built: false },
+        agent: { ran: true, exitCode: 0 }
+      });
+      const run = JSON.parse(await readFile(join(outDir, "appsec-run.json"), "utf8"));
+      expect(run.triage.triageFindings).toHaveLength(2);
+      expect(run.correlation).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: "linked" }),
+          expect.objectContaining({ status: "linked" })
+        ])
+      );
+      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
+        "Unauthenticated debug fixture endpoint"
+      );
+      await expect(verifyAuditBundle([join(outDir, "audit-bundle")])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true }
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("gates AppSec lab validation commands", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-validation-"));
     const agentBin = join(tempDir, "empty-agent.js");
