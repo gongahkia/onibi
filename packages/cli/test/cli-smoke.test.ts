@@ -386,6 +386,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         agentBin,
         "--sarif",
         sarifPath,
+        "--lab-mode",
         "--run-id",
         "appsec-run.test",
         "--out",
@@ -399,6 +400,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         runId: "appsec-run.test",
         status: "succeeded",
         importedFindings: 1,
+        labMode: true,
         docker: { built: true, exitCode: 0, imageId: "sha256:fake-image-id" },
         agent: { ran: true, exitCode: 0 }
       });
@@ -407,6 +409,9 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       );
       await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
         "kelp.appsec.triage.agent-1"
+      );
+      await expect(readFile(join(outDir, "appsec-run.json"), "utf8")).resolves.toContain(
+        '"labMode": true'
       );
       await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
         "KelpClaw AppSec Audit Bundle"
@@ -1564,11 +1569,26 @@ rm -rf /tmp/kelpclaw-inventory-fail
 
     expect(action).toContain("mode:");
     expect(action).toContain("appsec audit");
+    expect(action).toContain('POLICY_INPUT="appsec-agent-baseline"');
+    expect(action).toContain('POLICY_INPUT="sg-agentic-ai-baseline"');
     expect(action).toContain("agent-command");
+    expect(action).toContain("skip-docker-build");
+    expect(action).toContain("fail-on-qa");
+    expect(action).toContain("lab-mode");
+    expect(action).toContain("nmap-xml");
+    expect(action).toContain("burp-xml");
+    expect(action).toContain("nessus-xml");
+    expect(action).toContain("--nmap-xml");
+    expect(action).toContain("--burp-xml");
+    expect(action).toContain("--nessus-xml");
+    expect(action).toContain("evidence qa");
+    expect(action).toContain("Evidence QA");
+    expect(action).toContain("Correlated triage findings");
     expect(action).toContain("inventory scan");
     expect(action).toContain("inventory graph");
     expect(action).toContain("inventory coverage");
     expect(action).toContain("fail-on-coverage");
+    expect(action).toContain("upload-sarif");
     expect(action).toContain("always() && inputs.upload-artifact");
   });
 

@@ -92,6 +92,7 @@ export interface AppsecAuditOutput {
     readonly ran: boolean;
     readonly exitCode: number | null;
   };
+  readonly labMode: boolean;
 }
 
 export async function runAppsecCommand(args: readonly string[]): Promise<void> {
@@ -115,6 +116,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const policyPackName = option(args, "--policy") ?? "appsec-agent-baseline";
   const policyPack = requirePolicyPack(policyPackName);
   const agentCommand = requiredOption(args, "--agent-command");
+  const labMode = hasFlag(args, "--lab-mode");
   const evidenceWorkspace = join(outDir, "evidence-workspace");
   const bundleDir = join(outDir, "audit-bundle");
   await mkdir(outDir, { recursive: true });
@@ -166,6 +168,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
       ...(imageId ? { imageId } : {})
     },
     safety: {
+      labMode,
       exploitExecution: "forbidden",
       role: "triage-assistant",
       instructions: [
@@ -218,6 +221,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     ok: status === "succeeded",
     outDir,
     policyPack: policyPack.name,
+    labMode,
     target: triageInput.target,
     docker: {
       built: !hasFlag(args, "--skip-docker-build") && !buildBlocked,
@@ -252,7 +256,8 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     runId,
     status,
     outDir,
-    policyPack: policyPack.name
+    policyPack: policyPack.name,
+    labMode
   });
   const sarif = appsecSarif({
     runId,
@@ -287,7 +292,8 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     agent: {
       ran: !agentBlocked,
       exitCode: agent.exitCode
-    }
+    },
+    labMode
   };
 }
 

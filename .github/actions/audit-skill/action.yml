@@ -30,6 +30,30 @@ inputs:
     description: Optional ZAP JSON file to import during AppSec audit.
     required: false
     default: ""
+  nmap-xml:
+    description: Optional Nmap XML file to import during AppSec audit.
+    required: false
+    default: ""
+  burp-xml:
+    description: Optional Burp XML file to import during AppSec audit.
+    required: false
+    default: ""
+  nessus-xml:
+    description: Optional Nessus XML file to import during AppSec audit.
+    required: false
+    default: ""
+  skip-docker-build:
+    description: Skip AppSec Docker build and import passive scanner evidence only.
+    required: false
+    default: "false"
+  fail-on-qa:
+    description: Fail AppSec mode when evidence QA reports errors.
+    required: false
+    default: "true"
+  lab-mode:
+    description: Mark the AppSec audit as opt-in local lab validation.
+    required: false
+    default: "false"
   skill:
     description: Path to the SKILL.md to audit.
     required: false
@@ -43,9 +67,9 @@ inputs:
     required: false
     default: high
   policy:
-    description: Built-in KelpClaw policy pack to apply.
+    description: Built-in KelpClaw policy pack to apply; defaults by mode.
     required: false
-    default: sg-agentic-ai-baseline
+    default: ""
   input:
     description: Optional JSON input file for the audit-first skill run.
     required: false
@@ -95,13 +119,28 @@ runs:
       shell: bash
       run: |
         mkdir -p .kelpclaw
+        POLICY_INPUT="${{ inputs.policy }}"
+        if [ -z "$POLICY_INPUT" ]; then
+          if [ "${{ inputs.mode }}" = "appsec" ]; then
+            POLICY_INPUT="appsec-agent-baseline"
+          else
+            POLICY_INPUT="sg-agentic-ai-baseline"
+          fi
+        fi
+        export KELPCLAW_ACTION_POLICY="$POLICY_INPUT"
         if [ "${{ inputs.mode }}" = "appsec" ]; then
           if [ -z "${{ inputs.agent-command }}" ]; then
             echo "::error title=KelpClaw AppSec::mode=appsec requires agent-command."
             exit 1
           fi
           APPSEC_OUT=".kelpclaw/appsec-action"
-          APPSEC_ARGS=(appsec audit --context "${{ inputs.context }}" --dockerfile "${{ inputs.dockerfile }}" --agent-command "${{ inputs.agent-command }}" --out "$APPSEC_OUT")
+          APPSEC_ARGS=(appsec audit --context "${{ inputs.context }}" --dockerfile "${{ inputs.dockerfile }}" --agent-command "${{ inputs.agent-command }}" --policy "$POLICY_INPUT" --out "$APPSEC_OUT")
+          if [ "${{ inputs.skip-docker-build }}" = "true" ]; then
+            APPSEC_ARGS+=(--skip-docker-build)
+          fi
+          if [ "${{ inputs.lab-mode }}" = "true" ]; then
+            APPSEC_ARGS+=(--lab-mode)
+          fi
           if [ -n "${{ inputs.sarif }}" ]; then
             APPSEC_ARGS+=(--sarif "${{ inputs.sarif }}")
           fi
@@ -110,6 +149,15 @@ runs:
           fi
           if [ -n "${{ inputs.zap-json }}" ]; then
             APPSEC_ARGS+=(--zap-json "${{ inputs.zap-json }}")
+          fi
+          if [ -n "${{ inputs.nmap-xml }}" ]; then
+            APPSEC_ARGS+=(--nmap-xml "${{ inputs.nmap-xml }}")
+          fi
+          if [ -n "${{ inputs.burp-xml }}" ]; then
+            APPSEC_ARGS+=(--burp-xml "${{ inputs.burp-xml }}")
+          fi
+          if [ -n "${{ inputs.nessus-xml }}" ]; then
+            APPSEC_ARGS+=(--nessus-xml "${{ inputs.nessus-xml }}")
           fi
           set +e
           node packages/cli/dist/index.js "${APPSEC_ARGS[@]}" > .kelpclaw/appsec-output.json
@@ -123,29 +171,49 @@ runs:
           echo "artifact-path=$APPSEC_OUT" >> "$GITHUB_OUTPUT"
           echo "sarif-path=$APPSEC_OUT/findings.sarif" >> "$GITHUB_OUTPUT"
           node packages/cli/dist/index.js verify-audit-bundle "$BUNDLE_PATH" > .kelpclaw/appsec-bundle-verify.json
+          set +e
+          node packages/cli/dist/index.js evidence qa --workspace "$APPSEC_OUT/evidence-workspace" > .kelpclaw/appsec-qa.json
+          QA_EXIT=$?
+          set -e
+          cat .kelpclaw/appsec-qa.json
           node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
           const fs = require("node:fs");
           const result = JSON.parse(fs.readFileSync(".kelpclaw/appsec-output.json", "utf8"));
+          const run = JSON.parse(fs.readFileSync(`${result.outDir}/appsec-run.json`, "utf8"));
           const verify = JSON.parse(fs.readFileSync(".kelpclaw/appsec-bundle-verify.json", "utf8"));
+          const qa = JSON.parse(fs.readFileSync(".kelpclaw/appsec-qa.json", "utf8"));
+          const imports = run.scannerImports || [];
+          const triageFindings = Array.isArray(run.triage?.triageFindings) ? run.triage.triageFindings : [];
+          const correlated = triageFindings.filter((finding) => Array.isArray(finding.evidenceIds) && finding.evidenceIds.length > 0).length;
           console.log("## KelpClaw AppSec Audit");
           console.log("");
           console.log(`- Run ID: \`${result.runId}\``);
+          console.log(`- Policy: \`${process.env.KELPCLAW_ACTION_POLICY}\``);
           console.log(`- Status: \`${result.status}\``);
           console.log(`- Bundle: \`${result.bundleDir}\``);
           console.log(`- Imported findings: \`${result.importedFindings}\``);
+          console.log(`- Scanner imports: \`${imports.map((entry) => `${entry.metadata?.format || entry.rawPath}:${entry.importedFindings}`).join(", ") || "none"}\``);
           console.log(`- Docker built: \`${result.docker.built}\``);
           console.log(`- Agent ran: \`${result.agent.ran}\``);
+          console.log(`- Evidence QA: \`${qa.valid ? "valid" : "invalid"} (${qa.errorCount} errors, ${qa.warningCount} warnings)\``);
+          console.log(`- Correlated triage findings: \`${correlated}/${triageFindings.length}\``);
           console.log(`- Bundle signature: \`${verify.signature.valid ? "valid" : "invalid"}\``);
           NODE
+          if [ "$APPSEC_EXIT" -ne 0 ]; then
+            exit "$APPSEC_EXIT"
+          fi
+          if [ "${{ inputs.fail-on-qa }}" = "true" ] && [ "$QA_EXIT" -ne 0 ]; then
+            exit "$QA_EXIT"
+          fi
           exit "$APPSEC_EXIT"
         fi
 
         if [ "${{ inputs.mode }}" = "inventory" ]; then
           mkdir -p .kelpclaw/inventory-output
-          node packages/cli/dist/index.js inventory scan --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --out .kelpclaw/inventory-output/agent-inventory.json > .kelpclaw/inventory-output/scan-output.json
-          node packages/cli/dist/index.js inventory graph --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --format markdown --out .kelpclaw/inventory-output/permissions.md > .kelpclaw/inventory-output/graph-output.json
+          node packages/cli/dist/index.js inventory scan --root "${{ inputs.inventory-root }}" --policy "$POLICY_INPUT" --out .kelpclaw/inventory-output/agent-inventory.json > .kelpclaw/inventory-output/scan-output.json
+          node packages/cli/dist/index.js inventory graph --root "${{ inputs.inventory-root }}" --policy "$POLICY_INPUT" --format markdown --out .kelpclaw/inventory-output/permissions.md > .kelpclaw/inventory-output/graph-output.json
           set +e
-          node packages/cli/dist/index.js inventory coverage --root "${{ inputs.inventory-root }}" --policy "${{ inputs.policy }}" --format markdown --out .kelpclaw/inventory-output/coverage.md --fail-on "${{ inputs.fail-on-coverage }}" > .kelpclaw/inventory-output/coverage-output.json
+          node packages/cli/dist/index.js inventory coverage --root "${{ inputs.inventory-root }}" --policy "$POLICY_INPUT" --format markdown --out .kelpclaw/inventory-output/coverage.md --fail-on "${{ inputs.fail-on-coverage }}" > .kelpclaw/inventory-output/coverage-output.json
           COVERAGE_EXIT=$?
           set -e
           echo "run-id=inventory" >> "$GITHUB_OUTPUT"
@@ -180,8 +248,8 @@ runs:
           printf '{}\n' > "$INPUT_PATH"
         fi
 
-        node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "${{ inputs.policy }}" > .kelpclaw/compatibility.json
-        node packages/cli/dist/index.js export-sarif "${{ inputs.skill }}" --policy "${{ inputs.policy }}" --out .kelpclaw/findings.sarif > .kelpclaw/sarif-output.json
+        node packages/cli/dist/index.js compat "${{ inputs.skill }}" --policy "$POLICY_INPUT" > .kelpclaw/compatibility.json
+        node packages/cli/dist/index.js export-sarif "${{ inputs.skill }}" --policy "$POLICY_INPUT" --out .kelpclaw/findings.sarif > .kelpclaw/sarif-output.json
         echo "sarif-path=.kelpclaw/findings.sarif" >> "$GITHUB_OUTPUT"
         cat .kelpclaw/compatibility.json
         node <<'NODE'
@@ -200,7 +268,7 @@ runs:
         }
         NODE
         set +e
-        RUN_OUTPUT="$(node packages/cli/dist/index.js run-skill "${{ inputs.skill }}" --input "$INPUT_PATH" --policy "${{ inputs.policy }}" 2> .kelpclaw/run-error.log)"
+        RUN_OUTPUT="$(node packages/cli/dist/index.js run-skill "${{ inputs.skill }}" --input "$INPUT_PATH" --policy "$POLICY_INPUT" 2> .kelpclaw/run-error.log)"
         RUN_EXIT=$?
         set -e
         if [ -s .kelpclaw/run-error.log ]; then
@@ -245,7 +313,7 @@ runs:
         console.log("## KelpClaw Skill Audit");
         console.log("");
         console.log(`- Skill: \`${"${{ inputs.skill }}"}\``);
-        console.log(`- Policy: \`${"${{ inputs.policy }}"}\``);
+        console.log(`- Policy: \`${process.env.KELPCLAW_ACTION_POLICY}\``);
         console.log(`- Runnable: \`${compat.runnable}\``);
         console.log(`- Run ID: \`${run.runId}\``);
         console.log(`- Status: \`${run.status}\``);

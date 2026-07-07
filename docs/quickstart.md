@@ -50,7 +50,40 @@ $ kelp-claw appsec audit \
   --agent-command ./appsec-agent.sh \
   --sarif findings.sarif \
   --nuclei-jsonl nuclei.jsonl \
-  --zap-json zap.json
+  --zap-json zap.json \
+  --nmap-xml nmap.xml \
+  --burp-xml burp.xml \
+  --nessus-xml nessus.xml
+```
+
+## PR Workflow
+
+```yaml
+name: KelpClaw AppSec
+on: [pull_request]
+jobs:
+  appsec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gongahkia/kelp-claw/.github/actions/audit-skill@main
+        with:
+          mode: appsec
+          context: .
+          dockerfile: Dockerfile
+          agent-command: ./appsec-agent.sh
+          policy: appsec-agent-baseline
+          skip-docker-build: "false"
+          fail-on-qa: "true"
+          lab-mode: "false"
+          sarif: findings.sarif
+          nuclei-jsonl: nuclei.jsonl
+          zap-json: zap.json
+          nmap-xml: nmap.xml
+          burp-xml: burp.xml
+          nessus-xml: nessus.xml
+          upload-artifact: "true"
+          upload-sarif: "true"
 ```
 
 ## Supporting Surfaces
