@@ -108,3 +108,32 @@ fn replaceStatusApproved(allocator: std.mem.Allocator, content: []const u8) ![]u
     }
     return allocator.dupe(u8, content);
 }
+
+test "scope and approval primitives enforce scan gate inputs" {
+    const root = try common.testTempPath(std.testing.allocator, "scope-approval");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    const scope_dir = try common.pathJoin(std.testing.allocator, root, "scope");
+    defer std.testing.allocator.free(scope_dir);
+    try std.fs.cwd().makePath(scope_dir);
+    const scope_path = try common.pathJoin(std.testing.allocator, scope_dir, "current-scope.json");
+    defer std.testing.allocator.free(scope_path);
+    try common.writeFileWithParents(scope_path, "{\"scopeId\":\"scope-a\",\"host\":\"allowed.example.test\"}\n");
+    try std.testing.expect(targetInScope(std.testing.allocator, root, "allowed.example.test"));
+    try std.testing.expect(!targetInScope(std.testing.allocator, root, "evil.example.test"));
+
+    const approvals_dir = try common.pathJoin(std.testing.allocator, root, "approvals");
+    defer std.testing.allocator.free(approvals_dir);
+    try std.fs.cwd().makePath(approvals_dir);
+    const token_path = try common.pathJoin(std.testing.allocator, approvals_dir, "token-a.json");
+    defer std.testing.allocator.free(token_path);
+    const future = std.time.timestamp() + 300;
+    const approval = try std.fmt.allocPrint(std.testing.allocator, "{{\"token\":\"token-a\",\"status\":\"approved\",\"expiresAtUnix\":{}}}\n", .{future});
+    defer std.testing.allocator.free(approval);
+    try common.writeFileWithParents(token_path, approval);
+    try std.testing.expect(approvalApproved(std.testing.allocator, root, "token-a"));
+    const expired_path = try common.pathJoin(std.testing.allocator, approvals_dir, "token-expired.json");
+    defer std.testing.allocator.free(expired_path);
+    try common.writeFileWithParents(expired_path, "{\"token\":\"token-expired\",\"status\":\"approved\",\"expiresAtUnix\":1}\n");
+    try std.testing.expect(!approvalApproved(std.testing.allocator, root, "token-expired"));
+}

@@ -83,7 +83,10 @@ pub const Decision = struct {
 };
 
 pub fn policyCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len == 0 or !std.mem.eql(u8, args[0], "check")) return common.fail("usage: kelp-pi policy check --tool TOOL --command CMD", 64);
+    if (args.len == 0) return common.fail("usage: kelp-pi policy <check|sync|pull>", 64);
+    if (std.mem.eql(u8, args[0], "sync")) return syncCommand(allocator, args[1..]);
+    if (std.mem.eql(u8, args[0], "pull")) return pullCommand(allocator, args[1..]);
+    if (!std.mem.eql(u8, args[0], "check")) return common.fail("usage: kelp-pi policy <check|sync|pull>", 64);
     const tool = common.option(args[1..], "--tool") orelse "Bash";
     const command = common.option(args[1..], "--command") orelse "";
     const data_dir = common.option(args[1..], "--data-dir") orelse common.default_data_dir;
@@ -95,6 +98,50 @@ pub fn policyCommand(allocator: std.mem.Allocator, args: []const []const u8) !vo
     defer allocator.free(detail);
     try audit.appendEvent(allocator, data_dir, "policy.decision", tool, detail);
     return printDecision(decision);
+}
+
+fn syncCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    const data_dir = common.option(args, "--data-dir") orelse common.default_data_dir;
+    const pack_id = common.option(args, "--policy-pack-id") orelse return common.fail("policy sync requires --policy-pack-id", 64);
+    const epoch_raw = common.option(args, "--trust-epoch") orelse "1";
+    const epoch = std.fmt.parseInt(u64, epoch_raw, 10) catch return common.fail("invalid --trust-epoch", 64);
+    const policy_json = common.option(args, "--policy-json") orelse "{\"mode\":\"enforce\"}";
+    try persistPolicyPack(allocator, data_dir, pack_id, epoch, policy_json);
+    var out = std.fs.File.stdout().deprecatedWriter();
+    try out.print("{{\"ok\":true,\"policyPackId\":\"{s}\",\"trustEpoch\":{}}}\n", .{ pack_id, epoch });
+}
+
+fn pullCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    const data_dir = common.option(args, "--data-dir") orelse common.default_data_dir;
+    const payload = try policyPullPayload(allocator, data_dir);
+    defer allocator.free(payload);
+    try audit.appendEvent(allocator, data_dir, "policy.pull.requested", "policy", payload);
+    var out = std.fs.File.stdout().deprecatedWriter();
+    try out.writeAll(payload);
+}
+
+pub fn persistPolicyPack(allocator: std.mem.Allocator, data_dir: []const u8, pack_id: []const u8, trust_epoch: u64, policy_json: []const u8) !void {
+    const policy_dir = try common.pathJoin(allocator, data_dir, "policy");
+    defer allocator.free(policy_dir);
+    try std.fs.cwd().makePath(policy_dir);
+    const path = try common.pathJoin(allocator, policy_dir, "current-policy.json");
+    defer allocator.free(path);
+    const payload = try std.fmt.allocPrint(allocator, "{{\"schemaVersion\":\"kelp.pi.policy-sync.v1\",\"payload\":{{\"policy_pack_id\":\"{s}\",\"trust_epoch\":{},\"policy\":{s}}}}}\n", .{ pack_id, trust_epoch, policy_json });
+    defer allocator.free(payload);
+    try common.writeFileWithParents(path, payload);
+    try audit.appendEvent(allocator, data_dir, "policy.push.accepted", pack_id, path);
+}
+
+pub fn policyPullPayload(allocator: std.mem.Allocator, data_dir: []const u8) ![]u8 {
+    const path = try common.pathJoin3(allocator, data_dir, "policy", "current-policy.json");
+    defer allocator.free(path);
+    const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch {
+        return allocator.dupe(u8, "{\"kind\":\"policy.pull\",\"known_policy_packs\":[],\"trust_epoch\":0}\n");
+    };
+    defer allocator.free(content);
+    const pack_id = common.extractJsonField(content, "policy_pack_id") orelse "";
+    const epoch = common.extractJsonInt(content, "trust_epoch") orelse 0;
+    return std.fmt.allocPrint(allocator, "{{\"kind\":\"policy.pull\",\"known_policy_packs\":[\"{s}\"],\"trust_epoch\":{}}}\n", .{ pack_id, epoch });
 }
 
 pub fn parseRules(text: []const u8) RuleSet {
@@ -225,4 +272,30 @@ test "malicious evidence cannot bypass policy tool gates" {
     const rules = parseRules(policy);
     try std.testing.expectEqual(Action.deny, evaluatePolicy(rules, "Bash", destructive).action);
     try std.testing.expectEqual(Action.require_approval, evaluatePolicy(rules, "Bash", scanner).action);
+}
+
+test "policy sync rotation is persisted and audited" {
+    const root = try common.testTempPath(std.testing.allocator, "policy-sync");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    try persistPolicyPack(std.testing.allocator, root, "appsec-agent-baseline@smoke-1", 1, "{\"mode\":\"enforce\"}");
+    const pull1 = try policyPullPayload(std.testing.allocator, root);
+    defer std.testing.allocator.free(pull1);
+    try std.testing.expect(std.mem.indexOf(u8, pull1, "appsec-agent-baseline@smoke-1") != null);
+    try persistPolicyPack(std.testing.allocator, root, "appsec-agent-baseline@smoke-2", 2, "{\"mode\":\"dry-run\"}");
+    const pull2 = try policyPullPayload(std.testing.allocator, root);
+    defer std.testing.allocator.free(pull2);
+    try std.testing.expect(std.mem.indexOf(u8, pull2, "appsec-agent-baseline@smoke-2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pull2, "\"trust_epoch\":2") != null);
+    const stored_path = try common.pathJoin3(std.testing.allocator, root, "policy", "current-policy.json");
+    defer std.testing.allocator.free(stored_path);
+    const stored = try std.fs.cwd().readFileAlloc(std.testing.allocator, stored_path, 64 * 1024);
+    defer std.testing.allocator.free(stored);
+    try std.testing.expect(std.mem.indexOf(u8, stored, "\"mode\":\"dry-run\"") != null);
+    const audit_path = try audit.auditLogPath(std.testing.allocator, root);
+    defer std.testing.allocator.free(audit_path);
+    const log = try std.fs.cwd().readFileAlloc(std.testing.allocator, audit_path, 64 * 1024);
+    defer std.testing.allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"event\":\"policy.push.accepted\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "appsec-agent-baseline@smoke-2") != null);
 }

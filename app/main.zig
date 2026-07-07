@@ -1,4 +1,5 @@
 const std = @import("std");
+const acceptance = @import("acceptance.zig");
 const audit = @import("audit.zig");
 const bundle = @import("bundle.zig");
 const chat = @import("chat.zig");
@@ -7,7 +8,9 @@ const doctor_mod = @import("doctor.zig");
 const index = @import("index.zig");
 const keys = @import("keys.zig");
 const model = @import("model.zig");
+const outbox = @import("outbox.zig");
 const policy = @import("policy.zig");
+const quota = @import("quota.zig");
 const scanner = @import("scanner.zig");
 const scope = @import("scope.zig");
 
@@ -26,9 +29,11 @@ pub fn main() !void {
     if (std.mem.eql(u8, command, "policy")) return policy.policyCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "approval-request")) return scope.approvalRequest(allocator, args[2..]);
     if (std.mem.eql(u8, command, "approve")) return scope.approve(allocator, args[2..]);
+    if (std.mem.eql(u8, command, "acceptance")) return acceptance.acceptanceCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "audit")) return audit.auditCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "scope")) return scope.scopeCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "scan")) return scanner.scanCommand(allocator, args[2..]);
+    if (std.mem.eql(u8, command, "outbox")) return outbox.outboxCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "index")) return index.indexCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "ask")) return index.askCommand(allocator, args[2..]);
     if (std.mem.eql(u8, command, "bundle")) return bundle.bundleCommand(allocator, args[2..]);
@@ -40,10 +45,11 @@ pub fn main() !void {
 }
 
 fn usage() !void {
-    return common.printLine("usage: kelp-pi <chat|doctor|keygen|policy|approval-request|approve|audit|scope|scan|index|ask|bundle|verify-bundle|verify-audit-log|model|version>");
+    return common.printLine("usage: kelp-pi <acceptance|chat|doctor|keygen|policy|approval-request|approve|audit|scope|scan|outbox|index|ask|bundle|verify-bundle|verify-audit-log|model|version>");
 }
 
 test {
+    std.testing.refAllDecls(@import("acceptance.zig"));
     std.testing.refAllDecls(@import("audit.zig"));
     std.testing.refAllDecls(@import("bundle.zig"));
     std.testing.refAllDecls(@import("chat.zig"));
@@ -51,7 +57,9 @@ test {
     std.testing.refAllDecls(@import("index.zig"));
     std.testing.refAllDecls(@import("keys.zig"));
     std.testing.refAllDecls(@import("model.zig"));
+    std.testing.refAllDecls(@import("outbox.zig"));
     std.testing.refAllDecls(@import("policy.zig"));
+    std.testing.refAllDecls(@import("quota.zig"));
     std.testing.refAllDecls(@import("scanner.zig"));
     std.testing.refAllDecls(@import("scope.zig"));
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const audit = @import("audit.zig");
 const common = @import("common.zig");
 const policy = @import("policy.zig");
+const quota = @import("quota.zig");
 const scope = @import("scope.zig");
 
 const default_nuclei_bin = "/opt/kelp-pi/bin/nuclei";
@@ -32,6 +33,10 @@ pub fn scanCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
 
     const command = try std.fmt.allocPrint(allocator, "{s} {s}", .{ scanner, target });
     defer allocator.free(command);
+    quota.enforceArgs(allocator, data_dir, args[1..], .scan) catch |err| switch (err) {
+        error.StorageQuotaExceeded => return common.printJsonStatus(false, "deny", "storage quota refused"),
+        else => return err,
+    };
     const policy_text = try std.fs.cwd().readFileAlloc(allocator, common.default_policy_path, 1024 * 1024);
     defer allocator.free(policy_text);
     const decision = policy.evaluatePolicy(policy.parseRules(policy_text), "Bash", command);
@@ -284,4 +289,19 @@ test "scanner fixture output persists raw and normalized findings" {
     try std.testing.expect(std.mem.indexOf(u8, stderr, "fixture stderr") != null);
     try std.testing.expect(std.mem.indexOf(u8, normalized, "\"templateId\":\"fixture-check\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, normalized, "\"severity\":\"medium\"") != null);
+}
+
+test "scan storage quota guard records refusal before scanner launch" {
+    const root = try common.testTempPath(std.testing.allocator, "scanner-quota");
+    defer std.testing.allocator.free(root);
+    defer std.fs.cwd().deleteTree(root) catch {};
+    quota.enforceArgs(std.testing.allocator, root, &.{ "--min-free-bytes", "2048", "--available-bytes", "1024" }, .scan) catch |err| {
+        try std.testing.expectEqual(error.StorageQuotaExceeded, err);
+    };
+    const audit_path = try audit.auditLogPath(std.testing.allocator, root);
+    defer std.testing.allocator.free(audit_path);
+    const log = try std.fs.cwd().readFileAlloc(std.testing.allocator, audit_path, 64 * 1024);
+    defer std.testing.allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"event\":\"storage.quota.refused\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "scope=scan") != null);
 }
