@@ -44,3 +44,34 @@ func TestCodecRoundTripAndCommitment(t *testing.T) {
 		t.Fatal("opened with wrong HKDF info")
 	}
 }
+
+func TestRelayFrameRoundTripAndBindings(t *testing.T) {
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamID, err := NewStreamID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := SealRelayFrame(key, "owner-session", streamID, "ws:pty", "c2s", 0, "binary", []byte("terminal bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(sealed, []byte("terminal bytes")) {
+		t.Fatalf("ciphertext leaked plaintext: %s", sealed)
+	}
+	frame, opened, err := OpenRelayFrame(key, "owner-session", "ws:pty", "c2s", 0, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.StreamID != streamID || frame.IV == "" || frame.Type != "binary" || string(opened) != "terminal bytes" {
+		t.Fatalf("frame=%#v opened=%q", frame, opened)
+	}
+	if _, _, err := OpenRelayFrame(key, "owner-session", "ws:events", "c2s", 0, sealed); err == nil {
+		t.Fatal("opened with wrong channel")
+	}
+	if _, _, err := OpenRelayFrame(key, "owner-session", "ws:pty", "c2s", 1, sealed); err == nil {
+		t.Fatal("opened with wrong sequence")
+	}
+}

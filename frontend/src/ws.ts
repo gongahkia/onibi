@@ -81,6 +81,7 @@ export class TerminalWS extends EventTarget {
       last_seq: this.lastSeq
     };
     if (this.e2e !== undefined) {
+      this.e2e.startStream("ws:pty");
       attach.verify_token = this.e2e.verifyToken();
     }
     await this.sendTyped("text", new TextEncoder().encode(JSON.stringify(attach)), socket);

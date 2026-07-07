@@ -64,7 +64,7 @@ func (s *Server) handleFilesTree(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := s.requireHTTPAuth(w, r); !ok {
+	if _, ok := s.requireOwnerHTTPAuth(w, r); !ok {
 		return
 	}
 	sessionID := strings.TrimSpace(r.URL.Query().Get("session"))
@@ -122,7 +122,7 @@ func (s *Server) handleFilesContent(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if _, ok := s.requireHTTPAuth(w, r); !ok {
+	if _, ok := s.requireOwnerHTTPAuth(w, r); !ok {
 		return
 	}
 	sessionID := strings.TrimSpace(r.URL.Query().Get("session"))

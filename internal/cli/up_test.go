@@ -379,8 +379,10 @@ func withDefaultState(t *testing.T) config.Paths {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "xdg-data"))
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "runtime"))
+	t.Setenv("ONIBI_STORE_KEY_BACKEND", "dotenv")
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		t.Fatal(err)

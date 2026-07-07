@@ -65,13 +65,13 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerSessionID := auth.ID
 	readOnly := auth.Role == store.PairRoleViewer
-	codec, err := s.e2eCodec(ownerSessionID, e2eInfoPTY)
+	sessionKey, err := s.e2eSessionKey(ownerSessionID)
 	if err != nil {
 		s.log.Warn("web pty e2e unavailable", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
 		return
 	}
-	wsE2E := newSeqWSCodec(codec, ownerSessionID, e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	wsE2E := newSeqWSCodec(sessionKey, ownerSessionID, e2eInfoPTY, e2eDirC2S, e2eDirS2C)
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{ptySubprotocol}})
 	if err != nil {
 		s.log.Warn("web pty ws accept failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))

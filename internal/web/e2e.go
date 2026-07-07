@@ -2,11 +2,12 @@ package web
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -15,15 +16,26 @@ import (
 )
 
 const (
-	e2eInfoPTY    = "ws:pty"
-	e2eInfoEvents = "ws:events"
-	e2eTypeText   = "text"
-	e2eTypeBinary = "binary"
-	e2eDirC2S     = "c2s"
-	e2eDirS2C     = "s2c"
+	e2eInfoPTY         = "ws:pty"
+	e2eInfoEvents      = "ws:events"
+	e2eTypeText        = "text"
+	e2eTypeBinary      = "binary"
+	e2eDirC2S          = "c2s"
+	e2eDirS2C          = "s2c"
+	e2eContentType     = "application/onibi-e2e+json"
+	e2eOldContentType  = "application/vnd.onibi.e2e+json"
+	e2eHTTPReplayTTL   = 10 * time.Minute
+	e2eHTTPReplayLimit = 4096
 )
 
-func (s *Server) e2eCodec(sessionID string, info string) (*envelope.Codec, error) {
+type e2eHTTPMeta struct {
+	sessionKey []byte
+	sessionID  string
+	streamID   string
+	channel    string
+}
+
+func (s *Server) e2eSessionKey(sessionID string) ([]byte, error) {
 	if s.relayKeys == nil {
 		if s.requireE2E {
 			return nil, errors.New("relay e2e key store unavailable")
@@ -37,8 +49,42 @@ func (s *Server) e2eCodec(sessionID string, info string) (*envelope.Codec, error
 		}
 		return nil, nil
 	}
-	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
-	return envelope.NewCodec(sessionKey, info)
+	return e2ecrypto.DeriveSessionKey(key, []byte(sessionID)), nil
+}
+
+func (s *Server) e2eHTTPHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isE2EContentType(r.Header.Get("Content-Type")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		bw := newBufferedResponseWriter()
+		next.ServeHTTP(bw, r)
+		meta, ok := s.takeE2EHTTPResponse(r)
+		if !ok {
+			bw.flushTo(w)
+			return
+		}
+		status := bw.statusCode()
+		if status == http.StatusNoContent {
+			status = http.StatusOK
+		}
+		if status == http.StatusNotModified {
+			bw.flushTo(w)
+			return
+		}
+		sealed, err := envelope.SealRelayFrame(meta.sessionKey, meta.sessionID, meta.streamID, meta.channel, e2eDirS2C, 0, e2eTypeText, bw.body.Bytes())
+		if err != nil {
+			s.log.Warn("web e2e response encrypt failed", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "err", err)
+			http.Error(w, "relay e2e response failed", http.StatusInternalServerError)
+			return
+		}
+		copyHeader(w.Header(), bw.header)
+		w.Header().Set("Content-Type", e2eContentType)
+		w.Header().Del("Content-Length")
+		w.WriteHeader(status)
+		_, _ = w.Write(sealed)
+	})
 }
 
 func (s *Server) readJSONBody(w http.ResponseWriter, r *http.Request, ownerSessionID string, dst any) bool {
@@ -49,7 +95,7 @@ func (s *Server) readJSONBodyLimit(w http.ResponseWriter, r *http.Request, owner
 	if limit <= 0 {
 		limit = 1 << 20
 	}
-	codec, err := s.e2eCodec(ownerSessionID, "http:"+r.Method+":"+r.URL.Path)
+	sessionKey, err := s.e2eSessionKey(ownerSessionID)
 	if err != nil {
 		s.log.Warn("web e2e unavailable", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "err", err)
 		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
@@ -64,14 +110,33 @@ func (s *Server) readJSONBodyLimit(w http.ResponseWriter, r *http.Request, owner
 		http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
 		return false
 	}
-	if codec != nil {
-		typ, plain, err := codec.Open(body, nil)
-		if err != nil || typ != e2eTypeText {
+	encrypted := isE2EContentType(r.Header.Get("Content-Type"))
+	if encrypted {
+		if sessionKey == nil {
+			http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
+			return false
+		}
+		channel := "http:" + r.Method + ":" + r.URL.Path
+		frame, plain, err := envelope.OpenRelayFrame(sessionKey, ownerSessionID, channel, e2eDirC2S, 0, body)
+		if err != nil || frame.Type != e2eTypeText {
 			s.log.Warn("web e2e decrypt failed", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "err", err)
 			http.Error(w, "bad encrypted request", http.StatusBadRequest)
 			return false
 		}
+		if !s.acceptE2EHTTPReplay(frame) {
+			http.Error(w, "encrypted request replay", http.StatusConflict)
+			return false
+		}
+		s.storeE2EHTTPResponse(r, e2eHTTPMeta{
+			sessionKey: append([]byte(nil), sessionKey...),
+			sessionID:  ownerSessionID,
+			streamID:   frame.StreamID,
+			channel:    channel,
+		})
 		body = plain
+	} else if sessionKey != nil && s.requireE2E {
+		http.Error(w, "bad encrypted request", http.StatusBadRequest)
+		return false
 	}
 	if err := json.Unmarshal(body, dst); err != nil {
 		s.log.Warn("web json bad request", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "err", err)
@@ -81,81 +146,133 @@ func (s *Server) readJSONBodyLimit(w http.ResponseWriter, r *http.Request, owner
 	return true
 }
 
+func (s *Server) acceptE2EHTTPReplay(frame envelope.RelayFrame) bool {
+	now := time.Now()
+	key := strings.Join([]string{
+		frame.SessionID,
+		frame.StreamID,
+		frame.Channel,
+		frame.Direction,
+		fmt.Sprintf("%d", frame.Seq),
+	}, "\x00")
+	s.e2eMu.Lock()
+	defer s.e2eMu.Unlock()
+	if s.e2eHTTPReplay == nil {
+		s.e2eHTTPReplay = map[string]time.Time{}
+	}
+	for k, expires := range s.e2eHTTPReplay {
+		if !expires.After(now) || len(s.e2eHTTPReplay) > e2eHTTPReplayLimit {
+			delete(s.e2eHTTPReplay, k)
+		}
+	}
+	if expires, ok := s.e2eHTTPReplay[key]; ok && expires.After(now) {
+		return false
+	}
+	s.e2eHTTPReplay[key] = now.Add(e2eHTTPReplayTTL)
+	return true
+}
+
+func (s *Server) storeE2EHTTPResponse(r *http.Request, meta e2eHTTPMeta) {
+	s.e2eMu.Lock()
+	defer s.e2eMu.Unlock()
+	if s.e2eHTTPResponse == nil {
+		s.e2eHTTPResponse = map[*http.Request]e2eHTTPMeta{}
+	}
+	s.e2eHTTPResponse[r] = meta
+}
+
+func (s *Server) takeE2EHTTPResponse(r *http.Request) (e2eHTTPMeta, bool) {
+	s.e2eMu.Lock()
+	defer s.e2eMu.Unlock()
+	meta, ok := s.e2eHTTPResponse[r]
+	if ok {
+		delete(s.e2eHTTPResponse, r)
+	}
+	return meta, ok
+}
+
 type wsCodec interface {
 	encrypt(websocket.MessageType, []byte) (websocket.MessageType, []byte, error)
 	decrypt(websocket.MessageType, []byte) (websocket.MessageType, []byte, error)
 }
 
 type seqWSCodec struct {
-	codec     *envelope.Codec
-	sessionID string
-	channel   string
-	inDir     string
-	outDir    string
-	inSeq     uint64
-	outSeq    uint64
+	sessionKey []byte
+	sessionID  string
+	channel    string
+	streamID   string
+	inDir      string
+	outDir     string
+	inSeq      uint64
+	outSeq     uint64
 }
 
-func newSeqWSCodec(codec *envelope.Codec, sessionID, channel, inDir, outDir string) wsCodec {
-	if codec == nil {
+func newSeqWSCodec(sessionKey []byte, sessionID, channel, inDir, outDir string) wsCodec {
+	if sessionKey == nil {
 		return nil
 	}
-	return &seqWSCodec{codec: codec, sessionID: sessionID, channel: channel, inDir: inDir, outDir: outDir}
+	return &seqWSCodec{
+		sessionKey: append([]byte(nil), sessionKey...),
+		sessionID:  sessionID,
+		channel:    channel,
+		inDir:      inDir,
+		outDir:     outDir,
+	}
+}
+
+func newSeqWSClientCodec(sessionKey []byte, sessionID, channel, inDir, outDir string) (wsCodec, error) {
+	if sessionKey == nil {
+		return nil, nil
+	}
+	streamID, err := envelope.NewStreamID()
+	if err != nil {
+		return nil, err
+	}
+	return &seqWSCodec{
+		sessionKey: append([]byte(nil), sessionKey...),
+		sessionID:  sessionID,
+		channel:    channel,
+		streamID:   streamID,
+		inDir:      inDir,
+		outDir:     outDir,
+	}, nil
 }
 
 func (c *seqWSCodec) encrypt(typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	frameType := wsFrameType(typ)
-	aad := wsFrameAAD(c.sessionID, c.channel, c.outDir, c.outSeq, frameType)
-	outType, out, err := wsEncryptAAD(c.codec, typ, p, aad)
-	if err != nil {
-		return outType, out, err
+	if c.streamID == "" {
+		return typ, nil, errors.New("e2e stream not established")
 	}
-	c.outSeq++
-	return outType, out, nil
-}
-
-func (c *seqWSCodec) decrypt(typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	frameType, err := encryptedWSFrameType(typ, p)
+	frameType := wsFrameType(typ)
+	out, err := envelope.SealRelayFrame(c.sessionKey, c.sessionID, c.streamID, c.channel, c.outDir, c.outSeq, frameType, p)
 	if err != nil {
 		return typ, nil, err
 	}
-	aad := wsFrameAAD(c.sessionID, c.channel, c.inDir, c.inSeq, frameType)
-	outType, out, err := wsDecryptAAD(c.codec, typ, p, aad)
+	c.outSeq++
+	return websocket.MessageText, out, nil
+}
+
+func (c *seqWSCodec) decrypt(typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
+	if typ != websocket.MessageText {
+		return typ, nil, errors.New("encrypted ws frame must be text")
+	}
+	frame, plain, err := envelope.OpenRelayFrame(c.sessionKey, c.sessionID, c.channel, c.inDir, c.inSeq, p)
 	if err != nil {
-		return outType, out, err
+		return typ, nil, err
+	}
+	if c.streamID == "" {
+		c.streamID = frame.StreamID
+	} else if frame.StreamID != c.streamID {
+		return typ, nil, errors.New("bad e2e ws stream")
 	}
 	c.inSeq++
-	return outType, out, nil
-}
-
-func wsFrameAAD(sessionID, channel, dir string, seq uint64, frameType string) []byte {
-	var seqBytes [8]byte
-	binary.BigEndian.PutUint64(seqBytes[:], seq)
-	var b bytes.Buffer
-	b.WriteString(sessionID)
-	b.WriteByte(0)
-	b.WriteString(channel)
-	b.WriteByte(0)
-	b.WriteString(dir)
-	b.WriteByte(0)
-	b.Write(seqBytes[:])
-	b.WriteByte(0)
-	b.WriteString(frameType)
-	return b.Bytes()
-}
-
-func encryptedWSFrameType(typ websocket.MessageType, p []byte) (string, error) {
-	if typ != websocket.MessageText {
-		return "", errors.New("encrypted ws frame must be text")
+	switch frame.Type {
+	case e2eTypeText:
+		return websocket.MessageText, plain, nil
+	case e2eTypeBinary:
+		return websocket.MessageBinary, plain, nil
+	default:
+		return typ, nil, fmt.Errorf("bad encrypted ws frame type %q", frame.Type)
 	}
-	var frame envelope.Frame
-	if err := json.Unmarshal(p, &frame); err != nil {
-		return "", err
-	}
-	if frame.Type != e2eTypeText && frame.Type != e2eTypeBinary {
-		return "", fmt.Errorf("bad encrypted ws frame type %q", frame.Type)
-	}
-	return frame.Type, nil
 }
 
 func wsFrameType(typ websocket.MessageType) string {
@@ -165,43 +282,69 @@ func wsFrameType(typ websocket.MessageType) string {
 	return e2eTypeText
 }
 
-func wsDecrypt(codec *envelope.Codec, typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	return wsDecryptAAD(codec, typ, p, nil)
-}
-
-func wsDecryptAAD(codec *envelope.Codec, typ websocket.MessageType, p []byte, aad []byte) (websocket.MessageType, []byte, error) {
+func wsDecrypt(codec wsCodec, typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
 	if codec == nil {
 		return typ, p, nil
 	}
-	if typ != websocket.MessageText {
-		return typ, nil, errors.New("encrypted ws frame must be text")
-	}
-	frameType, plain, err := codec.Open(p, aad)
-	if err != nil {
-		return typ, nil, err
-	}
-	switch frameType {
-	case e2eTypeText:
-		return websocket.MessageText, plain, nil
-	case e2eTypeBinary:
-		return websocket.MessageBinary, plain, nil
-	default:
-		return typ, nil, fmt.Errorf("bad encrypted ws frame type %q", frameType)
-	}
+	return codec.decrypt(typ, p)
 }
 
-func wsEncrypt(codec *envelope.Codec, typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
-	return wsEncryptAAD(codec, typ, p, nil)
-}
-
-func wsEncryptAAD(codec *envelope.Codec, typ websocket.MessageType, p []byte, aad []byte) (websocket.MessageType, []byte, error) {
+func wsEncrypt(codec wsCodec, typ websocket.MessageType, p []byte) (websocket.MessageType, []byte, error) {
 	if codec == nil {
 		return typ, p, nil
 	}
-	frameType := wsFrameType(typ)
-	out, err := codec.Seal(frameType, p, aad)
-	if err != nil {
-		return typ, nil, err
+	return codec.encrypt(typ, p)
+}
+
+func isE2EContentType(value string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.Split(value, ";")[0]))
+	return base == e2eContentType || base == e2eOldContentType
+}
+
+type bufferedResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func newBufferedResponseWriter() *bufferedResponseWriter {
+	return &bufferedResponseWriter{header: http.Header{}}
+}
+
+func (w *bufferedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *bufferedResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
 	}
-	return websocket.MessageText, out, nil
+}
+
+func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(p)
+}
+
+func (w *bufferedResponseWriter) statusCode() int {
+	if w.status == 0 {
+		return http.StatusOK
+	}
+	return w.status
+}
+
+func (w *bufferedResponseWriter) flushTo(dst http.ResponseWriter) {
+	copyHeader(dst.Header(), w.header)
+	dst.WriteHeader(w.statusCode())
+	_, _ = dst.Write(w.body.Bytes())
+}
+
+func copyHeader(dst, src http.Header) {
+	for k, values := range src {
+		for _, value := range values {
+			dst.Add(k, value)
+		}
+	}
 }

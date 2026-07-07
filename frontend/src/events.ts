@@ -81,10 +81,7 @@ export class EventsWS extends EventTarget {
   private open(): void {
     const socket = new WebSocket(this.url, ["onibi.events.v1"]);
     this.ws = socket;
-    socket.addEventListener("open", () => {
-      this.attempts = 0;
-      this.dispatchEvent(new Event("open"));
-    });
+    socket.addEventListener("open", () => void this.handleOpen(socket));
     socket.addEventListener("message", (event) => void this.handleMessage(event));
     socket.addEventListener("close", () => {
       this.dispatchEvent(new Event("close"));
@@ -93,6 +90,16 @@ export class EventsWS extends EventTarget {
       }
     });
     socket.addEventListener("error", () => socket.close());
+  }
+
+  private async handleOpen(socket: WebSocket): Promise<void> {
+    this.attempts = 0;
+    if (this.e2e !== undefined) {
+      this.e2e.startStream("ws:events");
+      const attach = { type: "attach", verify_token: this.e2e.verifyToken() };
+      socket.send(await this.e2e.sealText(JSON.stringify(attach), "ws:events"));
+    }
+    this.dispatchEvent(new Event("open"));
   }
 
   private scheduleReconnect(): void {

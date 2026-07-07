@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -15,6 +17,11 @@ type eventEnvelope struct {
 	Type    string `json:"type"`
 	TS      string `json:"ts"`
 	Payload any    `json:"payload"`
+}
+
+type eventsAttachFrame struct {
+	Type        string `json:"type"`
+	VerifyToken string `json:"verify_token,omitempty"`
 }
 
 const (
@@ -32,7 +39,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	codec, err := s.e2eCodec(sessionID, e2eInfoEvents)
+	sessionKey, err := s.e2eSessionKey(sessionID)
 	if err != nil {
 		s.log.Warn("web events e2e unavailable", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "relay e2e unavailable", http.StatusUnauthorized)
@@ -44,6 +51,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
+	c.SetReadLimit(1 << 20)
 	reqID := requestID(r)
 	eventsSent := 0
 	s.log.Info("web events ws accepted", "request_id", reqID, "remote", remoteHost(r.RemoteAddr), "session_id", sessionID)
@@ -61,7 +69,20 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	go s.pingLoop(ctx, c)
 	var writeMu sync.Mutex
-	wsE2E := newSeqWSCodec(codec, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
+	wsE2E := newSeqWSCodec(sessionKey, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
+	if wsE2E != nil {
+		attach, err := readEventsAttach(ctx, c, wsE2E)
+		if err != nil {
+			s.log.Warn("web events attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			_ = c.Close(websocket.StatusPolicyViolation, "attach required")
+			return
+		}
+		if err := s.verifyRelayAttach(ctx, sessionID, attach.VerifyToken); err != nil {
+			s.log.Warn("web events attach failed", "request_id", reqID, "reason", "bad_relay_verifier", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			_ = c.Close(websocket.StatusPolicyViolation, "bad relay verifier")
+			return
+		}
+	}
 	var approvalEvents <-chan approval.Event
 	var unsubApprovals func()
 	if s.approvalQueue != nil {
@@ -155,6 +176,32 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "events_sent", eventsSent)
 		}
 	}
+}
+
+func readEventsAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (eventsAttachFrame, error) {
+	readCtx, cancel := context.WithTimeout(ctx, ptyAttachTimeout)
+	defer cancel()
+	typ, p, err := c.Read(readCtx)
+	if err != nil {
+		return eventsAttachFrame{}, err
+	}
+	if codec != nil {
+		typ, p, err = codec.decrypt(typ, p)
+		if err != nil {
+			return eventsAttachFrame{}, err
+		}
+	}
+	if typ != websocket.MessageText {
+		return eventsAttachFrame{}, errors.New("web: events attach must be text")
+	}
+	var attach eventsAttachFrame
+	if err := json.Unmarshal(p, &attach); err != nil {
+		return eventsAttachFrame{}, err
+	}
+	if attach.Type != "attach" {
+		return eventsAttachFrame{}, errors.New("web: invalid events attach")
+	}
+	return attach, nil
 }
 
 func (s *Server) writeTimelineReplay(ctx context.Context, c *websocket.Conn, writeMu *sync.Mutex, codec wsCodec, reqID, sessionID string) (int, error) {

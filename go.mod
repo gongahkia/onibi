@@ -17,7 +17,7 @@ require (
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.53.0
 	golang.org/x/image v0.42.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0

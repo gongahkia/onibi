@@ -183,8 +183,10 @@ func withDotenvDoctor(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "xdg-data"))
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "run"))
+	t.Setenv("ONIBI_STORE_KEY_BACKEND", "dotenv")
 	old := doctorOptionsHook
 	doctorOptionsHook = func(opts *doctor.Options) {
 		opts.PreferDotenv = true

@@ -48,11 +48,12 @@ for os in darwin linux; do
       echo "artifacts.json missing $name" >&2
       exit 1
     fi
-    if ! tar -tzf "${matches[0]}" | grep -qx 'onibi'; then
+    listing="$(tar -tzf "${matches[0]}")"
+    if ! grep -qx 'onibi' <<<"$listing"; then
       echo "$name missing onibi" >&2
       exit 1
     fi
-    if ! tar -tzf "${matches[0]}" | grep -qx 'onibi-notify'; then
+    if ! grep -qx 'onibi-notify' <<<"$listing"; then
       echo "$name missing onibi-notify" >&2
       exit 1
     fi

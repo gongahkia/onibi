@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
@@ -74,6 +75,9 @@ type Server struct {
 	relayKeys       *RelayKeys
 	requireE2E      bool
 	log             *slog.Logger
+	e2eMu           sync.Mutex
+	e2eHTTPReplay   map[string]time.Time
+	e2eHTTPResponse map[*http.Request]e2eHTTPMeta
 }
 
 func New(opts Options) *Server {
@@ -137,7 +141,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
 	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
 	mux.HandleFunc("/", s.handleRoot)
-	return s.loggedHandler(mux)
+	return s.loggedHandler(s.e2eHTTPHandler(mux))
 }
 
 func (s *Server) Start(addr string) error {

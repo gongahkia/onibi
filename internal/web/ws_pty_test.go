@@ -209,11 +209,10 @@ func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 	defer c.CloseNow()
 
 	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(ownerSessionID))
-	base, err := envelope.NewCodec(sessionKey, e2eInfoPTY)
+	client, err := newSeqWSClientCodec(sessionKey, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := newSeqWSCodec(base, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	verifyToken, err := relayVerifyToken(key, ownerSessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -516,12 +515,11 @@ func dialE2EPTYAtWithin(t *testing.T, baseURL, ownerSessionID string, cookie *ht
 	}
 	c.SetReadLimit(1 << 20)
 	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(ownerSessionID))
-	base, err := envelope.NewCodec(sessionKey, e2eInfoPTY)
+	client, err := newSeqWSClientCodec(sessionKey, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	if err != nil {
 		c.CloseNow()
 		t.Fatal(err)
 	}
-	client := newSeqWSCodec(base, ownerSessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	verifyToken, err := relayVerifyToken(key, ownerSessionID)
 	if err != nil {
 		c.CloseNow()

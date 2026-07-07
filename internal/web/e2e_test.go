@@ -171,11 +171,11 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
-	codec, err := envelope.NewCodec(sessionKey, "http:POST:/control")
+	streamID, err := envelope.NewStreamID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := codec.Seal("text", []byte(`{"session_id":"s1","action":"page_up"}`), nil)
+	body, err := envelope.SealRelayFrame(sessionKey, sessionID, streamID, "http:POST:/control", e2eDirC2S, 0, e2eTypeText, []byte(`{"session_id":"s1","action":"page_up"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,6 +184,7 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
 	req.AddCookie(rr.Result().Cookies()[0])
+	req.Header.Set("Content-Type", e2eContentType)
 	w := httptest.NewRecorder()
 	srv.handleControl(w, req)
 	if w.Code != http.StatusOK {
@@ -202,20 +203,113 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 	}
 }
 
-func TestWSEncryptHidesPayload(t *testing.T) {
-	key, _ := envelope.NewKey()
-	codec, err := envelope.NewCodec(key, e2eInfoPTY)
+func TestRelayControlResponseIsEncrypted(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	typ, sealed, err := wsEncrypt(codec, websocket.MessageBinary, []byte("pty secret"))
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, _ := envelope.NewKey()
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	srv.scroll = func(_ context.Context, _, _ string) error { return nil }
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
+	streamID, err := envelope.NewStreamID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := envelope.SealRelayFrame(sessionKey, sessionID, streamID, "http:POST:/control", e2eDirC2S, 0, e2eTypeText, []byte(`{"session_id":"s1","action":"page_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
+	req.AddCookie(rr.Result().Cookies()[0])
+	req.Header.Set("Content-Type", e2eContentType)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"ok"`) {
+		t.Fatalf("encrypted response leaked JSON: %s", w.Body.String())
+	}
+	frame, plain, err := envelope.OpenRelayFrame(sessionKey, sessionID, "http:POST:/control", e2eDirS2C, 0, w.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.StreamID != streamID || frame.Type != e2eTypeText || !bytes.Contains(plain, []byte(`"ok":true`)) {
+		t.Fatalf("frame=%#v plain=%q", frame, plain)
+	}
+}
+
+func TestRelayControlRejectsHTTPReplay(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, _ := envelope.NewKey()
+	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	srv.scroll = func(_ context.Context, _, _ string) error { return nil }
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(context.Background(), db, "tok", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	sessionKey := e2ecrypto.DeriveSessionKey(key, []byte(sessionID))
+	streamID, err := envelope.NewStreamID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := envelope.SealRelayFrame(sessionKey, sessionID, streamID, "http:POST:/control", e2eDirC2S, 0, e2eTypeText, []byte(`{"session_id":"s1","action":"page_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []int{http.StatusOK, http.StatusConflict} {
+		req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
+		req.AddCookie(rr.Result().Cookies()[0])
+		req.Header.Set("Content-Type", e2eContentType)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != want {
+			t.Fatalf("request %d status = %d body = %q", i+1, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestWSEncryptHidesPayload(t *testing.T) {
+	key, _ := envelope.NewKey()
+	server := newSeqWSCodec(key, "owner-session", e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	client, err := newSeqWSClientCodec(key, "owner-session", e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, sealed, err := wsEncrypt(client, websocket.MessageBinary, []byte("pty secret"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if typ != websocket.MessageText || bytes.Contains(sealed, []byte("pty secret")) {
 		t.Fatalf("sealed typ=%v payload=%s", typ, sealed)
 	}
-	openedType, opened, err := wsDecrypt(codec, typ, sealed)
+	openedType, opened, err := wsDecrypt(server, typ, sealed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,12 +320,11 @@ func TestWSEncryptHidesPayload(t *testing.T) {
 
 func TestSequencedWSEncryptRejectsReplay(t *testing.T) {
 	key, _ := envelope.NewKey()
-	codec, err := envelope.NewCodec(key, e2eInfoPTY)
+	server := newSeqWSCodec(key, "owner-session", e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	client, err := newSeqWSClientCodec(key, "owner-session", e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := newSeqWSCodec(codec, "owner-session", e2eInfoPTY, e2eDirC2S, e2eDirS2C)
-	client := newSeqWSCodec(codec, "owner-session", e2eInfoPTY, e2eDirS2C, e2eDirC2S)
 	typ, sealed, err := client.encrypt(websocket.MessageBinary, []byte("pty secret"))
 	if err != nil {
 		t.Fatal(err)

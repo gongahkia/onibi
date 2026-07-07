@@ -185,6 +185,48 @@ func TestFilesContentPutRejectsViewer(t *testing.T) {
 	}
 }
 
+func TestFilesTreeRejectsViewer(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "README.md", "# repo\n")
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionList = func(_ context.Context, _ SessionListOptions) ([]SessionSummary, error) {
+		return []SessionSummary{{ID: "s1", CWD: root}}, nil
+	}
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/files/tree?session=s1", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
+func TestFilesContentRejectsViewer(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "src/main.go", "package main\n")
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.sessionList = func(_ context.Context, _ SessionListOptions) ([]SessionSummary, error) {
+		return []SessionSummary{{ID: "s1", CWD: root}}, nil
+	}
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/files/content?session=s1&path=src%2Fmain.go", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
 func TestFilesContentPutBlocksTraversal(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "repo")

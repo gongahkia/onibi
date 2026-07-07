@@ -7,7 +7,7 @@ import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
-import { RelayE2E } from "./e2e";
+import { RelayE2E, relayE2EContentType } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
@@ -367,14 +367,25 @@ async function putJSON(path: string, body: Record<string, unknown>): Promise<Res
 }
 
 async function sendJSON(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<Response> {
-  const raw = JSON.stringify(body);
-  const routePath = new URL(path, window.location.href).pathname;
-  return fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: { "Content-Type": relayE2E === undefined ? "application/json" : "application/vnd.onibi.e2e+json" },
-    body: relayE2E === undefined ? raw : await relayE2E.sealText(raw, `http:${method}:${routePath}`)
-  });
+	const raw = JSON.stringify(body);
+	const routePath = new URL(path, window.location.href).pathname;
+	if (relayE2E === undefined) {
+		return fetch(path, {
+			method,
+			credentials: "same-origin",
+			headers: { "Content-Type": "application/json" },
+			body: raw
+		});
+	}
+	const channel = `http:${method}:${routePath}`;
+	const sealed = await relayE2E.sealHTTPRequest(raw, channel);
+	const response = await fetch(path, {
+		method,
+		credentials: "same-origin",
+		headers: { "Content-Type": relayE2EContentType },
+		body: sealed.body
+	});
+	return relayE2E.openHTTPResponse(response, channel, sealed.streamID);
 }
 
 function setTheme(next: TerminalThemeName): void {
