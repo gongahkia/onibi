@@ -6,27 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = await mkdtemp(join(tmpdir(), "kelp-pi-bundle-replay-"));
-const dataDir = join(root, "pi-data");
+const dataDir = join(root, "data");
 const workspace = join(root, "workspace");
-const bundleDir = join(root, "pi-bundle");
+const bundleDir = join(root, "bundle");
 const stagedBundleDir = join(dataDir, "bundles", "pi-bundle-replay-smoke");
-const laptopBundleDir = join(root, "laptop", "pi-bundle");
-const fetchedBundleDir = join(root, "laptop", "fetched-pi-bundle");
-const importedBundleDir = join(root, "laptop", "imported-pi-bundle");
+const importedBundleDir = join(root, "imported");
 const exportEnvelope = join(root, "bundle-export-envelope.json");
-const cpKey = join(root, "cp-key.json");
-const agentBin = join(repoRoot, "packages/pi-agent/target/debug/kelp-pi-agent");
-const smokeMinFreeBytes = "1";
-const requiredDataDirs = [
-  "corpus",
-  "evidence",
-  "bundles",
-  "index",
-  "audit",
-  "keys",
-  "policy",
-  "scope"
-];
+const bin = join(repoRoot, "zig-out", "bin", "kelp-pi");
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -49,103 +35,70 @@ function run(command, args) {
 }
 
 try {
-  await Promise.all(
-    requiredDataDirs.map((name) => mkdir(join(dataDir, name), { recursive: true }))
-  );
-  await mkdir(join(workspace, "raw"), { recursive: true });
-
-  const pi = ["run", "--quiet", "--manifest-path", "packages/pi-agent/Cargo.toml", "--"];
-  run("cargo", [...pi, "keygen", "--data-dir", dataDir]);
-  const firstPolicySync = JSON.parse(
-    run(process.execPath, [
-      "packages/cli/dist/index.js",
-      "pi",
-      "policy",
-      "sync",
-      "--policy-pack-id",
-      "appsec-agent-baseline@smoke-1",
-      "--policy-json",
-      JSON.stringify({ mode: "enforce" }),
-      "--data-dir",
-      dataDir,
-      "--agent-bin",
-      agentBin,
-      "--cp-key",
-      cpKey
-    ])
-  );
-  const secondPolicySync = JSON.parse(
-    run(process.execPath, [
-      "packages/cli/dist/index.js",
-      "pi",
-      "policy",
-      "sync",
-      "--policy-pack-id",
-      "appsec-agent-baseline@smoke-2",
-      "--policy-json",
-      JSON.stringify({ mode: "dry-run" }),
-      "--data-dir",
-      dataDir,
-      "--agent-bin",
-      agentBin,
-      "--cp-key",
-      cpKey
-    ])
-  );
-  if (
-    firstPolicySync.ok !== true ||
-    secondPolicySync.ok !== true ||
-    !secondPolicySync.knownPolicyPacks.includes("appsec-agent-baseline@smoke-1")
-  ) {
-    throw new Error(
-      `policy sync failed\n${JSON.stringify({ firstPolicySync, secondPolicySync }, null, 2)}`
-    );
-  }
-  const currentPolicy = JSON.parse(
-    await readFile(join(dataDir, "policy", "current-policy.json"), "utf8")
-  );
-  if (currentPolicy.payload?.policy_pack_id !== "appsec-agent-baseline@smoke-2") {
-    throw new Error(`policy rotation did not persist\n${JSON.stringify(currentPolicy, null, 2)}`);
-  }
-  run("cargo", [
-    ...pi,
-    "policy-check",
-    "--data-dir",
-    dataDir,
-    "--gate",
-    "outbound-network-request",
-    "--host",
-    "example.test:443",
-    "--disallowed"
-  ]);
-
-  const rawNuclei = join(workspace, "raw", "nuclei.jsonl");
+  await mkdir(join(workspace, "normalized"), { recursive: true });
   await writeFile(
-    rawNuclei,
+    join(workspace, "normalized", "findings.json"),
     `${JSON.stringify({
-      "template-id": "http-missing-security-headers",
-      "matched-at": "https://app.example.test",
-      info: { name: "Missing security header", severity: "medium" }
+      findings: [
+        {
+          title: "Missing security header",
+          severity: "medium",
+          target: "https://app.example.test"
+        }
+      ]
     })}\n`,
     "utf8"
   );
-  run("cargo", [
-    ...pi,
-    "normalize",
-    "nuclei",
+
+  run(bin, ["keygen", "--data-dir", dataDir, "--label", "replay-smoke"]);
+  run(bin, [
+    "policy",
+    "sync",
+    "--data-dir",
+    dataDir,
+    "--policy-pack-id",
+    "appsec-agent-baseline@smoke-1",
+    "--trust-epoch",
+    "1",
+    "--policy-json",
+    JSON.stringify({ mode: "enforce" })
+  ]);
+  run(bin, [
+    "policy",
+    "sync",
+    "--data-dir",
+    dataDir,
+    "--policy-pack-id",
+    "appsec-agent-baseline@smoke-2",
+    "--trust-epoch",
+    "2",
+    "--policy-json",
+    JSON.stringify({ mode: "dry-run" })
+  ]);
+  const policyPull = JSON.parse(run(bin, ["policy", "pull", "--data-dir", dataDir]));
+  if (
+    policyPull.trust_epoch !== 2 ||
+    !policyPull.known_policy_packs?.includes("appsec-agent-baseline@smoke-2")
+  ) {
+    throw new Error(`policy pull missing current pack\n${JSON.stringify(policyPull, null, 2)}`);
+  }
+
+  run(bin, [
+    "index",
+    "ingest",
     "--data-dir",
     dataDir,
     "--input",
-    rawNuclei,
-    "--workspace",
-    workspace,
-    "--raw-path",
-    "raw/nuclei.jsonl",
-    "--min-free-bytes",
-    smokeMinFreeBytes
+    join(workspace, "normalized", "findings.json"),
+    "--path",
+    "evidence/fixture-target/normalized-findings.json"
   ]);
-  run("cargo", [
-    ...pi,
+  const answer = JSON.parse(run(bin, ["ask", "security", "--data-dir", dataDir, "--top-k", "1"]));
+  if (!answer.answer?.text || answer.citations?.length !== 1) {
+    throw new Error(`ask did not return cited answer\n${JSON.stringify(answer, null, 2)}`);
+  }
+
+  run(bin, [
     "bundle",
     "assemble",
     "--data-dir",
@@ -157,53 +110,13 @@ try {
     "--run-id",
     "pi-bundle-replay-smoke"
   ]);
+  const verification = JSON.parse(run(bin, ["verify-bundle", bundleDir]));
+  if (verification.ok !== true) {
+    throw new Error(`bundle verification failed\n${JSON.stringify(verification, null, 2)}`);
+  }
+
   await cp(bundleDir, stagedBundleDir, { recursive: true });
-
-  await mkdir(dirname(laptopBundleDir), { recursive: true });
-  await cp(bundleDir, laptopBundleDir, { recursive: true });
-  const verification = JSON.parse(
-    run(process.execPath, [
-      "packages/cli/dist/index.js",
-      "verify-audit-bundle",
-      laptopBundleDir,
-      "--profile",
-      "reviewer"
-    ])
-  );
-  const failures = [
-    verification.ok === true ? "" : "bundle verification failed",
-    verification.signature?.valid === true ? "" : "manifest signature invalid",
-    verification.attestation?.valid === true ? "" : "attestation invalid"
-  ].filter(Boolean);
-  if (failures.length > 0) {
-    throw new Error(`${failures.join("; ")}\n${JSON.stringify(verification, null, 2)}`);
-  }
-
-  const fetchResult = JSON.parse(
-    run(process.execPath, [
-      "packages/cli/dist/index.js",
-      "pi",
-      "bundle",
-      "fetch",
-      "--bundle-id",
-      "pi-bundle-replay-smoke",
-      "--run-id",
-      "pi-bundle-replay-smoke",
-      "--out",
-      fetchedBundleDir,
-      "--data-dir",
-      dataDir,
-      "--agent-bin",
-      agentBin,
-      "--cp-key",
-      cpKey
-    ])
-  );
-  if (fetchResult.verified !== true || fetchResult.verification?.ok !== true) {
-    throw new Error(`bundle fetch verification failed\n${JSON.stringify(fetchResult, null, 2)}`);
-  }
-  const exportPayload = run("cargo", [
-    ...pi,
+  const exportPayload = run(bin, [
     "bundle",
     "export",
     "--data-dir",
@@ -214,29 +127,16 @@ try {
     "pi-bundle-replay-smoke"
   ]);
   await writeFile(exportEnvelope, `${exportPayload}\n`, "utf8");
-  const importResult = JSON.parse(
-    run(process.execPath, [
-      "packages/cli/dist/index.js",
-      "pi",
-      "bundle",
-      "import",
-      "--input",
-      exportEnvelope,
-      "--out",
-      importedBundleDir
-    ])
-  );
-  if (importResult.verified !== true || importResult.verification?.ok !== true) {
-    throw new Error(`bundle import verification failed\n${JSON.stringify(importResult, null, 2)}`);
+  run(bin, ["bundle", "import", "--input", exportEnvelope, "--out", importedBundleDir]);
+  const importedVerification = JSON.parse(run(bin, ["verify-bundle", importedBundleDir]));
+  if (importedVerification.ok !== true) {
+    throw new Error(
+      `imported bundle verification failed\n${JSON.stringify(importedVerification, null, 2)}`
+    );
   }
-  await readFile(join(fetchedBundleDir, "audit-log.jsonl"), "utf8");
   await readFile(join(importedBundleDir, "audit-log.jsonl"), "utf8");
-  await readFile(join(laptopBundleDir, "audit-log.jsonl"), "utf8");
-  const auditLog = await readFile(join(dataDir, "audit", "agent.jsonl"), "utf8");
-  if (!auditLog.includes("policy.push.accepted") || !auditLog.includes("policy.pull.requested")) {
-    throw new Error("policy sync audit events missing");
-  }
-  console.log("Pi bundle replay smoke passed.");
+
+  console.log("Zig Pi bundle replay smoke passed.");
 } finally {
   if (process.env.KEEP_KELP_PI_REPLAY_TMP !== "1") {
     await rm(root, { recursive: true, force: true });

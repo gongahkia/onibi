@@ -167,16 +167,16 @@ Target outputs:
 - Static `index.html`.
 - Manifest, file hashes, Ed25519 signature, and public key.
 
-Current Zig implementation signs `manifest.json` with the Pi Ed25519 key, verifies manifest file hashes/signature, and writes a hash-chained audit log with a head sidecar.
+Current Zig implementation signs `manifest.json` and `attestation.json` with the Pi Ed25519 key, verifies manifest file hashes/signature, exports/imports bundle payloads, and writes a hash-chained audit log with a head sidecar.
 
-### Legacy Bundle Smoke Coverage
+### Zig Bundle Smoke Coverage
 
-Keep `pnpm test:pi-bundle-smoke` in CI until Zig bundle generation can replace both legacy checks:
+Keep `pnpm test:pi-bundle-smoke` in CI as the Zig bundle cutover check:
 
-- Replay smoke: Pi-produced bundle fetch/import verifies on the laptop CLI with policy sync audit events present.
-- Equivalence smoke: legacy TypeScript and Pi bundle contracts expose the same reviewer-required files, manifest/signature paths, run ID, status, compatibility, and policy pack fields.
+- Replay smoke: Zig-produced bundle export/import verifies with `kelp-pi verify-bundle` and includes policy sync state plus cited `ask` output.
+- Equivalence smoke: Zig bundle contracts expose reviewer-required files, manifest/signature paths, run ID, status, compatibility, and policy pack fields without `packages/pi-agent` or `packages/cli`.
 
-Delete `scripts/pi-bundle-replay-smoke.mjs`, `scripts/pi-bundle-equivalence-smoke.mjs`, and their package scripts only after Zig `kelp-pi bundle assemble`, export/import, and host verification cover those same contracts without `packages/pi-agent` or `packages/cli`.
+The old Rust/TypeScript replay and equivalence checks remain available through git history; active smoke coverage now exercises `kelp-pi bundle assemble`, export/import, and host verification directly.
 
 ## Legacy Mapping
 

@@ -47,6 +47,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 
 - [x] Replace JSONL stub with SQLite FTS5.
 - [x] Store chunk IDs from path + content hash.
+- [x] Return cited local answers from `kelp-pi ask`.
 - [x] Require citations for every generated finding.
 - [x] Add malicious corpus tests for prompt injection and binary ingest refusal.
 
@@ -63,7 +64,7 @@ Source of truth for the local-only Pi pivot. Keep tasks one line where possible.
 - [x] Implement hash-chained audit log.
 - [x] Sign bundle manifest with Pi Ed25519 key.
 - [x] Verify bundle hashes and signatures on host.
-- [x] Preserve legacy replay/equivalence smoke coverage until Zig parity.
+- [x] Replace legacy replay/equivalence bundle smokes with Zig-only coverage.
 
 ## P6 - Installer And Ops
 

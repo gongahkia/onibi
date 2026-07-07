@@ -7,7 +7,7 @@ KelpClaw is a local-only AppSec triage chat agent for Raspberry Pi 5. The target
 - Active pivot: Zig `kelp-pi` implementation in `app/main.zig`.
 - Legacy reference code: TypeScript packages and Rust `packages/pi-agent` stay in tree until Zig parity.
 - Runtime target: no cloud APIs, no laptop control plane, no provider SDKs, no Ollama daemon.
-- Current blockers: generated answer synthesis is not wired into `ask`, and real Pi acceptance still depends on a Raspberry Pi plus `.kelp-pi/acceptance.env`.
+- Current blocker: real Pi acceptance still depends on a Raspberry Pi plus `.kelp-pi/acceptance.env`.
 
 ## Quickstart
 

@@ -9,6 +9,7 @@ const Citation = struct {
     chunk_id: []const u8,
     start_byte: i64,
     end_byte: i64,
+    content: []const u8,
 };
 
 pub fn indexCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -188,11 +189,15 @@ fn collectCitations(allocator: std.mem.Allocator, db: *sqlite.sqlite3, query: []
         errdefer allocator.free(path_copy);
         const id_copy = try allocator.dupe(u8, id);
         errdefer allocator.free(id_copy);
+        const content = columnText(stmt, 6);
+        const content_copy = try allocator.dupe(u8, content);
+        errdefer allocator.free(content_copy);
         try citations.append(allocator, .{
             .path = path_copy,
             .chunk_id = id_copy,
             .start_byte = sqlite.sqlite3_column_int64(stmt, 3),
             .end_byte = sqlite.sqlite3_column_int64(stmt, 4),
+            .content = content_copy,
         });
     }
     return citations.toOwnedSlice(allocator);
@@ -200,10 +205,12 @@ fn collectCitations(allocator: std.mem.Allocator, db: *sqlite.sqlite3, query: []
 
 fn printAskResponse(allocator: std.mem.Allocator, query: []const u8, top_k: usize, citations: []const Citation, emit_finding: bool, finding_title: []const u8) !void {
     if (citations.len == 0) return printNoAnswer(query, top_k, "no matching chunks", emit_finding);
+    const answer = try buildCitedAnswerJson(allocator, query, citations);
+    defer allocator.free(answer);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("{{\"query\":\"", .{});
     try common.writeJsonEscaped(&out, query);
-    try out.print("\",\"topK\":{},\"noAnswer\":null,\"citations\":[", .{@max(top_k, 1)});
+    try out.print("\",\"topK\":{},\"noAnswer\":null,\"answer\":{s},\"citations\":[", .{ @max(top_k, 1), answer });
     try writeCitations(&out, citations);
     try out.writeAll("],\"results\":[]");
     if (emit_finding) {
@@ -242,6 +249,54 @@ fn buildGeneratedFindingJson(allocator: std.mem.Allocator, title: []const u8, ci
     return out.toOwnedSlice(allocator);
 }
 
+fn buildCitedAnswerJson(allocator: std.mem.Allocator, query: []const u8, citations: []const Citation) ![]u8 {
+    if (citations.len == 0) return error.MissingCitation;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    var writer = out.writer(allocator);
+    try writer.writeAll("{\"text\":\"");
+    try writer.writeAll("Local evidence for ");
+    try common.writeJsonEscaped(&writer, query);
+    try writer.writeAll(": ");
+    try writeExcerpt(&writer, citations[0].content, 180);
+    try writer.writeAll(" [");
+    try common.writeJsonEscaped(&writer, citations[0].chunk_id);
+    try writer.writeAll("].\",\"citationChunkIds\":[");
+    for (citations, 0..) |citation, index| {
+        if (index != 0) try writer.writeAll(",");
+        try writer.writeAll("\"");
+        try common.writeJsonEscaped(&writer, citation.chunk_id);
+        try writer.writeAll("\"");
+    }
+    try writer.writeAll("]}");
+    return out.toOwnedSlice(allocator);
+}
+
+fn writeExcerpt(writer: anytype, content: []const u8, limit: usize) !void {
+    var written: usize = 0;
+    var pending_space = false;
+    for (content) |byte| {
+        if (written >= limit) break;
+        if (std.ascii.isWhitespace(byte)) {
+            pending_space = written > 0;
+            continue;
+        }
+        if (pending_space and written < limit) {
+            try writer.writeByte(' ');
+            written += 1;
+            pending_space = false;
+        }
+        if (written >= limit) break;
+        switch (byte) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            else => try writer.writeByte(byte),
+        }
+        written += 1;
+    }
+    if (content.len > limit) try writer.writeAll("...");
+}
+
 fn writeCitations(writer: anytype, citations: []const Citation) !void {
     for (citations, 0..) |citation, index| {
         if (index != 0) try writer.writeAll(",");
@@ -257,6 +312,7 @@ fn freeCitations(allocator: std.mem.Allocator, citations: []const Citation) void
     for (citations) |citation| {
         allocator.free(citation.path);
         allocator.free(citation.chunk_id);
+        allocator.free(citation.content);
     }
     allocator.free(citations);
 }
@@ -311,10 +367,25 @@ test "generated finding carries citation metadata" {
         .chunk_id = "evidence/findings.json:abc123",
         .start_byte = 0,
         .end_byte = 42,
+        .content = "{\"findings\":[{\"title\":\"Default admin marker\"}]}",
     }};
     const finding = try buildGeneratedFindingJson(std.testing.allocator, "default admin marker", &citations);
     defer std.testing.allocator.free(finding);
     try std.testing.expect(std.mem.indexOf(u8, finding, "\"citations\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, finding, "\"path\":\"evidence/findings.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, finding, "\"chunkId\":\"evidence/findings.json:abc123\"") != null);
+}
+
+test "ask synthesis produces cited local answer" {
+    const citations = [_]Citation{.{
+        .path = "evidence/findings.json",
+        .chunk_id = "evidence/findings.json:abc123",
+        .start_byte = 0,
+        .end_byte = 42,
+        .content = "Default admin marker exposed on fixture target.",
+    }};
+    const answer = try buildCitedAnswerJson(std.testing.allocator, "default admin", &citations);
+    defer std.testing.allocator.free(answer);
+    try std.testing.expect(std.mem.indexOf(u8, answer, "\"text\":\"Local evidence for default admin: Default admin marker exposed on fixture target. [evidence/findings.json:abc123].\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, answer, "\"citationChunkIds\":[\"evidence/findings.json:abc123\"]") != null);
 }

@@ -7,23 +7,11 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = await mkdtemp(join(tmpdir(), "kelp-pi-bundle-equivalence-"));
 const runId = "pi-bundle-equivalence-smoke";
-const tsRunsRoot = join(root, "ts-runs");
-const tsRunDir = join(tsRunsRoot, runId);
-const tsBundleDir = join(root, "ts-bundle");
-const piDataDir = join(root, "pi-data");
-const piWorkspace = join(root, "pi-workspace");
-const piBundleDir = join(root, "pi-bundle");
-const smokeMinFreeBytes = "1";
-const requiredDataDirs = [
-  "corpus",
-  "evidence",
-  "bundles",
-  "index",
-  "audit",
-  "keys",
-  "policy",
-  "scope"
-];
+const dataDir = join(root, "data");
+const workspace = join(root, "workspace");
+const bundleDir = join(root, "bundle");
+const bin = join(repoRoot, "zig-out", "bin", "kelp-pi");
+
 const verifierRequiredFiles = [
   "index.html",
   "result.json",
@@ -57,117 +45,16 @@ function run(command, args) {
   return result.stdout.trim();
 }
 
-async function writeJson(path, value) {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+async function fileExists(path) {
+  try {
+    await readFile(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-async function createTsFixtureRun() {
-  await mkdir(tsRunDir, { recursive: true });
-  await writeJson(join(tsRunDir, "skill.json"), {
-    schemaVersion: "1.0.0",
-    name: "pi-bundle-equivalence",
-    contentHash: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-  });
-  await writeJson(join(tsRunDir, "workflow.json"), {
-    schemaVersion: "1.0.0",
-    runId,
-    steps: [{ id: "normalize-nuclei", status: "succeeded" }]
-  });
-  await writeJson(join(tsRunDir, "bom.json"), {
-    schemaVersion: "1.0.0",
-    packages: []
-  });
-  await writeFile(
-    join(tsRunDir, "audit.jsonl"),
-    `${JSON.stringify({
-      ts: "2026-06-19T00:00:00Z",
-      event: "scan.complete",
-      msg: "fixture scan complete"
-    })}\n`,
-    "utf8"
-  );
-  await writeJson(join(tsRunDir, "policy-decisions.json"), {
-    schemaVersion: "kelpclaw.pi.policy-decisions.v1",
-    policyPack: "appsec-agent-baseline",
-    decisions: []
-  });
-  await writeJson(join(tsRunDir, "result.json"), {
-    schemaVersion: "kelpclaw.pi.bundle-result.v1",
-    runId,
-    ok: true,
-    status: "succeeded",
-    policyPack: "appsec-agent-baseline",
-    mode: "fixture"
-  });
-  await writeJson(join(tsRunDir, "compatibility.json"), {
-    schemaVersion: "kelpclaw.pi.compatibility.v1",
-    ok: true,
-    target: "kelp-pi",
-    checks: [{ id: "fixture", status: "pass", message: "fixture run" }]
-  });
-}
-
-async function createPiFixtureBundle() {
-  await Promise.all(
-    requiredDataDirs.map((name) => mkdir(join(piDataDir, name), { recursive: true }))
-  );
-  await mkdir(join(piWorkspace, "raw"), { recursive: true });
-  const pi = ["run", "--quiet", "--manifest-path", "packages/pi-agent/Cargo.toml", "--"];
-  run("cargo", [...pi, "keygen", "--data-dir", piDataDir]);
-  run("cargo", [
-    ...pi,
-    "policy-check",
-    "--data-dir",
-    piDataDir,
-    "--gate",
-    "scanner-invocation",
-    "--command",
-    "scan nuclei https://app.example.test",
-    "--host",
-    "https://app.example.test",
-    "--allowed"
-  ]);
-  const rawNuclei = join(piWorkspace, "raw", "nuclei.jsonl");
-  await writeFile(
-    rawNuclei,
-    `${JSON.stringify({
-      "template-id": "http-missing-security-headers",
-      "matched-at": "https://app.example.test",
-      info: { name: "Missing security header", severity: "medium" }
-    })}\n`,
-    "utf8"
-  );
-  run("cargo", [
-    ...pi,
-    "normalize",
-    "nuclei",
-    "--data-dir",
-    piDataDir,
-    "--input",
-    rawNuclei,
-    "--workspace",
-    piWorkspace,
-    "--raw-path",
-    "raw/nuclei.jsonl",
-    "--min-free-bytes",
-    smokeMinFreeBytes
-  ]);
-  run("cargo", [
-    ...pi,
-    "bundle",
-    "assemble",
-    "--data-dir",
-    piDataDir,
-    "--workspace",
-    piWorkspace,
-    "--output",
-    piBundleDir,
-    "--run-id",
-    runId
-  ]);
-}
-
-async function bundleContract(bundleDir) {
+async function bundleContract() {
   const manifest = JSON.parse(await readFile(join(bundleDir, "manifest.json"), "utf8"));
   const attestation = JSON.parse(await readFile(join(bundleDir, "attestation.json"), "utf8"));
   const result = JSON.parse(await readFile(join(bundleDir, "result.json"), "utf8"));
@@ -176,7 +63,7 @@ async function bundleContract(bundleDir) {
   const manifestFiles = manifest.files.map((file) => file.path).sort();
   const attestationFiles = attestation.files.slice().sort();
   if (JSON.stringify(manifestFiles) !== JSON.stringify(attestationFiles)) {
-    throw new Error(`attestation files differ from manifest files in ${bundleDir}`);
+    throw new Error("attestation files differ from manifest files");
   }
   return {
     manifestSchema: manifest.schemaVersion,
@@ -202,54 +89,68 @@ async function bundleContract(bundleDir) {
   };
 }
 
-async function fileExists(path) {
-  try {
-    await readFile(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function assertEquivalent(left, right) {
-  const normalizedLeft = JSON.stringify(left, null, 2);
-  const normalizedRight = JSON.stringify(right, null, 2);
-  if (normalizedLeft !== normalizedRight) {
-    throw new Error(`bundle contracts differ\nTS:\n${normalizedLeft}\nRust:\n${normalizedRight}`);
-  }
-}
-
 try {
-  await createTsFixtureRun();
-  run(process.execPath, [
-    "packages/cli/dist/index.js",
-    "export-audit-bundle",
-    runId,
-    "--runs-dir",
-    tsRunsRoot,
-    "--out",
-    tsBundleDir
-  ]);
-  await createPiFixtureBundle();
+  await mkdir(join(workspace, "normalized"), { recursive: true });
+  await writeFile(
+    join(workspace, "normalized", "findings.json"),
+    `${JSON.stringify({
+      findings: [
+        {
+          title: "Missing security header",
+          severity: "medium",
+          target: "https://app.example.test"
+        }
+      ]
+    })}\n`,
+    "utf8"
+  );
 
-  for (const bundleDir of [tsBundleDir, piBundleDir]) {
-    const verification = JSON.parse(
-      run(process.execPath, [
-        "packages/cli/dist/index.js",
-        "verify-audit-bundle",
-        bundleDir,
-        "--strict"
-      ])
-    );
-    if (verification.ok !== true) {
-      throw new Error(
-        `bundle verification failed for ${bundleDir}\n${JSON.stringify(verification, null, 2)}`
-      );
+  run(bin, ["keygen", "--data-dir", dataDir, "--label", "equivalence-smoke"]);
+  run(bin, [
+    "bundle",
+    "assemble",
+    "--data-dir",
+    dataDir,
+    "--workspace",
+    workspace,
+    "--output",
+    bundleDir,
+    "--run-id",
+    runId
+  ]);
+  const verification = JSON.parse(run(bin, ["verify-bundle", bundleDir]));
+  if (verification.ok !== true) {
+    throw new Error(`bundle verification failed\n${JSON.stringify(verification, null, 2)}`);
+  }
+
+  const contract = await bundleContract();
+  const missing = Object.entries(contract.requiredFiles)
+    .filter(([, present]) => present !== true)
+    .map(([file]) => file);
+  if (missing.length > 0) {
+    throw new Error(`bundle contract missing files: ${missing.join(", ")}`);
+  }
+  const expected = {
+    manifestSchema: "1.0.0",
+    runId,
+    algorithm: "ed25519",
+    attestationSchema: "1.0.0",
+    attestationRunId: runId,
+    manifestPath: "manifest.json",
+    signaturePath: "manifest.sig",
+    publicKeyPath: "manifest.pub.json",
+    resultStatus: "succeeded",
+    resultOk: true,
+    compatibilityOk: true,
+    policyPack: "appsec-agent-baseline"
+  };
+  for (const [key, value] of Object.entries(expected)) {
+    if (contract[key] !== value) {
+      throw new Error(`bundle contract ${key} mismatch: ${contract[key]} !== ${value}`);
     }
   }
 
-  assertEquivalent(await bundleContract(tsBundleDir), await bundleContract(piBundleDir));
-  console.log("Pi bundle equivalence smoke passed.");
+  console.log("Zig Pi bundle equivalence smoke passed.");
 } finally {
   if (process.env.KEEP_KELP_PI_EQUIV_TMP !== "1") {
     await rm(root, { recursive: true, force: true });
