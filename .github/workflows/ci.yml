@@ -58,7 +58,7 @@ jobs:
       - name: Replay Pi audit bundle
         run: pnpm test:pi-bundle-replay
 
-      - name: Compare TS and Rust Pi bundles
+      - name: Compare Zig Pi bundle contract
         run: pnpm test:pi-bundle-equivalence
 
       - name: Upload AppSec audit bundle
