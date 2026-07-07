@@ -429,15 +429,28 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
         warningCount: 0,
         issues: []
       });
-      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
-        "KelpClaw AppSec Audit Bundle"
-      );
-      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
-        "Status: valid"
-      );
-      await expect(readFile(join(outDir, "audit-bundle", "index.html"), "utf8")).resolves.toContain(
-        "Scanner Correlation"
-      );
+      const bundleHtml = await readFile(join(outDir, "audit-bundle", "index.html"), "utf8");
+      expect(bundleHtml).toContain("KelpClaw AppSec Audit Bundle");
+      expect(bundleHtml).toContain("Run Status");
+      expect(bundleHtml).toContain("Target Metadata");
+      expect(bundleHtml).toContain("Imported Findings</dt><dd>1</dd>");
+      expect(bundleHtml).toContain("Triage Findings</dt><dd>1</dd>");
+      expect(bundleHtml).toContain("Policy Decision Summary");
+      expect(bundleHtml).toContain("Policy Decisions");
+      expect(bundleHtml).toContain("Imported Scanner Findings");
+      expect(bundleHtml).toContain("Agent Triage Findings");
+      expect(bundleHtml).toContain("high / tool-observed");
+      expect(bundleHtml).toContain("high / medium");
+      expect(bundleHtml).toContain("findings.sarif");
+      expect(bundleHtml).toContain("appsec-run.json");
+      expect(bundleHtml).toContain("policy-decisions.json");
+      expect(bundleHtml).toContain("appsec-triage.json");
+      expect(bundleHtml).toContain("agent.stderr.log");
+      expect(bundleHtml).toContain("Signature and Attestation");
+      expect(bundleHtml).toContain("manifest.json");
+      expect(bundleHtml).toContain("attestation.json");
+      expect(bundleHtml).toContain("Status: valid");
+      expect(bundleHtml).toContain("Scanner Correlation");
       await expect(
         readFile(join(outDir, "audit-bundle", "appsec-qa.json"), "utf8")
       ).resolves.toContain("kelpclaw.appsec.qa.v1");
@@ -666,7 +679,7 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       process.exitCode = undefined;
       await rm(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 
   it("diffs AppSec output dirs and evidence workspaces", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-diff-"));

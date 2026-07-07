@@ -75,6 +75,30 @@ interface AppsecCorrelationRecord {
   readonly missingEvidenceIds: readonly string[];
 }
 
+interface AppsecTargetMetadata {
+  readonly contextDir: string;
+  readonly dockerfile: string;
+  readonly dockerfileSha256: string;
+  readonly contextDigest: JsonRecord;
+  readonly imageTag: string;
+  readonly imageId?: string | undefined;
+}
+
+interface AppsecIndexHtmlInput {
+  readonly runId: string;
+  readonly status: AppsecStatus;
+  readonly target: AppsecTargetMetadata;
+  readonly importedFindingCount: number;
+  readonly triageFindingCount: number;
+  readonly policyDecisions: readonly AppsecPolicyRecord[];
+  readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
+  readonly triageFindings: readonly AppsecAgentFinding[];
+  readonly qa: AppsecQaResult;
+  readonly correlations: readonly AppsecCorrelationRecord[];
+  readonly files: readonly string[];
+  readonly signed: boolean;
+}
+
 interface AppsecAuditBundleManifest {
   readonly schemaVersion: "1.0.0";
   readonly runId: string;
@@ -317,6 +341,13 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     outDir,
     bundleDir,
     runId,
+    status,
+    target: triageInput.target,
+    importedFindingCount: evidenceState.findings.findings.length,
+    triageFindingCount: triage.ok ? triage.output.triageFindings.length : 0,
+    policyDecisions,
+    evidenceFindings: evidenceState.findings.findings,
+    triageFindings: triage.ok ? triage.output.triageFindings : [],
     qa,
     correlations,
     keyDir: resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"),
@@ -712,6 +743,13 @@ async function writeAuditBundle(input: {
   readonly outDir: string;
   readonly bundleDir: string;
   readonly runId: string;
+  readonly status: AppsecStatus;
+  readonly target: AppsecTargetMetadata;
+  readonly importedFindingCount: number;
+  readonly triageFindingCount: number;
+  readonly policyDecisions: readonly AppsecPolicyRecord[];
+  readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
+  readonly triageFindings: readonly AppsecAgentFinding[];
   readonly qa: AppsecQaResult;
   readonly correlations: readonly AppsecCorrelationRecord[];
   readonly keyDir: string;
@@ -737,9 +775,35 @@ async function writeAuditBundle(input: {
       copied.push(file);
     }
   }
+  const htmlFiles = [
+    ...copied,
+    "index.html",
+    ...(input.signed
+      ? [
+          "manifest.json",
+          "manifest.sig",
+          "manifest.pub.json",
+          "attestation.json",
+          "attestation.sig"
+        ]
+      : [])
+  ];
   await writeFile(
     join(input.bundleDir, "index.html"),
-    appsecIndexHtml(input.runId, copied, input.qa, input.correlations),
+    appsecIndexHtml({
+      runId: input.runId,
+      status: input.status,
+      target: input.target,
+      importedFindingCount: input.importedFindingCount,
+      triageFindingCount: input.triageFindingCount,
+      policyDecisions: input.policyDecisions,
+      evidenceFindings: input.evidenceFindings,
+      triageFindings: input.triageFindings,
+      qa: input.qa,
+      correlations: input.correlations,
+      files: htmlFiles,
+      signed: input.signed
+    }),
     "utf8"
   );
   copied.push("index.html");
@@ -764,40 +828,218 @@ async function writeAuditBundle(input: {
   });
 }
 
-function appsecIndexHtml(
-  runId: string,
-  files: readonly string[],
-  qa: AppsecQaResult,
-  correlations: readonly AppsecCorrelationRecord[]
-): string {
-  const qaRows = qa.issues
+function appsecIndexHtml(input: AppsecIndexHtmlInput): string {
+  const artifactRefs = appsecArtifactRefs(input.files);
+  const qaRows = input.qa.issues
     .map(
       (issue) =>
         `<tr><td>${escapeHtml(issue.level)}</td><td>${escapeHtml(issue.code)}</td><td>${escapeHtml(issue.message)}</td><td>${escapeHtml(issue.subject ?? "")}</td></tr>`
     )
     .join("");
-  const correlationRows = correlations
+  const correlationRows = input.correlations
     .map(
       (correlation) =>
         `<tr><td>${escapeHtml(correlation.triageFindingId)}</td><td>${escapeHtml(correlation.status)}</td><td>${escapeHtml(correlation.linkedEvidenceIds.join(", "))}</td><td>${escapeHtml(correlation.missingEvidenceIds.join(", "))}</td></tr>`
     )
     .join("");
+  const policyRows = input.policyDecisions
+    .map(
+      (record) =>
+        `<tr><td>${escapeHtml(record.subject)}</td><td>${escapeHtml(record.tool)}</td><td>${escapeHtml(record.decision.action)}</td><td>${escapeHtml(record.decision.matchedRuleIds.join(", ") || "none")}</td><td>${escapeHtml(record.decision.reason)}</td><td>${artifactRefs}</td></tr>`
+    )
+    .join("");
+  const contextDigest = input.target.contextDigest;
+  const contextDigestText = `${String(contextDigest.sha256 ?? "unknown")} (${String(
+    contextDigest.fileCount ?? "unknown"
+  )} files)`;
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>KelpClaw AppSec Audit Bundle</title></head>
+<head><meta charset="utf-8"><title>KelpClaw AppSec Audit Bundle</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.4;margin:24px;color:#1f2937}
+table{border-collapse:collapse;width:100%;margin:8px 0 20px}
+th,td{border:1px solid #d1d5db;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f3f4f6}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px}
+dt{font-weight:700}
+.muted{color:#6b7280}
+</style></head>
 <body>
 <h1>KelpClaw AppSec Audit Bundle</h1>
-<p>Run: ${escapeHtml(runId)}</p>
+<h2>Run Overview</h2>
+<dl>
+<dt>Run</dt><dd><code>${escapeHtml(input.runId)}</code></dd>
+<dt>Run Status</dt><dd>${escapeHtml(input.status)}</dd>
+<dt>Imported Findings</dt><dd>${input.importedFindingCount}</dd>
+<dt>Triage Findings</dt><dd>${input.triageFindingCount}</dd>
+<dt>Policy Decision Summary</dt><dd>${escapeHtml(policyDecisionSummary(input.policyDecisions))}</dd>
+</dl>
+<h2>Target Metadata</h2>
+<dl>
+<dt>Context</dt><dd><code>${escapeHtml(input.target.contextDir)}</code></dd>
+<dt>Dockerfile</dt><dd><code>${escapeHtml(input.target.dockerfile)}</code></dd>
+<dt>Dockerfile SHA-256</dt><dd><code>${escapeHtml(input.target.dockerfileSha256)}</code></dd>
+<dt>Context Digest</dt><dd><code>${escapeHtml(contextDigestText)}</code></dd>
+<dt>Image Tag</dt><dd><code>${escapeHtml(input.target.imageTag)}</code></dd>
+<dt>Image ID</dt><dd><code>${escapeHtml(input.target.imageId ?? "not captured")}</code></dd>
+</dl>
+<h2>Policy Decisions</h2>
+<table><thead><tr><th>Subject</th><th>Tool</th><th>Action</th><th>Matched Rules</th><th>Reason</th><th>Artifacts</th></tr></thead><tbody>${policyRows || '<tr><td colspan="6">No policy decisions.</td></tr>'}</tbody></table>
 <h2>QA</h2>
-<p>Status: ${qa.valid ? "valid" : "invalid"}; threshold: ${escapeHtml(qa.failThreshold)}; errors: ${qa.errorCount}; warnings: ${qa.warningCount}</p>
+<p>Status: ${input.qa.valid ? "valid" : "invalid"}; threshold: ${escapeHtml(input.qa.failThreshold)}; errors: ${input.qa.errorCount}; warnings: ${input.qa.warningCount}</p>
 <table><thead><tr><th>Level</th><th>Code</th><th>Message</th><th>Subject</th></tr></thead><tbody>${qaRows || '<tr><td colspan="4">No QA issues.</td></tr>'}</tbody></table>
+<h2>Imported Scanner Findings</h2>
+${appsecScannerFindingSections(input.evidenceFindings, input.files)}
+<h2>Agent Triage Findings</h2>
+${appsecAgentFindingSections(input.triageFindings, input.correlations, input.files)}
 <h2>Scanner Correlation</h2>
 <table><thead><tr><th>Triage Finding</th><th>Status</th><th>Linked Evidence</th><th>Missing Evidence</th></tr></thead><tbody>${correlationRows || '<tr><td colspan="4">No triage findings.</td></tr>'}</tbody></table>
+<h2>Signature and Attestation</h2>
+${appsecSignatureHtml(input.signed)}
 <h2>Files</h2>
-<ul>${files.map((file) => `<li>${escapeHtml(file)}</li>`).join("")}</ul>
+<ul>${input.files.map((file) => `<li>${artifactLink(file)}</li>`).join("")}</ul>
 </body>
 </html>
 `;
+}
+
+function appsecScannerFindingSections(
+  findings: readonly NormalizedEvidenceFinding[],
+  files: readonly string[]
+): string {
+  const groups = groupBySeverityConfidence(findings);
+  if (groups.length === 0) return '<p class="muted">No imported scanner findings.</p>';
+  return groups
+    .map((group) => {
+      const rows = group.findings
+        .map(
+          (finding) =>
+            `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.status)}</td><td>${escapeHtml(finding.weaknessIds.join(", ") || "none")}</td><td>${escapeHtml(sourceReferenceSummary(finding.sourceReferences))}</td><td>${appsecArtifactRefs(files)}</td></tr>`
+        )
+        .join("");
+      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Weaknesses</th><th>Source</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
+    })
+    .join("");
+}
+
+function appsecAgentFindingSections(
+  findings: readonly AppsecAgentFinding[],
+  correlations: readonly AppsecCorrelationRecord[],
+  files: readonly string[]
+): string {
+  const groups = groupBySeverityConfidence(findings);
+  if (groups.length === 0) return '<p class="muted">No agent triage findings.</p>';
+  const correlationByFindingId = new Map(
+    correlations.map((correlation) => [correlation.triageFindingId, correlation])
+  );
+  return groups
+    .map((group) => {
+      const rows = group.findings
+        .map((finding) => {
+          const correlation = correlationByFindingId.get(finding.id);
+          return `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(correlation?.status ?? "no-evidence")}</td><td>${escapeHtml(finding.evidenceIds.join(", ") || "none")}</td><td>${escapeHtml(finding.rationale)}</td><td>${escapeHtml(finding.recommendedAction)}</td><td>${appsecArtifactRefs(files)}</td></tr>`;
+        })
+        .join("");
+      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Correlation</th><th>Evidence IDs</th><th>Rationale</th><th>Action</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
+    })
+    .join("");
+}
+
+function appsecSignatureHtml(signed: boolean): string {
+  if (!signed) return "<p>Bundle generated without manifest signature or attestation.</p>";
+  const files = [
+    "manifest.json",
+    "manifest.sig",
+    "manifest.pub.json",
+    "attestation.json",
+    "attestation.sig"
+  ];
+  return `<ul>${files.map((file) => `<li>${artifactLink(file)}</li>`).join("")}</ul>`;
+}
+
+function appsecArtifactRefs(files: readonly string[]): string {
+  const fileSet = new Set(files);
+  const artifacts = [
+    "findings.sarif",
+    "appsec-run.json",
+    "policy-decisions.json",
+    "appsec-triage.json",
+    "agent.stdout.log",
+    "agent.stderr.log",
+    "docker-build.stdout.log",
+    "docker-build.stderr.log"
+  ];
+  return artifacts
+    .map((file) => (fileSet.has(file) ? artifactLink(file) : `${escapeHtml(file)} (not bundled)`))
+    .join(", ");
+}
+
+function policyDecisionSummary(records: readonly AppsecPolicyRecord[]): string {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    counts.set(record.decision.action, (counts.get(record.decision.action) ?? 0) + 1);
+  }
+  return ["allow", "log-only", "require-approval", "deny"]
+    .filter((action) => counts.has(action))
+    .map((action) => `${action}: ${counts.get(action)}`)
+    .join(", ");
+}
+
+interface SeverityConfidenceGroup<T> {
+  readonly severity: string;
+  readonly confidence: string;
+  readonly findings: readonly T[];
+}
+
+function groupBySeverityConfidence<
+  T extends { readonly severity: string; readonly confidence: string }
+>(findings: readonly T[]): readonly SeverityConfidenceGroup<T>[] {
+  const groups = new Map<string, { severity: string; confidence: string; findings: T[] }>();
+  for (const finding of findings) {
+    const key = `${finding.severity}\0${finding.confidence}`;
+    const group =
+      groups.get(key) ??
+      (() => {
+        const created = {
+          severity: finding.severity,
+          confidence: finding.confidence,
+          findings: []
+        };
+        groups.set(key, created);
+        return created;
+      })();
+    group.findings.push(finding);
+  }
+  return [...groups.values()].sort(
+    (left, right) =>
+      severityRank(right.severity) - severityRank(left.severity) ||
+      confidenceRank(right.confidence) - confidenceRank(left.confidence)
+  );
+}
+
+function sourceReferenceSummary(
+  references: readonly NormalizedEvidenceFinding["sourceReferences"][number][]
+): string {
+  if (references.length === 0) return "none";
+  return references
+    .map((reference) =>
+      [reference.tool, reference.rawPath, reference.locator].filter(Boolean).join(" ")
+    )
+    .join("; ");
+}
+
+function artifactLink(file: string): string {
+  return `<a href="${escapeHtml(file)}">${escapeHtml(file)}</a>`;
+}
+
+function severityRank(severity: string): number {
+  return { info: 0, low: 1, medium: 2, high: 3, critical: 4 }[severity] ?? -1;
+}
+
+function confidenceRank(confidence: string): number {
+  return (
+    { info: 0, "tool-observed": 1, low: 2, medium: 3, high: 4, confirmed: 5 }[confidence] ?? -1
+  );
 }
 
 async function signAuditBundle(input: {
