@@ -83,6 +83,21 @@ interface AppsecCorrelationRecord {
   readonly missingEvidenceIds: readonly string[];
 }
 
+interface AppsecValidationResult {
+  readonly requested: boolean;
+  readonly labMode: boolean;
+  readonly ran: boolean;
+  readonly blocked: boolean;
+  readonly allowlisted: boolean;
+  readonly networkAllowed: boolean;
+  readonly command: readonly string[];
+  readonly evidenceIds: readonly string[];
+  readonly stdoutPath?: string | undefined;
+  readonly stderrPath?: string | undefined;
+  readonly exitCode: number | null;
+  readonly blockedReason?: string | undefined;
+}
+
 interface AppsecTargetMetadata {
   readonly contextDir: string;
   readonly dockerfile: string;
@@ -101,6 +116,8 @@ interface AppsecIndexHtmlInput {
   readonly policyDecisions: readonly AppsecPolicyRecord[];
   readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
   readonly triageFindings: readonly AppsecAgentFinding[];
+  readonly labMode: boolean;
+  readonly validation: AppsecValidationResult;
   readonly qa: AppsecQaResult;
   readonly correlations: readonly AppsecCorrelationRecord[];
   readonly files: readonly string[];
@@ -187,16 +204,34 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   const contextDigest = await hashDirectory(contextDir);
   const dockerfileSha256 = await sha256File(dockerfile);
   const dockerBuildCommand = [dockerBin, "build", "-f", dockerfile, "-t", imageTag, contextDir];
+  const validationCommand = appsecValidationCommand(args);
+  const validationPolicyRecord =
+    validationCommand.length > 0
+      ? policyRecord(
+          "validation-command",
+          "Bash",
+          { command: validationCommand.join(" ") },
+          policyPack.ruleset
+        )
+      : undefined;
+  const dockerPolicyRecord = policyRecord(
+    "docker-build",
+    "Bash",
+    { command: dockerBuildCommand.join(" ") },
+    policyPack.ruleset
+  );
+  const agentPolicyRecord = policyRecord(
+    "agent-command",
+    "Bash",
+    { command: agentCommand },
+    policyPack.ruleset
+  );
   const policyDecisions: AppsecPolicyRecord[] = [
-    policyRecord(
-      "docker-build",
-      "Bash",
-      { command: dockerBuildCommand.join(" ") },
-      policyPack.ruleset
-    ),
-    policyRecord("agent-command", "Bash", { command: agentCommand }, policyPack.ruleset)
+    dockerPolicyRecord,
+    agentPolicyRecord,
+    ...(validationPolicyRecord ? [validationPolicyRecord] : [])
   ];
-  const buildBlocked = policyDecisions.some((record) => policyBlocks(record.decision));
+  const buildBlocked = policyBlocks(dockerPolicyRecord.decision);
   const build =
     buildBlocked || hasFlag(args, "--skip-docker-build")
       ? skippedCommand(dockerBuildCommand)
@@ -227,11 +262,12 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     },
     safety: {
       labMode,
-      exploitExecution: "forbidden",
+      exploitExecution: labMode ? "local-validation-only" : "forbidden",
       role: "triage-assistant",
       instructions: [
         "Correlate supplied evidence only.",
         "Do not execute exploits, persistence, lateral movement, or internet-wide scanning.",
+        "Only use validation results recorded by KelpClaw lab mode.",
         "Recommend validation steps separately from confirmed findings."
       ]
     },
@@ -265,12 +301,24 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
   await writeFile(join(outDir, "agent.stdout.log"), agent.stdout, "utf8");
   await writeFile(join(outDir, "agent.stderr.log"), agent.stderr, "utf8");
 
+  const validation = await runAppsecValidation({
+    args,
+    outDir,
+    labMode,
+    command: validationCommand,
+    policyRecord: validationPolicyRecord,
+    evidenceFindings: evidenceState.findings.findings
+  });
   const triage = await readTriageOutput(triageOutputPath, !agentBlocked);
   const correlations = correlateAppsecFindings(triage, evidenceState.findings.findings);
   const baseStatus: AppsecStatus =
     buildBlocked || agentBlocked
       ? "blocked"
-      : build.exitCode !== 0 || agent.exitCode !== 0 || !triage.ok
+      : build.exitCode !== 0 ||
+          agent.exitCode !== 0 ||
+          validation.blocked ||
+          (validation.exitCode !== null && validation.exitCode !== 0) ||
+          !triage.ok
         ? "failed"
         : "succeeded";
   const sarif = appsecSarif({
@@ -310,6 +358,7 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
       exitCode: agent.exitCode,
       command: agent.command
     },
+    validation,
     scannerImports: imports,
     correlation: correlations,
     qa,
@@ -356,6 +405,8 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     policyDecisions,
     evidenceFindings: evidenceState.findings.findings,
     triageFindings: triage.ok ? triage.output.triageFindings : [],
+    labMode,
+    validation,
     qa,
     correlations,
     keyDir: resolve(option(args, "--key-dir") ?? ".kelpclaw/keys"),
@@ -764,6 +815,8 @@ async function writeAuditBundle(input: {
   readonly policyDecisions: readonly AppsecPolicyRecord[];
   readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
   readonly triageFindings: readonly AppsecAgentFinding[];
+  readonly labMode: boolean;
+  readonly validation: AppsecValidationResult;
   readonly qa: AppsecQaResult;
   readonly correlations: readonly AppsecCorrelationRecord[];
   readonly keyDir: string;
@@ -780,7 +833,9 @@ async function writeAuditBundle(input: {
     "docker-build.stdout.log",
     "docker-build.stderr.log",
     "agent.stdout.log",
-    "agent.stderr.log"
+    "agent.stderr.log",
+    "validation.stdout.log",
+    "validation.stderr.log"
   ];
   const copied: string[] = [];
   for (const file of files) {
@@ -813,6 +868,8 @@ async function writeAuditBundle(input: {
       policyDecisions: input.policyDecisions,
       evidenceFindings: input.evidenceFindings,
       triageFindings: input.triageFindings,
+      labMode: input.labMode,
+      validation: input.validation,
       qa: input.qa,
       correlations: input.correlations,
       files: htmlFiles,
@@ -884,6 +941,7 @@ dt{font-weight:700}
 <dl>
 <dt>Run</dt><dd><code>${escapeHtml(input.runId)}</code></dd>
 <dt>Run Status</dt><dd>${escapeHtml(input.status)}</dd>
+<dt>Lab Mode</dt><dd><strong>${input.labMode ? "enabled" : "disabled"}</strong></dd>
 <dt>Imported Findings</dt><dd>${input.importedFindingCount}</dd>
 <dt>Triage Findings</dt><dd>${input.triageFindingCount}</dd>
 <dt>Policy Decision Summary</dt><dd>${escapeHtml(policyDecisionSummary(input.policyDecisions))}</dd>
@@ -899,6 +957,8 @@ dt{font-weight:700}
 </dl>
 <h2>Policy Decisions</h2>
 <table><thead><tr><th>Subject</th><th>Tool</th><th>Action</th><th>Matched Rules</th><th>Reason</th><th>Artifacts</th></tr></thead><tbody>${policyRows || '<tr><td colspan="6">No policy decisions.</td></tr>'}</tbody></table>
+<h2>Lab Validation</h2>
+${appsecValidationHtml(input.validation, input.files)}
 <h2>QA</h2>
 <p>Status: ${input.qa.valid ? "valid" : "invalid"}; threshold: ${escapeHtml(input.qa.failThreshold)}; errors: ${input.qa.errorCount}; warnings: ${input.qa.warningCount}</p>
 <table><thead><tr><th>Level</th><th>Code</th><th>Message</th><th>Subject</th></tr></thead><tbody>${qaRows || '<tr><td colspan="4">No QA issues.</td></tr>'}</tbody></table>
@@ -971,6 +1031,19 @@ function appsecSignatureHtml(signed: boolean): string {
   return `<ul>${files.map((file) => `<li>${artifactLink(file)}</li>`).join("")}</ul>`;
 }
 
+function appsecValidationHtml(
+  validation: AppsecValidationResult,
+  files: readonly string[]
+): string {
+  if (!validation.requested) return '<p class="muted">No validation command requested.</p>';
+  const logs = ["validation.stdout.log", "validation.stderr.log"]
+    .map((file) =>
+      files.includes(file) ? artifactLink(file) : `${escapeHtml(file)} (not bundled)`
+    )
+    .join(", ");
+  return `<table><thead><tr><th>Lab Mode</th><th>Ran</th><th>Blocked</th><th>Allowlisted</th><th>Network</th><th>Exit</th><th>Evidence IDs</th><th>Command</th><th>Logs</th></tr></thead><tbody><tr><td>${validation.labMode ? "enabled" : "disabled"}</td><td>${validation.ran ? "yes" : "no"}</td><td>${validation.blocked ? escapeHtml(validation.blockedReason ?? "blocked") : "no"}</td><td>${validation.allowlisted ? "yes" : "no"}</td><td>${validation.networkAllowed ? "allowed" : "blocked"}</td><td>${validation.exitCode === null ? "n/a" : validation.exitCode}</td><td>${escapeHtml(validation.evidenceIds.join(", ") || "none")}</td><td><code>${escapeHtml(validation.command.join(" "))}</code></td><td>${logs}</td></tr></tbody></table>`;
+}
+
 function appsecArtifactRefs(files: readonly string[]): string {
   const fileSet = new Set(files);
   const artifacts = [
@@ -980,6 +1053,8 @@ function appsecArtifactRefs(files: readonly string[]): string {
     "appsec-triage.json",
     "agent.stdout.log",
     "agent.stderr.log",
+    "validation.stdout.log",
+    "validation.stderr.log",
     "docker-build.stdout.log",
     "docker-build.stderr.log"
   ];
@@ -1250,6 +1325,141 @@ function policyRecord(
 
 function policyBlocks(decision: PolicyDecision): boolean {
   return decision.action === "deny" || decision.action === "require-approval";
+}
+
+async function runAppsecValidation(input: {
+  readonly args: readonly string[];
+  readonly outDir: string;
+  readonly labMode: boolean;
+  readonly command: readonly string[];
+  readonly policyRecord?: AppsecPolicyRecord | undefined;
+  readonly evidenceFindings: readonly NormalizedEvidenceFinding[];
+}): Promise<AppsecValidationResult> {
+  if (input.command.length === 0) {
+    return {
+      requested: false,
+      labMode: input.labMode,
+      ran: false,
+      blocked: false,
+      allowlisted: false,
+      networkAllowed: true,
+      command: [],
+      evidenceIds: [],
+      exitCode: null
+    };
+  }
+  const evidenceIds = options(input.args, "--validation-evidence-id");
+  const linkedEvidenceIds =
+    evidenceIds.length > 0 ? evidenceIds : input.evidenceFindings.map((finding) => finding.id);
+  const allowlisted = validationCommandAllowlisted(
+    input.command,
+    options(input.args, "--validation-allow")
+  );
+  const networkAllowed = validationNetworkAllowed(
+    input.command,
+    options(input.args, "--validation-target")
+  );
+  const policyBlocked = input.policyRecord ? policyBlocks(input.policyRecord.decision) : false;
+  const blockedReason = !input.labMode
+    ? "validation requires --lab-mode"
+    : !allowlisted
+      ? "validation command is not allowlisted"
+      : !networkAllowed
+        ? "validation command targets a non-local, undeclared network"
+        : policyBlocked
+          ? `policy ${input.policyRecord?.decision.action ?? "blocked"}`
+          : undefined;
+  if (blockedReason) {
+    return {
+      requested: true,
+      labMode: input.labMode,
+      ran: false,
+      blocked: true,
+      allowlisted,
+      networkAllowed,
+      command: input.command,
+      evidenceIds: linkedEvidenceIds,
+      exitCode: null,
+      blockedReason
+    };
+  }
+  const result = await runCommand(input.command, input.outDir);
+  await writeFile(join(input.outDir, "validation.stdout.log"), result.stdout, "utf8");
+  await writeFile(join(input.outDir, "validation.stderr.log"), result.stderr, "utf8");
+  return {
+    requested: true,
+    labMode: input.labMode,
+    ran: true,
+    blocked: false,
+    allowlisted,
+    networkAllowed,
+    command: result.command,
+    evidenceIds: linkedEvidenceIds,
+    stdoutPath: "validation.stdout.log",
+    stderrPath: "validation.stderr.log",
+    exitCode: result.exitCode
+  };
+}
+
+function appsecValidationCommand(args: readonly string[]): readonly string[] {
+  const command = option(args, "--validation-command");
+  return command ? [command, ...options(args, "--validation-arg")] : [];
+}
+
+function validationCommandAllowlisted(
+  command: readonly string[],
+  allowlist: readonly string[]
+): boolean {
+  if (allowlist.length === 0) return false;
+  const executable = command[0] ?? "";
+  const serialized = command.join(" ");
+  return allowlist.some(
+    (allowed) =>
+      executable === allowed || serialized === allowed || serialized.startsWith(`${allowed} `)
+  );
+}
+
+function validationNetworkAllowed(
+  command: readonly string[],
+  declaredTargets: readonly string[]
+): boolean {
+  const declaredHosts = new Set(declaredTargets.map(validationHost).filter(Boolean));
+  return validationHosts(command).every(
+    (host) => isLocalValidationHost(host) || declaredHosts.has(host)
+  );
+}
+
+function validationHosts(command: readonly string[]): readonly string[] {
+  const hosts = new Set<string>();
+  for (const part of command) {
+    for (const match of part.matchAll(/\bhttps?:\/\/[^\s"'<>]+/giu)) {
+      const host = validationHost(match[0] ?? "");
+      if (host) hosts.add(host);
+    }
+    if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/.*)?$/iu.test(part)) {
+      const host = validationHost(part);
+      if (host) hosts.add(host);
+    }
+  }
+  return [...hosts].sort();
+}
+
+function validationHost(value: string): string | undefined {
+  try {
+    return new URL(value.includes("://") ? value : `http://${value}`).hostname
+      .replace(/^\[|\]$/gu, "")
+      .toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function isLocalValidationHost(host: string): boolean {
+  if (host === "localhost" || host === "::1" || host.endsWith(".local")) return true;
+  if (/^127\./u.test(host) || host === "0.0.0.0") return true;
+  if (/^10\./u.test(host) || /^192\.168\./u.test(host)) return true;
+  const match = host.match(/^172\.(\d+)\./u);
+  return match ? Number(match[1]) >= 16 && Number(match[1]) <= 31 : false;
 }
 
 function runCommand(

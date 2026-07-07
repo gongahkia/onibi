@@ -90,6 +90,29 @@ Normalized findings may include `mappings` with `cwe`, `owaspAsvs`,
 preserved when present, agent triage may add the same optional object, and
 unmapped findings remain valid.
 
+## Lab Validation
+
+`--lab-mode` is required before KelpClaw will run local validation commands.
+Validation commands must be explicitly allowlisted and are restricted to local
+URLs unless a target is declared:
+
+```console
+$ kelp-claw appsec audit \
+  --context . \
+  --dockerfile Dockerfile \
+  --agent-command ./appsec-agent.sh \
+  --sarif findings.sarif \
+  --lab-mode \
+  --validation-command ./validate-local.sh \
+  --validation-allow ./validate-local.sh \
+  --validation-arg http://127.0.0.1:8080/health \
+  --validation-target http://127.0.0.1:8080
+```
+
+Validation stdout, stderr, exit code, policy decision, and linked evidence IDs
+are recorded in the AppSec output and audit bundle. Outside lab mode, validation
+is blocked.
+
 ## PR Workflow
 
 ```yaml

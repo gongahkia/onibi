@@ -476,6 +476,171 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     }
   });
 
+  it("gates AppSec lab validation commands", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-validation-"));
+    const agentBin = join(tempDir, "empty-agent.js");
+    const validationBin = join(tempDir, "validator.js");
+    const marker = join(tempDir, "validation-ran.txt");
+    const sarifPath = join(tempDir, "scanner.sarif");
+    const keyDir = join(tempDir, "keys");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(sarifPath, JSON.stringify(cliSarifFixture("warning"), null, 2), "utf8");
+      await writeFile(
+        agentBin,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "No findings.",
+  triageFindings: [],
+  recommendedNextSteps: [],
+  limitations: []
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(agentBin, 0o755);
+      await writeFile(
+        validationBin,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(marker)}, "ran\\n");
+console.log("validated " + process.argv.slice(2).join(" "));
+console.error("validation stderr");
+`,
+        "utf8"
+      );
+      await chmod(validationBin, 0o755);
+
+      const deniedOut = join(tempDir, "denied-out");
+      const denied = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        agentBin,
+        "--skip-docker-build",
+        "--sarif",
+        sarifPath,
+        "--validation-command",
+        validationBin,
+        "--validation-allow",
+        validationBin,
+        "--validation-arg",
+        "http://127.0.0.1/health",
+        "--run-id",
+        "appsec-validation.denied",
+        "--out",
+        deniedOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(denied).toMatchObject({ ok: false, status: "failed" });
+      expect(JSON.parse(await readFile(join(deniedOut, "appsec-run.json"), "utf8"))).toMatchObject({
+        validation: {
+          requested: true,
+          ran: false,
+          blocked: true,
+          blockedReason: "validation requires --lab-mode"
+        }
+      });
+      await expect(readFile(marker, "utf8")).rejects.toThrow();
+      process.exitCode = undefined;
+
+      const allowedOut = join(tempDir, "allowed-out");
+      const allowed = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        agentBin,
+        "--skip-docker-build",
+        "--sarif",
+        sarifPath,
+        "--lab-mode",
+        "--validation-command",
+        validationBin,
+        "--validation-allow",
+        validationBin,
+        "--validation-arg",
+        "http://127.0.0.1/health",
+        "--run-id",
+        "appsec-validation.allowed",
+        "--out",
+        allowedOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(allowed).toMatchObject({ ok: true, status: "succeeded", labMode: true });
+      const allowedRun = JSON.parse(await readFile(join(allowedOut, "appsec-run.json"), "utf8"));
+      expect(allowedRun.validation).toMatchObject({
+        requested: true,
+        ran: true,
+        blocked: false,
+        allowlisted: true,
+        networkAllowed: true,
+        exitCode: 0
+      });
+      expect(allowedRun.validation.evidenceIds).toHaveLength(1);
+      await expect(readFile(join(allowedOut, "validation.stdout.log"), "utf8")).resolves.toContain(
+        "validated http://127.0.0.1/health"
+      );
+      await expect(readFile(join(allowedOut, "policy-decisions.json"), "utf8")).resolves.toContain(
+        "validation-command"
+      );
+      const validationHtml = await readFile(join(allowedOut, "audit-bundle", "index.html"), "utf8");
+      expect(validationHtml).toContain("Lab Validation");
+      expect(validationHtml).toContain("Lab Mode</dt><dd><strong>enabled</strong>");
+      expect(validationHtml).toContain("validation.stdout.log");
+      await expect(verifyAuditBundle([join(allowedOut, "audit-bundle")])).resolves.toMatchObject({
+        ok: true,
+        signature: { valid: true }
+      });
+
+      await rm(marker, { force: true });
+      const remoteOut = join(tempDir, "remote-out");
+      const remote = await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        agentBin,
+        "--skip-docker-build",
+        "--lab-mode",
+        "--validation-command",
+        validationBin,
+        "--validation-allow",
+        validationBin,
+        "--validation-arg",
+        "https://example.com/health",
+        "--run-id",
+        "appsec-validation.remote",
+        "--out",
+        remoteOut,
+        "--key-dir",
+        keyDir
+      ]);
+      expect(remote).toMatchObject({ ok: false, status: "failed" });
+      expect(JSON.parse(await readFile(join(remoteOut, "appsec-run.json"), "utf8"))).toMatchObject({
+        validation: {
+          ran: false,
+          blocked: true,
+          networkAllowed: false,
+          blockedReason: "validation command targets a non-local, undeclared network"
+        }
+      });
+      await expect(readFile(marker, "utf8")).rejects.toThrow();
+      process.exitCode = undefined;
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it("writes AppSec QA artifacts and honors warning/error thresholds", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-qa-"));
     const sarifPath = join(tempDir, "scanner.sarif");
