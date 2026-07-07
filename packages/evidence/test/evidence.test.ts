@@ -207,6 +207,12 @@ describe("KelpClaw evidence workspace", () => {
         upstreamId: "KC001",
         ruleId: "KC001"
       });
+      expect(sarifFindingA.mappings).toMatchObject({
+        cwe: ["CWE-693"],
+        owaspAsvs: ["V5.1.4"],
+        owaspTop10: ["A05:2021"],
+        owaspLlmTop10: ["LLM01:2025"]
+      });
 
       const nucleiWorkspaceA = join(tempDir, "nuclei-a-workspace");
       const nucleiWorkspaceB = join(tempDir, "nuclei-b-workspace");
@@ -225,6 +231,12 @@ describe("KelpClaw evidence workspace", () => {
         upstreamId: "http-missing-security-headers",
         templateId: "http-missing-security-headers"
       });
+      expect(nucleiFindingA.mappings).toMatchObject({
+        cwe: ["CWE-693"],
+        owaspAsvs: ["V5.1.4"],
+        owaspTop10: ["A05:2021"],
+        owaspLlmTop10: ["LLM01:2025"]
+      });
 
       const zapWorkspaceA = join(tempDir, "zap-a-workspace");
       const zapWorkspaceB = join(tempDir, "zap-b-workspace");
@@ -240,6 +252,12 @@ describe("KelpClaw evidence workspace", () => {
       expect(zapFindingA.id).toBe(zapFindingB.id);
       expect(zapFindingA.id).not.toBe(zapFindingOther.id);
       expect(zapFindingA.provenance).toMatchObject({ upstreamId: "10016", pluginId: "10016" });
+      expect(zapFindingA.mappings).toMatchObject({
+        cwe: ["CWE-693"],
+        owaspAsvs: ["V5.1.4"],
+        owaspTop10: ["A05:2021"],
+        owaspLlmTop10: ["LLM01:2025"]
+      });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -307,7 +325,7 @@ function sarifFixture(
                 name: "Unsafe agent action",
                 fullDescription: { text: "Agent action needs review." },
                 help: { text: "Add policy enforcement." },
-                properties: { tags: ["CWE-693"] }
+                properties: { tags: ["CWE-693", "ASVS-V5.1.4", "A05:2021", "LLM01:2025"] }
               }
             ]
           }
@@ -360,6 +378,12 @@ function nucleiFixture() {
       description: "The response is missing a security header.",
       remediation: "Set the missing header.",
       tags: "http,headers",
+      classification: {
+        "cwe-id": "CWE-693",
+        "owasp-asvs": "V5.1.4",
+        "owasp-top-ten": "A05:2021",
+        "owasp-llm-top-ten": "LLM01:2025"
+      },
       reference: ["https://example.test/header-hardening"]
     }
   };
@@ -395,6 +419,9 @@ function zapFixture(instance: { readonly uri?: string; readonly param?: string }
             desc: "The response does not enable browser XSS protections.",
             solution: "Set defensive response headers.",
             cweid: "CWE-693",
+            owaspAsvs: ["V5.1.4"],
+            owaspTop10: "A05:2021",
+            owaspLlmTop10: ["LLM01:2025"],
             reference: "https://example.test/zap-reference",
             instances: [
               {

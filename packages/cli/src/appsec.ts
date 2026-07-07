@@ -33,12 +33,20 @@ interface CommandResult {
   readonly stderr: string;
 }
 
+interface AppsecFindingMappings {
+  readonly cwe: readonly string[];
+  readonly owaspAsvs: readonly string[];
+  readonly owaspTop10: readonly string[];
+  readonly owaspLlmTop10: readonly string[];
+}
+
 interface AppsecAgentFinding {
   readonly id: string;
   readonly title: string;
   readonly severity: "info" | "low" | "medium" | "high" | "critical";
   readonly confidence: "low" | "medium" | "high" | "confirmed";
   readonly evidenceIds: readonly string[];
+  readonly mappings: AppsecFindingMappings;
   readonly rationale: string;
   readonly recommendedAction: string;
 }
@@ -477,6 +485,7 @@ function appsecFindingSummary(finding: NormalizedEvidenceFinding): JsonRecord {
     confidence: finding.confidence,
     status: finding.status,
     weaknessIds: [...finding.weaknessIds],
+    mappings: mappingJson(evidenceFindingMappings(finding)),
     sourceReferences
   };
 }
@@ -560,6 +569,7 @@ function appsecAgentFinding(value: unknown, index: number): AppsecAgentFinding {
     severity: severityValue(record.severity),
     confidence: confidenceValue(record.confidence),
     evidenceIds: Array.isArray(record.evidenceIds) ? record.evidenceIds.map(String) : [],
+    mappings: appsecFindingMappings(record.mappings),
     rationale: stringValue(record.rationale, ""),
     recommendedAction: stringValue(record.recommendedAction, "")
   };
@@ -613,7 +623,9 @@ function appsecSarif(input: {
       severity: finding.severity,
       confidence: finding.confidence,
       status: finding.status,
-      weaknessIds: [...finding.weaknessIds]
+      weaknessIds: [...finding.weaknessIds],
+      mappings: mappingJson(evidenceFindingMappings(finding)),
+      ...mappingSarifProperties(evidenceFindingMappings(finding))
     }
   }));
   const triageResults = (input.triage?.triageFindings ?? []).map((finding) => ({
@@ -626,6 +638,8 @@ function appsecSarif(input: {
       severity: finding.severity,
       confidence: finding.confidence,
       evidenceIds: [...finding.evidenceIds],
+      mappings: mappingJson(finding.mappings),
+      ...mappingSarifProperties(finding.mappings),
       correlationStatus: correlationByFindingId.get(finding.id)?.status ?? "no-evidence",
       linkedEvidenceIds: correlationByFindingId.get(finding.id)?.linkedEvidenceIds ?? [],
       missingEvidenceIds: correlationByFindingId.get(finding.id)?.missingEvidenceIds ?? [],
@@ -914,10 +928,10 @@ function appsecScannerFindingSections(
       const rows = group.findings
         .map(
           (finding) =>
-            `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.status)}</td><td>${escapeHtml(finding.weaknessIds.join(", ") || "none")}</td><td>${escapeHtml(sourceReferenceSummary(finding.sourceReferences))}</td><td>${appsecArtifactRefs(files)}</td></tr>`
+            `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.status)}</td><td>${escapeHtml(finding.weaknessIds.join(", ") || "none")}</td><td>${escapeHtml(formatMappings(evidenceFindingMappings(finding)))}</td><td>${escapeHtml(sourceReferenceSummary(finding.sourceReferences))}</td><td>${appsecArtifactRefs(files)}</td></tr>`
         )
         .join("");
-      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Weaknesses</th><th>Source</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Weaknesses</th><th>Mappings</th><th>Source</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
     })
     .join("");
 }
@@ -937,10 +951,10 @@ function appsecAgentFindingSections(
       const rows = group.findings
         .map((finding) => {
           const correlation = correlationByFindingId.get(finding.id);
-          return `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(correlation?.status ?? "no-evidence")}</td><td>${escapeHtml(finding.evidenceIds.join(", ") || "none")}</td><td>${escapeHtml(finding.rationale)}</td><td>${escapeHtml(finding.recommendedAction)}</td><td>${appsecArtifactRefs(files)}</td></tr>`;
+          return `<tr><td><code>${escapeHtml(finding.id)}</code></td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(correlation?.status ?? "no-evidence")}</td><td>${escapeHtml(finding.evidenceIds.join(", ") || "none")}</td><td>${escapeHtml(formatMappings(finding.mappings))}</td><td>${escapeHtml(finding.rationale)}</td><td>${escapeHtml(finding.recommendedAction)}</td><td>${appsecArtifactRefs(files)}</td></tr>`;
         })
         .join("");
-      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Correlation</th><th>Evidence IDs</th><th>Rationale</th><th>Action</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return `<h3>${escapeHtml(group.severity)} / ${escapeHtml(group.confidence)} (${group.findings.length})</h3><table><thead><tr><th>ID</th><th>Title</th><th>Correlation</th><th>Evidence IDs</th><th>Mappings</th><th>Rationale</th><th>Action</th><th>Artifacts</th></tr></thead><tbody>${rows}</tbody></table>`;
     })
     .join("");
 }
@@ -1026,6 +1040,71 @@ function sourceReferenceSummary(
       [reference.tool, reference.rawPath, reference.locator].filter(Boolean).join(" ")
     )
     .join("; ");
+}
+
+function mappingSarifProperties(mappings: AppsecFindingMappings): JsonRecord {
+  return mappingJson(mappings);
+}
+
+function mappingJson(mappings: AppsecFindingMappings): JsonRecord {
+  return {
+    cwe: [...mappings.cwe],
+    owaspAsvs: [...mappings.owaspAsvs],
+    owaspTop10: [...mappings.owaspTop10],
+    owaspLlmTop10: [...mappings.owaspLlmTop10]
+  };
+}
+
+function evidenceFindingMappings(finding: NormalizedEvidenceFinding): AppsecFindingMappings {
+  return appsecFindingMappings({
+    ...finding.mappings,
+    cwe: [...finding.weaknessIds, ...(finding.mappings?.cwe ?? [])]
+  });
+}
+
+function appsecFindingMappings(value: unknown): AppsecFindingMappings {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+  return {
+    cwe: stringArray(record.cwe)
+      .map((entry) => entry.toUpperCase())
+      .sort(),
+    owaspAsvs: stringArray(record.owaspAsvs)
+      .map((entry) => entry.toUpperCase())
+      .sort(),
+    owaspTop10: stringArray(record.owaspTop10)
+      .map((entry) => entry.toUpperCase())
+      .sort(),
+    owaspLlmTop10: stringArray(record.owaspLlmTop10)
+      .map((entry) => entry.toUpperCase())
+      .sort()
+  };
+}
+
+function formatMappings(mappings: AppsecFindingMappings): string {
+  const entries = [
+    ...mappings.cwe,
+    ...mappings.owaspAsvs,
+    ...mappings.owaspTop10,
+    ...mappings.owaspLlmTop10
+  ];
+  return entries.length > 0 ? entries.join(", ") : "none";
+}
+
+function stringArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value
+        .filter(
+          (entry): entry is string | number =>
+            typeof entry === "string" || typeof entry === "number"
+        )
+        .map(String)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  ];
 }
 
 function artifactLink(file: string): string {

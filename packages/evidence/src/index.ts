@@ -105,6 +105,13 @@ export interface EvidenceAffectedInstance {
   readonly metadata: JsonRecord;
 }
 
+export interface EvidenceFindingMappings {
+  readonly cwe: readonly string[];
+  readonly owaspAsvs: readonly string[];
+  readonly owaspTop10: readonly string[];
+  readonly owaspLlmTop10: readonly string[];
+}
+
 export interface NormalizedEvidenceFinding {
   readonly id: string;
   readonly title: string;
@@ -115,6 +122,7 @@ export interface NormalizedEvidenceFinding {
   readonly remediation?: string | undefined;
   readonly asset?: string | undefined;
   readonly weaknessIds: readonly string[];
+  readonly mappings?: EvidenceFindingMappings | undefined;
   readonly references: readonly string[];
   readonly tags: readonly string[];
   readonly evidence: readonly EvidenceSnippet[];
@@ -1109,6 +1117,12 @@ async function parseNucleiJsonlFile(
         stringField(record, "url");
       const matcherName = stringField(record, "matcher-name");
       const resultType = stringField(record, "type");
+      const classificationTokens = mappingTokensFromValue(info.classification);
+      const mappingTokens = [
+        ...classificationTokens,
+        ...mappingTokensFromValue(info.tags),
+        ...mappingTokensFromValue(info.metadata)
+      ];
       findings.push(
         scannerFinding({
           tool: input.format,
@@ -1120,7 +1134,8 @@ async function parseNucleiJsonlFile(
           ...(matcherName ? { location: matcherName } : {}),
           description: stringField(info, "description"),
           remediation: stringField(info, "remediation"),
-          weaknessIds: cweIds(...stringArrayOrCsvField(info, "classification")),
+          weaknessIds: cweIds(...classificationTokens),
+          mappings: mappingsFromTokens(mappingTokens),
           references: stringArrayOrCsvField(info, "reference"),
           tags: ["nuclei", templateId, ...stringArrayOrCsvField(info, "tags")],
           evidenceKind: "nuclei-result",
@@ -1318,6 +1333,14 @@ async function parseZapJsonFile(
             description: stringField(alert, "desc"),
             remediation: stringField(alert, "solution"),
             weaknessIds: cweIds(cwe),
+            mappings: mappingsFromTokens([
+              cwe,
+              ...mappingTokensFromValue(alert.asvs),
+              ...mappingTokensFromValue(alert.owaspAsvs),
+              ...mappingTokensFromValue(alert.owaspTop10),
+              ...mappingTokensFromValue(alert.owaspLlmTop10),
+              ...mappingTokensFromValue(alert.tags)
+            ]),
             references: stringArrayOrCsvField(alert, "reference"),
             tags: ["zap", ...(alertRef ? [alertRef] : [])],
             evidenceKind: "zap-alert",
@@ -1371,6 +1394,7 @@ async function parseNessusXmlFile(
           description: xmlTagText(itemBody, "description"),
           remediation: xmlTagText(itemBody, "solution"),
           weaknessIds: cweIds(xmlTagText(itemBody, "cwe")),
+          mappings: mappingsFromTokens([xmlTagText(itemBody, "cwe")]),
           references: stringArrayFromText(xmlTagText(itemBody, "see_also")),
           tags: ["nessus", ...(pluginId ? [`plugin-${pluginId}`] : [])],
           evidenceKind: "nessus-report-item",
@@ -1418,6 +1442,7 @@ function sarifFindingFromResult(
   const now = utcNow();
   const locator = `run[${input.runIndex}]/result[${input.resultIndex}]`;
   const weaknessIds = sarifWeaknessIds(rule, result);
+  const mappings = sarifFindingMappings(rule, result, weaknessIds);
   const resultLevel = stringField(result, "level");
   const ruleName = stringField(rule, "name");
   const upstreamResultId = stringField(result, "guid") ?? stringField(result, "correlationGuid");
@@ -1441,6 +1466,7 @@ function sarifFindingFromResult(
     ...(sarifMessageText(rule.help) ? { remediation: sarifMessageText(rule.help) } : {}),
     ...(asset ? { asset } : {}),
     weaknessIds,
+    mappings,
     references: sarifReferences(rule),
     tags: [
       ...new Set(
@@ -1508,6 +1534,7 @@ function scannerFinding(input: {
   readonly description?: string | undefined;
   readonly remediation?: string | undefined;
   readonly weaknessIds?: readonly string[] | undefined;
+  readonly mappings?: EvidenceFindingMappings | undefined;
   readonly references?: readonly string[] | undefined;
   readonly tags?: readonly string[] | undefined;
   readonly evidenceKind: string;
@@ -1518,7 +1545,11 @@ function scannerFinding(input: {
   readonly rawPath: string;
 }): NormalizedEvidenceFinding {
   const now = utcNow();
-  const weaknessIds = [...new Set(input.weaknessIds ?? [])].sort();
+  const mappings = normalizeFindingMappings({
+    ...input.mappings,
+    cwe: [...(input.weaknessIds ?? []), ...(input.mappings?.cwe ?? [])]
+  });
+  const weaknessIds = mappings.cwe;
   const references = [...new Set(input.references ?? [])].sort();
   const tags = [
     ...new Set(
@@ -1550,6 +1581,7 @@ function scannerFinding(input: {
     ...(input.remediation ? { remediation: input.remediation } : {}),
     ...(input.asset ? { asset: input.asset } : {}),
     weaknessIds,
+    mappings,
     references,
     tags,
     evidence: [
@@ -1630,7 +1662,8 @@ function mergeEvidenceFinding(
     sourceReferences: dedupeJson([...previous.sourceReferences, ...incoming.sourceReferences]),
     affectedInstances: dedupeJson([...previous.affectedInstances, ...incoming.affectedInstances]),
     references: [...new Set([...previous.references, ...incoming.references])].sort(),
-    tags: [...new Set([...previous.tags, ...incoming.tags])].sort()
+    tags: [...new Set([...previous.tags, ...incoming.tags])].sort(),
+    mappings: mergeFindingMappings(findingMappings(previous), findingMappings(incoming))
   };
 }
 
@@ -1966,6 +1999,7 @@ function materialFindingHash(finding: NormalizedEvidenceFinding): string {
     severity: finding.severity,
     asset: finding.asset,
     weaknessIds: finding.weaknessIds,
+    mappings: findingMappings(finding),
     affectedInstances: finding.affectedInstances
   });
 }
@@ -2048,6 +2082,32 @@ function sarifWeaknessIds(rule: JsonRecord, result: JsonRecord): readonly string
   return [
     ...new Set(tags.filter((tag) => /^CWE-\d+$/iu.test(tag)).map((tag) => tag.toUpperCase()))
   ].sort();
+}
+
+function sarifFindingMappings(
+  rule: JsonRecord,
+  result: JsonRecord,
+  weaknessIds: readonly string[]
+): EvidenceFindingMappings {
+  const ruleProperties = jsonRecord(rule.properties);
+  const resultProperties = jsonRecord(result.properties);
+  return normalizeFindingMappings({
+    ...mappingsFromTokens([
+      ...mappingTokensFromValue(ruleProperties.tags),
+      ...mappingTokensFromValue(resultProperties.tags),
+      ...mappingTokensFromValue(ruleProperties.cwe),
+      ...mappingTokensFromValue(resultProperties.cwe),
+      ...mappingTokensFromValue(ruleProperties.asvs),
+      ...mappingTokensFromValue(resultProperties.asvs),
+      ...mappingTokensFromValue(ruleProperties.owaspAsvs),
+      ...mappingTokensFromValue(resultProperties.owaspAsvs),
+      ...mappingTokensFromValue(ruleProperties.owaspTop10),
+      ...mappingTokensFromValue(resultProperties.owaspTop10),
+      ...mappingTokensFromValue(ruleProperties.owaspLlmTop10),
+      ...mappingTokensFromValue(resultProperties.owaspLlmTop10)
+    ]),
+    cwe: weaknessIds
+  });
 }
 
 function sarifReferences(rule: JsonRecord): readonly string[] {
@@ -2303,6 +2363,78 @@ function cweIds(...values: readonly (string | undefined)[]): readonly string[] {
         .filter((id): id is string => Boolean(id))
         .map((id) => `CWE-${id}`)
     )
+  ].sort();
+}
+
+function mappingsFromTokens(tokens: readonly (string | undefined)[]): EvidenceFindingMappings {
+  const text = tokens.filter((token): token is string => Boolean(token)).join(" ");
+  return normalizeFindingMappings({
+    cwe: cweIds(text),
+    owaspAsvs: [...text.matchAll(/\b(?:ASVS[-\s:]*)?(V\d+(?:\.\d+){1,2})\b/giu)].map(
+      (match) => match[1] ?? ""
+    ),
+    owaspTop10: [...text.matchAll(/\bA(?:0[1-9]|10):20\d{2}\b/giu)].map((match) => match[0]),
+    owaspLlmTop10: [...text.matchAll(/\bLLM(?:0[1-9]|10)(?::20\d{2})?\b/giu)].map(
+      (match) => match[0]
+    )
+  });
+}
+
+function mappingTokensFromValue(value: unknown): readonly string[] {
+  if (value === undefined || value === null) return [];
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value)
+      .split(/[,;\n]/u)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => mappingTokensFromValue(entry));
+  }
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap((entry) =>
+      mappingTokensFromValue(entry)
+    );
+  }
+  return [];
+}
+
+function findingMappings(finding: NormalizedEvidenceFinding): EvidenceFindingMappings {
+  return normalizeFindingMappings({
+    ...finding.mappings,
+    cwe: [...finding.weaknessIds, ...(finding.mappings?.cwe ?? [])]
+  });
+}
+
+function mergeFindingMappings(
+  left: EvidenceFindingMappings,
+  right: EvidenceFindingMappings
+): EvidenceFindingMappings {
+  return normalizeFindingMappings({
+    cwe: [...left.cwe, ...right.cwe],
+    owaspAsvs: [...left.owaspAsvs, ...right.owaspAsvs],
+    owaspTop10: [...left.owaspTop10, ...right.owaspTop10],
+    owaspLlmTop10: [...left.owaspLlmTop10, ...right.owaspLlmTop10]
+  });
+}
+
+function normalizeFindingMappings(
+  mappings: Partial<EvidenceFindingMappings> | undefined
+): EvidenceFindingMappings {
+  return {
+    cwe: uniqueSorted(mappings?.cwe ?? [], (value) => value.toUpperCase()),
+    owaspAsvs: uniqueSorted(mappings?.owaspAsvs ?? [], (value) => value.toUpperCase()),
+    owaspTop10: uniqueSorted(mappings?.owaspTop10 ?? [], (value) => value.toUpperCase()),
+    owaspLlmTop10: uniqueSorted(mappings?.owaspLlmTop10 ?? [], (value) => value.toUpperCase())
+  };
+}
+
+function uniqueSorted(
+  values: readonly string[],
+  normalize: (value: string) => string
+): readonly string[] {
+  return [
+    ...new Set(values.map((value) => normalize(value.trim())).filter((value) => value.length > 0))
   ].sort();
 }
 

@@ -364,6 +364,12 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
     severity: "high",
     confidence: "medium",
     evidenceIds: input.findings.map((finding) => finding.id),
+    mappings: {
+      cwe: ["CWE-693"],
+      owaspAsvs: ["V5.1.4"],
+      owaspTop10: ["A05:2021"],
+      owaspLlmTop10: ["LLM01:2025"]
+    },
     rationale: "Scanner evidence requires owner review.",
     recommendedAction: "Patch and rerun scanner."
   }],
@@ -414,6 +420,9 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
         '"correlationStatus": "linked"'
       );
+      await expect(readFile(join(outDir, "findings.sarif"), "utf8")).resolves.toContain(
+        '"owaspTop10": ['
+      );
       await expect(readFile(join(outDir, "appsec-run.json"), "utf8")).resolves.toContain(
         '"labMode": true'
       );
@@ -446,6 +455,10 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       expect(bundleHtml).toContain("policy-decisions.json");
       expect(bundleHtml).toContain("appsec-triage.json");
       expect(bundleHtml).toContain("agent.stderr.log");
+      expect(bundleHtml).toContain("CWE-693");
+      expect(bundleHtml).toContain("V5.1.4");
+      expect(bundleHtml).toContain("A05:2021");
+      expect(bundleHtml).toContain("LLM01:2025");
       expect(bundleHtml).toContain("Signature and Attestation");
       expect(bundleHtml).toContain("manifest.json");
       expect(bundleHtml).toContain("attestation.json");
@@ -2963,7 +2976,7 @@ function cliSarifFixtureWithResults(results: readonly CliSarifFixtureResult[]) {
               name: result.name,
               fullDescription: { text: "Finding imported from SARIF evidence." },
               help: { text: "Review the evidence workspace." },
-              properties: { tags: ["CWE-693"] }
+              properties: { tags: ["CWE-693", "ASVS-V5.1.4", "A05:2021", "LLM01:2025"] }
             }))
           }
         },

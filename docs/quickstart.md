@@ -85,6 +85,11 @@ IDs are stable for equivalent normalized scanner findings across reruns and
 input file paths. They can change when scanners rename rules, report different
 asset/location values, or alter weakness mappings.
 
+Normalized findings may include `mappings` with `cwe`, `owaspAsvs`,
+`owaspTop10`, and `owaspLlmTop10` arrays. Scanner-supplied mappings are
+preserved when present, agent triage may add the same optional object, and
+unmapped findings remain valid.
+
 ## PR Workflow
 
 ```yaml
