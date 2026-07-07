@@ -64,7 +64,7 @@ import {
   versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
-import { appsecAudit, runAppsecCommand } from "./appsec.js";
+import { appsecAudit, appsecDiff, runAppsecCommand } from "./appsec.js";
 
 type JsonRecord = Record<string, unknown>;
 type DoctorStatus = "pass" | "warn" | "fail";
@@ -296,7 +296,7 @@ export {
   versionInfo,
   verifyAuditBundle
 } from "./skill-runner.js";
-export { appsecAudit };
+export { appsecAudit, appsecDiff };
 
 export function runHelpCommand(): JsonRecord {
   return {

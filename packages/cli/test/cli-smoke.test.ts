@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appsecAudit,
+  appsecDiff,
   compatibilityReport,
   exportAuditBundle,
   exportSarif,
@@ -611,6 +612,158 @@ fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
       await expect(readFile(join(unsignedOut, "appsec-qa.json"), "utf8")).resolves.toContain(
         "appsec-audit-bundle-unsigned"
       );
+    } finally {
+      process.exitCode = undefined;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("diffs AppSec output dirs and evidence workspaces", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "kelpclaw-appsec-diff-"));
+    const baselineSarif = join(tempDir, "baseline.sarif");
+    const currentSarif = join(tempDir, "current.sarif");
+    const agent = join(tempDir, "empty-agent.js");
+    const baselineOut = join(tempDir, "baseline-out");
+    const currentOut = join(tempDir, "current-out");
+    const markdownOut = join(tempDir, "diff.md");
+
+    try {
+      await writeFile(join(tempDir, "Dockerfile"), "FROM scratch\n", "utf8");
+      await writeFile(
+        agent,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.KELPCLAW_APPSEC_OUTPUT, JSON.stringify({
+  summary: "Diff fixture.",
+  triageFindings: [],
+  recommendedNextSteps: [],
+  limitations: []
+}, null, 2));
+`,
+        "utf8"
+      );
+      await chmod(agent, 0o755);
+      await writeFile(
+        baselineSarif,
+        JSON.stringify(
+          cliSarifFixtureWithResults([
+            { ruleId: "KC_OPEN", level: "warning", name: "Open finding" },
+            { ruleId: "KC_REGRESS", level: "warning", name: "Regressed finding" },
+            { ruleId: "KC_CLOSED", level: "warning", name: "Closed finding" },
+            { ruleId: "KC_CHANGED", level: "error", name: "Changed finding" },
+            {
+              ruleId: "KC_AMBIG_A",
+              level: "warning",
+              name: "Ambiguous finding",
+              uri: "ambiguous.js",
+              startLine: 1
+            },
+            {
+              ruleId: "KC_AMBIG_B",
+              level: "warning",
+              name: "Ambiguous finding",
+              uri: "ambiguous.js",
+              startLine: 2
+            }
+          ]),
+          null,
+          2
+        ),
+        "utf8"
+      );
+      await writeFile(
+        currentSarif,
+        JSON.stringify(
+          cliSarifFixtureWithResults([
+            { ruleId: "KC_OPEN", level: "warning", name: "Open finding" },
+            { ruleId: "KC_REGRESS", level: "error", name: "Regressed finding" },
+            { ruleId: "KC_NEW", level: "warning", name: "New finding" },
+            { ruleId: "KC_CHANGED", level: "warning", name: "Changed finding" },
+            {
+              ruleId: "KC_AMBIG_C",
+              level: "warning",
+              name: "Ambiguous finding",
+              uri: "ambiguous.js",
+              startLine: 3
+            }
+          ]),
+          null,
+          2
+        ),
+        "utf8"
+      );
+
+      await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        agent,
+        "--skip-docker-build",
+        "--sarif",
+        baselineSarif,
+        "--run-id",
+        "appsec-diff.baseline",
+        "--out",
+        baselineOut,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+      await appsecAudit([
+        "--context",
+        tempDir,
+        "--dockerfile",
+        "Dockerfile",
+        "--agent-command",
+        agent,
+        "--skip-docker-build",
+        "--sarif",
+        currentSarif,
+        "--run-id",
+        "appsec-diff.current",
+        "--out",
+        currentOut,
+        "--key-dir",
+        join(tempDir, "keys")
+      ]);
+
+      const dirDiff = await appsecDiff(["--baseline", baselineOut, "--current", currentOut]);
+      expect(dirDiff).toMatchObject({
+        ok: true,
+        summary: {
+          open: 1,
+          new: 1,
+          changed: 1,
+          regressed: 1,
+          ambiguous: 1
+        }
+      });
+      expect(dirDiff.findings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: "closed" }),
+          expect.objectContaining({ status: "ambiguous", matchedBy: "ambiguous" })
+        ])
+      );
+
+      const workspaceDiff = await appsecDiff([
+        "--baseline",
+        join(baselineOut, "evidence-workspace"),
+        "--current",
+        join(currentOut, "evidence-workspace"),
+        "--format",
+        "markdown",
+        "--out",
+        markdownOut,
+        "--fail-on",
+        "regressed"
+      ]);
+      expect(workspaceDiff).toMatchObject({ ok: false, failOn: "regressed", out: markdownOut });
+      expect(process.exitCode).toBe(1);
+      await expect(readFile(markdownOut, "utf8")).resolves.toContain(
+        "# KelpClaw Evidence Retest Diff"
+      );
+      process.exitCode = undefined;
     } finally {
       process.exitCode = undefined;
       await rm(tempDir, { recursive: true, force: true });
@@ -2714,7 +2867,27 @@ console.log(JSON.stringify({ toolName: "Bash", args: { command: "printf ignored"
   });
 });
 
+interface CliSarifFixtureResult {
+  readonly ruleId: string;
+  readonly level: "warning" | "error";
+  readonly name: string;
+  readonly uri?: string | undefined;
+  readonly startLine?: number | undefined;
+}
+
 function cliSarifFixture(level: "warning" | "error" = "warning") {
+  return cliSarifFixtureWithResults([
+    {
+      ruleId: "KC001",
+      level,
+      name: "Evidence-backed governance finding",
+      uri: "SKILL.md",
+      startLine: 6
+    }
+  ]);
+}
+
+function cliSarifFixtureWithResults(results: readonly CliSarifFixtureResult[]) {
   return {
     version: "2.1.0",
     runs: [
@@ -2722,32 +2895,28 @@ function cliSarifFixture(level: "warning" | "error" = "warning") {
         tool: {
           driver: {
             name: "KelpClaw Evidence Fixture",
-            rules: [
-              {
-                id: "KC001",
-                name: "Evidence-backed governance finding",
-                fullDescription: { text: "Finding imported from SARIF evidence." },
-                help: { text: "Review the evidence workspace." },
-                properties: { tags: ["CWE-693"] }
-              }
-            ]
+            rules: results.map((result) => ({
+              id: result.ruleId,
+              name: result.name,
+              fullDescription: { text: "Finding imported from SARIF evidence." },
+              help: { text: "Review the evidence workspace." },
+              properties: { tags: ["CWE-693"] }
+            }))
           }
         },
-        results: [
-          {
-            ruleId: "KC001",
-            level,
-            message: { text: "Evidence finding observed" },
-            locations: [
-              {
-                physicalLocation: {
-                  artifactLocation: { uri: "SKILL.md" },
-                  region: { startLine: 6 }
-                }
+        results: results.map((result) => ({
+          ruleId: result.ruleId,
+          level: result.level,
+          message: { text: "Evidence finding observed" },
+          locations: [
+            {
+              physicalLocation: {
+                artifactLocation: { uri: result.uri ?? "SKILL.md" },
+                region: { startLine: result.startLine ?? 6 }
               }
-            ]
-          }
-        ]
+            }
+          ]
+        }))
       }
     ]
   };

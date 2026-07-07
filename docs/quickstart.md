@@ -45,6 +45,20 @@ AppSec QA writes `appsec-qa.json` into the output directory and audit bundle.
 on warnings. Without `--fail-on-qa`, QA issues are recorded but do not fail the
 audit.
 
+Compare two AppSec runs:
+
+```console
+$ kelp-claw appsec diff \
+  --baseline .kelpclaw/appsec/baseline \
+  --current .kelpclaw/appsec/current
+$ kelp-claw appsec diff \
+  --baseline .kelpclaw/appsec/baseline/evidence-workspace \
+  --current .kelpclaw/appsec/current/evidence-workspace \
+  --format markdown \
+  --out .kelpclaw/appsec/diff.md \
+  --fail-on regressed
+```
+
 ## Scanner Evidence
 
 Add passive scanner outputs when available:

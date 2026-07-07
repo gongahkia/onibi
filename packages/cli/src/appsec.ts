@@ -3,12 +3,14 @@ import { createHash, createPrivateKey, generateKeyPairSync, sign as signBytes } 
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import {
+  compareEvidenceWorkspaces,
   createEvidenceWorkspace,
   importBurpEvidence,
   importNessusEvidence,
   importNmapEvidence,
   importNucleiEvidence,
   qaEvidenceWorkspace,
+  renderEvidenceRetestMarkdown,
   importSarifEvidence,
   importZapEvidence,
   loadEvidenceWorkspace,
@@ -114,9 +116,11 @@ export async function runAppsecCommand(args: readonly string[]): Promise<void> {
     printJson(await appsecAudit(commandArgs));
     return;
   }
-  throw new Error(
-    "Usage: kelp-claw appsec audit --context DIR --dockerfile Dockerfile --agent-command CMD"
-  );
+  if (command === "diff") {
+    printJson(await appsecDiff(commandArgs));
+    return;
+  }
+  throw new Error("Usage: kelp-claw appsec <audit|diff> [options]");
 }
 
 export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditOutput> {
@@ -328,6 +332,66 @@ export async function appsecAudit(args: readonly string[]): Promise<AppsecAuditO
     },
     labMode
   };
+}
+
+export async function appsecDiff(args: readonly string[]): Promise<JsonRecord> {
+  const baselineInput = resolve(requiredOption(args, "--baseline"));
+  const currentInput = resolve(requiredOption(args, "--current"));
+  const baselineWorkspace = await resolveAppsecEvidenceWorkspace(baselineInput);
+  const currentWorkspace = await resolveAppsecEvidenceWorkspace(currentInput);
+  const result = await compareEvidenceWorkspaces(baselineWorkspace, currentWorkspace);
+  const failOn = option(args, "--fail-on") ?? "none";
+  const failed = appsecDiffFailed(result.summary, failOn);
+  const format = option(args, "--format") ?? "json";
+  if (format !== "json" && format !== "markdown") {
+    throw new Error("--format must be json or markdown.");
+  }
+  const markdown = format === "markdown" ? renderEvidenceRetestMarkdown(result) : undefined;
+  const output = {
+    ok: !failed,
+    failOn,
+    baselineInput,
+    currentInput,
+    ...(markdown ? { markdown } : {}),
+    ...result
+  };
+  const out = option(args, "--out");
+  if (out) {
+    await writeTextWithParents(resolve(out), markdown ?? `${JSON.stringify(output, null, 2)}\n`);
+  }
+  if (failed) {
+    process.exitCode = 1;
+  }
+  return {
+    ...(out ? { out: resolve(out) } : {}),
+    ...output
+  } as unknown as JsonRecord;
+}
+
+async function resolveAppsecEvidenceWorkspace(input: string): Promise<string> {
+  const appsecWorkspace = join(input, "evidence-workspace");
+  if (await fileExists(join(appsecWorkspace, "workspace.json"))) return appsecWorkspace;
+  if (await fileExists(join(input, "workspace.json"))) return input;
+  throw new Error(`${input} is not an AppSec output directory or evidence workspace.`);
+}
+
+function appsecDiffFailed(summary: Readonly<Record<string, number>>, failOn: string): boolean {
+  const statusesByThreshold: Readonly<Record<string, readonly string[]>> = {
+    none: [],
+    any: ["new", "closed", "changed", "regressed", "ambiguous"],
+    new: ["new"],
+    closed: ["closed"],
+    changed: ["changed", "regressed"],
+    regressed: ["regressed"],
+    ambiguous: ["ambiguous"]
+  };
+  const statuses = statusesByThreshold[failOn];
+  if (!statuses) {
+    throw new Error(
+      "--fail-on must be one of none, any, new, closed, changed, regressed, or ambiguous."
+    );
+  }
+  return statuses.some((status) => (summary[status] ?? 0) > 0);
 }
 
 async function importScannerEvidence(
@@ -1009,6 +1073,11 @@ function fileExists(path: string): Promise<boolean> {
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${stableJsonStringify(value as JsonValue)}\n`, "utf8");
+}
+
+async function writeTextWithParents(path: string, value: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, value, "utf8");
 }
 
 function printJson(value: unknown): void {
