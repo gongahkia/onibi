@@ -122,6 +122,7 @@ After `./bin/onibi up` and phone pairing:
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.
 - `frontend/` contains the xterm.js cockpit.
+- [`docs/comparison.md`](./docs/comparison.md) compares Onibi's session-hosting architecture with Herdr, Codex Remote, CCRC, and OpenCode Mobile.
 
 ## Docs
 

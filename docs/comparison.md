@@ -2,6 +2,43 @@
 
 These notes are positioning docs, not attack pages. Use them to pick the simpler tool for the job.
 
+## Onibi vs Herdr
+
+Herdr is a strong neighboring design, not a straw man. Herdr's own positioning is terminal-native agent multiplexing: persistent real panes, detach/reattach, remote SSH attach, agent state, and a CLI/socket API agents can drive. Its docs describe agents staying in real terminal panes with shells, logs, prompts, and running processes intact, plus blocked/working/done/idle rollups across panes, tabs, and workspaces. `herdr-remote` adds a separate phone/menu-bar/Telegram surface with a web app, one-tap approvals, status views, a phone terminal view, special mobile keys, and Cloudflare quick-tunnel setup.
+
+That means the honest comparison is not "Onibi has terminals and Herdr does not." Both care about live terminal state. The difference is the center of gravity: Herdr starts as an agent-aware terminal multiplexer and can be extended outward; Onibi starts as a local web/chat cockpit that owns pairing, HTTPS/WebSocket, mobile UI, provider bridges, and approval routing around tmux-backed sessions.
+
+Side-by-side:
+
+| capability | Herdr + herdr-remote | Onibi |
+|---|---|---|
+| session runtime | Herdr background server with persistent panes | Onibi-managed tmux-backed PTYs |
+| primary UI | terminal multiplexer, SSH attach, direct terminal attach | phone-first browser cockpit with live xterm.js |
+| phone access | `herdr-remote` web app/PWA through a relay URL | built-in paired HTTPS/PWA cockpit |
+| agent state | first-class blocked/working/done/idle rollups | session list, timeline, approvals, anomaly/push events |
+| direct terminal | terminal/SSH/direct attach; herdr-remote phone terminal view | `/ws/pty` live terminal with typing, soft keys, resize, replay |
+| approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, runtime trust, hook enforcement |
+| chat control | Telegram approval/notification surface in herdr-remote | Telegram/Slack/Matrix/Discord text I/O plus approvals where supported |
+| extension model | CLI/socket API, integrations, plugins | adapters, intake socket, provider bridges, web event stream |
+
+Four differentiators:
+
+1. **Session hosting.** Herdr also hosts persistent PTY panes, but users adopt Herdr as the multiplexer and add `herdr-remote` when they want phone/browser access. Onibi bundles the session host and phone cockpit in one daemon flow: `onibi up` creates or attaches the managed session, serves the cockpit, and owns pairing/auth.
+2. **Real live terminal.** Herdr has real terminal panes and direct attach; current `herdr-remote` docs also show a phone terminal view. Onibi's distinction is that the live browser terminal is the default product surface, with xterm.js, mobile soft keys, resize/replay behavior, file/timeline panels, and handoff controls built around one session id.
+3. **Hook-based enforcement.** Herdr integrations primarily report session identity, lifecycle state, or both; its remote surface exposes approval actions for blocked agents. Onibi's approval path is the enforcement boundary: provider hooks send blocking requests to the Onibi queue, and deny/edit decisions feed back through the hook contract before tool execution continues.
+4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. Onibi's chat providers are broader control surfaces: Telegram, Matrix, Slack, and Discord can send text into the hosted session, while notify-only providers stay approval/alert-only.
+
+When to pick Herdr over Onibi: choose Herdr if you already want a terminal-native multiplexer for many agent panes and mainly need state rollups, direct terminal attach, SSH workflows, or a phone notification/approval add-on. Choose Onibi if you want a self-contained mobile/browser cockpit, chat text input, transport choice, and an owner approval queue around a hosted session rather than a terminal multiplexer as the primary UI.
+
+Sources checked:
+
+- Herdr homepage: <https://herdr.dev/>
+- Herdr agents docs: <https://herdr.dev/docs/agents/>
+- Herdr persistence and remote access: <https://herdr.dev/docs/persistence-remote/>
+- Herdr integrations docs: <https://herdr.dev/docs/integrations/>
+- Herdr comparison page: <https://herdr.dev/compare/>
+- herdr-remote README: <https://github.com/dcolinmorgan/herdr-remote>
+
 ## Onibi vs OpenAI Codex Remote
 
 Codex Remote is the first-party path for using Codex away from the host machine. OpenAI's remote-connections docs describe using Codex in the ChatGPT mobile app to work with Codex on a connected Mac or Windows host, continue work from another supported Codex App device, or connect the Codex App to projects on an SSH host. The connected host supplies the projects, threads, files, credentials, permissions, plugins, Computer Use setup, browser setup, and local tools. The phone sends prompts, approvals, and follow-up messages through OpenAI's secure relay layer.
