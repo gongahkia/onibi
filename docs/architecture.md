@@ -121,4 +121,4 @@ Main durable state:
 
 ## Legacy Code
 
-Historical v2 transport code remains until Phase 06. Current user flows should use the LAN web cockpit described here.
+No v2 Telegram MiniApp/webapp transport code remains. Current user flows use the LAN web cockpit described here; generated frontend bundles may still contain unrelated third-party syntax aliases.
