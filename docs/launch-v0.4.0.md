@@ -12,19 +12,20 @@ https://github.com/gongahkia/onibi
 
 ## Text
 
-Onibi is a local daemon that lets a phone drive a real tmux-backed shell or coding-agent session. It serves a live web cockpit over HTTPS/WebSocket, keeps approvals owner-gated, and lets the same session move between mobile Safari, chat transports, MCP clients, and a visible Mac terminal.
+The v0.4 flagship is MCP recursion with hook-based approval enforcement. Onibi now lets local MCP clients inspect sessions, tail scrubbed context, write to live PTYs, and decide low/medium-risk approvals through [`onibi mcp`](mcp.md), while the same approval queue still enforces owner-gated hooks before risky tools run.
 
-The v0.4 theme is depth over novelty. The terminal path now tries to be recognizably Ghostty-shaped: `xterm-ghostty` terminfo, a Ghostty-default theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding, and parity smokes against native Ghostty captures. This is not pixel-perfect emulation, but it makes the browser cockpit feel like the same terminal instead of a generic web console.
+That is the safety story I wanted before adding more remote surfaces. MCP clients talk to a local stdio process, daemon-backed actions go through same-UID Unix socket checks, and high-risk approval paths stay out of automatic approve/edit flows. The phone cockpit remains the owner control plane instead of becoming a bearer-token web API.
+
+Also landed in v0.4:
+
+- Terminal fidelity: `xterm-ghostty` terminfo, a Ghostty-default theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding, and [`docs/ghostty-parity.md`](ghostty-parity.md) parity smokes against native Ghostty captures.
+- Cloudflare relay hardening: Quick Tunnel moved from public tunnel to app-layer E2E for terminal bytes, event payloads, control requests, approval decisions, and input; see [`docs/SPEC-e2e.md`](SPEC-e2e.md).
+- Remote hosts: [`onibi up --ssh`](ssh-transport.md) can bootstrap a user service on an SSH host, start loopback-only Onibi remotely, and keep phone pairing through a local SSH tunnel.
+- Positioning and hardening: comparison docs, threat model coverage, adapter registry work, and release checks now make remaining risk easier to audit.
 
 Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](branding.md).
 
-The second thread is MCP recursion. `onibi mcp` exposes local stdio tools for listing sessions, peeking/tailing scrubbed output, writing to live PTYs, requesting approvals, and deciding low/medium-risk approvals. It deliberately stays local: stdio plus same-UID Unix socket checks, no remote MCP listener, and no bearer-token surface.
-
-Cloudflare support moved from "public tunnel" to "public tunnel with app-layer E2E." Quick Tunnel URLs carry only the relay key fragment to the browser, while terminal bytes, event payloads, control requests, approval decisions, and user input are encrypted with per-pair HKDF + AES-GCM before crossing the relay. Named Tunnels now have explicit setup/status/disable commands and can fetch tunnel tokens through the Cloudflare API without putting tokens in process args.
-
-The SSH transport work is about making remote terminals boring. `onibi up --ssh user@host` detects the remote platform, uploads matching `onibi` and `onibi-notify` binaries, installs a user service, starts loopback-only Onibi on the remote host, then opens a local SSH tunnel so the phone still pairs through the laptop. The small-server resource gate is intentionally strict and still tracked separately from the physical smoke.
-
-I am posting this as a release draft, not a claim that every external smoke has passed. The remaining release checklist is explicit about signed updates, Homebrew/curl installs, fresh-machine validation, and physical-device tests.
+I am posting this as a release draft, not a claim that every external smoke has passed. The remaining release checklist is explicit about signed updates, Homebrew/curl installs, fresh-machine validation, and physical-device tests such as the open real-iPhone Cloudflare, diff-card, and Web Push smokes tracked in [#80](https://github.com/gongahkia/onibi/issues/80), [#81](https://github.com/gongahkia/onibi/issues/81), and [#82](https://github.com/gongahkia/onibi/issues/82).
 
 ## First Comment
 
