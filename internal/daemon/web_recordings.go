@@ -3,7 +3,16 @@ package daemon
 import (
 	"context"
 	"os"
+
+	"github.com/gongahkia/onibi/internal/web"
 )
+
+func (d *Daemon) WebRecordings(ctx context.Context) ([]web.RecordingSummary, error) {
+	if d == nil || d.Recorder == nil {
+		return nil, nil
+	}
+	return d.Recorder.List(ctx)
+}
 
 func (d *Daemon) WebRecordingPath(ctx context.Context, id string) (string, bool, error) {
 	_ = ctx

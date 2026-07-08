@@ -458,6 +458,152 @@
   overflow-wrap: anywhere;
 }
 
+.recordings-dock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 44px + var(--sessions-height));
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 12;
+  box-sizing: border-box;
+  max-height: min(
+    58dvh,
+    calc(var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 96px)
+  );
+  border: 1px solid var(--chrome-border);
+  border-radius: 3px;
+  background: var(--panel-bg);
+  color: var(--page-fg);
+  padding: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.recordings-dock[hidden] {
+  display: none;
+}
+
+.recordings-header,
+.recording-player-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recordings-title,
+.recording-player-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--page-fg);
+  font: 700 12px var(--mono-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recordings-list {
+  display: grid;
+  gap: 6px;
+  max-height: calc(min(58dvh, var(--visual-viewport-height)) - 86px);
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.recording-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 8px;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  padding: 7px 8px;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.recording-row:active {
+  border-color: var(--button-active-border);
+}
+
+.recording-name,
+.recording-meta,
+.recording-size {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recording-name {
+  color: var(--page-fg);
+  font: 700 12px var(--mono-font);
+}
+
+.recording-meta {
+  color: var(--muted-fg);
+  font-size: 11px;
+  text-align: right;
+}
+
+.recording-size {
+  grid-column: 1 / -1;
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.recording-empty,
+.recordings-status {
+  min-height: 16px;
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.recordings-status {
+  margin-top: 6px;
+}
+
+.recording-speed {
+  min-height: 28px;
+  max-width: 64px;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  font: 600 11px var(--mono-font);
+}
+
+.recording-player {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 52px);
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
+  bottom: calc(var(--keyboard-bottom) + env(safe-area-inset-bottom) + var(--softkey-height) + 8px);
+  z-index: 14;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--chrome-border);
+  border-radius: 3px;
+  background: var(--panel-bg);
+  color: var(--page-fg);
+  padding: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.recording-player-host {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--panel-solid-bg);
+}
+
 .timeline-dock {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 44px + var(--sessions-height));

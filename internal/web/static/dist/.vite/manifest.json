@@ -5,12 +5,13 @@
     "isDynamicEntry": true
   },
   "index.html": {
-    "file": "assets/index-Dgo5JqmS.js",
+    "file": "assets/index-BNPh9AbW.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "dynamicImports": [
       "_diff2html-ui-slim-BUa9DSNl.js",
+      "node_modules/asciinema-player/dist/index.js",
       "node_modules/shiki/dist/core.mjs",
       "node_modules/shiki/dist/engine-javascript.mjs",
       "node_modules/shiki/dist/themes/github-dark.mjs",
@@ -24,8 +25,14 @@
       "node_modules/shiki/dist/langs/typescript.mjs"
     ],
     "css": [
-      "assets/index-BhiNFOUH.css"
+      "assets/index-BlTVYuS6.css"
     ]
+  },
+  "node_modules/asciinema-player/dist/index.js": {
+    "file": "assets/index-CjNe_PW5.js",
+    "name": "index",
+    "src": "node_modules/asciinema-player/dist/index.js",
+    "isDynamicEntry": true
   },
   "node_modules/shiki/dist/core.mjs": {
     "file": "assets/core-Db3hBPBn.js",

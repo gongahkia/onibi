@@ -47,6 +47,7 @@ type Options struct {
 	Snapshots       func(context.Context) ([]Snapshot, error)
 	SnapshotRestore func(context.Context, string) (SnapshotActionResult, error)
 	SnapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	RecordingList   func(context.Context) ([]RecordingSummary, error)
 	RecordingPath   func(context.Context, string) (string, bool, error)
 	UploadDir       string
 	RelayKeys       *RelayKeys
@@ -72,6 +73,7 @@ type Server struct {
 	snapshots       func(context.Context) ([]Snapshot, error)
 	snapshotRestore func(context.Context, string) (SnapshotActionResult, error)
 	snapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	recordingList   func(context.Context) ([]RecordingSummary, error)
 	recordingPath   func(context.Context, string) (string, bool, error)
 	uploadDir       string
 	relayKeys       *RelayKeys
@@ -104,6 +106,7 @@ func New(opts Options) *Server {
 		snapshots:       opts.Snapshots,
 		snapshotRestore: opts.SnapshotRestore,
 		snapshotFork:    opts.SnapshotFork,
+		recordingList:   opts.RecordingList,
 		recordingPath:   opts.RecordingPath,
 		uploadDir:       opts.UploadDir,
 		relayKeys:       opts.RelayKeys,
@@ -126,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/files/upload", s.handleFilesUpload)
 	mux.HandleFunc("/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	mux.HandleFunc("/push/subscribe", s.handlePushSubscribe)
+	mux.HandleFunc("/recordings", s.handleRecordings)
+	mux.HandleFunc("/recordings/{id}", s.handleRecordingCast)
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)

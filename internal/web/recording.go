@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,16 @@ type Recorder struct {
 	active map[string]bool
 }
 
+type RecordingSummary struct {
+	ID              string    `json:"id"`
+	SessionID       string    `json:"session_id"`
+	Name            string    `json:"name"`
+	CreatedAt       time.Time `json:"created_at"`
+	DurationSeconds float64   `json:"duration_seconds"`
+	SizeBytes       int64     `json:"size_bytes"`
+	URL             string    `json:"url,omitempty"`
+}
+
 func NewRecorder(dir string) *Recorder {
 	return &Recorder{
 		Dir:      strings.TrimSpace(dir),
@@ -40,6 +52,44 @@ func NewRecorder(dir string) *Recorder {
 
 func (r *Recorder) Path(sessionID string) string {
 	return filepath.Join(r.Dir, safeRecordingName(sessionID)+".cast")
+}
+
+func (r *Recorder) List(ctx context.Context) ([]RecordingSummary, error) {
+	if r == nil || strings.TrimSpace(r.Dir) == "" {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := os.ReadDir(r.Dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]RecordingSummary, 0, len(rows))
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if row.IsDir() || !strings.HasSuffix(row.Name(), ".cast") {
+			continue
+		}
+		info, err := row.Info()
+		if err != nil {
+			return nil, err
+		}
+		item := recordingSummary(filepath.Join(r.Dir, row.Name()), info)
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
 }
 
 func (r *Recorder) Record(ctx context.Context, sessionID string, host *pty.Host) error {
@@ -89,6 +139,53 @@ func (r *Recorder) Record(ctx context.Context, sessionID string, host *pty.Host)
 		}
 	}()
 	return nil
+}
+
+func recordingSummary(path string, info os.FileInfo) RecordingSummary {
+	id := strings.TrimSuffix(filepath.Base(path), ".cast")
+	item := RecordingSummary{
+		ID:        id,
+		SessionID: id,
+		Name:      filepath.Base(path),
+		CreatedAt: info.ModTime().UTC(),
+		SizeBytes: info.Size(),
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return item
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	var header struct {
+		Timestamp int64  `json:"timestamp"`
+		Title     string `json:"title"`
+	}
+	if err := dec.Decode(&header); err == nil {
+		if header.Timestamp > 0 {
+			item.CreatedAt = time.Unix(header.Timestamp, 0).UTC()
+		}
+		if strings.TrimSpace(header.Title) != "" {
+			item.SessionID = header.Title
+		}
+	}
+	for {
+		var event []json.RawMessage
+		err := dec.Decode(&event)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			break
+		}
+		if len(event) == 0 {
+			continue
+		}
+		var at float64
+		if err := json.Unmarshal(event[0], &at); err == nil && at > item.DurationSeconds {
+			item.DurationSeconds = at
+		}
+	}
+	return item
 }
 
 func (r *Recorder) clearActive(sessionID string) {

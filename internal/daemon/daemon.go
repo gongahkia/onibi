@@ -474,6 +474,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Snapshots:       d.WebSnapshots,
 			SnapshotRestore: d.WebRestoreSnapshot,
 			SnapshotFork:    d.WebForkSnapshot,
+			RecordingList:   d.WebRecordings,
 			RecordingPath:   d.WebRecordingPath,
 			UploadDir:       filepath.Join(d.Paths.StateDir, "uploads"),
 			RelayKeys:       d.RelayKeys,

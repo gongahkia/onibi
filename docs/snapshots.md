@@ -14,6 +14,14 @@ onibi snapshots delete <name>
 
 The phone cockpit has the same core flow: open `SNAP`, tap a snapshot to restore it in the current browser tab, or long-press a row to fork from a transcript turn.
 
+## Recordings
+
+Onibi writes asciicast recordings for managed PTY sessions under the local state directory. Open `REC` in the phone cockpit to list recordings by session id, timestamp, duration, and size.
+
+Tap a recording to open the in-cockpit asciinema player. The overlay includes playback controls, a scrub bar from the player, speed selection for `1x`, `2x`, or `4x`, pause/resume, and `Copy transcript` for plain terminal output text.
+
+Recordings are local artifacts. They can contain prompts, command output, filenames, and secrets printed in the terminal.
+
 ## Stored State
 
 A snapshot stores:

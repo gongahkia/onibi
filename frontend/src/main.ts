@@ -23,6 +23,7 @@ import { RelayE2E, relayE2EContentType } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
+import { RecordingPlayerPanel } from "./recording-player";
 import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
@@ -55,6 +56,7 @@ const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const timelineRoot = requireElement("timeline");
+const recordingsRoot = requireElement("recordings");
 const filesRoot = requireElement("files");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
@@ -78,6 +80,7 @@ let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
+let recordings: RecordingPlayerPanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
@@ -150,6 +153,7 @@ async function boot(): Promise<void> {
       showToast
     );
     timeline = new TimelinePanel(timelineRoot, info.session_id);
+    recordings = new RecordingPlayerPanel(recordingsRoot, getJSON, getText, showToast);
     const filesPanel = new FilesPanel(
       filesRoot,
       info.session_id,
@@ -168,7 +172,7 @@ async function boot(): Promise<void> {
           showToast,
           focus: () => term.focus()
         });
-    installControls(toolbar, info, snapshots, timeline, filesPanel);
+    installControls(toolbar, info, snapshots, timeline, recordings, filesPanel);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -266,6 +270,14 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function getText(path: string): Promise<string> {
+  const response = await fetch(path, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error(`${path} ${response.status}`);
+  }
+  return response.text();
+}
+
 function wsURL(token: string): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${window.location.host}/ws/pty?token=${encodeURIComponent(token)}`;
@@ -281,11 +293,13 @@ function installControls(
   info: SessionInfo,
   snapshotsPanel: SnapshotsPanel,
   timelinePanel: TimelinePanel,
+  recordingsPanel: RecordingPlayerPanel,
   filesPanel: FilesPanel
 ): void {
   const controls = [
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
+    controlButton("REC", () => recordingsPanel.toggle()),
     controlButton("FILES", () => filesPanel.toggle(), "files"),
     controlButton("PUSH", () => enablePush())
   ];
@@ -545,6 +559,7 @@ function showListChrome(): void {
   sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
   timelineRoot.hidden = true;
+  recordingsRoot.hidden = true;
   filesRoot.hidden = true;
   termEl.hidden = true;
   softkeys.hidden = true;

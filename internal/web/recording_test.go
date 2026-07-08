@@ -108,6 +108,38 @@ func TestRecorderSubscribesLiveOutput(t *testing.T) {
 	}
 }
 
+func TestRecorderListSummarizesCastFiles(t *testing.T) {
+	started := time.Unix(200, 0).UTC()
+	rec := NewRecorder(t.TempDir())
+	w, err := newCastWriter(rec.Path("s1"), "s1", 1024, 40, 100, started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.writePTY(started.Add(2500*time.Millisecond), []byte("done")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	items, err := rec.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	item := items[0]
+	if item.ID != "s1" || item.SessionID != "s1" || item.Name != "s1.cast" {
+		t.Fatalf("item = %#v", item)
+	}
+	if !item.CreatedAt.Equal(started) {
+		t.Fatalf("created_at = %s", item.CreatedAt)
+	}
+	if item.DurationSeconds != 2.5 {
+		t.Fatalf("duration = %v", item.DurationSeconds)
+	}
+}
+
 func readCastLines(t *testing.T, path string) []string {
 	t.Helper()
 	body, err := os.ReadFile(path)
