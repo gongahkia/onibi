@@ -69,6 +69,12 @@ type PostMessageResponse struct {
 	TS      string `json:"ts"`
 }
 
+type ViewOpenResponse struct {
+	OK   bool   `json:"ok"`
+	Err  string `json:"error"`
+	View any    `json:"view"`
+}
+
 type Envelope struct {
 	EnvelopeID   string          `json:"envelope_id"`
 	Type         string          `json:"type"`
@@ -92,8 +98,9 @@ type EventPayload struct {
 }
 
 type InteractionPayload struct {
-	Type string `json:"type"`
-	User struct {
+	Type      string `json:"type"`
+	TriggerID string `json:"trigger_id"`
+	User      struct {
 		ID string `json:"id"`
 	} `json:"user"`
 	Channel struct {
@@ -106,6 +113,19 @@ type InteractionPayload struct {
 		ActionID string `json:"action_id"`
 		Value    string `json:"value"`
 	} `json:"actions"`
+	View struct {
+		ID              string `json:"id"`
+		CallbackID      string `json:"callback_id"`
+		PrivateMetadata string `json:"private_metadata"`
+		State           struct {
+			Values map[string]map[string]ViewStateValue `json:"values"`
+		} `json:"state"`
+	} `json:"view"`
+}
+
+type ViewStateValue struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 type DisconnectPayload struct {
@@ -136,6 +156,10 @@ func (c *Client) OpenSocket(ctx context.Context) (string, error) {
 }
 
 func (c *Client) PostMessage(ctx context.Context, channel, text string) error {
+	return c.PostMessageChunks(ctx, channel, text, nil)
+}
+
+func (c *Client) PostMessageChunks(ctx context.Context, channel, text string, after func(int, string)) error {
 	if strings.TrimSpace(channel) == "" {
 		return errors.New("slack channel required")
 	}
@@ -143,9 +167,20 @@ func (c *Client) PostMessage(ctx context.Context, channel, text string) error {
 	if pace == 0 {
 		pace = DefaultPostPace
 	}
-	return chatout.SendChunks(ctx, text, MessageChunkLimit, pace, c.Sleep, func(ctx context.Context, chunk string) error {
-		return c.api(ctx, "chat.postMessage", c.BotToken, map[string]any{"channel": channel, "text": chunk}, nil)
-	})
+	for i, chunk := range chatout.Chunks(text, MessageChunkLimit) {
+		if i > 0 {
+			if err := chatout.Sleep(ctx, pace, c.Sleep); err != nil {
+				return err
+			}
+		}
+		if err := c.api(ctx, "chat.postMessage", c.BotToken, map[string]any{"channel": channel, "text": chunk}, nil); err != nil {
+			return err
+		}
+		if after != nil {
+			after(i, chunk)
+		}
+	}
+	return nil
 }
 
 func (c *Client) PostMessageBlocks(ctx context.Context, channel, text string, blocks []any) (PostMessageResponse, error) {
@@ -180,6 +215,23 @@ func (c *Client) UpdateMessage(ctx context.Context, channel, ts, text string, bl
 	}
 	if !out.OK {
 		return PostMessageResponse{}, fmt.Errorf("slack chat.update: %s", out.Err)
+	}
+	return out, nil
+}
+
+func (c *Client) OpenView(ctx context.Context, triggerID string, view map[string]any) (ViewOpenResponse, error) {
+	if strings.TrimSpace(triggerID) == "" {
+		return ViewOpenResponse{}, errors.New("slack trigger_id required")
+	}
+	if len(view) == 0 {
+		return ViewOpenResponse{}, errors.New("slack view required")
+	}
+	var out ViewOpenResponse
+	if err := c.api(ctx, "views.open", c.BotToken, map[string]any{"trigger_id": triggerID, "view": view}, &out); err != nil {
+		return ViewOpenResponse{}, err
+	}
+	if !out.OK {
+		return ViewOpenResponse{}, fmt.Errorf("slack views.open: %s", out.Err)
 	}
 	return out, nil
 }

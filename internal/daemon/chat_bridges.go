@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -24,6 +25,13 @@ import (
 )
 
 const matrixKVSince = "matrix.since"
+
+const (
+	slackEditCallback     = "onibi_approval_edit"
+	slackEditInputBlock   = "edited_input"
+	slackEditInputAction  = "json"
+	slackReconnectMaxWait = 30 * time.Second
+)
 
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if c == nil {
@@ -120,6 +128,7 @@ func (d *Daemon) runSlackBridge(ctx context.Context, c *slack.Client) error {
 	if ch := d.slackApprovalChannel(); ch != "" {
 		go d.forwardApprovalsToSlack(ctx, c, ch)
 	}
+	attempt := 0
 	for {
 		url, err := c.OpenSocket(ctx)
 		if err != nil {
@@ -127,18 +136,21 @@ func (d *Daemon) runSlackBridge(ctx context.Context, c *slack.Client) error {
 		}
 		conn, err := slack.Dial(ctx, url)
 		if err != nil {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(2 * time.Second):
-				continue
+			if sleepErr := slackReconnectSleep(ctx, c, attempt); sleepErr != nil {
+				return sleepErr
 			}
+			attempt++
+			continue
 		}
 		err = d.runSlackSocket(ctx, c, conn, allow)
 		_ = conn.CloseNow()
 		if errors.Is(err, context.Canceled) {
 			return err
 		}
+		if sleepErr := slackReconnectSleep(ctx, c, attempt); sleepErr != nil {
+			return sleepErr
+		}
+		attempt++
 	}
 }
 
@@ -160,28 +172,187 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			if err != nil || ev.Event.Type != "message" || strings.TrimSpace(ev.Event.Text) == "" || !allow.Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
 				continue
 			}
+			sessionID := d.slackTargetSessionID("")
+			d.audit(ctx, "provider.slack.text_in", sessionID, ev.Event.Text, 0, "channel="+ev.Event.Channel+" user="+ev.Event.User)
 			out, err := d.handleProviderTextFor(ctx, "", ev.Event.Text, 0, "slack")
 			if err != nil {
 				_ = c.PostMessage(ctx, ev.Event.Channel, "Input failed: "+err.Error())
 				continue
 			}
-			_ = c.PostMessage(ctx, ev.Event.Channel, out)
+			d.postSlackTail(ctx, c, ev.Event.Channel, sessionID, out)
 		case "interactive":
 			action, err := slack.ParseInteraction(env)
-			ackPayload := map[string]any{"text": "Approval decision received."}
-			if err == nil && len(action.Actions) > 0 {
-				id := slackApprovalID(action.Actions[0].Value)
-				verdict := approvalVerdictForAction(action.Actions[0].ActionID)
-				channel, ts := action.Channel.ID, action.Message.TS
-				ackPayload["text"] = d.handleSlackApprovalDecision(ctx, c, id, verdict, channel, ts)
+			ackPayload := map[string]any{"text": "Approval interaction failed."}
+			if err == nil {
+				ackPayload = d.handleSlackInteraction(ctx, c, action)
 			}
 			if !env.Accepts {
 				ackPayload = nil
 			}
-			_ = slack.Ack(ctx, conn, env.EnvelopeID, ackPayload)
+			if ackPayload == nil {
+				_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
+			} else {
+				_ = slack.Ack(ctx, conn, env.EnvelopeID, ackPayload)
+			}
 		default:
 			_ = slack.Ack(ctx, conn, env.EnvelopeID, nil)
 		}
+	}
+}
+
+func slackReconnectDelay(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	if attempt > 5 {
+		attempt = 5
+	}
+	base := time.Second << attempt
+	if base > slackReconnectMaxWait {
+		base = slackReconnectMaxWait
+	}
+	jitter := time.Duration(rand.Int63n(int64(base/2) + 1))
+	return base + jitter
+}
+
+func slackReconnectSleep(ctx context.Context, c *slack.Client, attempt int) error {
+	delay := slackReconnectDelay(attempt)
+	if c != nil && c.Sleep != nil {
+		return c.Sleep(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (d *Daemon) handleSlackInteraction(ctx context.Context, c *slack.Client, action slack.InteractionPayload) map[string]any {
+	switch action.Type {
+	case "view_submission":
+		return d.handleSlackEditSubmission(ctx, c, action)
+	default:
+		return map[string]any{"text": d.handleSlackBlockAction(ctx, c, action)}
+	}
+}
+
+func (d *Daemon) handleSlackBlockAction(ctx context.Context, c *slack.Client, action slack.InteractionPayload) string {
+	if len(action.Actions) == 0 {
+		return "Approval decision failed: invalid action."
+	}
+	raw := action.Actions[0]
+	id := slackApprovalID(raw.Value)
+	sessionID := d.slackApprovalSessionID(ctx, id)
+	d.audit(ctx, "provider.slack.button", sessionID, raw.Value, 0, "action="+raw.ActionID+" approval="+id+" user="+action.User.ID+" channel="+action.Channel.ID)
+	switch strings.ToLower(raw.ActionID) {
+	case "approve", "deny":
+		verdict := approvalVerdictForAction(raw.ActionID)
+		return d.handleSlackApprovalDecision(ctx, c, id, verdict, action.Channel.ID, action.Message.TS)
+	case "edit":
+		return d.openSlackEditModal(ctx, c, id, action.TriggerID, action.User.ID)
+	default:
+		return "Approval decision failed: invalid action."
+	}
+}
+
+func (d *Daemon) slackApprovalSessionID(ctx context.Context, id string) string {
+	if d == nil || d.Queue == nil || id == "" {
+		return ""
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		return ""
+	}
+	return a.SessionID
+}
+
+func (d *Daemon) slackTargetSessionID(target string) string {
+	if d == nil {
+		return ""
+	}
+	s, err := d.sessionForRPCTarget(target)
+	if err != nil {
+		return ""
+	}
+	return s.ID
+}
+
+func (d *Daemon) postSlackTail(ctx context.Context, c *slack.Client, channel, sessionID, text string) {
+	if c == nil {
+		return
+	}
+	err := c.PostMessageChunks(ctx, channel, text, func(i int, chunk string) {
+		d.audit(ctx, "provider.slack.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("channel=%s index=%d bytes=%d", channel, i, len(chunk)))
+	})
+	if err != nil {
+		d.audit(ctx, "provider.slack.tail_error", sessionID, "", 0, "channel="+channel+" err="+err.Error())
+	}
+}
+
+func (d *Daemon) openSlackEditModal(ctx context.Context, c *slack.Client, id, triggerID, user string) string {
+	if d == nil || d.Queue == nil {
+		return "Edit failed: approval queue unavailable."
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		return "Edit failed: " + err.Error()
+	}
+	if _, err := c.OpenView(ctx, triggerID, slackEditModalView(a)); err != nil {
+		d.audit(ctx, "provider.slack.edit_modal_error", a.SessionID, "", 0, "approval="+id+" user="+user+" err="+err.Error())
+		return "Edit failed: " + err.Error()
+	}
+	d.audit(ctx, "provider.slack.edit_modal", a.SessionID, "", 0, "approval="+id+" user="+user)
+	return "Edit modal opened for approval " + id + "."
+}
+
+func (d *Daemon) handleSlackEditSubmission(ctx context.Context, c *slack.Client, action slack.InteractionPayload) map[string]any {
+	id, edited := slackEditSubmission(action)
+	if id == "" {
+		return slackModalError("approval id missing")
+	}
+	if d == nil || d.Queue == nil {
+		return slackModalError("approval queue unavailable")
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		return slackModalError(err.Error())
+	}
+	edited = strings.TrimSpace(edited)
+	if edited == "" {
+		return slackModalError("edited JSON required")
+	}
+	if err := approval.ValidateEditedInput(a.Tool, a.InputJSON, edited); err != nil {
+		d.audit(ctx, "provider.slack.edit_rejected", a.SessionID, edited, 0, "approval="+id+" user="+action.User.ID+" err="+err.Error())
+		return slackModalError(err.Error())
+	}
+	if err := d.Queue.Decide(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
+		return slackModalError(err.Error())
+	}
+	d.audit(ctx, "provider.slack.edit_submit", a.SessionID, edited, 0, "approval="+id+" user="+action.User.ID)
+	d.updateSlackApprovalMessage(ctx, c, id, approval.StateEdited, "edited via Slack", "", "")
+	return nil
+}
+
+func slackEditSubmission(action slack.InteractionPayload) (string, string) {
+	if action.View.CallbackID != slackEditCallback {
+		return "", ""
+	}
+	edited := ""
+	if actions, ok := action.View.State.Values[slackEditInputBlock]; ok {
+		if value, ok := actions[slackEditInputAction]; ok {
+			edited = value.Value
+		}
+	}
+	return strings.TrimSpace(action.View.PrivateMetadata), edited
+}
+
+func slackModalError(message string) map[string]any {
+	return map[string]any{
+		"response_action": "errors",
+		"errors":          map[string]string{slackEditInputBlock: message},
 	}
 }
 
@@ -330,7 +501,36 @@ func slackApprovalBlocks(a *approval.Approval, policy ProviderOutputPolicy) []an
 				"type": "button", "text": map[string]any{"type": "plain_text", "text": "Deny"},
 				"style": "danger", "action_id": "deny", "value": slackApprovalValue(a, approval.VerdictDeny),
 			},
+			map[string]any{
+				"type": "button", "text": map[string]any{"type": "plain_text", "text": "Edit"},
+				"action_id": "edit", "value": slackApprovalValue(a, approval.VerdictEdit),
+			},
 		}},
+	}
+}
+
+func slackEditModalView(a *approval.Approval) map[string]any {
+	return map[string]any{
+		"type":             "modal",
+		"callback_id":      slackEditCallback,
+		"private_metadata": a.ID,
+		"title":            map[string]any{"type": "plain_text", "text": "Edit approval"},
+		"submit":           map[string]any{"type": "plain_text", "text": "Submit"},
+		"close":            map[string]any{"type": "plain_text", "text": "Cancel"},
+		"blocks": []any{
+			map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": "Edit JSON for approval `" + a.ID + "`."}},
+			map[string]any{
+				"type":     "input",
+				"block_id": slackEditInputBlock,
+				"label":    map[string]any{"type": "plain_text", "text": "JSON"},
+				"element": map[string]any{
+					"type":          "plain_text_input",
+					"action_id":     slackEditInputAction,
+					"multiline":     true,
+					"initial_value": a.InputJSON,
+				},
+			},
+		},
 	}
 }
 

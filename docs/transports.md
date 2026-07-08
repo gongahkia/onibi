@@ -191,7 +191,9 @@ ONIBI_SLACK_ALLOWED_DM_USERS=U123,U456
 ONIBI_SLACK_APPROVAL_CHANNEL=C123
 ```
 
-Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events, routes allowed message events to the current session, and accepts approval button callbacks. Approval buttons update the original Slack message to approved/denied/expired/failed final state.
+Onibi opens a Socket Mode WebSocket with `apps.connections.open`, acknowledges every event envelope, refreshes the socket URL on Slack disconnect/refresh events with jittered backoff, routes allowed message events to the current session, and accepts approval button callbacks. Approval cards include approve, deny, and edit actions; edit opens a Slack modal for JSON input and updates the original approval message to approved/denied/edited/expired/failed final state. Slack text-in, tail chunks, button clicks, edit modal opens/submits, and tail send errors are written to local audit with payload hashes instead of plaintext detail.
+
+Slack's 2026 Block Kit [Card, Alert, and Carousel](https://docs.slack.dev/changelog/2026/04/16/block-kit-new-blocks/) additions, [Data Table](https://docs.slack.dev/reference/block-kit/blocks/data-table-block/), and [Work Objects](https://docs.slack.dev/messaging/work-objects-overview/) are richer presentation options. Onibi keeps command approval messages on section/actions/modal primitives because those are enough for approve/deny/edit parity and keep message updates portable across workspaces.
 
 ## Discord
 

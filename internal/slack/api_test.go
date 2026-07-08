@@ -96,7 +96,7 @@ func TestPostMessageChunksAndRetriesRateLimit(t *testing.T) {
 }
 
 func TestAuthConversationAndBlockPost(t *testing.T) {
-	var sawBlocks, sawUpdate bool
+	var sawBlocks, sawUpdate, sawView bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/auth.test"):
@@ -130,6 +130,19 @@ func TestAuthConversationAndBlockPost(t *testing.T) {
 			}
 			sawUpdate = true
 			writeSlackOK(t, w, map[string]any{"channel": "C1", "ts": "123.456"})
+		case strings.HasSuffix(r.URL.Path, "/views.open"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["trigger_id"] != "T1" {
+				t.Fatalf("view body = %#v", body)
+			}
+			if _, ok := body["view"].(map[string]any); !ok {
+				t.Fatalf("view missing: %#v", body)
+			}
+			sawView = true
+			writeSlackOK(t, w, map[string]any{"view": map[string]any{"id": "V1"}})
 		default:
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -164,6 +177,84 @@ func TestAuthConversationAndBlockPost(t *testing.T) {
 	}
 	if !sawUpdate {
 		t.Fatal("update not posted")
+	}
+	if _, err := c.OpenView(t.Context(), "T1", map[string]any{"type": "modal"}); err != nil {
+		t.Fatal(err)
+	}
+	if !sawView {
+		t.Fatal("view not opened")
+	}
+}
+
+func TestPostMessageChunksCallsHook(t *testing.T) {
+	var hooks []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat.postMessage") {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		writeSlackOK(t, w, nil)
+	}))
+	defer srv.Close()
+	c := New("xapp-token", "xoxb-token")
+	c.BaseURL = srv.URL
+	c.PostPace = -1
+	text := strings.Repeat("x", MessageChunkLimit+3)
+	if err := c.PostMessageChunks(t.Context(), "C1", text, func(_ int, chunk string) {
+		hooks = append(hooks, chunk)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks) != 2 || len(hooks[0]) != MessageChunkLimit || len(hooks[1]) != 3 {
+		t.Fatalf("hooks = %d %v", len(hooks), chunkLens(hooks))
+	}
+}
+
+func TestParityAxes(t *testing.T) {
+	var posted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat.postMessage") {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		posted = append(posted, body["text"].(string))
+		writeSlackOK(t, w, nil)
+	}))
+	defer srv.Close()
+	c := New("xapp-token", "xoxb-token")
+	c.BaseURL = srv.URL
+	c.PostPace = -1
+	if err := c.PostMessageChunks(t.Context(), "C1", strings.Repeat("x", MessageChunkLimit+1), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 2 || len(posted[0]) != MessageChunkLimit || len(posted[1]) != 1 {
+		t.Fatalf("tail chunks = %d %v", len(posted), chunkLens(posted))
+	}
+	ev, err := ParseEvent(Envelope{Payload: json.RawMessage(`{"event":{"type":"message","channel":"C1","user":"U1","text":"pwd","channel_type":"channel"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Event.Text != "pwd" || !(Allowlist{Channels: map[string]bool{"C1": true}}).Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
+		t.Fatalf("event = %#v", ev)
+	}
+	action, err := ParseInteraction(Envelope{Payload: json.RawMessage(`{"type":"block_actions","trigger_id":"TR1","actions":[{"action_id":"edit","value":"a1"}]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action.Type != "block_actions" || action.TriggerID != "TR1" || action.Actions[0].ActionID != "edit" {
+		t.Fatalf("action = %#v", action)
+	}
+	view, err := ParseInteraction(Envelope{Payload: json.RawMessage(`{"type":"view_submission","view":{"callback_id":"onibi_approval_edit","private_metadata":"a1","state":{"values":{"edited_input":{"json":{"type":"plain_text_input","value":"{\"command\":\"pwd\"}"}}}}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Type != "view_submission" || view.View.PrivateMetadata != "a1" || view.View.State.Values["edited_input"]["json"].Value == "" {
+		t.Fatalf("view = %#v", view)
+	}
+	if !ShouldReconnect(Envelope{Type: "disconnect", Payload: json.RawMessage(`{"reason":"refresh_requested"}`)}) {
+		t.Fatal("disconnect did not request reconnect")
 	}
 }
 

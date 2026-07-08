@@ -11,7 +11,7 @@ func TestLiveSlack(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_SLACK") != "1" {
 		t.Skip("set ONIBI_LIVE_SLACK=1")
 	}
-	envs := []string{"ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN", "ONIBI_SLACK_ALLOWED_CHANNELS", "ONIBI_SLACK_ALLOWED_DM_USERS"}
+	envs := []string{"ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN", "ONIBI_SLACK_CHANNEL_ID", "ONIBI_SLACK_ALLOWED_CHANNELS", "ONIBI_SLACK_ALLOWED_DM_USERS"}
 	rec, err := liveartifact.New("slack", envs...)
 	if err != nil {
 		t.Fatal(err)
@@ -38,4 +38,12 @@ func TestLiveSlack(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec.Record("auth-test", map[string]any{"bot_id": auth.BotID, "user_id": auth.UserID, "team_id": auth.TeamID})
+	if channel := os.Getenv("ONIBI_SLACK_CHANNEL_ID"); channel != "" {
+		info, err := c.ConversationInfo(t.Context(), channel)
+		if err != nil {
+			rec.Error("conversation-info", err)
+			t.Fatal(err)
+		}
+		rec.Record("conversation-info", map[string]any{"channel": info.Channel.ID, "is_member": info.Channel.IsMember})
+	}
 }
