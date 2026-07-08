@@ -205,6 +205,6 @@ Not protected against:
 
 ## Implementation Gates
 
-- Tagged releases must refuse `--transport=cloudflare-quick` unless this protocol is enabled by default.
-- Any bypass must be named `--unsafe-cloudflare-no-e2e` and must be blocked in release builds.
+- Tagged releases must require this protocol for Cloudflare relay transports.
+- No plaintext Cloudflare relay bypass is shipped.
 - Tests must include Go/WebCrypto-compatible vectors for HKDF, AES-GCM, AAD mismatch, sequence replay, and bad verifier rejection.

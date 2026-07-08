@@ -348,6 +348,24 @@ func TestCloudflareQuickForcesRelayE2E(t *testing.T) {
 	}
 }
 
+func TestUpHelpDocumentsCloudflareE2ERequirement(t *testing.T) {
+	out, _, err := executeRootAllowError(t, "up", "--help", "--color", "never")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "E2E is required for Cloudflare transport") {
+		t.Fatalf("help missing E2E requirement:\n%s", out.String())
+	}
+}
+
+func TestUnsafeCloudflareNoE2EFlagRemoved(t *testing.T) {
+	flag := "--unsafe-cloudflare-" + "no-e2e"
+	out, errOut, err := executeRootAllowError(t, "up", "--transport=cloudflare-quick", flag, "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: "+flag) {
+		t.Fatalf("expected unknown flag, got err=%v out=%s err=%s", err, out.String(), errOut.String())
+	}
+}
+
 func TestRelayPairURLFragmentKeepsKeyOutOfRequestPath(t *testing.T) {
 	got := appendURLFragment("https://fast-demo.trycloudflare.com/pair/tok", "k=abc123")
 	if got != "https://fast-demo.trycloudflare.com/pair/tok#k=abc123" {

@@ -209,8 +209,8 @@ without exposing partial decrypted data. If the daemon restarts and loses
 volatile relay keys, the user must run a fresh pair.
 
 Release builds must not silently downgrade Cloudflare Quick traffic to plaintext.
-The unsafe bypass name is intentionally loud:
-`--unsafe-cloudflare-no-e2e`, and release gates track that downgrade path.
+Cloudflare relay transport now requires app-layer E2E, and no plaintext bypass
+is shipped.
 
 ## What We Do Not Protect Against
 

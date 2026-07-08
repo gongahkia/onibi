@@ -60,6 +60,7 @@ func upCmd() *cobra.Command {
 		Use:     "up [profile]",
 		Aliases: []string{"start"},
 		Short:   "Start the local web cockpit and print a pairing QR",
+		Long:    "Start the local web cockpit and print a pairing QR.\n\nE2E is required for Cloudflare transport.",
 		Args:    cobra.MaximumNArgs(1),
 		RunE:    runUp,
 	}

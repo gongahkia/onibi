@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.0 - Security Hardening
+
+### Breaking
+
+- Removed the Cloudflare plaintext relay bypass; Cloudflare transports now require app-layer E2E.
+
+### Migration
+
+- Remove any local scripts that pass the former unsafe Cloudflare no-E2E flag. There is no replacement; use the default E2E pairing flow.
+
 ## v0.3.0 - Web Cockpit Pivot
 
 ### Added
