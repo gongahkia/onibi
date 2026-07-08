@@ -330,6 +330,7 @@ func requestFilePut(t *testing.T, fx fileApprovalTestServer, rel, content string
 	}
 	req := httptest.NewRequest(http.MethodPut, "/files/content?session=s1&path="+url.QueryEscape(rel), strings.NewReader(string(body)))
 	req.AddCookie(fx.cookie)
+	addCSRF(req, fx.cookie.Value)
 	w := httptest.NewRecorder()
 	fx.srv.Handler().ServeHTTP(w, req)
 	if w.Code != wantStatus {

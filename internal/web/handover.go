@@ -21,6 +21,9 @@ func (s *Server) handleHandover(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.handover == nil {
 		http.Error(w, "handover unavailable", http.StatusNotImplemented)
 		return

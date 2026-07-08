@@ -185,6 +185,7 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	req.Header.Set("Content-Type", e2eContentType)
 	w := httptest.NewRecorder()
 	srv.handleControl(w, req)
@@ -197,6 +198,7 @@ func TestRelayControlBodyRequiresEncryption(t *testing.T) {
 
 	req = httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w = httptest.NewRecorder()
 	srv.handleControl(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -236,6 +238,7 @@ func TestRelayControlResponseIsEncrypted(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	req.Header.Set("Content-Type", e2eContentType)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -297,6 +300,7 @@ func TestE2EReplayHTTPWithinTTLAndAfterExpiry(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
 		req.AddCookie(rr.Result().Cookies()[0])
+		addCSRF(req, sessionID)
 		req.Header.Set("Content-Type", e2eContentType)
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, req)

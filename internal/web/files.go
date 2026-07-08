@@ -180,6 +180,9 @@ func (s *Server) handleFilesContentPut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	sessionID := strings.TrimSpace(r.URL.Query().Get("session"))
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(r.URL.Query().Get("session_id"))

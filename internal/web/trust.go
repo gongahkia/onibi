@@ -22,6 +22,9 @@ func (s *Server) handleTrustRuntime(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.trustRuntime == nil {
 		http.Error(w, "trust runtime unavailable", http.StatusServiceUnavailable)
 		return

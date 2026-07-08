@@ -185,11 +185,13 @@ func TestApprovalPostDecidesQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
-	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/approval/"+id, strings.NewReader(`{"verdict":"approve"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

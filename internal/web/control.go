@@ -25,6 +25,9 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	var req controlRequest
 	if !s.readJSONBody(w, r, ownerSessionID, &req) {
 		return

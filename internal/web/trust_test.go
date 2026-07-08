@@ -67,11 +67,13 @@ func TestTrustRuntimePostCallsCallback(t *testing.T) {
 		},
 	})
 	rr := httptest.NewRecorder()
-	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/trust/runtime", strings.NewReader(`{"session_id":"s1","tool":"Edit","path":"src/**","agent":"claude","expires":"5m"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

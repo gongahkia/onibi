@@ -167,6 +167,7 @@ func TestOwnerCookieAttributesAndAuth(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"missing","action":"interrupt"}`))
 	req.AddCookie(c)
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.handleControl(w, req)
 	if w.Code == http.StatusUnauthorized {
@@ -521,12 +522,13 @@ func TestWorkspacesEndpointListsAndSwitches(t *testing.T) {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
-	_, err = srv.CreateOwnerSession(ctx, rr, "test device")
+	sessionID, err := srv.CreateOwnerSession(ctx, rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/workspaces", strings.NewReader(`{"name":"beta"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -608,13 +610,14 @@ func TestSnapshotRestoreAndForkCallResolvers(t *testing.T) {
 		return SnapshotActionResult{SessionID: "forked", Message: "ok"}, nil
 	}
 	rr := httptest.NewRecorder()
-	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cookie := rr.Result().Cookies()[0]
 	restoreReq := httptest.NewRequest(http.MethodPost, "/snapshots/restore", strings.NewReader(`{"name":"branch"}`))
 	restoreReq.AddCookie(cookie)
+	addCSRF(restoreReq, sessionID)
 	restoreW := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(restoreW, restoreReq)
 	if restoreW.Code != http.StatusOK {
@@ -629,6 +632,7 @@ func TestSnapshotRestoreAndForkCallResolvers(t *testing.T) {
 	}
 	forkReq := httptest.NewRequest(http.MethodPost, "/snapshots/fork", strings.NewReader(`{"name":"branch","turn":7,"new_prompt":"continue here"}`))
 	forkReq.AddCookie(cookie)
+	addCSRF(forkReq, sessionID)
 	forkW := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(forkW, forkReq)
 	if forkW.Code != http.StatusOK {
@@ -656,12 +660,13 @@ func TestControlInterruptUsesHostResolver(t *testing.T) {
 		return map[string]*pty.Host{"s1": host}
 	}
 	rr := httptest.NewRecorder()
-	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"interrupt"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.handleControl(w, req)
 	if w.Code != http.StatusOK {
@@ -689,12 +694,13 @@ func TestControlPageUpUsesScrollResolver(t *testing.T) {
 		return nil
 	}
 	rr := httptest.NewRecorder()
-	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.handleControl(w, req)
 	if w.Code != http.StatusOK {
@@ -775,11 +781,13 @@ func TestControlErrorsAreJSON(t *testing.T) {
 				tc.setup(srv)
 			}
 			rr := httptest.NewRecorder()
-			if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+			sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+			if err != nil {
 				t.Fatal(err)
 			}
 			req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(tc.body))
 			req.AddCookie(rr.Result().Cookies()[0])
+			addCSRF(req, sessionID)
 			w := httptest.NewRecorder()
 			srv.handleControl(w, req)
 			if w.Code != tc.status {
@@ -813,12 +821,13 @@ func TestHandoverCallsResolver(t *testing.T) {
 		return "opened", nil
 	}
 	rr := httptest.NewRecorder()
-	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/handover", strings.NewReader(`{"session_id":"s1","target":"mac"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.handleHandover(w, req)
 	if w.Code != http.StatusOK {

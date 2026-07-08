@@ -96,13 +96,15 @@ func TestPushSubscribeStoresSubscription(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
 	rr := httptest.NewRecorder()
-	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
 		t.Fatal(err)
 	}
 	body := `{"endpoint":"https://push.example.invalid/sub/1","keys":{"p256dh":"p-key","auth":"a-key"}}`
 	req := httptest.NewRequest(http.MethodPost, "/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {

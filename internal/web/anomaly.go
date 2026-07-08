@@ -20,6 +20,9 @@ func (s *Server) handleAnomalyAllowlist(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.anomalyAllow == nil {
 		http.Error(w, "anomaly allowlist unavailable", http.StatusServiceUnavailable)
 		return

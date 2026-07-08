@@ -41,11 +41,13 @@ func TestAnomalyAllowlistPostCallsCallback(t *testing.T) {
 		},
 	})
 	rr := httptest.NewRecorder()
-	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anomaly/allowlist", strings.NewReader(`{"session_id":"s1","rule_name":"fork-bomb","evidence":"hit"}`))
 	req.AddCookie(rr.Result().Cookies()[0])
+	addCSRF(req, sessionID)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

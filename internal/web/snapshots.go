@@ -67,6 +67,9 @@ func (s *Server) handleSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.snapshotRestore == nil {
 		http.Error(w, "snapshot restore unavailable", http.StatusServiceUnavailable)
 		return
@@ -96,6 +99,9 @@ func (s *Server) handleSnapshotFork(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerSessionID, ok := s.requireHTTPAuth(w, r)
 	if !ok {
+		return
+	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
 		return
 	}
 	if s.snapshotFork == nil {

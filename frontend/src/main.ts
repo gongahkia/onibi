@@ -20,11 +20,13 @@ import { ApprovalWakeLock } from "./wake-lock";
 type SessionInfo = {
   session_id: string;
   ws_token: string;
+  csrf_token: string;
   role: SessionRole;
 };
 
 type EventsInfo = {
   ws_token: string;
+  csrf_token: string;
   role: SessionRole;
 };
 
@@ -57,6 +59,7 @@ let timeline: TimelinePanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
+let csrfToken = "";
 
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
@@ -108,6 +111,7 @@ async function boot(): Promise<void> {
       return;
     }
     const info = await sessionInfo(routeSession);
+    csrfToken = info.csrf_token;
     viewerMode = info.role === "viewer";
     terminalInputEnabled = !viewerMode;
     await relayE2E?.bindSession(info.ws_token);
@@ -169,6 +173,7 @@ async function sessionInfo(sessionID: string): Promise<SessionInfo> {
 async function connectSessionListEvents(): Promise<void> {
   try {
     const info = await getJSON<EventsInfo>("/session-info?events=1");
+    csrfToken = info.csrf_token;
     viewerMode = info.role === "viewer";
     await relayE2E?.bindSession(info.ws_token);
     events.connect(eventsURL(info.ws_token));
@@ -371,11 +376,12 @@ async function putJSON(path: string, body: Record<string, unknown>): Promise<Res
 async function sendJSON(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<Response> {
 	const raw = JSON.stringify(body);
 	const routePath = new URL(path, window.location.href).pathname;
+	const csrfHeaders = csrfToken === "" ? {} : { "X-Onibi-CSRF": csrfToken };
 	if (relayE2E === undefined) {
 		return fetch(path, {
 			method,
 			credentials: "same-origin",
-			headers: { "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json", ...csrfHeaders },
 			body: raw
 		});
 	}
@@ -384,7 +390,7 @@ async function sendJSON(method: "POST" | "PUT", path: string, body: Record<strin
 	const response = await fetch(path, {
 		method,
 		credentials: "same-origin",
-		headers: { "Content-Type": relayE2EContentType },
+		headers: { "Content-Type": relayE2EContentType, ...csrfHeaders },
 		body: sealed.body
 	});
 	return relayE2E.openHTTPResponse(response, channel, sealed.streamID);

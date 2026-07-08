@@ -368,8 +368,9 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("events") == "1" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"ws_token": auth.ID,
-			"role":     auth.Role,
+			"ws_token":   auth.ID,
+			"role":       auth.Role,
+			"csrf_token": csrfTokenForSession(auth.ID),
 		})
 		return
 	}
@@ -394,6 +395,7 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		"session_id": sessionID,
 		"ws_token":   auth.ID,
 		"role":       auth.Role,
+		"csrf_token": csrfTokenForSession(auth.ID),
 	})
 }
 

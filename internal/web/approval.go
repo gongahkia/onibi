@@ -29,6 +29,9 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.approvalQueue == nil {
 		s.log.Warn("web approval failed", "request_id", requestID(r), "reason", "queue_unavailable", "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		http.Error(w, "approval queue unavailable", http.StatusServiceUnavailable)

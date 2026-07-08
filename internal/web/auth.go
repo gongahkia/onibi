@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -14,6 +16,7 @@ import (
 
 const (
 	OwnerCookieName   = "onibi_owner"
+	csrfHeaderName    = "X-Onibi-CSRF"
 	ownerCookieMaxAge = 30 * 24 * 60 * 60
 )
 
@@ -105,6 +108,23 @@ func (s *Server) requireOwnerHTTPAuth(w http.ResponseWriter, r *http.Request) (s
 		return "", false
 	}
 	return auth.ID, true
+}
+
+func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request, sessionID string) bool {
+	got := r.Header.Get(csrfHeaderName)
+	want := csrfTokenForSession(sessionID)
+	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		s.log.Warn("web csrf failed", "request_id", requestID(r), "path", safeRequestPath(r.URL.Path), "remote", remoteHost(r.RemoteAddr), "header_present", got != "")
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func csrfTokenForSession(sessionID string) string {
+	mac := hmac.New(sha256.New, []byte(sessionID))
+	mac.Write([]byte("onibi csrf token v1"))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func (s *Server) requireWSAuth(w http.ResponseWriter, r *http.Request) (string, bool) {

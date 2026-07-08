@@ -100,6 +100,9 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
 	if s.db == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
