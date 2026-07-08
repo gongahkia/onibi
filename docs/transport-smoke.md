@@ -148,6 +148,17 @@ ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY
 - Confirm startup validates the optional client token.
 - Confirm no terminal input path is exposed.
 
+Signal:
+
+```bash
+ONIBI_LIVE_SIGNAL=1 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001 ONIBI_SIGNAL_ACCOUNT=+15551234567 ONIBI_SIGNAL_RECIPIENT=+15557654321 go test ./internal/signal -run LiveSignal
+```
+
+- Run a linked `signal-cli` daemon before the test.
+- Set `ONIBI_SIGNAL_STREAM=1` only when you can send an inbound Signal message during the test window.
+- Confirm `go test -race ./internal/signal -run TestParityAxes` covers send, emoji reaction JSON-RPC, SSE chunking, and reconnect.
+- Confirm daemon-level text-in, approval reaction mapping, and audit wiring before enabling `--transport=signal`.
+
 ## Cloudflare Quick
 
 ```bash

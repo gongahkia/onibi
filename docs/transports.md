@@ -23,6 +23,8 @@ The supported transports are:
 - `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
 
+Signal support currently lives at the provider-client layer for a local `signal-cli` JSON-RPC daemon. It is documented below, but is not selectable through `onibi up --transport=signal` until the daemon bridge is live-verified with a linked Signal number.
+
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
 Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=<mode>` for scripts.
 
@@ -213,6 +215,26 @@ ONIBI_DISCORD_GUILD_ID=...
 ```
 
 Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes with jittered backoff, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable. Approval requests are sent as Discord Components v2 messages with approve, deny, and edit buttons; edit opens a modal for JSON input. Session output is posted to a per-session thread when thread creation succeeds, and falls back to the parent channel on Discord permission/API errors. Discord text-in, tail chunks, approval buttons, modal opens/submits, thread creation, and send/thread errors are written to local audit with payload hashes instead of plaintext detail. `onibi doctor --transport=discord` reports app auth, channel visibility, optional slash-command presence, and gated send permission failures.
+
+## Signal
+
+Signal integration uses a local `signal-cli` JSON-RPC daemon over HTTP:
+
+```bash
+ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001
+ONIBI_SIGNAL_ACCOUNT=+15551234567
+ONIBI_SIGNAL_RECIPIENT=+15557654321
+```
+
+The client in `internal/signal` wraps `POST /api/v1/rpc`, `GET /api/v1/events`, and `GET /api/v1/check`. It can send text, send emoji reactions against a target message author/timestamp, subscribe in manual receive mode, parse chunked SSE receive events, and reconnect with bounded backoff. Mock coverage lives in `go test -race ./internal/signal -run TestParityAxes`; live smoke is opt-in with a linked account:
+
+```bash
+ONIBI_LIVE_SIGNAL=1 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001 ONIBI_SIGNAL_ACCOUNT=+15551234567 ONIBI_SIGNAL_RECIPIENT=+15557654321 go test ./internal/signal -run LiveSignal
+```
+
+See [`signal-setup.md`](./signal-setup.md) for install, phone-link, daemon, and local security notes.
+
+Current limit: Signal approval reaction mapping and text-in routing are not wired into the Onibi daemon transport picker yet. That bridge needs real-device validation because Signal reactions identify the target message by author and timestamp.
 
 ## Chat redaction
 
