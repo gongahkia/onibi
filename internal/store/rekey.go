@@ -2,8 +2,17 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"time"
 )
+
+type RekeyImpact struct {
+	ActiveWebSessions     int `json:"active_web_sessions"`
+	WebSessionsToRevoke   int `json:"web_sessions_to_revoke"`
+	WebSessionsToReseal   int `json:"web_sessions_to_reseal"`
+	PairingTokensToReseal int `json:"pairing_tokens_to_reseal"`
+}
 
 func (d *DB) Rekey(ctx context.Context, newMasterKey []byte) error {
 	if d == nil || d.cryptbox == nil {
@@ -35,8 +44,14 @@ func (d *DB) Rekey(ctx context.Context, newMasterKey []byte) error {
 	}
 	for _, r := range sessions {
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE web_sessions SET cookie_enc = ?, user_agent_enc = ?, key_verifier_enc = ? WHERE cookie_hash = ?`,
-			r.cookieEnc, r.userAgentEnc, r.keyVerifierEnc, r.hash); err != nil {
+			`UPDATE web_sessions
+			    SET cookie_enc = ?,
+			        user_agent_enc = ?,
+			        key_verifier_enc = ?,
+			        revoked = CASE WHEN revoked = 0 THEN 1 ELSE revoked END,
+			        revoked_reason = CASE WHEN revoked = 0 THEN ? ELSE revoked_reason END
+			  WHERE cookie_hash = ?`,
+			r.cookieEnc, r.userAgentEnc, r.keyVerifierEnc, WebSessionReasonStoreRekey, r.hash); err != nil {
 			return err
 		}
 	}
@@ -58,6 +73,27 @@ func (d *DB) VerifyEncryptedState(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (d *DB) RekeyImpact(ctx context.Context) (RekeyImpact, error) {
+	var out RekeyImpact
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0 AND (share_expires_at = 0 OR share_expires_at > ?)`, []any{time.Now().Unix()}, &out.ActiveWebSessions); err != nil {
+		return RekeyImpact{}, err
+	}
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0`, nil, &out.WebSessionsToRevoke); err != nil {
+		return RekeyImpact{}, err
+	}
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions`, nil, &out.WebSessionsToReseal); err != nil {
+		return RekeyImpact{}, err
+	}
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM pairing_tokens`, nil, &out.PairingTokensToReseal); err != nil {
+		return RekeyImpact{}, err
+	}
+	return out, nil
+}
+
+func countInt(ctx context.Context, db *sql.DB, query string, args []any, dst *int) error {
+	return db.QueryRowContext(ctx, query, args...).Scan(dst)
 }
 
 type rekeyPairingRow struct {

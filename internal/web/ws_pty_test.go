@@ -260,6 +260,40 @@ func TestWSPTYE2EIdlePingKeepsConnectionOpen(t *testing.T) {
 	waitForE2EPTYPayload(t, messages, errs, []byte("idle-ok"))
 }
 
+func TestWSPTYE2ERekeyClosesInFlightSession(t *testing.T) {
+	withWSAuthCheckInterval(t, 20*time.Millisecond)
+	srv, ownerSessionID, cookie, key, cleanup := e2ePTYServerForTest(t)
+	defer cleanup()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	c, _ := dialE2EPTYAt(t, ts.URL, ownerSessionID, cookie, key)
+	defer c.CloseNow()
+	errs := make(chan error, 1)
+	go func() {
+		_, _, err := c.Read(context.Background())
+		errs <- err
+	}()
+	newKey := make([]byte, 32)
+	for i := range newKey {
+		newKey[i] = byte(i + 90)
+	}
+	if err := srv.db.Rekey(context.Background(), newKey); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errs:
+		if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+			t.Fatalf("close status = %v err=%v", websocket.CloseStatus(err), err)
+		}
+		var closeErr websocket.CloseError
+		if !errors.As(err, &closeErr) || closeErr.Reason != store.WebSessionReasonStoreRekey {
+			t.Fatalf("close error = %#v err=%v", closeErr, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ws did not close after rekey")
+	}
+}
+
 func TestLiveCloudflareQuickWSPTYE2EIdleFourMinutes(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_QUICK_IDLE") != "1" {
 		t.Skip("set ONIBI_LIVE_CLOUDFLARE_QUICK_IDLE=1")
@@ -448,6 +482,19 @@ func withWSPingConfig(t *testing.T, interval, timeout time.Duration) {
 		wsPingMu.Lock()
 		wsPingInterval, wsPingTimeout = oldInterval, oldTimeout
 		wsPingMu.Unlock()
+	})
+}
+
+func withWSAuthCheckInterval(t *testing.T, interval time.Duration) {
+	t.Helper()
+	wsAuthCheckMu.Lock()
+	old := wsAuthCheckInterval
+	wsAuthCheckInterval = interval
+	wsAuthCheckMu.Unlock()
+	t.Cleanup(func() {
+		wsAuthCheckMu.Lock()
+		wsAuthCheckInterval = old
+		wsAuthCheckMu.Unlock()
 	})
 }
 

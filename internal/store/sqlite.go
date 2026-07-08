@@ -213,7 +213,8 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   share_expires_at INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
   last_seen_at     INTEGER NOT NULL,
-  revoked          INTEGER NOT NULL DEFAULT 0
+  revoked          INTEGER NOT NULL DEFAULT 0,
+  revoked_reason   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at);
 
@@ -325,6 +326,9 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "web_sessions", "share_expires_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := d.ensureColumn(ctx, "web_sessions", "revoked_reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := d.ensureColumn(ctx, "pairing_tokens", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -334,7 +338,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "pairing_tokens", "use_count", "INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11), (12)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11), (12), (13)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
@@ -508,7 +512,8 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
   share_expires_at INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
   last_seen_at     INTEGER NOT NULL,
-  revoked          INTEGER NOT NULL DEFAULT 0
+  revoked          INTEGER NOT NULL DEFAULT 0,
+  revoked_reason   TEXT NOT NULL DEFAULT ''
 )`); err != nil {
 		return err
 	}
@@ -522,10 +527,14 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		reason := ""
+		if r.revoked != 0 {
+			reason = WebSessionReasonRevoked
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked)
-			 VALUES (?, ?, ?, NULL, 'owner', '', 0, ?, ?, ?)`,
-			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked); err != nil {
+			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason)
+			 VALUES (?, ?, ?, NULL, 'owner', '', 0, ?, ?, ?, ?)`,
+			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked, reason); err != nil {
 			return err
 		}
 	}
@@ -814,8 +823,8 @@ func (d *DB) putWebSession(ctx context.Context, sessionID, deviceLabel, role, sh
 		return err
 	}
 	_, err = d.sql.ExecContext(ctx,
-		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '')
 		 ON CONFLICT(cookie_hash) DO UPDATE SET
 		   cookie_enc=excluded.cookie_enc,
 		   user_agent_enc=excluded.user_agent_enc,
@@ -823,7 +832,8 @@ func (d *DB) putWebSession(ctx context.Context, sessionID, deviceLabel, role, sh
 		   share_session_id=excluded.share_session_id,
 		   share_expires_at=excluded.share_expires_at,
 		   last_seen_at=excluded.last_seen_at,
-		   revoked=0`,
+		   revoked=0,
+		   revoked_reason=''`,
 		hash, sessionEnc, labelEnc, role, shareSessionID, shareExpires, ts, ts)
 	return err
 }
@@ -888,18 +898,36 @@ func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Tim
 
 // WebSessionValid reports whether sessionID exists and is not revoked.
 func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error) {
-	var revoked int
-	var shareExpiresAt int64
-	err := d.sql.QueryRowContext(ctx,
-		`SELECT revoked, share_expires_at FROM web_sessions WHERE cookie_hash = ?`,
-		lookupHash(sessionID)).Scan(&revoked, &shareExpiresAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
+	status, err := d.WebSessionStatus(ctx, sessionID)
 	if err != nil {
 		return false, err
 	}
-	return revoked == 0 && (shareExpiresAt == 0 || shareExpiresAt > time.Now().Unix()), nil
+	return status.Valid, nil
+}
+
+func (d *DB) WebSessionStatus(ctx context.Context, sessionID string) (WebSessionStatus, error) {
+	var revoked int
+	var shareExpiresAt int64
+	var reason string
+	err := d.sql.QueryRowContext(ctx,
+		`SELECT revoked, share_expires_at, revoked_reason FROM web_sessions WHERE cookie_hash = ?`,
+		lookupHash(sessionID)).Scan(&revoked, &shareExpiresAt, &reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WebSessionStatus{Reason: WebSessionReasonMissing}, nil
+	}
+	if err != nil {
+		return WebSessionStatus{}, err
+	}
+	if revoked != 0 {
+		if reason == "" {
+			reason = WebSessionReasonRevoked
+		}
+		return WebSessionStatus{Reason: reason}, nil
+	}
+	if shareExpiresAt != 0 && shareExpiresAt <= time.Now().Unix() {
+		return WebSessionStatus{Reason: WebSessionReasonExpired}, nil
+	}
+	return WebSessionStatus{Valid: true}, nil
 }
 
 type PushSubscription struct {

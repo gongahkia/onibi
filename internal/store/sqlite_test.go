@@ -193,10 +193,14 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 			t.Fatalf("web_sessions contains plaintext column %q: %#v", forbidden, webCols)
 		}
 	}
-	for _, want := range []string{"cookie_hash", "cookie_enc", "user_agent_enc", "key_verifier_enc"} {
+	for _, want := range []string{"cookie_hash", "cookie_enc", "user_agent_enc", "key_verifier_enc", "revoked_reason"} {
 		if !slices.Contains(webCols, want) {
 			t.Fatalf("web_sessions missing %q: %#v", want, webCols)
 		}
+	}
+	var version int
+	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 13`).Scan(&version); err != nil {
+		t.Fatalf("schema version 13 missing: %v", err)
 	}
 }
 

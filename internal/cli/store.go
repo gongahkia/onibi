@@ -23,6 +23,7 @@ func storeCmd() *cobra.Command {
 		RunE:  runStoreRekey,
 	}
 	rekey.Flags().Bool("json", false, "print JSON")
+	rekey.Flags().Bool("dry-run", false, "report rekey impact without rotating")
 	cmd.AddCommand(rekey)
 	return cmd
 }
@@ -44,6 +45,32 @@ func runStoreRekey(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
+	impact, err := db.RekeyImpact(cmd.Context())
+	if err != nil {
+		return err
+	}
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+				"dry_run":                    true,
+				"db":                         paths.DBFile,
+				"active_web_sessions":        impact.ActiveWebSessions,
+				"web_sessions_to_revoke":     impact.WebSessionsToRevoke,
+				"web_sessions_to_reseal":     impact.WebSessionsToReseal,
+				"pairing_tokens_to_reseal":   impact.PairingTokensToReseal,
+				"websocket_close_reason":     stored.WebSessionReasonStoreRekey,
+				"store_key_would_be_rotated": true,
+			})
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Dry run: store rekey would rotate encrypted store key\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Active web sessions: %d\n", impact.ActiveWebSessions)
+		fmt.Fprintf(cmd.OutOrStdout(), "Web sessions to revoke: %d\n", impact.WebSessionsToRevoke)
+		fmt.Fprintf(cmd.OutOrStdout(), "Web sessions to re-seal: %d\n", impact.WebSessionsToReseal)
+		fmt.Fprintf(cmd.OutOrStdout(), "Pairing tokens to re-seal: %d\n", impact.PairingTokensToReseal)
+		fmt.Fprintf(cmd.OutOrStdout(), "Open WebSockets close with reason %q on the next validity check.\n", stored.WebSessionReasonStoreRekey)
+		return nil
+	}
 	newKey := make([]byte, 32)
 	if _, err := rand.Read(newKey); err != nil {
 		return err
@@ -56,11 +83,22 @@ func runStoreRekey(cmd *cobra.Command, _ []string) error {
 		if rollbackErr != nil {
 			return fmt.Errorf("store key write failed after DB rekey; rollback failed too: write=%w rollback=%v", err, rollbackErr)
 		}
-		return fmt.Errorf("store key write failed; DB rekey rolled back: %w", err)
+		return fmt.Errorf("store key write failed; DB key rolled back; web session revocations remain: %w", err)
 	}
 	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"rekeyed": true, "db": paths.DBFile})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+			"rekeyed":                 true,
+			"db":                      paths.DBFile,
+			"active_web_sessions":     impact.ActiveWebSessions,
+			"web_sessions_revoked":    impact.WebSessionsToRevoke,
+			"web_sessions_resealed":   impact.WebSessionsToReseal,
+			"pairing_tokens_resealed": impact.PairingTokensToReseal,
+			"websocket_close_reason":  stored.WebSessionReasonStoreRekey,
+		})
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s Rotated encrypted store key\n", styleFor(cmd).green("[OK]"))
+	if impact.WebSessionsToRevoke > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Revoked %d web session(s); open WebSockets close with reason %q on the next validity check\n", styleFor(cmd).yellow("[WARN]"), impact.WebSessionsToRevoke, stored.WebSessionReasonStoreRekey)
+	}
 	return nil
 }

@@ -22,6 +22,13 @@ func TestRekeyKeepsEncryptedRowsReadableWithNewKey(t *testing.T) {
 	if err := db.PutWebSession(ctx, "cookie-value", "iPhone", time.Unix(10, 0)); err != nil {
 		t.Fatal(err)
 	}
+	impact, err := db.RekeyImpact(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if impact.ActiveWebSessions != 1 || impact.WebSessionsToRevoke != 1 || impact.WebSessionsToReseal != 1 || impact.PairingTokensToReseal != 1 {
+		t.Fatalf("impact = %#v", impact)
+	}
 	if err := db.Rekey(ctx, newKey); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +57,16 @@ func TestRekeyKeepsEncryptedRowsReadableWithNewKey(t *testing.T) {
 	}
 	if session.DeviceLabel != "iPhone" {
 		t.Fatalf("session = %#v", session)
+	}
+	if !session.Revoked || session.RevokedReason != WebSessionReasonStoreRekey {
+		t.Fatalf("session revoke state = %#v", session)
+	}
+	status, err := newDB.WebSessionStatus(ctx, "cookie-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Valid || status.Reason != WebSessionReasonStoreRekey {
+		t.Fatalf("status = %#v", status)
 	}
 }
 

@@ -16,6 +16,19 @@ type WebSession struct {
 	CreatedAt      time.Time
 	LastSeenAt     time.Time
 	Revoked        bool
+	RevokedReason  string
+}
+
+const (
+	WebSessionReasonMissing    = "session-missing"
+	WebSessionReasonRevoked    = "session-revoked"
+	WebSessionReasonExpired    = "session-expired"
+	WebSessionReasonStoreRekey = "store-rekey"
+)
+
+type WebSessionStatus struct {
+	Valid  bool
+	Reason string
 }
 
 func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSession, error) {
@@ -26,7 +39,7 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 		args = nil
 	}
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked
+		`SELECT cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason
 		   FROM web_sessions `+where+`
 		  ORDER BY revoked ASC, last_seen_at DESC`, args...)
 	if err != nil {
@@ -41,7 +54,7 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 		var sessionEnc, labelEnc []byte
 		var created, last, shareExpiresAt int64
 		var revoked int
-		if err := rows.Scan(&hash, &sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked); err != nil {
+		if err := rows.Scan(&hash, &sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked, &s.RevokedReason); err != nil {
 			return nil, err
 		}
 		sessionID, err := d.openString(ctx, "web_sessions", hash, "cookie_enc", sessionEnc)
@@ -67,7 +80,7 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 }
 
 func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1 WHERE cookie_hash = ? AND revoked = 0`, lookupHash(sessionID))
+	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE cookie_hash = ? AND revoked = 0`, WebSessionReasonRevoked, lookupHash(sessionID))
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +92,7 @@ func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, erro
 }
 
 func (d *DB) RevokeWebSessionWithRole(ctx context.Context, sessionID, role string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1 WHERE cookie_hash = ? AND role = ? AND revoked = 0`, lookupHash(sessionID), role)
+	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE cookie_hash = ? AND role = ? AND revoked = 0`, WebSessionReasonRevoked, lookupHash(sessionID), role)
 	if err != nil {
 		return false, err
 	}
@@ -91,7 +104,7 @@ func (d *DB) RevokeWebSessionWithRole(ctx context.Context, sessionID, role strin
 }
 
 func (d *DB) RevokeWebSessionsByRole(ctx context.Context, role string) (int64, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1 WHERE role = ? AND revoked = 0`, role)
+	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE role = ? AND revoked = 0`, WebSessionReasonRevoked, role)
 	if err != nil {
 		return 0, err
 	}
@@ -116,14 +129,14 @@ func (d *DB) WebSessionRole(ctx context.Context, sessionID string) (string, bool
 func (d *DB) WebSession(ctx context.Context, sessionID string) (WebSession, bool, error) {
 	hash := lookupHash(sessionID)
 	row := d.sql.QueryRowContext(ctx,
-		`SELECT cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked
+		`SELECT cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason
 		   FROM web_sessions WHERE cookie_hash = ?`, hash)
 	var s WebSession
 	var role string
 	var sessionEnc, labelEnc []byte
 	var created, last, shareExpiresAt int64
 	var revoked int
-	err := row.Scan(&sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked)
+	err := row.Scan(&sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked, &s.RevokedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WebSession{}, false, nil
 	}

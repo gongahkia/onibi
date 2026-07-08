@@ -23,9 +23,11 @@ const (
 )
 
 var (
-	wsPingInterval = 30 * time.Second
-	wsPingTimeout  = 10 * time.Second
-	wsPingMu       sync.RWMutex
+	wsPingInterval      = 30 * time.Second
+	wsPingTimeout       = 10 * time.Second
+	wsAuthCheckInterval = 5 * time.Second
+	wsPingMu            sync.RWMutex
+	wsAuthCheckMu       sync.RWMutex
 )
 
 type ptyAttachFrame struct {
@@ -104,6 +106,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.pingLoop(ctx, c)
+	go s.watchWebSession(ctx, c, ownerSessionID, cancel, reqID)
 
 	attach, err := readPTYAttach(ctx, c, wsE2E)
 	if err != nil {
@@ -311,8 +314,49 @@ func (s *Server) pingLoop(ctx context.Context, c *websocket.Conn) {
 	}
 }
 
+func (s *Server) watchWebSession(ctx context.Context, c *websocket.Conn, sessionID string, cancel context.CancelFunc, reqID string) {
+	if s.db == nil {
+		return
+	}
+	interval := currentWSAuthCheckInterval()
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			status, err := s.db.WebSessionStatus(ctx, sessionID)
+			if err != nil {
+				s.log.Warn("web ws session check failed", "request_id", reqID, "session_id", sessionID, "err", err)
+				continue
+			}
+			if status.Valid {
+				continue
+			}
+			reason := status.Reason
+			if reason == "" {
+				reason = store.WebSessionReasonRevoked
+			}
+			s.log.Warn("web ws session invalidated", "request_id", reqID, "session_id", sessionID, "reason", reason)
+			_ = c.Close(websocket.StatusPolicyViolation, reason)
+			cancel()
+			return
+		}
+	}
+}
+
 func currentWSPingConfig() (time.Duration, time.Duration) {
 	wsPingMu.RLock()
 	defer wsPingMu.RUnlock()
 	return wsPingInterval, wsPingTimeout
+}
+
+func currentWSAuthCheckInterval() time.Duration {
+	wsAuthCheckMu.RLock()
+	defer wsAuthCheckMu.RUnlock()
+	return wsAuthCheckInterval
 }

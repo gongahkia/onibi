@@ -68,6 +68,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go s.pingLoop(ctx, c)
+	go s.watchWebSession(ctx, c, sessionID, cancel, reqID)
 	var writeMu sync.Mutex
 	wsE2E := newSeqWSCodec(sessionKey, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
 	if wsE2E != nil {
