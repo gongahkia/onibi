@@ -75,11 +75,12 @@ export class TerminalWS extends EventTarget {
 
   private async handleOpen(socket: WebSocket): Promise<void> {
     this.attempts = 0;
-    const attach: { type: "attach"; session_id: string; last_seq: number; verify_token?: string } = {
-      type: "attach",
-      session_id: this.sessionId,
-      last_seq: this.lastSeq
-    };
+    const attach: { type: "attach"; session_id: string; last_seq: number; verify_token?: string } =
+      {
+        type: "attach",
+        session_id: this.sessionId,
+        last_seq: this.lastSeq
+      };
     if (this.e2e !== undefined) {
       this.e2e.startStream("ws:pty");
       attach.verify_token = this.e2e.verifyToken();
@@ -88,7 +89,11 @@ export class TerminalWS extends EventTarget {
     this.dispatchEvent(new Event("open"));
   }
 
-  private async sendTyped(type: "text" | "binary", data: Uint8Array, socket = this.ws): Promise<void> {
+  private async sendTyped(
+    type: "text" | "binary",
+    data: Uint8Array,
+    socket = this.ws
+  ): Promise<void> {
     if (socket?.readyState !== WebSocket.OPEN) {
       return;
     }

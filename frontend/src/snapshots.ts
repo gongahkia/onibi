@@ -215,7 +215,13 @@ export class SnapshotsPanel {
     prompt.focus();
   }
 
-  private async fork(item: SnapshotItem, turn: number, prompt: string, modal: HTMLElement, status: HTMLElement): Promise<void> {
+  private async fork(
+    item: SnapshotItem,
+    turn: number,
+    prompt: string,
+    modal: HTMLElement,
+    status: HTMLElement
+  ): Promise<void> {
     if (!Number.isFinite(turn) || turn < 0 || prompt.trim() === "") {
       return;
     }
@@ -235,7 +241,10 @@ export class SnapshotsPanel {
     }
   }
 
-  private async postResult(path: string, body: Record<string, unknown>): Promise<SnapshotActionResult> {
+  private async postResult(
+    path: string,
+    body: Record<string, unknown>
+  ): Promise<SnapshotActionResult> {
     const response = await this.postJSON(path, body);
     const text = await response.text();
     if (!response.ok) {
@@ -258,7 +267,12 @@ function formatWhen(raw: string): string {
   if (!Number.isFinite(ts)) {
     return raw;
   }
-  return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function shortID(id: string): string {

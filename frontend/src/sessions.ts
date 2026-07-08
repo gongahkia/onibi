@@ -74,7 +74,11 @@ export class SessionsListView {
   handleEnvelope(envelope: EventEnvelope): void {
     if (envelope.type === "session.started") {
       const payload = envelope.payload as { session_id?: string };
-      if (payload.session_id !== undefined && payload.session_id !== "" && !this.rows.some((row) => row.id === payload.session_id)) {
+      if (
+        payload.session_id !== undefined &&
+        payload.session_id !== "" &&
+        !this.rows.some((row) => row.id === payload.session_id)
+      ) {
         void this.load();
       }
       return;
@@ -100,7 +104,9 @@ export class SessionsListView {
 
   private async loadCost(id: string): Promise<void> {
     try {
-      const cost = await this.fetchJSON<SessionCostPayload>(`/sessions/${encodeURIComponent(id)}/cost`);
+      const cost = await this.fetchJSON<SessionCostPayload>(
+        `/sessions/${encodeURIComponent(id)}/cost`
+      );
       const index = this.rows.findIndex((row) => row.id === id);
       if (index < 0) {
         await this.load();
@@ -171,7 +177,8 @@ export class SessionsListView {
 
     const cwd = document.createElement("span");
     cwd.className = "session-list-cwd";
-    cwd.textContent = row.remote === true && row.remote_url !== undefined ? row.remote_url : row.cwd;
+    cwd.textContent =
+      row.remote === true && row.remote_url !== undefined ? row.remote_url : row.cwd;
 
     const meta = document.createElement("span");
     meta.className = "session-list-meta";
@@ -229,7 +236,9 @@ export class SessionsPanel {
 
   private async loadCost(id: string): Promise<void> {
     try {
-      const cost = await this.fetchJSON<SessionCostPayload>(`/sessions/${encodeURIComponent(id)}/cost`);
+      const cost = await this.fetchJSON<SessionCostPayload>(
+        `/sessions/${encodeURIComponent(id)}/cost`
+      );
       this.sessions.set(id, cost);
       this.render();
     } catch {
@@ -363,7 +372,12 @@ function formatWhen(raw: string): string {
   if (!Number.isFinite(ts)) {
     return "-";
   }
-  return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function shortID(id: string): string {

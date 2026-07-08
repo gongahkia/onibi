@@ -89,7 +89,11 @@ export class AnomalyOverlay {
     this.cards.delete(id);
   }
 
-  private async decide(id: string, body: Record<string, string>, status: HTMLElement): Promise<void> {
+  private async decide(
+    id: string,
+    body: Record<string, string>,
+    status: HTMLElement
+  ): Promise<void> {
     status.textContent = "Sending...";
     const response = await this.postJSON(`/approval/${encodeURIComponent(id)}`, body);
     if (!response.ok) {
@@ -101,15 +105,26 @@ export class AnomalyOverlay {
 
   private async kill(payload: AnomalyRequestedPayload, status: HTMLElement): Promise<void> {
     status.textContent = "Killing...";
-    const killed = await this.postJSON("/control", { session_id: payload.session_id, action: "kill" });
+    const killed = await this.postJSON("/control", {
+      session_id: payload.session_id,
+      action: "kill"
+    });
     if (!killed.ok) {
       status.textContent = await killed.text();
       return;
     }
-    await this.decide(payload.approval_id, { verdict: "deny", reason: "killed from anomaly card" }, status);
+    await this.decide(
+      payload.approval_id,
+      { verdict: "deny", reason: "killed from anomaly card" },
+      status
+    );
   }
 
-  private async allow(payload: AnomalyRequestedPayload, button: HTMLButtonElement, status: HTMLElement): Promise<void> {
+  private async allow(
+    payload: AnomalyRequestedPayload,
+    button: HTMLButtonElement,
+    status: HTMLElement
+  ): Promise<void> {
     status.textContent = "Adding allowlist...";
     button.disabled = true;
     const response = await this.postJSON("/anomaly/allowlist", {

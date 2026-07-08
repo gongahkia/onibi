@@ -20,6 +20,15 @@ go vet ./...
 make build
 ```
 
+For frontend changes:
+
+```sh
+cd frontend
+npm ci
+bun run lint
+bun run format:check
+```
+
 For security-sensitive changes, also run:
 
 ```sh

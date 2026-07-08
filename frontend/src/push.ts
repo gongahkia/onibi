@@ -15,7 +15,8 @@ export async function subscribePushFromGesture(postJSON: PostJSON): Promise<void
     throw new Error("Push permission denied.");
   }
   const registration = await navigator.serviceWorker.ready;
-  const subscription = (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
+  const subscription =
+    (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
   await storeSubscription(postJSON, subscription);
   markPushEnabled();
 }
@@ -35,12 +36,19 @@ export async function refreshPushSubscription(postJSON: PostJSON): Promise<void>
     return;
   }
   const registration = await navigator.serviceWorker.ready;
-  const subscription = (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
+  const subscription =
+    (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
   await storeSubscription(postJSON, subscription);
 }
 
-async function storeSubscription(postJSON: PostJSON, subscription: PushSubscription): Promise<void> {
-  const response = await postJSON("/push/subscribe", subscription.toJSON() as Record<string, unknown>);
+async function storeSubscription(
+  postJSON: PostJSON,
+  subscription: PushSubscription
+): Promise<void> {
+  const response = await postJSON(
+    "/push/subscribe",
+    subscription.toJSON() as Record<string, unknown>
+  );
   if (!response.ok) {
     throw new Error(`push subscribe ${response.status}`);
   }

@@ -57,7 +57,9 @@ export class RelayE2E {
     if (raw.byteLength !== 32) {
       throw new Error("bad e2e key length");
     }
-    const baseKey = await crypto.subtle.importKey("raw", arrayBuffer(raw), "HKDF", false, ["deriveBits"]);
+    const baseKey = await crypto.subtle.importKey("raw", arrayBuffer(raw), "HKDF", false, [
+      "deriveBits"
+    ]);
     history.replaceState(null, document.title, window.location.pathname + window.location.search);
     return new RelayE2E(baseKey);
   }
@@ -71,7 +73,10 @@ export class RelayE2E {
     this.streams.clear();
     const sessionBits = await this.derivePairBits(sessionID, sessionInfo);
     const verifyBits = await this.derivePairBits(sessionID, verifyTokenInfo);
-    this.sessionKey = crypto.subtle.importKey("raw", sessionBits, "HKDF", false, ["deriveKey", "deriveBits"]);
+    this.sessionKey = crypto.subtle.importKey("raw", sessionBits, "HKDF", false, [
+      "deriveKey",
+      "deriveBits"
+    ]);
     this.verifyTokenValue = encodeBase64URL(new Uint8Array(verifyBits));
   }
 
@@ -88,7 +93,14 @@ export class RelayE2E {
 
   async sealHTTPRequest(value: string, channel: string): Promise<E2EHTTPRequest> {
     const streamID = newStreamID();
-    const body = await this.sealFrame("text", new TextEncoder().encode(value), channel, streamID, "c2s", 0n);
+    const body = await this.sealFrame(
+      "text",
+      new TextEncoder().encode(value),
+      channel,
+      streamID,
+      "c2s",
+      0n
+    );
     return { body, streamID };
   }
 
@@ -122,7 +134,14 @@ export class RelayE2E {
     return frame;
   }
 
-  private async sealFrame(type: "text" | "binary", data: Uint8Array, channel: string, streamID: string, dir: Direction, seq: bigint): Promise<string> {
+  private async sealFrame(
+    type: "text" | "binary",
+    data: Uint8Array,
+    channel: string,
+    streamID: string,
+    dir: Direction,
+    seq: bigint
+  ): Promise<string> {
     const iv = await this.iv(streamID, channel, dir, seq);
     const frame: Frame = {
       v: version,
@@ -136,14 +155,31 @@ export class RelayE2E {
       ct: ""
     };
     const key = await this.streamKey(streamID, channel, dir);
-    const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv: arrayBuffer(iv), additionalData: this.aad(frame) }, key, arrayBuffer(data));
+    const sealed = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: arrayBuffer(iv), additionalData: this.aad(frame) },
+      key,
+      arrayBuffer(data)
+    );
     frame.ct = encodeBase64URL(new Uint8Array(sealed));
     return JSON.stringify(frame);
   }
 
-  private async openFrame(raw: string, channel: string, streamID: string, dir: Direction, seq: bigint): Promise<E2EFrame> {
+  private async openFrame(
+    raw: string,
+    channel: string,
+    streamID: string,
+    dir: Direction,
+    seq: bigint
+  ): Promise<E2EFrame> {
     const frame = JSON.parse(raw) as Frame;
-    if (frame.v !== version || frame.sid !== this.boundSessionID() || frame.st !== streamID || frame.ch !== channel || frame.dir !== dir || BigInt(frame.seq) !== seq) {
+    if (
+      frame.v !== version ||
+      frame.sid !== this.boundSessionID() ||
+      frame.st !== streamID ||
+      frame.ch !== channel ||
+      frame.dir !== dir ||
+      BigInt(frame.seq) !== seq
+    ) {
       throw new Error("bad e2e frame");
     }
     if (frame.t !== "text" && frame.t !== "binary") {
@@ -156,7 +192,11 @@ export class RelayE2E {
     }
     const data = decodeBase64URL(frame.ct);
     const key = await this.streamKey(streamID, channel, dir);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: arrayBuffer(iv), additionalData: this.aad(frame) }, key, arrayBuffer(data));
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: arrayBuffer(iv), additionalData: this.aad(frame) },
+      key,
+      arrayBuffer(data)
+    );
     return { type: frame.t, data: new Uint8Array(plain) };
   }
 
@@ -175,7 +215,12 @@ export class RelayE2E {
     if (cached === undefined) {
       cached = this.sessionBaseKey().then((baseKey) =>
         crypto.subtle.deriveKey(
-          { name: "HKDF", hash: "SHA-256", salt: arrayBuffer(decodeBase64URL(streamID)), info: arrayBuffer(encoder.encode(streamInfoPrefix + channel + ":" + dir)) },
+          {
+            name: "HKDF",
+            hash: "SHA-256",
+            salt: arrayBuffer(decodeBase64URL(streamID)),
+            info: arrayBuffer(encoder.encode(streamInfoPrefix + channel + ":" + dir))
+          },
           baseKey,
           { name: "AES-GCM", length: 256 },
           false,
@@ -187,10 +232,20 @@ export class RelayE2E {
     return cached;
   }
 
-  private async iv(streamID: string, channel: string, dir: Direction, seq: bigint): Promise<Uint8Array> {
+  private async iv(
+    streamID: string,
+    channel: string,
+    dir: Direction,
+    seq: bigint
+  ): Promise<Uint8Array> {
     const prefix = new Uint8Array(
       await crypto.subtle.deriveBits(
-        { name: "HKDF", hash: "SHA-256", salt: arrayBuffer(decodeBase64URL(streamID)), info: arrayBuffer(encoder.encode(nonceInfoPrefix + channel + ":" + dir)) },
+        {
+          name: "HKDF",
+          hash: "SHA-256",
+          salt: arrayBuffer(decodeBase64URL(streamID)),
+          info: arrayBuffer(encoder.encode(nonceInfoPrefix + channel + ":" + dir))
+        },
         await this.sessionBaseKey(),
         32
       )
@@ -214,7 +269,12 @@ export class RelayE2E {
 
   private derivePairBits(sessionID: string, info: string): Promise<ArrayBuffer> {
     return crypto.subtle.deriveBits(
-      { name: "HKDF", hash: "SHA-256", salt: arrayBuffer(encoder.encode(sessionID)), info: arrayBuffer(encoder.encode(info)) },
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: arrayBuffer(encoder.encode(sessionID)),
+        info: arrayBuffer(encoder.encode(info))
+      },
       this.pairKey,
       256
     );
@@ -222,7 +282,18 @@ export class RelayE2E {
 
   private aad(frame: Frame): ArrayBuffer {
     return arrayBuffer(
-      encoder.encode([frame.v, frame.sid, frame.st, frame.ch, frame.dir, String(frame.seq), frame.iv, frame.t].join("\n"))
+      encoder.encode(
+        [
+          frame.v,
+          frame.sid,
+          frame.st,
+          frame.ch,
+          frame.dir,
+          String(frame.seq),
+          frame.iv,
+          frame.t
+        ].join("\n")
+      )
     );
   }
 }
@@ -249,7 +320,10 @@ function encodeBase64URL(bytes: Uint8Array): string {
 }
 
 function decodeBase64URL(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
   const binary = window.atob(padded);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -262,7 +336,11 @@ function responseWith(response: Response, data: Uint8Array): Response {
   const headers = new Headers(response.headers);
   headers.set("Content-Type", "application/json");
   headers.delete("Content-Length");
-  return new Response(arrayBuffer(data), { status: response.status, statusText: response.statusText, headers });
+  return new Response(arrayBuffer(data), {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {

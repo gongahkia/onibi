@@ -71,7 +71,8 @@ export class WorkspaceSwitcher {
     for (const workspace of this.state.workspaces) {
       const item = document.createElement("button");
       item.type = "button";
-      item.className = workspace.name === this.state.current ? "workspace-option active" : "workspace-option";
+      item.className =
+        workspace.name === this.state.current ? "workspace-option active" : "workspace-option";
       item.title = workspace.path;
       const name = document.createElement("span");
       name.className = "workspace-option-name";

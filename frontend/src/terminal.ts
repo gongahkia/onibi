@@ -9,7 +9,14 @@ import { tokyoNightTheme } from "./themes/tokyo-night";
 import type { TerminalWS } from "./ws";
 import "@xterm/xterm/css/xterm.css";
 
-export const terminalThemeNames = ["ghostty-default", "catppuccin-mocha", "tokyo-night", "solarized-dark", "dark", "light"] as const;
+export const terminalThemeNames = [
+  "ghostty-default",
+  "catppuccin-mocha",
+  "tokyo-night",
+  "solarized-dark",
+  "dark",
+  "light"
+] as const;
 export type TerminalThemeName = (typeof terminalThemeNames)[number];
 
 export type TerminalHandle = {
@@ -94,7 +101,10 @@ export function terminalThemeLabel(theme: TerminalThemeName): string {
   return themeLabels[theme];
 }
 
-export function createTerminal(container: HTMLElement, theme: TerminalThemeName = defaultTerminalTheme): TerminalHandle {
+export function createTerminal(
+  container: HTMLElement,
+  theme: TerminalThemeName = defaultTerminalTheme
+): TerminalHandle {
   const term = new Terminal({
     fontFamily: terminalFont,
     fontSize: loadTerminalFontSize(),
@@ -130,14 +140,22 @@ export function loadTerminalFontSize(): number {
 }
 
 export function logCrampedPortraitCols(term: Terminal): void {
-  if (loggedCrampedPortrait || !window.matchMedia("(orientation: portrait)").matches || term.cols >= 40) {
+  if (
+    loggedCrampedPortrait ||
+    !window.matchMedia("(orientation: portrait)").matches ||
+    term.cols >= 40
+  ) {
     return;
   }
   loggedCrampedPortrait = true;
-  console.info(`[ONIBI] portrait cols=${term.cols}`);
+  console.warn(`[ONIBI] portrait cols=${term.cols}`);
 }
 
-export function attachTerminalIO(term: Terminal, ws: TerminalWS, enabled: () => boolean = () => true): IDisposable {
+export function attachTerminalIO(
+  term: Terminal,
+  ws: TerminalWS,
+  enabled: () => boolean = () => true
+): IDisposable {
   const data = term.onData((input) => {
     if (enabled()) {
       ws.sendText(input);

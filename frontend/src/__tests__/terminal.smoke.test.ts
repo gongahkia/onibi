@@ -23,15 +23,39 @@ function installDOM(markup: string): JSDOM {
   Object.defineProperty(globalThis, "document", { value: win.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: win.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: win.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLButtonElement", { value: win.HTMLButtonElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLCanvasElement", { value: win.HTMLCanvasElement, configurable: true });
-  Object.defineProperty(globalThis, "getComputedStyle", { value: win.getComputedStyle.bind(win), configurable: true });
+  Object.defineProperty(globalThis, "HTMLButtonElement", {
+    value: win.HTMLButtonElement,
+    configurable: true
+  });
+  Object.defineProperty(globalThis, "HTMLCanvasElement", {
+    value: win.HTMLCanvasElement,
+    configurable: true
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    value: win.getComputedStyle.bind(win),
+    configurable: true
+  });
   Object.defineProperty(win, "matchMedia", { value: matchMedia, configurable: true });
-  Object.defineProperty(win, "requestAnimationFrame", { value: (callback: FrameRequestCallback) => win.setTimeout(() => callback(Date.now()), 0), configurable: true });
-  Object.defineProperty(win, "cancelAnimationFrame", { value: (id: number) => win.clearTimeout(id), configurable: true });
-  Object.defineProperty(win.HTMLElement.prototype, "clientWidth", { get: () => 800, configurable: true });
-  Object.defineProperty(win.HTMLElement.prototype, "clientHeight", { get: () => 240, configurable: true });
-  Object.defineProperty(win.HTMLCanvasElement.prototype, "getContext", { value: canvasContext, configurable: true });
+  Object.defineProperty(win, "requestAnimationFrame", {
+    value: (callback: FrameRequestCallback) => win.setTimeout(() => callback(Date.now()), 0),
+    configurable: true
+  });
+  Object.defineProperty(win, "cancelAnimationFrame", {
+    value: (id: number) => win.clearTimeout(id),
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLElement.prototype, "clientWidth", {
+    get: () => 800,
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLElement.prototype, "clientHeight", {
+    get: () => 240,
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLCanvasElement.prototype, "getContext", {
+    value: canvasContext,
+    configurable: true
+  });
   return dom;
 }
 
@@ -73,6 +97,9 @@ function canvasContext(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
-function writeTerminal(term: { write(data: Uint8Array, callback: () => void): void }, data: Uint8Array): Promise<void> {
+function writeTerminal(
+  term: { write(data: Uint8Array, callback: () => void): void },
+  data: Uint8Array
+): Promise<void> {
   return new Promise((resolve) => term.write(data, resolve));
 }

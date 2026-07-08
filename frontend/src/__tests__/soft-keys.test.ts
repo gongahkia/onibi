@@ -14,9 +14,13 @@ test("emits terminal escape sequences from soft keys", async () => {
     root,
     sendBytes: (data) => sent.push(Array.from(data)),
     sendText: () => {},
-    pageUp: () => { pageUp += 1; },
+    pageUp: () => {
+      pageUp += 1;
+    },
     pageDown: () => {},
-    focus: () => { focused += 1; },
+    focus: () => {
+      focused += 1;
+    },
     getTheme: () => "ghostty-default",
     setTheme: () => {},
     decreaseFontSize: () => {},
@@ -41,11 +45,26 @@ function installDOM(markup: string): JSDOM {
   Object.defineProperty(globalThis, "document", { value: win.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: win.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: win.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLButtonElement", { value: win.HTMLButtonElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLCanvasElement", { value: win.HTMLCanvasElement, configurable: true });
-  Object.defineProperty(win.HTMLCanvasElement.prototype, "getContext", { value: canvasContext, configurable: true });
-  Object.defineProperty(win.HTMLElement.prototype, "setPointerCapture", { value() {}, configurable: true });
-  Object.defineProperty(win.HTMLElement.prototype, "releasePointerCapture", { value() {}, configurable: true });
+  Object.defineProperty(globalThis, "HTMLButtonElement", {
+    value: win.HTMLButtonElement,
+    configurable: true
+  });
+  Object.defineProperty(globalThis, "HTMLCanvasElement", {
+    value: win.HTMLCanvasElement,
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLCanvasElement.prototype, "getContext", {
+    value: canvasContext,
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLElement.prototype, "setPointerCapture", {
+    value() {},
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLElement.prototype, "releasePointerCapture", {
+    value() {},
+    configurable: true
+  });
   Object.defineProperty(win.navigator, "clipboard", { value: undefined, configurable: true });
   return dom;
 }

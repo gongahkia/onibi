@@ -51,7 +51,12 @@ export class ApprovalWakeLock {
   };
 
   private async sync(): Promise<void> {
-    if (this.disposed || this.pendingCount === 0 || this.disabled() || this.documentRef.visibilityState !== "visible") {
+    if (
+      this.disposed ||
+      this.pendingCount === 0 ||
+      this.disabled() ||
+      this.documentRef.visibilityState !== "visible"
+    ) {
       await this.release();
       return;
     }
@@ -66,12 +71,16 @@ export class ApprovalWakeLock {
     if (wakeLock === undefined) {
       return;
     }
-    this.requestInFlight = wakeLock.request("screen").then((sentinel) => {
-      this.sentinel = sentinel;
-      sentinel.addEventListener("release", this.handleSentinelRelease, { once: true });
-    }).catch(() => {}).finally(() => {
-      this.requestInFlight = undefined;
-    });
+    this.requestInFlight = wakeLock
+      .request("screen")
+      .then((sentinel) => {
+        this.sentinel = sentinel;
+        sentinel.addEventListener("release", this.handleSentinelRelease, { once: true });
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.requestInFlight = undefined;
+      });
     return this.requestInFlight;
   }
 

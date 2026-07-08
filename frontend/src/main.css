@@ -116,7 +116,8 @@
   background: var(--page-bg);
   color: var(--page-fg);
   overflow-y: auto;
-  padding: calc(env(safe-area-inset-top) + 16px) max(14px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 16px) max(14px, env(safe-area-inset-left));
+  padding: calc(env(safe-area-inset-top) + 16px) max(14px, env(safe-area-inset-right))
+    calc(env(safe-area-inset-bottom) + 16px) max(14px, env(safe-area-inset-left));
 }
 
 .session-list-view[hidden] {
@@ -296,7 +297,10 @@
   right: max(8px, env(safe-area-inset-right));
   z-index: 12;
   box-sizing: border-box;
-  max-height: min(58dvh, calc(var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 96px));
+  max-height: min(
+    58dvh,
+    calc(var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 96px)
+  );
   border: 1px solid var(--chrome-border);
   border-radius: 3px;
   background: var(--panel-bg);
@@ -399,7 +403,8 @@
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background: rgba(0, 0, 0, 0.42);
 }
 
@@ -629,7 +634,8 @@
     height: var(--visual-viewport-height);
     border: 0;
     border-radius: 0;
-    padding: calc(env(safe-area-inset-top) + 8px) max(10px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 8px) max(10px, env(safe-area-inset-left));
+    padding: calc(env(safe-area-inset-top) + 8px) max(10px, env(safe-area-inset-right))
+      calc(env(safe-area-inset-bottom) + 8px) max(10px, env(safe-area-inset-left));
   }
 
   .timeline-payload {
@@ -1042,7 +1048,11 @@
   border: 2px solid var(--button-active-border);
   border-radius: 4px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
-  transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease;
+  transition:
+    left 120ms ease,
+    top 120ms ease,
+    width 120ms ease,
+    height 120ms ease;
 }
 
 .tour-highlight[hidden] {

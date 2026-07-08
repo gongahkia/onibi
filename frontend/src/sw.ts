@@ -7,7 +7,12 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   (event as ExtendableEvent).waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))).then(() => sw.clients.claim())
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))
+      )
+      .then(() => sw.clients.claim())
   );
 });
 
@@ -99,7 +104,10 @@ function notificationBody(payload: PushPayload): string {
 }
 
 function notificationURL(sessionID: string | undefined, approvalID: string | undefined): string {
-  const url = new URL(sessionID === undefined ? "/" : `/s/${encodeURIComponent(sessionID)}`, sw.location.origin);
+  const url = new URL(
+    sessionID === undefined ? "/" : `/s/${encodeURIComponent(sessionID)}`,
+    sw.location.origin
+  );
   if (approvalID !== undefined) {
     url.searchParams.set("approval", approvalID);
   }
@@ -107,7 +115,10 @@ function notificationURL(sessionID: string | undefined, approvalID: string | und
 }
 
 async function openNotificationTarget(data: unknown): Promise<void> {
-  const url = isRecord(data) && typeof data.url === "string" ? data.url : new URL("/", sw.location.origin).href;
+  const url =
+    isRecord(data) && typeof data.url === "string"
+      ? data.url
+      : new URL("/", sw.location.origin).href;
   const clients = await sw.clients.matchAll({ type: "window", includeUncontrolled: true });
   for (const client of clients) {
     if (isWindowClient(client)) {

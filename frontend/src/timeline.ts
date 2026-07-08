@@ -51,7 +51,11 @@ export class TimelinePanel {
       return;
     }
     const entry = envelope.payload as TimelineEntry;
-    if (entry.session_id !== undefined && entry.session_id !== "" && entry.session_id !== this.currentSessionID) {
+    if (
+      entry.session_id !== undefined &&
+      entry.session_id !== "" &&
+      entry.session_id !== this.currentSessionID
+    ) {
       return;
     }
     const key = entryKey(entry);
@@ -83,7 +87,10 @@ export class TimelinePanel {
     const count = document.createElement("div");
     count.className = "timeline-count";
     const visible = this.visibleItems();
-    count.textContent = this.filters.size === 0 ? String(this.items.length) : `${visible.length}/${this.items.length}`;
+    count.textContent =
+      this.filters.size === 0
+        ? String(this.items.length)
+        : `${visible.length}/${this.items.length}`;
     const close = button("Close");
     close.addEventListener("click", () => {
       this.open = false;
@@ -224,14 +231,26 @@ function filterKind(entry: TimelineEntry): FilterKind | undefined {
   if (entry.kind === "tool_call" || entry.kind === "tool_result") {
     return "tool";
   }
-  if (entry.kind === "approval" || entry.kind === "anomaly" || entry.kind === "snapshot" || entry.kind === "cost") {
+  if (
+    entry.kind === "approval" ||
+    entry.kind === "anomaly" ||
+    entry.kind === "snapshot" ||
+    entry.kind === "cost"
+  ) {
     return entry.kind;
   }
   return undefined;
 }
 
 function entryKey(entry: TimelineEntry): string {
-  return [entry.session_id ?? "", entry.kind, entry.turn ?? 0, entry.offset ?? 0, entry.ts ?? "", entry.summary ?? ""].join("|");
+  return [
+    entry.session_id ?? "",
+    entry.kind,
+    entry.turn ?? 0,
+    entry.offset ?? 0,
+    entry.ts ?? "",
+    entry.summary ?? ""
+  ].join("|");
 }
 
 function entryTime(entry: TimelineEntry): number {

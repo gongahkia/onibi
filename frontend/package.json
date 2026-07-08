@@ -4,6 +4,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build && tsc -p tsconfig.sw.json",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx,css,html}'",
+    "format": "prettier --write 'src/**/*.{ts,tsx,css,html}'",
     "test": "vitest run --coverage",
     "test:wake-lock": "rm -rf .tmp/wake-lock-test && tsc --target ES2020 --module NodeNext --moduleResolution NodeNext --strict --types node --lib ES2020,DOM --skipLibCheck --outDir .tmp/wake-lock-test src/wake-lock.ts src/wake-lock.test.ts && node --test .tmp/wake-lock-test/wake-lock.test.js && rm -rf .tmp/wake-lock-test"
   },
@@ -18,8 +21,13 @@
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
     "@types/node": "^26.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.63.0",
+    "@typescript-eslint/parser": "^8.63.0",
     "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
     "jsdom": "^26.1.0",
+    "prettier": "^3.9.4",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"

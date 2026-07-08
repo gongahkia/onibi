@@ -25,7 +25,10 @@ export class ApprovalOverlay {
   private cards = new Map<string, ApprovalCard>();
   private postJSON: PostJSON = defaultPostJSON;
 
-  constructor(private readonly root: HTMLElement, private readonly wakeLock?: ApprovalWakeLock) {}
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly wakeLock?: ApprovalWakeLock
+  ) {}
 
   setPostJSON(postJSON: PostJSON): void {
     this.postJSON = postJSON;
@@ -73,11 +76,17 @@ export class ApprovalOverlay {
 
     const actions = document.createElement("div");
     actions.className = "approval-actions";
-    const approve = button(payload.risk_level === "high" ? "Approve (tap twice)" : "Approve", "primary");
+    const approve = button(
+      payload.risk_level === "high" ? "Approve (tap twice)" : "Approve",
+      "primary"
+    );
     const deny = button("Deny", "danger");
     const edit = button("Edit", "secondary");
     const scope = runtimeTrustScope(payload.file_path);
-    const trust = scope === undefined ? undefined : button(`Auto-approve all ${payload.tool} in ${scope.label} for 5min`, "secondary");
+    const trust =
+      scope === undefined
+        ? undefined
+        : button(`Auto-approve all ${payload.tool} in ${scope.label} for 5min`, "secondary");
     trust?.classList.add("approval-trust-link");
     actions.append(approve, deny, edit);
     if (trust !== undefined) {
@@ -167,7 +176,11 @@ export class ApprovalOverlay {
     this.wakeLock?.setPendingCount(this.cards.size);
   }
 
-  private async decide(id: string, body: Record<string, string>, status: HTMLElement): Promise<void> {
+  private async decide(
+    id: string,
+    body: Record<string, string>,
+    status: HTMLElement
+  ): Promise<void> {
     status.textContent = "Sending...";
     const response = await this.postJSON(`/approval/${encodeURIComponent(id)}`, body);
     if (!response.ok) {
@@ -177,7 +190,13 @@ export class ApprovalOverlay {
     status.textContent = "Done.";
   }
 
-  private async addRuntimeTrust(payload: ApprovalRequestedPayload, scope: TrustScope, card: ApprovalCard, chip: HTMLElement, status: HTMLElement): Promise<void> {
+  private async addRuntimeTrust(
+    payload: ApprovalRequestedPayload,
+    scope: TrustScope,
+    card: ApprovalCard,
+    chip: HTMLElement,
+    status: HTMLElement
+  ): Promise<void> {
     status.textContent = "Adding runtime trust...";
     if (card.trustButton !== undefined) {
       card.trustButton.disabled = true;
@@ -258,10 +277,14 @@ function prepareUnifiedDiff(target: HTMLElement, diff: string): void {
     summary.className = "approval-diff-summary";
     summary.textContent = `${lines} line diff`;
     const show = button(`Show more (${lines} lines)`, "secondary");
-    show.addEventListener("click", () => {
-      target.textContent = "Loading diff...";
-      void renderUnifiedDiff(target, diff);
-    }, { once: true });
+    show.addEventListener(
+      "click",
+      () => {
+        target.textContent = "Loading diff...";
+        void renderUnifiedDiff(target, diff);
+      },
+      { once: true }
+    );
     target.replaceChildren(summary, show);
     return;
   }

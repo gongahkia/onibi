@@ -14,7 +14,11 @@ test("renders approval JSON and posts approve and deny decisions", async () => {
     calls.push({ path, body });
     return new Response("ok", { status: 200 });
   });
-  overlay.handleEnvelope({ type: "approval.requested", ts: "2026-07-08T00:00:00Z", payload: approvalPayload() });
+  overlay.handleEnvelope({
+    type: "approval.requested",
+    ts: "2026-07-08T00:00:00Z",
+    payload: approvalPayload()
+  });
   expect(root.querySelector(".approval-card")?.textContent).toContain("shell");
   expect(root.textContent).toContain('"cmd"');
   button(root, "Approve").click();
@@ -25,7 +29,11 @@ test("renders approval JSON and posts approve and deny decisions", async () => {
     { path: "/approval/ap-1", body: { verdict: "approve" } },
     { path: "/approval/ap-1", body: { verdict: "deny" } }
   ]);
-  overlay.handleEnvelope({ type: "approval.decided", ts: "2026-07-08T00:00:01Z", payload: { id: "ap-1", session_id: "s-1", verdict: "approve" } });
+  overlay.handleEnvelope({
+    type: "approval.decided",
+    ts: "2026-07-08T00:00:01Z",
+    payload: { id: "ap-1", session_id: "s-1", verdict: "approve" }
+  });
   expect(root.querySelector(".approval-card")).toBeNull();
   dom.window.close();
 });
@@ -49,9 +57,18 @@ function installDOM(markup: string): JSDOM {
   Object.defineProperty(globalThis, "document", { value: win.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: win.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: win.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLButtonElement", { value: win.HTMLButtonElement, configurable: true });
-  Object.defineProperty(win, "matchMedia", { value: () => ({ matches: false }), configurable: true });
-  Object.defineProperty(win.HTMLElement.prototype, "scrollIntoView", { value() {}, configurable: true });
+  Object.defineProperty(globalThis, "HTMLButtonElement", {
+    value: win.HTMLButtonElement,
+    configurable: true
+  });
+  Object.defineProperty(win, "matchMedia", {
+    value: () => ({ matches: false }),
+    configurable: true
+  });
+  Object.defineProperty(win.HTMLElement.prototype, "scrollIntoView", {
+    value() {},
+    configurable: true
+  });
   Object.defineProperty(win.navigator, "vibrate", { value() {}, configurable: true });
   return dom;
 }

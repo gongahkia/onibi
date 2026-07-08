@@ -1,6 +1,18 @@
 import "./main.css";
 import { TerminalWS } from "./ws";
-import { applyTerminalTheme, attachTerminalIO, clampTerminalFontSize, createTerminal, defaultTerminalFontSize, defaultTerminalTheme, installTouchScroll, installViewportResize, isTerminalThemeName, logCrampedPortraitCols, terminalFontSizeKey } from "./terminal";
+import {
+  applyTerminalTheme,
+  attachTerminalIO,
+  clampTerminalFontSize,
+  createTerminal,
+  defaultTerminalFontSize,
+  defaultTerminalTheme,
+  installTouchScroll,
+  installViewportResize,
+  isTerminalThemeName,
+  logCrampedPortraitCols,
+  terminalFontSizeKey
+} from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 import { AnomalyOverlay } from "./anomaly";
 import { ApprovalOverlay } from "./approval";
@@ -90,7 +102,7 @@ events.addEventListener("event", (event) => {
   timeline?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
-  const payload = ((event as CustomEvent<EventEnvelope<ToastPayload>>).detail).payload;
+  const payload = (event as CustomEvent<EventEnvelope<ToastPayload>>).detail.payload;
   if (payload.message !== "") {
     showToast(payload.message);
   }
@@ -119,9 +131,24 @@ async function boot(): Promise<void> {
     saveLastSessionID(info.session_id);
     showTerminalChrome(viewerMode);
     sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
-    snapshots = new SnapshotsPanel(snapshotsRoot, info.session_id, getJSON, postJSON, navigateToSession, showToast);
+    snapshots = new SnapshotsPanel(
+      snapshotsRoot,
+      info.session_id,
+      getJSON,
+      postJSON,
+      navigateToSession,
+      showToast
+    );
     timeline = new TimelinePanel(timelineRoot, info.session_id);
-    const filesPanel = new FilesPanel(filesRoot, info.session_id, getJSON, putJSON, () => theme, showToast, viewerMode);
+    const filesPanel = new FilesPanel(
+      filesRoot,
+      info.session_id,
+      getJSON,
+      putJSON,
+      () => theme,
+      showToast,
+      viewerMode
+    );
     installControls(toolbar, info, snapshots, timeline, filesPanel);
     new SoftKeyBar({
       root: softkeys,
@@ -153,10 +180,16 @@ async function showSessionsHome(): Promise<void> {
   const workspaceControl = document.createElement("div");
   const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, workspaceControl);
   sessionList = list;
-  workspaceSwitcher = new WorkspaceSwitcher(workspaceControl, getJSON, postJSON, (name) => {
-    list.setWorkspace(name);
-    setRouteWorkspace(name);
-  }, showToast);
+  workspaceSwitcher = new WorkspaceSwitcher(
+    workspaceControl,
+    getJSON,
+    postJSON,
+    (name) => {
+      list.setWorkspace(name);
+      setRouteWorkspace(name);
+    },
+    showToast
+  );
   await workspaceSwitcher.load();
   list.setWorkspace(workspaceSwitcher.current(), false);
   await list.load();
@@ -222,7 +255,13 @@ function eventsURL(token: string): string {
   return `${scheme}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
 }
 
-function installControls(root: HTMLElement, info: SessionInfo, snapshotsPanel: SnapshotsPanel, timelinePanel: TimelinePanel, filesPanel: FilesPanel): void {
+function installControls(
+  root: HTMLElement,
+  info: SessionInfo,
+  snapshotsPanel: SnapshotsPanel,
+  timelinePanel: TimelinePanel,
+  filesPanel: FilesPanel
+): void {
   const controls = [
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
@@ -315,7 +354,11 @@ async function postControl(sessionID: string, action: string): Promise<void> {
       } catch {
         body = {};
       }
-      showToast(typeof body.message === "string" ? body.message : text.trim() || `control ${response.status}`);
+      showToast(
+        typeof body.message === "string"
+          ? body.message
+          : text.trim() || `control ${response.status}`
+      );
     }
   } catch {
     showToast("Control failed.");
@@ -348,10 +391,16 @@ function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
         body = {};
       }
       if (!response.ok) {
-        const msg = typeof body.message === "string" ? body.message : text.trim() || `handover ${response.status}`;
+        const msg =
+          typeof body.message === "string"
+            ? body.message
+            : text.trim() || `handover ${response.status}`;
         throw new Error(msg);
       }
-      const msg = typeof body.message === "string" && body.message.trim() !== "" ? body.message : "Handover complete.";
+      const msg =
+        typeof body.message === "string" && body.message.trim() !== ""
+          ? body.message
+          : "Handover complete.";
       showToast(msg);
       if (target === "phone") {
         connectTerminal(info);
@@ -373,27 +422,31 @@ async function putJSON(path: string, body: Record<string, unknown>): Promise<Res
   return sendJSON("PUT", path, body);
 }
 
-async function sendJSON(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<Response> {
-	const raw = JSON.stringify(body);
-	const routePath = new URL(path, window.location.href).pathname;
-	const csrfHeaders = csrfToken === "" ? {} : { "X-Onibi-CSRF": csrfToken };
-	if (relayE2E === undefined) {
-		return fetch(path, {
-			method,
-			credentials: "same-origin",
-			headers: { "Content-Type": "application/json", ...csrfHeaders },
-			body: raw
-		});
-	}
-	const channel = `http:${method}:${routePath}`;
-	const sealed = await relayE2E.sealHTTPRequest(raw, channel);
-	const response = await fetch(path, {
-		method,
-		credentials: "same-origin",
-		headers: { "Content-Type": relayE2EContentType, ...csrfHeaders },
-		body: sealed.body
-	});
-	return relayE2E.openHTTPResponse(response, channel, sealed.streamID);
+async function sendJSON(
+  method: "POST" | "PUT",
+  path: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const raw = JSON.stringify(body);
+  const routePath = new URL(path, window.location.href).pathname;
+  const csrfHeaders = csrfToken === "" ? {} : { "X-Onibi-CSRF": csrfToken };
+  if (relayE2E === undefined) {
+    return fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...csrfHeaders },
+      body: raw
+    });
+  }
+  const channel = `http:${method}:${routePath}`;
+  const sealed = await relayE2E.sealHTTPRequest(raw, channel);
+  const response = await fetch(path, {
+    method,
+    credentials: "same-origin",
+    headers: { "Content-Type": relayE2EContentType, ...csrfHeaders },
+    body: sealed.body
+  });
+  return relayE2E.openHTTPResponse(response, channel, sealed.streamID);
 }
 
 function setTheme(next: TerminalThemeName): void {
@@ -404,7 +457,8 @@ function setTheme(next: TerminalThemeName): void {
 }
 
 function changeTerminalFontSize(delta: number): void {
-  const current = typeof term.options.fontSize === "number" ? term.options.fontSize : defaultTerminalFontSize;
+  const current =
+    typeof term.options.fontSize === "number" ? term.options.fontSize : defaultTerminalFontSize;
   const next = clampTerminalFontSize(current + delta);
   term.options.fontSize = next;
   window.localStorage.setItem(terminalFontSizeKey, String(next));
@@ -420,7 +474,9 @@ function loadTheme(): TerminalThemeName {
 
 function applyDocumentTheme(next: TerminalThemeName): void {
   document.documentElement.dataset.theme = next;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", documentThemeColor(next));
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", documentThemeColor(next));
 }
 
 function documentThemeColor(next: TerminalThemeName): string {
@@ -480,7 +536,10 @@ function installViewportPinning(root: HTMLElement): void {
   const pin = () => {
     window.cancelAnimationFrame(frame);
     frame = window.requestAnimationFrame(() => {
-      document.documentElement.style.setProperty("--visual-viewport-height", `${viewport.height}px`);
+      document.documentElement.style.setProperty(
+        "--visual-viewport-height",
+        `${viewport.height}px`
+      );
       const keyboardBottom = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
       document.documentElement.style.setProperty("--keyboard-bottom", `${keyboardBottom}px`);
       const cursor = root.querySelector<HTMLElement>(".xterm-helper-textarea");

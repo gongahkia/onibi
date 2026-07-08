@@ -29,10 +29,34 @@ const esc = 0x1b;
 const keys: KeyDef[] = [
   { label: "Esc", base: bytes(esc) },
   { label: "Tab", base: bytes(0x09), ctrl: bytes(0x09), alt: bytes(esc, 0x09) },
-  { label: "↑", base: bytes(esc, 0x5b, 0x41), repeat: true, ctrl: seq("\x1b[1;5A"), alt: seq("\x1b[1;3A") },
-  { label: "↓", base: bytes(esc, 0x5b, 0x42), repeat: true, ctrl: seq("\x1b[1;5B"), alt: seq("\x1b[1;3B") },
-  { label: "←", base: bytes(esc, 0x5b, 0x44), repeat: true, ctrl: seq("\x1b[1;5D"), alt: seq("\x1b[1;3D") },
-  { label: "→", base: bytes(esc, 0x5b, 0x43), repeat: true, ctrl: seq("\x1b[1;5C"), alt: seq("\x1b[1;3C") },
+  {
+    label: "↑",
+    base: bytes(esc, 0x5b, 0x41),
+    repeat: true,
+    ctrl: seq("\x1b[1;5A"),
+    alt: seq("\x1b[1;3A")
+  },
+  {
+    label: "↓",
+    base: bytes(esc, 0x5b, 0x42),
+    repeat: true,
+    ctrl: seq("\x1b[1;5B"),
+    alt: seq("\x1b[1;3B")
+  },
+  {
+    label: "←",
+    base: bytes(esc, 0x5b, 0x44),
+    repeat: true,
+    ctrl: seq("\x1b[1;5D"),
+    alt: seq("\x1b[1;3D")
+  },
+  {
+    label: "→",
+    base: bytes(esc, 0x5b, 0x43),
+    repeat: true,
+    ctrl: seq("\x1b[1;5C"),
+    alt: seq("\x1b[1;3C")
+  },
   { label: "^C", base: bytes(0x03) },
   { label: "^D", base: bytes(0x04) },
   { label: "^Z", base: bytes(0x1a) }
@@ -154,7 +178,12 @@ export class SoftKeyBar {
 
   private sendKey(key: KeyDef): void {
     const modifier = this.modifier;
-    const data = modifier === "ctrl" ? key.ctrl ?? key.base : modifier === "alt" ? key.alt ?? prefixAlt(key.base) : key.base;
+    const data =
+      modifier === "ctrl"
+        ? (key.ctrl ?? key.base)
+        : modifier === "alt"
+          ? (key.alt ?? prefixAlt(key.base))
+          : key.base;
     this.options.sendBytes(data);
     if (modifier !== undefined) {
       this.modifier = undefined;

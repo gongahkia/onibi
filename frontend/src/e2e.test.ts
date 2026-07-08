@@ -7,7 +7,13 @@ export async function verifyE2EVectors(): Promise<void> {
     throw new Error("bad e2e vector info");
   }
   for (const vector of vectors.vectors) {
-    const base = await crypto.subtle.importKey("raw", arrayBuffer(fromHex(vector.masterKeyHex)), "HKDF", false, ["deriveBits"]);
+    const base = await crypto.subtle.importKey(
+      "raw",
+      arrayBuffer(fromHex(vector.masterKeyHex)),
+      "HKDF",
+      false,
+      ["deriveBits"]
+    );
     const bits = await crypto.subtle.deriveBits(
       {
         name: "HKDF",
@@ -21,7 +27,10 @@ export async function verifyE2EVectors(): Promise<void> {
     if (toHex(new Uint8Array(bits)) !== vector.sessionKeyHex) {
       throw new Error(`${vector.name}: session key mismatch`);
     }
-    const key = await crypto.subtle.importKey("raw", bits, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    const key = await crypto.subtle.importKey("raw", bits, { name: "AES-GCM" }, false, [
+      "encrypt",
+      "decrypt"
+    ]);
     const sealed = await crypto.subtle.encrypt(
       {
         name: "AES-GCM",

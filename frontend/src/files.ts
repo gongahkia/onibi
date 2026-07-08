@@ -39,7 +39,11 @@ type ShikiHighlighter = {
 };
 
 type ShikiCoreModule = {
-  createHighlighterCore(options: { engine: unknown; themes: unknown[]; langs: unknown[] }): Promise<ShikiHighlighter>;
+  createHighlighterCore(options: {
+    engine: unknown;
+    themes: unknown[];
+    langs: unknown[];
+  }): Promise<ShikiHighlighter>;
 };
 
 type ShikiEngineModule = {
@@ -98,7 +102,9 @@ export class FilesPanel {
     this.status = "loading";
     this.render();
     try {
-      this.tree = await this.fetchJSON<FileTreeResponse>(`/files/tree?session=${encodeURIComponent(this.sessionID)}`);
+      this.tree = await this.fetchJSON<FileTreeResponse>(
+        `/files/tree?session=${encodeURIComponent(this.sessionID)}`
+      );
       this.status = this.tree.truncated === true ? "truncated" : "";
     } catch {
       this.status = "files unavailable";
@@ -119,7 +125,9 @@ export class FilesPanel {
     this.viewerHTML = `<div class="files-empty">loading</div>`;
     this.render();
     try {
-      const file = await this.fetchJSON<FileContentResponse>(`/files/content?session=${encodeURIComponent(this.sessionID)}&path=${encodeURIComponent(path)}`);
+      const file = await this.fetchJSON<FileContentResponse>(
+        `/files/content?session=${encodeURIComponent(this.sessionID)}&path=${encodeURIComponent(path)}`
+      );
       if (seq !== this.openSeq) {
         return;
       }
@@ -129,7 +137,10 @@ export class FilesPanel {
       } else {
         this.currentContent = file.content ?? "";
         this.editContent = this.currentContent;
-        this.viewerHTML = await codeToHtml(this.currentContent, { lang: detectFromExt(file.path), theme: this.getTheme() });
+        this.viewerHTML = await codeToHtml(this.currentContent, {
+          lang: detectFromExt(file.path),
+          theme: this.getTheme()
+        });
       }
       this.render();
     } catch {
@@ -189,7 +200,10 @@ export class FilesPanel {
     viewerActions.className = "files-viewer-actions";
     if (this.selectedPath !== "" && !this.selectedBinary && !this.readOnly) {
       if (this.editing) {
-        viewerActions.append(panelButton("Save", () => void this.saveEdit()), panelButton("Cancel", () => this.cancelEdit()));
+        viewerActions.append(
+          panelButton("Save", () => void this.saveEdit()),
+          panelButton("Cancel", () => this.cancelEdit())
+        );
       } else {
         viewerActions.append(panelButton("✎", () => this.startEdit()));
       }
@@ -402,5 +416,9 @@ function shortID(id: string): string {
 }
 
 function escapeHTML(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }

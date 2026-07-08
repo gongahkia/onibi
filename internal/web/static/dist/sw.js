@@ -5,7 +5,10 @@ self.addEventListener("install", (event) => {
     event.waitUntil(sw.skipWaiting());
 });
 self.addEventListener("activate", (event) => {
-    event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))).then(() => sw.clients.claim()));
+    event.waitUntil(caches
+        .keys()
+        .then((keys) => Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key))))
+        .then(() => sw.clients.claim()));
 });
 self.addEventListener("fetch", (event) => {
     const fetchEvent = event;
@@ -86,7 +89,9 @@ function notificationURL(sessionID, approvalID) {
     return url.href;
 }
 async function openNotificationTarget(data) {
-    const url = isRecord(data) && typeof data.url === "string" ? data.url : new URL("/", sw.location.origin).href;
+    const url = isRecord(data) && typeof data.url === "string"
+        ? data.url
+        : new URL("/", sw.location.origin).href;
     const clients = await sw.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of clients) {
         if (isWindowClient(client)) {

@@ -113,7 +113,10 @@ export class EventsWS extends EventTarget {
     if (typeof event.data !== "string") {
       return;
     }
-    const raw = this.e2e === undefined ? event.data : decodeText((await this.e2e.open(event.data, "ws:events")).data);
+    const raw =
+      this.e2e === undefined
+        ? event.data
+        : decodeText((await this.e2e.open(event.data, "ws:events")).data);
     const envelope = JSON.parse(raw) as EventEnvelope;
     this.dispatchEvent(new CustomEvent<EventEnvelope>("event", { detail: envelope }));
     this.dispatchEvent(new CustomEvent<EventEnvelope>(envelope.type, { detail: envelope }));

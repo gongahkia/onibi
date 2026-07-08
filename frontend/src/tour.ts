@@ -168,8 +168,14 @@ class FirstRunTour {
     const pad = 5;
     const highLeft = clamp(targetRect.left - pad, leftEdge + margin, leftEdge + width - margin);
     const highTop = clamp(targetRect.top - pad, topEdge + margin, topEdge + height - margin);
-    const highWidth = Math.max(0, Math.min(targetRect.width + pad * 2, leftEdge + width - margin - highLeft));
-    const highHeight = Math.max(0, Math.min(targetRect.height + pad * 2, topEdge + height - margin - highTop));
+    const highWidth = Math.max(
+      0,
+      Math.min(targetRect.width + pad * 2, leftEdge + width - margin - highLeft)
+    );
+    const highHeight = Math.max(
+      0,
+      Math.min(targetRect.height + pad * 2, topEdge + height - margin - highTop)
+    );
     this.highlight.style.left = `${highLeft}px`;
     this.highlight.style.top = `${highTop}px`;
     this.highlight.style.width = `${highWidth}px`;
@@ -181,7 +187,11 @@ class FirstRunTour {
     if (top < topEdge + margin) {
       top = topEdge + margin;
     }
-    const left = clamp(targetRect.left, leftEdge + margin, leftEdge + width - cardRect.width - margin);
+    const left = clamp(
+      targetRect.left,
+      leftEdge + margin,
+      leftEdge + width - cardRect.width - margin
+    );
     this.card.style.left = `${left}px`;
     this.card.style.top = `${top}px`;
   }
