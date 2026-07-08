@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build && tsc -p tsconfig.sw.json",
+    "test": "vitest run --coverage",
     "test:wake-lock": "rm -rf .tmp/wake-lock-test && tsc --target ES2020 --module NodeNext --moduleResolution NodeNext --strict --types node --lib ES2020,DOM --skipLibCheck --outDir .tmp/wake-lock-test src/wake-lock.ts src/wake-lock.test.ts && node --test .tmp/wake-lock-test/wake-lock.test.js && rm -rf .tmp/wake-lock-test"
   },
   "dependencies": {
@@ -15,8 +16,12 @@
     "shiki": "^4.3.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^26.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
   }
 }
