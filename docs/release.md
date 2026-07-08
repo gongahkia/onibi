@@ -27,6 +27,10 @@ scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
+The real-machine install walkthrough is
+[`fresh-machine-smoke.md`](./fresh-machine-smoke.md). Run it on a stock macOS
+14+ user and a stock Ubuntu 24.04 VM before closing release-readiness issues.
+
 CI runs the `reproducible-build` job on every push and pull request. It installs
 GoReleaser, runs two fixed-input `goreleaser build --snapshot --single-target`
 passes from the same commit, and fails with the differing artifact path and both

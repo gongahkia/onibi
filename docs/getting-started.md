@@ -2,6 +2,10 @@
 
 This guide takes a fresh machine from no Onibi state to one working LAN web cockpit session.
 
+For release sign-off on a stock macOS user and stock Ubuntu VM, use
+[`fresh-machine-smoke.md`](./fresh-machine-smoke.md). This guide is the shorter
+source-build path.
+
 ## 1. Prerequisites
 
 You need:
