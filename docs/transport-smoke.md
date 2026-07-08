@@ -31,6 +31,8 @@ ONIBI_LIVE_TAILSCALE=1 go test ./internal/web/transport -run LiveTailscale
 
 - Run `onibi up --transport=tailscale`.
 - Scan `*.ts.net` QR from a phone on LTE, not Wi-Fi.
+- Run `onibi doctor --transport=tailscale` and confirm the `tailscale` check reports login/Funnel readiness, or an actionable warning for missing login, HTTPS, Funnel, or port-443 capability.
+- Capture `tailscale funnel status --json` and `tailscale serve status --json`; at least one must expose the active Funnel host used in the QR.
 - Confirm terminal input/output, resize, `/ws/events` approvals, and shutdown cleanup log `tailscale funnel --bg off`.
 
 ## Telegram

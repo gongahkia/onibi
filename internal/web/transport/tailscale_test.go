@@ -72,7 +72,7 @@ func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	r := &fakeTSRunner{outputs: map[string][]byte{
 		"tailscale status --json":                               []byte(statusRunningFunnel()),
 		"tailscale funnel --bg https+insecure://localhost:8443": []byte("ok\n"),
-		"tailscale serve status --json":                         []byte(serveActive()),
+		"tailscale funnel status --json":                        []byte(serveActive()),
 	}}
 	ts := &Tailscale{Bin: "tailscale", runner: r}
 	if err := ts.Enable(context.Background(), 8443); err != nil {
@@ -81,6 +81,43 @@ func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	want := [][]string{
 		{"tailscale", "status", "--json"},
 		{"tailscale", "funnel", "--bg", "https+insecure://localhost:8443"},
+		{"tailscale", "funnel", "status", "--json"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestTailscaleURLParsesFunnelStatus(t *testing.T) {
+	got, err := testTailscale(statusRunningFunnel(), serveActive()).URL(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://dev.tail.ts.net/" {
+		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestTailscaleURLFallsBackToServeStatus(t *testing.T) {
+	r := &fakeTSRunner{
+		outputs: map[string][]byte{
+			"tailscale status --json":       []byte(statusRunningFunnel()),
+			"tailscale serve status --json": []byte(serveActive()),
+		},
+		errs: map[string]error{
+			"tailscale funnel status --json": errors.New("unknown command"),
+		},
+	}
+	ts := &Tailscale{Bin: "tailscale", runner: r}
+	got, err := ts.URL(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://dev.tail.ts.net/" {
+		t.Fatalf("url = %q", got)
+	}
+	want := [][]string{
+		{"tailscale", "funnel", "status", "--json"},
 		{"tailscale", "serve", "status", "--json"},
 	}
 	if !reflect.DeepEqual(r.calls, want) {
@@ -88,7 +125,7 @@ func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	}
 }
 
-func TestTailscaleURLParsesServeStatus(t *testing.T) {
+func TestTailscaleURLParsesServeStatusBody(t *testing.T) {
 	got, err := funnelURLFromServeStatus([]byte(`{
 		"AllowFunnel": {
 			"dev.tail.ts.net:8443": true,
@@ -160,8 +197,8 @@ func serveActive() string {
 
 func testTailscale(status, serve string) *Tailscale {
 	return &Tailscale{Bin: "tailscale", runner: &fakeTSRunner{outputs: map[string][]byte{
-		"tailscale status --json":       []byte(status),
-		"tailscale serve status --json": []byte(serve),
+		"tailscale status --json":        []byte(status),
+		"tailscale funnel status --json": []byte(serve),
 	}}}
 }
 

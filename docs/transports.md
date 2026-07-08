@@ -60,7 +60,7 @@ Implementation details:
 
 - Onibi checks `tailscale status --json`; `BackendState` must be `Running`, and the local node must expose the Tailscale HTTPS, Funnel, and Funnel-port capability for public port `443`.
 - Onibi runs `tailscale funnel --bg https+insecure://localhost:<web-port>`. The `https+insecure` target is intentional because Onibi's local listener is HTTPS-only with a local CA certificate.
-- Onibi reads `tailscale serve status --json` and builds the QR URL from the active `AllowFunnel` host.
+- Onibi prefers `tailscale funnel status --json`, falls back to `tailscale serve status --json` for older Tailscale 1.x output, and builds the QR URL from the active `AllowFunnel` host.
 - On shutdown, Onibi runs `tailscale funnel --bg off`.
 
 Security model:
@@ -74,7 +74,7 @@ Operational notes:
 
 - The Mac must be logged in to Tailscale and allowed by tailnet policy to use Funnel.
 - Public DNS for the Funnel URL can lag after enablement.
-- Use `onibi doctor` with `transport.mode: tailscale` or `transport.mode: auto` to check the binary, daemon state, and Funnel capability.
+- Use `onibi doctor --transport=tailscale` or `onibi doctor --transport=auto` to check the binary, daemon login state, HTTPS capability, Funnel node attribute, and allowed public Funnel port.
 
 ## Telegram
 

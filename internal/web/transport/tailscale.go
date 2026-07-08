@@ -136,9 +136,14 @@ func (t *Tailscale) Disable(ctx context.Context) error {
 }
 
 func (t *Tailscale) URL(ctx context.Context) (string, error) {
-	out, err := t.run(ctx, "serve", "status", "--json")
+	out, err := t.run(ctx, "funnel", "status", "--json")
+	if err == nil {
+		return funnelURLFromServeStatus(out)
+	}
+	funnelErr := err
+	out, err = t.run(ctx, "serve", "status", "--json")
 	if err != nil {
-		return "", fmt.Errorf("tailscale serve status --json: %w", err)
+		return "", fmt.Errorf("tailscale funnel status --json: %v; tailscale serve status --json: %w", funnelErr, err)
 	}
 	return funnelURLFromServeStatus(out)
 }
