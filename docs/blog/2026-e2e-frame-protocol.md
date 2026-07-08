@@ -191,7 +191,7 @@ The raw relay key is volatile. During pairing, the daemon stores a commitment
 for the pair token, not the raw key in SQLite. When `/pair/<token>` successfully
 claims the single-use token, the in-memory key store binds `K_pair` to the new
 owner session. It also stores a verifier derived as HKDF-SHA256 over `K_pair`
-with `salt = session_id` and `info = "onibi-verify-token-v1"`.
+with `salt = session_id` and `info = "onibi-e2e-session-verifier-v1"`.
 
 The first encrypted WebSocket hello includes that session verifier. The server
 checks it in constant time before accepting PTY or events traffic. With relay E2E

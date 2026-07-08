@@ -1,6 +1,6 @@
 const version = "onibi.e2e.v1";
 const sessionInfo = "onibi-e2e-v1";
-const verifyTokenInfo = "onibi-verify-token-v1";
+const verifyTokenInfo = "onibi-e2e-session-verifier-v1";
 const streamInfoPrefix = "onibi-e2e-stream-v1:";
 const nonceInfoPrefix = "onibi-e2e-nonce-v1:";
 export const relayE2EContentType = "application/onibi-e2e+json";

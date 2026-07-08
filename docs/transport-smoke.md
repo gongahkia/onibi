@@ -152,11 +152,14 @@ ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY
 ONIBI_LIVE_CLOUDFLARE_QUICK=1 go test ./internal/web/transport -run LiveCloudflareQuick
 ```
 
-- Run `onibi up --transport=cloudflare-quick`.
-- Confirm QR URL is `https://*.trycloudflare.com/pair/<token>#k=...`.
-- Pair from iPhone Safari on LTE and confirm terminal bytes work.
-- In logs, verify relay cleanup reports `cloudflared process kill`.
-- Confirm copied URL without `#k=...` cannot drive encrypted WS/control payloads.
+- Install or select `cloudflared`: `cloudflared --version`, or export `ONIBI_CLOUDFLARED_BIN=/path/to/cloudflared`.
+- Run `go test -race ./internal/web -run TestE2E` before live smoke.
+- Run `onibi up --transport=cloudflare-quick --log-file /tmp/onibi-cf-quick.log`.
+- Confirm the printed QR URL is `https://*.trycloudflare.com/pair/<token>#k=...`; save a copy with the fragment removed for the negative test.
+- Pair from iPhone Safari on LTE, open a session, type `printf cf-e2e-ok`, and confirm output returns.
+- Reload the page and confirm the WebSocket resumes without plaintext terminal bytes in `/tmp/onibi-cf-quick.log`.
+- Open the fragmentless copy on the phone; confirm the UI does not attach and encrypted control/WebSocket traffic cannot proceed.
+- Press Ctrl+C in the `onibi up` terminal; confirm `/tmp/onibi-cf-quick.log` reports `cloudflared process kill`.
 
 ## Cloudflare Named
 

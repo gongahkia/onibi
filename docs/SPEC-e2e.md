@@ -205,6 +205,13 @@ Not protected against:
 
 ## Implementation Gates
 
-- Tagged releases must require this protocol for Cloudflare relay transports.
-- No plaintext Cloudflare relay bypass is shipped.
-- Tests must include Go/WebCrypto-compatible vectors for HKDF, AES-GCM, AAD mismatch, sequence replay, and bad verifier rejection.
+- [x] Fragment-keyed bootstrap (`#k=`) stays out of relay requests: `internal/cli/up.go` appends `#k=<base64url>`, `frontend/src/e2e.ts` reads `location.hash`, imports exactly 32 bytes, and removes the fragment with `history.replaceState`; `internal/cli/up_test.go` checks the pre-fragment URL does not contain the key.
+- [x] Volatile-only raw key storage: `internal/web/relay_keys.go` stores raw keys only in `RelayKeys.pairs` and `RelayKeys.sessions`; SQLite stores `relay_key_commitment:*` strings and `web_sessions.key_verifier_enc`; `internal/web/e2e_test.go` checks the commitment does not contain the raw key.
+- [x] HKDF-SHA256 key schedule: `internal/e2e/e2e.go` derives `K_session`; `internal/envelope/relay.go` derives per-stream keys/nonces; `frontend/src/e2e.ts` mirrors both with WebCrypto HKDF.
+- [x] Per-frame IV is `nonce_prefix || uint64_be(seq)`: `internal/envelope/relay.go` builds and verifies the IV; `frontend/src/e2e.ts` mirrors `uint64BE`.
+- [x] AAD is reconstructed from frame fields: `internal/envelope/relay.go` uses `RelayAAD(frame)` on seal/open; `frontend/src/e2e.ts` reconstructs the same field list before encrypt/decrypt.
+- [x] HTTP replay cache uses a 10 minute TTL: `internal/web/e2e.go` has `e2eHTTPReplayTTL = 10 * time.Minute`; `internal/web/e2e_test.go` covers replay, expiry, and cache bounds.
+- [x] Sequence gaps/replay are rejected: `internal/web/e2e.go` tracks expected WebSocket sequence; `internal/envelope/relay.go` rejects unexpected `seq`; `internal/web/e2e_test.go` covers replay rejection.
+- [x] Bad verifier rejects attach with unauthorized: `internal/web/auth.go` constant-time compares `verify_token`; `internal/web/e2e_test.go` and `internal/web/ws_pty_test.go` cover bad verifier rejection.
+- [x] Tagged-release relay E2E gate and no plaintext bypass: `internal/cli/up_test.go` verifies Cloudflare Quick is a relay mode and the removed `--unsafe-cloudflare-no-e2e` flag is rejected; `scripts/release-e2e-gate.sh` is wired as the release assertion.
+- [x] Spec drift filed: encrypted pair-confirm (`http:POST:/pair/confirm`) is specified above but the current implementation binds on `GET /pair/<token>` before WebSocket verifier attach. Tracked in GitHub issue #188.

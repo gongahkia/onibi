@@ -15,7 +15,7 @@ import (
 const (
 	relayPairCommitPrefix    = "relay_key_commitment:pair:"
 	relaySessionCommitPrefix = "relay_key_commitment:session:"
-	relayVerifyTokenInfo     = "onibi-verify-token-v1"
+	relayVerifyTokenInfo     = "onibi-e2e-session-verifier-v1"
 )
 
 type RelayKeys struct {
