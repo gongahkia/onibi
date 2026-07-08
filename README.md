@@ -16,11 +16,9 @@
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
 </p>
 
-use ghostty wherever text renders: a web/chat-controlled coding-agent host with a live xterm.js terminal and approval cockpit.
+Coding agents often run locally, but approvals and quick fixes arrive when you are away from the keyboard.
 
-Onibi runs local shells and coding agents in managed tmux-backed sessions, installs `xterm-ghostty` terminfo for the PTY path, exposes a Ghostty-themed phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
-
-Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](./docs/branding.md).
+Onibi runs local shells and coding agents in managed tmux-backed sessions, then gives your phone a live terminal and approval cockpit over HTTPS/WebSocket.
 
 Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Remaining work is tracked in GitHub issues.
 
@@ -43,15 +41,23 @@ On iPhone:
 
 If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhone hotspot, rerun `./bin/onibi up`, and scan the new QR.
 
+## What Makes This Different
+
+- Host-local sessions: Onibi creates and owns tmux-backed PTYs instead of only monitoring another app's session.
+- Same session everywhere: drive one live session from mobile Safari, a visible Mac terminal, chat transports, or local MCP clients.
+- Approval enforcement: supported hooks can block risky tool calls before execution, including Claude Code `PreToolUse` deny flows.
+- Terminal fidelity: live xterm.js over WebSocket, `xterm-ghostty` terminfo, a Ghostty-inspired theme, JetBrains Mono, Sixel/IIP rendering, and Kitty graphics transcoding to IIP.
+
+Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](./docs/branding.md).
+
 ## What Works Now
 
 - Managed tmux-backed session created by `onibi up`.
-- Live xterm.js terminal over `/ws/pty` with bundled Ghostty terminfo defaults.
+- Live xterm.js terminal over `/ws/pty`.
 - Pair-by-QR over local HTTPS.
 - iPhone trusted local CA profile.
 - Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
 - Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
-- Ghostty-default terminal theme, JetBrains Mono font load, Sixel/IIP rendering, and Kitty graphics transcoding to IIP.
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
