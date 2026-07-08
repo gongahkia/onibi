@@ -133,6 +133,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
 - [`docs/pricing.md`](./docs/pricing.md): budget pricing table and update notes.
+- [`docs/update-check-schema.md`](./docs/update-check-schema.md): machine-readable `update-check --json` contract.
 
 ## Security
 

@@ -16,6 +16,7 @@ import (
 )
 
 const RepoModule = "github.com/gongahkia/onibi"
+const SchemaVersion = "1"
 
 var LatestURL = "https://api.github.com/repos/gongahkia/onibi/releases/latest"
 
@@ -59,6 +60,7 @@ type Options struct {
 }
 
 type Result struct {
+	SchemaVersion  string `json:"schema_version"`
 	Status         Status `json:"status"`
 	Source         Source `json:"source"`
 	CurrentVersion string `json:"current_version"`
@@ -88,12 +90,19 @@ func Check(ctx context.Context, opts Options) Result {
 		opts.CurrentCommit = "unknown"
 	}
 	if repo, ok := findRepo(opts.RepoDir); ok {
-		return checkLocal(ctx, opts, repo)
+		return normalizeResult(checkLocal(ctx, opts, repo))
 	}
 	if opts.CheckGitHub {
-		return checkGitHub(ctx, opts)
+		return normalizeResult(checkGitHub(ctx, opts))
 	}
-	return Result{Status: StatusUnavailable, Source: SourceNone, CurrentVersion: opts.CurrentVersion, CurrentCommit: opts.CurrentCommit, Detail: "no local Onibi checkout found"}
+	return normalizeResult(Result{Status: StatusUnavailable, Source: SourceNone, CurrentVersion: opts.CurrentVersion, CurrentCommit: opts.CurrentCommit, Detail: "no local Onibi checkout found"})
+}
+
+func normalizeResult(res Result) Result {
+	if res.SchemaVersion == "" {
+		res.SchemaVersion = SchemaVersion
+	}
+	return res
 }
 
 func checkLocal(ctx context.Context, opts Options, repo string) Result {

@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/updatecheck"
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/armor"
 )
@@ -39,6 +41,34 @@ func TestUpdateCheckOnlyBetaPrintsLatestPrerelease(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "latest beta: v1.3.0-beta.1") || !strings.Contains(got, "https://example.test/v1.3.0-beta.1") {
 		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestUpdateCheckJSONIncludesSchemaVersion(t *testing.T) {
+	withUpdateTempHome(t)
+	old := updateCheckRun
+	updateCheckRun = func(context.Context, updatecheck.Options) updatecheck.Result {
+		return updatecheck.Result{
+			Status:         updatecheck.StatusCurrent,
+			Source:         updatecheck.SourceGitHub,
+			CurrentVersion: "v1.2.3",
+			CurrentCommit:  "abc123",
+			LatestVersion:  "v1.2.3",
+			URL:            "https://example.test/releases/v1.2.3",
+			Detail:         "current v1.2.3 is up to date with latest release v1.2.3",
+		}
+	}
+	t.Cleanup(func() { updateCheckRun = old })
+	out, _ := executeRoot(t, "update-check", "--json", "--no-github", "--color", "never")
+	var got updatecheck.Result
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out.String())
+	}
+	if got.SchemaVersion != updatecheck.SchemaVersion {
+		t.Fatalf("schema_version = %q", got.SchemaVersion)
+	}
+	if got.CurrentVersion != "v1.2.3" || got.LatestVersion != "v1.2.3" || got.Status != updatecheck.StatusCurrent {
+		t.Fatalf("result = %#v", got)
 	}
 }
 

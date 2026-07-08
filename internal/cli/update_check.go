@@ -44,6 +44,7 @@ func runUpdateCheck(cmd *cobra.Command, _ []string) error {
 		ConditionalETag:         cacheField(cached, "etag"),
 		ConditionalLastModified: cacheField(cached, "last_modified"),
 	})
+	res = normalizeUpdateResult(res)
 	cacheUpdateCheck(cmd.Context(), res)
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -117,12 +118,15 @@ func readUpdateCheckCache(ctx context.Context, db *store.DB) (updatecheck.Result
 	}
 	var res updatecheck.Result
 	if json.Unmarshal(b, &res) == nil && res.Status != "" {
-		return res, true
+		return normalizeUpdateResult(res), true
 	}
 	return updatecheck.Result{}, false
 }
 
 func normalizeUpdateResult(res updatecheck.Result) updatecheck.Result {
+	if res.SchemaVersion == "" {
+		res.SchemaVersion = updatecheck.SchemaVersion
+	}
 	if res.CurrentVersion == "" {
 		res.CurrentVersion = buildinfo.Version
 	}

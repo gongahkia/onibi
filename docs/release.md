@@ -73,6 +73,8 @@ the extracted binary passes `codesign --verify`.
 the selected tarball against `checksums.txt` before install. If
 `ONIBI_RELEASE_GPG_KEY` contains the public signing key and `gpg` is available,
 the same command also verifies `checksums.txt.sig` before extracting binaries.
+The machine-readable `onibi update-check --json` contract is documented in
+[`docs/update-check-schema.md`](./update-check-schema.md).
 
 `scripts/install.sh` is the curl installer template. Publish it only after
 replacing `__ONIBI_RELEASE_GPG_KEY_B64__` with the same base64 public key used by
