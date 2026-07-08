@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,31 @@ func TestSelectNgrokTunnelPrefersReservedDomain(t *testing.T) {
 	}
 }
 
+func TestSelectNgrokTunnelRefusesHTTPOnlyPublicURL(t *testing.T) {
+	_, ok, err := selectNgrokTunnel([]ngrokTunnel{{
+		Name:      "insecure",
+		PublicURL: "http://demo.ngrok-free.app",
+		Config:    ngrokTunnelConfig{Addr: "https://localhost:8443"},
+	}}, 8443, "")
+	var diag *DiagnosticError
+	if ok || !errors.As(err, &diag) || diag.Code != DiagURLParse {
+		t.Fatalf("ok=%v err=%#v", ok, err)
+	}
+}
+
+func TestSelectNgrokTunnelAllowsHTTPCompanionWhenHTTPSPresent(t *testing.T) {
+	got, ok, err := selectNgrokTunnel([]ngrokTunnel{
+		{Name: "http", PublicURL: "http://demo.ngrok-free.app", Config: ngrokTunnelConfig{Addr: "https://localhost:8443"}},
+		{Name: "https", PublicURL: "https://demo.ngrok-free.app", Config: ngrokTunnelConfig{Addr: "https://localhost:8443"}},
+	}, 8443, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || got.Name != "https" {
+		t.Fatalf("tunnel = %#v ok=%v", got, ok)
+	}
+}
+
 func TestNgrokEnableDiscoversAndDeletesTunnel(t *testing.T) {
 	var deleted string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,5 +104,35 @@ func TestNgrokEnableDiscoversAndDeletesTunnel(t *testing.T) {
 	}
 	if deleted != "command_line" || !proc.killed {
 		t.Fatalf("deleted=%q killed=%v", deleted, proc.killed)
+	}
+}
+
+func TestNgrokEnableUsesTokenEnv(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/tunnels" {
+			_ = json.NewEncoder(w).Encode(ngrokTunnelList{Tunnels: []ngrokTunnel{{
+				Name:      "command_line",
+				PublicURL: "https://demo.ngrok-free.app",
+				Config:    ngrokTunnelConfig{Addr: "https://localhost:8443"},
+			}}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer api.Close()
+	runner := &fakeProcessRunner{proc: newFakeProcess()}
+	n := &Ngrok{Bin: "ngrok", Authtoken: "ngrok-token-1234567890", AgentAPI: api.URL, Client: api.Client(), runner: runner}
+	if err := n.Enable(context.Background(), 8443); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("token leaked through args: %#v", runner.calls)
+	}
+	want := []envProcessCall{{
+		env:  []string{ngrokAgentTokenEnv + "=ngrok-token-1234567890"},
+		call: []string{"ngrok", "http", "https://localhost:8443"},
+	}}
+	if !reflect.DeepEqual(runner.envCalls, want) {
+		t.Fatalf("env calls = %#v", runner.envCalls)
 	}
 }

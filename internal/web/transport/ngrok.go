@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,13 +15,15 @@ import (
 )
 
 const (
-	NgrokBinEnv         = "ONIBI_NGROK_BIN"
-	NgrokAuthtokenEnv   = "ONIBI_NGROK_AUTHTOKEN"
-	NgrokDomainEnv      = "ONIBI_NGROK_DOMAIN"
-	NgrokAgentAPIEnv    = "ONIBI_NGROK_AGENT_API"
-	ngrokProvider       = "ngrok"
-	ngrokDefaultAPI     = "http://127.0.0.1:4040"
-	ngrokActivationWait = 20 * time.Second
+	NgrokBinEnv          = "ONIBI_NGROK_BIN"
+	NgrokAuthtokenEnv    = "ONIBI_NGROK_AUTHTOKEN"
+	NgrokDomainEnv       = "ONIBI_NGROK_DOMAIN"
+	NgrokAgentAPIEnv     = "ONIBI_NGROK_AGENT_API"
+	NgrokSecretAuthtoken = "onibi.ngrok.token.v1"
+	ngrokAgentTokenEnv   = "NGROK_AUTHTOKEN"
+	ngrokProvider        = "ngrok"
+	ngrokDefaultAPI      = "http://127.0.0.1:4040"
+	ngrokActivationWait  = 20 * time.Second
 )
 
 type Ngrok struct {
@@ -44,7 +47,7 @@ func NewNgrokFromEnv() *Ngrok {
 	}
 	return &Ngrok{
 		Bin:       ngrokBin(),
-		Authtoken: strings.TrimSpace(os.Getenv(NgrokAuthtokenEnv)),
+		Authtoken: ngrokAuthtoken(),
 		Domain:    strings.TrimSpace(os.Getenv(NgrokDomainEnv)),
 		AgentAPI:  api,
 		Client:    &http.Client{Timeout: 2 * time.Second},
@@ -78,9 +81,6 @@ func (n *Ngrok) Enable(ctx context.Context, localPort int) error {
 		return err
 	}
 	args := []string{"http", fmt.Sprintf("https://localhost:%d", localPort)}
-	if strings.TrimSpace(n.Authtoken) != "" {
-		args = append(args, "--authtoken", strings.TrimSpace(n.Authtoken))
-	}
 	if strings.TrimSpace(n.Domain) != "" {
 		args = append(args, "--domain", strings.TrimSpace(n.Domain))
 	}
@@ -88,7 +88,17 @@ func (n *Ngrok) Enable(ctx context.Context, localPort int) error {
 	if runner == nil {
 		runner = execProcessRunner{}
 	}
-	proc, err := runner.Start(ctx, n.bin(), args...)
+	var proc managedProcess
+	var err error
+	if token := strings.TrimSpace(n.Authtoken); token != "" {
+		envRunner, ok := runner.(envProcessRunner)
+		if !ok {
+			return errors.New("ngrok runner does not support secret env")
+		}
+		proc, err = envRunner.StartEnv(ctx, []string{ngrokAgentTokenEnv + "=" + token}, n.bin(), args...)
+	} else {
+		proc, err = runner.Start(ctx, n.bin(), args...)
+	}
 	if err != nil {
 		return err
 	}
@@ -236,8 +246,9 @@ type ngrokTunnelConfig struct {
 func selectNgrokTunnel(tunnels []ngrokTunnel, localPort int, domain string) (ngrokTunnel, bool, error) {
 	wantAddr := fmt.Sprintf("https://localhost:%d", localPort)
 	wantDomain := strings.TrimSpace(domain)
+	insecure := false
 	for _, t := range tunnels {
-		if t.PublicURL == "" || !strings.HasPrefix(t.PublicURL, "https://") {
+		if t.PublicURL == "" {
 			continue
 		}
 		if wantDomain != "" {
@@ -246,13 +257,28 @@ func selectNgrokTunnel(tunnels []ngrokTunnel, localPort int, domain string) (ngr
 				return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "invalid Agent API public_url", err)
 			}
 			if strings.EqualFold(u.Hostname(), wantDomain) {
+				if u.Scheme != "https" {
+					insecure = true
+					continue
+				}
 				return t, true, nil
 			}
 			continue
 		}
 		if t.Config.Addr == "" || strings.EqualFold(t.Config.Addr, wantAddr) {
+			u, err := url.Parse(t.PublicURL)
+			if err != nil {
+				return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "invalid Agent API public_url", err)
+			}
+			if u.Scheme != "https" {
+				insecure = true
+				continue
+			}
 			return t, true, nil
 		}
+	}
+	if insecure {
+		return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "Agent API exposed only non-HTTPS public_url", nil)
 	}
 	return ngrokTunnel{}, false, nil
 }

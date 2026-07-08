@@ -136,6 +136,29 @@ func TestDoctorTailscaleSkippedForLAN(t *testing.T) {
 	}
 }
 
+func TestDoctorNgrokPassesWithToken(t *testing.T) {
+	paths := doctorTestPaths(t, "ngrok")
+	t.Setenv(transport.NgrokBinEnv, fakeExecutable(t, "ngrok"))
+	t.Setenv(transport.NgrokDomainEnv, "demo.ngrok-free.app")
+	t.Setenv(transport.NgrokAuthtokenEnv, "ngrok-token-1234567890")
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "authtoken present") {
+		t.Fatalf("ngrok check = %#v", check)
+	}
+}
+
+func TestDoctorNgrokWarnsDomainWithoutToken(t *testing.T) {
+	paths := doctorTestPaths(t, "ngrok")
+	t.Setenv(transport.NgrokBinEnv, fakeExecutable(t, "ngrok"))
+	t.Setenv(transport.NgrokDomainEnv, "demo.ngrok-free.app")
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "transport provider")
+	if check.Status != Warn || !strings.Contains(check.Detail, transport.NgrokAuthtokenEnv) {
+		t.Fatalf("ngrok check = %#v", check)
+	}
+}
+
 func doctorTestPaths(t *testing.T, mode string) config.Paths {
 	t.Helper()
 	dir := t.TempDir()
@@ -164,6 +187,15 @@ func doctorTestPaths(t *testing.T, mode string) config.Paths {
 		t.Fatal(err)
 	}
 	return paths
+}
+
+func fakeExecutable(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func fakeTailscale(t *testing.T, statusJSON, serveJSON string) string {

@@ -258,11 +258,7 @@ func (r *runner) checkTransportProvider() {
 		}
 		r.checkCloudflared("transport provider", "Cloudflare Named coverage: unit + fake process + live opt-in")
 	case "ngrok":
-		if _, err := exec.LookPath(envDefault("ONIBI_NGROK_BIN", "ngrok")); err != nil {
-			r.add("transport provider", Warn, "ngrok binary not found")
-			return
-		}
-		r.add("transport provider", Pass, "ngrok coverage: unit + fake agent API + live opt-in")
+		r.checkNgrokProvider()
 	case "telegram":
 		r.add("transport provider", Pass, "Telegram coverage: unit + fake API + live opt-in; run onibi telegram status for pairing")
 	case "matrix":
@@ -301,6 +297,23 @@ func (r *runner) checkCloudflared(name, detail string) {
 		return
 	}
 	r.add(name, Pass, detail)
+}
+
+func (r *runner) checkNgrokProvider() {
+	if _, err := exec.LookPath(envDefault(transport.NgrokBinEnv, "ngrok")); err != nil {
+		r.add("transport provider", Warn, "ngrok binary not found")
+		return
+	}
+	ng := transport.NewNgrokFromEnv()
+	if err := ng.Check(r.ctx); err != nil {
+		r.add("transport provider", Warn, err.Error())
+		return
+	}
+	detail := "ngrok coverage: unit + fake agent API + live opt-in"
+	if strings.TrimSpace(ng.Authtoken) != "" {
+		detail = "ngrok authtoken present; " + detail
+	}
+	r.add("transport provider", Pass, detail)
 }
 
 func (r *runner) checkMatrixProvider() {

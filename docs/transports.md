@@ -271,14 +271,18 @@ Without keychain/API-token auth, Onibi keeps the existing locally-managed path: 
 ngrok http https://localhost:<web-port>
 ```
 
-Onibi discovers the public URL from the local Agent API at `http://127.0.0.1:4040/api/tunnels`.
+Onibi discovers the public URL from the local Agent API at `http://127.0.0.1:4040/api/tunnels` and accepts only `https://` public URLs. If the Agent API exposes only `http://`, startup fails instead of printing an insecure pairing URL.
 
 Optional:
 
 ```bash
-ONIBI_NGROK_AUTHTOKEN=<token>
+onibi ngrok setup --authtoken <token>
 ONIBI_NGROK_DOMAIN=<reserved-domain>
 ONIBI_NGROK_AGENT_API=http://127.0.0.1:4040
 ```
 
-Reserved domains require an auth token. Cleanup requests tunnel shutdown through the Agent API and then kills the local process.
+`onibi ngrok setup` stores the authtoken as `onibi.ngrok.token.v1` in the OS secret store, with the same 0600 dotenv fallback used by other Onibi credentials. `ONIBI_NGROK_AUTHTOKEN` remains an env-only override for automation. Reserved domains require an auth token.
+
+Run `onibi doctor --transport=ngrok` before startup to verify the `ngrok` binary and reserved-domain token state. Cleanup requests tunnel shutdown through the Agent API and then kills the local process.
+
+ngrok free-plan limits change over time; current ngrok docs list HTTP request rate limits, TCP connection rate limits, monthly HTTP request quotas, and data-transfer quotas. Check https://ngrok.com/docs/pricing-limits/free-plan-limits before using ngrok for long-running or shared demos.

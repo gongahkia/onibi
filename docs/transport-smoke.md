@@ -182,11 +182,13 @@ ONIBI_LIVE_NGROK=1 go test ./internal/web/transport -run LiveNgrok
 Optional:
 
 ```bash
-ONIBI_NGROK_AUTHTOKEN=...
+onibi ngrok setup --authtoken ...
 ONIBI_NGROK_DOMAIN=...
 ```
 
+- Run `onibi doctor --transport=ngrok` and confirm the `transport provider` check passes. If using `ONIBI_NGROK_DOMAIN`, confirm the authtoken is present from keyring or `ONIBI_NGROK_AUTHTOKEN`.
 - Run `onibi up --transport=ngrok`.
-- Confirm QR URL includes `#k=...`.
+- Confirm QR URL includes `#k=...` and starts with `https://`.
 - Pair from iPhone Safari and Chrome over LTE.
 - Confirm Agent API tunnel cleanup and process cleanup in logs.
+- Keep demos under ngrok's current free-plan quotas; check https://ngrok.com/docs/pricing-limits/free-plan-limits before public sharing.
