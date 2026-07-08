@@ -1063,14 +1063,14 @@ func (d *Daemon) ntfyApprovalActions(a *approval.Approval) ([]ntfy.Action, error
 	if baseURL == "" {
 		return nil, nil
 	}
-	if d.ntfyActionSigner == nil {
+	if d.notifyActionSigner == nil {
 		return nil, errors.New("ntfy action signer unavailable")
 	}
-	approveURL, err := d.ntfyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
+	approveURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
 	if err != nil {
 		return nil, err
 	}
-	denyURL, err := d.ntfyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
+	denyURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -1105,12 +1105,55 @@ func (d *Daemon) publishNtfyWithRetry(ctx context.Context, c *ntfy.Client, a *ap
 
 func (d *Daemon) runGotifyNotifier(ctx context.Context, c *gotify.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		if err := c.Send(ctx, gotify.Message{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Priority: 8}); err != nil {
+		body := formatApprovalWithPolicy(a, d.providerOutputPolicy("notify"))
+		msg := gotify.Message{Title: "Onibi approval", Message: body, Priority: 8}
+		pageURL, err := d.gotifyApprovalPageURL(a)
+		if err != nil {
+			d.audit(ctx, "notify.gotify.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+		} else if pageURL != "" {
+			msg.Message += "\n\nOpen approval: " + pageURL
+			msg.Extras = gotify.ApprovalExtras(pageURL)
+		}
+		if err := d.publishGotifyWithRetry(ctx, c, a, msg); err != nil {
 			d.audit(ctx, "notify.gotify.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 			return
 		}
-		d.audit(ctx, "notify.gotify.sent", a.SessionID, "", 0, "approval="+a.ID)
+		d.audit(ctx, "notify.gotify.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s action_url=%t", a.ID, pageURL != ""))
 	})
+}
+
+func (d *Daemon) gotifyApprovalPageURL(a *approval.Approval) (string, error) {
+	baseURL := strings.TrimSpace(d.Gotify.ActionBaseURL)
+	if baseURL == "" {
+		return "", nil
+	}
+	if d.notifyActionSigner == nil {
+		return "", errors.New("notify action signer unavailable")
+	}
+	return d.notifyActionSigner.SignedGotifyApprovalPageURL(baseURL, a.ID, time.Now())
+}
+
+func (d *Daemon) publishGotifyWithRetry(ctx context.Context, c *gotify.Client, a *approval.Approval, msg gotify.Message) error {
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := c.Send(ctx, msg); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+		if attempt == 3 {
+			break
+		}
+		d.audit(ctx, "notify.gotify.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, last.Error()))
+		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

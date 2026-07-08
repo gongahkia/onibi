@@ -2,10 +2,13 @@ package gotify
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -73,4 +76,60 @@ func TestSubscribeWSUsesClientToken(t *testing.T) {
 	if !strings.Contains(string(p), `"hi"`) {
 		t.Fatalf("payload = %s", p)
 	}
+}
+
+func TestParityAxes(t *testing.T) {
+	t.Run("extras", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var msg Message
+			if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+				t.Fatal(err)
+			}
+			notification, ok := msg.Extras["client::notification"].(map[string]any)
+			if !ok {
+				t.Fatalf("extras = %#v", msg.Extras)
+			}
+			click := notification["click"].(map[string]any)
+			if click["url"] != "https://onibi.example/gotify/approval/a1" {
+				t.Fatalf("click = %#v", click)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+		msg := Message{Title: "Approval", Message: "Open: https://onibi.example/gotify/approval/a1", Priority: 8, Extras: ApprovalExtras("https://onibi.example/gotify/approval/a1")}
+		if err := New(srv.URL, "app", "client").Send(t.Context(), msg); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tail reconnect", func(t *testing.T) {
+		calls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/stream" || r.URL.Query().Get("token") != "client" {
+				t.Fatalf("url = %s", r.URL.String())
+			}
+			calls++
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.CloseNow()
+			_ = conn.Write(r.Context(), websocket.MessageText, []byte(fmt.Sprintf(`{"id":%d,"message":"m%d"}`, calls, calls)))
+		}))
+		defer srv.Close()
+		var got []string
+		errStop := errors.New("stop")
+		err := New(srv.URL, "app", "client").Tail(t.Context(), TailOptions{RetryMin: time.Millisecond, RetryMax: time.Millisecond, MaxReconnects: 2}, func(msg StreamMessage) error {
+			got = append(got, msg.Message)
+			if len(got) == 2 {
+				return errStop
+			}
+			return nil
+		})
+		if !errors.Is(err, errStop) {
+			t.Fatalf("err = %v", err)
+		}
+		if strings.Join(got, ",") != "m1,m2" {
+			t.Fatalf("got = %#v", got)
+		}
+	})
 }
