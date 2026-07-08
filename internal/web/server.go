@@ -52,6 +52,7 @@ type Options struct {
 	UploadDir       string
 	RelayKeys       *RelayKeys
 	RequireE2E      bool
+	ActionSigner    *ActionSigner
 	Log             *slog.Logger
 }
 
@@ -78,6 +79,7 @@ type Server struct {
 	uploadDir       string
 	relayKeys       *RelayKeys
 	requireE2E      bool
+	actionSigner    *ActionSigner
 	log             *slog.Logger
 	e2eMu           sync.Mutex
 	e2eHTTPReplay   map[string]time.Time
@@ -111,6 +113,7 @@ func New(opts Options) *Server {
 		uploadDir:       opts.UploadDir,
 		relayKeys:       opts.RelayKeys,
 		requireE2E:      opts.RequireE2E,
+		actionSigner:    opts.ActionSigner,
 		log:             opts.Log,
 	}
 }
@@ -152,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
+	mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
 	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
 	mux.HandleFunc("/", s.handleRoot)

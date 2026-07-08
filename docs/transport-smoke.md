@@ -129,10 +129,11 @@ ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... ONIBI
 ntfy:
 
 ```bash
-ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> go test ./internal/ntfy -run LiveNtfy
+ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> ONIBI_NTFY_STREAM=1 go test ./internal/ntfy -run LiveNtfy
 ```
 
-- Confirm publish and WebSocket subscribe receive the same approval text.
+- Confirm publish and JSON stream subscribe receive the same approval text.
+- With `ONIBI_NTFY_ACTION_BASE_URL` set to a reachable Onibi web origin, confirm ntfy web/Android render Approve/Deny actions.
 - Confirm short, repeated, single-class, or guessable topics are rejected before startup.
 
 Gotify:

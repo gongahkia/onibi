@@ -80,6 +80,7 @@ type Daemon struct {
 	discordMu             sync.Mutex
 	discordApprovals      map[string]discordApprovalRef
 	discordTailThreads    map[string]string
+	ntfyActionSigner      *web.ActionSigner
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	budgetDaily           map[string]int64
@@ -165,9 +166,10 @@ type PushoverOptions struct {
 }
 
 type NtfyOptions struct {
-	BaseURL string
-	Topic   string
-	Token   string
+	BaseURL       string
+	Topic         string
+	Token         string
+	ActionBaseURL string
 }
 
 type GotifyOptions struct {
@@ -474,6 +476,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	d.startAutoUpdateChecks(ctx, &wg)
+	if strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" && d.ntfyActionSigner == nil {
+		signer, err := web.NewActionSigner(nil)
+		if err != nil {
+			return err
+		}
+		d.ntfyActionSigner = signer
+	}
 
 	if d.WebAddr != "" {
 		if d.DB != nil {
@@ -512,6 +521,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			UploadDir:       filepath.Join(d.Paths.StateDir, "uploads"),
 			RelayKeys:       d.RelayKeys,
 			RequireE2E:      d.RequireWebE2E,
+			ActionSigner:    d.ntfyActionSigner,
 			Log:             d.Log,
 		})
 		wg.Add(1)

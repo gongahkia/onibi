@@ -2,6 +2,7 @@ package ntfy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,9 +27,34 @@ type Client struct {
 }
 
 type Message struct {
-	Title string
-	Body  string
-	Tags  string
+	Title   string
+	Body    string
+	Tags    string
+	Actions []Action
+}
+
+type Action struct {
+	Type   string
+	Label  string
+	URL    string
+	Method string
+	Clear  bool
+}
+
+type StreamMessage struct {
+	ID      string `json:"id"`
+	Time    int64  `json:"time"`
+	Event   string `json:"event"`
+	Topic   string `json:"topic"`
+	Title   string `json:"title"`
+	Message string `json:"message"`
+}
+
+type TailOptions struct {
+	Since         string
+	RetryMin      time.Duration
+	RetryMax      time.Duration
+	MaxReconnects int
 }
 
 func New(baseURL, topic, token string) *Client {
@@ -91,6 +117,13 @@ func (c *Client) Publish(ctx context.Context, msg Message) error {
 	if msg.Tags != "" {
 		req.Header.Set("Tags", msg.Tags)
 	}
+	if len(msg.Actions) > 0 {
+		header, err := ActionsHeader(msg.Actions)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("X-Actions", header)
+	}
 	hc := c.HTTP
 	if hc == nil {
 		hc = http.DefaultClient
@@ -105,6 +138,166 @@ func (c *Client) Publish(ctx context.Context, msg Message) error {
 		return fmt.Errorf("ntfy publish status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
+}
+
+func ActionsHeader(actions []Action) (string, error) {
+	if len(actions) > 3 {
+		return "", errors.New("ntfy supports at most 3 actions")
+	}
+	parts := make([]string, 0, len(actions))
+	for _, action := range actions {
+		part, err := actionHeader(action)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+func actionHeader(action Action) (string, error) {
+	typ := strings.ToLower(strings.TrimSpace(action.Type))
+	label := strings.TrimSpace(action.Label)
+	target := strings.TrimSpace(action.URL)
+	if label == "" {
+		return "", errors.New("ntfy action label required")
+	}
+	switch typ {
+	case "view":
+		if target == "" {
+			return "", errors.New("ntfy view action url required")
+		}
+		out := "view, " + quoteActionValue(label) + ", " + quoteActionValue(target)
+		if action.Clear {
+			out += ", clear=true"
+		}
+		return out, nil
+	case "http":
+		if target == "" {
+			return "", errors.New("ntfy http action url required")
+		}
+		method := strings.ToUpper(strings.TrimSpace(action.Method))
+		if method == "" {
+			method = http.MethodPost
+		}
+		out := "http, " + quoteActionValue(label) + ", " + quoteActionValue(target) + ", method=" + method
+		if action.Clear {
+			out += ", clear=true"
+		}
+		return out, nil
+	default:
+		return "", fmt.Errorf("unsupported ntfy action type %q", action.Type)
+	}
+}
+
+func quoteActionValue(value string) string {
+	if !strings.ContainsAny(value, `,;"`) {
+		return value
+	}
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return `"` + value + `"`
+}
+
+func (c *Client) StreamJSON(ctx context.Context, since string, handle func(StreamMessage) error) error {
+	_, err := c.streamJSON(ctx, since, handle)
+	return err
+}
+
+func (c *Client) TailJSON(ctx context.Context, opts TailOptions, handle func(StreamMessage) error) error {
+	minBackoff := opts.RetryMin
+	if minBackoff <= 0 {
+		minBackoff = 250 * time.Millisecond
+	}
+	maxBackoff := opts.RetryMax
+	if maxBackoff <= 0 || maxBackoff < minBackoff {
+		maxBackoff = 2 * time.Second
+	}
+	backoff := minBackoff
+	since := strings.TrimSpace(opts.Since)
+	reconnects := 0
+	for {
+		lastID, err := c.streamJSON(ctx, since, handle)
+		if lastID != "" {
+			since = lastID
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			if opts.MaxReconnects > 0 && reconnects >= opts.MaxReconnects {
+				return err
+			}
+		} else if opts.MaxReconnects > 0 && reconnects >= opts.MaxReconnects {
+			return nil
+		}
+		reconnects++
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+}
+
+func (c *Client) streamJSON(ctx context.Context, since string, handle func(StreamMessage) error) (string, error) {
+	if err := c.validate(); err != nil {
+		return "", err
+	}
+	if handle == nil {
+		return "", errors.New("ntfy stream handler required")
+	}
+	u, err := url.Parse(c.topicURL() + "/json")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(since) != "" {
+		q := u.Query()
+		q.Set("since", strings.TrimSpace(since))
+		u.RawQuery = q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	hc := c.HTTP
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("ntfy subscribe status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	dec := json.NewDecoder(resp.Body)
+	lastID := ""
+	for {
+		var msg StreamMessage
+		if err := dec.Decode(&msg); err != nil {
+			return lastID, err
+		}
+		if msg.ID != "" {
+			lastID = msg.ID
+		}
+		if err := handle(msg); err != nil {
+			return lastID, err
+		}
+	}
 }
 
 func (c *Client) SubscribeWS(ctx context.Context) (*websocket.Conn, error) {

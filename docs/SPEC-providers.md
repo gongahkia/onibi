@@ -150,7 +150,7 @@ below the target contract; `no` means not implemented today.
 | Slack | yes | yes | yes | yes | no | partial | no | partial |
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
-| ntfy | yes | no | notify-only | no | partial | no | no | partial |
+| ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | no | notify-only | no | partial | no | no | partial |
 
 <!-- markdownlint-enable MD013 -->
@@ -174,9 +174,10 @@ v2 buttons, tail streams, and full audit parity.
 Pushover is notify-only. It can send emergency-priority approval alerts and poll
 receipts, but it does not provide terminal input or native edit decisions.
 
-ntfy is notify-only today. It validates topic secrecy and can use WebSocket
-subscribe for smoke checks, but E6 tracks action buttons, password E2E, topic
-tailing, and audit parity.
+ntfy validates topic secrecy, publishes optional signed Approve/Deny action
+buttons, and can tail the JSON topic stream with reconnect/replay. Password E2E
+is not implemented because current official ntfy publish docs do not verify
+`X-Message-Encryption` support.
 
 Gotify is notify-only today. It sends REST messages and can validate the client
 token for smoke checks. E7 tracks WebSocket streaming and callback action

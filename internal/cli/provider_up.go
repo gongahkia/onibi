@@ -129,7 +129,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 		}
 		return opts, "Pushover", nil
 	case "ntfy":
-		opts.Ntfy = daemon.NtfyOptions{BaseURL: strings.TrimSpace(os.Getenv("ONIBI_NTFY_BASE_URL")), Topic: envRequired("ONIBI_NTFY_TOPIC"), Token: strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOKEN"))}
+		opts.Ntfy = daemon.NtfyOptions{BaseURL: strings.TrimSpace(os.Getenv("ONIBI_NTFY_BASE_URL")), Topic: envRequired("ONIBI_NTFY_TOPIC"), Token: strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOKEN")), ActionBaseURL: strings.TrimSpace(os.Getenv("ONIBI_NTFY_ACTION_BASE_URL"))}
 		if opts.Ntfy.Topic == "" {
 			return opts, "", fmt.Errorf("ntfy requires ONIBI_NTFY_TOPIC")
 		}

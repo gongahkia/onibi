@@ -20,7 +20,7 @@ The supported transports are:
 - `slack`: Slack Socket Mode workspace control.
 - `discord`: Discord Gateway bot control with slash-command fallback.
 - `pushover`: notify-only approval alerts.
-- `ntfy`: notify-only topic alerts.
+- `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: notify-only self-hosted alerts.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
@@ -248,10 +248,11 @@ ntfy:
 ONIBI_NTFY_TOPIC=<20+ char random secret>
 ONIBI_NTFY_BASE_URL=https://ntfy.sh
 ONIBI_NTFY_TOKEN=...
+ONIBI_NTFY_ACTION_BASE_URL=https://<reachable-onibi-web-origin>
 onibi up --transport=ntfy
 ```
 
-The ntfy topic is treated as a secret; short, repeated, single-class, or guessable topics are rejected. WebSocket subscribe supports replay smoke checks with `since`.
+The ntfy topic is treated as a secret; short, repeated, single-class, or guessable topics are rejected. When `ONIBI_NTFY_ACTION_BASE_URL` is set, approval alerts include two ntfy `http` action buttons for Approve/Deny. The action URLs are HMAC-signed, single-use, and expire after 5 minutes. JSON stream subscribe uses `<topic>/json`, replays with `since`, and reconnects with the last message id. Current official ntfy docs cover HTTPS/authenticated topics and access tokens; Onibi does not claim native ntfy password E2E via `X-Message-Encryption`.
 
 Gotify:
 

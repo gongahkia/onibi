@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 
@@ -1042,12 +1043,64 @@ func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a
 
 func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {
 	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		if err := c.Publish(ctx, ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Tags: "warning"}); err != nil {
+		msg := ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Tags: "warning"}
+		actions, err := d.ntfyApprovalActions(a)
+		if err != nil {
+			d.audit(ctx, "notify.ntfy.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+		} else {
+			msg.Actions = actions
+		}
+		if err := d.publishNtfyWithRetry(ctx, c, a, msg); err != nil {
 			d.audit(ctx, "notify.ntfy.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 			return
 		}
-		d.audit(ctx, "notify.ntfy.sent", a.SessionID, "", 0, "approval="+a.ID)
+		d.audit(ctx, "notify.ntfy.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s actions=%d", a.ID, len(msg.Actions)))
 	})
+}
+
+func (d *Daemon) ntfyApprovalActions(a *approval.Approval) ([]ntfy.Action, error) {
+	baseURL := strings.TrimSpace(d.Ntfy.ActionBaseURL)
+	if baseURL == "" {
+		return nil, nil
+	}
+	if d.ntfyActionSigner == nil {
+		return nil, errors.New("ntfy action signer unavailable")
+	}
+	approveURL, err := d.ntfyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	denyURL, err := d.ntfyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return []ntfy.Action{
+		{Type: "http", Label: "Approve", URL: approveURL, Method: http.MethodPost, Clear: true},
+		{Type: "http", Label: "Deny", URL: denyURL, Method: http.MethodPost, Clear: true},
+	}, nil
+}
+
+func (d *Daemon) publishNtfyWithRetry(ctx context.Context, c *ntfy.Client, a *approval.Approval, msg ntfy.Message) error {
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := c.Publish(ctx, msg); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+		if attempt == 3 {
+			break
+		}
+		d.audit(ctx, "notify.ntfy.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, last.Error()))
+		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last
 }
 
 func (d *Daemon) runGotifyNotifier(ctx context.Context, c *gotify.Client) {
