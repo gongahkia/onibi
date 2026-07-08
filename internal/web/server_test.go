@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -23,7 +24,7 @@ import (
 	"github.com/gongahkia/onibi/internal/workspace"
 )
 
-func TestGenerateOrLoadCertRoundTrip(t *testing.T) {
+func TestCertGenerateOrLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cert1, err := GenerateOrLoadCert(dir)
 	if err != nil {
@@ -77,6 +78,74 @@ func TestGenerateOrLoadCertRoundTrip(t *testing.T) {
 		if got := info.Mode().Perm(); got != 0o600 {
 			t.Fatalf("%s mode = %o", name, got)
 		}
+	}
+}
+
+func TestCertRegeneratesTruncatedServerCert(t *testing.T) {
+	dir := t.TempDir()
+	cert1, err := GenerateOrLoadCert(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := LocalCertPaths(dir)
+	if err := os.Truncate(paths.ServerCert, 100); err != nil {
+		t.Fatal(err)
+	}
+	cert2, err := GenerateOrLoadCert(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cert1.Certificate) == 0 || len(cert2.Certificate) == 0 {
+		t.Fatal("missing certificate DER")
+	}
+	if bytes.Equal(cert1.Certificate[0], cert2.Certificate[0]) {
+		t.Fatal("truncated server cert was not regenerated")
+	}
+	info, err := os.Stat(paths.ServerCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() <= 100 {
+		t.Fatalf("server cert was not rewritten, size=%d", info.Size())
+	}
+	leaf, err := x509.ParseCertificate(cert2.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaf.NotBefore.After(time.Now()) || !leaf.NotAfter.After(time.Now().AddDate(0, 11, 0)) {
+		t.Fatalf("unexpected validity: %s..%s", leaf.NotBefore, leaf.NotAfter)
+	}
+}
+
+func TestCertRetriesFailedServerReadback(t *testing.T) {
+	dir := t.TempDir()
+	calls := 0
+	old := validateServerReadbackFunc
+	validateServerReadbackFunc = func(paths CertPaths, caCert *x509.Certificate, now time.Time) (tls.Certificate, error) {
+		calls++
+		if calls == 1 {
+			_ = os.Truncate(paths.ServerCert, 100)
+			return tls.Certificate{}, errors.New("forced readback failure")
+		}
+		return old(paths, caCert, now)
+	}
+	t.Cleanup(func() { validateServerReadbackFunc = old })
+	cert, err := GenerateOrLoadCert(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("readback calls = %d, want 2", calls)
+	}
+	if len(cert.Certificate) == 0 {
+		t.Fatal("missing certificate DER")
+	}
+	info, err := os.Stat(LocalCertPaths(dir).ServerCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() <= 100 {
+		t.Fatalf("server cert was not rewritten, size=%d", info.Size())
 	}
 }
 

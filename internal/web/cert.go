@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -22,6 +23,11 @@ import (
 const (
 	localCAName     = "Onibi local CA"
 	localServerName = "Onibi local cockpit"
+)
+
+var (
+	validateCAReadbackFunc     = validateCAReadback
+	validateServerReadbackFunc = validateServerReadback
 )
 
 type CertPaths struct {
@@ -76,6 +82,20 @@ func loadOrCreateCA(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.P
 }
 
 func createCA(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	cert, key, err := createCAOnce(paths, now)
+	if err == nil {
+		return cert, key, nil
+	}
+	slog.Warn("local ca certificate validation failed; retrying", "err", err)
+	removeCertPair(paths.CACert, paths.CAKey)
+	cert, key, err = createCAOnce(paths, now)
+	if err != nil {
+		return nil, nil, fmt.Errorf("local CA certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi up", err, paths.CACert, paths.CAKey)
+	}
+	return cert, key, nil
+}
+
+func createCAOnce(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate ca key: %w", err)
@@ -109,17 +129,31 @@ func createCA(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.Private
 	if err := os.WriteFile(paths.CAKey, keyPEM, 0o600); err != nil {
 		return nil, nil, fmt.Errorf("write ca key: %w", err)
 	}
-	if err := writeMobileConfig(paths.MobileConfig, certPEM); err != nil {
+	cert, key, err := validateCAReadbackFunc(paths, now)
+	if err != nil {
 		return nil, nil, err
 	}
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parse ca cert: %w", err)
+	if err := writeMobileConfig(paths.MobileConfig, certPEM); err != nil {
+		return nil, nil, err
 	}
 	return cert, key, nil
 }
 
 func createServerCert(paths CertPaths, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, lanIPs []net.IP, now time.Time) (tls.Certificate, error) {
+	cert, err := createServerCertOnce(paths, caCert, caKey, lanIPs, now)
+	if err == nil {
+		return cert, nil
+	}
+	slog.Warn("server certificate validation failed; retrying", "err", err)
+	removeCertPair(paths.ServerCert, paths.ServerKey)
+	cert, err = createServerCertOnce(paths, caCert, caKey, lanIPs, now)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("server certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi up", err, paths.ServerCert, paths.ServerKey)
+	}
+	return cert, nil
+}
+
+func createServerCertOnce(paths CertPaths, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, lanIPs []net.IP, now time.Time) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("generate server key: %w", err)
@@ -159,7 +193,7 @@ func createServerCert(paths CertPaths, caCert *x509.Certificate, caKey *ecdsa.Pr
 	if err := os.WriteFile(paths.ServerKey, keyPEM, 0o600); err != nil {
 		return tls.Certificate{}, fmt.Errorf("write server key: %w", err)
 	}
-	return tls.X509KeyPair(certPEM, keyPEM)
+	return validateServerReadbackFunc(paths, caCert, now)
 }
 
 func loadUsableServerCert(paths CertPaths, caCert *x509.Certificate, lanIPs []net.IP, now time.Time) (tls.Certificate, bool) {
@@ -210,6 +244,71 @@ func parseECPrivateKey(keyPEM []byte) (*ecdsa.PrivateKey, bool) {
 	}
 	key, err := x509.ParseECPrivateKey(block.Bytes)
 	return key, err == nil
+}
+
+func validateCAReadback(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	certPEM, err := os.ReadFile(paths.CACert)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read back ca cert: %w", err)
+	}
+	keyPEM, err := os.ReadFile(paths.CAKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read back ca key: %w", err)
+	}
+	cert, ok := parseSingleCert(certPEM)
+	if !ok {
+		return nil, nil, fmt.Errorf("read back ca cert: parse failed")
+	}
+	key, ok := parseECPrivateKey(keyPEM)
+	if !ok {
+		return nil, nil, fmt.Errorf("read back ca key: parse failed")
+	}
+	if !cert.IsCA {
+		return nil, nil, fmt.Errorf("read back ca cert: not a CA")
+	}
+	if err := validateCertDate("ca cert", cert, now); err != nil {
+		return nil, nil, err
+	}
+	return cert, key, nil
+}
+
+func validateServerReadback(paths CertPaths, caCert *x509.Certificate, now time.Time) (tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(paths.ServerCert, paths.ServerKey)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("read back server key pair: %w", err)
+	}
+	if len(cert.Certificate) == 0 {
+		return tls.Certificate{}, fmt.Errorf("read back server key pair: missing certificate DER")
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("read back server cert: parse failed: %w", err)
+	}
+	if leaf.IsCA {
+		return tls.Certificate{}, fmt.Errorf("read back server cert: unexpectedly a CA")
+	}
+	if err := validateCertDate("server cert", leaf, now); err != nil {
+		return tls.Certificate{}, err
+	}
+	if err := leaf.CheckSignatureFrom(caCert); err != nil {
+		return tls.Certificate{}, fmt.Errorf("read back server cert: ca signature check failed: %w", err)
+	}
+	return cert, nil
+}
+
+func validateCertDate(name string, cert *x509.Certificate, now time.Time) error {
+	if now.Before(cert.NotBefore) {
+		return fmt.Errorf("read back %s: not valid before %s", name, cert.NotBefore.Format(time.RFC3339))
+	}
+	if !now.Before(cert.NotAfter) {
+		return fmt.Errorf("read back %s: expired at %s", name, cert.NotAfter.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func removeCertPair(certPath, keyPath string) {
+	_ = os.Remove(certPath)
+	_ = os.Remove(keyPath)
 }
 
 func writeMobileConfig(path string, certPEM []byte) error {
