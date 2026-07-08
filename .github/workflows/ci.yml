@@ -42,6 +42,19 @@ jobs:
       - name: run staticcheck
         run: staticcheck ./...
 
+  fuzz:
+    name: fuzz approval queue
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: fuzz Decide
+        run: go test -fuzz=FuzzDecide -fuzztime=30s ./internal/approval
+
   readme:
     name: readme up-to-date
     runs-on: ubuntu-latest

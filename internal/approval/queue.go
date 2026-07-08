@@ -240,6 +240,9 @@ func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict
 	if st == "" {
 		return DecisionResult{}, fmt.Errorf("invalid verdict %q", verdict)
 	}
+	if verdict == VerdictEdit && !json.Valid([]byte(editedJSON)) {
+		return DecisionResult{}, fmt.Errorf("edited approval input must be valid JSON")
+	}
 	now := time.Now()
 	a, err := q.Get(ctx, id)
 	if err != nil {
