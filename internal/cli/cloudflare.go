@@ -85,6 +85,9 @@ func runCloudflareStatus(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	_, tokenOK, tokenErr := st.Get(webtransport.CloudflareSecretAPIToken)
+	if !tokenOK && tokenErr == nil {
+		_, tokenOK, tokenErr = st.Get(webtransport.CloudflareLegacySecretAPIToken)
+	}
 	envToken := envSet(webtransport.CloudflareAPITokenEnv)
 	secretBackend := string(st.Backend())
 	if envToken {
@@ -166,8 +169,10 @@ func runCloudflareDisable(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if err := st.Delete(webtransport.CloudflareSecretAPIToken); err != nil {
-		return err
+	for _, key := range []string{webtransport.CloudflareSecretAPIToken, webtransport.CloudflareLegacySecretAPIToken} {
+		if err := st.Delete(key); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), styleFor(cmd).green("[OK]"), "Cloudflare disabled.")
 	return nil

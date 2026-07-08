@@ -29,12 +29,20 @@ func TestCloudflareSetupStatusDisableCLI(t *testing.T) {
 	if !status.APIToken || !status.AccountID || !status.TunnelID || !status.TunnelName || !status.Hostname {
 		t.Fatalf("status = %+v", status)
 	}
-	executeRoot(t, "cloudflare", "disable", "--color", "never")
 	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := st.Get(webtransport.CloudflareSecretAPIToken); err != nil || ok {
-		t.Fatalf("token after disable ok=%v err=%v", ok, err)
+	if got, ok, err := st.Get(webtransport.CloudflareSecretAPIToken); err != nil || !ok || got != "cf-api-token-1234567890" {
+		t.Fatalf("stored token got=%q ok=%v err=%v", got, ok, err)
+	}
+	if err := st.Set(webtransport.CloudflareLegacySecretAPIToken, "legacy-token"); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "cloudflare", "disable", "--color", "never")
+	for _, key := range []string{webtransport.CloudflareSecretAPIToken, webtransport.CloudflareLegacySecretAPIToken} {
+		if _, ok, err := st.Get(key); err != nil || ok {
+			t.Fatalf("%s after disable ok=%v err=%v", key, ok, err)
+		}
 	}
 }

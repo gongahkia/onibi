@@ -2,6 +2,9 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +162,46 @@ func TestDoctorNgrokWarnsDomainWithoutToken(t *testing.T) {
 	}
 }
 
+func TestDoctorCloudflareNamedChecksTokenAndTunnelStatus(t *testing.T) {
+	paths := doctorTestPaths(t, "cloudflare-named")
+	t.Setenv(transport.CloudflaredBinEnv, fakeCloudflaredInfo(t, "named", `{"id":"tunnel-id","routes":[{"hostname":"app.example.com","tunnel_id":"tunnel-id"}]}`))
+	t.Setenv(transport.CloudflareTunnelNameEnv, "named")
+	t.Setenv(transport.CloudflareHostnameEnv, "app.example.com")
+	t.Setenv(transport.CloudflareAccountIDEnv, "account-1")
+	t.Setenv(transport.CloudflareTunnelIDEnv, "tunnel-id")
+	t.Setenv(transport.CloudflareAPITokenEnv, "cf-api-token-1234567890")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts/account-1/cfd_tunnel/tunnel-id/token" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer cf-api-token-1234567890" {
+			t.Fatalf("authorization = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": "cf-tunnel-token"})
+	}))
+	defer srv.Close()
+	t.Setenv(transport.CloudflareAPIBaseEnv, srv.URL)
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "token/tunnel status") {
+		t.Fatalf("cloudflare check = %#v", check)
+	}
+}
+
+func TestDoctorCloudflareNamedWarnsAPITokenMissing(t *testing.T) {
+	paths := doctorTestPaths(t, "cloudflare-named")
+	t.Setenv(transport.CloudflaredBinEnv, fakeExecutable(t, "cloudflared"))
+	t.Setenv(transport.CloudflareTunnelNameEnv, "named")
+	t.Setenv(transport.CloudflareHostnameEnv, "app.example.com")
+	t.Setenv(transport.CloudflareAccountIDEnv, "account-1")
+	t.Setenv(transport.CloudflareTunnelIDEnv, "tunnel-id")
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "transport provider")
+	if check.Status != Warn || !strings.Contains(check.Detail, "cloudflare setup") {
+		t.Fatalf("cloudflare check = %#v", check)
+	}
+}
+
 func doctorTestPaths(t *testing.T, mode string) config.Paths {
 	t.Helper()
 	dir := t.TempDir()
@@ -193,6 +236,19 @@ func fakeExecutable(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeCloudflaredInfo(t *testing.T, tunnel, out string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cloudflared")
+	body := "#!/bin/sh\ncase \"$*\" in\n" +
+		"\"tunnel info " + tunnel + "\") cat <<'JSON'\n" + out + "\nJSON\n;;\n" +
+		"*) echo unexpected cloudflared args: \"$*\" >&2; exit 2;;\n" +
+		"esac\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path

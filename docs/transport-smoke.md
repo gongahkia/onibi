@@ -169,6 +169,7 @@ ONIBI_LIVE_CLOUDFLARE_NAMED=1 go test ./internal/web/transport -run LiveCloudfla
 ```
 
 - Confirm route belongs to the configured tunnel before running.
+- Run `onibi doctor --transport=cloudflare-named` and confirm token retrieval plus `cloudflared tunnel info` pass.
 - Run `onibi up --transport=cloudflare-named`.
 - Pair from iPhone Safari and Chrome over LTE.
 - Confirm no account-side tunnel/route teardown occurs by default.

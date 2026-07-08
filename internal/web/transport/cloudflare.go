@@ -17,22 +17,23 @@ import (
 )
 
 const (
-	CloudflaredBinEnv             = "ONIBI_CLOUDFLARED_BIN"
-	CloudflareTunnelEnv           = "ONIBI_CLOUDFLARE_TUNNEL"
-	CloudflareTunnelNameEnv       = "ONIBI_CLOUDFLARE_TUNNEL_NAME"
-	CloudflareTunnelIDEnv         = "ONIBI_CLOUDFLARE_TUNNEL_ID"
-	CloudflareHostnameEnv         = "ONIBI_CLOUDFLARE_HOSTNAME"
-	CloudflareAccountIDEnv        = "ONIBI_CLOUDFLARE_ACCOUNT_ID"
-	CloudflareAPITokenEnv         = "ONIBI_CLOUDFLARE_API_TOKEN"
-	CloudflareTunnelTokenEnv      = "ONIBI_CLOUDFLARE_TUNNEL_TOKEN"
-	CloudflareAPIBaseEnv          = "ONIBI_CLOUDFLARE_API_BASE"
-	CloudflareNamedTeardownEnv    = "ONIBI_CLOUDFLARE_TEARDOWN"
-	CloudflareSecretAPIToken      = "CLOUDFLARE_API_TOKEN"
-	cloudflareQuickProvider       = "cloudflare-quick"
-	cloudflareNamedProvider       = "cloudflare-named"
-	cloudflareActivationWait      = 20 * time.Second
-	cloudflareNamedReadySubstring = "registered tunnel connection"
-	defaultCloudflareAPIBase      = "https://api.cloudflare.com/client/v4"
+	CloudflaredBinEnv              = "ONIBI_CLOUDFLARED_BIN"
+	CloudflareTunnelEnv            = "ONIBI_CLOUDFLARE_TUNNEL"
+	CloudflareTunnelNameEnv        = "ONIBI_CLOUDFLARE_TUNNEL_NAME"
+	CloudflareTunnelIDEnv          = "ONIBI_CLOUDFLARE_TUNNEL_ID"
+	CloudflareHostnameEnv          = "ONIBI_CLOUDFLARE_HOSTNAME"
+	CloudflareAccountIDEnv         = "ONIBI_CLOUDFLARE_ACCOUNT_ID"
+	CloudflareAPITokenEnv          = "ONIBI_CLOUDFLARE_API_TOKEN"
+	CloudflareTunnelTokenEnv       = "ONIBI_CLOUDFLARE_TUNNEL_TOKEN"
+	CloudflareAPIBaseEnv           = "ONIBI_CLOUDFLARE_API_BASE"
+	CloudflareNamedTeardownEnv     = "ONIBI_CLOUDFLARE_TEARDOWN"
+	CloudflareSecretAPIToken       = "onibi.cloudflare.token.v1"
+	CloudflareLegacySecretAPIToken = "CLOUDFLARE_API_TOKEN"
+	cloudflareQuickProvider        = "cloudflare-quick"
+	cloudflareNamedProvider        = "cloudflare-named"
+	cloudflareActivationWait       = 20 * time.Second
+	cloudflareNamedReadySubstring  = "registered tunnel connection"
+	defaultCloudflareAPIBase       = "https://api.cloudflare.com/client/v4"
 )
 
 var tryCloudflareURLRe = regexp.MustCompile(`https://[A-Za-z0-9-]+\.trycloudflare\.com\b`)

@@ -259,9 +259,9 @@ ONIBI_CLOUDFLARE_TUNNEL_TOKEN=<token>
 ONIBI_CLOUDFLARE_TEARDOWN=0
 ```
 
-`onibi cloudflare setup` stores the Cloudflare API token in the OS secret store, with the same 0600 dotenv fallback used by other Onibi credentials. With `ONIBI_CLOUDFLARE_ACCOUNT_ID` and `ONIBI_CLOUDFLARE_TUNNEL_ID`, Onibi retrieves the tunnel token from the Cloudflare API and starts `cloudflared tunnel run` with `TUNNEL_TOKEN` in the child environment so the token is not placed in process arguments. `ONIBI_CLOUDFLARE_API_TOKEN` and `ONIBI_CLOUDFLARE_TUNNEL_TOKEN` are env-only overrides for automation.
+`onibi cloudflare setup` stores the Cloudflare API token as `onibi.cloudflare.token.v1` in the OS secret store, with the same 0600 dotenv fallback used by other Onibi credentials. With `ONIBI_CLOUDFLARE_ACCOUNT_ID` and `ONIBI_CLOUDFLARE_TUNNEL_ID`, Onibi retrieves the tunnel token from the Cloudflare API and starts `cloudflared tunnel run` with `TUNNEL_TOKEN` in the child environment so the token is not placed in process arguments. `ONIBI_CLOUDFLARE_API_TOKEN` and `ONIBI_CLOUDFLARE_TUNNEL_TOKEN` are env-only overrides for automation.
 
-Without keychain/API-token auth, Onibi keeps the existing locally-managed path: it validates `cloudflared tunnel info`, refuses obvious route collisions, runs `cloudflared tunnel run <name-or-id>`, and defaults to no account-side teardown.
+Run `onibi doctor --transport=cloudflare-named` before startup to verify the binary, required named-tunnel settings, stored token state for API-token auth, Cloudflare tunnel-token retrieval, and `cloudflared tunnel info` status. Without keychain/API-token auth, Onibi keeps the existing locally-managed path: it validates `cloudflared tunnel info`, refuses obvious route collisions, runs `cloudflared tunnel run <name-or-id>`, and defaults to no account-side teardown.
 
 ## ngrok
 

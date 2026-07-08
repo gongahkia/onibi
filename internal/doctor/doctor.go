@@ -252,11 +252,7 @@ func (r *runner) checkTransportProvider() {
 	case "cloudflare-quick":
 		r.checkCloudflared("transport provider", "Cloudflare Quick coverage: unit + fake process + live opt-in")
 	case "cloudflare-named":
-		if missing := missingEnv("ONIBI_CLOUDFLARE_TUNNEL_NAME", "ONIBI_CLOUDFLARE_HOSTNAME"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Cloudflare Named missing "+strings.Join(missing, ", "))
-			return
-		}
-		r.checkCloudflared("transport provider", "Cloudflare Named coverage: unit + fake process + live opt-in")
+		r.checkCloudflareNamedProvider()
 	case "ngrok":
 		r.checkNgrokProvider()
 	case "telegram":
@@ -297,6 +293,31 @@ func (r *runner) checkCloudflared(name, detail string) {
 		return
 	}
 	r.add(name, Pass, detail)
+}
+
+func (r *runner) checkCloudflareNamedProvider() {
+	if missing := missingEnv(transport.CloudflareTunnelNameEnv, transport.CloudflareHostnameEnv); len(missing) > 0 {
+		r.add("transport provider", Warn, "Cloudflare Named missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.checkCloudflared("transport provider", "Cloudflare Named env present; tunnel status skipped offline")
+		return
+	}
+	cf := transport.NewCloudflareNamedFromEnv()
+	if (strings.TrimSpace(cf.AccountID) != "" || strings.TrimSpace(cf.TunnelID) != "") && strings.TrimSpace(cf.APIToken) == "" && strings.TrimSpace(cf.TunnelToken) == "" {
+		r.add("transport provider", Warn, "Cloudflare Named missing API token; run onibi cloudflare setup or set "+transport.CloudflareAPITokenEnv)
+		return
+	}
+	if err := cf.Check(r.ctx); err != nil {
+		r.add("transport provider", Warn, err.Error())
+		return
+	}
+	detail := "Cloudflare Named preflight ok: token/tunnel status"
+	if strings.TrimSpace(cf.APIToken) != "" {
+		detail = "Cloudflare API token present; " + detail
+	}
+	r.add("transport provider", Pass, detail)
 }
 
 func (r *runner) checkNgrokProvider() {

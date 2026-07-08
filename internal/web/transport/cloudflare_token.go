@@ -10,6 +10,8 @@ import (
 	"github.com/gongahkia/onibi/internal/secrets"
 )
 
+var openCloudflareSecretStore = secrets.Open
+
 func cloudflareAPIToken() string {
 	if token := strings.TrimSpace(os.Getenv(CloudflareAPITokenEnv)); token != "" {
 		return token
@@ -18,13 +20,15 @@ func cloudflareAPIToken() string {
 	if err != nil {
 		return ""
 	}
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	st, err := openCloudflareSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
 		return ""
 	}
-	token, ok, err := st.Get(CloudflareSecretAPIToken)
-	if err != nil || !ok {
-		return ""
+	for _, key := range []string{CloudflareSecretAPIToken, CloudflareLegacySecretAPIToken} {
+		token, ok, err := st.Get(key)
+		if err == nil && ok {
+			return strings.TrimSpace(token)
+		}
 	}
-	return strings.TrimSpace(token)
+	return ""
 }
