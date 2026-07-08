@@ -21,7 +21,7 @@ Onibi gives a paired phone browser control over local coding-agent sessions. Tre
 - Pairing tokens are TTL-bound and single-use.
 - Owner identity is stored in an HttpOnly Secure cookie.
 - Pairing tokens and web owner-cookie rows are encrypted at rest in SQLite with AES-GCM and row-scoped authenticated data.
-- The SQLite encryption master key is stored in the OS credential backend where available, with a 0600 dotenv-style fallback store for hosts without Keychain or Secret Service.
+- The SQLite encryption master key is stored in the OS credential backend where available, with a 0600 fallback file for hosts without Keychain or Secret Service.
 - WebSocket connections require cookie auth and token auth.
 - Approval decisions update pending rows atomically.
 - Edited approval input must be valid JSON.
@@ -33,9 +33,11 @@ Onibi gives a paired phone browser control over local coding-agent sessions. Tre
 
 ## At-Rest State
 
+> **Linux fallback warning:** On Linux hosts without an active Secret Service daemon, such as minimal containers or headless servers without `gnome-keyring` or KWallet, Onibi's SQLite master key is stored as a base64 string in `<config-dir>/onibi/store.key` with 0600 permissions. This file is **not encrypted at rest**. A stolen powered-off disk exposes the key. Prefer running Onibi on hosts with an active credential store.
+
 Onibi encrypts local SQLite values that are useful for pairing or browser takeover: pair tokens, owner-cookie material, and user-agent/device labels. Lookup uses non-secret SHA-256 indexes over high-entropy random tokens, while the original values are sealed through `internal/store.CryptBox` with per-row AAD (`table`, row id, column). Audit rows keep payload hashes instead of raw approval payloads.
 
-The master key is `onibi.store.key.v1`. On macOS it is stored through the native Keychain backend provided by `99designs/keyring`; on Linux it uses Secret Service when available; otherwise Onibi stores a base64 key at the fallback path with 0600 permissions. `onibi store rekey` rotates this key and re-seals encrypted rows.
+The master key is `onibi.store.key.v1`. On macOS it is stored through the native Keychain backend provided by `99designs/keyring`; on Linux it uses Secret Service when available; otherwise Onibi stores a base64 key in `<config-dir>/onibi/store.key` with 0600 permissions. `onibi store rekey` rotates this key and re-seals encrypted rows.
 
 This is defense in depth, not protection from a fully compromised user account. A stolen powered-off laptop should not expose those encrypted SQLite values without the OS credential store or fallback key file. A stolen unlocked laptop, same-user malware, a debugger, swap, crash dumps, shell history, terminal scrollback, and the Onibi process memory while running can still leak live session data or decrypted values.
 

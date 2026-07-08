@@ -147,6 +147,7 @@ After `./bin/onibi up` and phone pairing:
 - Owner browser identity is stored in an HttpOnly Secure cookie.
 - WebSocket upgrades require the owner cookie plus matching token.
 - Approval hooks fail open if the local daemon is unavailable.
+- Linux without Secret Service stores the SQLite master key in an unencrypted 0600 fallback file; see [`docs/security.md#at-rest-state`](./docs/security.md#at-rest-state).
 - The local OS user account remains trusted.
 
 ## License
