@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Onibi logo</title>
+  <desc id="desc">A friendly ghost holding a small remote control.</desc>
+  <defs>
+    <style>
+      .ink{stroke:#20252a;stroke-linecap:round;stroke-linejoin:round}
+      .fill{fill:#fff}
+      .dark{fill:#20252a}
+      .accent{fill:#1f766f}
+    </style>
+  </defs>
+  <path class="fill ink" stroke-width="15" d="M97 29c-35 0-61 29-61 68v63c0 18-8 31-22 40 18 9 34 7 48-8 7 16 25 23 43 10 11 14 32 12 43-5 12 8 25 8 39 1-13-15-18-30-18-49V97c0-39-30-68-72-68z"/>
+  <circle class="dark" cx="84" cy="84" r="10"/>
+  <path class="ink" fill="none" stroke-width="10" d="M127 83l18-8m-19 10l18 8"/>
+  <path class="ink" fill="none" stroke-width="10" d="M94 112c9 12 25 12 34 0"/>
+  <path class="ink" fill="none" stroke-width="14" d="M118 150c16 19 41 17 55 2"/>
+  <g transform="rotate(27 169 168)">
+    <rect class="fill ink" x="129" y="101" width="82" height="122" rx="20" stroke-width="14"/>
+    <circle class="dark" cx="171" cy="137" r="10"/>
+    <circle class="dark" cx="157" cy="172" r="8"/>
+    <circle class="dark" cx="181" cy="172" r="8"/>
+    <circle class="dark" cx="145" cy="195" r="8"/>
+    <circle class="dark" cx="169" cy="195" r="8"/>
+  </g>
+  <path class="ink" fill="none" stroke-width="9" d="M207 88v-9m15 21l12-13m-3 34l16-2"/>
+  <path class="accent" d="M145 150c10 5 22 4 30-2-10 12-27 15-42 6 4-4 8-5 12-4z"/>
+</svg>

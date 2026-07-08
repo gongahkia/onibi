@@ -3,6 +3,11 @@
   "short_name": "Onibi",
   "icons": [
     {
+      "src": "/icons/onibi.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
       "src": "/icons/onibi-192.png",
       "sizes": "192x192",
       "type": "image/png"

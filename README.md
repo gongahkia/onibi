@@ -1,7 +1,11 @@
 # Onibi
 
 <p align="center">
-  <img src="./asset/logo/onibi.png" width="50%" alt="Onibi">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./asset/logo/onibi-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./asset/logo/onibi.svg">
+    <img src="./asset/logo/onibi.png" width="50%" alt="Onibi">
+  </picture>
 </p>
 
 <p align="center">
