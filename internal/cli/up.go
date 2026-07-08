@@ -81,6 +81,7 @@ func upCmd() *cobra.Command {
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
 	cmd.Flags().Bool("visible", false, "open the managed session in a Mac terminal immediately")
 	cmd.Flags().Bool("detach", false, "start the background service and return")
+	cmd.Flags().Bool("first-run", false, "run guided onboarding before starting the cockpit")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
 	cmd.Flags().String("log-file", "", "also write up logs to this file")
 	cmd.Flags().String("ssh", "", "bootstrap and tunnel a remote host, user@host[:port]")
@@ -96,14 +97,21 @@ func runUp(cmd *cobra.Command, args []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
+	firstRun, _ := cmd.Flags().GetBool("first-run")
 	detach, _ := cmd.Flags().GetBool("detach")
 	if detach {
+		if firstRun {
+			return errors.New("--first-run cannot be combined with --detach")
+		}
 		if len(args) > 0 {
 			return errors.New("--detach cannot be combined with a profile")
 		}
 		return runUpDetach(cmd, paths)
 	}
 	if target, _ := cmd.Flags().GetString("ssh"); strings.TrimSpace(target) != "" {
+		if firstRun {
+			return errors.New("--first-run cannot be combined with --ssh")
+		}
 		return sshUpRun(cmd, target)
 	}
 	db, err := openDefaultDB()
@@ -117,6 +125,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 		}
 	} else if shouldRecallLastProfile(cmd) {
 		if err := applyLastUsedProfile(cmd, db); err != nil {
+			return err
+		}
+	}
+	if firstRun {
+		if err := runFirstRunWizard(cmd, paths, db); err != nil {
 			return err
 		}
 	}
@@ -371,6 +384,15 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		logger.Info("relay e2e key registered", "transport", pairTransport.Mode, "commitment", envelope.Commitment(key))
 	}
 	url := urls[0]
+	var firstRunPairCh <-chan firstRunPairNotice
+	if firstRunEnabled(cmd) {
+		baseline, err := firstRunOwnerSessionCount(ctx, db)
+		if err != nil {
+			logger.Warn("first-run pair watcher unavailable", "err", err)
+		} else {
+			firstRunPairCh = watchFirstRunPairing(ctx, db, baseline)
+		}
+	}
 	logger.Info("web pair token minted",
 		"transport", pairTransport.Mode,
 		"primary_url", redactPairURL(url),
@@ -416,25 +438,38 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
 	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
 
-	select {
-	case <-ctx.Done():
-		logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+	for {
 		select {
-		case err := <-errCh:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
-				return err
+		case notice, ok := <-firstRunPairCh:
+			if !ok {
+				firstRunPairCh = nil
+				continue
 			}
-		case <-time.After(5 * time.Second):
-			logger.Warn("onibi up shutdown timed out")
-		}
-		return nil
-	case err := <-errCh:
-		if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
-			logger.Info("onibi up stopping", "reason", "server_closed", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+			firstRunPairCh = nil
+			if notice.Err != nil {
+				logger.Warn("first-run pair watcher stopped", "err", notice.Err)
+				continue
+			}
+			printFirstRunPairSuccess(cmd, notice.Session)
+		case <-ctx.Done():
+			logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+			select {
+			case err := <-errCh:
+				if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
+					return err
+				}
+			case <-time.After(5 * time.Second):
+				logger.Warn("onibi up shutdown timed out")
+			}
 			return nil
+		case err := <-errCh:
+			if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
+				logger.Info("onibi up stopping", "reason", "server_closed", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+				return nil
+			}
+			logger.Error("onibi up server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
+			return err
 		}
-		logger.Error("onibi up server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
-		return err
 	}
 }
 

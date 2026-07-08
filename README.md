@@ -101,7 +101,7 @@ CLI aliases include `start` for `up`, `qr` for `pair`, `phones` for `devices`, `
 Useful CLI flags:
 
 - Global: `--quiet`, `--debug`, `--no-logo`, `--logo-width <cols>`, `--color auto|always|never`.
-- `up`: `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
+- `up`: `--first-run`, `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
 - `telegram`: `setup [--no-check]`, `status [--check]`, `disable`; `up --transport=telegram` starts chat-native text control.
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `share`: `--ttl <duration>`, `--max-viewers <n>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
