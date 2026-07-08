@@ -29,11 +29,12 @@ const (
 type DiagnosticCode string
 
 const (
-	DiagBinaryMissing DiagnosticCode = "binary_missing"
-	DiagAuthMissing   DiagnosticCode = "auth_missing"
-	DiagURLParse      DiagnosticCode = "url_parse_failure"
-	DiagActivationLag DiagnosticCode = "dns_activation_lag"
-	DiagCleanup       DiagnosticCode = "cleanup_failure"
+	DiagBinaryMissing  DiagnosticCode = "binary_missing"
+	DiagAuthMissing    DiagnosticCode = "auth_missing"
+	DiagURLParse       DiagnosticCode = "url_parse_failure"
+	DiagActivationLag  DiagnosticCode = "dns_activation_lag"
+	DiagCleanup        DiagnosticCode = "cleanup_failure"
+	DiagLANUnreachable DiagnosticCode = "lan_unreachable"
 )
 
 type DiagnosticError struct {
@@ -113,7 +114,7 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 	}
 	switch mode {
 	case ModeLAN:
-		return LANResolved(opts.Port, opts.LANHosts, opts.FallbackHost), nil
+		return resolveLAN(opts.Port, opts.LANHosts, opts.FallbackHost)
 	case ModeLANLoopback:
 		return Resolved{Mode: ModeLANLoopback, Port: opts.Port, LANHosts: []string{"127.0.0.1"}}, nil
 	case ModeTailscale:
@@ -130,7 +131,7 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 			return pt, nil
 		}
 		opts.Logger.Warn("tailscale transport unavailable; falling back to lan", "err", err)
-		return LANResolved(opts.Port, opts.LANHosts, opts.FallbackHost), nil
+		return resolveLAN(opts.Port, opts.LANHosts, opts.FallbackHost)
 	default:
 		return Resolved{}, fmt.Errorf("unsupported transport %q", opts.Mode)
 	}
@@ -174,6 +175,37 @@ func IsRelayMode(mode string) bool {
 
 func LANResolved(port int, lanHosts []string, fallbackHost string) Resolved {
 	return Resolved{Mode: ModeLAN, Port: port, LANHosts: lanHosts, FallbackHost: fallbackHost}
+}
+
+func resolveLAN(port int, lanHosts []string, fallbackHost string) (Resolved, error) {
+	if err := validateLANReachability(lanHosts, fallbackHost); err != nil {
+		return Resolved{}, err
+	}
+	return LANResolved(port, lanHosts, fallbackHost), nil
+}
+
+func validateLANReachability(lanHosts []string, fallbackHost string) error {
+	for _, host := range lanHosts {
+		if isRoutableLANHost(host) {
+			return nil
+		}
+	}
+	if isRoutableLANHost(fallbackHost) {
+		return nil
+	}
+	return Diagnostic(DiagLANUnreachable, "lan", "no routable LAN address detected; managed Wi-Fi, VPN policy, or client isolation may block phone pairing. Connect the Mac to the iPhone hotspot, or use --transport=tailscale, --transport=cloudflare-quick, or --transport=ngrok", nil)
+}
+
+func isRoutableLANHost(host string) bool {
+	host = strings.Trim(strings.Trim(host, "[]"), ".")
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsMulticast() && !ip.IsLinkLocalUnicast()
 }
 
 func (r Resolved) URLs(token string) []string {

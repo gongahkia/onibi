@@ -15,11 +15,13 @@ make build
 
 ## LAN and hotspot
 
-- Same Wi-Fi: run `onibi up --transport=lan`, scan QR with iPhone Safari, pair, open terminal, type `printf ok`.
-- iPhone Chrome: repeat pair and confirm owner cookie survives reload.
-- Hotspot: connect Mac to iPhone hotspot, rerun `onibi up --transport=lan`, pair, type input, background browser for 10s, return.
-- Client-isolated Wi-Fi: confirm pair URL fails from phone, then confirm hotspot succeeds.
-- Captive Wi-Fi: confirm captive portal does not silently pair; switch to hotspot.
+- Home Wi-Fi: run `onibi up --transport=lan`, scan QR with iPhone Safari, pair, open terminal, type `printf ok`, and confirm terminal output returns.
+- iPhone Chrome: repeat pair and confirm owner cookie survives reload after the local CA profile is fully trusted.
+- iPhone hotspot: connect the Mac to the iPhone hotspot, rerun `onibi up --transport=lan`, pair, type input, background browser for 10s, return, and confirm the WebSocket resumes.
+- Enterprise or managed Wi-Fi with client isolation: confirm the phone cannot load the LAN pair URL from Safari, then switch both devices to the iPhone hotspot and confirm pairing succeeds. Do not keep retrying the isolated SSID.
+- Captive Wi-Fi: confirm captive portal interception does not silently pair; switch to hotspot.
+- IPv4/IPv6: confirm the printed QR prefers a routable IPv4 address when one is present. If only IPv6 is printed, confirm the URL uses bracket syntax, for example `https://[fd00::1]:8443/pair/<token>`.
+- Auto fallback: run `onibi up --transport=auto` with Tailscale unavailable and confirm it falls back to LAN only when a routable LAN or `.local` host exists. If explicit LAN startup reports `lan_unreachable`, use hotspot, Tailscale, Cloudflare Quick, or ngrok.
 
 ## Tailscale
 

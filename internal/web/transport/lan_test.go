@@ -1,6 +1,10 @@
 package transport
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestWebPairURLsFormatsHostsAndSuppressesDuplicates(t *testing.T) {
 	got := WebPairURLs("tok", 8443, []string{"192.168.1.20", "fd00::1", "192.168.1.20"}, "host.local")
@@ -51,6 +55,39 @@ func TestLANLoopbackResolved(t *testing.T) {
 	got := pt.URLs("tok")
 	if pt.Mode != ModeLANLoopback || len(got) != 1 || got[0] != "https://127.0.0.1:18443/pair/tok" {
 		t.Fatalf("mode=%q urls=%#v", pt.Mode, got)
+	}
+}
+
+func TestLANResolveFailsEarlyWithoutRoutableHost(t *testing.T) {
+	_, err := Resolve(t.Context(), ResolverOptions{
+		Mode:         "lan",
+		Port:         18443,
+		LANHosts:     []string{"127.0.0.1", "::1"},
+		FallbackHost: "localhost",
+	})
+	if err == nil {
+		t.Fatal("expected LAN reachability error")
+	}
+	var diag *DiagnosticError
+	if !strings.Contains(err.Error(), "iPhone hotspot") || !strings.Contains(err.Error(), "--transport=tailscale") {
+		t.Fatalf("err = %v", err)
+	}
+	if !errors.As(err, &diag) || diag.Code != DiagLANUnreachable {
+		t.Fatalf("diagnostic = %#v err=%v", diag, err)
+	}
+}
+
+func TestLANResolveAllowsHostnameFallback(t *testing.T) {
+	pt, err := Resolve(t.Context(), ResolverOptions{
+		Mode:         "lan",
+		Port:         18443,
+		FallbackHost: "host.local",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pt.URLs("tok"); len(got) != 1 || got[0] != "https://host.local:18443/pair/tok" {
+		t.Fatalf("urls = %#v", got)
 	}
 }
 

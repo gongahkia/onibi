@@ -41,9 +41,12 @@ Security model:
 
 Operational notes:
 
-- LAN mode fails when Wi-Fi client isolation, captive networks, VPN policy, or firewall rules block phone-to-Mac traffic.
-- A phone hotspot is the lowest-friction fallback when the phone cannot reach the pair URL at all.
+- LAN mode works on home Wi-Fi when the phone can connect directly to the Mac. It also works well over an iPhone hotspot, which is the recommended fallback for hostile Wi-Fi.
+- Enterprise or managed Wi-Fi often enables client isolation. If the phone cannot load the pair URL, move both devices to the iPhone hotspot instead of repeatedly retrying that SSID.
+- Onibi prefers routable IPv4 LAN addresses first, then IPv6 addresses. IPv6 URLs use bracket syntax.
 - `.local` mDNS is secondary; Onibi prefers LAN IP QR URLs because mobile mDNS reachability is inconsistent.
+- Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
+- The live smoke matrix for home Wi-Fi, hotspot, client isolation, captive Wi-Fi, IPv4/IPv6, and auto fallback is in [`docs/transport-smoke.md`](./transport-smoke.md#lan-and-hotspot).
 
 ## Tailscale Funnel
 
