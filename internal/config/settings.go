@@ -94,6 +94,7 @@ type ProviderOutput struct {
 	Matrix    ProviderOutputOverride `yaml:"matrix,omitempty" json:"matrix,omitempty"`
 	Slack     ProviderOutputOverride `yaml:"slack,omitempty" json:"slack,omitempty"`
 	Discord   ProviderOutputOverride `yaml:"discord,omitempty" json:"discord,omitempty"`
+	Zulip     ProviderOutputOverride `yaml:"zulip,omitempty" json:"zulip,omitempty"`
 	Notify    ProviderOutputOverride `yaml:"notify,omitempty" json:"notify,omitempty"`
 }
 
@@ -245,9 +246,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("web.listen_addr required")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Transport.Mode)) {
-	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "apns", "auto":
+	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "pushover", "ntfy", "gotify", "apns", "auto":
 	default:
-		return fmt.Errorf("transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, apns, auto")
+		return fmt.Errorf("transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, pushover, ntfy, gotify, apns, auto")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
@@ -489,7 +490,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, apns, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, pushover, ntfy, gotify, apns, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
 		{"update.auto", strconv.FormatBool(def.Update.Auto), strconv.FormatBool(cfg.Update.Auto), meta.Explicit["update.auto"], "opt-in daemon update checks at startup and every 24h"},
 		{"update.channel", def.Update.Channel, cfg.Update.Channel, meta.Explicit["update.channel"], "update channel: stable"},
@@ -568,6 +569,7 @@ type rawProviderOutput struct {
 	Matrix    rawProviderOutputOverride `yaml:"matrix"`
 	Slack     rawProviderOutputOverride `yaml:"slack"`
 	Discord   rawProviderOutputOverride `yaml:"discord"`
+	Zulip     rawProviderOutputOverride `yaml:"zulip"`
 	Notify    rawProviderOutputOverride `yaml:"notify"`
 }
 
@@ -646,6 +648,7 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Matrix, meta, "matrix", raw.Provider.Output.Matrix)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Slack, meta, "slack", raw.Provider.Output.Slack)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Discord, meta, "discord", raw.Provider.Output.Discord)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Zulip, meta, "zulip", raw.Provider.Output.Zulip)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Notify, meta, "notify", raw.Provider.Output.Notify)
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
@@ -662,7 +665,7 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 }
 
 func providerOutputProviderNames() []string {
-	return []string{"telegram", "matrix", "slack", "discord", "notify"}
+	return []string{"telegram", "matrix", "slack", "discord", "zulip", "notify"}
 }
 
 func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputOverride {
@@ -675,6 +678,8 @@ func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputO
 		return out.Slack
 	case "discord":
 		return out.Discord
+	case "zulip":
+		return out.Zulip
 	case "notify":
 		return out.Notify
 	default:
@@ -692,6 +697,8 @@ func providerOutputOverridePtr(out *ProviderOutput, provider string) *ProviderOu
 		return &out.Slack
 	case "discord":
 		return &out.Discord
+	case "zulip":
+		return &out.Zulip
 	case "notify":
 		return &out.Notify
 	default:

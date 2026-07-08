@@ -103,7 +103,7 @@ func promptTransportCategory(cmd *cobra.Command, sc *bufio.Scanner, current stri
 		switch {
 		case raw == "url" || raw == "browser" || strings.Contains(raw, "web") || strings.Contains(raw, "cloudflare") || raw == "ngrok":
 			return transportCategoryWeb, nil
-		case strings.Contains(raw, "chat") || raw == "telegram" || raw == "slack" || raw == "discord" || raw == "matrix":
+		case strings.Contains(raw, "chat") || raw == "telegram" || raw == "slack" || raw == "discord" || raw == "matrix" || raw == "zulip":
 			return transportCategoryChat, nil
 		case strings.Contains(raw, "notify") || raw == "pushover":
 			return transportCategoryNotify, nil
@@ -168,7 +168,7 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 		if category == transportCategoryWeb {
 			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, 6, 7, 8, b, or q.")
 		} else if category == transportCategoryChat {
-			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, b, or q.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, b, or q.")
 		} else {
 			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, b, or q.")
 		}
@@ -191,7 +191,7 @@ func pairTransportCategoryChoices(current string) []pairTransportCategory {
 			category: transportCategoryChat,
 			label:    "Chat",
 			detail:   "natural text control",
-			status:   "Telegram, Matrix, Slack, Discord",
+			status:   "Telegram, Matrix, Slack, Discord, Zulip",
 			active:   active == transportCategoryChat,
 		},
 		{
@@ -243,6 +243,15 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 				coverage: "unit + fake gateway + live opt-in",
 				command:  "onibi up --transport=discord",
 				active:   current == "discord",
+			},
+			{
+				key:      "5",
+				mode:     "zulip",
+				label:    "Zulip",
+				detail:   "thread-native stream control",
+				coverage: "unit + fake API + live opt-in",
+				command:  "onibi up --transport=zulip",
+				active:   current == "zulip",
 			},
 		}
 	}
@@ -377,7 +386,7 @@ func unavailableTransportChoices(category string) []unavailableTransportChoice {
 
 func normalizePairTransport(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "apns", "auto":
+	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "pushover", "ntfy", "gotify", "apns", "auto":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "lan"
@@ -395,7 +404,7 @@ func modeForTransportKey(choices []pairTransportChoice, key string) string {
 
 func categoryForTransport(mode string) string {
 	switch normalizePairTransport(mode) {
-	case "telegram", "matrix", "slack", "discord":
+	case "telegram", "matrix", "slack", "discord", "zulip":
 		return transportCategoryChat
 	case "pushover", "ntfy", "gotify", "apns":
 		return transportCategoryNotify

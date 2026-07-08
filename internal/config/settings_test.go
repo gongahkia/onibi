@@ -159,11 +159,17 @@ func TestSetValidates(t *testing.T) {
 	if err := Set(&cfg, "provider.output.discord.redaction", "off"); err != nil {
 		t.Fatal(err)
 	}
+	if err := Set(&cfg, "provider.output.zulip.max_chunks", "4"); err != nil {
+		t.Fatal(err)
+	}
 	if got, _ := Get(cfg, "provider.output.slack.max_bytes"); got != "2048" {
 		t.Fatalf("provider.output.slack.max_bytes = %s", got)
 	}
 	if got, _ := Get(cfg, "provider.output.discord.redaction"); got != "off" {
 		t.Fatalf("provider.output.discord.redaction = %s", got)
+	}
+	if got, _ := Get(cfg, "provider.output.zulip.max_chunks"); got != "4" {
+		t.Fatalf("provider.output.zulip.max_chunks = %s", got)
 	}
 	if err := Set(&cfg, "provider.output.discord.redaction", "inherit"); err != nil {
 		t.Fatal(err)
@@ -231,7 +237,7 @@ func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "apns", "auto"} {
+	for _, value := range []string{"lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "pushover", "ntfy", "gotify", "apns", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
@@ -244,7 +250,7 @@ func TestTransportModeValues(t *testing.T) {
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, apns, auto") {
+	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, pushover, ntfy, gotify, apns, auto") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/slack"
+	"github.com/gongahkia/onibi/internal/zulip"
 )
 
 func (d *Daemon) startTelegramBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
@@ -69,6 +70,20 @@ func (d *Daemon) startDiscordBridge(ctx context.Context, wg *sync.WaitGroup, can
 		defer wg.Done()
 		if err := d.runDiscordBridge(ctx, discord.New(d.Discord.Token)); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("discord bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
+func (d *Daemon) startZulipBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if strings.TrimSpace(d.Zulip.APIKey) == "" {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runZulipBridge(ctx, zulip.New(d.Zulip.BaseURL, d.Zulip.Email, d.Zulip.APIKey)); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("zulip bridge", slog.Any("err", err))
 			cancel()
 		}
 	}()

@@ -29,6 +29,7 @@ import (
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
+	"github.com/gongahkia/onibi/internal/zulip"
 )
 
 type Status string
@@ -270,6 +271,8 @@ func (r *runner) checkTransportProvider() {
 		r.checkSlackProvider()
 	case "discord":
 		r.checkDiscordProvider()
+	case "zulip":
+		r.checkZulipProvider()
 	case "pushover":
 		if missing := missingEnv("ONIBI_PUSHOVER_TOKEN", "ONIBI_PUSHOVER_USER_KEY"); len(missing) > 0 {
 			r.add("transport provider", Warn, "Pushover missing "+strings.Join(missing, ", "))
@@ -482,6 +485,27 @@ func (r *runner) checkDiscordProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "Discord live API ok: application, channel "+ch.ID+slashDetail+"; set ONIBI_DOCTOR_LIVE=1 for send permission probe")
+}
+
+func (r *runner) checkZulipProvider() {
+	if missing := missingEnv("ONIBI_ZULIP_URL", "ONIBI_ZULIP_EMAIL", "ONIBI_ZULIP_API_KEY", "ONIBI_ZULIP_STREAM"); len(missing) > 0 {
+		r.add("transport provider", Warn, "Zulip missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline {
+		r.add("transport provider", Pass, "Zulip env present; live API checks skipped offline")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c := newZulipClient(os.Getenv("ONIBI_ZULIP_URL"), os.Getenv("ONIBI_ZULIP_EMAIL"), os.Getenv("ONIBI_ZULIP_API_KEY"))
+	q, err := c.RegisterQueue(ctx, zulip.QueueOptions{EventTypes: []string{"message"}, Narrow: [][]string{{"channel", os.Getenv("ONIBI_ZULIP_STREAM")}}})
+	if err != nil {
+		r.add("transport provider", Warn, "Zulip event queue failed: "+err.Error())
+		return
+	}
+	_ = c.DeleteQueue(ctx, q.QueueID)
+	r.add("transport provider", Pass, "Zulip live API ok: event queue on stream "+os.Getenv("ONIBI_ZULIP_STREAM"))
 }
 
 func (r *runner) checkNtfyProvider(topic string) {

@@ -11,6 +11,7 @@ func (d *Daemon) startTelegramBridge(context.Context, *sync.WaitGroup, context.C
 func (d *Daemon) startMatrixBridge(context.Context, *sync.WaitGroup, context.CancelFunc)   {}
 func (d *Daemon) startSlackBridge(context.Context, *sync.WaitGroup, context.CancelFunc)    {}
 func (d *Daemon) startDiscordBridge(context.Context, *sync.WaitGroup, context.CancelFunc)  {}
+func (d *Daemon) startZulipBridge(context.Context, *sync.WaitGroup, context.CancelFunc)    {}
 func (d *Daemon) startPushoverNotifier(context.Context, *sync.WaitGroup)                   {}
 func (d *Daemon) startNtfyNotifier(context.Context, *sync.WaitGroup)                       {}
 func (d *Daemon) startGotifyNotifier(context.Context, *sync.WaitGroup)                     {}

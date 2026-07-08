@@ -49,6 +49,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
+		Zulip:                   opts.Zulip,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
@@ -87,6 +88,7 @@ type envProviderOptions struct {
 	Matrix   daemon.MatrixOptions
 	Slack    daemon.SlackOptions
 	Discord  daemon.DiscordOptions
+	Zulip    daemon.ZulipOptions
 	Pushover daemon.PushoverOptions
 	Ntfy     daemon.NtfyOptions
 	Gotify   daemon.GotifyOptions
@@ -130,6 +132,19 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("discord requires ONIBI_DISCORD_TOKEN")
 		}
 		return opts, "Discord", nil
+	case "zulip":
+		opts.Zulip = daemon.ZulipOptions{
+			BaseURL:     envRequired("ONIBI_ZULIP_URL"),
+			Email:       envRequired("ONIBI_ZULIP_EMAIL"),
+			APIKey:      envRequired("ONIBI_ZULIP_API_KEY"),
+			Stream:      envRequired("ONIBI_ZULIP_STREAM"),
+			TopicPrefix: strings.TrimSpace(os.Getenv("ONIBI_ZULIP_TOPIC_PREFIX")),
+			OwnerEmail:  strings.TrimSpace(os.Getenv("ONIBI_ZULIP_OWNER_EMAIL")),
+		}
+		if opts.Zulip.BaseURL == "" || opts.Zulip.Email == "" || opts.Zulip.APIKey == "" || opts.Zulip.Stream == "" {
+			return opts, "", fmt.Errorf("zulip requires ONIBI_ZULIP_URL, ONIBI_ZULIP_EMAIL, ONIBI_ZULIP_API_KEY, ONIBI_ZULIP_STREAM")
+		}
+		return opts, "Zulip", nil
 	case "pushover":
 		opts.Pushover = daemon.PushoverOptions{Token: envRequired("ONIBI_PUSHOVER_TOKEN"), UserKey: envRequired("ONIBI_PUSHOVER_USER_KEY")}
 		if opts.Pushover.Token == "" || opts.Pushover.UserKey == "" {
@@ -168,7 +183,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord":
+	case "matrix", "slack", "discord", "zulip":
 		return true
 	default:
 		return false
