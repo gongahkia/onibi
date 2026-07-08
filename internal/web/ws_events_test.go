@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -116,6 +117,41 @@ func TestWSEventsStreamsAppEvents(t *testing.T) {
 	}
 	if payload["message"] != "Trust policy not reloaded" {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestEventBusFanoutDoesNotBlockOnSlowConsumer(t *testing.T) {
+	bus := NewEventBus()
+	slow, unsubSlow := bus.Subscribe()
+	defer unsubSlow()
+	fast, unsubFast := bus.Subscribe()
+	defer unsubFast()
+	for i := 0; i < 70; i++ {
+		typ := fmt.Sprintf("event.%02d", i)
+		bus.Publish(Event{Type: typ})
+		select {
+		case ev := <-fast:
+			if ev.Type != typ {
+				t.Fatalf("fast event = %q want %q", ev.Type, typ)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("fast consumer blocked behind slow consumer")
+		}
+	}
+	var slowEvents []Event
+	for {
+		select {
+		case ev := <-slow:
+			slowEvents = append(slowEvents, ev)
+		default:
+			if len(slowEvents) != 64 {
+				t.Fatalf("slow events = %d", len(slowEvents))
+			}
+			if slowEvents[0].Type != "event.06" || slowEvents[len(slowEvents)-1].Type != "event.69" {
+				t.Fatalf("slow window = %q..%q", slowEvents[0].Type, slowEvents[len(slowEvents)-1].Type)
+			}
+			return
+		}
 	}
 }
 

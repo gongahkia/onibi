@@ -88,6 +88,101 @@ func TestApprovalEndpointRejectsViewer(t *testing.T) {
 	}
 }
 
+func TestApprovalEndpointTerminalStates(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name       string
+		postBody   string
+		transition func(*Server, string) error
+		wantState  string
+		wantReason string
+	}{
+		{
+			name:      "approved",
+			postBody:  `{"verdict":"approve"}`,
+			wantState: approval.StateApproved,
+		},
+		{
+			name:       "denied",
+			postBody:   `{"verdict":"deny","reason":"no"}`,
+			wantState:  approval.StateDenied,
+			wantReason: "no",
+		},
+		{
+			name:      "edited",
+			postBody:  `{"verdict":"edit","edited_input":"{\"command\":\"echo ok\"}"}`,
+			wantState: approval.StateEdited,
+		},
+		{
+			name: "expired",
+			transition: func(s *Server, id string) error {
+				if _, err := s.db.SQL().ExecContext(ctx, `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Unix(), id); err != nil {
+					return err
+				}
+				_, err := s.approvalQueue.ExpireOverdue(ctx)
+				return err
+			},
+			wantState:  approval.StateExpired,
+			wantReason: "approval expired (5 min TTL)",
+		},
+		{
+			name: "cancelled",
+			transition: func(s *Server, id string) error {
+				return s.approvalQueue.Cancel(ctx, id, "shutdown")
+			},
+			wantState:  approval.StateCancelled,
+			wantReason: "shutdown",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cleanup := testApprovalInboxServer(t)
+			defer cleanup()
+			id, _, err := srv.approvalQueue.Request(ctx, "s1", "claude", "Bash", `{"command":"ls"}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := httptest.NewRecorder()
+			ownerID, err := srv.CreateOwnerSession(ctx, rr, "test device")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cookie := rr.Result().Cookies()[0]
+			if tc.postBody != "" {
+				req := httptest.NewRequest(http.MethodPost, "/approval/"+id, strings.NewReader(tc.postBody))
+				req.AddCookie(cookie)
+				addCSRF(req, ownerID)
+				w := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					t.Fatalf("post status = %d body = %q", w.Code, w.Body.String())
+				}
+			}
+			if tc.transition != nil {
+				if err := tc.transition(srv, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, "/approval/"+id, nil)
+			req.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("get status = %d body = %q", w.Code, w.Body.String())
+			}
+			var got map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["state"] != tc.wantState {
+				t.Fatalf("state = %#v want %q; body = %#v", got["state"], tc.wantState, got)
+			}
+			if tc.wantReason != "" && got["reason"] != tc.wantReason {
+				t.Fatalf("reason = %#v want %q; body = %#v", got["reason"], tc.wantReason, got)
+			}
+		})
+	}
+}
+
 func testApprovalInboxServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))

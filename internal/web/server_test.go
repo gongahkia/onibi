@@ -712,6 +712,64 @@ func TestControlPageUpUsesScrollResolver(t *testing.T) {
 	}
 }
 
+func TestControlActionMapping(t *testing.T) {
+	for _, tc := range []struct {
+		action string
+		want   string
+	}{
+		{"interrupt", "signal:interrupt"},
+		{"kill", "signal:kill"},
+		{"page_up", "scroll:page_up"},
+		{"page_down", "scroll:page_down"},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			srv, cleanup := testServer(t)
+			defer cleanup()
+			got := make(chan string, 1)
+			host := pty.NewVirtualHost(func(p []byte) (int, error) {
+				if bytes.Equal(p, []byte{3}) {
+					got <- "signal:interrupt"
+				}
+				return len(p), nil
+			}, func() error {
+				got <- "signal:kill"
+				return nil
+			}, nil)
+			srv.ptyHosts = func() map[string]*pty.Host {
+				return map[string]*pty.Host{"s1": host}
+			}
+			srv.scroll = func(_ context.Context, sessionID, direction string) error {
+				if sessionID != "s1" {
+					t.Fatalf("session id = %q", sessionID)
+				}
+				got <- "scroll:" + direction
+				return nil
+			}
+			rr := httptest.NewRecorder()
+			sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"`+tc.action+`"}`))
+			req.AddCookie(rr.Result().Cookies()[0])
+			addCSRF(req, sessionID)
+			w := httptest.NewRecorder()
+			srv.handleControl(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+			}
+			select {
+			case event := <-got:
+				if event != tc.want {
+					t.Fatalf("event = %q want %q", event, tc.want)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("control action not dispatched")
+			}
+		})
+	}
+}
+
 func TestControlRejectsViewer(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
