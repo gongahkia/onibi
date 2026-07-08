@@ -33,18 +33,23 @@ export type SessionCostPayload = {
 };
 
 type FetchJSON = <T>(path: string) => Promise<T>;
+type PostJSON = (path: string, body: Record<string, unknown>) => Promise<Response>;
 
 export class SessionsListView {
   private rows: SessionSummary[] = [];
   private loading = false;
   private status = "";
   private workspace = "";
+  private readonly killArmed = new Map<string, number>();
+  private suppressAttachUntil = 0;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly fetchJSON: FetchJSON,
     private readonly navigate: (sessionID: string) => void,
-    private readonly workspaceControl?: HTMLElement
+    private readonly workspaceControl?: HTMLElement,
+    private readonly postJSON?: PostJSON,
+    private readonly toast?: (message: string) => void
   ) {}
 
   async load(): Promise<void> {
@@ -152,17 +157,21 @@ export class SessionsListView {
       body.append(emptyRow(this.status || "no active sessions"));
     } else {
       for (const row of sortedRows(this.rows)) {
-        body.append(this.sessionButton(row));
+        body.append(this.sessionRow(row));
       }
     }
-    shell.append(header, body);
+    const status = document.createElement("div");
+    status.className = "session-list-status";
+    status.textContent = this.status;
+    shell.append(header, body, status);
     this.root.hidden = false;
     this.root.replaceChildren(shell);
   }
 
-  private sessionButton(row: SessionSummary): HTMLButtonElement {
-    const el = document.createElement("button");
-    el.type = "button";
+  private sessionRow(row: SessionSummary): HTMLElement {
+    const el = document.createElement("div");
+    el.role = "button";
+    el.tabIndex = 0;
     el.className = sessionRowClass(row);
     el.title = row.id;
     const top = document.createElement("span");
@@ -184,16 +193,112 @@ export class SessionsListView {
     meta.className = "session-list-meta";
     meta.textContent = sessionMeta(row);
 
-    el.append(top, cwd, meta);
-    el.addEventListener("click", () => {
-      if (row.remote_url !== undefined && row.remote_url !== "") {
-        window.location.href = row.remote_url;
+    const actions = document.createElement("span");
+    actions.className = "session-list-actions";
+    const attach = sessionAction("Attach");
+    attach.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.attach(row);
+    });
+    actions.append(attach);
+    if (row.remote !== true && this.postJSON !== undefined) {
+      const kill = sessionAction(
+        this.killArmedUntil(row.id) > Date.now() ? "Confirm KILL" : "KILL"
+      );
+      kill.classList.add("danger");
+      kill.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.kill(row);
+      });
+      actions.append(kill);
+    }
+
+    el.append(top, cwd, meta, actions);
+    el.addEventListener("click", (event) => {
+      if (Date.now() < this.suppressAttachUntil) {
         return;
       }
-      saveLastSessionID(row.id);
-      this.navigate(row.id);
+      if ((event.target as Element | null)?.closest("button") !== null) {
+        return;
+      }
+      this.attach(row);
     });
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        this.attach(row);
+      }
+    });
+    this.installLongPressKill(el, row);
     return el;
+  }
+
+  private attach(row: SessionSummary): void {
+    if (row.remote_url !== undefined && row.remote_url !== "") {
+      window.location.href = row.remote_url;
+      return;
+    }
+    saveLastSessionID(row.id);
+    this.navigate(row.id);
+  }
+
+  private installLongPressKill(el: HTMLElement, row: SessionSummary): void {
+    if (row.remote === true || this.postJSON === undefined) {
+      return;
+    }
+    let timer = 0;
+    const clear = () => {
+      window.clearTimeout(timer);
+      timer = 0;
+    };
+    el.addEventListener("pointerdown", (event) => {
+      if ((event.target as Element | null)?.closest("button") !== null) {
+        return;
+      }
+      clear();
+      timer = window.setTimeout(() => {
+        this.suppressAttachUntil = Date.now() + 700;
+        this.armKill(row.id);
+        this.render();
+      }, 650);
+    });
+    el.addEventListener("pointerup", clear);
+    el.addEventListener("pointerleave", clear);
+    el.addEventListener("pointercancel", clear);
+  }
+
+  private async kill(row: SessionSummary): Promise<void> {
+    if (this.postJSON === undefined) {
+      return;
+    }
+    if (this.killArmedUntil(row.id) <= Date.now()) {
+      this.armKill(row.id);
+      this.render();
+      return;
+    }
+    this.killArmed.delete(row.id);
+    this.status = `killing ${shortID(row.id)}`;
+    this.render();
+    try {
+      const response = await this.postJSON("/control", { session_id: row.id, action: "kill" });
+      if (!response.ok) {
+        throw new Error((await response.text()).trim() || `kill ${response.status}`);
+      }
+      this.toast?.(`Killed ${shortID(row.id)}.`);
+      await this.load();
+    } catch (err) {
+      this.status = err instanceof Error ? err.message : "kill failed";
+      this.render();
+    }
+  }
+
+  private armKill(id: string): void {
+    this.killArmed.set(id, Date.now() + 2500);
+    this.status = `tap KILL again to kill ${shortID(id)}`;
+  }
+
+  private killArmedUntil(id: string): number {
+    return this.killArmed.get(id) ?? 0;
   }
 }
 
@@ -345,6 +450,15 @@ function emptyRow(text: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "session-list-empty";
   el.textContent = text;
+  return el;
+}
+
+function sessionAction(label: string): HTMLButtonElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "session-list-action";
+  el.textContent = label;
+  el.tabIndex = -1;
   return el;
 }
 

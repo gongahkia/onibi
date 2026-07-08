@@ -275,13 +275,38 @@
 
 .session-list-cwd,
 .session-list-meta,
-.session-list-empty {
+.session-list-empty,
+.session-list-status {
   min-width: 0;
   color: var(--muted-fg);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-list-status {
+  margin-top: 8px;
+}
+
+.session-list-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.session-list-action {
+  min-height: 28px;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  padding: 0 8px;
+  font: 600 11px var(--mono-font);
+}
+
+.session-list-action.danger {
+  border-color: #da3633;
 }
 
 .session-list-empty {

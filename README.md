@@ -54,6 +54,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 
 - Managed tmux-backed session created by `onibi up`.
 - Live xterm.js terminal over `/ws/pty`.
+- Multi-session phone dashboard at `/#/sessions` with attach and guarded kill actions.
 - Pair-by-QR over local HTTPS.
 - iPhone trusted local CA profile.
 - Top controls: `MAC`, `PHONE`, `INT`, `KILL`.

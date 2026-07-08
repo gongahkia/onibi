@@ -203,7 +203,14 @@ async function showSessionsHome(): Promise<void> {
   terminalInputEnabled = false;
   showListChrome();
   const workspaceControl = document.createElement("div");
-  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, workspaceControl);
+  const list = new SessionsListView(
+    sessionListRoot,
+    getJSON,
+    navigateToSession,
+    workspaceControl,
+    postJSON,
+    showToast
+  );
   sessionList = list;
   workspaceSwitcher = new WorkspaceSwitcher(
     workspaceControl,
@@ -217,8 +224,8 @@ async function showSessionsHome(): Promise<void> {
   );
   await workspaceSwitcher.load();
   list.setWorkspace(workspaceSwitcher.current(), false);
-  await list.load();
   await connectSessionListEvents();
+  await list.load();
   refreshPushOnOpen();
   splash.hidden = true;
   startFirstRunTour();

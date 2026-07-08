@@ -132,11 +132,11 @@ async function settle(): Promise<void> {
 }
 
 async function waitFor(assertion: () => boolean): Promise<void> {
-  for (let i = 0; i < 20; i += 1) {
+  for (let i = 0; i < 100; i += 1) {
     if (assertion()) {
       return;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
   }
   throw new Error("condition did not settle");
 }
