@@ -51,6 +51,7 @@ var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
 		Tailscale:       func() webtransport.Provider { return webtransport.NewTailscale() },
 		WireGuard:       func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
+		ZeroTier:        func() webtransport.Provider { return webtransport.NewZeroTierFromEnv() },
 		CloudflareQuick: func() webtransport.Provider { return webtransport.NewCloudflareQuick() },
 		CloudflareNamed: func() webtransport.Provider { return webtransport.NewCloudflareNamedFromEnv() },
 		Ngrok:           func() webtransport.Provider { return webtransport.NewNgrokFromEnv() },
@@ -58,6 +59,9 @@ var newTransportProviders = func() webtransport.ProviderFactory {
 }
 var wireGuardBindHost = func(ctx context.Context) (string, error) {
 	return webtransport.NewWireGuardFromEnv().BindHost(ctx)
+}
+var zeroTierBindHost = func(ctx context.Context) (string, error) {
+	return webtransport.NewZeroTierFromEnv().BindHost(ctx)
 }
 
 func upCmd() *cobra.Command {
@@ -240,6 +244,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		}
 	}
 	if err := applyWireGuardListenAddr(ctx, &cfg, logger); err != nil {
+		return err
+	}
+	if err := applyZeroTierListenAddr(ctx, &cfg, logger); err != nil {
 		return err
 	}
 	if shell, _ := cmd.Flags().GetString("shell"); strings.TrimSpace(shell) != "" {
@@ -461,6 +468,25 @@ func applyWireGuardListenAddr(ctx context.Context, cfg *config.Config, logger *s
 	cfg.Web.ListenAddr = net.JoinHostPort(host, strconv.Itoa(port))
 	if logger != nil {
 		logger.Info("wireguard listen address selected", "addr", cfg.Web.ListenAddr)
+	}
+	return nil
+}
+
+func applyZeroTierListenAddr(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg == nil || webtransport.NormalizeMode(cfg.Transport.Mode) != webtransport.ModeZeroTier {
+		return nil
+	}
+	port, err := listenPort(cfg.Web.ListenAddr)
+	if err != nil {
+		return err
+	}
+	host, err := zeroTierBindHost(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.Web.ListenAddr = net.JoinHostPort(host, strconv.Itoa(port))
+	if logger != nil {
+		logger.Info("zerotier listen address selected", "addr", cfg.Web.ListenAddr)
 	}
 	return nil
 }

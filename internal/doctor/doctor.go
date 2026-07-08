@@ -126,6 +126,7 @@ func (r *runner) run() {
 	r.checkLAN()
 	r.checkTailscale()
 	r.checkWireGuard()
+	r.checkZeroTier()
 	r.checkLocalCerts()
 	r.checkSocket()
 	r.checkService()
@@ -252,6 +253,8 @@ func (r *runner) checkTransportProvider() {
 		r.add("transport provider", Pass, "Tailscale coverage: unit + fake runner + live opt-in")
 	case "wireguard":
 		r.add("transport provider", Pass, "WireGuard coverage: unit + interface probe + live opt-in")
+	case "zerotier":
+		r.add("transport provider", Pass, "ZeroTier coverage: unit + CLI probe + live opt-in")
 	case "cloudflare-quick":
 		r.checkCloudflared("transport provider", "Cloudflare Quick coverage: unit + fake process + live opt-in")
 	case "cloudflare-named":
@@ -684,6 +687,33 @@ func (r *runner) checkWireGuard() {
 		detail += " on " + iface
 	}
 	r.add("wireguard", Pass, detail)
+}
+
+func (r *runner) checkZeroTier() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("zerotier", Warn, err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(r.transportMode(cfg)))
+	if mode != "zerotier" {
+		r.add("zerotier", Pass, "not selected (transport="+mode+")")
+		return
+	}
+	zt := transport.NewZeroTierFromEnv()
+	host, err := zt.BindHost(r.ctx)
+	if err != nil {
+		r.add("zerotier", Warn, err.Error())
+		return
+	}
+	detail := "ready at " + host
+	if network := zt.NetworkID(); network != "" {
+		detail += " on " + network
+	}
+	if iface := zt.InterfaceName(); iface != "" {
+		detail += " via " + iface
+	}
+	r.add("zerotier", Pass, detail)
 }
 
 func (r *runner) checkLocalCerts() {

@@ -20,6 +20,7 @@ const (
 	ModeLANLoopback     Mode = "lan-loopback"
 	ModeTailscale       Mode = "tailscale"
 	ModeWireGuard       Mode = "wireguard"
+	ModeZeroTier        Mode = "zerotier"
 	ModeTelegram        Mode = "telegram"
 	ModeCloudflareQuick Mode = "cloudflare-quick"
 	ModeCloudflareNamed Mode = "cloudflare-named"
@@ -92,6 +93,7 @@ type ResolverOptions struct {
 type ProviderFactory struct {
 	Tailscale       func() Provider
 	WireGuard       func() Provider
+	ZeroTier        func() Provider
 	CloudflareQuick func() Provider
 	CloudflareNamed func() Provider
 	Ngrok           func() Provider
@@ -123,6 +125,8 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
 	case ModeWireGuard:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.WireGuard, func() Provider { return NewWireGuardFromEnv() }))
+	case ModeZeroTier:
+		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.ZeroTier, func() Provider { return NewZeroTierFromEnv() }))
 	case ModeCloudflareQuick:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.CloudflareQuick, func() Provider { return NewCloudflareQuick() }))
 	case ModeCloudflareNamed:
@@ -151,6 +155,8 @@ func NormalizeMode(mode string) Mode {
 		return ModeTailscale
 	case ModeWireGuard:
 		return ModeWireGuard
+	case ModeZeroTier:
+		return ModeZeroTier
 	case ModeTelegram:
 		return ModeTelegram
 	case ModeCloudflareQuick:
@@ -167,7 +173,7 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, wireguard, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto"
+	return "lan, lan-loopback, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto"
 }
 
 func IsRelayMode(mode string) bool {
@@ -199,7 +205,7 @@ func validateLANReachability(lanHosts []string, fallbackHost string) error {
 	if isRoutableLANHost(fallbackHost) {
 		return nil
 	}
-	return Diagnostic(DiagLANUnreachable, "lan", "no routable LAN address detected; managed Wi-Fi, VPN policy, or client isolation may block phone pairing. Connect the Mac to the iPhone hotspot, or use --transport=tailscale, --transport=cloudflare-quick, or --transport=ngrok", nil)
+	return Diagnostic(DiagLANUnreachable, "lan", "no routable LAN address detected; managed Wi-Fi, VPN policy, or client isolation may block phone pairing. Connect the Mac to the iPhone hotspot, or use --transport=tailscale, --transport=wireguard, --transport=zerotier, --transport=cloudflare-quick, or --transport=ngrok", nil)
 }
 
 func isRoutableLANHost(host string) bool {

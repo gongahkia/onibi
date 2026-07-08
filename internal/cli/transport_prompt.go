@@ -166,7 +166,7 @@ func promptTransportProvider(cmd *cobra.Command, sc *bufio.Scanner, current stri
 			}
 		}
 		if category == transportCategoryWeb {
-			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, 6, 7, b, or q.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, 6, 7, 8, b, or q.")
 		} else if category == transportCategoryChat {
 			fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, b, or q.")
 		} else {
@@ -183,7 +183,7 @@ func pairTransportCategoryChoices(current string) []pairTransportCategory {
 			category: transportCategoryWeb,
 			label:    "Web URL",
 			detail:   "browser cockpit + QR",
-			status:   "LAN, Tailscale, WireGuard, Cloudflare, ngrok, Auto",
+			status:   "LAN, Tailscale, WireGuard, ZeroTier, Cloudflare, ngrok, Auto",
 			active:   active == transportCategoryWeb,
 		},
 		{
@@ -307,6 +307,15 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 		},
 		{
 			key:      "4",
+			mode:     "zerotier",
+			label:    "ZeroTier",
+			detail:   "self-hosted mesh overlay",
+			coverage: "unit + CLI probe + live opt-in",
+			command:  "onibi up --transport=zerotier",
+			active:   current == "zerotier",
+		},
+		{
+			key:      "5",
 			mode:     "cloudflare-quick",
 			label:    "Cloudflare Quick",
 			detail:   "temporary trycloudflare URL",
@@ -315,7 +324,7 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 			active:   current == "cloudflare-quick",
 		},
 		{
-			key:      "5",
+			key:      "6",
 			mode:     "cloudflare-named",
 			label:    "Cloudflare Named",
 			detail:   "configured public hostname",
@@ -324,7 +333,7 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 			active:   current == "cloudflare-named",
 		},
 		{
-			key:      "6",
+			key:      "7",
 			mode:     "ngrok",
 			label:    "ngrok",
 			detail:   "dev/demo public URL",
@@ -333,7 +342,7 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 			active:   current == "ngrok",
 		},
 		{
-			key:      "7",
+			key:      "8",
 			mode:     "auto",
 			label:    "Auto",
 			detail:   "try Tailscale, fallback LAN",
@@ -359,7 +368,7 @@ func unavailableTransportChoices(category string) []unavailableTransportChoice {
 
 func normalizePairTransport(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "tailscale", "wireguard", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
+	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "lan"

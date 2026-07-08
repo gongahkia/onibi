@@ -52,6 +52,12 @@ func TestTunnelRejectsChatTransport(t *testing.T) {
 	}
 }
 
+func TestTunnelSupportsZeroTier(t *testing.T) {
+	if !tunnelTransportSupported("zerotier") {
+		t.Fatal("zerotier should support ad-hoc web tunnels")
+	}
+}
+
 func TestTunnelRejectsNamedCloudflareTransport(t *testing.T) {
 	if tunnelTransportSupported("cloudflare-named") {
 		t.Fatal("cloudflare-named should not support ad-hoc web tunnels")

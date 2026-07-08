@@ -110,8 +110,23 @@ func TestPromptPairTransportSelectsWireGuard(t *testing.T) {
 	}
 }
 
+func TestPromptPairTransportSelectsZeroTier(t *testing.T) {
+	cmd, out := transportPromptCmd("1\nzerotier\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "zerotier" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if !strings.Contains(out.String(), "ZeroTier") || !strings.Contains(out.String(), "self-hosted mesh overlay") {
+		t.Fatalf("prompt output = %q", out.String())
+	}
+}
+
 func TestPromptPairTransportBackFromProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("2\nb\n1\n7\n")
+	cmd, out := transportPromptCmd("2\nb\n1\n8\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {

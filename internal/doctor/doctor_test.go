@@ -139,6 +139,20 @@ func TestDoctorTailscaleSkippedForLAN(t *testing.T) {
 	}
 }
 
+func TestDoctorZeroTierPassesWithJoinedNetwork(t *testing.T) {
+	paths := doctorTestPaths(t, "zerotier")
+	t.Setenv(transport.ZeroTierBinEnv, fakeZeroTier(t, `[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}]`))
+
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "zerotier")
+	if check.Status != Pass {
+		t.Fatalf("zerotier check = %#v", check)
+	}
+	if !strings.Contains(check.Detail, "10.147.20.4") || !strings.Contains(check.Detail, "ztdev") {
+		t.Fatalf("detail = %q", check.Detail)
+	}
+}
+
 func TestDoctorNgrokPassesWithToken(t *testing.T) {
 	paths := doctorTestPaths(t, "ngrok")
 	t.Setenv(transport.NgrokBinEnv, fakeExecutable(t, "ngrok"))
@@ -261,6 +275,20 @@ func fakeTailscale(t *testing.T, statusJSON, serveJSON string) string {
 		"\"status --json\") cat <<'JSON'\n" + statusJSON + "\nJSON\n;;\n" +
 		"\"serve status --json\") cat <<'JSON'\n" + serveJSON + "\nJSON\n;;\n" +
 		"*) echo unexpected tailscale args: \"$*\" >&2; exit 2;;\n" +
+		"esac\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeZeroTier(t *testing.T, networksJSON string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "zerotier-cli")
+	body := "#!/bin/sh\ncase \"$*\" in\n" +
+		"\"info\") echo '200 info deadbeef 1.14.2 ONLINE'\n;;\n" +
+		"\"listnetworks -j\") cat <<'JSON'\n" + networksJSON + "\nJSON\n;;\n" +
+		"*) echo unexpected zerotier args: \"$*\" >&2; exit 2;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)

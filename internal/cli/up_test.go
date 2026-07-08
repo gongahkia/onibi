@@ -241,6 +241,36 @@ func TestApplyWireGuardListenAddrFormatsIPv6(t *testing.T) {
 	}
 }
 
+func TestApplyZeroTierListenAddrUsesDetectedHost(t *testing.T) {
+	old := zeroTierBindHost
+	zeroTierBindHost = func(context.Context) (string, error) { return "10.147.20.4", nil }
+	t.Cleanup(func() { zeroTierBindHost = old })
+	cfg := config.Default()
+	cfg.Transport.Mode = "zerotier"
+	cfg.Web.ListenAddr = ":9443"
+	if err := applyZeroTierListenAddr(context.Background(), &cfg, discardLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Web.ListenAddr != "10.147.20.4:9443" {
+		t.Fatalf("listen_addr = %q", cfg.Web.ListenAddr)
+	}
+}
+
+func TestApplyZeroTierListenAddrFormatsIPv6(t *testing.T) {
+	old := zeroTierBindHost
+	zeroTierBindHost = func(context.Context) (string, error) { return "fd00:147::4", nil }
+	t.Cleanup(func() { zeroTierBindHost = old })
+	cfg := config.Default()
+	cfg.Transport.Mode = "zerotier"
+	cfg.Web.ListenAddr = "0.0.0.0:9443"
+	if err := applyZeroTierListenAddr(context.Background(), &cfg, discardLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Web.ListenAddr != "[fd00:147::4]:9443" {
+		t.Fatalf("listen_addr = %q", cfg.Web.ListenAddr)
+	}
+}
+
 func TestResolveUpWorkspaceLoadsProjectConfig(t *testing.T) {
 	db := openUpTestDB(t)
 	root := t.TempDir()

@@ -11,6 +11,7 @@ The supported transports are:
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
 - `tailscale`: QR points at the device's Tailscale Funnel URL.
 - `wireguard`: QR points at a self-hosted WireGuard interface address.
+- `zerotier`: QR points at a ZeroTier-managed virtual network address.
 - `cloudflare-quick`: QR points at a temporary `trycloudflare.com` URL.
 - `cloudflare-named`: QR points at a configured Cloudflare Tunnel hostname.
 - `ngrok`: QR points at an ngrok public HTTPS URL.
@@ -46,7 +47,7 @@ Operational notes:
 - Enterprise or managed Wi-Fi often enables client isolation. If the phone cannot load the pair URL, move both devices to the iPhone hotspot instead of repeatedly retrying that SSID.
 - Onibi prefers routable IPv4 LAN addresses first, then IPv6 addresses. IPv6 URLs use bracket syntax.
 - `.local` mDNS is secondary; Onibi prefers LAN IP QR URLs because mobile mDNS reachability is inconsistent.
-- Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=wireguard`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
+- Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=wireguard`, `--transport=zerotier`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
 - The live smoke matrix for home Wi-Fi, hotspot, client isolation, captive Wi-Fi, IPv4/IPv6, and auto fallback is in [`docs/transport-smoke.md`](./transport-smoke.md#lan-and-hotspot).
 
 ## Tailscale Funnel
@@ -98,6 +99,28 @@ Operational notes:
 - Configure WireGuard on the laptop and phone first; see [`wireguard-setup.md`](./wireguard-setup.md).
 - `onibi doctor --transport=wireguard` verifies the `wg` binary, checks `wg show interfaces`, and confirms the selected interface has a routable IP.
 - If the phone cannot open the QR URL, verify both peers are connected and that the phone can reach the laptop's WireGuard IP with another HTTPS service before debugging Onibi.
+
+## ZeroTier
+
+`onibi up --transport=zerotier` keeps the cockpit private to a user-managed ZeroTier network. Onibi checks `zerotier-cli info`, reads `zerotier-cli listnetworks -j`, selects a joined network with status `OK`, binds the HTTPS listener to that network IP only, and prints a QR such as:
+
+```text
+https://10.147.20.4:8443/pair/<token>
+```
+
+Use `ONIBI_ZEROTIER_NETWORK=<network-id-or-name>` when the laptop belongs to several ZeroTier networks. Use `ONIBI_ZEROTIER_BIN=/path/to/zerotier-cli` when the CLI is not on `PATH`.
+
+Security model:
+
+- ZeroTier carries packets between the laptop and phone; Onibi does not manage network authorization.
+- Onibi auth is unchanged: single-use pair token first, then owner cookie on every protected page and WebSocket upgrade.
+- The local HTTPS certificate must include the ZeroTier IP. This is automatic when the network is joined before `onibi up` starts.
+
+Operational notes:
+
+- Join the laptop and phone to the same ZeroTier network first; see [`zerotier-setup.md`](./zerotier-setup.md).
+- `onibi doctor --transport=zerotier` verifies `zerotier-one` is online, checks network membership, and confirms the selected network has a routable IP.
+- If the phone cannot open the QR URL, verify the phone is authorized in the ZeroTier network and can reach the laptop's ZeroTier IP with another HTTPS service before debugging Onibi.
 
 ## Telegram
 

@@ -79,6 +79,38 @@ func TestLiveWireGuard(t *testing.T) {
 	}
 }
 
+func TestLiveZeroTier(t *testing.T) {
+	if os.Getenv("ONIBI_LIVE_ZEROTIER") != "1" {
+		t.Skip("set ONIBI_LIVE_ZEROTIER=1")
+	}
+	envs := []string{"ONIBI_LIVE_ZEROTIER", "ONIBI_ZEROTIER_BIN", "ONIBI_ZEROTIER_NETWORK"}
+	rec, err := liveartifact.New("zerotier", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
+	port, cleanup := liveHTTPSServer(t)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	zt := NewZeroTierFromEnv()
+	if err := zt.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
+		t.Fatal(err)
+	}
+	if url, err := zt.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
+		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url, "network": zt.NetworkID(), "interface": zt.InterfaceName()})
+	}
+}
+
 func TestLiveCloudflareQuick(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_QUICK") != "1" {
 		t.Skip("set ONIBI_LIVE_CLOUDFLARE_QUICK=1")
