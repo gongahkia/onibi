@@ -141,7 +141,7 @@ Receivers must reconstruct AAD from frame fields, not trust any duplicated in-ba
 
 For WebSockets, each side keeps the next expected `seq` for `(session_id, stream_id, channel, dir)`. A frame is accepted only when `seq == expected`; accepted frames increment `expected`. Lower, repeated, skipped, or non-numeric sequence values are rejected and close the socket.
 
-For HTTP requests, clients generate a fresh `stream_id` per request and use `seq=0`. The server keeps a bounded replay cache of recently accepted `(session_id, stream_id, channel, dir, seq)` tuples for at least 10 minutes. A duplicate tuple is rejected with HTTP 409.
+For HTTP requests, clients generate a fresh `stream_id` per request and use `seq=0`. The server keeps a bounded replay cache of recently accepted `(session_id, stream_id, channel, dir, seq)` tuples for at least 10 minutes. A duplicate tuple is rejected with HTTP 409. Implementation: `internal/web/e2e.go` enforces this in `Server.acceptE2EHTTPReplay` with `e2eHTTPReplayTTL = 10 * time.Minute` and `e2eHTTPReplayLimit = 4096`.
 
 For HTTP responses, the server uses the request `stream_id`, `dir=s2c`, and `seq=0`.
 

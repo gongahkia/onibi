@@ -28,6 +28,8 @@ const (
 	e2eHTTPReplayLimit = 4096
 )
 
+var e2eNow = time.Now
+
 type e2eHTTPMeta struct {
 	sessionKey []byte
 	sessionID  string
@@ -147,7 +149,7 @@ func (s *Server) readJSONBodyLimit(w http.ResponseWriter, r *http.Request, owner
 }
 
 func (s *Server) acceptE2EHTTPReplay(frame envelope.RelayFrame) bool {
-	now := time.Now()
+	now := e2eNow()
 	key := strings.Join([]string{
 		frame.SessionID,
 		frame.StreamID,
@@ -161,12 +163,18 @@ func (s *Server) acceptE2EHTTPReplay(frame envelope.RelayFrame) bool {
 		s.e2eHTTPReplay = map[string]time.Time{}
 	}
 	for k, expires := range s.e2eHTTPReplay {
-		if !expires.After(now) || len(s.e2eHTTPReplay) > e2eHTTPReplayLimit {
+		if !expires.After(now) {
 			delete(s.e2eHTTPReplay, k)
 		}
 	}
 	if expires, ok := s.e2eHTTPReplay[key]; ok && expires.After(now) {
 		return false
+	}
+	for len(s.e2eHTTPReplay) >= e2eHTTPReplayLimit {
+		for k := range s.e2eHTTPReplay {
+			delete(s.e2eHTTPReplay, k)
+			break
+		}
 	}
 	s.e2eHTTPReplay[key] = now.Add(e2eHTTPReplayTTL)
 	return true

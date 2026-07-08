@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -253,12 +254,16 @@ func TestRelayControlResponseIsEncrypted(t *testing.T) {
 	}
 }
 
-func TestRelayControlRejectsHTTPReplay(t *testing.T) {
+func TestE2EReplayHTTPWithinTTLAndAfterExpiry(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	now := time.Unix(1_700_000_000, 0)
+	oldNow := e2eNow
+	e2eNow = func() time.Time { return now }
+	t.Cleanup(func() { e2eNow = oldNow })
 	keys := NewRelayKeys()
 	key, _ := envelope.NewKey()
 	if err := keys.RegisterPair(context.Background(), db, "tok", key, time.Minute); err != nil {
@@ -283,7 +288,13 @@ func TestRelayControlRejectsHTTPReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, want := range []int{http.StatusOK, http.StatusConflict} {
+	for i, want := range []int{http.StatusOK, http.StatusConflict, http.StatusOK} {
+		if i == 1 {
+			now = now.Add(e2eHTTPReplayTTL - time.Second)
+		}
+		if i == 2 {
+			now = now.Add(2 * time.Second)
+		}
 		req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewReader(body))
 		req.AddCookie(rr.Result().Cookies()[0])
 		req.Header.Set("Content-Type", e2eContentType)
@@ -291,6 +302,29 @@ func TestRelayControlRejectsHTTPReplay(t *testing.T) {
 		srv.Handler().ServeHTTP(w, req)
 		if w.Code != want {
 			t.Fatalf("request %d status = %d body = %q", i+1, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestE2EReplayCacheBounded(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	oldNow := e2eNow
+	e2eNow = func() time.Time { return now }
+	t.Cleanup(func() { e2eNow = oldNow })
+	srv := &Server{}
+	for i := 0; i < e2eHTTPReplayLimit+16; i++ {
+		frame := envelope.RelayFrame{
+			SessionID: "session",
+			StreamID:  "stream-" + strconv.Itoa(i),
+			Channel:   "http:POST:/control",
+			Direction: e2eDirC2S,
+			Seq:       0,
+		}
+		if !srv.acceptE2EHTTPReplay(frame) {
+			t.Fatalf("unique frame %d rejected", i)
+		}
+		if len(srv.e2eHTTPReplay) > e2eHTTPReplayLimit {
+			t.Fatalf("replay cache size = %d, want <= %d", len(srv.e2eHTTPReplay), e2eHTTPReplayLimit)
 		}
 	}
 }
