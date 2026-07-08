@@ -626,6 +626,81 @@
   padding: 10px;
 }
 
+.voice-overlay {
+  position: fixed;
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  bottom: calc(var(--keyboard-bottom) + env(safe-area-inset-bottom) + var(--softkey-height) + 8px);
+  z-index: 13;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--chrome-border);
+  border-radius: 3px;
+  background: var(--panel-bg);
+  color: var(--page-fg);
+  padding: 8px;
+  backdrop-filter: blur(12px);
+}
+
+.voice-overlay[hidden] {
+  display: none;
+}
+
+.voice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-title {
+  color: var(--page-fg);
+  font: 700 12px var(--mono-font);
+}
+
+.voice-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-language,
+.voice-button {
+  min-height: 28px;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  font: 600 11px var(--mono-font);
+}
+
+.voice-language {
+  max-width: 88px;
+}
+
+.voice-button {
+  padding: 0 10px;
+}
+
+.voice-transcript {
+  min-height: 38px;
+  max-height: 22dvh;
+  overflow-y: auto;
+  border: 1px solid var(--button-border);
+  border-radius: 2px;
+  background: var(--panel-solid-bg);
+  padding: 8px;
+  color: var(--page-fg);
+  font: 12px var(--mono-font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (orientation: portrait) and (max-width: 720px) {
   .timeline-dock {
     inset: 0;

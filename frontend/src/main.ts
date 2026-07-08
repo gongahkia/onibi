@@ -30,6 +30,7 @@ import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
+import { VoiceInputController } from "./voice";
 
 type SessionInfo = {
   session_id: string;
@@ -65,6 +66,13 @@ const events = new EventsWS();
 const approvalWakeLock = new ApprovalWakeLock();
 const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
 const anomalies = new AnomalyOverlay(approvalRoot);
+const voiceInput = new VoiceInputController({
+  root: document.body,
+  sendText: (text) => ws.sendText(text),
+  showToast,
+  focus: () => term.focus(),
+  storage: window.localStorage
+});
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
@@ -173,6 +181,7 @@ async function boot(): Promise<void> {
       decreaseFontSize: () => changeTerminalFontSize(-1),
       increaseFontSize: () => changeTerminalFontSize(1),
       pasteImage: () => imagePaste?.pasteFromClipboard() ?? Promise.resolve(false),
+      voiceInput: () => voiceInput.toggle(),
       readOnly: viewerMode
     });
     connectTerminal(info);
