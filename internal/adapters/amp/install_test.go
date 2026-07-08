@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 )
 
 func TestPluginSourceMatchesAmpToolCallContracts(t *testing.T) {
@@ -26,6 +27,32 @@ func TestPluginSourceMatchesAmpToolCallContracts(t *testing.T) {
 			t.Fatalf("plugin source missing %q", want)
 		}
 	}
+}
+
+func TestAdapterAmpDenyBlocksTool(t *testing.T) {
+	node := denytest.Node(t)
+	tsc := denytest.TSC(t)
+	dir := t.TempDir()
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", pluginSource(notify), `declare module "@ampcode/plugin" {
+  export interface PluginAPI {
+    on(name: string, handler: (event: any, ctx?: any) => any): void;
+  }
+}
+declare module "node:child_process" {
+  export function spawnSync(command: string, args?: readonly string[], options?: any): { status: number | null; stdout?: string };
+}
+`)
+	denytest.RunNodeScript(t, node, dir, `import fs from "node:fs/promises";
+import plugin from "./out/onibi.js";
+const target = process.argv[2];
+const handlers = new Map();
+plugin({ on(name, handler) { handlers.set(name, handler); } });
+const result = await handlers.get("tool.call")({ sessionId: "s1", cwd: process.cwd(), toolName: "writeFile", input: { filePath: target, content: "x" } });
+if (result?.action !== "reject-and-continue") await fs.writeFile(target, "created\n");
+`, target)
+	denytest.AssertNotCreated(t, target)
 }
 
 func TestGeneratedPluginTypeChecksWithFixture(t *testing.T) {

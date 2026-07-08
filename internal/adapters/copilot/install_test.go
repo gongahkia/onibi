@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -53,6 +54,19 @@ func TestInstallWritesCopilotSchemaCleanHooks(t *testing.T) {
 	if got := installedVersion(path); got != common.IntegrationVersion {
 		t.Fatalf("installedVersion = %q", got)
 	}
+}
+
+func TestAdapterCopilotDenyBlocksTool(t *testing.T) {
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	h := hook(notify, eventSpec{event: "preToolUse", typ: "approval_request", wait: true, response: "provider", timeout: 360})
+	cmd := h["bash"].(string)
+	res := denytest.RunHook(t, cmd, `{"hookEventName":"preToolUse","toolName":"writeFile","toolArgs":{"filePath":"`+target+`","content":"x"}}`)
+	allowed := !strings.Contains(res.Stdout, `"permissionDecision":"deny"`)
+	if res.Code != 0 || allowed {
+		t.Fatalf("deny hook did not return provider block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
+	}
+	denytest.CreateIfAllowed(t, target, allowed)
 }
 
 func TestExpectedAndObservedHooksReportCopilotDrift(t *testing.T) {

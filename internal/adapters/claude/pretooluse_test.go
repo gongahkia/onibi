@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 	"github.com/gongahkia/onibi/internal/intake"
 )
 
@@ -58,4 +59,16 @@ func TestPreToolUseDeniedOutput(t *testing.T) {
 	if !strings.Contains(res.Stdout, `"permissionDecision":"deny"`) {
 		t.Fatalf("stdout = %q", res.Stdout)
 	}
+}
+
+func TestAdapterClaudeDenyBlocksTool(t *testing.T) {
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	h := buildEventHook(notify, eventSpec{event: "PreToolUse", typ: "approval_request", wait: true, response: "provider"})
+	cmd := h["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	res := denytest.RunHook(t, cmd, `{"tool_name":"Bash","tool_input":{"command":"touch `+target+`"}}`)
+	if res.Code == 0 || !strings.Contains(res.Stdout, `"permissionDecision":"deny"`) {
+		t.Fatalf("deny hook did not block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
+	}
+	denytest.CreateIfAllowed(t, target, res.Code == 0)
 }

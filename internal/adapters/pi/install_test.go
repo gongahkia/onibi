@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 )
 
 func TestExtensionSourceMatchesPiContracts(t *testing.T) {
@@ -26,6 +27,32 @@ func TestExtensionSourceMatchesPiContracts(t *testing.T) {
 			t.Fatalf("extension source missing %q", want)
 		}
 	}
+}
+
+func TestAdapterPiDenyBlocksTool(t *testing.T) {
+	node := denytest.Node(t)
+	tsc := denytest.TSC(t)
+	dir := t.TempDir()
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), `declare module "@earendil-works/pi-coding-agent" {
+  export interface ExtensionAPI {
+    on(name: string, handler: (event: any, ctx?: any) => any): void;
+  }
+}
+declare module "node:child_process" {
+  export function spawnSync(command: string, args?: readonly string[], options?: any): { status: number | null; stdout?: string };
+}
+`)
+	denytest.RunNodeScript(t, node, dir, `import fs from "node:fs/promises";
+import plugin from "./out/onibi.js";
+const target = process.argv[2];
+const handlers = new Map();
+plugin({ on(name, handler) { handlers.set(name, handler); } });
+const result = await handlers.get("tool_call")({ sessionId: "s1", cwd: process.cwd(), toolName: "writeFile", input: { filePath: target, content: "x" } });
+if (result?.block !== true) await fs.writeFile(target, "created\n");
+`, target)
+	denytest.AssertNotCreated(t, target)
 }
 
 func TestExtensionPathScopes(t *testing.T) {

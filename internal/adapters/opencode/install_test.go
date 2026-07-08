@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 )
 
 func TestPluginSourceMatchesOpenCodeContracts(t *testing.T) {
@@ -28,6 +29,30 @@ func TestPluginSourceMatchesOpenCodeContracts(t *testing.T) {
 			t.Fatalf("plugin source missing %q", want)
 		}
 	}
+}
+
+func TestAdapterOpenCodeDenyBlocksTool(t *testing.T) {
+	node := denytest.Node(t)
+	dir := t.TempDir()
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	path := filepath.Join(dir, "onibi.mjs")
+	if err := os.WriteFile(path, []byte(pluginSource(notify)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	denytest.RunNodeScript(t, node, dir, `import fs from "node:fs/promises";
+import { Onibi } from "./onibi.mjs";
+const target = process.argv[2];
+const plugin = await Onibi();
+let blocked = false;
+try {
+  await plugin["tool.execute.before"]({ sessionID: "s1", cwd: process.cwd(), tool: "writeFile" }, { tool: "writeFile", args: { filePath: target, content: "x" } });
+} catch {
+  blocked = true;
+}
+if (!blocked) await fs.writeFile(target, "created\n");
+`, target)
+	denytest.AssertNotCreated(t, target)
 }
 
 func TestPluginPathScopes(t *testing.T) {

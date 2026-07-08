@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 )
 
 func TestPreviewReportsPathsNotesAndThreshold(t *testing.T) {
@@ -34,4 +36,21 @@ func TestPreviewReportsPathsNotesAndThreshold(t *testing.T) {
 			t.Fatalf("%s edit command = %q", c.name, got.EditCommand)
 		}
 	}
+}
+
+func TestAdapterShellDenyNotifyOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := denytest.Target(t, "shell")
+	got, err := Preview("zsh", denytest.DenyNotify(t), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got.Block, "approval_request") || strings.Contains(got.Block, "--wait") {
+		t.Fatalf("shell unexpectedly installed blocking deny hook: %s", got.Block)
+	}
+	if !strings.Contains(got.Block, "--type cmd_done") {
+		t.Fatalf("shell hook is not cmd_done notify-only: %s", got.Block)
+	}
+	denytest.AssertNotCreated(t, target)
 }

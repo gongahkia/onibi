@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -58,6 +59,19 @@ func TestInstallWritesOpenPluginsSchemaCleanHooks(t *testing.T) {
 	if got := installedVersion(path); got != common.IntegrationVersion {
 		t.Fatalf("installedVersion = %q", got)
 	}
+}
+
+func TestAdapterGooseDenyNotifyOnly(t *testing.T) {
+	target := denytest.Target(t, Agent)
+	h := hook(denytest.DenyNotify(t), eventSpec{event: "PreToolUse", typ: "agent_message"})
+	cmd := h["command"].(string)
+	if strings.Contains(cmd, "approval_request") || strings.Contains(cmd, "--wait") {
+		t.Fatalf("goose unexpectedly installed blocking deny hook: %s", cmd)
+	}
+	if !strings.Contains(cmd, "--type agent_message") {
+		t.Fatalf("goose PreToolUse hook is not notify-only: %s", cmd)
+	}
+	denytest.AssertNotCreated(t, target)
 }
 
 func TestObservedHooksReportsOpenPluginsSchemaInvalid(t *testing.T) {

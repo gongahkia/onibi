@@ -15,6 +15,20 @@ onibi adapters add ./adapter.toml
 |---|---|---|
 | Aider example | [`examples/aider-adapter/aider.toml`](../examples/aider-adapter/aider.toml) | Demonstrates a third-party manifest and Aider config helper scripts. |
 
+## Official Adapter Deny Verification
+
+| Adapter | Hook surface | Verified deny blocks tool | Test | Notes |
+|---|---|---:|---|---|
+| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; fixture writes only if the hook allows. |
+| Claude | `PreToolUse` command hook | Yes | `TestAdapterClaudeDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
+| Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
+| Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; fixture writes only if provider output allows. |
+| Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; fixture writes only if provider output allows. |
+| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. |
+| Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
+| Goose | `PreToolUse` event bridge | No - notify-only | `TestAdapterGooseDenyNotifyOnly` | Current adapter sends `agent_message`; it does not wait for an approval decision. |
+| Shell | shell pre/post exec hooks | No - notify-only | `TestAdapterShellDenyNotifyOnly` | Shell hooks report `cmd_done`; there is no PreToolUse approval surface. |
+
 ## Community Adapters
 
 No community adapters are listed yet.

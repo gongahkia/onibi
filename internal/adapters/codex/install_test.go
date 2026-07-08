@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -65,6 +66,18 @@ func TestInstallWritesCodexSchemaCleanHooks(t *testing.T) {
 	if info.Outdated || info.InstalledVersion == nil || *info.InstalledVersion != common.IntegrationVersion {
 		t.Fatalf("bad status: %+v", info)
 	}
+}
+
+func TestAdapterCodexDenyBlocksTool(t *testing.T) {
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	h := hook(notify, eventSpec{event: "PreToolUse", typ: "approval_request", wait: true, response: "provider"})
+	cmd := h["command"].(string)
+	res := denytest.RunHook(t, cmd, `{"tool_name":"shell","tool_input":{"command":"touch `+target+`"}}`)
+	if res.Code == 0 || !strings.Contains(res.Stdout, `"permissionDecision":"deny"`) {
+		t.Fatalf("deny hook did not block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
+	}
+	denytest.CreateIfAllowed(t, target, res.Code == 0)
 }
 
 func TestInstallRemovesLegacyCodexMetadataAndPreservesUserHooks(t *testing.T) {

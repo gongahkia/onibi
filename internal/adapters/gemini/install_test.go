@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
+	"github.com/gongahkia/onibi/internal/adapters/denytest"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -61,6 +62,19 @@ func TestInstallWritesGeminiSchemaCleanHooks(t *testing.T) {
 	if got := installedVersion(path); got != common.IntegrationVersion {
 		t.Fatalf("installedVersion = %q", got)
 	}
+}
+
+func TestAdapterGeminiDenyBlocksTool(t *testing.T) {
+	notify := denytest.DenyNotify(t)
+	target := denytest.Target(t, Agent)
+	h := hook(notify, eventSpec{event: "BeforeTool", matcher: "*", typ: "approval_request", wait: true, response: "provider", timeout: 360000})
+	cmd := h["command"].(string)
+	res := denytest.RunHook(t, cmd, `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"touch `+target+`"}}`)
+	allowed := !strings.Contains(res.Stdout, `"decision":"deny"`)
+	if res.Code != 0 || allowed {
+		t.Fatalf("deny hook did not return provider block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
+	}
+	denytest.CreateIfAllowed(t, target, allowed)
 }
 
 func TestInstallMigratesLegacyGeminiMetadata(t *testing.T) {
