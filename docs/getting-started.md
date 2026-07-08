@@ -104,6 +104,7 @@ Soft keys:
 | `Paste` | reads the iOS clipboard and sends it to the PTY |
 
 iOS Safari shows a clipboard permission prompt the first time `Paste` reads the clipboard.
+Image paste accepts PNG, JPEG, and WebP files up to 2MB, stores them under the local Onibi uploads directory, and inserts the local path into the terminal. SVG image paste is rejected.
 The top `INT` control sends SIGINT to the hosted process; `KILL` terminates it.
 
 Basic smoke:

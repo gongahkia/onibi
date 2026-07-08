@@ -12,6 +12,7 @@ type SoftKeyBarOptions = {
   setTheme: (theme: TerminalThemeName) => void;
   decreaseFontSize: () => void;
   increaseFontSize: () => void;
+  pasteImage?: () => Promise<boolean>;
   readOnly?: boolean;
 };
 
@@ -135,7 +136,9 @@ export class SoftKeyBar {
   private pasteButton(): HTMLButtonElement {
     const el = this.button("Paste");
     el.classList.add("softkey-paste");
-    el.hidden = navigator.clipboard?.readText === undefined;
+    el.hidden =
+      navigator.clipboard?.readText === undefined &&
+      (navigator.clipboard?.read === undefined || this.options.pasteImage === undefined);
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       void this.paste();
@@ -167,6 +170,9 @@ export class SoftKeyBar {
 
   private async paste(): Promise<void> {
     try {
+      if ((await this.options.pasteImage?.()) === true) {
+        return;
+      }
       const text = await navigator.clipboard.readText();
       if (text.length > 0) {
         this.options.sendText(text);

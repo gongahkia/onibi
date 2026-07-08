@@ -2,6 +2,9 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -188,6 +191,66 @@ func TestFilesContentPutRejectsViewer(t *testing.T) {
 	}
 }
 
+func TestFilesUploadWritesOwnerImageByHash(t *testing.T) {
+	root := t.TempDir()
+	uploadDir := filepath.Join(t.TempDir(), "uploads")
+	fx := setupFileApprovalServer(t, root)
+	defer fx.cleanup()
+	fx.srv.uploadDir = uploadDir
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 1, 2, 3}
+	resp := requestFileUpload(t, fx, fileUploadRequest{
+		Name: "clip.png",
+		MIME: "image/png",
+		Data: base64.StdEncoding.EncodeToString(data),
+	}, http.StatusOK)
+	sum := sha256.Sum256(data)
+	wantHash := hex.EncodeToString(sum[:])
+	if resp.SHA256 != wantHash || resp.MIME != "image/png" || resp.Size != int64(len(data)) {
+		t.Fatalf("response = %#v", resp)
+	}
+	wantPath := filepath.Join(uploadDir, wantHash+".png")
+	if resp.Path != wantPath {
+		t.Fatalf("path = %q want %q", resp.Path, wantPath)
+	}
+	if got := mustReadBytes(t, wantPath); !slices.Equal(got, data) {
+		t.Fatalf("uploaded data = %#v", got)
+	}
+}
+
+func TestFilesUploadRejectsSVGAndOversize(t *testing.T) {
+	root := t.TempDir()
+	fx := setupFileApprovalServer(t, root)
+	defer fx.cleanup()
+	fx.srv.uploadDir = t.TempDir()
+	_ = requestFileUpload(t, fx, fileUploadRequest{
+		Name: "clip.svg",
+		MIME: "image/svg+xml",
+		Data: base64.StdEncoding.EncodeToString([]byte("<svg></svg>")),
+	}, http.StatusUnsupportedMediaType)
+	_ = requestFileUpload(t, fx, fileUploadRequest{
+		Name: "large.png",
+		MIME: "image/png",
+		Data: base64.StdEncoding.EncodeToString(append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, fileContentMaxBytes)...)),
+	}, http.StatusRequestEntityTooLarge)
+}
+
+func TestFilesUploadRejectsViewer(t *testing.T) {
+	root := t.TempDir()
+	fx := setupFileApprovalServer(t, root)
+	defer fx.cleanup()
+	fx.srv.uploadDir = t.TempDir()
+	rr := httptest.NewRecorder()
+	if _, err := fx.srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	fx.cookie = rr.Result().Cookies()[0]
+	_ = requestFileUpload(t, fx, fileUploadRequest{
+		Name: "clip.png",
+		MIME: "image/png",
+		Data: base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}),
+	}, http.StatusForbidden)
+}
+
 func TestFilesTreeRejectsViewer(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "README.md", "# repo\n")
@@ -354,6 +417,29 @@ func requestFilePut(t *testing.T, fx fileApprovalTestServer, rel, content string
 	return resp.ApprovalID
 }
 
+func requestFileUpload(t *testing.T, fx fileApprovalTestServer, reqBody fileUploadRequest, wantStatus int) fileUploadResponse {
+	t.Helper()
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/files/upload", strings.NewReader(string(body)))
+	req.AddCookie(fx.cookie)
+	addCSRF(req, fx.cookie.Value)
+	w := httptest.NewRecorder()
+	fx.srv.Handler().ServeHTTP(w, req)
+	if w.Code != wantStatus {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var resp fileUploadResponse
+	if wantStatus == http.StatusOK {
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return resp
+}
+
 func readFileApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
 	t.Helper()
 	select {
@@ -401,6 +487,15 @@ func mustReadFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func mustReadBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func waitForFileContent(t *testing.T, path, want string) {

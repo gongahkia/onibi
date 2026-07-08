@@ -3,6 +3,9 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +55,19 @@ type FileContentResponse struct {
 
 type fileContentPutRequest struct {
 	Content string `json:"content"`
+}
+
+type fileUploadRequest struct {
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+	Data string `json:"data"`
+}
+
+type fileUploadResponse struct {
+	Path   string `json:"path"`
+	MIME   string `json:"mime"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 type fileEditInput struct {
@@ -241,6 +257,33 @@ func (s *Server) handleFilesContentPut(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"approval_id": approvalID})
 }
 
+func (s *Server) handleFilesUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
+	if !ok {
+		return
+	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
+	var req fileUploadRequest
+	if !s.readJSONBodyLimit(w, r, ownerSessionID, &req, fileUploadBodyLimit()) {
+		return
+	}
+	resp, err := s.storeUploadedImage(req)
+	if err != nil {
+		status := fileUploadErrorStatus(err)
+		s.log.Warn("web file upload failed", "request_id", requestID(r), "mime", req.MIME, "name", req.Name, "err", err)
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 type pendingFileWrite struct {
 	sessionID   string
 	root        string
@@ -283,7 +326,158 @@ var (
 	errFileContentSymlink      = errors.New("symlink files unavailable")
 	errFileContentTooLarge     = errors.New("file exceeds 2MB")
 	errFileContentBinary       = errors.New("binary file editing unavailable")
+
+	errFileUploadDirUnavailable = errors.New("upload dir unavailable")
+	errFileUploadDataRequired   = errors.New("image data required")
+	errFileUploadTooLarge       = errors.New("image exceeds 2MB")
+	errFileUploadUnsupported    = errors.New("unsupported image type")
+	errFileUploadUnsafePath     = errors.New("unsafe upload path")
+	errFileUploadCollision      = errors.New("upload hash collision")
 )
+
+func (s *Server) storeUploadedImage(req fileUploadRequest) (fileUploadResponse, error) {
+	raw := strings.TrimSpace(req.Data)
+	if raw == "" {
+		return fileUploadResponse{}, errFileUploadDataRequired
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return fileUploadResponse{}, errFileUploadDataRequired
+	}
+	if len(data) == 0 {
+		return fileUploadResponse{}, errFileUploadDataRequired
+	}
+	if len(data) > fileContentMaxBytes {
+		return fileUploadResponse{}, errFileUploadTooLarge
+	}
+	mime, ext, err := validateUploadImageType(strings.TrimSpace(req.MIME), data)
+	if err != nil {
+		return fileUploadResponse{}, err
+	}
+	root, err := s.fileUploadRoot()
+	if err != nil {
+		return fileUploadResponse{}, err
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return fileUploadResponse{}, err
+	}
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	abs := filepath.Join(root, hash+ext)
+	if err := writeUploadFile(abs, data); err != nil {
+		return fileUploadResponse{}, err
+	}
+	return fileUploadResponse{
+		Path:   abs,
+		MIME:   mime,
+		Size:   int64(len(data)),
+		SHA256: hash,
+	}, nil
+}
+
+func (s *Server) fileUploadRoot() (string, error) {
+	if root := strings.TrimSpace(s.uploadDir); root != "" {
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			return "", err
+		}
+		return abs, nil
+	}
+	if s.db != nil && strings.TrimSpace(s.db.Path()) != "" {
+		return filepath.Join(filepath.Dir(s.db.Path()), "uploads"), nil
+	}
+	return "", errFileUploadDirUnavailable
+}
+
+func validateUploadImageType(declared string, data []byte) (string, string, error) {
+	declared = strings.ToLower(strings.TrimSpace(strings.Split(declared, ";")[0]))
+	if declared == "image/jpg" {
+		declared = "image/jpeg"
+	}
+	if declared != "" && !supportedUploadImageMIME(declared) {
+		return "", "", errFileUploadUnsupported
+	}
+	detected, ext := detectUploadImageType(data)
+	if detected == "" {
+		return "", "", errFileUploadUnsupported
+	}
+	if declared != "" && declared != detected {
+		return "", "", errFileUploadUnsupported
+	}
+	return detected, ext, nil
+}
+
+func detectUploadImageType(data []byte) (string, string) {
+	if len(data) >= 8 && bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return "image/png", ".png"
+	}
+	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
+		return "image/jpeg", ".jpg"
+	}
+	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return "image/webp", ".webp"
+	}
+	return "", ""
+}
+
+func supportedUploadImageMIME(mime string) bool {
+	return mime == "image/png" || mime == "image/jpeg" || mime == "image/webp"
+}
+
+func writeUploadFile(abs string, data []byte) error {
+	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err == nil {
+		if _, writeErr := f.Write(data); writeErr != nil {
+			_ = f.Close()
+			_ = os.Remove(abs)
+			return writeErr
+		}
+		if closeErr := f.Close(); closeErr != nil {
+			_ = os.Remove(abs)
+			return closeErr
+		}
+		return nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
+		return errFileUploadUnsafePath
+	}
+	existing, err := os.ReadFile(abs)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(existing, data) {
+		return errFileUploadCollision
+	}
+	return nil
+}
+
+func fileUploadBodyLimit() int64 {
+	return int64(((fileContentMaxBytes + 2) / 3 * 4) + (64 << 10))
+}
+
+func fileUploadErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, errFileUploadDataRequired):
+		return http.StatusBadRequest
+	case errors.Is(err, errFileUploadUnsupported):
+		return http.StatusUnsupportedMediaType
+	case errors.Is(err, errFileUploadTooLarge):
+		return http.StatusRequestEntityTooLarge
+	case errors.Is(err, errFileUploadDirUnavailable):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, errFileUploadUnsafePath):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
 
 func buildFileTree(sessionID, cwd string) (FileTreeResponse, error) {
 	root, err := sessionFileRoot(cwd)

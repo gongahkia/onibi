@@ -28,6 +28,8 @@ import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
+import { installImagePaste } from "./image-paste";
+import type { ImageUploadRequest } from "./image-paste";
 
 type SessionInfo = {
   session_id: string;
@@ -149,6 +151,15 @@ async function boot(): Promise<void> {
       showToast,
       viewerMode
     );
+    const imagePaste = viewerMode
+      ? undefined
+      : installImagePaste({
+          root: termEl,
+          uploadImage,
+          sendText: (path) => ws.sendText(path),
+          showToast,
+          focus: () => term.focus()
+        });
     installControls(toolbar, info, snapshots, timeline, filesPanel);
     new SoftKeyBar({
       root: softkeys,
@@ -161,6 +172,7 @@ async function boot(): Promise<void> {
       setTheme: setTheme,
       decreaseFontSize: () => changeTerminalFontSize(-1),
       increaseFontSize: () => changeTerminalFontSize(1),
+      pasteImage: () => imagePaste?.pasteFromClipboard() ?? Promise.resolve(false),
       readOnly: viewerMode
     });
     connectTerminal(info);
@@ -420,6 +432,18 @@ async function postJSON(path: string, body: Record<string, unknown>): Promise<Re
 
 async function putJSON(path: string, body: Record<string, unknown>): Promise<Response> {
   return sendJSON("PUT", path, body);
+}
+
+async function uploadImage(request: ImageUploadRequest): Promise<string> {
+  const response = await postJSON("/files/upload", request);
+  if (!response.ok) {
+    throw new Error((await response.text()).trim() || `upload ${response.status}`);
+  }
+  const body = (await response.json()) as { path?: unknown };
+  if (typeof body.path !== "string" || body.path === "") {
+    throw new Error("upload path missing");
+  }
+  return body.path;
 }
 
 async function sendJSON(
