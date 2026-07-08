@@ -1,7 +1,7 @@
 # Pricing
 
-Onibi budget math uses the standard Claude API token prices published by Anthropic.
-Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Checked 2026-06-30.
+Onibi budget math uses a dated snapshot of Claude API token prices published by Anthropic.
+Snapshot source: <https://platform.claude.com/docs/en/about-claude/pricing>. As of 2026-06-30.
 
 | Model | Input | Output |
 | --- | ---: | ---: |
