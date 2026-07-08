@@ -26,6 +26,32 @@ func TestTrustRuntimePostRejectsUnauthenticated(t *testing.T) {
 	}
 }
 
+func TestTrustRuntimePostRejectsViewer(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	srv := New(Options{
+		DB: db,
+		TrustRuntime: func(context.Context, TrustRuntimeRequest) (string, error) {
+			t.Fatal("trust runtime called")
+			return "", nil
+		},
+	})
+	rr := httptest.NewRecorder()
+	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/trust/runtime", strings.NewReader(`{"session_id":"s1","tool":"Edit"}`))
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
 func TestTrustRuntimePostCallsCallback(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
