@@ -3,7 +3,7 @@ import type { ApprovalWakeLock } from "./wake-lock";
 
 type Diff2HtmlUIModule = typeof import("diff2html/lib/ui/js/diff2html-ui-slim.js");
 
-const maxInlineDiffLines = 500;
+const maxInlineDiffLines = 200;
 const maxInlineDiffBytes = 50 * 1024;
 
 type ApprovalCard = {

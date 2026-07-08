@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-label="Onibi approval card with inline diff">
+  <rect width="900" height="520" fill="#101820"/>
+  <rect x="32" y="32" width="836" height="456" rx="14" fill="#17212b" stroke="#33404a" stroke-width="2"/>
+  <text x="64" y="80" fill="#f8fafc" font-family="ui-sans-serif, system-ui, sans-serif" font-size="30" font-weight="700">Write approval</text>
+  <text x="64" y="112" fill="#b5c0ca" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18">claude / onibi-demo</text>
+  <text x="760" y="82" fill="#ff9f9c" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="700">HIGH</text>
+  <rect x="64" y="140" width="772" height="258" rx="8" fill="#0d1117" stroke="#33404a"/>
+  <text x="84" y="174" fill="#d7dde8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">--- a/src/config.ts</text>
+  <text x="84" y="202" fill="#d7dde8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">+++ b/src/config.ts</text>
+  <rect x="66" y="216" width="768" height="38" fill="#8ddb8c"/>
+  <text x="84" y="241" fill="#0b1020" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">+ export const mode = "phone";</text>
+  <rect x="66" y="254" width="768" height="38" fill="#ff7b72"/>
+  <text x="84" y="279" fill="#0b1020" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">- export const mode = "desktop";</text>
+  <text x="84" y="326" fill="#d7dde8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">@@ -8,4 +8,4 @@</text>
+  <rect x="64" y="424" width="104" height="40" rx="8" fill="#93e1d8" stroke="#1f766f"/>
+  <rect x="188" y="424" width="104" height="40" rx="8" fill="#f8fafc" stroke="#a6403d"/>
+  <rect x="312" y="424" width="104" height="40" rx="8" fill="#f8fafc" stroke="#59636f"/>
+  <text x="88" y="450" fill="#101820" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Approve</text>
+  <text x="224" y="450" fill="#a6403d" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Deny</text>
+  <text x="348" y="450" fill="#59636f" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700">Edit</text>
+</svg>

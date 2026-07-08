@@ -52,6 +52,10 @@ Write guards:
 - `approve` writes the queued content. `edit` validates the edited `file_path` and `content` before writing. `deny`, `cancel`, expiry, or channel close writes nothing.
 - Before writing, the daemon checks the parent path, rejects symlink parents, confirms the existing parent remains inside the session root, creates missing parent directories with `0700`, rejects a symlink destination, and writes file mode `0600`.
 
+Diff approvals render inline in the phone card:
+
+![Approval diff card](assets/approval-diff-card.svg)
+
 ## Residual Trust Boundary
 
 Onibi still trusts the local OS user account. File-panel checks scope browser-origin requests to the session cwd and approval queue, but they are not a sandbox against the same local user changing files or paths while an approval is pending.

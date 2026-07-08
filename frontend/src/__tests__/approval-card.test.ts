@@ -38,6 +38,43 @@ test("renders approval JSON and posts approve and deny decisions", async () => {
   dom.window.close();
 });
 
+test("renders unified diff approval and paginates large diffs", async () => {
+  const dom = installDOM('<main id="approvals"></main>');
+  const { ApprovalOverlay } = await import("../approval");
+  const root = document.getElementById("approvals");
+  if (root === null) {
+    throw new Error("missing approvals root");
+  }
+  const overlay = new ApprovalOverlay(root);
+  overlay.handleEnvelope({
+    type: "approval.requested",
+    ts: "2026-07-08T00:00:00Z",
+    payload: {
+      ...approvalPayload(),
+      id: "ap-diff",
+      tool: "Write",
+      unified_diff: smallUnifiedDiff()
+    }
+  });
+  const diff = root.querySelector(".approval-diff");
+  await waitFor(() => diff?.textContent?.includes("new") === true);
+  expect(diff?.textContent).toContain("new");
+  overlay.handleEnvelope({
+    type: "approval.requested",
+    ts: "2026-07-08T00:00:01Z",
+    payload: {
+      ...approvalPayload(),
+      id: "ap-large-diff",
+      tool: "FileEdit",
+      unified_diff: largeUnifiedDiff()
+    }
+  });
+  const summaries = Array.from(root.querySelectorAll(".approval-diff-summary"));
+  expect(summaries.some((el) => el.textContent?.includes("205 line diff"))).toBe(true);
+  expect(root.textContent).toContain("Show more (205 lines)");
+  dom.window.close();
+});
+
 function approvalPayload(): ApprovalRequestedPayload {
   return {
     id: "ap-1",
@@ -48,6 +85,14 @@ function approvalPayload(): ApprovalRequestedPayload {
     risk_level: "low",
     expires_at: "2026-07-08T00:05:00Z"
   };
+}
+
+function smallUnifiedDiff(): string {
+  return ["--- a/file.txt", "+++ b/file.txt", "@@ -1 +1 @@", "-old", "+new"].join("\n");
+}
+
+function largeUnifiedDiff(): string {
+  return Array.from({ length: 205 }, (_, i) => `+line ${i}`).join("\n");
 }
 
 function installDOM(markup: string): JSDOM {
@@ -84,4 +129,14 @@ function button(root: HTMLElement, label: string): HTMLButtonElement {
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function waitFor(assertion: () => boolean): Promise<void> {
+  for (let i = 0; i < 20; i += 1) {
+    if (assertion()) {
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  }
+  throw new Error("condition did not settle");
 }
