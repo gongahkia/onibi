@@ -152,6 +152,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
 - [`docs/sharing.md`](./docs/sharing.md): read-only viewer sharing threat model and TTL guidance.
 - [`docs/team-setup.md`](./docs/team-setup.md): one-owner, one-viewer workspace sharing walkthrough.
+- [`docs/tap-integrity.md`](./docs/tap-integrity.md): Homebrew tap checksum and GPG verification.
 - [`docs/web-push.md`](./docs/web-push.md): iOS web push setup and troubleshooting.
 - [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
