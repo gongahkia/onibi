@@ -15,8 +15,7 @@ export async function subscribePushFromGesture(postJSON: PostJSON): Promise<void
     throw new Error("Push permission denied.");
   }
   const registration = await navigator.serviceWorker.ready;
-  const subscription =
-    (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
+  const subscription = await currentSubscription(registration);
   await storeSubscription(postJSON, subscription);
   markPushEnabled();
 }
@@ -36,8 +35,7 @@ export async function refreshPushSubscription(postJSON: PostJSON): Promise<void>
     return;
   }
   const registration = await navigator.serviceWorker.ready;
-  const subscription =
-    (await registration.pushManager.getSubscription()) ?? (await subscribe(registration));
+  const subscription = await currentSubscription(registration);
   await storeSubscription(postJSON, subscription);
 }
 
@@ -74,11 +72,21 @@ function pushAvailable(): boolean {
   return "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
 }
 
-async function subscribe(registration: ServiceWorkerRegistration): Promise<PushSubscription> {
+async function currentSubscription(
+  registration: ServiceWorkerRegistration
+): Promise<PushSubscription> {
   const vapid = await getVAPIDPublicKey();
+  const applicationServerKey = base64URLToBytes(vapid.key);
+  const existing = await registration.pushManager.getSubscription();
+  if (existing !== null) {
+    if (subscriptionUsesKey(existing, applicationServerKey)) {
+      return existing;
+    }
+    await existing.unsubscribe();
+  }
   return registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: base64URLToBytes(vapid.key)
+    applicationServerKey
   });
 }
 
@@ -98,6 +106,23 @@ function base64URLToBytes(value: string): Uint8Array {
     out[i] = raw.charCodeAt(i);
   }
   return out;
+}
+
+function subscriptionUsesKey(subscription: PushSubscription, expected: Uint8Array): boolean {
+  const actual = subscription.options.applicationServerKey;
+  if (actual === null) {
+    return false;
+  }
+  const actualBytes = new Uint8Array(actual);
+  if (actualBytes.byteLength !== expected.byteLength) {
+    return false;
+  }
+  for (let i = 0; i < expected.byteLength; i += 1) {
+    if (actualBytes[i] !== expected[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function shouldRefreshPush(): boolean {

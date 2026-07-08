@@ -1019,6 +1019,14 @@ func (d *DB) DeletePushSubscription(ctx context.Context, endpoint string) error 
 	return err
 }
 
+func (d *DB) DeletePushSubscriptions(ctx context.Context) (int64, error) {
+	res, err := d.sql.ExecContext(ctx, `DELETE FROM push_subscriptions`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (d *DB) sealString(ctx context.Context, table, rowID, column, value string) ([]byte, error) {
 	return d.sealBytes(ctx, table, rowID, column, []byte(value))
 }

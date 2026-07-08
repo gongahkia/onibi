@@ -28,8 +28,15 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	explain, _ := cmd.Flags().GetBool("explain")
 	providers, _ := cmd.Flags().GetBool("providers")
 	security, _ := cmd.Flags().GetBool("security")
-	if providers && security {
-		return fmt.Errorf("--providers and --security cannot be combined")
+	push, _ := cmd.Flags().GetBool("push")
+	modeCount := 0
+	for _, enabled := range []bool{providers, security, push} {
+		if enabled {
+			modeCount++
+		}
+	}
+	if modeCount > 1 {
+		return fmt.Errorf("--providers, --security, and --push cannot be combined")
 	}
 	if mode == "release" {
 		release = true
@@ -74,6 +81,28 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		}
 		if report.Failed() {
 			return fmt.Errorf("doctor security failed")
+		}
+		return nil
+	}
+	if push {
+		report := doctor.Push(ctx, opts)
+		if asJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				return err
+			}
+		} else {
+			for _, c := range report.Checks {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s", style.status(c.Status), c.Name, c.Detail)
+				if c.Next != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), " %s=%s", style.dim("next"), c.Next)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+		}
+		if report.Failed() {
+			return fmt.Errorf("doctor push failed")
 		}
 		return nil
 	}

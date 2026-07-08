@@ -11,6 +11,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/updatecheck"
+	"github.com/gongahkia/onibi/internal/web"
 )
 
 func TestDoctorJSONIsValid(t *testing.T) {
@@ -89,6 +90,29 @@ func TestDoctorProvidersFixPrintsSetupGuidance(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestDoctorPushJSON(t *testing.T) {
+	withDefaultState(t)
+	_, db, err := openCLIStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := web.EnsureVAPIDKeys(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	out, _, err := executeRootAllowError(t, "doctor", "--push", "--json", "--color", "never")
+	if err != nil {
+		t.Fatalf("execute doctor --push: %v\n%s", err, out.String())
+	}
+	var report doctor.Report
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if !hasDoctorCheck(report, "push vapid key") || !hasDoctorCheck(report, "push public key") {
+		t.Fatalf("push checks missing: %#v", report.Checks)
 	}
 }
 

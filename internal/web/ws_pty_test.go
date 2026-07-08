@@ -266,13 +266,11 @@ func TestWSPTYE2ERekeyClosesInFlightSession(t *testing.T) {
 	defer cleanup()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
-	c, _ := dialE2EPTYAt(t, ts.URL, ownerSessionID, cookie, key)
+	c, client := dialE2EPTYAt(t, ts.URL, ownerSessionID, cookie, key)
 	defer c.CloseNow()
-	errs := make(chan error, 1)
-	go func() {
-		_, _, err := c.Read(context.Background())
-		errs <- err
-	}()
+	messages, errs := readE2EPTYForTest(t, c, client)
+	writeE2EWSBinaryForTest(t, c, client, []byte("attached-before-rekey\n"))
+	waitForE2EPTYPayload(t, messages, errs, []byte("attached-before-rekey"))
 	newKey := make([]byte, 32)
 	for i := range newKey {
 		newKey[i] = byte(i + 90)

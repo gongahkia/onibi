@@ -273,6 +273,7 @@ func doctorCmd() *cobra.Command {
 	cmd.Flags().Bool("fix", false, "apply safe local fixes for doctor warnings")
 	cmd.Flags().Bool("providers", false, "show provider configuration and reachability")
 	cmd.Flags().Bool("security", false, "scan daemon logs for token-shaped leaks")
+	cmd.Flags().Bool("push", false, "verify Web Push VAPID keys and subscriptions")
 	cmd.Flags().Bool("after-upgrade", false, "run offline upgrade checks")
 	cmd.Flags().Bool("release", false, "run release readiness checks")
 	cmd.Flags().Bool("json", false, "print JSON")

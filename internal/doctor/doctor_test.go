@@ -11,6 +11,7 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
 )
 
@@ -46,6 +47,52 @@ func TestDoctorPassesDecryptableStoreKey(t *testing.T) {
 	}
 	if check := checkNamed(t, report, "sqlite db"); check.Status != Pass {
 		t.Fatalf("sqlite check = %#v", check)
+	}
+}
+
+func TestDoctorPushPassesWithMatchingVAPIDState(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile, store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := web.EnsureVAPIDKeys(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPushSubscription(context.Background(), "https://push.example.invalid/sub/1", "p-key", "a-key", time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	report := Push(context.Background(), Options{Paths: paths})
+	if report.Failed() {
+		t.Fatalf("push doctor failed: %#v", report.Checks)
+	}
+	if check := checkNamed(t, report, "push subscriptions"); check.Status != Pass || !strings.Contains(check.Detail, "1 subscription") {
+		t.Fatalf("subscriptions check = %#v", check)
+	}
+}
+
+func TestDoctorPushFailsMissingVAPIDKey(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile, store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	report := Push(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "push vapid key")
+	if check.Status != Fail || !strings.Contains(check.Detail, web.PushVAPIDSecretName) {
+		t.Fatalf("push vapid check = %#v", check)
 	}
 }
 

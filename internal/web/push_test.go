@@ -15,10 +15,12 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/envelope"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestPushVAPIDKeysSurviveRestart(t *testing.T) {
+	withPushSecretStoreForTest(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "onibi.db")
 	key, err := envelope.NewKey()
@@ -53,6 +55,7 @@ func TestPushVAPIDKeysSurviveRestart(t *testing.T) {
 }
 
 func TestPushVAPIDPublicKeyEndpoint(t *testing.T) {
+	withPushSecretStoreForTest(t)
 	srv, cleanup := testServer(t)
 	defer cleanup()
 	rr := httptest.NewRecorder()
@@ -120,6 +123,7 @@ func TestPushSubscribeStoresSubscription(t *testing.T) {
 }
 
 func TestSendApprovalPushNotificationsDeletesGoneSubscription(t *testing.T) {
+	withPushSecretStoreForTest(t)
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +173,92 @@ func TestSendApprovalPushNotificationsDeletesGoneSubscription(t *testing.T) {
 	if len(subs) != 0 {
 		t.Fatalf("subscriptions after gone = %#v", subs)
 	}
+}
+
+func TestPushRotateInvalidatesSubscriptionsAndChangesKeys(t *testing.T) {
+	withPushSecretStoreForTest(t)
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	first, err := EnsureVAPIDKeys(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPushSubscription(ctx, "https://push.example.invalid/sub/1", "p-key", "a-key", testNow()); err != nil {
+		t.Fatal(err)
+	}
+	second, invalidated, err := RotateVAPIDKeys(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PrivateKey == "" || second.PublicKey == "" || second == first {
+		t.Fatalf("rotated keys = %#v first=%#v", second, first)
+	}
+	if invalidated != 1 {
+		t.Fatalf("invalidated = %d", invalidated)
+	}
+	subs, err := db.PushSubscriptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("subscriptions = %#v", subs)
+	}
+	diag, err := VAPIDDiagnosticsForDB(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diag.SecretPresent || !diag.SQLitePublicPresent || !diag.PublicKeyMatches || diag.LegacyPrivatePresent || diag.SubscriptionCount != 0 {
+		t.Fatalf("diag = %#v", diag)
+	}
+}
+
+func TestPushVAPIDKeysMigrateLegacySQLitePrivateKey(t *testing.T) {
+	withPushSecretStoreForTest(t)
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := db.KVSetEncryptedString(ctx, pushVAPIDPrivateKey, "legacy-private"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVSetString(ctx, pushVAPIDPublicKey, "legacy-public"); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := EnsureVAPIDKeys(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys.PrivateKey != "legacy-private" || keys.PublicKey != "legacy-public" {
+		t.Fatalf("keys = %#v", keys)
+	}
+	_, legacyOK, err := db.KVGet(ctx, pushVAPIDPrivateKey)
+	if err != nil || legacyOK {
+		t.Fatalf("legacy private ok=%v err=%v", legacyOK, err)
+	}
+	diag, err := VAPIDDiagnosticsForDB(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diag.SecretPresent || !diag.PublicKeyMatches || diag.LegacyPrivatePresent {
+		t.Fatalf("diag = %#v", diag)
+	}
+}
+
+func withPushSecretStoreForTest(t *testing.T) {
+	t.Helper()
+	st, err := secrets.Open(secrets.Options{EnvFallbackPath: filepath.Join(t.TempDir(), "push.env"), PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := openPushSecretStore
+	openPushSecretStore = func() (*secrets.Store, error) { return st, nil }
+	t.Cleanup(func() { openPushSecretStore = old })
 }
 
 func testNow() time.Time {

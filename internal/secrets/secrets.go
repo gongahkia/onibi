@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,14 @@ func DefaultStoreKeyFallbackPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "onibi", "store.key"), nil
+}
+
+func OpenDefault() (*Store, error) {
+	path, err := DefaultStoreKeyFallbackPath()
+	if err != nil {
+		return nil, err
+	}
+	return Open(Options{EnvFallbackPath: path, PreferDotenv: forceDotenvStoreKey()})
 }
 
 func GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {
@@ -381,7 +390,11 @@ func readDotenv(path string) (map[string]string, error) {
 		}
 		k := strings.TrimSpace(line[:eq])
 		v := strings.TrimSpace(line[eq+1:])
-		v = strings.Trim(v, `"`)
+		if unquoted, err := strconv.Unquote(v); err == nil {
+			v = unquoted
+		} else {
+			v = strings.Trim(v, `"`)
+		}
 		out[k] = v
 	}
 	return out, sc.Err()

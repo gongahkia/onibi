@@ -37,6 +37,21 @@ func TestDotenvRoundtrip(t *testing.T) {
 	}
 }
 
+func TestDotenvRoundtripEscapedJSON(t *testing.T) {
+	s, err := Open(Options{EnvFallbackPath: filepath.Join(t.TempDir(), ".env"), PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := `{"private_key":"a/b+c","public_key":"x_y-z"}`
+	if err := s.Set("JSON_SECRET", value); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.Get("JSON_SECRET")
+	if err != nil || !ok || got != value {
+		t.Fatalf("Get: %q ok=%v err=%v", got, ok, err)
+	}
+}
+
 func TestDotenvDelete(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, ".env")

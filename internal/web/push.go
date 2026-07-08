@@ -15,10 +15,12 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
 const (
+	PushVAPIDSecretName = "onibi.push.vapid.v1"
 	pushVAPIDPrivateKey = "push_vapid_priv_enc"
 	pushVAPIDPublicKey  = "push_vapid_pub"
 )
@@ -26,10 +28,24 @@ const (
 var pushVAPIDMu sync.Mutex
 
 var sendWebPushNotification = webpush.SendNotificationWithContext
+var openPushSecretStore = secrets.OpenDefault
 
 type VAPIDKeys struct {
 	PrivateKey string
 	PublicKey  string
+}
+
+type VAPIDDiagnostics struct {
+	SecretPresent        bool
+	SQLitePublicPresent  bool
+	PublicKeyMatches     bool
+	LegacyPrivatePresent bool
+	SubscriptionCount    int
+}
+
+type vapidSecret struct {
+	PrivateKey string `json:"private_key"`
+	PublicKey  string `json:"public_key"`
 }
 
 type pushSubscribeRequest struct {
@@ -49,28 +65,157 @@ func EnsureVAPIDKeys(ctx context.Context, db *store.DB) (VAPIDKeys, error) {
 	}
 	pushVAPIDMu.Lock()
 	defer pushVAPIDMu.Unlock()
-	privateKey, privateOK, err := db.KVGetEncryptedString(ctx, pushVAPIDPrivateKey)
+	keys, ok, err := loadVAPIDKeys(ctx)
 	if err != nil {
 		return VAPIDKeys{}, err
+	}
+	if ok {
+		if err := syncVAPIDPublicKey(ctx, db, keys); err != nil {
+			return VAPIDKeys{}, err
+		}
+		return keys, nil
+	}
+	keys, ok, err = loadLegacyVAPIDKeys(ctx, db)
+	if err != nil {
+		return VAPIDKeys{}, err
+	}
+	if ok {
+		if err := saveVAPIDKeys(ctx, keys); err != nil {
+			return VAPIDKeys{}, err
+		}
+		if err := syncVAPIDPublicKey(ctx, db, keys); err != nil {
+			return VAPIDKeys{}, err
+		}
+		_ = db.KVDel(ctx, pushVAPIDPrivateKey)
+		return keys, nil
+	}
+	keys, _, err = rotateVAPIDKeysLocked(ctx, db)
+	return keys, err
+}
+
+func RotateVAPIDKeys(ctx context.Context, db *store.DB) (VAPIDKeys, int64, error) {
+	if db == nil {
+		return VAPIDKeys{}, 0, errors.New("db unavailable")
+	}
+	pushVAPIDMu.Lock()
+	defer pushVAPIDMu.Unlock()
+	return rotateVAPIDKeysLocked(ctx, db)
+}
+
+func VAPIDDiagnosticsForDB(ctx context.Context, db *store.DB) (VAPIDDiagnostics, error) {
+	if db == nil {
+		return VAPIDDiagnostics{}, errors.New("db unavailable")
+	}
+	keys, secretOK, err := loadVAPIDKeys(ctx)
+	if err != nil {
+		return VAPIDDiagnostics{}, err
 	}
 	publicKey, publicOK, err := db.KVGetString(ctx, pushVAPIDPublicKey)
 	if err != nil {
-		return VAPIDKeys{}, err
+		return VAPIDDiagnostics{}, err
 	}
-	if privateOK && publicOK && strings.TrimSpace(privateKey) != "" && strings.TrimSpace(publicKey) != "" {
-		return VAPIDKeys{PrivateKey: privateKey, PublicKey: publicKey}, nil
-	}
-	privateKey, publicKey, err = webpush.GenerateVAPIDKeys()
+	_, legacyOK, err := db.KVGetEncryptedString(ctx, pushVAPIDPrivateKey)
 	if err != nil {
-		return VAPIDKeys{}, err
+		return VAPIDDiagnostics{}, err
 	}
-	if err := db.KVSetEncryptedString(ctx, pushVAPIDPrivateKey, privateKey); err != nil {
-		return VAPIDKeys{}, err
+	subs, err := db.PushSubscriptions(ctx)
+	if err != nil {
+		return VAPIDDiagnostics{}, err
 	}
-	if err := db.KVSetString(ctx, pushVAPIDPublicKey, publicKey); err != nil {
-		return VAPIDKeys{}, err
+	return VAPIDDiagnostics{
+		SecretPresent:        secretOK,
+		SQLitePublicPresent:  publicOK && strings.TrimSpace(publicKey) != "",
+		PublicKeyMatches:     secretOK && publicOK && strings.TrimSpace(publicKey) == keys.PublicKey,
+		LegacyPrivatePresent: legacyOK,
+		SubscriptionCount:    len(subs),
+	}, nil
+}
+
+func rotateVAPIDKeysLocked(ctx context.Context, db *store.DB) (VAPIDKeys, int64, error) {
+	privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		return VAPIDKeys{}, 0, err
 	}
-	return VAPIDKeys{PrivateKey: privateKey, PublicKey: publicKey}, nil
+	keys := VAPIDKeys{PrivateKey: privateKey, PublicKey: publicKey}
+	if err := saveVAPIDKeys(ctx, keys); err != nil {
+		return VAPIDKeys{}, 0, err
+	}
+	if err := syncVAPIDPublicKey(ctx, db, keys); err != nil {
+		return VAPIDKeys{}, 0, err
+	}
+	_ = db.KVDel(ctx, pushVAPIDPrivateKey)
+	n, err := db.DeletePushSubscriptions(ctx)
+	if err != nil {
+		return VAPIDKeys{}, 0, err
+	}
+	return keys, n, nil
+}
+
+func loadVAPIDKeys(ctx context.Context) (VAPIDKeys, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return VAPIDKeys{}, false, err
+	}
+	st, err := openPushSecretStore()
+	if err != nil {
+		return VAPIDKeys{}, false, err
+	}
+	raw, ok, err := st.Get(PushVAPIDSecretName)
+	if err != nil || !ok {
+		return VAPIDKeys{}, ok, err
+	}
+	var secret vapidSecret
+	if err := json.Unmarshal([]byte(raw), &secret); err != nil {
+		return VAPIDKeys{}, true, err
+	}
+	keys := VAPIDKeys{PrivateKey: strings.TrimSpace(secret.PrivateKey), PublicKey: strings.TrimSpace(secret.PublicKey)}
+	if keys.PrivateKey == "" || keys.PublicKey == "" {
+		return VAPIDKeys{}, true, errors.New("stored VAPID keypair is incomplete")
+	}
+	return keys, true, ctx.Err()
+}
+
+func loadLegacyVAPIDKeys(ctx context.Context, db *store.DB) (VAPIDKeys, bool, error) {
+	privateKey, privateOK, err := db.KVGetEncryptedString(ctx, pushVAPIDPrivateKey)
+	if err != nil {
+		return VAPIDKeys{}, false, err
+	}
+	publicKey, publicOK, err := db.KVGetString(ctx, pushVAPIDPublicKey)
+	if err != nil {
+		return VAPIDKeys{}, false, err
+	}
+	keys := VAPIDKeys{PrivateKey: strings.TrimSpace(privateKey), PublicKey: strings.TrimSpace(publicKey)}
+	if !privateOK || !publicOK || keys.PrivateKey == "" || keys.PublicKey == "" {
+		return VAPIDKeys{}, false, nil
+	}
+	return keys, true, nil
+}
+
+func saveVAPIDKeys(ctx context.Context, keys VAPIDKeys) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(keys.PrivateKey) == "" || strings.TrimSpace(keys.PublicKey) == "" {
+		return errors.New("VAPID keypair is incomplete")
+	}
+	st, err := openPushSecretStore()
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(vapidSecret{PrivateKey: keys.PrivateKey, PublicKey: keys.PublicKey})
+	if err != nil {
+		return err
+	}
+	if err := st.Set(PushVAPIDSecretName, string(body)); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func syncVAPIDPublicKey(ctx context.Context, db *store.DB, keys VAPIDKeys) error {
+	if strings.TrimSpace(keys.PublicKey) == "" {
+		return errors.New("VAPID public key is empty")
+	}
+	return db.KVSetString(ctx, pushVAPIDPublicKey, keys.PublicKey)
 }
 
 func (s *Server) handlePushVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {

@@ -87,6 +87,41 @@ func TestStoreRekeyDryRunReportsImpact(t *testing.T) {
 	}
 }
 
+func TestPushRotateCommandInvalidatesSubscriptions(t *testing.T) {
+	withDefaultState(t)
+	_, db, err := openCLIStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPushSubscription(context.Background(), "https://push.example.invalid/sub/1", "p-key", "a-key", time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	out, _ := executeRoot(t, "push", "rotate", "--json", "--color", "never")
+	var got struct {
+		Rotated                  bool   `json:"rotated"`
+		PublicKey                string `json:"public_key"`
+		SubscriptionsInvalidated int64  `json:"subscriptions_invalidated"`
+		ResubscribeCommand       string `json:"resubscribe_command"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Rotated || got.PublicKey == "" || got.SubscriptionsInvalidated != 1 || got.ResubscribeCommand == "" {
+		t.Fatalf("push rotate output = %#v", got)
+	}
+	_, db, err = openCLIStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs, err := db.PushSubscriptions(context.Background())
+	_ = db.Close()
+	if err != nil || len(subs) != 0 {
+		t.Fatalf("subscriptions after rotate = %#v err=%v", subs, err)
+	}
+}
+
 func TestDevicesShowsRoleAndUnpairViewerScopes(t *testing.T) {
 	withDefaultState(t)
 	_, db, err := openCLIStore()

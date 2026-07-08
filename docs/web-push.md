@@ -32,13 +32,35 @@ The daemon stores:
 
 | item | storage |
 |---|---|
-| VAPID private key | encrypted KV key `push_vapid_priv_enc` |
+| VAPID keypair | OS secret item `onibi.push.vapid.v1` |
 | VAPID public key | KV key `push_vapid_pub` |
 | push endpoint | encrypted `push_subscriptions.endpoint_enc` |
 | push `p256dh` key | encrypted `push_subscriptions.p256dh_enc` |
 | push `auth` key | encrypted `push_subscriptions.auth_enc` |
 
 On each approval request, Onibi sends a Web Push payload with TTL `30`, urgency `high`, and a deep link to `/s/<session_id>?approval=<id>`. `410 Gone` responses delete the subscription.
+
+## VAPID Rotation
+
+Rotate VAPID keys annually, when a machine is decommissioned, or immediately after any suspected compromise of the local OS account, keychain, fallback secret file, or Onibi state directory. The VAPID key authorizes Onibi to send to browser push endpoints; a stolen private key can send notifications to devices that subscribed under that public key.
+
+Onibi stores the current VAPID keypair in the OS secret backend as `onibi.push.vapid.v1`, with dotenv fallback on hosts without a usable keychain or Secret Service. SQLite keeps the public key in `push_vapid_pub` so the installed web app can subscribe, plus encrypted subscription endpoints and browser keys.
+
+Run:
+
+```sh
+onibi push rotate
+```
+
+Rotation generates a fresh VAPID keypair, updates `push_vapid_pub`, and deletes all existing `push_subscriptions` rows. Existing browser subscriptions were created for the old public key, so reopen the installed Home Screen app and tap `PUSH` to subscribe again. The app also compares the browser subscription key against `/push/vapid-public-key` on refresh and replaces stale subscriptions after rotation.
+
+Check state with:
+
+```sh
+onibi doctor --push
+```
+
+The push doctor verifies the keyring VAPID item, the SQLite public key, legacy DB-stored private key migration state, and subscription count.
 
 ## iOS Constraints
 
