@@ -119,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/pair/{token}", s.handlePair)
+	mux.HandleFunc("/pair/confirm", s.handlePairConfirm)
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/session-info", s.handleSessionInfo)

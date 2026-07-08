@@ -18,6 +18,7 @@ import (
 const (
 	e2eInfoPTY         = "ws:pty"
 	e2eInfoEvents      = "ws:events"
+	e2eInfoPairConfirm = "http:POST:/pair/confirm"
 	e2eTypeText        = "text"
 	e2eTypeBinary      = "binary"
 	e2eDirC2S          = "c2s"

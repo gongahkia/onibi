@@ -26,7 +26,8 @@ sequenceDiagram
   CLI->>Phone: QR /pair/<token>#k=<relay-key>
   Phone->>Web: GET /pair/<token> via Relay, no fragment
   Phone->>Phone: import #k, then remove fragment
-  Web->>Web: claim token and bind key to session
+  Phone->>Web: encrypted POST /pair/confirm with verifier
+  Web->>Web: verify, claim token, bind key to session
   Web->>Phone: owner session cookie
   Phone->>Web: encrypted WebSocket hello with verifier
   Phone->>Web: encrypted HTTP and WebSocket frames
@@ -188,8 +189,10 @@ accepted twice inside the replay window.
 ## Pair And Session Verification
 
 The raw relay key is volatile. During pairing, the daemon stores a commitment
-for the pair token, not the raw key in SQLite. When `/pair/<token>` successfully
-claims the single-use token, the in-memory key store binds `K_pair` to the new
+for the pair token, not the raw key in SQLite. `/pair/<token>` serves a pairing
+page that reads the fragment key, removes the fragment, derives a pair verifier,
+and sends it inside encrypted `POST /pair/confirm`. Only after that verifier
+matches does the daemon claim the single-use token and bind `K_pair` to the new
 owner session. It also stores a verifier derived as HKDF-SHA256 over `K_pair`
 with `salt = session_id` and `info = "onibi-e2e-session-verifier-v1"`.
 

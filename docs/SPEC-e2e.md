@@ -148,12 +148,11 @@ For HTTP responses, the server uses the request `stream_id`, `dir=s2c`, and `seq
 ## Pairing And Verifier Flow
 
 1. Server mints `<pair-token>` with existing single-use token semantics and generates `K_pair` in memory.
-2. Server stores only:
-   - `pair_commit = HMAC-SHA256(K_pair, "onibi relay key commitment v1")`
-   - `pair_verifier = HKDF-SHA256(K_pair, salt=<pair-token>, info="onibi-e2e-pair-verifier-v1", L=32)`
+2. Server stores `pair_commit = HMAC-SHA256(K_pair, "onibi relay key commitment v1")` in SQLite and keeps raw `K_pair` only in volatile memory.
 3. QR encodes `/pair/<pair-token>#k=<base64url(K_pair)>`.
 4. Client opens `/pair/<pair-token>`, reads `K_pair` from fragment, derives `pair_verifier`, and sends it inside the encrypted pair-confirm request body.
-5. Server consumes the single-use pair token, constant-time compares the verifier, creates `session_id`, and binds `K_pair` to that session in volatile memory.
+   - `pair_verifier = HKDF-SHA256(K_pair, salt=<pair-token>, info="onibi-e2e-pair-verifier-v1", L=32)`
+5. Server decrypts pair-confirm, constant-time compares the verifier, consumes the single-use pair token, creates `session_id`, and binds `K_pair` to that session in volatile memory.
 6. Server stores:
    - `session_commit = HMAC-SHA256(K_pair, "onibi relay key commitment v1:" || session_id)`
    - `session_verifier = HKDF-SHA256(K_pair, salt=session_id, info="onibi-e2e-session-verifier-v1", L=32)`
@@ -212,6 +211,6 @@ Not protected against:
 - [x] AAD is reconstructed from frame fields: `internal/envelope/relay.go` uses `RelayAAD(frame)` on seal/open; `frontend/src/e2e.ts` reconstructs the same field list before encrypt/decrypt.
 - [x] HTTP replay cache uses a 10 minute TTL: `internal/web/e2e.go` has `e2eHTTPReplayTTL = 10 * time.Minute`; `internal/web/e2e_test.go` covers replay, expiry, and cache bounds.
 - [x] Sequence gaps/replay are rejected: `internal/web/e2e.go` tracks expected WebSocket sequence; `internal/envelope/relay.go` rejects unexpected `seq`; `internal/web/e2e_test.go` covers replay rejection.
-- [x] Bad verifier rejects attach with unauthorized: `internal/web/auth.go` constant-time compares `verify_token`; `internal/web/e2e_test.go` and `internal/web/ws_pty_test.go` cover bad verifier rejection.
+- [x] Bad verifier rejects pairing or attach with unauthorized: `internal/web/pair.go` constant-time compares `pair_verifier` before token consumption; `internal/web/auth.go` constant-time compares `verify_token`; `internal/web/pair_test.go`, `internal/web/e2e_test.go`, and `internal/web/ws_pty_test.go` cover rejection.
 - [x] Tagged-release relay E2E gate and no plaintext bypass: `internal/cli/up_test.go` verifies Cloudflare Quick is a relay mode and the removed `--unsafe-cloudflare-no-e2e` flag is rejected; `scripts/release-e2e-gate.sh` is wired as the release assertion.
-- [x] Spec drift filed: encrypted pair-confirm (`http:POST:/pair/confirm`) is specified above but the current implementation binds on `GET /pair/<token>` before WebSocket verifier attach. Tracked in GitHub issue #188.
+- [x] Encrypted pair-confirm gate: `internal/web/pair.go` serves a fragment-reading confirm page at `GET /pair/<token>` and consumes the token only after encrypted `POST /pair/confirm`; the response is sealed on the same stream with `dir=s2c`; `internal/web/pair_test.go` verifies bad pair verifier rejection before successful token claim.

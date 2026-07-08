@@ -15,6 +15,7 @@ import (
 const (
 	relayPairCommitPrefix    = "relay_key_commitment:pair:"
 	relaySessionCommitPrefix = "relay_key_commitment:session:"
+	relayPairVerifierInfo    = "onibi-e2e-pair-verifier-v1"
 	relayVerifyTokenInfo     = "onibi-e2e-session-verifier-v1"
 )
 
@@ -84,6 +85,24 @@ func (r *RelayKeys) BindSession(ctx context.Context, db *store.DB, token, sessio
 	return true, nil
 }
 
+func (r *RelayKeys) KeyForPair(token string) ([]byte, bool) {
+	if r == nil {
+		return nil, false
+	}
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pair, ok := r.pairs[token]
+	if !ok {
+		return nil, false
+	}
+	if now.After(pair.expires) {
+		delete(r.pairs, token)
+		return nil, false
+	}
+	return append([]byte(nil), pair.key...), true
+}
+
 func (r *RelayKeys) KeyForSession(sessionID string) ([]byte, bool) {
 	if r == nil {
 		return nil, false
@@ -95,6 +114,16 @@ func (r *RelayKeys) KeyForSession(sessionID string) ([]byte, bool) {
 		return nil, false
 	}
 	return append([]byte(nil), key...), true
+}
+
+func relayPairVerifier(key []byte, token string) ([]byte, error) {
+	if len(key) != envelope.KeyBytes {
+		return nil, errors.New("relay key must be 32 bytes")
+	}
+	if token == "" {
+		return nil, errors.New("relay pair token required")
+	}
+	return hkdf.Key(sha256.New, key, []byte(token), relayPairVerifierInfo, envelope.KeyBytes)
 }
 
 func relayVerifyToken(key []byte, sessionID string) ([]byte, error) {
