@@ -17,15 +17,16 @@ const Agent = "goose"
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
-		Name:          Agent,
-		Install:       Install,
-		Uninstall:     Uninstall,
-		Status:        Status,
-		Verify:        VerifyHash,
-		Adopt:         Adopt,
-		ExpectedHooks: ExpectedHooks,
-		ObservedHooks: ObservedHooks,
-		BackupPath:    BackupPath,
+		Name:           Agent,
+		Install:        Install,
+		Uninstall:      Uninstall,
+		Status:         Status,
+		Verify:         VerifyHash,
+		Adopt:          Adopt,
+		ExpectedHooks:  ExpectedHooks,
+		ObservedHooks:  ObservedHooks,
+		BackupPath:     BackupPath,
+		DetectPresence: DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -50,6 +51,13 @@ var events = []eventSpec{
 
 func HooksPath() (string, error) {
 	return common.HomePath("ONIBI_GOOSE_HOOKS", ".agents", "plugins", "onibi", "hooks", "hooks.json")
+}
+
+func DetectPresence() bool {
+	if path, err := HooksPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".goose") || common.HomeExists(".agents")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

@@ -90,6 +90,7 @@ Useful CLI flags:
 - `telegram`: `setup [--no-check]`, `status [--check]`, `disable`; `up --transport=telegram` starts chat-native text control.
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `share`: `--ttl <duration>`, `--max-viewers <n>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
+- `install-hooks`: no args auto-detects agent config dirs and shell RC files; `--all` installs detected hooks without prompting; `--dry-run` prints the plan.
 - `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--no-update`, `--refresh-update`, `--json`, `--strict`.
 - `doctor`: `--fix`, `--release`, `--after-upgrade`, `--explain`, `--offline`, `--json`.
 - `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--shell <name>`, `--state`, `--yes`, `--dry-run`, `--json`.

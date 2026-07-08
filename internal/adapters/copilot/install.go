@@ -27,6 +27,7 @@ func init() {
 		ObservedHooks:     ObservedHooks,
 		TrustInstructions: TrustInstructions,
 		BackupPath:        BackupPath,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -58,6 +59,13 @@ func HooksPath() (string, error) {
 		return filepath.Abs(filepath.Join(h, "hooks", "onibi.json"))
 	}
 	return common.HomePath("ONIBI_COPILOT_HOOK", ".copilot", "hooks", "onibi.json")
+}
+
+func DetectPresence() bool {
+	if path, err := HooksPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".copilot")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

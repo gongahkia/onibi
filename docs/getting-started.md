@@ -48,6 +48,14 @@ Install Claude hooks when testing Claude approvals:
 ./bin/onibi hooks --show --agent claude
 ```
 
+For a new machine with multiple supported agents already configured, preview
+and install detected hooks:
+
+```bash
+./bin/onibi install-hooks --dry-run
+./bin/onibi install-hooks --all
+```
+
 Claude may require you to open `/hooks` and trust the printed Onibi hook commands.
 
 ## 3. Pair The Phone

@@ -58,6 +58,52 @@ func TestBuiltinAdaptersExposeManifests(t *testing.T) {
 	}
 }
 
+func TestDetectedNamesForBuiltinAdapters(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	clearDetectEnv(t)
+	for _, dir := range []string{
+		".claude",
+		filepath.Join(".config", "codex"),
+		".copilot",
+		".gemini",
+		".goose",
+		filepath.Join(".config", "opencode"),
+		filepath.Join(".config", "amp"),
+		".pi",
+	} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := setOf(DetectedNames())
+	for _, want := range []string{"amp", "claude", "codex", "copilot", "gemini", "goose", "opencode", "pi"} {
+		if !got[want] {
+			t.Fatalf("missing detected adapter %q in %v", want, got)
+		}
+	}
+}
+
+func TestDetectedShellNames(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("# bash\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "fish"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := setOf(DetectedShellNames())
+	for _, want := range []string{"bash", "fish"} {
+		if !got[want] {
+			t.Fatalf("missing detected shell %q in %v", want, got)
+		}
+	}
+	if got["zsh"] {
+		t.Fatalf("unexpected zsh detection: %v", got)
+	}
+}
+
 func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
@@ -154,4 +200,32 @@ func TestShellInstallVerifyUninstall(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, ".zshrc")); string(got) != "" {
 		t.Fatalf("expected hook removed, got %q", string(got))
 	}
+}
+
+func clearDetectEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"CLAUDE_CONFIG_DIR",
+		"ONIBI_CODEX_HOOKS",
+		"ONIBI_COPILOT_HOOK",
+		"COPILOT_HOME",
+		"ONIBI_GEMINI_SETTINGS",
+		"ONIBI_GOOSE_HOOKS",
+		"ONIBI_OPENCODE_PLUGIN",
+		"ONIBI_OPENCODE_SCOPE",
+		"ONIBI_AMP_PLUGIN",
+		"ONIBI_PI_EXTENSION",
+		"ONIBI_PI_SCOPE",
+		"PI_CODING_AGENT_DIR",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+func setOf(values []string) map[string]bool {
+	out := map[string]bool{}
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }

@@ -24,6 +24,7 @@ func init() {
 		Verify:            VerifyHash,
 		Adopt:             Adopt,
 		TrustInstructions: TrustInstructions,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -39,6 +40,13 @@ func PluginPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".config", "opencode", "plugins", "onibi.js"), nil
+}
+
+func DetectPresence() bool {
+	if path, err := PluginPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".config", "opencode") || common.HomeExists(".opencode")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

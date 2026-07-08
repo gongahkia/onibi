@@ -30,6 +30,24 @@ type PreviewInfo struct {
 
 func Supported() []string { return []string{"zsh", "bash", "fish"} }
 
+func DetectPresence(name string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	switch name {
+	case "zsh":
+		return common.PathExists(filepath.Join(home, ".zshrc"))
+	case "bash":
+		return common.PathExists(filepath.Join(home, ".bashrc"))
+	case "fish":
+		return common.PathExists(filepath.Join(home, ".config", "fish", "config.fish")) ||
+			common.PathExists(filepath.Join(home, ".config", "fish"))
+	default:
+		return false
+	}
+}
+
 func Install(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {
 	if !filepath.IsAbs(notifyBin) {
 		return errors.New("notifyBin must be absolute")

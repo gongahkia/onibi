@@ -29,6 +29,7 @@ func init() {
 		ObservedHooks:     ObservedHooks,
 		TrustInstructions: TrustInstructions,
 		BackupPath:        BackupPath,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -61,6 +62,13 @@ func SettingsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".claude", "settings.json"), nil
+}
+
+func DetectPresence() bool {
+	if d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); d != "" {
+		return common.PathExists(d)
+	}
+	return common.HomeExists(".claude")
 }
 
 // Install writes the Onibi Stop and PreToolUse hooks into Claude's

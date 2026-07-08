@@ -96,6 +96,29 @@ func HomePath(env string, parts ...string) (string, error) {
 	return filepath.Join(append([]string{home}, parts...)...), nil
 }
 
+func PathExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func HomeExists(parts ...string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return PathExists(filepath.Join(append([]string{home}, parts...)...))
+}
+
+func ParentOrPathExists(path string) bool {
+	if PathExists(path) {
+		return true
+	}
+	return PathExists(filepath.Dir(path))
+}
+
 func Command(notifyBin, agent, format, typ string, wait bool, response string) string {
 	return guardedCommand(notifyBin, agent, format, typ, wait, response, true)
 }

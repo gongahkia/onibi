@@ -30,6 +30,7 @@ type Adapter struct {
 	ObservedHooks     func() ([]common.ObservedHook, error)
 	TrustInstructions func() []string
 	BackupPath        func(context.Context, *store.DB) string
+	DetectPresence    func() bool
 }
 
 type Manifest struct {

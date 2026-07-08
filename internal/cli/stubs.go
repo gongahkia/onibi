@@ -287,9 +287,10 @@ func installHooksCmd() *cobra.Command {
 	}
 	cmd.Flags().String("agent", "", "agent name (claude, codex, opencode, goose, gemini, copilot, pi, amp)")
 	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish)")
-	cmd.Flags().Bool("all", false, "install every supported agent adapter")
+	cmd.Flags().Bool("all", false, "install every detected agent and shell hook without prompting")
 	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell")
 	cmd.Flags().Bool("uninstall", false, "remove Onibi-managed hooks for the selected agent/shell")
+	cmd.Flags().Bool("dry-run", false, "print hook install plan without changing files")
 	return cmd
 }
 

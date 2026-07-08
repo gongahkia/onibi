@@ -24,6 +24,7 @@ func init() {
 		Verify:            VerifyHash,
 		Adopt:             Adopt,
 		TrustInstructions: TrustInstructions,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -38,6 +39,13 @@ func ExtensionPath() (string, error) {
 		return filepath.Abs(filepath.Join(d, "extensions", "onibi.ts"))
 	}
 	return common.HomePath("ONIBI_PI_EXTENSION", ".pi", "agent", "extensions", "onibi.ts")
+}
+
+func DetectPresence() bool {
+	if path, err := ExtensionPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".pi")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

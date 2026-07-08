@@ -29,6 +29,82 @@ func TestInstallHooksCodexPrintsTrustInstructions(t *testing.T) {
 	}
 }
 
+func TestInstallHooksAutoDetectDryRun(t *testing.T) {
+	home, hooksPath, _ := hooksCLIFixture(t)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "codex"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("# zsh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRoot(t, "install-hooks", "--dry-run", "--color", "never")
+	got := out.String()
+	for _, want := range []string{
+		"[PLAN] Install agent claude hook:",
+		"[PLAN] Install agent codex hook:",
+		"[PLAN] Install shell zsh hook:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("dry-run missing %q:\n%s", want, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote claude settings: %v", err)
+	}
+	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote codex hooks: %v", err)
+	}
+	if b, err := os.ReadFile(zshrc); err != nil || strings.Contains(string(b), "onibi managed shell hook") {
+		t.Fatalf("dry-run changed zshrc: err=%v body=%s", err, b)
+	}
+}
+
+func TestInstallHooksAutoDetectAllInstallsPresent(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	zshrc := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(zshrc, []byte("# zsh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRoot(t, "install-hooks", "--all", "--color", "never")
+	got := out.String()
+	for _, want := range []string{"Installed claude hooks", "Installed zsh shell hook"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(zshrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "onibi managed shell hook") {
+		t.Fatalf("zsh hook missing:\n%s", b)
+	}
+}
+
+func TestInstallHooksAutoDetectPrompts(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := executeRootInput(t, "n\n", "install-hooks", "--color", "never")
+	if !strings.Contains(out.String(), "Install agent claude hook? [Y/n]") {
+		t.Fatalf("missing prompt:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("prompt no wrote claude settings: %v", err)
+	}
+}
+
 func TestHooksShowCodexJSONReportsCommandsBackupAndUserHook(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o700); err != nil {
@@ -419,11 +495,17 @@ func hooksCLIFixture(t *testing.T) (string, string, string) {
 
 func executeRoot(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
+	return executeRootInput(t, "", args...)
+}
+
+func executeRootInput(t *testing.T, input string, args ...string) (*bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 	cmd := Root()
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
+	cmd.SetIn(strings.NewReader(input))
 	cmd.SetArgs(args)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute %v: %v\nstdout:\n%s\nstderr:\n%s", args, err, out.String(), errOut.String())

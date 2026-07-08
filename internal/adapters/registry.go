@@ -55,6 +55,18 @@ func Names() []string {
 	return names
 }
 
+func DetectedNames() []string {
+	manifests := List()
+	names := make([]string, 0, len(manifests))
+	for _, m := range manifests {
+		if m.Adapter.DetectPresence != nil && m.Adapter.DetectPresence() {
+			names = append(names, m.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func Get(name string) (Adapter, bool) {
 	if err := LoadExternalManifests(); err != nil {
 		return Adapter{}, false
@@ -95,6 +107,17 @@ func ShellBackupPath(ctx context.Context, db *store.DB, name string) string {
 }
 
 func ShellNames() []string { return shell.Supported() }
+
+func DetectedShellNames() []string {
+	var out []string
+	for _, name := range ShellNames() {
+		if shell.DetectPresence(name) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 func Unsupported(name string) error {
 	return fmt.Errorf("adapter %q not supported; available: %s", name, strings.Join(Names(), ", "))

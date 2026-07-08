@@ -28,6 +28,7 @@ func init() {
 		ObservedHooks:     ObservedHooks,
 		TrustInstructions: TrustInstructions,
 		BackupPath:        BackupPath,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
@@ -49,6 +50,13 @@ var events = []eventSpec{
 
 func HooksPath() (string, error) {
 	return common.HomePath("ONIBI_CODEX_HOOKS", ".codex", "hooks.json")
+}
+
+func DetectPresence() bool {
+	if path, err := HooksPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".config", "codex")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

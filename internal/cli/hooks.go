@@ -46,6 +46,7 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 	interactive, _ := cmd.Flags().GetBool("interactive")
 	uninstall, _ := cmd.Flags().GetBool("uninstall")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	paths, err := config.DefaultPaths()
 	if err != nil {
@@ -69,7 +70,9 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	}
 
 	notifyBin := ""
-	if !uninstall {
+	if dryRun {
+		notifyBin = "/usr/bin/onibi-notify"
+	} else if !uninstall {
 		notifyBin, err = locateNotifyBinary()
 		if err != nil {
 			return err
@@ -77,6 +80,9 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	}
 
 	if sh != "" {
+		if dryRun {
+			return printShellHookPlan(cmd, sh, notifyBin, shellMinMS, uninstall)
+		}
 		if uninstall {
 			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
 				return err
@@ -93,22 +99,146 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	}
 
 	if interactive {
-		return runInteractiveHooks(cmd, db, notifyBin, uninstall, shellMinMS)
+		return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, dryRun)
 	}
 
 	if all {
-		for _, name := range adapters.Names() {
-			if err := installOneAgent(cmd, db, notifyBin, name, uninstall); err != nil {
-				return err
+		if uninstall {
+			if dryRun {
+				for _, name := range adapters.Names() {
+					if err := printAgentHookPlan(cmd, db, name, true); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
+			for _, name := range adapters.Names() {
+				if err := installOneAgent(cmd, db, notifyBin, name, true); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
-		return nil
+		return runDetectedHooks(cmd, db, notifyBin, false, shellMinMS, false, dryRun)
 	}
 
 	if agent == "" {
-		return errors.New("--agent, --shell, --all, or --interactive required")
+		return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, dryRun)
+	}
+	if dryRun {
+		return printAgentHookPlan(cmd, db, agent, uninstall)
 	}
 	return installOneAgent(cmd, db, notifyBin, agent, uninstall)
+}
+
+func runDetectedHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64, prompt bool, dryRun bool) error {
+	targets, err := detectedHookTargets(cmd, db, notifyBin, shellMinMS)
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		return errors.New("no detected agent config dirs or shell rc files; use --agent, --shell, or create a supported config dir")
+	}
+	if dryRun {
+		for _, target := range targets {
+			printHookTargetPlan(cmd, target, uninstall)
+		}
+		return nil
+	}
+	br := bufio.NewReader(cmd.InOrStdin())
+	for _, target := range targets {
+		if prompt {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s hook? [Y/n] ", action(uninstall), target.Kind, target.Name)
+			line, _ := br.ReadString('\n')
+			if strings.EqualFold(strings.TrimSpace(line), "n") {
+				continue
+			}
+		}
+		if target.Kind == "agent" {
+			if err := installOneAgent(cmd, db, notifyBin, target.Name, uninstall); err != nil {
+				return err
+			}
+			continue
+		}
+		if uninstall {
+			if err := adapters.UninstallShell(cmd.Context(), db, target.Name); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), target.Name)
+			continue
+		}
+		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, target.Name, shellMinMS); err != nil {
+			return err
+		}
+		info := adapters.ShellStatus(cmd.Context(), db, target.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s shell hook into %s\n", styleFor(cmd).green("[OK]"), target.Name, info.InstallPath)
+	}
+	return nil
+}
+
+type hookTarget struct {
+	Kind string
+	Name string
+	Path string
+}
+
+func detectedHookTargets(cmd *cobra.Command, db *store.DB, notifyBin string, shellMinMS int64) ([]hookTarget, error) {
+	var targets []hookTarget
+	for _, name := range adapters.DetectedNames() {
+		target, err := agentHookTarget(cmd, db, name)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+	}
+	for _, sh := range adapters.DetectedShellNames() {
+		info, err := adapters.ShellPreview(sh, notifyBin, shellMinMS)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, hookTarget{Kind: "shell", Name: sh, Path: info.Path})
+	}
+	return targets, nil
+}
+
+func agentHookTarget(cmd *cobra.Command, db *store.DB, name string) (hookTarget, error) {
+	a, ok := adapters.Get(name)
+	if !ok {
+		return hookTarget{}, adapters.Unsupported(name)
+	}
+	info := a.Status(cmd.Context(), db)
+	return hookTarget{Kind: "agent", Name: a.Name, Path: info.InstallPath}, nil
+}
+
+func printAgentHookPlan(cmd *cobra.Command, db *store.DB, name string, uninstall bool) error {
+	target, err := agentHookTarget(cmd, db, name)
+	if err != nil {
+		return err
+	}
+	printHookTargetPlan(cmd, target, uninstall)
+	return nil
+}
+
+func printShellHookPlan(cmd *cobra.Command, sh, notifyBin string, shellMinMS int64, uninstall bool) error {
+	info, err := adapters.ShellPreview(sh, notifyBin, shellMinMS)
+	if err != nil {
+		return err
+	}
+	printHookTargetPlan(cmd, hookTarget{Kind: "shell", Name: sh, Path: info.Path}, uninstall)
+	return nil
+}
+
+func printHookTargetPlan(cmd *cobra.Command, target hookTarget, uninstall bool) {
+	verb := "Install"
+	if uninstall {
+		verb = "Uninstall"
+	}
+	path := valueOrDash(target.Path)
+	fmt.Fprintf(cmd.OutOrStdout(), "[PLAN] %s %s %s hook: %s\n", verb, target.Kind, target.Name, path)
+}
+
+func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64) error {
+	return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, false)
 }
 
 func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, uninstall bool) error {
@@ -664,39 +794,6 @@ func valueOrDash(s string) string {
 		return "-"
 	}
 	return s
-}
-
-func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64) error {
-	br := bufio.NewReader(cmd.InOrStdin())
-	for _, name := range adapters.Names() {
-		if _, err := exec.LookPath(name); err != nil && name != "copilot" {
-			continue
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s %s hooks? [Y/n] ", action(uninstall), name)
-		line, _ := br.ReadString('\n')
-		if strings.EqualFold(strings.TrimSpace(line), "n") {
-			continue
-		}
-		if err := installOneAgent(cmd, db, notifyBin, name, uninstall); err != nil {
-			return err
-		}
-	}
-	for _, sh := range adapters.ShellNames() {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s %s shell hook? [y/N] ", action(uninstall), sh)
-		line, _ := br.ReadString('\n')
-		if !strings.EqualFold(strings.TrimSpace(line), "y") {
-			continue
-		}
-		if uninstall {
-			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
-		} else if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func action(uninstall bool) string {

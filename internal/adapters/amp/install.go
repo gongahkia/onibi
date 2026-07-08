@@ -24,11 +24,19 @@ func init() {
 		Verify:            VerifyHash,
 		Adopt:             Adopt,
 		TrustInstructions: TrustInstructions,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
 
 func PluginPath() (string, error) {
 	return common.HomePath("ONIBI_AMP_PLUGIN", ".config", "amp", "plugins", "onibi.ts")
+}
+
+func DetectPresence() bool {
+	if path, err := PluginPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".config", "amp") || common.HomeExists(".amp")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {

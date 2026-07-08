@@ -17,12 +17,13 @@ const Agent = "gemini"
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
-		Name:      Agent,
-		Install:   Install,
-		Uninstall: Uninstall,
-		Status:    Status,
-		Verify:    VerifyHash,
-		Adopt:     Adopt,
+		Name:           Agent,
+		Install:        Install,
+		Uninstall:      Uninstall,
+		Status:         Status,
+		Verify:         VerifyHash,
+		Adopt:          Adopt,
+		DetectPresence: DetectPresence,
 	}, map[string]string{"BeforeTool": "*"}))
 }
 
@@ -47,6 +48,13 @@ var events = []eventSpec{
 
 func SettingsPath() (string, error) {
 	return common.HomePath("ONIBI_GEMINI_SETTINGS", ".gemini", "settings.json")
+}
+
+func DetectPresence() bool {
+	if path, err := SettingsPath(); err == nil && common.ParentOrPathExists(path) {
+		return true
+	}
+	return common.HomeExists(".gemini")
 }
 
 func Install(ctx context.Context, db *store.DB, notifyBin string) error {
