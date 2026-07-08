@@ -33,6 +33,13 @@ const (
 	slackReconnectMaxWait = 30 * time.Second
 )
 
+const (
+	discordApprovalPrefix   = "onibi:approval:"
+	discordEditModalPrefix  = "onibi:approval_edit:"
+	discordEditInputID      = "json"
+	discordReconnectMaxWait = 30 * time.Second
+)
+
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if c == nil {
 		return errors.New("matrix client nil")
@@ -172,7 +179,7 @@ func (d *Daemon) runSlackSocket(ctx context.Context, c *slack.Client, conn *webs
 			if err != nil || ev.Event.Type != "message" || strings.TrimSpace(ev.Event.Text) == "" || !allow.Allows(ev.Event.Channel, ev.Event.User, ev.Event.ChannelType) {
 				continue
 			}
-			sessionID := d.slackTargetSessionID("")
+			sessionID := d.providerTargetSessionID("")
 			d.audit(ctx, "provider.slack.text_in", sessionID, ev.Event.Text, 0, "channel="+ev.Event.Channel+" user="+ev.Event.User)
 			out, err := d.handleProviderTextFor(ctx, "", ev.Event.Text, 0, "slack")
 			if err != nil {
@@ -245,7 +252,7 @@ func (d *Daemon) handleSlackBlockAction(ctx context.Context, c *slack.Client, ac
 	}
 	raw := action.Actions[0]
 	id := slackApprovalID(raw.Value)
-	sessionID := d.slackApprovalSessionID(ctx, id)
+	sessionID := d.approvalSessionID(ctx, id)
 	d.audit(ctx, "provider.slack.button", sessionID, raw.Value, 0, "action="+raw.ActionID+" approval="+id+" user="+action.User.ID+" channel="+action.Channel.ID)
 	switch strings.ToLower(raw.ActionID) {
 	case "approve", "deny":
@@ -258,7 +265,7 @@ func (d *Daemon) handleSlackBlockAction(ctx context.Context, c *slack.Client, ac
 	}
 }
 
-func (d *Daemon) slackApprovalSessionID(ctx context.Context, id string) string {
+func (d *Daemon) approvalSessionID(ctx context.Context, id string) string {
 	if d == nil || d.Queue == nil || id == "" {
 		return ""
 	}
@@ -269,7 +276,7 @@ func (d *Daemon) slackApprovalSessionID(ctx context.Context, id string) string {
 	return a.SessionID
 }
 
-func (d *Daemon) slackTargetSessionID(target string) string {
+func (d *Daemon) providerTargetSessionID(target string) string {
 	if d == nil {
 		return ""
 	}
@@ -582,7 +589,11 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 	if intents == 0 {
 		intents = (1 << 9) | (1 << 12) | (1 << 15)
 	}
+	if ch := d.discordApprovalChannel(); ch != "" {
+		go d.forwardApprovalsToDiscord(ctx, c, ch)
+	}
 	state := &discord.GatewayState{}
+	attempt := 0
 	for {
 		connectURL := gatewayURL
 		if resumeURL, _, _, ok := state.Resume(gatewayURL); ok {
@@ -590,16 +601,19 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 		}
 		conn, err := discord.DialGateway(ctx, connectURL)
 		if err != nil {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(2 * time.Second):
-				continue
+			if sleepErr := discordReconnectSleep(ctx, c, attempt); sleepErr != nil {
+				return sleepErr
 			}
+			attempt++
+			continue
 		}
 		helloFrame, err := discord.ReadFrame(ctx, conn)
 		if err != nil {
 			_ = conn.CloseNow()
+			if sleepErr := discordReconnectSleep(ctx, c, attempt); sleepErr != nil {
+				return sleepErr
+			}
+			attempt++
 			continue
 		}
 		state.Observe(helloFrame)
@@ -623,6 +637,40 @@ func (d *Daemon) runDiscordBridge(ctx context.Context, c *discord.Client) error 
 		if errors.Is(err, context.Canceled) {
 			return err
 		}
+		if sleepErr := discordReconnectSleep(ctx, c, attempt); sleepErr != nil {
+			return sleepErr
+		}
+		attempt++
+	}
+}
+
+func discordReconnectDelay(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	if attempt > 5 {
+		attempt = 5
+	}
+	base := time.Second << attempt
+	if base > discordReconnectMaxWait {
+		base = discordReconnectMaxWait
+	}
+	jitter := time.Duration(rand.Int63n(int64(base/2) + 1))
+	return base + jitter
+}
+
+func discordReconnectSleep(ctx context.Context, c *discord.Client, attempt int) error {
+	delay := discordReconnectDelay(attempt)
+	if c != nil && c.Sleep != nil {
+		return c.Sleep(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -667,16 +715,23 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Message content intent is missing. Use slash commands or enable the intent.")
 				continue
 			}
+			sessionID := d.providerTargetSessionID("")
+			d.audit(ctx, "provider.discord.text_in", sessionID, msg.Content, 0, "channel="+msg.ChannelID+" user="+msg.Author.ID)
 			out, err := d.handleProviderTextFor(ctx, "", msg.Content, 0, "discord")
 			if err != nil {
 				_ = c.CreateMessage(ctx, msg.ChannelID, "Input failed: "+err.Error())
 				continue
 			}
-			_ = c.CreateMessage(ctx, msg.ChannelID, out)
+			d.postDiscordTail(ctx, c, msg.ChannelID, sessionID, out)
 		}
 		if in, ok, err := discord.ParseInteraction(frame); err == nil && ok {
+			if d.handleDiscordInteraction(ctx, c, in) {
+				continue
+			}
 			text := discord.InteractionText(in)
 			if strings.EqualFold(in.Data.Name, "onibi") && text != "" {
+				sessionID := d.providerTargetSessionID("")
+				d.audit(ctx, "provider.discord.text_in", sessionID, text, 0, "interaction="+in.ID+" user="+discord.InteractionUserID(in))
 				out, err := d.handleProviderTextFor(ctx, "", text, 0, "discord")
 				if err != nil {
 					out = "Input failed: " + err.Error()
@@ -686,6 +741,257 @@ func (d *Daemon) runDiscordSocket(ctx context.Context, c *discord.Client, conn *
 				_ = c.RespondInteraction(ctx, in.ID, in.Token, "Slash command received.")
 			}
 		}
+	}
+}
+
+func (d *Daemon) discordApprovalChannel() string {
+	if len(d.Discord.AllowedIDs) > 0 {
+		return strings.TrimSpace(d.Discord.AllowedIDs[0])
+	}
+	return ""
+}
+
+func (d *Daemon) forwardApprovalsToDiscord(ctx context.Context, c *discord.Client, channel string) {
+	if d.Queue == nil || strings.TrimSpace(channel) == "" {
+		return
+	}
+	seen := map[string]bool{}
+	send := func(a *approval.Approval) {
+		if a == nil || seen[a.ID] {
+			return
+		}
+		seen[a.ID] = true
+		msg, err := c.CreateComponentsMessage(ctx, channel, discordApprovalComponents(a, d.providerOutputPolicy("discord")))
+		if err != nil {
+			d.audit(ctx, "provider.discord.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		d.rememberDiscordApproval(a.ID, discordApprovalRef{Channel: msg.ChannelID, Message: msg.ID})
+		d.audit(ctx, "provider.discord.approval_sent", a.SessionID, "", 0, "approval="+a.ID+" channel="+msg.ChannelID+" message="+msg.ID)
+	}
+	if pending, err := d.Queue.Pending(ctx); err == nil {
+		for _, a := range pending {
+			send(a)
+		}
+	}
+	events, unsub, err := d.Queue.Subscribe()
+	if err != nil {
+		if d.Log != nil {
+			d.Log.Warn("discord approval subscribe failed", "err", err)
+		}
+		return
+	}
+	defer unsub()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev.Type == approval.EventRequested {
+				a := ev.Approval
+				send(&a)
+			}
+		}
+	}
+}
+
+func (d *Daemon) rememberDiscordApproval(id string, ref discordApprovalRef) {
+	if d == nil || id == "" || ref.Channel == "" || ref.Message == "" {
+		return
+	}
+	d.discordMu.Lock()
+	d.discordApprovals[id] = ref
+	d.discordMu.Unlock()
+}
+
+func (d *Daemon) handleDiscordInteraction(ctx context.Context, c *discord.Client, in discord.Interaction) bool {
+	if action, id, ok := discordApprovalAction(in.Data.CustomID); ok {
+		d.handleDiscordApprovalAction(ctx, c, in, action, id)
+		return true
+	}
+	if id, ok := discordEditModalID(in.Data.CustomID); ok {
+		d.handleDiscordEditSubmit(ctx, c, in, id)
+		return true
+	}
+	return false
+}
+
+func discordApprovalAction(customID string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(customID, discordApprovalPrefix)
+	if !ok {
+		return "", "", false
+	}
+	action, id, ok := strings.Cut(rest, ":")
+	if !ok || strings.TrimSpace(id) == "" {
+		return "", "", false
+	}
+	return action, id, true
+}
+
+func discordEditModalID(customID string) (string, bool) {
+	id, ok := strings.CutPrefix(customID, discordEditModalPrefix)
+	id = strings.TrimSpace(id)
+	return id, ok && id != ""
+}
+
+func (d *Daemon) handleDiscordApprovalAction(ctx context.Context, c *discord.Client, in discord.Interaction, action, id string) {
+	sessionID := d.approvalSessionID(ctx, id)
+	user := discord.InteractionUserID(in)
+	d.audit(ctx, "provider.discord.button", sessionID, in.Data.CustomID, 0, "action="+action+" approval="+id+" user="+user+" channel="+in.ChannelID)
+	switch action {
+	case "approve", "deny":
+		verdict := approvalVerdictForAction(action)
+		text := d.handleDiscordApprovalDecision(ctx, id, verdict)
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, text)
+	case "edit":
+		if d.Queue == nil {
+			_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: approval queue unavailable.")
+			return
+		}
+		a, err := d.Queue.Get(ctx, id)
+		if err != nil {
+			_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
+			return
+		}
+		if err := c.RespondInteractionModal(ctx, in.ID, in.Token, discordEditModal(a)); err != nil {
+			d.audit(ctx, "provider.discord.edit_modal_error", a.SessionID, "", 0, "approval="+id+" err="+err.Error())
+			return
+		}
+		d.audit(ctx, "provider.discord.edit_modal", a.SessionID, "", 0, "approval="+id+" user="+user)
+	default:
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Unknown approval action.")
+	}
+}
+
+func (d *Daemon) handleDiscordApprovalDecision(ctx context.Context, id string, verdict approval.Verdict) string {
+	if id == "" || verdict == "" {
+		return "Approval decision failed: invalid action."
+	}
+	err := d.decideProviderApproval(ctx, id, verdict, 0)
+	state := approval.StateForVerdict(verdict)
+	note := "decision recorded"
+	if err != nil {
+		switch {
+		case errors.Is(err, approval.ErrAlreadyDecided):
+			note = "already decided"
+			if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
+				state = a.State
+			}
+		case errors.Is(err, approval.ErrExpired):
+			note = "expired"
+			state = approval.StateExpired
+		default:
+			return "Approval decision failed: " + err.Error()
+		}
+	}
+	return "Approval " + id + ": " + string(state) + " (" + note + ")."
+}
+
+func (d *Daemon) handleDiscordEditSubmit(ctx context.Context, c *discord.Client, in discord.Interaction, id string) {
+	if d == nil || d.Queue == nil {
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: approval queue unavailable.")
+		return
+	}
+	a, err := d.Queue.Get(ctx, id)
+	if err != nil {
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
+		return
+	}
+	edited := discord.InteractionModalValue(in, discordEditInputID)
+	if edited == "" {
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: edited JSON required.")
+		return
+	}
+	if err := approval.ValidateEditedInput(a.Tool, a.InputJSON, edited); err != nil {
+		d.audit(ctx, "provider.discord.edit_rejected", a.SessionID, edited, 0, "approval="+id+" user="+discord.InteractionUserID(in)+" err="+err.Error())
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
+		return
+	}
+	if err := d.Queue.Decide(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
+		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
+		return
+	}
+	d.audit(ctx, "provider.discord.edit_submit", a.SessionID, edited, 0, "approval="+id+" user="+discord.InteractionUserID(in))
+	_ = c.RespondInteraction(ctx, in.ID, in.Token, "Approval "+id+": edited.")
+}
+
+func (d *Daemon) postDiscordTail(ctx context.Context, c *discord.Client, channel, sessionID, text string) {
+	if c == nil {
+		return
+	}
+	target := d.discordTailChannel(ctx, c, channel, sessionID)
+	err := c.CreateMessageChunks(ctx, target, text, func(i int, chunk string) {
+		d.audit(ctx, "provider.discord.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("channel=%s index=%d bytes=%d", target, i, len(chunk)))
+	})
+	if err != nil {
+		d.audit(ctx, "provider.discord.tail_error", sessionID, "", 0, "channel="+target+" err="+err.Error())
+	}
+}
+
+func (d *Daemon) discordTailChannel(ctx context.Context, c *discord.Client, parent, sessionID string) string {
+	if sessionID == "" {
+		return parent
+	}
+	d.discordMu.Lock()
+	thread := d.discordTailThreads[sessionID]
+	d.discordMu.Unlock()
+	if thread != "" {
+		return thread
+	}
+	seed, err := c.CreateMessagePayload(ctx, parent, map[string]any{
+		"content":          "Onibi tail for session " + sessionID,
+		"allowed_mentions": map[string]any{"parse": []string{}},
+	})
+	if err != nil {
+		d.audit(ctx, "provider.discord.thread_error", sessionID, "", 0, "channel="+parent+" err="+err.Error())
+		return parent
+	}
+	ch, err := c.StartThreadFromMessage(ctx, parent, seed.ID, "onibi-"+sessionID)
+	if err != nil {
+		d.audit(ctx, "provider.discord.thread_error", sessionID, "", 0, "channel="+parent+" message="+seed.ID+" err="+err.Error())
+		return parent
+	}
+	d.discordMu.Lock()
+	d.discordTailThreads[sessionID] = ch.ID
+	d.discordMu.Unlock()
+	d.audit(ctx, "provider.discord.thread", sessionID, "", 0, "channel="+parent+" thread="+ch.ID)
+	return ch.ID
+}
+
+func discordApprovalComponents(a *approval.Approval, policy ProviderOutputPolicy) []any {
+	text := formatApprovalWithPolicy(a, policy)
+	if len(text) > 1800 {
+		text = text[:1800] + "\n..."
+	}
+	return []any{
+		map[string]any{"type": 10, "content": "```" + text + "```"},
+		map[string]any{"type": 1, "components": []any{
+			map[string]any{"type": 2, "style": 3, "label": "Approve", "custom_id": discordApprovalPrefix + "approve:" + a.ID},
+			map[string]any{"type": 2, "style": 4, "label": "Deny", "custom_id": discordApprovalPrefix + "deny:" + a.ID},
+			map[string]any{"type": 2, "style": 2, "label": "Edit", "custom_id": discordApprovalPrefix + "edit:" + a.ID},
+		}},
+	}
+}
+
+func discordEditModal(a *approval.Approval) map[string]any {
+	return map[string]any{
+		"custom_id": discordEditModalPrefix + a.ID,
+		"title":     "Edit approval",
+		"components": []any{
+			map[string]any{"type": 1, "components": []any{
+				map[string]any{
+					"type":      4,
+					"custom_id": discordEditInputID,
+					"style":     2,
+					"label":     "JSON",
+					"value":     a.InputJSON,
+					"required":  true,
+				},
+			}},
+		},
 	}
 }
 

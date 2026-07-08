@@ -211,7 +211,7 @@ ONIBI_DISCORD_APPLICATION_ID=...
 ONIBI_DISCORD_GUILD_ID=...
 ```
 
-Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable. `onibi doctor --transport=discord` reports app auth, channel visibility, optional slash-command presence, and gated send permission failures.
+Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes with jittered backoff, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable. Approval requests are sent as Discord Components v2 messages with approve, deny, and edit buttons; edit opens a modal for JSON input. Session output is posted to a per-session thread when thread creation succeeds, and falls back to the parent channel on Discord permission/API errors. Discord text-in, tail chunks, approval buttons, modal opens/submits, thread creation, and send/thread errors are written to local audit with payload hashes instead of plaintext detail. `onibi doctor --transport=discord` reports app auth, channel visibility, optional slash-command presence, and gated send permission failures.
 
 ## Chat redaction
 

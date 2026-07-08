@@ -77,6 +77,9 @@ type Daemon struct {
 	webAttachHosts        map[string]*pty.Host
 	slackMu               sync.Mutex
 	slackApprovals        map[string]slackApprovalRef
+	discordMu             sync.Mutex
+	discordApprovals      map[string]discordApprovalRef
+	discordTailThreads    map[string]string
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	budgetDaily           map[string]int64
@@ -207,6 +210,8 @@ func New(opts Options) *Daemon {
 		Events:                  web.NewEventBus(),
 		webAttachHosts:          map[string]*pty.Host{},
 		slackApprovals:          map[string]slackApprovalRef{},
+		discordApprovals:        map[string]discordApprovalRef{},
+		discordTailThreads:      map[string]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
 		budgetDaily:             map[string]int64{},

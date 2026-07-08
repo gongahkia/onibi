@@ -110,11 +110,22 @@ func TestGatewayStateReadyHeartbeatAckAndInvalidSession(t *testing.T) {
 }
 
 func TestSlashCommandFallbackResponse(t *testing.T) {
-	var hit bool
+	var hit, modalHit bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
 		if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/interactions/i1/t1/callback") {
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		switch body["type"].(float64) {
+		case 4:
+			hit = true
+		case 9:
+			modalHit = true
+		default:
+			t.Fatalf("body = %#v", body)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -128,6 +139,12 @@ func TestSlashCommandFallbackResponse(t *testing.T) {
 	}
 	if !hit {
 		t.Fatal("interaction not posted")
+	}
+	if err := c.RespondInteractionModal(ctx, "i1", "t1", map[string]any{"custom_id": "m1", "title": "Edit"}); err != nil {
+		t.Fatal(err)
+	}
+	if !modalHit {
+		t.Fatal("modal interaction not posted")
 	}
 }
 
@@ -261,6 +278,109 @@ func TestCreateMessageChunksNoMentionsAndRetriesRateLimit(t *testing.T) {
 	}
 	if slept != 200*time.Millisecond {
 		t.Fatalf("slept = %s", slept)
+	}
+}
+
+func TestComponentsThreadAndParityAxes(t *testing.T) {
+	var componentBody map[string]any
+	var threadBody map[string]any
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := body["components"]; ok {
+				componentBody = body
+			}
+			_ = json.NewEncoder(w).Encode(Message{ID: "m1", ChannelID: "C1"})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages/m1/threads"):
+			if err := json.NewDecoder(r.Body).Decode(&threadBody); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(Channel{ID: "T1", GuildID: "G1", Name: "onibi-s1"})
+		default:
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New("bot-token")
+	c.BaseURL = srv.URL
+	msg, err := c.CreateComponentsMessage(t.Context(), "C1", []any{
+		map[string]any{"type": 10, "content": "approval"},
+		map[string]any{"type": 1, "components": []any{map[string]any{"type": 2, "custom_id": "onibi:approval:approve:a1"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.ID != "m1" || int(componentBody["flags"].(float64)) != ComponentsV2Flag {
+		t.Fatalf("msg=%#v body=%#v", msg, componentBody)
+	}
+	ch, err := c.StartThreadFromMessage(t.Context(), "C1", "m1", "onibi-s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.ID != "T1" || threadBody["name"] != "onibi-s1" {
+		t.Fatalf("thread=%#v body=%#v paths=%v", ch, threadBody, paths)
+	}
+	frame := GatewayFrame{Op: OpDispatch, T: "INTERACTION_CREATE", D: mustJSON(map[string]any{
+		"id": "i1", "token": "tok", "type": 3, "channel_id": "C1",
+		"user": map[string]any{"id": "U1"},
+		"data": map[string]any{"custom_id": "onibi:approval:approve:a1", "component_type": 2},
+	})}
+	in, ok, err := ParseInteraction(frame)
+	if err != nil || !ok || in.Data.CustomID != "onibi:approval:approve:a1" || InteractionUserID(in) != "U1" {
+		t.Fatalf("interaction=%#v ok=%v err=%v", in, ok, err)
+	}
+	frame = GatewayFrame{Op: OpDispatch, T: "INTERACTION_CREATE", D: mustJSON(map[string]any{
+		"id": "i2", "token": "tok", "type": 5,
+		"data": map[string]any{
+			"custom_id": "onibi:approval_edit:a1",
+			"components": []any{map[string]any{"type": 1, "components": []any{
+				map[string]any{"type": 4, "custom_id": "json", "value": `{"command":"pwd"}`},
+			}}},
+		},
+	})}
+	in, ok, err = ParseInteraction(frame)
+	if err != nil || !ok || InteractionModalValue(in, "json") != `{"command":"pwd"}` {
+		t.Fatalf("modal=%#v ok=%v err=%v", in, ok, err)
+	}
+}
+
+func TestParityAxes(t *testing.T) {
+	var chunks []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/channels/C1/messages"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			chunks = append(chunks, body["content"].(string))
+			_ = json.NewEncoder(w).Encode(Message{ID: "m1", ChannelID: "C1"})
+		default:
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New("bot-token")
+	c.BaseURL = srv.URL
+	c.Sleep = func(context.Context, time.Duration) error { return nil }
+	if err := c.CreateMessageChunks(t.Context(), "C1", strings.Repeat("x", MessageChunkLimit+1), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 || len(chunks[0]) != MessageChunkLimit || len(chunks[1]) != 1 {
+		t.Fatalf("chunks = %d", len(chunks))
+	}
+	msg, ok, err := ParseMessage(GatewayFrame{Op: OpDispatch, T: "MESSAGE_CREATE", D: mustJSON(MessageCreate{ChannelID: "C1", Content: "pwd"})})
+	if err != nil || !ok || msg.Content != "pwd" {
+		t.Fatalf("msg=%#v ok=%v err=%v", msg, ok, err)
+	}
+	if !HandleReconnect(GatewayFrame{Op: OpReconnect}) {
+		t.Fatal("gateway reconnect not handled")
 	}
 }
 

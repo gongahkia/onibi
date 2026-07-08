@@ -19,6 +19,7 @@ import (
 
 const DefaultBaseURL = "https://discord.com/api/v10"
 const MessageChunkLimit = 2000
+const ComponentsV2Flag = 1 << 15
 
 const (
 	OpDispatch       = 0
@@ -76,15 +77,44 @@ type MessageCreate struct {
 	Content string `json:"content"`
 }
 
+type Message struct {
+	ID        string `json:"id"`
+	ChannelID string `json:"channel_id"`
+	Content   string `json:"content,omitempty"`
+}
+
 type Interaction struct {
-	ID      string `json:"id"`
-	Token   string `json:"token"`
-	Type    int    `json:"type"`
-	GuildID string `json:"guild_id,omitempty"`
-	Data    struct {
-		Name    string              `json:"name"`
-		Options []InteractionOption `json:"options,omitempty"`
+	ID        string `json:"id"`
+	Token     string `json:"token"`
+	Type      int    `json:"type"`
+	GuildID   string `json:"guild_id,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
+	User      struct {
+		ID string `json:"id"`
+	} `json:"user,omitempty"`
+	Member struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	} `json:"member,omitempty"`
+	Message struct {
+		ID        string `json:"id"`
+		ChannelID string `json:"channel_id"`
+	} `json:"message,omitempty"`
+	Data struct {
+		Name          string                 `json:"name"`
+		CustomID      string                 `json:"custom_id,omitempty"`
+		ComponentType int                    `json:"component_type,omitempty"`
+		Options       []InteractionOption    `json:"options,omitempty"`
+		Components    []InteractionComponent `json:"components,omitempty"`
 	} `json:"data"`
+}
+
+type InteractionComponent struct {
+	Type       int                    `json:"type"`
+	CustomID   string                 `json:"custom_id,omitempty"`
+	Value      string                 `json:"value,omitempty"`
+	Components []InteractionComponent `json:"components,omitempty"`
 }
 
 type InteractionOption struct {
@@ -243,6 +273,34 @@ func InteractionText(in Interaction) string {
 	return ""
 }
 
+func InteractionUserID(in Interaction) string {
+	if in.User.ID != "" {
+		return in.User.ID
+	}
+	return in.Member.User.ID
+}
+
+func InteractionModalValue(in Interaction, customID string) string {
+	for _, component := range in.Data.Components {
+		if got := interactionComponentValue(component, customID); got != "" {
+			return strings.TrimSpace(got)
+		}
+	}
+	return ""
+}
+
+func interactionComponentValue(component InteractionComponent, customID string) string {
+	if component.CustomID == customID {
+		return component.Value
+	}
+	for _, child := range component.Components {
+		if got := interactionComponentValue(child, customID); got != "" {
+			return got
+		}
+	}
+	return ""
+}
+
 func (s *GatewayState) Observe(frame GatewayFrame) {
 	if s == nil {
 		return
@@ -326,16 +384,76 @@ func (s *GatewayState) Resume(defaultURL string) (url string, sessionID string, 
 }
 
 func (c *Client) CreateMessage(ctx context.Context, channelID, content string) error {
-	return chatout.SendChunks(ctx, content, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
-		return c.api(ctx, http.MethodPost, "/channels/"+url.PathEscape(channelID)+"/messages", map[string]any{
+	return c.CreateMessageChunks(ctx, channelID, content, nil)
+}
+
+func (c *Client) CreateMessageChunks(ctx context.Context, channelID, content string, after func(int, string)) error {
+	for i, chunk := range chatout.Chunks(content, MessageChunkLimit) {
+		if i > 0 {
+			if err := chatout.Sleep(ctx, 0, c.Sleep); err != nil {
+				return err
+			}
+		}
+		if _, err := c.CreateMessagePayload(ctx, channelID, map[string]any{
 			"content":          chunk,
 			"allowed_mentions": map[string]any{"parse": []string{}},
-		}, nil)
+		}); err != nil {
+			return err
+		}
+		if after != nil {
+			after(i, chunk)
+		}
+	}
+	return nil
+}
+
+func (c *Client) CreateMessagePayload(ctx context.Context, channelID string, payload map[string]any) (Message, error) {
+	if strings.TrimSpace(channelID) == "" {
+		return Message{}, errors.New("discord channel id required")
+	}
+	var out Message
+	if err := c.api(ctx, http.MethodPost, "/channels/"+url.PathEscape(channelID)+"/messages", payload, &out); err != nil {
+		return Message{}, err
+	}
+	if out.ID == "" {
+		return Message{}, errors.New("discord message id missing")
+	}
+	return out, nil
+}
+
+func (c *Client) CreateComponentsMessage(ctx context.Context, channelID string, components []any) (Message, error) {
+	return c.CreateMessagePayload(ctx, channelID, map[string]any{
+		"flags":            ComponentsV2Flag,
+		"components":       components,
+		"allowed_mentions": map[string]any{"parse": []string{}},
 	})
+}
+
+func (c *Client) StartThreadFromMessage(ctx context.Context, channelID, messageID, name string) (Channel, error) {
+	if strings.TrimSpace(channelID) == "" || strings.TrimSpace(messageID) == "" {
+		return Channel{}, errors.New("discord channel/message id required")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "onibi"
+	}
+	var out Channel
+	p := "/channels/" + url.PathEscape(channelID) + "/messages/" + url.PathEscape(messageID) + "/threads"
+	if err := c.api(ctx, http.MethodPost, p, map[string]any{"name": name, "auto_archive_duration": 60}, &out); err != nil {
+		return Channel{}, err
+	}
+	if out.ID == "" {
+		return Channel{}, errors.New("discord thread id missing")
+	}
+	return out, nil
 }
 
 func (c *Client) RespondInteraction(ctx context.Context, interactionID, token, content string) error {
 	body := map[string]any{"type": 4, "data": map[string]any{"content": content}}
+	return c.api(ctx, http.MethodPost, "/interactions/"+url.PathEscape(interactionID)+"/"+url.PathEscape(token)+"/callback", body, nil)
+}
+
+func (c *Client) RespondInteractionModal(ctx context.Context, interactionID, token string, modal map[string]any) error {
+	body := map[string]any{"type": 9, "data": modal}
 	return c.api(ctx, http.MethodPost, "/interactions/"+url.PathEscape(interactionID)+"/"+url.PathEscape(token)+"/callback", body, nil)
 }
 
