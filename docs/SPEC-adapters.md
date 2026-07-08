@@ -16,6 +16,8 @@ version = "1.0.0"
 kind = "agent"
 cmd_pattern = { "PreToolUse" = "Edit" }
 hook_install = ["mkdir -p ~/.example", "example hooks install"]
+hook_verify = ["example hooks verify"]
+hook_adopt = ["example hooks adopt"]
 hook_uninstall = ["example hooks uninstall"]
 min_onibi_version = "0.3.0"
 
@@ -43,6 +45,12 @@ Write = "high"
 
 `hook_uninstall`
 : Array of shell command strings executed when uninstalling this adapter.
+
+`hook_verify`
+: Optional array of shell command strings executed when verifying this adapter. Onibi also verifies the recorded manifest provenance hash when the adapter was installed or adopted through Onibi.
+
+`hook_adopt`
+: Optional array of shell command strings executed when adopting this adapter. Onibi records the installed manifest path and hash as adapter provenance after these commands complete.
 
 `risk_overrides`
 : Table mapping tool name globs to risk levels. Valid levels are `low`, `medium`, `high`, and `critical`. First match wins after sorting keys lexicographically.

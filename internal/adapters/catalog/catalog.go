@@ -40,10 +40,13 @@ type Manifest struct {
 	CmdPattern      map[string]string `toml:"cmd_pattern"`
 	HookInstall     []string          `toml:"hook_install"`
 	HookUninstall   []string          `toml:"hook_uninstall"`
+	HookVerify      []string          `toml:"hook_verify"`
+	HookAdopt       []string          `toml:"hook_adopt"`
 	RiskOverrides   map[string]string `toml:"risk_overrides"`
 	MinOnibiVersion string            `toml:"min_onibi_version"`
 	SourcePath      string            `toml:"-"`
 	Adapter         Adapter           `toml:"-"`
+	runtimeAdapter  bool
 }
 
 type Registry interface {
@@ -148,6 +151,8 @@ func cloneManifest(m Manifest) Manifest {
 	m.CmdPattern = cloneStringMap(m.CmdPattern)
 	m.HookInstall = append([]string(nil), m.HookInstall...)
 	m.HookUninstall = append([]string(nil), m.HookUninstall...)
+	m.HookVerify = append([]string(nil), m.HookVerify...)
+	m.HookAdopt = append([]string(nil), m.HookAdopt...)
 	m.RiskOverrides = cloneStringMap(m.RiskOverrides)
 	return m
 }

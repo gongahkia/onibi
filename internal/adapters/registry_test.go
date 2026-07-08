@@ -105,25 +105,7 @@ func TestDetectedShellNames(t *testing.T) {
 }
 
 func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
-	dir := t.TempDir()
-	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	notify := filepath.Join(dir, "onibi-notify")
-	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude"))
-	t.Setenv("ONIBI_CODEX_HOOKS", filepath.Join(dir, "codex-hooks.json"))
-	t.Setenv("ONIBI_GEMINI_SETTINGS", filepath.Join(dir, "gemini-settings.json"))
-	t.Setenv("ONIBI_COPILOT_HOOK", filepath.Join(dir, "copilot-hooks.json"))
-	t.Setenv("ONIBI_GOOSE_HOOKS", filepath.Join(dir, "goose-hooks.json"))
-	t.Setenv("ONIBI_OPENCODE_PLUGIN", filepath.Join(dir, "opencode.js"))
-	t.Setenv("ONIBI_PI_EXTENSION", filepath.Join(dir, "pi.ts"))
-	t.Setenv("ONIBI_AMP_PLUGIN", filepath.Join(dir, "amp.ts"))
+	db, notify := adapterRegistryFixture(t)
 
 	for _, name := range Names() {
 		a, ok := Get(name)
@@ -143,6 +125,24 @@ func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
 		if info.InstallPath == "" {
 			t.Fatalf("%s missing install path", name)
 		}
+	}
+}
+
+func TestRegistryAdapterVerifyPathsForParityAgents(t *testing.T) {
+	db, notify := adapterRegistryFixture(t)
+	for _, name := range []string{"gemini", "copilot", "goose", "opencode", "amp", "pi"} {
+		t.Run(name, func(t *testing.T) {
+			a, ok := Get(name)
+			if !ok {
+				t.Fatalf("missing adapter %s", name)
+			}
+			if err := a.Install(context.Background(), db, notify); err != nil {
+				t.Fatalf("%s install: %v", name, err)
+			}
+			if err := a.Verify(context.Background(), db); err != nil {
+				t.Fatalf("%s verify: %v", name, err)
+			}
+		})
 	}
 }
 
@@ -200,6 +200,30 @@ func TestShellInstallVerifyUninstall(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, ".zshrc")); string(got) != "" {
 		t.Fatalf("expected hook removed, got %q", string(got))
 	}
+}
+
+func adapterRegistryFixture(t *testing.T) (*store.DB, string) {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude"))
+	t.Setenv("ONIBI_CODEX_HOOKS", filepath.Join(dir, "codex-hooks.json"))
+	t.Setenv("ONIBI_GEMINI_SETTINGS", filepath.Join(dir, "gemini-settings.json"))
+	t.Setenv("ONIBI_COPILOT_HOOK", filepath.Join(dir, "copilot-hooks.json"))
+	t.Setenv("ONIBI_GOOSE_HOOKS", filepath.Join(dir, "goose-hooks.json"))
+	t.Setenv("ONIBI_OPENCODE_PLUGIN", filepath.Join(dir, "opencode.js"))
+	t.Setenv("ONIBI_PI_EXTENSION", filepath.Join(dir, "pi.ts"))
+	t.Setenv("ONIBI_AMP_PLUGIN", filepath.Join(dir, "amp.ts"))
+	return db, notify
 }
 
 func clearDetectEnv(t *testing.T) {

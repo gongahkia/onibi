@@ -16,6 +16,18 @@ hook_uninstall = [
   '''rm -f "$HOME/.local/bin/onibi-aider-event" "$HOME/.local/bin/onibi-aider-approval" "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
 ]
 
+hook_verify = [
+  '''test -x "$HOME/.local/bin/onibi-aider-event"''',
+  '''test -x "$HOME/.local/bin/onibi-aider-approval"''',
+  '''test -f "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
+]
+
+hook_adopt = [
+  '''test -x "$HOME/.local/bin/onibi-aider-event"''',
+  '''test -x "$HOME/.local/bin/onibi-aider-approval"''',
+  '''test -f "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
+]
+
 [risk_overrides]
 Edit = "medium"
 Shell = "high"

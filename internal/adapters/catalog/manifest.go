@@ -81,7 +81,11 @@ func ValidateManifest(m Manifest) error {
 			return fmt.Errorf("adapter %q invalid risk level %q", name, level)
 		}
 	}
-	for _, cmd := range append(append([]string{}, m.HookInstall...), m.HookUninstall...) {
+	commands := append([]string{}, m.HookInstall...)
+	commands = append(commands, m.HookUninstall...)
+	commands = append(commands, m.HookVerify...)
+	commands = append(commands, m.HookAdopt...)
+	for _, cmd := range commands {
 		if err := validateHookCommand(cmd); err != nil {
 			return fmt.Errorf("adapter %q command rejected: %w", name, err)
 		}
@@ -155,10 +159,11 @@ func compareSemver(a, b semverParts) int {
 }
 
 func WithRuntimeAdapter(m Manifest) Manifest {
-	if m.Adapter.Name != "" {
+	if m.Adapter.Name != "" && !m.runtimeAdapter {
 		return m
 	}
 	m.Adapter = manifestAdapter(m)
+	m.runtimeAdapter = true
 	return m
 }
 
@@ -166,12 +171,20 @@ func manifestAdapter(m Manifest) Adapter {
 	version := m.Version
 	return Adapter{
 		Name: m.Name,
-		Install: func(ctx context.Context, _ *store.DB, notifyBin string) error {
-			return runManifestCommands(ctx, m, notifyBin, m.HookInstall)
+		Install: func(ctx context.Context, db *store.DB, notifyBin string) error {
+			if err := runManifestCommands(ctx, m, notifyBin, m.HookInstall); err != nil {
+				return err
+			}
+			return recordManifestProvenance(ctx, db, m)
 		},
-		Uninstall: func(ctx context.Context, _ *store.DB) error { return runManifestCommands(ctx, m, "", m.HookUninstall) },
-		Status: func(context.Context, *store.DB) common.Info {
-			return common.Info{
+		Uninstall: func(ctx context.Context, db *store.DB) error {
+			if err := runManifestCommands(ctx, m, "", m.HookUninstall); err != nil {
+				return err
+			}
+			return deleteManifestProvenance(ctx, db, m)
+		},
+		Status: func(ctx context.Context, db *store.DB) common.Info {
+			info := common.Info{
 				Name:             m.Name,
 				Support:          string(m.Kind),
 				Installed:        true,
@@ -181,10 +194,71 @@ func manifestAdapter(m Manifest) Adapter {
 				InstallPath:      m.SourcePath,
 				Message:          "third-party adapter manifest loaded",
 			}
+			body, err := manifestProvenanceBody(m)
+			if err != nil {
+				info.Installed = false
+				info.Managed = false
+				info.InstallPath = ""
+				info.Message = "third-party adapter manifest source missing"
+				return info
+			}
+			if len(body) > 0 && db != nil {
+				common.ApplyManagedStatus(ctx, db, &info, m.Name, m.SourcePath, body, "third-party adapter manifest loaded", "onibi install-hooks --agent "+m.Name)
+			}
+			return info
 		},
-		Verify: func(context.Context, *store.DB) error { return nil },
-		Adopt:  func(context.Context, *store.DB) error { return nil },
+		Verify: func(ctx context.Context, db *store.DB) error {
+			if err := runManifestCommands(ctx, m, "", m.HookVerify); err != nil {
+				return err
+			}
+			body, err := manifestProvenanceBody(m)
+			if err != nil {
+				return err
+			}
+			if len(body) == 0 || db == nil {
+				return nil
+			}
+			return common.VerifyRecorded(ctx, db, m.Name, m.SourcePath, body)
+		},
+		Adopt: func(ctx context.Context, db *store.DB) error {
+			if err := runManifestCommands(ctx, m, "", m.HookAdopt); err != nil {
+				return err
+			}
+			return recordManifestProvenance(ctx, db, m)
+		},
 	}
+}
+
+func manifestProvenanceBody(m Manifest) ([]byte, error) {
+	if strings.TrimSpace(m.SourcePath) == "" {
+		return nil, nil
+	}
+	body, err := os.ReadFile(m.SourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("read adapter manifest provenance %s: %w", m.SourcePath, err)
+	}
+	return body, nil
+}
+
+func recordManifestProvenance(ctx context.Context, db *store.DB, m Manifest) error {
+	if db == nil {
+		return nil
+	}
+	body, err := manifestProvenanceBody(m)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return common.Record(ctx, db, m.Name, m.SourcePath, body)
+}
+
+func deleteManifestProvenance(ctx context.Context, db *store.DB, m Manifest) error {
+	if db == nil || strings.TrimSpace(m.SourcePath) == "" {
+		return nil
+	}
+	return common.DeleteRecord(ctx, db, m.Name, m.SourcePath)
 }
 
 func validateHookCommand(cmd string) error {
