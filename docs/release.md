@@ -9,10 +9,10 @@ Apple signing secrets are unavailable.
 Install local release prerequisites first:
 
 ```sh
-brew install goreleaser syft
+brew install goreleaser syft cosign
 ```
 
-CI already installs `syft` before GoReleaser snapshot/release jobs.
+CI already installs `syft` and `cosign` before GoReleaser release jobs.
 
 ```sh
 go test -race -count=1 ./...
@@ -36,6 +36,8 @@ Expected artifacts:
 
 - `dist/checksums.txt`
 - `dist/checksums.txt.sig` on signed releases
+- `dist/checksums.txt.sigstore.json` on signed releases
+- `dist/*.tar.gz.sigstore.json` on signed releases
 - `multiple.intoto.jsonl` on tagged releases after SLSA provenance upload
 - `dist/*.sbom.*`
 - `dist/onibi_*_darwin_*`
@@ -68,6 +70,11 @@ GoReleaser is configured to sign/notarize only when these env vars are set:
 
 Release artifacts include SBOMs and SHA256 checksums. Tagged public releases
 sign `checksums.txt` with the imported GPG key.
+Tagged public releases also sign `checksums.txt` and each release archive with
+keyless cosign through the GitHub Actions OIDC identity for
+`.github/workflows/release.yml`. GoReleaser publishes those bundles as
+`*.sigstore.json` assets. There is no `docs/cosign.pub` for this mode; verify the
+bundle against the workflow identity and GitHub OIDC issuer instead.
 The release workflow also passes GoReleaser artifact hashes to the SLSA generic
 generator on tag pushes. The generator signs provenance with GitHub OIDC and
 uploads it to the same GitHub release.

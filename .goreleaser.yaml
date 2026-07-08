@@ -113,6 +113,24 @@ signs:
       - "${signature}"
       - "--detach-sign"
       - "${artifact}"
+  - id: cosign-checksum
+    artifacts: checksum
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+  - id: cosign-archives
+    artifacts: archive
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
 
 notarize:
   macos:
