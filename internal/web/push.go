@@ -1,3 +1,5 @@
+//go:build !onibi_remote
+
 package web
 
 import (

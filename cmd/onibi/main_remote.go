@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,13 +25,15 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/logging"
-	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 )
+
+const remoteStoreKeyName = "onibi.store.key.v1"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -172,11 +176,91 @@ func runUp(args []string) error {
 }
 
 func openDB(paths config.Paths) (*store.DB, error) {
-	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	key, err := remoteStoreKey(filepath.Join(paths.StateDir, "store.key"))
 	if err != nil {
 		return nil, err
 	}
 	return store.Open(paths.DBFile, store.WithStoreKey(key))
+}
+
+func remoteStoreKey(path string) ([]byte, error) {
+	key, err := readRemoteStoreKey(path)
+	if err == nil {
+		return key, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errRemoteStoreKeyNotFound) {
+		return nil, err
+	}
+	key = make([]byte, envelope.KeyBytes)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	if err := writeRemoteStoreKey(path, base64.RawURLEncoding.EncodeToString(key)); err != nil {
+		return nil, err
+	}
+	return readRemoteStoreKey(path)
+}
+
+var errRemoteStoreKeyNotFound = errors.New("store key not found")
+
+func readRemoteStoreKey(path string) ([]byte, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		return nil, fmt.Errorf("%s has perms %#o (want 0600)", path, got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) != remoteStoreKeyName {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if unquoted, err := strconv.Unquote(v); err == nil {
+			v = unquoted
+		} else {
+			v = strings.Trim(v, `"`)
+		}
+		key, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(v))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != envelope.KeyBytes {
+			return nil, fmt.Errorf("store key must be %d bytes", envelope.KeyBytes)
+		}
+		return key, nil
+	}
+	return nil, errRemoteStoreKeyNotFound
+}
+
+func writeRemoteStoreKey(path, value string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(f, "# onibi secrets; 0600 enforced\n%s=%q\n", remoteStoreKeyName, value); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func newLogger(paths config.Paths, path string) (*slog.Logger, func() error, error) {
