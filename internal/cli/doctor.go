@@ -27,6 +27,10 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	asJSON, _ := cmd.Flags().GetBool("json")
 	explain, _ := cmd.Flags().GetBool("explain")
 	providers, _ := cmd.Flags().GetBool("providers")
+	security, _ := cmd.Flags().GetBool("security")
+	if providers && security {
+		return fmt.Errorf("--providers and --security cannot be combined")
+	}
 	if mode == "release" {
 		release = true
 	}
@@ -56,6 +60,22 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			return enc.Encode(report)
 		}
 		return renderDoctorProviders(cmd, report, fix)
+	}
+	if security {
+		report := doctor.Security(ctx, opts)
+		if asJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				return err
+			}
+		} else if err := renderDoctorSecurity(cmd, report); err != nil {
+			return err
+		}
+		if report.Failed() {
+			return fmt.Errorf("doctor security failed")
+		}
+		return nil
 	}
 	if fix {
 		fixes := doctor.Fix(ctx, opts)
@@ -103,6 +123,27 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("doctor failed")
 	}
 	return nil
+}
+
+func renderDoctorSecurity(cmd *cobra.Command, report doctor.SecurityReport) error {
+	style := styleFor(cmd)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s security scan: files=%d findings=%d log_dir=%s\n", style.status(report.Status), report.ScannedFiles, len(report.Findings), report.LogDir)
+	for _, errText := range report.Errors {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.status(doctor.Warn), errText)
+	}
+	if len(report.Findings) == 0 {
+		return nil
+	}
+	rows := [][]string{tableHeader(style, "FILE", "LINE", "PATTERN", "SNIPPET")}
+	for _, finding := range report.Findings {
+		rows = append(rows, []string{
+			finding.File,
+			fmt.Sprint(finding.Line),
+			finding.Pattern,
+			finding.Snippet,
+		})
+	}
+	return renderTable(cmd.OutOrStdout(), rows)
 }
 
 func renderDoctorProviders(cmd *cobra.Command, report doctor.ProviderReport, showFix bool) error {

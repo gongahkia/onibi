@@ -92,6 +92,28 @@ func TestDoctorProvidersFixPrintsSetupGuidance(t *testing.T) {
 	}
 }
 
+func TestDoctorSecurityJSONRedactsFindings(t *testing.T) {
+	paths := withDefaultState(t)
+	token := "sk-" + strings.Repeat("S", 20)
+	if err := os.WriteFile(filepath.Join(paths.LogDir, "onibi.log"), []byte("leaked "+token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := executeRootAllowError(t, "doctor", "--security", "--json", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "doctor security failed") {
+		t.Fatalf("expected security failure, got err=%v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), token) {
+		t.Fatalf("token leaked in output:\n%s", out.String())
+	}
+	var report doctor.SecurityReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.Status != doctor.Fail || len(report.Findings) != 1 || report.Findings[0].Pattern != "openai" {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
 func TestDoctorFixDoesNotInstallHooksOnFreshState(t *testing.T) {
 	paths := withDefaultState(t)
 	notify := filepath.Join(paths.StateDir, "onibi-notify")
