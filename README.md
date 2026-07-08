@@ -59,6 +59,10 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 - Chat text control: Telegram, Matrix, Slack, and Discord can route terminal text; approvals support provider-native actions where available.
 - Notify-only approvals: Pushover, ntfy, and Gotify publish approval alerts without terminal text input.
 
+## Roadmap
+
+The v0.3 to v1.0 release arc is tracked in [`docs/roadmap.md`](./docs/roadmap.md), with each release tied to a GitHub milestone.
+
 ## Main Commands
 
 ```bash
@@ -143,6 +147,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
 - [`docs/pricing.md`](./docs/pricing.md): budget pricing table and update notes.
+- [`docs/roadmap.md`](./docs/roadmap.md): v0.3 to v1.0 milestone framing.
 - [`docs/update-check-schema.md`](./docs/update-check-schema.md): machine-readable `update-check --json` contract.
 
 ## Security
