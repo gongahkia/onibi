@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   goreleaser:
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +57,8 @@ jobs:
           key="$(gpg --armor --export "$GPG_FINGERPRINT" | base64 | tr -d '\n')"
           test -n "$key"
           echo "key_b64=$key" >> "$GITHUB_OUTPUT"
-      - uses: goreleaser/goreleaser-action@v7
+      - id: run-goreleaser
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean
@@ -70,3 +73,30 @@ jobs:
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+      - name: generate SLSA subjects
+        id: hash
+        env:
+          ARTIFACTS: ${{ steps.run-goreleaser.outputs.artifacts }}
+        run: |
+          set -euo pipefail
+          hashes="$(printf '%s' "$ARTIFACTS" | jq --raw-output '.[] | {name, "digest": (.extra.Digest // .extra.Checksum)} | select(.digest) | {digest} + {name} | join("  ") | sub("^sha256:";"")' | base64 | tr -d '\n')"
+          if test -z "$hashes"; then
+            checksum_file="$(printf '%s' "$ARTIFACTS" | jq -r '.[] | select(.type=="Checksum") | .path' | head -n 1)"
+            test -n "$checksum_file"
+            hashes="$(base64 < "$checksum_file" | tr -d '\n')"
+          fi
+          test -n "$hashes"
+          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
+
+  provenance:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [goreleaser]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.goreleaser.outputs.hashes }}
+      upload-assets: true
+      upload-tag-name: ${{ github.ref_name }}

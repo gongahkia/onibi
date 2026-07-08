@@ -36,6 +36,7 @@ Expected artifacts:
 
 - `dist/checksums.txt`
 - `dist/checksums.txt.sig` on signed releases
+- `multiple.intoto.jsonl` on tagged releases after SLSA provenance upload
 - `dist/*.sbom.*`
 - `dist/onibi_*_darwin_*`
 - `dist/onibi_*_linux_*`
@@ -67,6 +68,9 @@ GoReleaser is configured to sign/notarize only when these env vars are set:
 
 Release artifacts include SBOMs and SHA256 checksums. Tagged public releases
 sign `checksums.txt` with the imported GPG key.
+The release workflow also passes GoReleaser artifact hashes to the SLSA generic
+generator on tag pushes. The generator signs provenance with GitHub OIDC and
+uploads it to the same GitHub release.
 
 The release workflow exports the imported GPG public key and GoReleaser embeds
 it into the `onibi` binary through `buildinfo.ReleasePublicKeyB64`. `onibi
