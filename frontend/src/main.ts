@@ -33,6 +33,7 @@ import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { VoiceInputController } from "./voice";
 import { SharePanel } from "./share";
+import { AgentsFeed } from "./agents-feed";
 
 type SessionInfo = {
   session_id: string;
@@ -84,6 +85,7 @@ let timeline: TimelinePanel | undefined;
 let recordings: RecordingPlayerPanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let sharePanel: SharePanel | undefined;
+let agentsFeed: AgentsFeed | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -114,6 +116,7 @@ events.addEventListener("event", (event) => {
   }
   sessionList?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
+  agentsFeed?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
   timeline?.handleEnvelope(envelope);
 });
@@ -178,7 +181,18 @@ async function boot(): Promise<void> {
     sharePanel = viewerMode
       ? undefined
       : new SharePanel(document.body, info.session_id, getJSON, postJSON, showToast);
-    installControls(toolbar, info, snapshots, timeline, recordings, filesPanel, sharePanel);
+    agentsFeed = viewerMode ? undefined : new AgentsFeed(getJSON, navigateToSession);
+    installControls(
+      toolbar,
+      info,
+      agentsFeed,
+      snapshots,
+      timeline,
+      recordings,
+      filesPanel,
+      sharePanel
+    );
+    void agentsFeed?.load();
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -304,19 +318,23 @@ function eventsURL(token: string): string {
 function installControls(
   root: HTMLElement,
   info: SessionInfo,
+  agents: AgentsFeed | undefined,
   snapshotsPanel: SnapshotsPanel,
   timelinePanel: TimelinePanel,
   recordingsPanel: RecordingPlayerPanel,
   filesPanel: FilesPanel,
   share: SharePanel | undefined
 ): void {
-  const controls = [
+  const controls: HTMLElement[] = [
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("REC", () => recordingsPanel.toggle()),
     controlButton("FILES", () => filesPanel.toggle(), "files"),
     controlButton("PUSH", () => enablePush())
   ];
+  if (agents !== undefined) {
+    controls.unshift(agents.element);
+  }
   if (info.role !== "viewer") {
     controls.push(
       controlButton("SHARE", () => share?.open()),

@@ -269,11 +269,17 @@ func readTrustApprovalEvent(t *testing.T, events <-chan approval.Event) approval
 
 func readTrustWebEvent(t *testing.T, events <-chan web.Event) web.Event {
 	t.Helper()
-	select {
-	case ev := <-events:
-		return ev
-	case <-time.After(time.Second):
-		t.Fatal("web event not delivered")
-		return web.Event{}
+	timeout := time.After(time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == "session.activity" {
+				continue
+			}
+			return ev
+		case <-timeout:
+			t.Fatal("web event not delivered")
+			return web.Event{}
+		}
 	}
 }

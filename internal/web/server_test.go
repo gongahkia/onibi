@@ -21,6 +21,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/timeline"
 	"github.com/gongahkia/onibi/internal/workspace"
 )
 
@@ -503,6 +504,59 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	}
 	if gotOpts.Workspace != "alpha" {
 		t.Fatalf("options = %#v", gotOpts)
+	}
+}
+
+func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	now := time.Now().UTC()
+	old := now.Add(-10 * time.Minute).Format(time.RFC3339Nano)
+	recent := now.Add(-time.Second).Format(time.RFC3339Nano)
+	srv.sessionList = func(_ context.Context, opts SessionListOptions) ([]SessionSummary, error) {
+		if !opts.IncludeRemote {
+			t.Fatalf("options = %#v", opts)
+		}
+		return []SessionSummary{
+			{ID: "await", Agent: "claude", LastActivity: old, PendingApprovalsCount: 1, RoleRequired: "owner"},
+			{ID: "work", Agent: "codex", LastActivity: recent, RoleRequired: "owner"},
+			{ID: "block", Agent: "shell", LastActivity: old, RoleRequired: "owner"},
+			{ID: "idle", Agent: "opencode", LastActivity: old, RoleRequired: "owner"},
+		}, nil
+	}
+	srv.timeline = func(context.Context, int) ([]timeline.TimelineEvent, error) {
+		return []timeline.TimelineEvent{{
+			Kind:      timeline.KindAnomaly,
+			SessionID: "block",
+			TS:        now.Add(-time.Minute).Format(time.RFC3339Nano),
+			Offset:    12,
+		}}, nil
+	}
+	rr := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/sessions/status?include=remote", nil)
+	req.AddCookie(rr.Result().Cookies()[0])
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	var got SessionsStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]SessionState{}
+	for _, row := range got.Sessions {
+		states[row.ID] = row.State
+	}
+	if states["await"] != SessionStateAwaitingApproval || states["work"] != SessionStateWorking || states["block"] != SessionStateBlocked || states["idle"] != SessionStateIdle {
+		t.Fatalf("states = %#v", states)
+	}
+	if got.Counts[SessionStateAwaitingApproval] != 1 || got.Counts[SessionStateWorking] != 1 || got.Counts[SessionStateBlocked] != 1 || got.Counts[SessionStateIdle] != 1 {
+		t.Fatalf("counts = %#v", got.Counts)
 	}
 }
 

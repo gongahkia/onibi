@@ -29,6 +29,8 @@ import (
 // generous for text-tail rendering and small enough to keep memory bounded.
 const BufferSize = 64 * 1024
 
+const sessionActivityEventMinInterval = 500 * time.Millisecond
+
 // Daemon is the long-running coordinator. Phase 2 model: single-session
 // per daemon process (spawned via `onibi run <agent> -- <args>`). Phase 6
 // will refactor to multi-session with a long-lived background daemon.
@@ -76,6 +78,7 @@ type Daemon struct {
 	slackMu               sync.Mutex
 	slackApprovals        map[string]slackApprovalRef
 	notified              map[string]bool // session id → already-fired turn-complete once
+	sessionActivityEvents map[string]time.Time
 	budgetDaily           map[string]int64
 	budgetDailyMicroCents map[string]int64
 	budgetDailyUnknown    map[string]bool
@@ -205,6 +208,7 @@ func New(opts Options) *Daemon {
 		webAttachHosts:          map[string]*pty.Host{},
 		slackApprovals:          map[string]slackApprovalRef{},
 		notified:                map[string]bool{},
+		sessionActivityEvents:   map[string]time.Time{},
 		budgetDaily:             map[string]int64{},
 		budgetDailyMicroCents:   map[string]int64{},
 		budgetDailyUnknown:      map[string]bool{},
@@ -397,11 +401,35 @@ func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 		return
 	}
 	s.Touch()
+	d.publishSessionActivity(s)
 	if d.DB != nil {
 		if err := d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt()); err != nil {
 			d.Log.Warn("persist session activity", slog.String("session", s.ID), slog.Any("err", err))
 		}
 	}
+}
+
+func (d *Daemon) publishSessionActivity(s *Session) {
+	if d == nil || d.Events == nil || s == nil {
+		return
+	}
+	now := time.Now()
+	d.mu.Lock()
+	if d.sessionActivityEvents == nil {
+		d.sessionActivityEvents = map[string]time.Time{}
+	}
+	last := d.sessionActivityEvents[s.ID]
+	if !last.IsZero() && now.Sub(last) < sessionActivityEventMinInterval {
+		d.mu.Unlock()
+		return
+	}
+	d.sessionActivityEvents[s.ID] = now
+	d.mu.Unlock()
+	d.Events.Publish(web.Event{Type: "session.activity", Payload: map[string]any{
+		"session_id":    s.ID,
+		"agent":         s.Agent,
+		"last_activity": s.LastActivityAt().UTC().Format(time.RFC3339Nano),
+	}})
 }
 
 func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {

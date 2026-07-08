@@ -26,7 +26,9 @@ type eventsAttachFrame struct {
 
 const (
 	timelineEntryEvent          = "timeline.entry"
+	sessionsStatusEvent         = "sessions.status"
 	defaultTimelineReplayEvents = 200
+	sessionsStatusMinInterval   = 500 * time.Millisecond
 )
 
 func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +120,31 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		eventsSent++
 	}
+	lastSessionsStatus := time.Time{}
+	writeSessionsStatus := func(force bool) error {
+		if s.sessionList == nil {
+			return nil
+		}
+		now := time.Now()
+		if !force && now.Sub(lastSessionsStatus) < sessionsStatusMinInterval {
+			return nil
+		}
+		status, err := s.sessionsStatus(ctx, SessionListOptions{IncludeRemote: true}, now)
+		if err != nil {
+			s.log.Warn("web sessions status failed", "request_id", reqID, "session_id", sessionID, "err", err)
+			return nil
+		}
+		if err := writeEvent(ctx, c, &writeMu, wsE2E, sessionsStatusEvent, status); err != nil {
+			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", sessionsStatusEvent, "err", err)
+			return err
+		}
+		lastSessionsStatus = now
+		eventsSent++
+		return nil
+	}
+	if err := writeSessionsStatus(true); err != nil {
+		return
+	}
 	n, err := s.writeTimelineReplay(ctx, c, &writeMu, wsE2E, reqID, sessionID)
 	if err != nil {
 		return
@@ -166,6 +193,9 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 				sentApprovalRequests[ev.Approval.ID] = true
 			}
 			eventsSent++
+			if err := writeSessionsStatus(true); err != nil {
+				return
+			}
 			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "approval_id", ev.Approval.ID, "events_sent", eventsSent)
 		case ev, ok := <-appEvents:
 			if !ok {
@@ -180,8 +210,22 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			eventsSent++
+			if sessionsStatusRefreshEvent(ev.Type) {
+				if err := writeSessionsStatus(false); err != nil {
+					return
+				}
+			}
 			s.log.Debug("web event sent", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "events_sent", eventsSent)
 		}
+	}
+}
+
+func sessionsStatusRefreshEvent(typ string) bool {
+	switch typ {
+	case "session.started", "session.ended", "session.activity", "cost.updated", timelineEntryEvent:
+		return true
+	default:
+		return false
 	}
 }
 

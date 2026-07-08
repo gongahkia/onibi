@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -55,6 +56,28 @@ func TestSessionTouchAndIdle(t *testing.T) {
 	s.Touch()
 	if d := s.SinceActivity(); d > 10*time.Millisecond {
 		t.Fatalf("expected near-zero idle after touch, got %v", d)
+	}
+}
+
+func TestSessionTouchPublishesRateLimitedActivity(t *testing.T) {
+	d := New(Options{})
+	events, unsub := d.Events.Subscribe()
+	defer unsub()
+	s := NewSession("s1", "main", "claude", nil, 0)
+	d.touchSession(context.Background(), s)
+	select {
+	case ev := <-events:
+		if ev.Type != "session.activity" {
+			t.Fatalf("event = %#v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing session activity event")
+	}
+	d.touchSession(context.Background(), s)
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected throttled event = %#v", ev)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

@@ -120,6 +120,39 @@ func TestWSEventsStreamsAppEvents(t *testing.T) {
 	}
 }
 
+func TestSessionsStatusWSEventReplay(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	srv := New(Options{
+		DB: db,
+		SessionList: func(context.Context, SessionListOptions) ([]SessionSummary, error) {
+			return []SessionSummary{{
+				ID:                    "s1",
+				Agent:                 "claude",
+				LastActivity:          time.Now().UTC().Format(time.RFC3339Nano),
+				PendingApprovalsCount: 1,
+				RoleRequired:          "owner",
+			}}, nil
+		},
+	})
+	c := dialEventsForTest(t, srv)
+	_ = readEventEnvelope(t, c) // server.hello
+	env := readEventEnvelope(t, c)
+	if env.Type != sessionsStatusEvent {
+		t.Fatalf("type = %q", env.Type)
+	}
+	var payload SessionsStatusResponse
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].State != SessionStateAwaitingApproval || payload.Counts[SessionStateAwaitingApproval] != 1 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestEventBusFanoutDoesNotBlockOnSlowConsumer(t *testing.T) {
 	bus := NewEventBus()
 	slow, unsubSlow := bus.Subscribe()
