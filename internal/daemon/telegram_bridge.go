@@ -52,6 +52,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	}
 	go b.forwardApprovals(ctx)
 	var offset int64
+	pollFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,14 +61,19 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 		}
 		updates, err := c.GetUpdates(ctx, offset, 25)
 		if err != nil {
-			d.Log.Warn("telegram poll failed", slog.Any("err", err))
+			pollFailures++
+			delay := telegram.ReconnectBackoff(pollFailures)
+			d.Log.Warn("telegram poll failed", slog.Any("err", err), "backoff", delay)
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return ctx.Err()
-			case <-time.After(2 * time.Second):
+			case <-timer.C:
 				continue
 			}
 		}
+		pollFailures = 0
 		for _, u := range updates {
 			if u.UpdateID >= offset {
 				offset = u.UpdateID + 1

@@ -146,10 +146,12 @@ Approval/control:
 - Pending tool calls appear as Telegram approval cards with Approve/Deny buttons.
 - Use `/edit <approval-id> <edited JSON>` to edit a tool input.
 - `/interrupt`, `/esc`, `/enter`, `/kill`, `/show`, `/hide`, and `/end` control the selected target.
+- Long-poll drops reconnect with exponential backoff from 1s to 60s, then reset after the next successful poll.
 
 Security model:
 
-- Telegram is plaintext to Telegram Bot API infrastructure; use web/Tailscale when you need live terminal UX without chat-provider retention.
+- Telegram is plaintext to Telegram Bot API infrastructure; use web LAN, WireGuard, ZeroTier, or Tailscale when you need live terminal UX without chat-provider retention.
+- Telegram secret chats are MTProto client features, not Bot API features; Onibi does not tunnel Bot API control through secret chats.
 - Onibi stores the BotFather token in the OS keystore when available and pairs a single owner chat id through a one-time `/start <code>`.
 - Non-owner chats are ignored after pairing.
 
