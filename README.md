@@ -12,7 +12,7 @@
   <a href="https://github.com/gongahkia/onibi/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/gongahkia/onibi/ci.yml?branch=main&style=flat-square"></a>
   <img alt="go" src="https://img.shields.io/badge/go-1.26.4%2B-blue?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square">
-  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20%7C%20Tailscale%20%7C%20Cloudflare%20%7C%20ngrok%20%7C%20Chat%20%7C%20Notify-1f766f?style=flat-square">
+  <img alt="transport" src="https://img.shields.io/badge/transport-LAN%20%7C%20Tailscale%20%7C%20WireGuard%20%7C%20Cloudflare%20%7C%20ngrok%20%7C%20Chat%20%7C%20Notify-1f766f?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
 </p>
 
@@ -30,7 +30,7 @@ onibi install-hooks --agent claude
 onibi up
 ```
 
-`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
+`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `wireguard`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `pushover`, `ntfy`, `gotify`, and `auto`.
 Run `onibi status`, `onibi update-check`, and `onibi doctor --fix` when validating an install or upgrade. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:
@@ -143,6 +143,7 @@ After `./bin/onibi up` and phone pairing:
 
 - [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
+- [`docs/wireguard-setup.md`](./docs/wireguard-setup.md): self-hosted WireGuard transport setup.
 - [`docs/ssh-transport.md`](./docs/ssh-transport.md): SSH remote bootstrap, tunnel, service, and teardown model.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.

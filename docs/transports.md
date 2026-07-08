@@ -10,6 +10,7 @@ The supported transports are:
 
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
 - `tailscale`: QR points at the device's Tailscale Funnel URL.
+- `wireguard`: QR points at a self-hosted WireGuard interface address.
 - `cloudflare-quick`: QR points at a temporary `trycloudflare.com` URL.
 - `cloudflare-named`: QR points at a configured Cloudflare Tunnel hostname.
 - `ngrok`: QR points at an ngrok public HTTPS URL.
@@ -45,7 +46,7 @@ Operational notes:
 - Enterprise or managed Wi-Fi often enables client isolation. If the phone cannot load the pair URL, move both devices to the iPhone hotspot instead of repeatedly retrying that SSID.
 - Onibi prefers routable IPv4 LAN addresses first, then IPv6 addresses. IPv6 URLs use bracket syntax.
 - `.local` mDNS is secondary; Onibi prefers LAN IP QR URLs because mobile mDNS reachability is inconsistent.
-- Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
+- Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=wireguard`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
 - The live smoke matrix for home Wi-Fi, hotspot, client isolation, captive Wi-Fi, IPv4/IPv6, and auto fallback is in [`docs/transport-smoke.md`](./transport-smoke.md#lan-and-hotspot).
 
 ## Tailscale Funnel
@@ -75,6 +76,28 @@ Operational notes:
 - The Mac must be logged in to Tailscale and allowed by tailnet policy to use Funnel.
 - Public DNS for the Funnel URL can lag after enablement.
 - Use `onibi doctor --transport=tailscale` or `onibi doctor --transport=auto` to check the binary, daemon login state, HTTPS capability, Funnel node attribute, and allowed public Funnel port.
+
+## WireGuard
+
+`onibi up --transport=wireguard` keeps the cockpit private to a user-managed WireGuard network. Onibi checks `wg show interfaces`, finds a routable address on a WireGuard interface, binds the HTTPS listener to that address only, and prints a QR such as:
+
+```text
+https://10.8.0.2:8443/pair/<token>
+```
+
+Use `ONIBI_WIREGUARD_INTERFACE=wg0` when several WireGuard interfaces are up. Use `ONIBI_WIREGUARD_BIN=/path/to/wg` when `wg` is not on `PATH`.
+
+Security model:
+
+- WireGuard carries packets between the laptop and phone; Onibi does not manage server keys or peer authorization.
+- Onibi auth is unchanged: single-use pair token first, then owner cookie on every protected page and WebSocket upgrade.
+- The local HTTPS certificate must include the WireGuard interface IP. This is automatic when the interface is up before `onibi up` starts.
+
+Operational notes:
+
+- Configure WireGuard on the laptop and phone first; see [`wireguard-setup.md`](./wireguard-setup.md).
+- `onibi doctor --transport=wireguard` verifies the `wg` binary, checks `wg show interfaces`, and confirms the selected interface has a routable IP.
+- If the phone cannot open the QR URL, verify both peers are connected and that the phone can reach the laptop's WireGuard IP with another HTTPS service before debugging Onibi.
 
 ## Telegram
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -49,10 +50,14 @@ var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
 		Tailscale:       func() webtransport.Provider { return webtransport.NewTailscale() },
+		WireGuard:       func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
 		CloudflareQuick: func() webtransport.Provider { return webtransport.NewCloudflareQuick() },
 		CloudflareNamed: func() webtransport.Provider { return webtransport.NewCloudflareNamedFromEnv() },
 		Ngrok:           func() webtransport.Provider { return webtransport.NewNgrokFromEnv() },
 	}
+}
+var wireGuardBindHost = func(ctx context.Context) (string, error) {
+	return webtransport.NewWireGuardFromEnv().BindHost(ctx)
 }
 
 func upCmd() *cobra.Command {
@@ -233,6 +238,9 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 			}
 			logger.Info("transport selected", "transport", cfg.Transport.Mode)
 		}
+	}
+	if err := applyWireGuardListenAddr(ctx, &cfg, logger); err != nil {
+		return err
 	}
 	if shell, _ := cmd.Flags().GetString("shell"); strings.TrimSpace(shell) != "" {
 		cfg.Shell.Default = strings.TrimSpace(shell)
@@ -436,6 +444,25 @@ func resolvePairTransport(ctx context.Context, mode string, port int, lanHosts [
 		Logger:       logger,
 		Providers:    newTransportProviders(),
 	})
+}
+
+func applyWireGuardListenAddr(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg == nil || webtransport.NormalizeMode(cfg.Transport.Mode) != webtransport.ModeWireGuard {
+		return nil
+	}
+	port, err := listenPort(cfg.Web.ListenAddr)
+	if err != nil {
+		return err
+	}
+	host, err := wireGuardBindHost(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.Web.ListenAddr = net.JoinHostPort(host, strconv.Itoa(port))
+	if logger != nil {
+		logger.Info("wireguard listen address selected", "addr", cfg.Web.ListenAddr)
+	}
+	return nil
 }
 
 func cleanupPairTransport(logger *slog.Logger, pt webtransport.Resolved) {

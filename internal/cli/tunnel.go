@@ -21,7 +21,7 @@ import (
 	webtransport "github.com/gongahkia/onibi/internal/web/transport"
 )
 
-const tunnelTransportModes = "lan, lan-loopback, tailscale, cloudflare-quick, ngrok, auto"
+const tunnelTransportModes = "lan, lan-loopback, tailscale, wireguard, cloudflare-quick, ngrok, auto"
 
 func tunnelCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -120,7 +120,7 @@ func parseTunnelPort(raw string) (int, error) {
 
 func tunnelTransportSupported(mode string) bool {
 	switch webtransport.NormalizeMode(mode) {
-	case webtransport.ModeLAN, webtransport.ModeLANLoopback, webtransport.ModeTailscale, webtransport.ModeCloudflareQuick, webtransport.ModeNgrok, webtransport.ModeAuto:
+	case webtransport.ModeLAN, webtransport.ModeLANLoopback, webtransport.ModeTailscale, webtransport.ModeWireGuard, webtransport.ModeCloudflareQuick, webtransport.ModeNgrok, webtransport.ModeAuto:
 		return true
 	default:
 		return false
@@ -167,7 +167,7 @@ func promptTunnelTransport(cmd *cobra.Command, current string) (string, bool, er
 				return c.mode, true, nil
 			}
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, or q.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Choose 1, 2, 3, 4, 5, 6, or q.")
 	}
 }
 

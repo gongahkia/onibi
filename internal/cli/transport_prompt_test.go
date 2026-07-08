@@ -95,8 +95,23 @@ func TestPromptPairTransportSelectsCloudflareQuick(t *testing.T) {
 	}
 }
 
+func TestPromptPairTransportSelectsWireGuard(t *testing.T) {
+	cmd, out := transportPromptCmd("1\nwireguard\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "wireguard" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if !strings.Contains(out.String(), "WireGuard") || !strings.Contains(out.String(), "self-hosted mesh VPN") {
+		t.Fatalf("prompt output = %q", out.String())
+	}
+}
+
 func TestPromptPairTransportBackFromProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("2\nb\n1\n6\n")
+	cmd, out := transportPromptCmd("2\nb\n1\n7\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {

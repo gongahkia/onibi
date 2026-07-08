@@ -211,6 +211,36 @@ func TestResolvePairTransportAutoFallsBackToLAN(t *testing.T) {
 	}
 }
 
+func TestApplyWireGuardListenAddrUsesDetectedHost(t *testing.T) {
+	old := wireGuardBindHost
+	wireGuardBindHost = func(context.Context) (string, error) { return "10.8.0.2", nil }
+	t.Cleanup(func() { wireGuardBindHost = old })
+	cfg := config.Default()
+	cfg.Transport.Mode = "wireguard"
+	cfg.Web.ListenAddr = ":9443"
+	if err := applyWireGuardListenAddr(context.Background(), &cfg, discardLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Web.ListenAddr != "10.8.0.2:9443" {
+		t.Fatalf("listen_addr = %q", cfg.Web.ListenAddr)
+	}
+}
+
+func TestApplyWireGuardListenAddrFormatsIPv6(t *testing.T) {
+	old := wireGuardBindHost
+	wireGuardBindHost = func(context.Context) (string, error) { return "fd00::2", nil }
+	t.Cleanup(func() { wireGuardBindHost = old })
+	cfg := config.Default()
+	cfg.Transport.Mode = "wireguard"
+	cfg.Web.ListenAddr = "0.0.0.0:9443"
+	if err := applyWireGuardListenAddr(context.Background(), &cfg, discardLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Web.ListenAddr != "[fd00::2]:9443" {
+		t.Fatalf("listen_addr = %q", cfg.Web.ListenAddr)
+	}
+}
+
 func TestResolveUpWorkspaceLoadsProjectConfig(t *testing.T) {
 	db := openUpTestDB(t)
 	root := t.TempDir()

@@ -125,6 +125,7 @@ func (r *runner) run() {
 	r.checkTransportProvider()
 	r.checkLAN()
 	r.checkTailscale()
+	r.checkWireGuard()
 	r.checkLocalCerts()
 	r.checkSocket()
 	r.checkService()
@@ -249,6 +250,8 @@ func (r *runner) checkTransportProvider() {
 		r.add("transport provider", Pass, "Auto coverage: Tailscale -> LAN only")
 	case "tailscale":
 		r.add("transport provider", Pass, "Tailscale coverage: unit + fake runner + live opt-in")
+	case "wireguard":
+		r.add("transport provider", Pass, "WireGuard coverage: unit + interface probe + live opt-in")
 	case "cloudflare-quick":
 		r.checkCloudflared("transport provider", "Cloudflare Quick coverage: unit + fake process + live opt-in")
 	case "cloudflare-named":
@@ -657,6 +660,30 @@ func (r *runner) checkTailscale() {
 		return
 	}
 	r.add("tailscale", Pass, "ready; no active Funnel")
+}
+
+func (r *runner) checkWireGuard() {
+	cfg, _, err := config.Load(r.opts.Paths)
+	if err != nil {
+		r.add("wireguard", Warn, err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(r.transportMode(cfg)))
+	if mode != "wireguard" {
+		r.add("wireguard", Pass, "not selected (transport="+mode+")")
+		return
+	}
+	wg := transport.NewWireGuardFromEnv()
+	host, err := wg.BindHost(r.ctx)
+	if err != nil {
+		r.add("wireguard", Warn, err.Error())
+		return
+	}
+	detail := "ready at " + host
+	if iface := wg.InterfaceName(); iface != "" {
+		detail += " on " + iface
+	}
+	r.add("wireguard", Pass, detail)
 }
 
 func (r *runner) checkLocalCerts() {

@@ -19,6 +19,7 @@ const (
 	ModeLAN             Mode = "lan"
 	ModeLANLoopback     Mode = "lan-loopback"
 	ModeTailscale       Mode = "tailscale"
+	ModeWireGuard       Mode = "wireguard"
 	ModeTelegram        Mode = "telegram"
 	ModeCloudflareQuick Mode = "cloudflare-quick"
 	ModeCloudflareNamed Mode = "cloudflare-named"
@@ -90,6 +91,7 @@ type ResolverOptions struct {
 
 type ProviderFactory struct {
 	Tailscale       func() Provider
+	WireGuard       func() Provider
 	CloudflareQuick func() Provider
 	CloudflareNamed func() Provider
 	Ngrok           func() Provider
@@ -119,6 +121,8 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 		return Resolved{Mode: ModeLANLoopback, Port: opts.Port, LANHosts: []string{"127.0.0.1"}}, nil
 	case ModeTailscale:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
+	case ModeWireGuard:
+		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.WireGuard, func() Provider { return NewWireGuardFromEnv() }))
 	case ModeCloudflareQuick:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.CloudflareQuick, func() Provider { return NewCloudflareQuick() }))
 	case ModeCloudflareNamed:
@@ -145,6 +149,8 @@ func NormalizeMode(mode string) Mode {
 		return ModeLANLoopback
 	case ModeTailscale:
 		return ModeTailscale
+	case ModeWireGuard:
+		return ModeWireGuard
 	case ModeTelegram:
 		return ModeTelegram
 	case ModeCloudflareQuick:
@@ -161,7 +167,7 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, auto"
+	return "lan, lan-loopback, tailscale, wireguard, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto"
 }
 
 func IsRelayMode(mode string) bool {

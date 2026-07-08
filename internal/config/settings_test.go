@@ -231,7 +231,7 @@ func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "tailscale", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto"} {
+	for _, value := range []string{"lan", "tailscale", "wireguard", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
@@ -244,7 +244,7 @@ func TestTransportModeValues(t *testing.T) {
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto") {
+	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, wireguard, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, pushover, ntfy, gotify, auto") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

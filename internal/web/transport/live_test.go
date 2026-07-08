@@ -47,6 +47,38 @@ func TestLiveTailscale(t *testing.T) {
 	}
 }
 
+func TestLiveWireGuard(t *testing.T) {
+	if os.Getenv("ONIBI_LIVE_WIREGUARD") != "1" {
+		t.Skip("set ONIBI_LIVE_WIREGUARD=1")
+	}
+	envs := []string{"ONIBI_LIVE_WIREGUARD", "ONIBI_WIREGUARD_BIN", "ONIBI_WIREGUARD_INTERFACE"}
+	rec, err := liveartifact.New("wireguard", envs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(envs...); err != nil {
+			t.Errorf("artifact: %v", err)
+		}
+		t.Logf("artifact: %s", rec.Path())
+	})
+	port, cleanup := liveHTTPSServer(t)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wg := NewWireGuardFromEnv()
+	if err := wg.Enable(ctx, port); err != nil {
+		rec.Error("enable", err)
+		t.Fatal(err)
+	}
+	if url, err := wg.URL(ctx); err != nil || url == "" {
+		rec.Error("url", err)
+		t.Fatalf("url=%q err=%v", url, err)
+	} else {
+		rec.Record("url", map[string]any{"url": url, "interface": wg.InterfaceName()})
+	}
+}
+
 func TestLiveCloudflareQuick(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_CLOUDFLARE_QUICK") != "1" {
 		t.Skip("set ONIBI_LIVE_CLOUDFLARE_QUICK=1")
