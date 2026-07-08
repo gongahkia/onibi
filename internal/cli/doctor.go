@@ -26,6 +26,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	release, _ := cmd.Flags().GetBool("release")
 	asJSON, _ := cmd.Flags().GetBool("json")
 	explain, _ := cmd.Flags().GetBool("explain")
+	providers, _ := cmd.Flags().GetBool("providers")
 	if mode == "release" {
 		release = true
 	}
@@ -47,6 +48,15 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		doctorOptionsHook(&opts)
 	}
 	style := styleFor(cmd)
+	if providers {
+		report := doctor.Providers(ctx, opts)
+		if asJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(report)
+		}
+		return renderDoctorProviders(cmd, report, fix)
+	}
 	if fix {
 		fixes := doctor.Fix(ctx, opts)
 		for _, a := range fixes.Actions {
@@ -93,6 +103,56 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("doctor failed")
 	}
 	return nil
+}
+
+func renderDoctorProviders(cmd *cobra.Command, report doctor.ProviderReport, showFix bool) error {
+	style := styleFor(cmd)
+	rows := [][]string{tableHeader(style, "PROVIDER", "CONFIGURED", "REACHABLE", "LAST_AUDIT", "DETAIL")}
+	for _, row := range report.Providers {
+		rows = append(rows, []string{
+			row.Name,
+			providerYesNo(style, row.Configured),
+			providerReachable(style, row.Reachable),
+			valueOrDash(row.LastAuditTimestamp),
+			row.Detail,
+		})
+	}
+	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
+		return err
+	}
+	if !showFix {
+		return nil
+	}
+	fixRows := [][]string{tableHeader(style, "PROVIDER", "SETUP")}
+	for _, row := range report.Providers {
+		if row.Configured || len(row.Fix) == 0 {
+			continue
+		}
+		fixRows = append(fixRows, []string{row.Name, strings.Join(row.Fix, " ; ")})
+	}
+	if len(fixRows) == 1 {
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	return renderTable(cmd.OutOrStdout(), fixRows)
+}
+
+func providerYesNo(style cliStyle, ok bool) string {
+	if ok {
+		return style.green("yes")
+	}
+	return style.dim("no")
+}
+
+func providerReachable(style cliStyle, v string) string {
+	switch v {
+	case doctor.ReachableYes:
+		return style.green(v)
+	case doctor.ReachableNo:
+		return style.red(v)
+	default:
+		return style.dim(v)
+	}
 }
 
 func printExplainLine(cmd *cobra.Command, label, value string) {

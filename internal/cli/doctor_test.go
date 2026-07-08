@@ -63,6 +63,35 @@ func TestDoctorTransportOverrideReportsProvider(t *testing.T) {
 	t.Fatalf("missing transport provider check: %#v", report.Checks)
 }
 
+func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
+	withDotenvDoctor(t)
+	out, _, err := executeRootAllowError(t, "doctor", "--providers", "--offline", "--json", "--color", "never")
+	if err != nil {
+		t.Fatalf("execute doctor --providers: %v\n%s", err, out.String())
+	}
+	var report doctor.ProviderReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if len(report.Providers) != 7 {
+		t.Fatalf("providers = %#v", report.Providers)
+	}
+}
+
+func TestDoctorProvidersFixPrintsSetupGuidance(t *testing.T) {
+	withDotenvDoctor(t)
+	out, _, err := executeRootAllowError(t, "doctor", "--providers", "--offline", "--fix", "--color", "never")
+	if err != nil {
+		t.Fatalf("execute doctor --providers --fix: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	for _, want := range []string{"telegram", "onibi telegram setup", "slack", "ONIBI_SLACK_APP_TOKEN"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestDoctorFixDoesNotInstallHooksOnFreshState(t *testing.T) {
 	paths := withDefaultState(t)
 	notify := filepath.Join(paths.StateDir, "onibi-notify")
