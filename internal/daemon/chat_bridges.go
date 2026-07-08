@@ -1021,6 +1021,18 @@ func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a
 		state := "pending"
 		if got.Acknowledged == 1 {
 			state = "acknowledged"
+			if err := d.decideProviderApproval(ctx, a.ID, approval.VerdictApprove, 0); err != nil {
+				switch {
+				case errors.Is(err, approval.ErrAlreadyDecided):
+					d.audit(ctx, "notify.pushover.approve_already_decided", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
+				case errors.Is(err, approval.ErrExpired):
+					d.audit(ctx, "notify.pushover.approve_expired", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
+				default:
+					d.audit(ctx, "notify.pushover.approve_error", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt+" err="+err.Error())
+				}
+			} else {
+				d.audit(ctx, "notify.pushover.approve", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
+			}
 		} else if got.Expired == 1 {
 			state = "expired"
 		}

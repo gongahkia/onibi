@@ -240,7 +240,7 @@ ONIBI_PUSHOVER_USER_KEY=...
 onibi up --transport=pushover
 ```
 
-Pushover approval alerts use emergency priority, poll the returned receipt, and write send/receipt/ack/expiry audit rows.
+Create a Pushover application to get `ONIBI_PUSHOVER_TOKEN`, then copy the target user's User Key into `ONIBI_PUSHOVER_USER_KEY`. Pushover approval alerts use emergency priority (`priority=2`, retry, expire), poll the returned receipt, map acknowledged receipts to approve, and write send/receipt/ack/expiry/approve audit rows. Pushover has one supplementary message URL plus native emergency acknowledgment/callback support; Onibi's default local path uses the native acknowledgment receipt for approval.
 
 ntfy:
 

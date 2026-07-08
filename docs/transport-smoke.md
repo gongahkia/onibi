@@ -117,12 +117,12 @@ onibi config set provider.output.discord.redaction off
 Pushover:
 
 ```bash
-ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... go test ./internal/pushover -run LivePushover
+ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... ONIBI_PUSHOVER_EMERGENCY=1 ONIBI_PUSHOVER_POLL_RECEIPT=1 go test ./internal/pushover -run LivePushover
 ```
 
 - Trigger an approval and confirm an emergency notification arrives.
-- Acknowledge it and confirm receipt polling observes the ack or expiry.
-- Confirm audit rows include receipt creation and ack/expiry state.
+- Acknowledge it and confirm receipt polling observes the ack or expiry; acknowledged receipts map to approve.
+- Confirm audit rows include receipt creation, ack/expiry state, and approve/error state.
 - Confirm `onibi status` shows notify recent/error counts and `onibi log --notify` filters notify audit rows.
 - Confirm normal terminal messages are not accepted through Pushover.
 

@@ -30,7 +30,14 @@ func TestPushoverReceiptAudit(t *testing.T) {
 	defer srv.Close()
 	c := pushover.New("app", "user")
 	c.BaseURL = srv.URL
-	a := &approval.Approval{ID: "a1", SessionID: "s1", Agent: "claude", Tool: "Bash", InputJSON: `{"command":"ls"}`}
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := d.Queue.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d.sendPushoverApproval(t.Context(), c, a)
 	deadline := time.After(2 * time.Second)
 	for {
@@ -42,7 +49,15 @@ func TestPushoverReceiptAudit(t *testing.T) {
 		for _, row := range rows {
 			actions = append(actions, row.Action)
 		}
-		if strings.Contains(strings.Join(actions, "\n"), "notify.pushover.receipt.acknowledged") {
+		joined := strings.Join(actions, "\n")
+		if strings.Contains(joined, "notify.pushover.receipt.acknowledged") && strings.Contains(joined, "notify.pushover.approve") {
+			got, err := d.Queue.Get(t.Context(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != approval.StateApproved {
+				t.Fatalf("state = %s", got.State)
+			}
 			return
 		}
 		select {

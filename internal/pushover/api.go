@@ -28,6 +28,7 @@ type MessageOptions struct {
 	Expire   time.Duration
 	URL      string
 	URLTitle string
+	Callback string
 }
 
 type MessageResponse struct {
@@ -81,6 +82,9 @@ func (c *Client) Send(ctx context.Context, opts MessageOptions) (MessageResponse
 	}
 	if opts.URLTitle != "" {
 		values.Set("url_title", opts.URLTitle)
+	}
+	if opts.Callback != "" {
+		values.Set("callback", opts.Callback)
 	}
 	var out MessageResponse
 	if err := c.postForm(ctx, "/messages.json", values, &out); err != nil {
