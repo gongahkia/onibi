@@ -19,6 +19,7 @@ The supported transports are:
 - `matrix`: Matrix room control with `/sync` polling and room-power validation.
 - `slack`: Slack Socket Mode workspace control.
 - `discord`: Discord Gateway bot control with slash-command fallback.
+- `zulip`: Zulip stream/topic control with one topic per session.
 - `pushover`: notify-only approval alerts.
 - `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
@@ -217,6 +218,29 @@ ONIBI_DISCORD_GUILD_ID=...
 
 Run `onibi discord register --guild-id <guild>` to register `/onibi text:<input>` for one guild, or omit `--guild-id` for global registration. Onibi connects to the Discord Gateway, sends Identify or Resume when possible, tracks heartbeats/ACKs, reconnects on Gateway reconnect/invalid-session opcodes with jittered backoff, routes DM or allowed guild-channel messages, and routes `/onibi` slash-command text when message content is unavailable. Approval requests are sent as Discord Components v2 messages with approve, deny, and edit buttons; edit opens a modal for JSON input. Session output is posted to a per-session thread when thread creation succeeds, and falls back to the parent channel on Discord permission/API errors. Discord text-in, tail chunks, approval buttons, modal opens/submits, thread creation, and send/thread errors are written to local audit with payload hashes instead of plaintext detail. `onibi doctor --transport=discord` reports app auth, channel visibility, optional slash-command presence, and gated send permission failures.
 
+## Zulip
+
+`onibi up --transport=zulip` requires a Zulip bot user API key:
+
+```bash
+ONIBI_ZULIP_URL=https://example.zulipchat.com
+ONIBI_ZULIP_EMAIL=onibi-bot@example.zulipchat.com
+ONIBI_ZULIP_API_KEY=...
+ONIBI_ZULIP_STREAM=onibi
+onibi up --transport=zulip
+```
+
+Optional:
+
+```bash
+ONIBI_ZULIP_TOPIC_PREFIX=onibi-
+ONIBI_ZULIP_OWNER_EMAIL=owner@example.com
+```
+
+Create an Onibi bot user in Zulip and copy its email/API key from the Zulip account/bot settings page. The bridge uses Zulip's REST API with Basic auth, `POST /api/v1/messages` for stream-topic messages, `POST /api/v1/register` plus `GET /api/v1/events` for long-poll event queues, and `DELETE /api/v1/events` during cleanup. Official API references: <https://zulip.com/api/send-message>, <https://zulip.com/api/register-queue>, <https://zulip.com/api/get-events>, and <https://zulip.com/api/delete-queue>.
+
+Onibi creates one Zulip topic per session: `<topic-prefix><session-id>`. Messages from `ONIBI_ZULIP_OWNER_EMAIL` in that topic are written to the matching PTY. Approval prompts are posted into the same topic; reply `approve <id>` or `deny <id>` to decide. Session output is sent back as topic messages with provider output redaction/truncation. Zulip event-queue API errors reconnect with bounded backoff and write `provider.zulip.reconnect`, `provider.zulip.text_in`, `provider.zulip.tail_chunk`, `provider.zulip.tail_error`, `provider.zulip.approval_sent`, and `provider.zulip.approval_error` audit rows. `onibi doctor --transport=zulip` checks required env and event-queue access.
+
 ## Signal
 
 Signal integration uses a local `signal-cli` JSON-RPC daemon over HTTP:
@@ -247,9 +271,10 @@ onibi config set provider.output.max_bytes 24576
 onibi config set provider.output.redaction strict
 onibi config set provider.output.slack.max_bytes 12000
 onibi config set provider.output.discord.redaction off
+onibi config set provider.output.zulip.max_chunks 4
 ```
 
-`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
+`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 

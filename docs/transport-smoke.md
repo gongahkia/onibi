@@ -85,6 +85,17 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 - Confirm Gateway Identify, heartbeat ACKs, Resume after reconnect, DM versus guild allowlist behavior, and terminal text input when Message Content intent is enabled.
 - Disable Message Content intent and confirm `/onibi text:<input>` still routes terminal input.
 
+## Zulip
+
+```bash
+ONIBI_LIVE_ZULIP=1 ONIBI_ZULIP_URL=https://example.zulipchat.com ONIBI_ZULIP_EMAIL=onibi-bot@example.zulipchat.com ONIBI_ZULIP_API_KEY=... ONIBI_ZULIP_STREAM=onibi go test ./internal/zulip -run LiveZulip
+```
+
+- Run `onibi up --transport=zulip`.
+- In topic `onibi-<session-id>`, send terminal text and confirm PTY output returns as topic messages.
+- Trigger an approval and reply `approve <id>` or `deny <id>` in the same topic.
+- Restart the bridge or block the API briefly and confirm event-queue reconnect/backoff audit rows.
+
 ## Doctor provider probes
 
 `onibi doctor --transport <provider>` performs env and non-mutating live API checks unless `--offline` is set.
@@ -92,6 +103,7 @@ ONIBI_LIVE_DISCORD=1 ONIBI_DISCORD_TOKEN=... ONIBI_DISCORD_CHANNEL_ID=... go tes
 - Slack: `auth.test`, Socket Mode open, and configured approval/allowed channel membership.
 - Discord: current application and channel visibility; set `ONIBI_DOCTOR_LIVE=1` to send a channel permission probe.
 - Discord also checks `/onibi` command presence when `ONIBI_DISCORD_APPLICATION_ID` or `ONIBI_DISCORD_GUILD_ID` is set; doctor reports missing command but does not register it.
+- Zulip: required bot env and event-queue registration/deletion on the configured stream.
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
 - Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
@@ -104,12 +116,13 @@ onibi config set provider.output.max_bytes 24576
 onibi config set provider.output.redaction strict
 onibi config set provider.output.slack.max_bytes 12000
 onibi config set provider.output.discord.redaction off
+onibi config set provider.output.zulip.max_chunks 4
 ```
 
 - `default` redaction uses Onibi approval/output scrubbing.
 - `strict` additionally masks long token-like strings.
 - `off` disables config redaction; `ONIBI_CHAT_UNREDACTED=1` remains an env escape hatch.
-- Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, and `notify`; set an override to `inherit` to return to global defaults.
+- Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, and `notify`; set an override to `inherit` to return to global defaults.
 - Output is truncated before provider chunk send, so chat providers cannot stream unlimited terminal output.
 
 ## Notify-only

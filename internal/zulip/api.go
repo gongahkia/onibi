@@ -48,9 +48,9 @@ type EventsResponse struct {
 }
 
 type Event struct {
-	ID       int64    `json:"id"`
-	Type     string   `json:"type"`
-	Message  *Message `json:"message,omitempty"`
+	ID       int64     `json:"id"`
+	Type     string    `json:"type"`
+	Message  *Message  `json:"message,omitempty"`
 	Reaction *Reaction `json:"reaction,omitempty"`
 }
 

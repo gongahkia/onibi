@@ -149,6 +149,7 @@ below the target contract; `no` means not implemented today.
 | Matrix | partial | partial | yes | yes | no | partial | no | partial |
 | Slack | yes | yes | yes | yes | no | partial | no | partial |
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
+| Zulip | partial | partial | yes | yes | partial | partial | no | partial |
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
@@ -168,6 +169,10 @@ Olm/Megolm E2EE yet; room-level privacy remains E2.
 Slack supports Socket Mode, message input, and approval button callbacks. E1
 tracks full parity for tail streams, rate-limit policy reporting, and audit
 normalization.
+
+Zulip supports stream/topic messages, topic-mapped text input, slash-command
+approval replies, per-session topic tail output, event queue reconnect, and
+audit rows. Reaction decision callbacks remain future work.
 
 Discord supports Gateway text and slash-command fallback. E3 tracks components
 v2 buttons, tail streams, and full audit parity.

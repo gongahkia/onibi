@@ -46,8 +46,8 @@ const (
 
 const (
 	zulipDefaultTopicPrefix = "onibi-"
-	zulipMessageChunkLimit = 3800
-	zulipReconnectMaxWait  = 30 * time.Second
+	zulipMessageChunkLimit  = 3800
+	zulipReconnectMaxWait   = 30 * time.Second
 )
 
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
@@ -1015,7 +1015,7 @@ func (d *Daemon) runZulipBridge(ctx context.Context, c *zulip.Client) error {
 	go d.forwardApprovalsToZulip(ctx, c)
 	return c.TailEvents(ctx, zulip.TailOptions{
 		QueueOptions: zulip.QueueOptions{
-			EventTypes: []string{"message", "reaction"},
+			EventTypes: []string{"message"},
 			Narrow:     [][]string{{"channel", d.Zulip.Stream}},
 		},
 		RetryMin: time.Second,
@@ -1054,7 +1054,7 @@ func (d *Daemon) handleZulipEvent(ctx context.Context, c *zulip.Client, ev zulip
 	d.audit(ctx, "provider.zulip.text_in", sessionID, text, 0, "stream="+d.Zulip.Stream+" topic="+topic+" sender="+msg.SenderEmail)
 	out, err := d.handleProviderTextFor(ctx, sessionID, text, 0, "zulip")
 	if err != nil {
-		_ = c.SendStreamMessage(ctx, zulip.StreamMessage{Stream: d.Zulip.Stream, Topic: topic, Content: "Input failed: " + err.Error()})
+		_, _ = c.SendStreamMessage(ctx, zulip.StreamMessage{Stream: d.Zulip.Stream, Topic: topic, Content: "Input failed: " + err.Error()})
 		return nil
 	}
 	d.postZulipTail(ctx, c, topic, sessionID, out)
