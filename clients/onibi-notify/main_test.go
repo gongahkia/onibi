@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/intake"
 )
@@ -112,6 +117,49 @@ func TestProviderResponses(t *testing.T) {
 	}
 }
 
+func TestWaitForApprovalTimeoutReturnsCancelledAndAudits(t *testing.T) {
+	old := approvalRequestTimeout
+	approvalRequestTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { approvalRequestTimeout = old })
+	sock := filepath.Join(os.TempDir(), "onibi-notify-"+strconv.FormatInt(time.Now().UnixNano(), 10)+".sock")
+	t.Cleanup(func() { _ = os.Remove(sock) })
+	seen := make(chan intake.Event, 1)
+	srv := intake.New(sock, func(_ context.Context, ev intake.Event) error {
+		seen <- ev
+		return nil
+	}, nil)
+	srv.SetApprovalHandler(func(context.Context, intake.Event) (intake.Response, error) {
+		time.Sleep(200 * time.Millisecond)
+		return intake.Response{Decision: "approve"}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.Serve(ctx) }()
+	waitNotifySocket(t, sock)
+	resp, err := waitForApproval(sock, intake.Event{
+		Type:       intake.TypeApprovalRequest,
+		Session:    "s1",
+		Managed:    true,
+		Tool:       "Bash",
+		ToolTarget: "sleep 400",
+		InputJSON:  `{"command":"sleep 400"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "cancelled" || !strings.Contains(resp.Reason, "timed out") {
+		t.Fatalf("response = %#v", resp)
+	}
+	select {
+	case ev := <-seen:
+		if ev.Type != intake.TypeApprovalTimeout || ev.Session != "s1" || ev.Tool != "Bash" {
+			t.Fatalf("timeout event = %#v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout audit event not sent")
+	}
+}
+
 func TestManagedSession(t *testing.T) {
 	if id, ok := managedSession(""); ok || id != "" {
 		t.Fatalf("empty managed session = %q %v", id, ok)
@@ -123,4 +171,16 @@ func TestManagedSession(t *testing.T) {
 	if id, ok := managedSession("flag-session"); !ok || id != "flag-session" {
 		t.Fatalf("override managed session = %q %v", id, ok)
 	}
+}
+
+func waitNotifySocket(t *testing.T, sock string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if intake.SocketActive(sock, 20*time.Millisecond) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("socket did not become active")
 }

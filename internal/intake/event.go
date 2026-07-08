@@ -8,6 +8,7 @@ const (
 	TypeCmdDone         = "cmd_done"         // shell command finished (zsh precmd hook)
 	TypeSessionExited   = "session_exited"   // host process exited
 	TypeApprovalRequest = "approval_request" // Phase 3: tool-call blocked
+	TypeApprovalTimeout = "approval_timeout" // hook-side approval RPC timeout
 	TypeSessionInput    = "session_input"    // RPC: write text into a live session
 	TypeSessionPeek     = "session_peek"     // RPC: return recent session output
 	TypeSessionNew      = "session_new"      // RPC: create a tmux-backed session

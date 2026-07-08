@@ -625,6 +625,15 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 		return nil
 	case intake.TypeCmdDone:
 		return d.notifyCmdDone(ctx, ev)
+	case intake.TypeApprovalTimeout:
+		s, reason := d.sessionForEvent(ev)
+		if s == nil {
+			d.auditIgnoredHook(ctx, "approval.timeout.ignored", ev, reason)
+			return nil
+		}
+		d.audit(ctx, "approval.timeout", s.ID, ev.InputJSON, 0,
+			fmt.Sprintf("tool=%s target=%s reason=%s", ev.Tool, ev.ToolTarget, ev.Text))
+		return nil
 	case intake.TypeSessionExited:
 		s, reason := d.sessionForEvent(ev)
 		if s == nil {

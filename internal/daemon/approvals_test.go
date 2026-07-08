@@ -75,6 +75,33 @@ func TestDemoApprovalRequestReturnsPending(t *testing.T) {
 	}
 }
 
+func TestApprovalTimeoutEventAudited(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.handleEvent(t.Context(), intake.Event{
+		Type:       intake.TypeApprovalTimeout,
+		Session:    "s1",
+		Managed:    true,
+		Tool:       "Bash",
+		ToolTarget: "sleep 400",
+		InputJSON:  `{"command":"sleep 400"}`,
+		Text:       "approval request timed out after 5m0s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := db.AuditRecent(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || audit[0].Action != "approval.timeout" || !strings.Contains(audit[0].Detail, "tool=Bash") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
 func TestAnomalyForkBombPausesAndResumesOnApprove(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})

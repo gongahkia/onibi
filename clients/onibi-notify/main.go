@@ -34,8 +34,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -47,8 +49,10 @@ import (
 
 const (
 	maxTailBytes    = 64 << 10
-	approvalTimeout = 6 * time.Minute // approval TTL is 5min + slack
+	approvalTimeout = 300 * time.Second
 )
+
+var approvalRequestTimeout = approvalTimeout
 
 func main() {
 	typ := flag.String("type", "", "event type")
@@ -164,7 +168,7 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 		ev.InputJSON = "{}"
 	}
 
-	resp, err := intake.Request(sock, ev, approvalTimeout)
+	resp, err := waitForApproval(sock, ev)
 	if err != nil {
 		// daemon down or any other error — fail open (let the tool proceed
 		// normally; the user can still cancel manually if needed). This
@@ -172,6 +176,27 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 		os.Exit(0)
 	}
 
+	writeWaitResponse(format, response, resp)
+}
+
+func waitForApproval(sock string, ev intake.Event) (intake.Response, error) {
+	resp, err := intake.Request(sock, ev, approvalRequestTimeout)
+	if err == nil {
+		return resp, nil
+	}
+	if !isTimeoutError(err) {
+		return intake.Response{}, err
+	}
+	reason := "approval request timed out after " + approvalRequestTimeout.String()
+	timeout := intake.Response{Decision: "cancelled", Reason: reason}
+	audit := ev
+	audit.Type = intake.TypeApprovalTimeout
+	audit.Text = reason
+	_ = intake.Send(sock, audit)
+	return timeout, nil
+}
+
+func writeWaitResponse(format, response string, resp intake.Response) {
 	if response == "onibi-json" {
 		writeJSON(resp)
 		os.Exit(0)
@@ -184,6 +209,11 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 		_, _ = os.Stderr.WriteString(stderr)
 	}
 	os.Exit(code)
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func managedSession(override string) (string, bool) {
