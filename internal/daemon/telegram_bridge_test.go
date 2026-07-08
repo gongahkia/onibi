@@ -132,6 +132,23 @@ func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 	if got := strings.Join(spy.messageTexts(), "\n"); !strings.Contains(got, "/tmp/onibi") {
 		t.Fatalf("messages = %q", got)
 	}
+	rows, err := db.AuditAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, row := range rows {
+		seen[row.Action]++
+		if row.Action == "provider.telegram.text_in" && (row.SessionID != "s1" || row.PayloadHash == "" || strings.Contains(row.Detail, "pwd")) {
+			t.Fatalf("text audit = %#v", row)
+		}
+		if row.Action == "provider.telegram.tail_chunk" && (row.SessionID != "s1" || row.PayloadHash == "" || !strings.Contains(row.Detail, "chat_id=42")) {
+			t.Fatalf("tail audit = %#v", row)
+		}
+	}
+	if seen["provider.telegram.text_in"] != 1 || seen["provider.telegram.tail_chunk"] == 0 {
+		t.Fatalf("audit actions = %#v rows=%#v", seen, rows)
+	}
 }
 
 func TestTelegramBridgeTargetPersistsAcrossRestart(t *testing.T) {
@@ -265,6 +282,7 @@ func TestTelegramBridgeApprovalDedupAndDenyCallback(t *testing.T) {
 	if got := spy.callbackTexts(); len(got) != 1 || got[0] != "ok" {
 		t.Fatalf("callbacks = %#v", got)
 	}
+	assertAuditActions(t, db, "provider.telegram.button", "approval.decided")
 }
 
 func TestTelegramBridgeApprovalCallbackAfterRestart(t *testing.T) {
@@ -413,6 +431,7 @@ func newTelegramAPISpy(t *testing.T) (*telegramAPISpy, *telegram.Client) {
 	t.Cleanup(srv.Close)
 	client := telegram.NewClient(testTelegramToken)
 	client.BaseURL = srv.URL
+	client.RetrySleep = func(context.Context, time.Duration) error { return nil }
 	return spy, client
 }
 

@@ -147,6 +147,7 @@ Approval/control:
 - Use `/edit <approval-id> <edited JSON>` to edit a tool input.
 - `/interrupt`, `/esc`, `/enter`, `/kill`, `/show`, `/hide`, and `/end` control the selected target.
 - Long-poll drops reconnect with exponential backoff from 1s to 60s, then reset after the next successful poll.
+- Sends are paced against Telegram Bot API guidance: roughly 30 messages/sec globally and 1 message/sec per chat, with 429 `retry_after` respected. Text-in, approval button clicks, and tail chunks are written to local audit with payload hashes.
 
 Security model:
 

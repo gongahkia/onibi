@@ -103,7 +103,10 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, u telegram.Update) {
 		b.handleCommand(ctx, m.Chat.ID, text)
 		return
 	}
-	out, err := b.d.SendSessionTextAndCapture(ctx, b.target(ctx, m.Chat.ID), text, true)
+	target := b.target(ctx, m.Chat.ID)
+	sessionID := b.d.providerTargetSessionID(target)
+	b.d.audit(ctx, "provider.telegram.text_in", sessionID, text, m.Chat.ID, "chat_id="+strconv.FormatInt(m.Chat.ID, 10))
+	out, err := b.d.SendSessionTextAndCapture(ctx, target, text, true)
 	if err != nil {
 		b.send(ctx, m.Chat.ID, "Input failed: "+err.Error(), nil)
 		return
@@ -319,6 +322,8 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 		_ = b.client.AnswerCallbackQuery(ctx, q.ID, "bad action")
 		return
 	}
+	sessionID := b.d.approvalSessionID(ctx, parts[1])
+	b.d.audit(ctx, "provider.telegram.button", sessionID, q.Data, chatID, "action="+parts[0]+" approval="+parts[1]+" chat_id="+strconv.FormatInt(chatID, 10)+" from="+strconv.FormatInt(q.From.ID, 10))
 	switch parts[0] {
 	case "ap":
 		a, err := b.d.Queue.Get(ctx, parts[1])
@@ -481,7 +486,9 @@ func (b *telegramBridge) setTarget(ctx context.Context, chatID int64, id string)
 }
 
 func (b *telegramBridge) sendChunks(ctx context.Context, chatID int64, text string) {
-	for _, chunk := range telegram.ChunkText(text, 3800) {
+	sessionID := b.d.providerTargetSessionID(b.target(ctx, chatID))
+	for i, chunk := range telegram.ChunkText(text, 3800) {
+		b.d.audit(ctx, "provider.telegram.tail_chunk", sessionID, chunk, chatID, fmt.Sprintf("chat_id=%d index=%d bytes=%d", chatID, i, len(chunk)))
 		b.send(ctx, chatID, chunk, nil)
 	}
 }

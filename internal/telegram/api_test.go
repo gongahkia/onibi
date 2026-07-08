@@ -189,6 +189,37 @@ func TestClientRetriesRetryAfter429(t *testing.T) {
 	}
 }
 
+func TestClientSendRateLimitSchedulesPerChatAndGlobal(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		writeTG(t, w, Message{MessageID: int64(calls), Chat: Chat{ID: 42}, Text: "hello"})
+	}))
+	defer srv.Close()
+	var slept []time.Duration
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	c.RetrySleep = func(_ context.Context, d time.Duration) error {
+		slept = append(slept, d)
+		return nil
+	}
+	if _, err := c.SendMessage(t.Context(), 42, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SendMessage(t.Context(), 42, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SendMessage(t.Context(), 99, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(slept) != 3 {
+		t.Fatalf("slept = %#v", slept)
+	}
+	if slept[0] != 0 || slept[1] < ChatSendInterval-50*time.Millisecond || slept[2] < GlobalSendInterval-10*time.Millisecond {
+		t.Fatalf("slept = %#v", slept)
+	}
+}
+
 func TestChunkTextSplitsOnNewline(t *testing.T) {
 	got := ChunkText("one\ntwo\nthree", 8)
 	want := []string{"one\ntwo", "three"}

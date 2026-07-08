@@ -13,10 +13,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const DefaultBaseURL = "https://api.telegram.org"
+const GlobalSendInterval = time.Second / 30
+const ChatSendInterval = time.Second
 
 var botTokenRE = regexp.MustCompile(`^[0-9]{5,12}:[A-Za-z0-9_-]{30,}$`)
 
@@ -26,6 +29,10 @@ type Client struct {
 	HTTP       *http.Client
 	RetrySleep func(context.Context, time.Duration) error
 	MaxRetries int
+
+	mu         sync.Mutex
+	nextGlobal time.Time
+	nextChat   map[int64]time.Time
 }
 
 type User struct {
@@ -114,6 +121,9 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 	if strings.TrimSpace(text) == "" {
 		text = "(empty)"
 	}
+	if err := c.waitSendLimit(ctx, chatID); err != nil {
+		return Message{}, err
+	}
 	req := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
@@ -131,6 +141,9 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 func (c *Client) SendPhoto(ctx context.Context, chatID int64, png []byte, caption string) error {
 	if len(png) == 0 {
 		return errors.New("photo bytes required")
+	}
+	if err := c.waitSendLimit(ctx, chatID); err != nil {
+		return err
 	}
 	body := &bytes.Buffer{}
 	w := multipart.NewWriter(body)
@@ -274,4 +287,29 @@ func (c *Client) sleepRetry(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (c *Client) waitSendLimit(ctx context.Context, chatID int64) error {
+	if c == nil {
+		return errors.New("telegram client nil")
+	}
+	now := time.Now()
+	c.mu.Lock()
+	if c.nextChat == nil {
+		c.nextChat = map[int64]time.Time{}
+	}
+	waitUntil := c.nextGlobal
+	if next := c.nextChat[chatID]; next.After(waitUntil) {
+		waitUntil = next
+	}
+	delay := time.Duration(0)
+	slot := now
+	if waitUntil.After(now) {
+		delay = waitUntil.Sub(now)
+		slot = waitUntil
+	}
+	c.nextGlobal = slot.Add(GlobalSendInterval)
+	c.nextChat[chatID] = slot.Add(ChatSendInterval)
+	c.mu.Unlock()
+	return c.sleepRetry(ctx, delay)
 }
