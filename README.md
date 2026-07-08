@@ -64,6 +64,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
 - Chat text control: Telegram, Matrix, Slack, and Discord can route terminal text; approvals support provider-native actions where available.
 - Notify-only approvals: Pushover, ntfy, and Gotify publish approval alerts without terminal text input.
+- [`docs/comparison.md`](./docs/comparison.md) covers tradeoffs against remote-agent and terminal-sharing tools.
 
 ## Roadmap
 
@@ -143,6 +144,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/ssh-transport.md`](./docs/ssh-transport.md): SSH remote bootstrap, tunnel, service, and teardown model.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
+- [`docs/comparison.md`](./docs/comparison.md): positioning against remote-agent and terminal-sharing tools.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
 - [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
 - [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.

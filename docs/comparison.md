@@ -2,6 +2,33 @@
 
 These notes are positioning docs, not attack pages. Use them to pick the simpler tool for the job.
 
+## Quick Matrix
+
+| tool | license | install path | host-local | phone UX | multi-agent support | tool approval enforcement | chat control surface | self-hostable | subscription |
+|---|---|---|---|---|---|---|---|---|---|
+| [Claude Code Remote Control](https://code.claude.com/docs/en/remote-control) | proprietary / commercial | Claude Code plus claude.ai or Claude mobile app | yes, Claude Code runs on the user's machine | Claude app and web | Claude Code | Claude Code permission flow | Claude app/web only | no | Claude plan required; API keys unsupported |
+| [OpenAI Codex Remote](https://developers.openai.com/codex/remote-connections) | proprietary / commercial | Codex App plus ChatGPT/Codex mobile or web | yes, through a connected host or SSH host | ChatGPT/Codex surfaces | Codex | Codex approval flow | ChatGPT/Codex only | no | ChatGPT/Codex access required |
+| [OpenCode Mobile](https://getopencode.app/) | Apache-2.0 app repo | mobile app or dev build plus OpenCode server | yes, OpenCode runs on the user's host/server | native/mobile app | OpenCode | OpenCode workflow only | no separate chat bridge | yes for OpenCode server and app repo | no paid tier found in checked docs |
+| [Herdr + herdr-remote](https://herdr.dev/) | Herdr AGPL-3.0-or-later / commercial; herdr-remote has no license file found | curl/brew/mise Herdr plus herdr-remote relay | yes, Herdr panes run locally/remotely under Herdr | PWA/web, menu bar, Telegram | many agent panes | blocked-agent quick actions | Telegram approvals/notifications | yes for Herdr and relay components | Herdr commercial license for non-AGPL org use |
+| [Moshi](https://getmoshi.app/) | proprietary app | App Store / Google Play | partial: connects to SSH/Mosh hosts | native iPhone/iPad/Android | agent-aware terminal over SSH/Mosh | terminal/app approval surfaces, not Onibi-style hooks | no separate chat bridge | no | free tier plus Pro |
+| [sshx](https://github.com/ekzhang/sshx) | MIT | curl installer or Homebrew | partial: local process shares terminal through sshx mesh | browser terminal | arbitrary terminal, not agent-aware | no | no | no; README says self-hosting is not supported | none documented |
+| [ttyd](https://github.com/tsl0922/ttyd) | MIT | brew, apt, snap, releases, WinGet, Scoop | yes | browser terminal | arbitrary command, not agent-aware | no | no | yes | none |
+| [tmate](https://github.com/tmate-io/tmate) | BSD | source or package managers | partial: tmux fork with pairing service | SSH/tmux terminal | arbitrary terminal, not agent-aware | no | no | not covered in checked README | none |
+| [Upterm](https://upterm.dev/) | Apache-2.0 | Homebrew cask, Scoop, binaries, source | partial: host shares an SSH session through Upterm server | SSH terminal | arbitrary terminal, not agent-aware | no | no | yes, supports a self-hosted server | none |
+
+## Quick Pick Rules
+
+- Pick Claude Code Remote Control when the workflow is Claude-only and official Anthropic mobile/web continuity matters more than agent plurality.
+- Pick Codex Remote when the workflow is Codex-first and ChatGPT/Codex account integration is the desired control plane.
+- Pick OpenCode Mobile when OpenCode is the only agent and a focused native/mobile OpenCode client is enough.
+- Pick Herdr when the primary need is a terminal-native multi-pane agent multiplexer with phone/Telegram monitoring added on top.
+- Pick Moshi when the desired product is a polished native SSH/Mosh terminal for phone-first agent watching.
+- Pick sshx when the goal is instant collaborative browser terminal sharing through the hosted sshx mesh.
+- Pick ttyd when you want a simple self-hosted web terminal for one command.
+- Pick tmate when you want tmux-style SSH pair programming, especially with an existing tmux workflow.
+- Pick Upterm when you want SSH-based terminal sharing, CI/debug access, or a self-hostable relay.
+- Pick Onibi when you want one local, multi-agent, approval-enforcing phone/browser/chat cockpit around a hosted tmux-backed session.
+
 ## Onibi vs Herdr
 
 Herdr is a strong neighboring design, not a straw man. Herdr's own positioning is terminal-native agent multiplexing: persistent real panes, detach/reattach, remote SSH attach, agent state, and a CLI/socket API agents can drive. Its docs describe agents staying in real terminal panes with shells, logs, prompts, and running processes intact, plus blocked/working/done/idle rollups across panes, tabs, and workspaces. `herdr-remote` adds a separate phone/menu-bar/Telegram surface with a web app, one-tap approvals, status views, a phone terminal view, special mobile keys, and Cloudflare quick-tunnel setup.
@@ -95,7 +122,7 @@ Sources checked:
 
 OpenCode Mobile is a focused phone control surface for OpenCode work. Its site describes a mobile client for inspecting running tasks, approving or redirecting changes, and keeping progress moving from a phone. The docs center the product on OpenCode sessions, workspaces, server connection health, provider defaults, changed files, and live progress. The recommended remote setup is an OpenCode server on `127.0.0.1`, protected with `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD`, exposed through a tunnel such as Cloudflare Tunnel.
 
-That is a strong fit when OpenCode is the only agent in scope. OpenCode Mobile can optimize for one server protocol, one workspace model, and a compact task/diff/log workflow. Its public repository is MIT-licensed and forked from OpenCode, so it is the closer OSS-native choice for users who want an OpenCode-first mobile app.
+That is a strong fit when OpenCode is the only agent in scope. OpenCode Mobile can optimize for one server protocol, one workspace model, and a compact task/diff/log workflow. The current site links to `alvarolorentedev/opencode-mobile`, an Apache-2.0 Expo/React Native app for connecting to an OpenCode server, so it is the closer OSS-native choice for users who want an OpenCode-first mobile app.
 
 Onibi is broader and heavier. It hosts managed tmux-backed sessions and exposes a live xterm.js cockpit over the browser. The session can be a plain shell, Claude Code, Codex, OpenCode, Goose, or another supported adapter. The same owner session routes terminal I/O, web approvals, snapshots, file browsing, timeline events, web push, chat bridges, and Mac/phone handoff. Public relays are transports; the daemon remains the source of truth for session lifetime and approval enforcement.
 
@@ -118,4 +145,67 @@ Sources checked:
 - OpenCode Mobile introduction: <https://getopencode.app/docs/introduction/>
 - OpenCode Mobile features: <https://getopencode.app/docs/features/>
 - OpenCode Mobile remote access: <https://getopencode.app/docs/remote-access/>
-- OpenCode Mobile GitHub repository: <https://github.com/agustif/opencode-mobile>
+- OpenCode Mobile GitHub repository: <https://github.com/alvarolorentedev/opencode-mobile>
+
+## Onibi vs Moshi
+
+Moshi is a native mobile terminal for SSH/Mosh and AI-agent workflows. Its site emphasizes phone-first terminal ergonomics, tmux integration, image paste, diff viewing, voice-to-terminal, Mosh/ET resilience, lock-screen and Watch surfaces, file browsing, and SSH keys in Keychain. The pricing page says the app is free to start and that Pro unlocks features such as Mosh, multiplexer pairing, and image paste.
+
+That makes Moshi the stronger fit when the user wants a polished native terminal app and is comfortable reaching hosts over SSH/Mosh. Onibi is a daemon plus web/chat cockpit: it creates the session, owns pairing/auth, exposes approvals, routes chat text, and can serve read-only viewers without requiring a native app install.
+
+Honest tradeoff: pick Moshi for native mobile terminal quality, Mosh resilience, and mobile OS integrations. Pick Onibi when the core need is multi-agent approval enforcement, owner-gated web pairing, chat/notify providers, and a local daemon that hosts the terminal session itself.
+
+Sources checked:
+
+- Moshi homepage: <https://getmoshi.app/>
+- Moshi pricing: <https://getmoshi.app/pricing>
+- Moshi subscription docs: <https://getmoshi.app/docs/subscription>
+
+## Onibi vs sshx
+
+sshx is a fast collaborative terminal-sharing tool. Its README describes a secure web-based shared terminal, a one-command curl installer, browser collaboration, E2E encryption, nearest-server routing, automatic reconnection, and predictive echo. The same README says self-hosted deployments are not supported at the moment.
+
+That makes sshx the better fit for quick collaborative terminal sharing or CI debugging where a browser URL is the product. Onibi is heavier: it hosts named sessions, keeps owner/viewer roles, provides approval and file/timeline/snapshot surfaces, and supports several transports instead of only terminal sharing through the sshx mesh.
+
+Honest tradeoff: pick sshx for instant web terminal collaboration. Pick Onibi when the remote surface must understand coding-agent approvals, phone handoff, chat input, and long-lived session state.
+
+Sources checked:
+
+- sshx README: <https://github.com/ekzhang/sshx>
+
+## Onibi vs ttyd
+
+ttyd is a self-hosted web terminal for running a command over a browser. Its README lists a broad install surface, read-only-by-default browser terminals, optional writable clients, SSL, basic auth, file transfer support, Sixel output, and custom command execution.
+
+That makes ttyd the simpler fit when the job is "put this command in a browser" and the operator owns the surrounding auth/reverse proxy story. Onibi adds the product layer ttyd intentionally does not have: pairing tokens, owner/viewer roles, managed tmux sessions, approvals, handoff, chat/notify providers, and session metadata.
+
+Honest tradeoff: pick ttyd for a small self-hosted browser terminal. Pick Onibi when the user experience is a coding-agent cockpit rather than a generic terminal iframe.
+
+Sources checked:
+
+- ttyd README: <https://github.com/tsl0922/ttyd>
+
+## Onibi vs tmate
+
+tmate is a tmux fork for instant terminal pairing. Its README describes it as an instant pairing solution and says tmate is BSD-licensed. The natural workflow is SSH/tmux-style collaboration rather than a phone-specific approval cockpit.
+
+That makes tmate a good fit for pair programming and direct terminal sharing with users who already understand tmux/SSH. Onibi keeps tmux under the hood but adds mobile browser controls, web pairing, owner/viewer roles, approval cards, chat providers, snapshots, and local daemon state.
+
+Honest tradeoff: pick tmate for direct tmux-style pair access. Pick Onibi when viewers should be read-only, approvals need enforcement, or the phone cockpit should be the primary surface.
+
+Sources checked:
+
+- tmate README: <https://github.com/tmate-io/tmate>
+
+## Onibi vs Upterm
+
+Upterm is an SSH-based terminal sharing tool for pair programming, NAT/firewall traversal, remote debugging, and CI. Its README documents Homebrew/Scoop/binary/source installs, `upterm host`, shared SSH connection strings, authorized keys, GitHub/GitLab/SourceHut/Codeberg user authorization, SFTP/SCP controls, local TCP forwarding, WebSocket mode, CI debugging, and self-hosted server support.
+
+That makes Upterm the better fit when the user wants an SSH-native sharing primitive with strong access-control knobs and optional self-hosting. Onibi is not trying to replace SSH sharing; it wraps local sessions in a phone/browser/chat product surface with approval semantics and agent-aware workflows.
+
+Honest tradeoff: pick Upterm for SSH-native session sharing, CI access, or self-hosted relay control. Pick Onibi when the desired object is a managed coding-agent cockpit with approvals, handoff, viewers, and provider bridges.
+
+Sources checked:
+
+- Upterm homepage: <https://upterm.dev/>
+- Upterm README: <https://github.com/owenthereal/upterm>
