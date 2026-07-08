@@ -64,6 +64,21 @@ func (s *Server) CreateWebSession(ctx context.Context, w http.ResponseWriter, de
 	return sessionID, nil
 }
 
+func (s *Server) CreateViewerSession(ctx context.Context, w http.ResponseWriter, deviceLabel, shareSessionID string, shareExpiresAt time.Time) (string, error) {
+	if s.db == nil {
+		return "", errors.New("web: db is required")
+	}
+	sessionID, err := newSessionID()
+	if err != nil {
+		return "", err
+	}
+	if err := s.db.PutViewerWebSession(ctx, sessionID, deviceLabel, shareSessionID, shareExpiresAt, time.Now()); err != nil {
+		return "", err
+	}
+	setOwnerCookie(w, sessionID)
+	return sessionID, nil
+}
+
 func setOwnerCookie(w http.ResponseWriter, sessionID string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     OwnerCookieName,

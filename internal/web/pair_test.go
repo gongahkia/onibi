@@ -130,6 +130,9 @@ func TestViewerPairTokenCreatesViewerSession(t *testing.T) {
 	if session.Role != store.PairRoleViewer {
 		t.Fatalf("role = %q, want viewer", session.Role)
 	}
+	if session.ShareSessionID != "s1" || session.ShareExpiresAt.IsZero() {
+		t.Fatalf("viewer share binding = %#v", session)
+	}
 
 	resp2, err := client.Get(ts.URL + "/pair/" + token)
 	if err != nil {

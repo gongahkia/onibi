@@ -6,10 +6,10 @@ For the underlying models, see [Workspaces](workspaces.md) and [Viewer Sharing](
 
 ## Roles
 
-| role | device | purpose |
-|---|---|---|
-| owner | your laptop and paired phone | starts Onibi, controls the PTY, decides approvals, revokes viewers |
-| viewer | teammate phone or browser | watches one session through a read-only cockpit |
+| role   | device                       | purpose                                                            |
+| ------ | ---------------------------- | ------------------------------------------------------------------ |
+| owner  | your laptop and paired phone | starts Onibi, controls the PTY, decides approvals, revokes viewers |
+| viewer | teammate phone or browser    | watches one session through a read-only cockpit                    |
 
 ## 1. Create A Shared Workspace
 
@@ -51,6 +51,8 @@ Use the `ID` column for the share command below.
 
 ## 3. Invite One Viewer
 
+From the owner phone cockpit, tap `SHARE`, choose a TTL and viewer limit, then send the displayed URL or have the teammate scan the QR.
+
 Mint a one-hour, one-claim viewer URL:
 
 ```bash
@@ -89,6 +91,8 @@ The viewer cannot:
 Viewer sharing is not redaction. Stop secret-printing commands before inviting a viewer.
 
 ## 5. Revoke Access
+
+From the owner phone cockpit, open `SHARE` and tap `Revoke` next to the viewer.
 
 List paired devices and roles:
 

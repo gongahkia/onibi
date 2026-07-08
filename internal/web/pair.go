@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gongahkia/onibi/internal/setup"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,12 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		pairFailed(w)
 		return
 	}
-	sessionID, err := s.CreateWebSession(r.Context(), w, r.UserAgent(), claim.Role)
+	var sessionID string
+	if claim.Role == store.PairRoleViewer {
+		sessionID, err = s.CreateViewerSession(r.Context(), w, r.UserAgent(), claim.SessionID, claim.ExpiresAt)
+	} else {
+		sessionID, err = s.CreateWebSession(r.Context(), w, r.UserAgent(), claim.Role)
+	}
 	if err != nil {
 		s.log.Error("web pair session create failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "pair failed", http.StatusInternalServerError)

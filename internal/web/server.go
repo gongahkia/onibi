@@ -133,6 +133,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/recordings/{id}", s.handleRecordingCast)
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
+	mux.HandleFunc("/share", s.handleShare)
+	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
 	mux.HandleFunc("/snapshots/restore", s.handleSnapshotRestore)
 	mux.HandleFunc("/snapshots/fork", s.handleSnapshotFork)

@@ -32,6 +32,7 @@ import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { VoiceInputController } from "./voice";
+import { SharePanel } from "./share";
 
 type SessionInfo = {
   session_id: string;
@@ -82,6 +83,7 @@ let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
 let recordings: RecordingPlayerPanel | undefined;
 let workspaceSwitcher: WorkspaceSwitcher | undefined;
+let sharePanel: SharePanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -173,7 +175,10 @@ async function boot(): Promise<void> {
           showToast,
           focus: () => term.focus()
         });
-    installControls(toolbar, info, snapshots, timeline, recordings, filesPanel);
+    sharePanel = viewerMode
+      ? undefined
+      : new SharePanel(document.body, info.session_id, getJSON, postJSON, showToast);
+    installControls(toolbar, info, snapshots, timeline, recordings, filesPanel, sharePanel);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -302,7 +307,8 @@ function installControls(
   snapshotsPanel: SnapshotsPanel,
   timelinePanel: TimelinePanel,
   recordingsPanel: RecordingPlayerPanel,
-  filesPanel: FilesPanel
+  filesPanel: FilesPanel,
+  share: SharePanel | undefined
 ): void {
   const controls = [
     controlButton("TL", () => timelinePanel.toggle()),
@@ -313,6 +319,7 @@ function installControls(
   ];
   if (info.role !== "viewer") {
     controls.push(
+      controlButton("SHARE", () => share?.open()),
       controlButton("MAC", () => postHandover(info, "mac"), "handover-mac"),
       controlButton("PHONE", () => postHandover(info, "phone"), "handover-phone"),
       controlButton("INT", () => postControl(info.session_id, "interrupt")),

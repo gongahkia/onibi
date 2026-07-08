@@ -208,10 +208,12 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
   key_verifier_enc BLOB,
-  role         TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
-  created_at   INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
-  revoked      INTEGER NOT NULL DEFAULT 0
+  role             TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
+  share_session_id TEXT NOT NULL DEFAULT '',
+  share_expires_at INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL,
+  last_seen_at     INTEGER NOT NULL,
+  revoked          INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_web_sessions_revoked ON web_sessions(revoked, last_seen_at);
 
@@ -317,6 +319,12 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "web_sessions", "role", "TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer'))"); err != nil {
 		return err
 	}
+	if err := d.ensureColumn(ctx, "web_sessions", "share_session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "web_sessions", "share_expires_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := d.ensureColumn(ctx, "pairing_tokens", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -326,7 +334,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "pairing_tokens", "use_count", "INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11), (12)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
@@ -495,7 +503,9 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
   cookie_enc     BLOB NOT NULL,
   user_agent_enc BLOB NOT NULL,
   key_verifier_enc BLOB,
-  role            TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
+  role             TEXT NOT NULL DEFAULT 'owner' CHECK (role IN ('owner', 'viewer')),
+  share_session_id TEXT NOT NULL DEFAULT '',
+  share_expires_at INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
   last_seen_at     INTEGER NOT NULL,
   revoked          INTEGER NOT NULL DEFAULT 0
@@ -513,8 +523,8 @@ func (d *DB) migrateWebSessions(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, role, created_at, last_seen_at, revoked)
-			 VALUES (?, ?, ?, NULL, 'owner', ?, ?, ?)`,
+			`INSERT INTO web_sessions_new(cookie_hash, cookie_enc, user_agent_enc, key_verifier_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked)
+			 VALUES (?, ?, ?, NULL, 'owner', '', 0, ?, ?, ?)`,
 			hash, sessionEnc, labelEnc, r.created, r.lastSeen, r.revoked); err != nil {
 			return err
 		}
@@ -644,6 +654,7 @@ const (
 type PairingTokenClaim struct {
 	Role      string
 	SessionID string
+	ExpiresAt time.Time
 }
 
 // PutPairingToken stores a freshly minted token with TTL ttl.
@@ -715,6 +726,7 @@ func (d *DB) ClaimPairingToken(ctx context.Context, token string) (PairingTokenC
 	if expiresAt <= now || useCount >= maxUses || (claim.Role == PairRoleOwner && consumed != 0) {
 		return PairingTokenClaim{}, false, nil
 	}
+	claim.ExpiresAt = time.Unix(expiresAt, 0)
 	var res sql.Result
 	if claim.Role == PairRoleOwner {
 		res, err = tx.ExecContext(ctx,
@@ -766,10 +778,32 @@ func (d *DB) PutWebSession(ctx context.Context, sessionID, deviceLabel string, n
 }
 
 func (d *DB) PutWebSessionWithRole(ctx context.Context, sessionID, deviceLabel, role string, now time.Time) error {
+	return d.putWebSession(ctx, sessionID, deviceLabel, role, "", time.Time{}, now)
+}
+
+func (d *DB) PutViewerWebSession(ctx context.Context, sessionID, deviceLabel, shareSessionID string, shareExpiresAt, now time.Time) error {
+	if strings.TrimSpace(shareSessionID) == "" {
+		return errors.New("viewer web session requires share session id")
+	}
+	if shareExpiresAt.IsZero() {
+		return errors.New("viewer web session requires share expiry")
+	}
+	return d.putWebSession(ctx, sessionID, deviceLabel, PairRoleViewer, shareSessionID, shareExpiresAt, now)
+}
+
+func (d *DB) putWebSession(ctx context.Context, sessionID, deviceLabel, role, shareSessionID string, shareExpiresAt, now time.Time) error {
 	if !validPairRole(role) {
 		return fmt.Errorf("invalid web session role: %s", role)
 	}
+	if role == PairRoleOwner {
+		shareSessionID = ""
+		shareExpiresAt = time.Time{}
+	}
 	ts := now.Unix()
+	shareExpires := int64(0)
+	if !shareExpiresAt.IsZero() {
+		shareExpires = shareExpiresAt.Unix()
+	}
 	hash := lookupHash(sessionID)
 	sessionEnc, err := d.sealString(ctx, "web_sessions", hash, "cookie_enc", sessionID)
 	if err != nil {
@@ -780,15 +814,17 @@ func (d *DB) PutWebSessionWithRole(ctx context.Context, sessionID, deviceLabel, 
 		return err
 	}
 	_, err = d.sql.ExecContext(ctx,
-		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, created_at, last_seen_at, revoked)
-		 VALUES (?, ?, ?, ?, ?, ?, 0)
+		`INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
 		 ON CONFLICT(cookie_hash) DO UPDATE SET
 		   cookie_enc=excluded.cookie_enc,
 		   user_agent_enc=excluded.user_agent_enc,
 		   role=excluded.role,
+		   share_session_id=excluded.share_session_id,
+		   share_expires_at=excluded.share_expires_at,
 		   last_seen_at=excluded.last_seen_at,
 		   revoked=0`,
-		hash, sessionEnc, labelEnc, role, ts, ts)
+		hash, sessionEnc, labelEnc, role, shareSessionID, shareExpires, ts, ts)
 	return err
 }
 
@@ -838,8 +874,8 @@ func (d *DB) WebSessionKeyVerifier(ctx context.Context, sessionID string) ([]byt
 func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Time) (bool, error) {
 	res, err := d.sql.ExecContext(ctx,
 		`UPDATE web_sessions SET last_seen_at = ?
-		 WHERE cookie_hash = ? AND revoked = 0`,
-		now.Unix(), lookupHash(sessionID))
+		 WHERE cookie_hash = ? AND revoked = 0 AND (share_expires_at = 0 OR share_expires_at > ?)`,
+		now.Unix(), lookupHash(sessionID), now.Unix())
 	if err != nil {
 		return false, err
 	}
@@ -853,16 +889,17 @@ func (d *DB) TouchWebSession(ctx context.Context, sessionID string, now time.Tim
 // WebSessionValid reports whether sessionID exists and is not revoked.
 func (d *DB) WebSessionValid(ctx context.Context, sessionID string) (bool, error) {
 	var revoked int
+	var shareExpiresAt int64
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT revoked FROM web_sessions WHERE cookie_hash = ?`,
-		lookupHash(sessionID)).Scan(&revoked)
+		`SELECT revoked, share_expires_at FROM web_sessions WHERE cookie_hash = ?`,
+		lookupHash(sessionID)).Scan(&revoked, &shareExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return revoked == 0, nil
+	return revoked == 0 && (shareExpiresAt == 0 || shareExpiresAt > time.Now().Unix()), nil
 }
 
 type PushSubscription struct {
