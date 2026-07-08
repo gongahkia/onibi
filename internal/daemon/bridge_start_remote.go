@@ -14,4 +14,6 @@ func (d *Daemon) startDiscordBridge(context.Context, *sync.WaitGroup, context.Ca
 func (d *Daemon) startPushoverNotifier(context.Context, *sync.WaitGroup)                   {}
 func (d *Daemon) startNtfyNotifier(context.Context, *sync.WaitGroup)                       {}
 func (d *Daemon) startGotifyNotifier(context.Context, *sync.WaitGroup)                     {}
+func (d *Daemon) startAPNsNotifier(context.Context, *sync.WaitGroup)                       {}
 func (d *Daemon) startWebPushNotifier(context.Context, *sync.WaitGroup)                    {}
+func (d *Daemon) apnsConfigured() bool                                                     { return false }

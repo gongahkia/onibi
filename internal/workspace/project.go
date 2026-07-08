@@ -171,7 +171,7 @@ func validateProjectTransports(path string, transports *ProjectTransports) error
 
 func validateTransportMode(mode string) error {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
+	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "apns", "auto":
 		return nil
 	default:
 		return fmt.Errorf("unknown transport %q", mode)

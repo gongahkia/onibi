@@ -73,7 +73,7 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.Slack
 	case "discord":
 		return o.Discord
-	case "notify", "pushover", "ntfy", "gotify":
+	case "notify", "pushover", "ntfy", "gotify", "apns":
 		return o.Notify
 	default:
 		return ProviderOutputPolicy{}

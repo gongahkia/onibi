@@ -152,6 +152,7 @@ below the target contract; `no` means not implemented today.
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
+| APNs | yes | no | notify-only | no | no | no | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -183,6 +184,10 @@ Gotify sends REST messages, adds optional signed approval deep-links through
 `client::notification.click.url`, and can receive `/stream` WebSocket messages
 with reconnect backoff. Native buttons are not available in Gotify; the signed
 approval page is the callback workaround.
+
+APNs is notify-only. It sends direct Apple alert pushes through a user-provided
+APNs auth key and native app device token. PWA-only Onibi cannot mint a native
+device token, so web push remains the fallback when APNs config is absent.
 
 ## Conformance Expectations
 

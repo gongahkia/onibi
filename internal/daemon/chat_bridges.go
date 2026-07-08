@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/gotify"
@@ -1154,6 +1155,50 @@ func (d *Daemon) publishGotifyWithRetry(ctx context.Context, c *gotify.Client, a
 		}
 	}
 	return last
+}
+
+func (d *Daemon) runAPNsNotifier(ctx context.Context, c *apns.Client) {
+	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		msg := apns.PushRequest{
+			DeviceToken: d.APNs.DeviceToken,
+			Title:       "Onibi approval",
+			Body:        formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")),
+			ApprovalID:  a.ID,
+			CollapseID:  "onibi-" + a.ID,
+			TTL:         30 * time.Second,
+		}
+		result, err := d.publishAPNsWithRetry(ctx, c, a, msg)
+		if err != nil {
+			d.audit(ctx, "notify.apns.error", a.SessionID, "", 0, fmt.Sprintf("approval=%s status=%d reason=%s err=%s", a.ID, result.StatusCode, result.Reason, err.Error()))
+			return
+		}
+		d.audit(ctx, "notify.apns.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s status=%d apns_id=%t", a.ID, result.StatusCode, result.APNsID != ""))
+	})
+}
+
+func (d *Daemon) publishAPNsWithRetry(ctx context.Context, c *apns.Client, a *approval.Approval, msg apns.PushRequest) (apns.PushResult, error) {
+	var last apns.PushResult
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		result, err := c.PushApproval(ctx, msg)
+		if err == nil {
+			return result, nil
+		}
+		last = result
+		lastErr = err
+		if attempt == 3 {
+			break
+		}
+		d.audit(ctx, "notify.apns.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d status=%d reason=%s err=%s", a.ID, attempt, result.StatusCode, result.Reason, err.Error()))
+		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return last, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last, lastErr
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

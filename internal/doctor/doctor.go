@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
@@ -288,6 +289,8 @@ func (r *runner) checkTransportProvider() {
 		r.checkNtfyProvider(topic)
 	case "gotify":
 		r.checkGotifyProvider()
+	case "apns":
+		r.checkAPNsProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -555,6 +558,35 @@ func (r *runner) checkGotifyProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "Gotify live API ok: token + send; set ONIBI_GOTIFY_CLIENT_TOKEN for WS")
+}
+
+func (r *runner) checkAPNsProvider() {
+	if missing := missingEnv("ONIBI_APNS_KEY_PATH", "ONIBI_APNS_KEY_ID", "ONIBI_APNS_TEAM_ID", "ONIBI_APNS_TOPIC", "ONIBI_APNS_DEVICE_TOKEN"); len(missing) > 0 {
+		r.add("transport provider", Warn, "APNs missing "+strings.Join(missing, ", "))
+		return
+	}
+	cfg := apns.Config{KeyPath: os.Getenv("ONIBI_APNS_KEY_PATH"), KeyID: os.Getenv("ONIBI_APNS_KEY_ID"), TeamID: os.Getenv("ONIBI_APNS_TEAM_ID"), Topic: os.Getenv("ONIBI_APNS_TOPIC"), Environment: os.Getenv("ONIBI_APNS_ENV")}
+	if err := cfg.Validate(); err != nil {
+		r.add("transport provider", Warn, err.Error())
+		return
+	}
+	if r.opts.Offline || !doctorLiveProbe() {
+		r.add("transport provider", Pass, "APNs env present; set ONIBI_DOCTOR_LIVE=1 for send probe")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	c, err := apns.New(cfg)
+	if err != nil {
+		r.add("transport provider", Warn, "APNs client failed: "+err.Error())
+		return
+	}
+	result, err := c.PushApproval(ctx, apns.PushRequest{DeviceToken: os.Getenv("ONIBI_APNS_DEVICE_TOKEN"), Title: "Onibi doctor", Body: "onibi doctor apns probe", ApprovalID: "doctor", TTL: 30 * time.Second})
+	if err != nil {
+		r.add("transport provider", Warn, fmt.Sprintf("APNs send probe failed: status=%d reason=%s err=%s", result.StatusCode, result.Reason, err.Error()))
+		return
+	}
+	r.add("transport provider", Pass, "APNs live API ok: send")
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

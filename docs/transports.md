@@ -22,6 +22,7 @@ The supported transports are:
 - `pushover`: notify-only approval alerts.
 - `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
+- `apns`: direct Apple Push Notification service alerts using a user-provided APNs key and native app device token.
 
 Signal support currently lives at the provider-client layer for a local `signal-cli` JSON-RPC daemon. It is documented below, but is not selectable through `onibi up --transport=signal` until the daemon bridge is live-verified with a linked Signal number.
 
@@ -287,6 +288,20 @@ onibi up --transport=gotify
 ```
 
 Create a Gotify application token for sending and a client token for receiving. Gotify sends approval notifications through `POST /message` with the app token. When `ONIBI_GOTIFY_ACTION_BASE_URL` is set, messages include `client::notification.click.url` pointing at a signed Onibi approval page; that page is single-use, expires after 5 minutes, and renders Approve/Deny POST actions. The optional client token enables `/stream` WebSocket receive checks with reconnect backoff. Send/retry/error audit rows are written for every approval push.
+
+APNs:
+
+```bash
+ONIBI_APNS_KEY_PATH=/secure/path/AuthKey_ABC123DEFG.p8
+ONIBI_APNS_KEY_ID=ABC123DEFG
+ONIBI_APNS_TEAM_ID=TEAM123456
+ONIBI_APNS_TOPIC=com.example.OnibiCompanion
+ONIBI_APNS_DEVICE_TOKEN=<hex-device-token>
+ONIBI_APNS_ENV=production
+onibi up --transport=apns
+```
+
+APNs is notify-only and intended for users who bring their own Apple Developer account, APNs auth key, bundle topic, and native app device token. PWA-only Onibi cannot mint a native APNs device token. Approval notifications are sent as alert pushes with `apns-push-type=alert`, priority 10, a 30s TTL, and an `approval_id` custom payload field. APNs send/retry/error rows are written to local audit. When APNs env is absent, Onibi keeps the existing web-push notifier as the fallback path. See [`apns-setup.md`](./apns-setup.md).
 
 ## Coverage status
 

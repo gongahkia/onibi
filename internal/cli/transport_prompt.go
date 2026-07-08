@@ -199,7 +199,7 @@ func pairTransportCategoryChoices(current string) []pairTransportCategory {
 			category: transportCategoryNotify,
 			label:    "Notify-only",
 			detail:   "approvals + alerts",
-			status:   "Pushover, ntfy, Gotify",
+			status:   "Pushover, ntfy, Gotify, APNs",
 			active:   active == transportCategoryNotify,
 		},
 	}
@@ -274,6 +274,15 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 				coverage: "unit + REST/WS fake + live opt-in",
 				command:  "onibi up --transport=gotify",
 				active:   current == "gotify",
+			},
+			{
+				key:      "4",
+				mode:     "apns",
+				label:    "APNs",
+				detail:   "direct Apple push",
+				coverage: "unit + fake sender + live opt-in",
+				command:  "onibi up --transport=apns",
+				active:   current == "apns",
 			},
 		}
 	}
@@ -368,7 +377,7 @@ func unavailableTransportChoices(category string) []unavailableTransportChoice {
 
 func normalizePairTransport(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "auto":
+	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "pushover", "ntfy", "gotify", "apns", "auto":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "lan"
@@ -388,7 +397,7 @@ func categoryForTransport(mode string) string {
 	switch normalizePairTransport(mode) {
 	case "telegram", "matrix", "slack", "discord":
 		return transportCategoryChat
-	case "pushover", "ntfy", "gotify":
+	case "pushover", "ntfy", "gotify", "apns":
 		return transportCategoryNotify
 	default:
 		return transportCategoryWeb

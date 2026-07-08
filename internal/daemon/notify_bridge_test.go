@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/web"
+	apns2 "github.com/sideshow/apns2"
 )
 
 func TestPushoverReceiptAudit(t *testing.T) {
@@ -192,4 +194,65 @@ func TestGotifyActionURLRetryAudit(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+}
+
+func TestAPNsRetryAudit(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, APNs: APNsOptions{DeviceToken: "abc123"}})
+	sender := &daemonAPNsSender{responses: []*apns2.Response{
+		{StatusCode: http.StatusServiceUnavailable, Reason: apns2.ReasonServiceUnavailable},
+		{StatusCode: http.StatusOK, ApnsID: "apns-1"},
+	}}
+	c, err := apns.NewWithSender("com.example.onibi", sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go d.runAPNsNotifier(ctx, c)
+	deadline := time.After(2 * time.Second)
+	for {
+		rows, err := db.AuditAll(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, row := range rows {
+			seen[row.Action] = true
+		}
+		if seen["notify.apns.retry"] && seen["notify.apns.sent"] {
+			if sender.last == nil || sender.last.DeviceToken != "abc123" || sender.last.Topic != "com.example.onibi" {
+				t.Fatalf("notification = %#v", sender.last)
+			}
+			if !strings.Contains(string(sender.last.Payload.([]byte)), `"approval_id":"`+id+`"`) {
+				t.Fatalf("payload = %s", sender.last.Payload)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("audit rows = %#v", rows)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+type daemonAPNsSender struct {
+	responses []*apns2.Response
+	last      *apns2.Notification
+}
+
+func (s *daemonAPNsSender) PushWithContext(_ apns2.Context, n *apns2.Notification) (*apns2.Response, error) {
+	s.last = n
+	if len(s.responses) == 0 {
+		return &apns2.Response{StatusCode: http.StatusOK}, nil
+	}
+	resp := s.responses[0]
+	s.responses = s.responses[1:]
+	return resp, nil
 }
