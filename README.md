@@ -46,7 +46,7 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 - Host-local sessions: Onibi creates and owns tmux-backed PTYs instead of only monitoring another app's session.
 - Same session everywhere: drive one live session from mobile Safari, a visible Mac terminal, chat transports, or local MCP clients.
 - Approval enforcement: supported hooks can block risky tool calls before execution, including Claude Code `PreToolUse` deny flows.
-- Terminal fidelity: live xterm.js over WebSocket, `xterm-ghostty` terminfo, a Ghostty-inspired theme, JetBrains Mono, Sixel/IIP rendering, and Kitty graphics transcoding to IIP.
+- Terminal fidelity: live xterm.js over WebSocket, `xterm-ghostty` terminfo, a Ghostty-inspired theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding to IIP, and a [terminal fidelity smoke matrix](./docs/terminal-fidelity.md).
 
 Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](./docs/branding.md).
 
@@ -152,6 +152,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
 - [`docs/comparison.md`](./docs/comparison.md): positioning against remote-agent and terminal-sharing tools.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
+- [`docs/terminal-fidelity.md`](./docs/terminal-fidelity.md): iPhone Safari terminal application smoke matrix.
 - [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
 - [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
 - [`docs/sharing.md`](./docs/sharing.md): read-only viewer sharing threat model and TTL guidance.
