@@ -29,6 +29,31 @@ Sources checked:
 - OpenAI Codex app: <https://developers.openai.com/codex/app>
 - OpenAI Codex pricing: <https://developers.openai.com/codex/pricing>
 
+## Onibi vs Claude Code Remote Control
+
+Claude Code Remote Control is Anthropic's first-party way to continue a local Claude Code session from another device. Anthropic's docs describe connecting `claude.ai/code` or the Claude mobile app to a Claude Code process running on the user's machine. The local process keeps the filesystem, MCP servers, tools, and project configuration available, while the browser or phone stays in sync with the terminal session. The connection uses outbound HTTPS through Anthropic, with no inbound ports opened on the host.
+
+That makes CCRC the obvious fit for Claude-only users who already live in Claude Code and want the official phone/browser path. It supports CLI and VS Code entry points, QR/session URL handoff, mobile push notifications, server mode, and Claude app/web access. Current Anthropic docs describe it as a research preview, list Pro, Max, Team, and Enterprise in the requirements, and say API keys are not supported. Team and Enterprise owners may also need to enable Remote Control before users can connect.
+
+Onibi overlaps on the local-session claim but keeps the host independent of one vendor's remote surface. It runs the session under Onibi's tmux-backed host, exposes a live xterm.js cockpit, and uses hook-level approval enforcement for supported agents. Claude Code is one supported adapter, not the whole product. The same Onibi daemon can host Codex, OpenCode, Goose, Gemini, Copilot CLI, Amp, Pi, and plain shell/TUI sessions, then route control through the browser cockpit or Telegram, Slack, Matrix, Discord, and notify-only providers.
+
+Core differences:
+
+| area | Claude Code Remote Control | Onibi |
+|---|---|---|
+| account model | claude.ai subscription; API keys unsupported for Remote Control | local OSS daemon; no paid Onibi tier |
+| agent scope | Claude Code | multi-agent plus arbitrary shell/TUI sessions |
+| remote surface | claude.ai/code and Claude mobile app | paired PWA/browser cockpit plus chat/notify bridges |
+| session host | existing Claude Code process | Onibi-managed tmux-backed process |
+| transport | outbound HTTPS through Anthropic | LAN/hotspot/Tailscale/Cloudflare/ngrok/chat transports |
+| enforcement | Claude Code permission flow | adapter hooks plus owner approval queue and runtime trust controls |
+
+When to pick CCRC: choose Claude Code Remote Control when the workflow is Claude-only, the user already has eligible Claude access, and the priority is zero extra daemon setup with Anthropic-supported mobile/web continuity. Choose Onibi when you need one cockpit across multiple agents, open local transport choices, chat fallback, or hook enforcement that can apply outside Claude Code.
+
+Sources checked:
+
+- Anthropic Claude Code Remote Control: <https://code.claude.com/docs/en/remote-control>
+
 ## Onibi vs OpenCode Mobile
 
 OpenCode Mobile is a focused phone control surface for OpenCode work. Its site describes a mobile client for inspecting running tasks, approving or redirecting changes, and keeping progress moving from a phone. The docs center the product on OpenCode sessions, workspaces, server connection health, provider defaults, changed files, and live progress. The recommended remote setup is an OpenCode server on `127.0.0.1`, protected with `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD`, exposed through a tunnel such as Cloudflare Tunnel.
