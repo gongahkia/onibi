@@ -1,6 +1,7 @@
 # Web Push
 
 Onibi web push sends approval notifications to the installed phone web app. Browser tabs are not enough on iOS.
+Install steps live in [`pwa-install.md`](./pwa-install.md).
 
 ## Prerequisites
 
@@ -13,7 +14,7 @@ Onibi web push sends approval notifications to the installed phone web app. Brow
 ## Flow
 
 1. Pair the browser as owner.
-2. Add the app to the Home Screen.
+2. Add the app to the Home Screen; see [`pwa-install.md`](./pwa-install.md).
 3. Open Onibi from the Home Screen icon.
 4. Tap `PUSH`.
 

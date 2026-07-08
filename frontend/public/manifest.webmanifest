@@ -1,6 +1,14 @@
 {
   "name": "Onibi",
   "short_name": "Onibi",
+  "description": "Phone cockpit for local coding-agent and shell sessions.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#282C34",
+  "background_color": "#282C34",
+  "categories": ["developer", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icons/onibi.svg",
@@ -39,8 +47,32 @@
       "purpose": "monochrome"
     }
   ],
-  "start_url": "/",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#000000"
+  "shortcuts": [
+    {
+      "name": "Cockpit",
+      "short_name": "Cockpit",
+      "description": "Open the paired terminal cockpit.",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/onibi-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "short_name": "Sessions",
+      "description": "Open the session dashboard.",
+      "url": "/#/sessions",
+      "icons": [
+        {
+          "src": "/icons/onibi-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }

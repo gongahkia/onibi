@@ -1,20 +1,78 @@
 {
   "name": "Onibi",
   "short_name": "Onibi",
+  "description": "Phone cockpit for local coding-agent and shell sessions.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#282C34",
+  "background_color": "#282C34",
+  "categories": ["developer", "productivity", "utilities"],
   "icons": [
+    {
+      "src": "/icons/onibi.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icons/onibi-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icons/onibi-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/onibi-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/onibi-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/onibi-monochrome.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "monochrome"
     }
   ],
-  "start_url": "/",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#000000"
+  "shortcuts": [
+    {
+      "name": "Cockpit",
+      "short_name": "Cockpit",
+      "description": "Open the paired terminal cockpit.",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/onibi-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "short_name": "Sessions",
+      "description": "Open the session dashboard.",
+      "url": "/#/sessions",
+      "icons": [
+        {
+          "src": "/icons/onibi-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }

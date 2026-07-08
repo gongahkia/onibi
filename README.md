@@ -142,6 +142,7 @@ After `./bin/onibi up` and phone pairing:
 ## Docs
 
 - [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
+- [`docs/pwa-install.md`](./docs/pwa-install.md): Home Screen install flow for iOS and Android.
 - [`docs/fresh-machine-smoke.md`](./docs/fresh-machine-smoke.md): fresh macOS/Ubuntu install dry-run.
 - [`docs/transports.md`](./docs/transports.md): transport categories and provider notes.
 - [`docs/wireguard-setup.md`](./docs/wireguard-setup.md): self-hosted WireGuard transport setup.
