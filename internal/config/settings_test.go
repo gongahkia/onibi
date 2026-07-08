@@ -26,6 +26,9 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if cfg.Daemon.ApprovalTimeout.Std() != 5*time.Minute {
 		t.Fatalf("approval timeout = %s", cfg.Daemon.ApprovalTimeout)
 	}
+	if cfg.Daemon.MaxSubscribers != 32 {
+		t.Fatalf("max subscribers = %d", cfg.Daemon.MaxSubscribers)
+	}
 	if cfg.Update.Auto || cfg.Update.Channel != "stable" {
 		t.Fatalf("update defaults = %#v", cfg.Update)
 	}
@@ -33,7 +36,7 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	paths := testPaths(t)
-	body := []byte("daemon:\n  turn_idle_threshold: 7s\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nweb:\n  listen_addr: ':9443'\ntransport:\n  mode: auto\nterminal:\n  default: iterm\nupdate:\n  auto: true\n  channel: stable\n")
+	body := []byte("daemon:\n  turn_idle_threshold: 7s\n  max_subscribers: 7\nshell:\n  min_duration: 12s\n  default: zsh\n  login: false\nweb:\n  listen_addr: ':9443'\ntransport:\n  mode: auto\nterminal:\n  default: iterm\nupdate:\n  auto: true\n  channel: stable\n")
 	if err := os.WriteFile(paths.Config, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +47,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] || !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["daemon.max_subscribers"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] || !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -52,6 +55,9 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	}
 	if cfg.Daemon.TurnIdleThreshold.Std() != 7*time.Second {
 		t.Fatalf("turn idle threshold = %s", cfg.Daemon.TurnIdleThreshold)
+	}
+	if cfg.Daemon.MaxSubscribers != 7 {
+		t.Fatalf("max subscribers = %d", cfg.Daemon.MaxSubscribers)
 	}
 	if cfg.Shell.MinDuration.Std() != 12*time.Second {
 		t.Fatalf("shell min duration = %s", cfg.Shell.MinDuration)
@@ -95,6 +101,15 @@ func TestSetValidates(t *testing.T) {
 	}
 	if got != "131072" {
 		t.Fatalf("got %s", got)
+	}
+	if err := Set(&cfg, "daemon.max_subscribers", "0"); err == nil {
+		t.Fatal("expected max subscribers min error")
+	}
+	if err := Set(&cfg, "daemon.max_subscribers", "64"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(cfg, "daemon.max_subscribers"); got != "64" {
+		t.Fatalf("daemon.max_subscribers = %s", got)
 	}
 	if err := Set(&cfg, "shell.default", "fish"); err != nil {
 		t.Fatal(err)

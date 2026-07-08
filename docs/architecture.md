@@ -88,6 +88,8 @@ Soft keys send normal terminal escape sequences or control actions:
 6. The queue unblocks the waiting hook.
 7. The provider receives approved, denied, or edited tool input.
 
+Approval event subscribers are capped by `daemon.max_subscribers` (default `32`); slow subscribers still drop their oldest queued events instead of backpressuring decisions.
+
 Approval states:
 
 ```text

@@ -49,7 +49,10 @@ func TestApprovalUnifiedDiffWriteScrubsBeforeDiff(t *testing.T) {
 func TestDemoApprovalRequestReturnsPending(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})
-	approvalEvents, unsubscribe := d.Queue.Subscribe()
+	approvalEvents, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsubscribe()
 	resp, err := d.handleDemoApprovalRequest(t.Context(), intake.Event{
 		Type:      intake.TypeDemoApproval,
@@ -116,7 +119,10 @@ func TestAnomalyForkBombPausesAndResumesOnApprove(t *testing.T) {
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
-	approvalEvents, unsubApprovals := d.Queue.Subscribe()
+	approvalEvents, unsubApprovals, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsubApprovals()
 	webEvents, unsubWeb := d.Events.Subscribe()
 	defer unsubWeb()

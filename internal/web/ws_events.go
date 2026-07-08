@@ -86,7 +86,13 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	var approvalEvents <-chan approval.Event
 	var unsubApprovals func()
 	if s.approvalQueue != nil {
-		approvalEvents, unsubApprovals = s.approvalQueue.Subscribe()
+		var err error
+		approvalEvents, unsubApprovals, err = s.approvalQueue.Subscribe()
+		if err != nil {
+			s.log.Warn("web events approval subscribe failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+			_ = c.Close(websocket.StatusTryAgainLater, "approval subscribers full")
+			return
+		}
 		defer unsubApprovals()
 	}
 	var appEvents <-chan Event

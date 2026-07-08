@@ -284,7 +284,10 @@ func TestSetMessagePersists(t *testing.T) {
 
 func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
-	events, unsub := q.Subscribe()
+	events, unsub, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 	ctx := context.Background()
 	id, _, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`, "diff")
@@ -320,9 +323,40 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	}
 }
 
+func TestSubscribeRejectsWhenFullAndUnsubscribeReleasesSlot(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	q.MaxSubscribers = 2
+	_, unsub1, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub1()
+	_, unsub2, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub2()
+	ch, _, err := q.Subscribe()
+	if !errors.Is(err, ErrSubscribersFull) {
+		t.Fatalf("err = %v want ErrSubscribersFull", err)
+	}
+	if _, ok := <-ch; ok {
+		t.Fatal("rejected subscriber channel left open")
+	}
+	unsub1()
+	_, unsub3, err := q.Subscribe()
+	if err != nil {
+		t.Fatalf("subscribe after unsubscribe: %v", err)
+	}
+	defer unsub3()
+}
+
 func TestRequestWithBudgetWarningPublishesWarning(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
-	events, unsub := q.Subscribe()
+	events, unsub, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 	ctx := context.Background()
 	warn := &BudgetWarning{
@@ -351,7 +385,10 @@ func TestRequestWithBudgetWarningPublishesWarning(t *testing.T) {
 
 func TestRequestSilentSkipsRequestedEvent(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
-	events, unsub := q.Subscribe()
+	events, unsub, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 	ctx := context.Background()
 	id, ch, err := q.RequestSilent(ctx, "s", "claude", "Bash", `{"command":"ls"}`)

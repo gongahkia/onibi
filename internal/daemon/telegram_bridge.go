@@ -368,7 +368,13 @@ func (b *telegramBridge) decideApproval(ctx context.Context, chatID int64, id st
 }
 
 func (b *telegramBridge) forwardApprovals(ctx context.Context) {
-	ch, unsub := b.d.Queue.Subscribe()
+	ch, unsub, err := b.d.Queue.Subscribe()
+	if err != nil {
+		if b.d.Log != nil {
+			b.d.Log.Warn("telegram approval subscribe failed", "err", err)
+		}
+		return
+	}
 	defer unsub()
 	if b.owner() != 0 {
 		if pending, err := b.d.Queue.Pending(ctx); err == nil {

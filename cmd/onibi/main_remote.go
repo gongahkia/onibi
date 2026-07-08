@@ -108,20 +108,21 @@ func runUp(args []string) error {
 	certDir := certDir(paths, cfg)
 	relayKeys := web.NewRelayKeys()
 	d := daemon.New(daemon.Options{
-		Paths:                 paths,
-		DB:                    db,
-		Log:                   logger,
-		ApprovalTTL:           cfg.Daemon.ApprovalTimeout.Std(),
-		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
-		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:            cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:       cfg.Terminal.Default,
-		WebAddr:               cfg.Web.ListenAddr,
-		WebCertDir:            certDir,
-		RelayKeys:             relayKeys,
-		RequireWebE2E:         webtransport.IsRelayMode(cfg.Transport.Mode),
-		SkipRestore:           true,
+		Paths:                  paths,
+		DB:                     db,
+		Log:                    logger,
+		ApprovalTTL:            cfg.Daemon.ApprovalTimeout.Std(),
+		ApprovalSweepInterval:  cfg.Daemon.ApprovalSweepInterval.Std(),
+		ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers,
+		IdleThreshold:          cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:           cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:             cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:        cfg.Terminal.Default,
+		WebAddr:                cfg.Web.ListenAddr,
+		WebCertDir:             certDir,
+		RelayKeys:              relayKeys,
+		RequireWebE2E:          webtransport.IsRelayMode(cfg.Transport.Mode),
+		SkipRestore:            true,
 	})
 	session, err := spawnShell(ctx, d, cfg)
 	if err != nil {

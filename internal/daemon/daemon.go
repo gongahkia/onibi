@@ -98,6 +98,7 @@ type Options struct {
 	ExitWhenIdle            bool
 	ApprovalTTL             time.Duration
 	ApprovalSweepInterval   time.Duration
+	ApprovalMaxSubscribers  int
 	IdleThreshold           time.Duration
 	IdleInterval            time.Duration
 	BufferSize              int
@@ -253,6 +254,9 @@ func New(opts Options) *Daemon {
 		}
 	}
 	d.Queue = approval.New(opts.DB, ttl)
+	if opts.ApprovalMaxSubscribers > 0 {
+		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
+	}
 	d.Queue.Log = opts.Log
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
 

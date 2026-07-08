@@ -35,6 +35,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Log:                     logger,
 		ApprovalTTL:             cfg.Daemon.ApprovalTimeout.Std(),
 		ApprovalSweepInterval:   cfg.Daemon.ApprovalSweepInterval.Std(),
+		ApprovalMaxSubscribers:  cfg.Daemon.MaxSubscribers,
 		IdleThreshold:           cfg.Daemon.TurnIdleThreshold.Std(),
 		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:              cfg.Daemon.PTYBufferBytes,

@@ -88,7 +88,13 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 	if d.Queue == nil {
 		return
 	}
-	events, unsub := d.Queue.Subscribe()
+	events, unsub, err := d.Queue.Subscribe()
+	if err != nil {
+		if d.Log != nil {
+			d.Log.Warn("matrix approval subscribe failed", "err", err)
+		}
+		return
+	}
 	defer unsub()
 	for {
 		select {
@@ -246,7 +252,13 @@ func (d *Daemon) forwardApprovalsToSlack(ctx context.Context, c *slack.Client, c
 			send(a)
 		}
 	}
-	events, unsub := d.Queue.Subscribe()
+	events, unsub, err := d.Queue.Subscribe()
+	if err != nil {
+		if d.Log != nil {
+			d.Log.Warn("slack approval subscribe failed", "err", err)
+		}
+		return
+	}
 	defer unsub()
 	for {
 		select {
@@ -540,7 +552,13 @@ func (d *Daemon) forwardNotifyApprovals(ctx context.Context, send func(*approval
 	if d.Queue == nil {
 		return
 	}
-	events, unsub := d.Queue.Subscribe()
+	events, unsub, err := d.Queue.Subscribe()
+	if err != nil {
+		if d.Log != nil {
+			d.Log.Warn("notify approval subscribe failed", "err", err)
+		}
+		return
+	}
 	defer unsub()
 	sent := map[string]bool{}
 	sendOnce := func(a *approval.Approval) {

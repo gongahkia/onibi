@@ -101,7 +101,10 @@ agent = "claude"
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
-	events, unsub := d.Queue.Subscribe()
+	events, unsub, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 	result := make(chan approvalResult, 1)
 	go func() {

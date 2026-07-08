@@ -27,6 +27,11 @@ var ErrUnknownApproval = errors.New("unknown approval id")
 // row is atomically moved to expired before this error is returned.
 var ErrExpired = errors.New("approval expired")
 
+// ErrSubscribersFull is returned when approval event subscribers hit the cap.
+var ErrSubscribersFull = errors.New("approval subscribers full")
+
+const DefaultMaxSubscribers = 32
+
 // DecisionResult reports the stored decision plus whether an in-memory waiter
 // was present to receive it.
 type DecisionResult struct {
@@ -44,6 +49,7 @@ type Queue struct {
 	mu      sync.Mutex
 	waiters map[string]chan Decision // approval id → single-shot delivery channel
 
+	MaxSubscribers   int
 	subscribers      map[int]chan Event
 	nextSubscriberID int
 }
@@ -53,14 +59,23 @@ func New(db *store.DB, ttl time.Duration) *Queue {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
-	return &Queue{db: db, ttl: ttl, waiters: map[string]chan Decision{}, subscribers: map[int]chan Event{}}
+	return &Queue{db: db, ttl: ttl, waiters: map[string]chan Decision{}, MaxSubscribers: DefaultMaxSubscribers, subscribers: map[int]chan Event{}}
 }
 
 // Subscribe registers a non-blocking event subscriber. Slow subscribers drop
 // their oldest queued event rather than stalling queue decisions.
-func (q *Queue) Subscribe() (<-chan Event, func()) {
+func (q *Queue) Subscribe() (<-chan Event, func(), error) {
 	ch := make(chan Event, 64)
 	q.mu.Lock()
+	max := q.MaxSubscribers
+	if max <= 0 {
+		max = DefaultMaxSubscribers
+	}
+	if len(q.subscribers) >= max {
+		q.mu.Unlock()
+		close(ch)
+		return ch, func() {}, ErrSubscribersFull
+	}
 	id := q.nextSubscriberID
 	q.nextSubscriberID++
 	q.subscribers[id] = ch
@@ -76,7 +91,7 @@ func (q *Queue) Subscribe() (<-chan Event, func()) {
 			q.mu.Unlock()
 		})
 	}
-	return ch, unsub
+	return ch, unsub, nil
 }
 
 // Request creates a pending approval row, registers an in-memory waiter,

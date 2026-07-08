@@ -54,6 +54,7 @@ type Daemon struct {
 	TurnIdleThreshold     Duration `yaml:"turn_idle_threshold" json:"turn_idle_threshold"`
 	TurnIdleInterval      Duration `yaml:"turn_idle_interval" json:"turn_idle_interval"`
 	PTYBufferBytes        int      `yaml:"pty_buffer_bytes" json:"pty_buffer_bytes"`
+	MaxSubscribers        int      `yaml:"max_subscribers" json:"max_subscribers"`
 }
 
 type Shell struct {
@@ -124,6 +125,7 @@ func Default() Config {
 			TurnIdleThreshold:     Duration(3 * time.Second),
 			TurnIdleInterval:      Duration(500 * time.Millisecond),
 			PTYBufferBytes:        64 * 1024,
+			MaxSubscribers:        32,
 		},
 		Shell: Shell{
 			MinDuration: Duration(5 * time.Second),
@@ -215,6 +217,9 @@ func (c Config) Validate() error {
 	}
 	if c.Daemon.PTYBufferBytes < 4096 || c.Daemon.PTYBufferBytes > 10*1024*1024 {
 		return fmt.Errorf("daemon.pty_buffer_bytes must be between 4096 and 10485760")
+	}
+	if c.Daemon.MaxSubscribers < 1 || c.Daemon.MaxSubscribers > 4096 {
+		return fmt.Errorf("daemon.max_subscribers must be between 1 and 4096")
 	}
 	if c.Provider.Output.MaxChunks < 1 || c.Provider.Output.MaxChunks > 100 {
 		return fmt.Errorf("provider.output.max_chunks must be between 1 and 100")
@@ -359,6 +364,12 @@ func Set(cfg *Config, key, value string) error {
 			return fmt.Errorf("daemon.pty_buffer_bytes must be integer bytes")
 		}
 		cfg.Daemon.PTYBufferBytes = n
+	case "daemon.max_subscribers":
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("daemon.max_subscribers must be integer")
+		}
+		cfg.Daemon.MaxSubscribers = n
 	case "shell.min_duration":
 		d, err := ParseDuration(value)
 		if err != nil {
@@ -429,6 +440,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Daemon.TurnIdleInterval.String(), nil
 	case "daemon.pty_buffer_bytes":
 		return strconv.Itoa(cfg.Daemon.PTYBufferBytes), nil
+	case "daemon.max_subscribers":
+		return strconv.Itoa(cfg.Daemon.MaxSubscribers), nil
 	case "shell.min_duration":
 		return cfg.Shell.MinDuration.String(), nil
 	case "shell.default":
@@ -471,6 +484,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.turn_idle_threshold", def.Daemon.TurnIdleThreshold.String(), cfg.Daemon.TurnIdleThreshold.String(), meta.Explicit["daemon.turn_idle_threshold"], "fallback silence window before turn-complete"},
 		{"daemon.turn_idle_interval", def.Daemon.TurnIdleInterval.String(), cfg.Daemon.TurnIdleInterval.String(), meta.Explicit["daemon.turn_idle_interval"], "fallback idle poll cadence"},
 		{"daemon.pty_buffer_bytes", strconv.Itoa(def.Daemon.PTYBufferBytes), strconv.Itoa(cfg.Daemon.PTYBufferBytes), meta.Explicit["daemon.pty_buffer_bytes"], "bytes retained for /peek text rendering"},
+		{"daemon.max_subscribers", strconv.Itoa(def.Daemon.MaxSubscribers), strconv.Itoa(cfg.Daemon.MaxSubscribers), meta.Explicit["daemon.max_subscribers"], "maximum approval event subscribers"},
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
@@ -514,6 +528,7 @@ type rawDaemon struct {
 	TurnIdleThreshold     *Duration `yaml:"turn_idle_threshold"`
 	TurnIdleInterval      *Duration `yaml:"turn_idle_interval"`
 	PTYBufferBytes        *int      `yaml:"pty_buffer_bytes"`
+	MaxSubscribers        *int      `yaml:"max_subscribers"`
 }
 
 type rawShell struct {
@@ -582,6 +597,10 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Daemon.PTYBufferBytes != nil {
 		cfg.Daemon.PTYBufferBytes = *raw.Daemon.PTYBufferBytes
 		meta.Explicit["daemon.pty_buffer_bytes"] = true
+	}
+	if raw.Daemon.MaxSubscribers != nil {
+		cfg.Daemon.MaxSubscribers = *raw.Daemon.MaxSubscribers
+		meta.Explicit["daemon.max_subscribers"] = true
 	}
 	if raw.Shell.MinDuration != nil {
 		cfg.Shell.MinDuration = *raw.Shell.MinDuration

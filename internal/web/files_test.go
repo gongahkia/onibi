@@ -128,7 +128,10 @@ func TestFilesContentPutQueuesApprovalAndAppliesAfterApprove(t *testing.T) {
 	writeTestFile(t, root, "src/main.go", "old\n")
 	fx := setupFileApprovalServer(t, root)
 	defer fx.cleanup()
-	events, unsub := fx.queue.Subscribe()
+	events, unsub, err := fx.queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer unsub()
 
 	approvalID := requestFilePut(t, fx, "src/main.go", "new\n", http.StatusAccepted)
