@@ -3,6 +3,7 @@ package pty
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"testing"
 	"time"
@@ -98,6 +99,75 @@ func TestHubSlowSubscriberReceivesDropMarkerAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestHubStressSubscriberFanOut(t *testing.T) {
+	h := NewHub(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const (
+		subs      = 100
+		slowSubs  = subs / 2
+		frames    = 1024
+		frameSize = 1024
+	)
+	fast := make([]<-chan []byte, 0, subs-slowSubs)
+	slow := make([]<-chan []byte, 0, slowSubs)
+	for i := 0; i < subs; i++ {
+		if i < slowSubs {
+			_, ch, _ := h.SubscribeLive(ctx, 4*frameSize)
+			slow = append(slow, ch)
+			continue
+		}
+		_, ch, _ := h.SubscribeLive(ctx, frames*avgFrameSize)
+		fast = append(fast, ch)
+	}
+
+	start := time.Now()
+	var maxBroadcast time.Duration
+	for i := 0; i < frames; i++ {
+		frame := stressFrame(i, frameSize)
+		before := time.Now()
+		h.broadcast(frame)
+		if elapsed := time.Since(before); elapsed > maxBroadcast {
+			maxBroadcast = elapsed
+		}
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("fan-out blocked PTY reader: total=%s max_broadcast=%s", elapsed, maxBroadcast)
+	}
+	if maxBroadcast > 500*time.Millisecond {
+		t.Fatalf("single broadcast blocked too long: %s", maxBroadcast)
+	}
+
+	for i, ch := range fast {
+		for seq := 0; seq < frames; seq++ {
+			got := readFrame(t, ch)
+			if gotSeq := stressSeq(got); gotSeq != seq {
+				t.Fatalf("fast subscriber %d seq %d = %d", i, seq, gotSeq)
+			}
+		}
+	}
+
+	for i, ch := range slow {
+		seqs, markers := drainStressSeqs(ch, frameSize)
+		if len(seqs) == 0 {
+			t.Fatalf("slow subscriber %d had no retained frames", i)
+		}
+		if len(seqs) == frames {
+			t.Fatalf("slow subscriber %d did not drop any frames", i)
+		}
+		if seqs[0] == 0 {
+			t.Fatalf("slow subscriber %d retained oldest frame; seqs=%v", i, seqs)
+		}
+		if last := seqs[len(seqs)-1]; last < frames/2 {
+			t.Fatalf("slow subscriber %d did not retain recent frames; seqs=%v", i, seqs)
+		}
+		if markers == 0 && len(seqs) >= 4 {
+			t.Fatalf("slow subscriber %d had no drop marker; seqs=%v", i, seqs)
+		}
+	}
+}
+
 func TestHubWriteCoalesces(t *testing.T) {
 	h := NewHub(0)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,4 +255,40 @@ func readFrame(t *testing.T, ch <-chan []byte) []byte {
 		t.Fatal("timed out waiting for frame")
 	}
 	return nil
+}
+
+func stressFrame(seq, size int) []byte {
+	p := bytes.Repeat([]byte{'x'}, size)
+	binary.BigEndian.PutUint32(p[:4], uint32(seq))
+	return p
+}
+
+func stressSeq(p []byte) int {
+	if len(p) < 4 {
+		return -1
+	}
+	return int(binary.BigEndian.Uint32(p[:4]))
+}
+
+func drainStressSeqs(ch <-chan []byte, frameSize int) ([]int, int) {
+	var out []int
+	markers := 0
+	for {
+		select {
+		case p := <-ch:
+			if bytes.HasPrefix(p, []byte("\x00ONIBI-DROPPED:")) {
+				markers++
+				continue
+			}
+			if len(p) != frameSize {
+				continue
+			}
+			seq := stressSeq(p)
+			if seq >= 0 {
+				out = append(out, seq)
+			}
+		default:
+			return out, markers
+		}
+	}
 }
