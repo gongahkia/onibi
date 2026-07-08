@@ -135,7 +135,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 		}
 		return opts, "ntfy", nil
 	case "gotify":
-		opts.Gotify = daemon.GotifyOptions{BaseURL: envRequired("ONIBI_GOTIFY_URL"), AppToken: envRequired("ONIBI_GOTIFY_APP_TOKEN"), ClientToken: strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN"))}
+		opts.Gotify = daemon.GotifyOptions{BaseURL: envRequired("ONIBI_GOTIFY_URL"), AppToken: envRequired("ONIBI_GOTIFY_APP_TOKEN"), ClientToken: strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")), ActionBaseURL: strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_ACTION_BASE_URL"))}
 		if opts.Gotify.BaseURL == "" || opts.Gotify.AppToken == "" {
 			return opts, "", fmt.Errorf("gotify requires ONIBI_GOTIFY_URL and ONIBI_GOTIFY_APP_TOKEN")
 		}

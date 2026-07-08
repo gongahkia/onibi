@@ -151,7 +151,7 @@ below the target contract; `no` means not implemented today.
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
-| Gotify | yes | no | notify-only | no | partial | no | no | partial |
+| Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -179,9 +179,10 @@ buttons, and can tail the JSON topic stream with reconnect/replay. Password E2E
 is not implemented because current official ntfy publish docs do not verify
 `X-Message-Encryption` support.
 
-Gotify is notify-only today. It sends REST messages and can validate the client
-token for smoke checks. E7 tracks WebSocket streaming and callback action
-buttons.
+Gotify sends REST messages, adds optional signed approval deep-links through
+`client::notification.click.url`, and can receive `/stream` WebSocket messages
+with reconnect backoff. Native buttons are not available in Gotify; the signed
+approval page is the callback workaround.
 
 ## Conformance Expectations
 

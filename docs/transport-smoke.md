@@ -139,11 +139,12 @@ ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> ONIBI_NTFY_STREAM=1 
 Gotify:
 
 ```bash
-ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY_CLIENT_TOKEN=... go test ./internal/gotify -run LiveGotify
+ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY_CLIENT_TOKEN=... ONIBI_GOTIFY_STREAM=1 go test ./internal/gotify -run LiveGotify
 ```
 
 - Confirm REST send creates an approval notification.
 - Confirm WebSocket subscribe receives the message stream.
+- With `ONIBI_GOTIFY_ACTION_BASE_URL` set to a reachable Onibi web origin, tap the notification/link and confirm the signed approval page renders Approve/Deny.
 - Confirm startup validates the optional client token.
 - Confirm no terminal input path is exposed.
 

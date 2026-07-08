@@ -1,9 +1,11 @@
 package web
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +91,62 @@ func TestNtfySignedActionRejectsBadSignature(t *testing.T) {
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+}
+
+func TestGotifySignedApprovalPageRendersOneUseActions(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	q := approval.New(db, time.Minute)
+	signer, err := NewActionSigner([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer})
+	id, _, err := q.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawURL, err := signer.SignedGotifyApprovalPageURL("https://onibi.example", id, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := strings.TrimPrefix(rawURL, "https://onibi.example")
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Host = "onibi.example"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `/gotify/approval/`+id+`/approve`) || !strings.Contains(body, `/gotify/approval/`+id+`/deny`) {
+		t.Fatalf("body = %q", body)
+	}
+	match := regexp.MustCompile(`action="([^"]*/gotify/approval/` + id + `/approve[^"]*)"`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("approve action missing in %q", body)
+	}
+	approvePath := strings.TrimPrefix(html.UnescapeString(match[1]), "https://onibi.example")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, approvePath, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("approve status = %d body = %q", w.Code, w.Body.String())
+	}
+	got, err := q.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != approval.StateApproved {
+		t.Fatalf("state = %s", got.State)
+	}
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("reuse status = %d body = %q", w.Code, w.Body.String())
 	}
 }

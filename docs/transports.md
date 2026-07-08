@@ -21,7 +21,7 @@ The supported transports are:
 - `discord`: Discord Gateway bot control with slash-command fallback.
 - `pushover`: notify-only approval alerts.
 - `ntfy`: topic alerts with optional signed approval actions.
-- `gotify`: notify-only self-hosted alerts.
+- `gotify`: self-hosted alerts with optional signed approval deep-links.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
 Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=<mode>` for scripts.
@@ -260,10 +260,11 @@ Gotify:
 ONIBI_GOTIFY_URL=https://gotify.example
 ONIBI_GOTIFY_APP_TOKEN=...
 ONIBI_GOTIFY_CLIENT_TOKEN=...
+ONIBI_GOTIFY_ACTION_BASE_URL=https://<reachable-onibi-web-origin>
 onibi up --transport=gotify
 ```
 
-Gotify sends approval notifications through the REST message endpoint, validates the optional client token before startup, writes send/error audit rows, and has a WebSocket receive client for smoke tests.
+Create a Gotify application token for sending and a client token for receiving. Gotify sends approval notifications through `POST /message` with the app token. When `ONIBI_GOTIFY_ACTION_BASE_URL` is set, messages include `client::notification.click.url` pointing at a signed Onibi approval page; that page is single-use, expires after 5 minutes, and renders Approve/Deny POST actions. The optional client token enables `/stream` WebSocket receive checks with reconnect backoff. Send/retry/error audit rows are written for every approval push.
 
 ## Coverage status
 

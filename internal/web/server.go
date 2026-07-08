@@ -156,6 +156,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
+	mux.HandleFunc("/gotify/approval/{id}", s.handleGotifyApprovalPage)
+	mux.HandleFunc("/gotify/approval/{id}/{verdict}", s.handleGotifyApprovalAction)
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
 	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
 	mux.HandleFunc("/", s.handleRoot)

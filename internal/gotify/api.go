@@ -25,6 +25,37 @@ type Message struct {
 	Title    string `json:"title,omitempty"`
 	Message  string `json:"message"`
 	Priority int    `json:"priority,omitempty"`
+	Extras   Extras `json:"extras,omitempty"`
+}
+
+type Extras map[string]any
+
+type StreamMessage struct {
+	ID       int    `json:"id"`
+	AppID    int    `json:"appid"`
+	Message  string `json:"message"`
+	Title    string `json:"title"`
+	Priority int    `json:"priority"`
+	Date     string `json:"date"`
+	Extras   Extras `json:"extras"`
+}
+
+type TailOptions struct {
+	RetryMin      time.Duration
+	RetryMax      time.Duration
+	MaxReconnects int
+}
+
+type handlerError struct {
+	err error
+}
+
+func (e handlerError) Error() string {
+	return e.err.Error()
+}
+
+func (e handlerError) Unwrap() error {
+	return e.err
 }
 
 func New(baseURL, appToken, clientToken string) *Client {
@@ -125,6 +156,84 @@ func (c *Client) SubscribeWS(ctx context.Context) (*websocket.Conn, error) {
 	u.RawQuery = q.Encode()
 	conn, _, err := websocket.Dial(ctx, u.String(), nil)
 	return conn, err
+}
+
+func (c *Client) Stream(ctx context.Context, handle func(StreamMessage) error) error {
+	if handle == nil {
+		return errors.New("gotify stream handler required")
+	}
+	conn, err := c.SubscribeWS(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.CloseNow()
+	for {
+		_, p, err := conn.Read(ctx)
+		if err != nil {
+			return err
+		}
+		var msg StreamMessage
+		if err := json.Unmarshal(p, &msg); err != nil {
+			return err
+		}
+		if err := handle(msg); err != nil {
+			return handlerError{err: err}
+		}
+	}
+}
+
+func (c *Client) Tail(ctx context.Context, opts TailOptions, handle func(StreamMessage) error) error {
+	if handle == nil {
+		return errors.New("gotify stream handler required")
+	}
+	minBackoff := opts.RetryMin
+	if minBackoff <= 0 {
+		minBackoff = 250 * time.Millisecond
+	}
+	maxBackoff := opts.RetryMax
+	if maxBackoff <= 0 || maxBackoff < minBackoff {
+		maxBackoff = 2 * time.Second
+	}
+	backoff := minBackoff
+	reconnects := 0
+	for {
+		err := c.Stream(ctx, handle)
+		var handled handlerError
+		if errors.As(err, &handled) {
+			return handled.err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if opts.MaxReconnects > 0 && reconnects >= opts.MaxReconnects {
+			return err
+		}
+		reconnects++
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+}
+
+func ApprovalExtras(clickURL string) Extras {
+	if strings.TrimSpace(clickURL) == "" {
+		return nil
+	}
+	return Extras{
+		"client::notification": map[string]any{
+			"click": map[string]any{"url": clickURL},
+		},
+	}
 }
 
 func gotifyTokenURL(raw, token string) (string, error) {
