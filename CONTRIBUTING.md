@@ -36,6 +36,46 @@ go test -race ./...
 onibi doctor --offline
 ```
 
+## Reporting Security Issues
+
+Use [SECURITY.md](SECURITY.md). Do not file public issues for exploitable bugs.
+
+Report privately through GitHub Security Advisories:
+<https://github.com/gongahkia/onibi/security/advisories/new>
+
+## Adding a Transport
+
+Start with [docs/transports.md](docs/transports.md) and [docs/transport-smoke.md](docs/transport-smoke.md).
+
+Minimum PR checklist:
+
+- Add the transport implementation and config/env validation.
+- Add or update `onibi doctor --transport <name>` checks.
+- Add hermetic tests plus a live smoke path guarded by `ONIBI_LIVE_*` env vars.
+- Document setup, cleanup, QR URL shape, and failure modes in `docs/transports.md`.
+
+## Adding an Adapter
+
+Start with [docs/SPEC-adapters.md](docs/SPEC-adapters.md) and [docs/adapters-registry.md](docs/adapters-registry.md).
+
+Minimum PR checklist:
+
+- Define the manifest schema or in-tree adapter entry, including hook install, verify, adopt, and uninstall behavior.
+- Document the provider hook signature, event names, blocking/notify-only behavior, and trust step.
+- Add install, uninstall, status, verify, adopt, and hook-deny tests when the provider can block tools.
+- Add `onibi adapters validate <path>` output and registry evidence for community manifests.
+
+## Adding a Provider
+
+Provider work starts at the `internal/chatout.Provider` contract.
+
+Minimum PR checklist:
+
+- Implement send, chunking, redaction, retry/error handling, and config validation.
+- Add unit tests for output limits and redaction.
+- Add live tests behind `ONIBI_LIVE_*` env vars and document required secrets.
+- State whether the provider is notify-only, output-only, or supports interactive approvals.
+
 Rules:
 
 - Do not commit secrets, `.env`, SQLite state, logs, local cert keys, or hook output.
