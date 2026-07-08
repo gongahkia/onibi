@@ -100,7 +100,7 @@ The edited payload must remain valid JSON.
 For Claude Bash, edit the command object:
 
 ```json
-{"command":"touch /tmp/onibi-edited && echo edited"}
+{ "command": "touch /tmp/onibi-edited && echo edited" }
 ```
 
 For file writes, preserve the expected fields such as `file_path` and `content`.
@@ -115,6 +115,17 @@ For file writes, preserve the expected fields such as `file_path` and `content`.
 - `KILL` terminates the hosted process.
 
 If `ESC` or arrows seem ignored, tap the terminal once to focus it and try again.
+
+## iOS Safari Backgrounding
+
+Onibi sizes the cockpit with `100dvh` plus `visualViewport` resize/orientation events. When Safari or a PWA returns to the foreground, the page asks both WebSockets to reconnect immediately if iOS suspended them, then reattaches the PTY stream from the last snapshot sequence.
+
+If the terminal looks stale after returning from the app switcher:
+
+1. Wait for the `Resuming session...` marker to clear.
+2. Rotate once, then rotate back.
+3. If input is still frozen, reload the paired URL.
+4. If reload fails, rerun `./bin/onibi up` and scan a fresh QR.
 
 ## Hook Drift
 

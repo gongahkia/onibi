@@ -42,6 +42,18 @@ export class TerminalWS extends EventTarget {
     this.ws?.close();
   }
 
+  resume(): void {
+    if (this.stopped || this.url === "") {
+      return;
+    }
+    const state = this.ws?.readyState;
+    if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+      return;
+    }
+    window.clearTimeout(this.reconnectTimer);
+    this.open();
+  }
+
   sendText(data: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       void this.sendTyped("text", new TextEncoder().encode(data));

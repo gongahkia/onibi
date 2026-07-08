@@ -89,7 +89,8 @@ let csrfToken = "";
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
 installTouchScroll(term, termEl);
-installViewportPinning(termEl);
+const pinViewport = installViewportPinning(termEl);
+installForegroundResume(pinViewport);
 registerServiceWorker();
 ws.addEventListener("data", (event) => {
   const data = (event as CustomEvent<ArrayBuffer>).detail;
@@ -582,28 +583,54 @@ function showTerminalChrome(readOnly: boolean): void {
   sessionListRoot.hidden = true;
 }
 
-function installViewportPinning(root: HTMLElement): void {
+function installViewportPinning(root: HTMLElement): () => void {
   const viewport = window.visualViewport;
-  if (viewport == null) {
-    return;
-  }
   let frame = 0;
   const pin = () => {
     window.cancelAnimationFrame(frame);
     frame = window.requestAnimationFrame(() => {
-      document.documentElement.style.setProperty(
-        "--visual-viewport-height",
-        `${viewport.height}px`
-      );
-      const keyboardBottom = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const height = viewport?.height ?? window.innerHeight;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      document.documentElement.style.setProperty("--visual-viewport-height", `${height}px`);
+      const keyboardBottom = Math.max(0, window.innerHeight - height - offsetTop);
       document.documentElement.style.setProperty("--keyboard-bottom", `${keyboardBottom}px`);
       const cursor = root.querySelector<HTMLElement>(".xterm-helper-textarea");
       cursor?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   };
-  viewport.addEventListener("resize", pin);
-  viewport.addEventListener("scroll", pin);
+  viewport?.addEventListener("resize", pin);
+  viewport?.addEventListener("scroll", pin);
+  window.addEventListener("resize", pin);
+  window.addEventListener("orientationchange", pin);
   pin();
+  return pin;
+}
+
+function installForegroundResume(pinViewport: () => void): void {
+  const resume = (announce: boolean) => {
+    if (document.visibilityState === "hidden") {
+      return;
+    }
+    pinViewport();
+    fit.fit();
+    logCrampedPortraitCols(term);
+    ws.sendResize(term.rows, term.cols);
+    ws.resume();
+    events.resume();
+    if (!announce) {
+      return;
+    }
+    showToast("Resuming session...");
+    window.setTimeout(() => {
+      if (toast.textContent === "Resuming session...") {
+        hideToast();
+      }
+    }, 1200);
+  };
+  document.addEventListener("visibilitychange", () => resume(true));
+  window.addEventListener("pageshow", () => resume(true));
+  window.addEventListener("online", () => resume(true));
+  window.addEventListener("orientationchange", () => resume(false));
 }
 
 function registerServiceWorker(): void {

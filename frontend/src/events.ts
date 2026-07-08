@@ -78,6 +78,18 @@ export class EventsWS extends EventTarget {
     this.ws?.close();
   }
 
+  resume(): void {
+    if (this.stopped || this.url === "") {
+      return;
+    }
+    const state = this.ws?.readyState;
+    if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+      return;
+    }
+    window.clearTimeout(this.reconnectTimer);
+    this.open();
+  }
+
   private open(): void {
     const socket = new WebSocket(this.url, ["onibi.events.v1"]);
     this.ws = socket;
