@@ -120,6 +120,14 @@ Ask Claude to create a temp file. When the approval card appears on the phone:
 - `Deny` blocks it.
 - `Edit` lets you submit modified JSON input.
 
+While an approval card is pending, supported mobile browsers may request a screen
+wake lock so the phone does not sleep before you decide. This can increase
+battery use. To opt out in Safari or Chrome dev tools, run:
+
+```js
+localStorage.setItem("onibi:wake-lock", "off")
+```
+
 Example edit test:
 
 1. Ask Claude to run `touch /tmp/onibi-original && echo original`.

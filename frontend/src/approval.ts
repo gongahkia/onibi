@@ -1,4 +1,5 @@
 import type { ApprovalDecidedPayload, ApprovalRequestedPayload, EventEnvelope } from "./events";
+import type { ApprovalWakeLock } from "./wake-lock";
 
 type Diff2HtmlUIModule = typeof import("diff2html/lib/ui/js/diff2html-ui-slim.js");
 
@@ -24,7 +25,7 @@ export class ApprovalOverlay {
   private cards = new Map<string, ApprovalCard>();
   private postJSON: PostJSON = defaultPostJSON;
 
-  constructor(private readonly root: HTMLElement) {}
+  constructor(private readonly root: HTMLElement, private readonly wakeLock?: ApprovalWakeLock) {}
 
   setPostJSON(postJSON: PostJSON): void {
     this.postJSON = postJSON;
@@ -108,6 +109,7 @@ export class ApprovalOverlay {
     window.setTimeout(() => card.scrollIntoView({ block: "nearest", inline: "nearest" }), 50);
     const tracked: ApprovalCard = { payload, element: card, approveUntil: 0, trustButton: trust };
     this.cards.set(payload.id, tracked);
+    this.updateWakeLock();
 
     approve.addEventListener("click", () => {
       vibrate();
@@ -158,6 +160,11 @@ export class ApprovalOverlay {
     }
     card.element.remove();
     this.cards.delete(id);
+    this.updateWakeLock();
+  }
+
+  private updateWakeLock(): void {
+    this.wakeLock?.setPendingCount(this.cards.size);
   }
 
   private async decide(id: string, body: Record<string, string>, status: HTMLElement): Promise<void> {

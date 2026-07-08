@@ -57,6 +57,7 @@ tgterm
 # legacy v1.5 (TS/Node + Rust/Tauri) artifacts that may regenerate if user runs old tooling
 node_modules/
 frontend/node_modules/
+frontend/.tmp/
 frontend/dist/
 .pnpm-store/
 target/

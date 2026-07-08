@@ -15,6 +15,7 @@ import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
+import { ApprovalWakeLock } from "./wake-lock";
 
 type SessionInfo = {
   session_id: string;
@@ -45,7 +46,8 @@ applyDocumentTheme(theme);
 const { term, fit } = createTerminal(termEl, theme);
 const ws = new TerminalWS();
 const events = new EventsWS();
-const approvals = new ApprovalOverlay(approvalRoot);
+const approvalWakeLock = new ApprovalWakeLock();
+const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
 const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
