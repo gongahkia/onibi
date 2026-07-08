@@ -11,6 +11,9 @@ handoff between phone and Mac. That is heavier than a notification layer. It is
 also the reason one Onibi session can be a shell today, Claude Code tomorrow,
 OpenCode after that, and a visible Ghostty/tmux attach when the laptop is open.
 
+Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org)
+terminal emulator project; see [Branding](../branding.md).
+
 ## The Two Patterns
 
 The monitor-and-approve pattern is attractive because it leaves the existing

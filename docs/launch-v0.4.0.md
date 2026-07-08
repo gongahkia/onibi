@@ -16,6 +16,8 @@ Onibi is a local daemon that lets a phone drive a real tmux-backed shell or codi
 
 The v0.4 theme is depth over novelty. The terminal path now tries to be recognizably Ghostty-shaped: `xterm-ghostty` terminfo, a Ghostty-default theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding, and parity smokes against native Ghostty captures. This is not pixel-perfect emulation, but it makes the browser cockpit feel like the same terminal instead of a generic web console.
 
+Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](branding.md).
+
 The second thread is MCP recursion. `onibi mcp` exposes local stdio tools for listing sessions, peeking/tailing scrubbed output, writing to live PTYs, requesting approvals, and deciding low/medium-risk approvals. It deliberately stays local: stdio plus same-UID Unix socket checks, no remote MCP listener, and no bearer-token surface.
 
 Cloudflare support moved from "public tunnel" to "public tunnel with app-layer E2E." Quick Tunnel URLs carry only the relay key fragment to the browser, while terminal bytes, event payloads, control requests, approval decisions, and user input are encrypted with per-pair HKDF + AES-GCM before crossing the relay. Named Tunnels now have explicit setup/status/disable commands and can fetch tunnel tokens through the Cloudflare API without putting tokens in process args.

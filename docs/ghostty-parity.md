@@ -1,5 +1,7 @@
 # Ghostty Parity Smoke
 
+Disclaimer: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project. Onibi uses `xterm-ghostty` terminfo and a Ghostty-inspired color theme; see [Branding](branding.md).
+
 Date: 2026-06-30
 
 Fixture: the same `vim -Nu NONE -n -R` session on `/tmp/onibi-t2309.kRs641/parity.go`, served from tmux target `onibi-parity-t2309`.

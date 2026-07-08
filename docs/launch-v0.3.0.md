@@ -18,6 +18,8 @@ v0.3.0 is the web-cockpit pivot. First run no longer starts by asking for a Tele
 
 The phone cockpit has the pieces that made this worth a release: live xterm.js PTY streaming, Ghostty terminfo defaults, a Ghostty-shaped theme, soft keys for mobile terminal work, `MAC`/`PHONE` handover, owner-gated approval cards, device management, and restart-aware status checks.
 
+Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](branding.md).
+
 Telegram did not disappear. It became an optional bridge. `onibi telegram setup` stores the BotFather token, `onibi up --transport=telegram` starts chat-native text control, and approval cards support approve/deny/edit callbacks. That keeps chat useful without making third-party setup the default onboarding path.
 
 The release also tightens operational surfaces: `onibi status` includes update-check state and next actions, `onibi doctor --release` bundles upgrade/hook/cert/service/runtime checks, `doctor --fix` only repairs existing Onibi-managed hooks, and `uninstall --dry-run --json` prints a machine-readable destructive-action plan before anything is removed.

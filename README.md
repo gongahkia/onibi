@@ -20,6 +20,8 @@ use ghostty wherever text renders: a web/chat-controlled coding-agent host with 
 
 Onibi runs local shells and coding agents in managed tmux-backed sessions, installs `xterm-ghostty` terminfo for the PTY path, exposes a Ghostty-themed phone cockpit over HTTPS/WebSocket, and routes tool approvals through owner-only web, chat, or notify-only providers. Run `onibi up`, choose a connection category, then choose LAN/hotspot, Tailscale Funnel, Cloudflare, ngrok, Telegram, Matrix, Slack, Discord, Pushover, ntfy, or Gotify before driving the same live session between mobile Safari, chat, and a visible Mac terminal.
 
+Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](./docs/branding.md).
+
 Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Remaining work is tracked in GitHub issues.
 
 ## Quick Start
@@ -132,6 +134,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
+- [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
 - [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
 - [`docs/sharing.md`](./docs/sharing.md): read-only viewer sharing threat model and TTL guidance.
 - [`docs/web-push.md`](./docs/web-push.md): iOS web push setup and troubleshooting.
@@ -150,6 +153,10 @@ After `./bin/onibi up` and phone pairing:
 - Approval hooks fail open if the local daemon is unavailable.
 - Linux without Secret Service stores the SQLite master key in an unencrypted 0600 fallback file; see [`docs/security.md#at-rest-state`](./docs/security.md#at-rest-state).
 - The local OS user account remains trusted.
+
+## Branding
+
+Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project. Onibi uses the `xterm-ghostty` terminfo and a Ghostty-inspired color theme; the name and any perceived resemblance are coincidental / homage. Usage boundaries live in [`docs/branding.md`](./docs/branding.md).
 
 ## License
 
