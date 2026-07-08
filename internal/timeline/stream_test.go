@@ -47,6 +47,33 @@ func TestParseRejectsBadJSON(t *testing.T) {
 	}
 }
 
+func TestParsePreservesEventOrderingAndSummaryBounds(t *testing.T) {
+	longText := strings.Repeat("x", 220)
+	body := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-06-30T00:00:00Z","message":{"role":"user","content":"` + longText + `"}}`,
+		`{"type":"assistant","timestamp":"2026-06-30T00:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}`,
+		"",
+	}, "\n")
+	events, err := Parse(strings.NewReader(body), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events = %#v", events)
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].Offset < events[i-1].Offset {
+			t.Fatalf("offset order broke at %d: %#v", i, events)
+		}
+	}
+	if got := len([]rune(events[0].Summary)); got != 160 {
+		t.Fatalf("summary length = %d summary=%q", got, events[0].Summary)
+	}
+	if events[0].Turn != 1 || events[1].Turn != 2 || events[2].Kind != KindToolCall || events[2].Turn != 2 {
+		t.Fatalf("turn ordering = %#v", events)
+	}
+}
+
 func assertKindCount(t *testing.T, events []TimelineEvent, kind EventKind, want int) {
 	t.Helper()
 	got := 0

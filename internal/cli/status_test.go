@@ -77,6 +77,43 @@ func TestStatusUpdateCheckIgnoresDifferentBuildCache(t *testing.T) {
 	}
 }
 
+func TestStatusUpdateCheckIgnoresExpiredCache(t *testing.T) {
+	withDefaultState(t)
+	_, db, err := openCLIStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := normalizeUpdateResult(updatecheck.Result{
+		Status: updatecheck.StatusCurrent,
+		Source: updatecheck.SourceGitHub,
+		Detail: "expired",
+	})
+	b, err := json.Marshal(expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVSet(context.Background(), updateCheckCacheKey, b, time.Now().Add(-time.Second).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	calls := withFakeUpdateCheck(t, func() updatecheck.Result {
+		return updatecheck.Result{Status: updatecheck.StatusCurrent, Source: updatecheck.SourceGitHub, Detail: "fresh"}
+	})
+	out, _ := executeRoot(t, "status", "--json", "--color", "never")
+	if *calls != 1 {
+		t.Fatalf("update checks = %d want 1", *calls)
+	}
+	var report cliStatusReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.Update == nil || report.Update.Detail != "fresh" {
+		t.Fatalf("update summary = %+v", report.Update)
+	}
+}
+
 func TestStatusRefreshUpdateUsesConditionalCache(t *testing.T) {
 	withDefaultState(t)
 	old := updateCheckRun
