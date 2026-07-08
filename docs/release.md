@@ -27,6 +27,11 @@ scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
+CI runs the `reproducible-build` job on every push and pull request. It installs
+GoReleaser, runs two fixed-input `goreleaser build --snapshot --single-target`
+passes from the same commit, and fails with the differing artifact path and both
+SHA256 values if any binary differs.
+
 Expected artifacts:
 
 - `dist/checksums.txt`

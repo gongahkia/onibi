@@ -127,9 +127,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: stable
           cache: true
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          install-only: true
       - name: compare fixed-input builds
         run: scripts/reproducible-build.sh
