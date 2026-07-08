@@ -1,5 +1,7 @@
 # Security
 
+See the top-level [`THREAT-MODEL.md`](../THREAT-MODEL.md) for the visible summary. This document keeps extended implementation detail.
+
 Onibi gives a paired phone browser control over local coding-agent sessions. Treat it like remote terminal access to your user account.
 
 ## Threat Model
