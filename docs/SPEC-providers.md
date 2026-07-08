@@ -1,0 +1,199 @@
+# Onibi Provider Parity Contract
+
+Status: contract for E1-E12 provider parity work.
+
+This spec defines the target `chatout.Provider` shape for chat and notify
+providers. Existing providers do not all satisfy the full contract today. The
+matrix below is the baseline; E1-E7 and future provider issues close gaps
+against this document.
+
+## Provider Interface
+
+The target Go surface lives in `internal/chatout/contract.go`:
+
+```go
+type Provider interface {
+    Name() string
+    Capabilities() []Capability
+
+    SendApproval(context.Context, ApprovalRequest) (msgID string, err error)
+    OnDecision(msgID string, handler func(Decision)) error
+
+    SendText(context.Context, text string) error
+    OnInboundText(handler func(text string, from Sender)) error
+    TailStream(context.Context, sessionID string, chunk <-chan []byte) error
+
+    Connect(context.Context) error
+    Reconnect(context.Context) error
+    Close() error
+
+    RecordInteraction(context.Context, AuditInteraction) error
+    RateLimit() RateLimitPolicy
+}
+```
+
+`Capabilities()` is authoritative. A provider that does not support an axis must
+return `ErrUnsupported` from that method path once concrete implementations add
+the shared error type.
+
+## Types
+
+`ApprovalRequest` contains:
+
+- `id`: Onibi approval id.
+- `session_id`: Onibi session id.
+- `agent`: source agent name, for example `claude`.
+- `tool`: requested tool name.
+- `input_json`: scrubbed or policy-filtered tool input.
+- `diff`: optional unified diff for file edits.
+- `risk_level`: `low`, `medium`, or `high`.
+
+`Decision` contains:
+
+- `approval_id`: Onibi approval id.
+- `verdict`: `approve`, `deny`, `edit`, or `expire`.
+- `updated_input`: replacement JSON for edit decisions.
+- `sender`: provider user/channel identity.
+- `message_id`: provider message or callback id.
+
+`Sender` contains provider-scoped `id`, display name, and channel id. Providers
+must treat provider user ids as audit identifiers, not as Onibi authentication.
+
+## Rate Limits
+
+Every provider reports a two-bucket policy:
+
+```go
+type RateLimitPolicy struct {
+    PerSecond RateLimitBucket
+    PerMinute RateLimitBucket
+}
+
+type RateLimitBucket struct {
+    Limit  int
+    Burst  int
+    Window time.Duration
+}
+```
+
+`PerSecond.Window` should be `time.Second`. `PerMinute.Window` should be
+`time.Minute`. `Limit <= 0` means the provider has no local static limit for
+that bucket and relies on remote `429` or `Retry-After` handling. Providers that
+receive a remote retry hint must sleep at least that long before retrying the
+same request. Retries must be context-cancelable.
+
+Chunking must happen before rate-limit scheduling. The chunk id is not an audit
+id; all chunks for one logical approval or tail update share one Onibi event id
+in audit detail.
+
+## Reconnect
+
+Reconnect uses exponential backoff with jitter:
+
+- initial delay: `1s`
+- multiplier: `2`
+- jitter: random `0.5x` to `1.5x`
+- cap: `5m`
+- reset: next successful `Connect`
+
+`Connect(ctx)` establishes a fresh provider connection. `Reconnect(ctx)` may
+reuse provider resume tokens, cursors, or socket URLs when the provider exposes
+them. If resume fails, the provider falls back to `Connect(ctx)` without losing
+Onibi's local approval queue. `Close()` must be idempotent.
+
+Providers with polling cursors must persist the last consumed cursor before
+handling user text when possible. Providers with push sockets must acknowledge
+provider envelopes only after Onibi accepts the event or has recorded an
+intentional ignore reason.
+
+## Audit Shape
+
+Provider audit rows must use `internal/store.AuditAppend`:
+
+| SQLite column | Source |
+| --- | --- |
+| `ts` | write time from `AuditAppend` |
+| `action` | provider action string |
+| `session_id` | Onibi session id, empty if global |
+| `payload_hash` | SHA-256 of payload supplied to `AuditAppend` |
+| `decided_by_chat` | provider user numeric id when available, else `0` |
+| `detail` | compact key/value detail string |
+
+Action names use `provider.event` shape:
+
+- `approval.request`
+- `approval.decided`
+- `provider.<name>.send`
+- `provider.<name>.send_error`
+- `provider.<name>.inbound_text`
+- `provider.<name>.ignored`
+- `notify.<name>.sent`
+- `notify.<name>.receipt.created`
+- `notify.<name>.receipt.acknowledged`
+- `notify.<name>.receipt.expired`
+
+`detail` must include provider, message id when present, verdict for decisions,
+and retry/rate-limit state when relevant. Raw provider payloads, access tokens,
+room secrets, and full terminal text must not be written to `detail`.
+
+## Capability Matrix
+
+Legend: `yes` means shipped enough for normal use; `partial` means present but
+below the target contract; `no` means not implemented today.
+
+<!-- markdownlint-disable MD013 -->
+
+| Provider | Approval send | Decision callbacks | Text out | Text in | Tail stream | Reconnect | Notify receipt | Audit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Telegram | yes | yes | yes | yes | partial | partial | no | partial |
+| Matrix | partial | partial | yes | yes | no | partial | no | partial |
+| Slack | yes | yes | yes | yes | no | partial | no | partial |
+| Discord | partial | partial | yes | yes | no | partial | no | partial |
+| Pushover | yes | no | notify-only | no | no | no | yes | partial |
+| ntfy | yes | no | notify-only | no | partial | no | no | partial |
+| Gotify | yes | no | notify-only | no | partial | no | no | partial |
+
+<!-- markdownlint-enable MD013 -->
+
+## Existing Provider Notes
+
+Telegram is the current broadest chat bridge: text input/output, approval
+buttons, command handling, and tail-style command output exist. Reconnect and
+audit should move behind the shared contract.
+
+Matrix supports room text and polling cursor state. Encrypted rooms are not full
+Olm/Megolm E2EE yet; room-level privacy remains E2.
+
+Slack supports Socket Mode, message input, and approval button callbacks. E1
+tracks full parity for tail streams, rate-limit policy reporting, and audit
+normalization.
+
+Discord supports Gateway text and slash-command fallback. E3 tracks components
+v2 buttons, tail streams, and full audit parity.
+
+Pushover is notify-only. It can send emergency-priority approval alerts and poll
+receipts, but it does not provide terminal input or native edit decisions.
+
+ntfy is notify-only today. It validates topic secrecy and can use WebSocket
+subscribe for smoke checks, but E6 tracks action buttons, password E2E, topic
+tailing, and audit parity.
+
+Gotify is notify-only today. It sends REST messages and can validate the client
+token for smoke checks. E7 tracks WebSocket streaming and callback action
+buttons.
+
+## Conformance Expectations
+
+Provider implementations must pass shared conformance tests for:
+
+- name and capability reporting
+- approval request send
+- idempotent approve, deny, edit, and expire decisions
+- inbound text normalization
+- rate-limit bucket reporting
+- retry-after handling
+- reconnect backoff cap and reset
+- audit row action/detail shape
+
+Provider-specific live tests remain opt-in because they require external
+secrets. Shared unit tests must use fake clients and must not call remote APIs.
