@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/snapshots/fork", s.handleSnapshotFork)
 	mux.HandleFunc("/snapshots/{name}/restore", s.handleSnapshotRestore)
 	mux.HandleFunc("/snapshots/{name}/fork", s.handleSnapshotFork)
+	mux.HandleFunc("/favicon.svg", s.handleStaticFile("dist/favicon.svg", "image/svg+xml"))
 	mux.HandleFunc("/manifest.webmanifest", s.handleStaticFile("dist/manifest.webmanifest", "application/manifest+json"))
 	mux.HandleFunc("/sw.js", s.handleStaticFile("dist/sw.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/icons/", s.handleIcons)

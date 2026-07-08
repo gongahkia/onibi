@@ -187,6 +187,7 @@ func TestPWAStaticFilesRequireAuthAndServe(t *testing.T) {
 		path string
 		ct   string
 	}{
+		{"/favicon.svg", "image/svg+xml"},
 		{"/manifest.webmanifest", "application/manifest+json"},
 		{"/sw.js", "application/javascript"},
 		{"/icons/onibi-192.png", "image/png"},
