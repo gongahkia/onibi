@@ -639,6 +639,16 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 		}
 		d.audit(ctx, "approval.timeout", s.ID, ev.InputJSON, 0,
 			fmt.Sprintf("tool=%s target=%s reason=%s", ev.Tool, ev.ToolTarget, ev.Text))
+		if strings.TrimSpace(ev.ApprovalID) != "" {
+			cancelReason := strings.TrimSpace(ev.Text)
+			if cancelReason == "" {
+				cancelReason = "approval request timed out"
+			}
+			err := d.Queue.Cancel(ctx, ev.ApprovalID, cancelReason)
+			if err != nil && !errors.Is(err, approval.ErrAlreadyDecided) && !errors.Is(err, approval.ErrUnknownApproval) {
+				return err
+			}
+		}
 		return nil
 	case intake.TypeSessionExited:
 		s, reason := d.sessionForEvent(ev)

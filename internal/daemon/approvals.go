@@ -60,15 +60,16 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}
 	d.publishApprovalAnomaly(approvalID, s, ev, hit)
-	a, getErr := d.Queue.Get(ctx, approvalID)
+	approvalCtx := context.WithoutCancel(ctx)
+	a, getErr := d.Queue.Get(approvalCtx, approvalID)
 	if getErr != nil {
 		return intake.Response{Decision: "cancelled", Reason: getErr.Error()}, nil
 	}
-	d.noteAnomaly(ctx, "approval.request")
+	d.noteAnomaly(approvalCtx, "approval.request")
 	if isHighRiskApproval(a) {
-		d.noteAnomaly(ctx, "approval.high_risk")
+		d.noteAnomaly(approvalCtx, "approval.high_risk")
 	}
-	d.audit(ctx, "approval.request", ev.Session, ev.InputJSON, 0, fmt.Sprintf("tool=%s id=%s", ev.Tool, approvalID))
+	d.audit(approvalCtx, "approval.request", ev.Session, ev.InputJSON, 0, fmt.Sprintf("tool=%s id=%s", ev.Tool, approvalID))
 	select {
 	case dec := <-ch:
 		d.resumeApprovalAnomaly(ctx, s, hit, dec)

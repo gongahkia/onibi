@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +45,52 @@ func TestApprovalUnifiedDiffWriteScrubsBeforeDiff(t *testing.T) {
 	}
 	if !strings.Contains(diff, "[REDACTED]") || !strings.Contains(diff, "+mode = \"new\"") {
 		t.Fatalf("diff = %s", diff)
+	}
+}
+
+func TestApprovalUnifiedDiffMultiEditAppliesFileEdits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	if err := os.WriteFile(path, []byte("alpha\nalpha\nbeta\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := `{"file_path":"doc.txt","edits":[{"old_string":"alpha","new_string":"omega","replace_all":true},{"oldString":"beta","newString":"gamma"}]}`
+	diff := approvalUnifiedDiff(intake.Event{Tool: "MultiEdit", CWD: dir, InputJSON: input})
+	if !strings.Contains(diff, "-alpha") || !strings.Contains(diff, "+omega") || !strings.Contains(diff, "+gamma") {
+		t.Fatalf("diff = %s", diff)
+	}
+}
+
+func TestApprovalDiffTextsMultiEditFallbackWithoutFile(t *testing.T) {
+	oldText, newText, ok := approvalDiffTexts(intake.Event{
+		Tool:      "MultiEdit",
+		InputJSON: `{"edits":[{"old_string":"alpha","new_string":"omega"},{"oldString":"beta","newString":"gamma"}]}`,
+	})
+	if !ok || oldText != "alpha\nbeta" || newText != "omega\ngamma" {
+		t.Fatalf("old=%q new=%q ok=%v", oldText, newText, ok)
+	}
+}
+
+func TestApprovalUnifiedDiffNotebookEditCellSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nb.ipynb")
+	raw := `{"cells":[{"id":"skip","source":"ignored"},{"id":"cell-2","source":["old ","source\n"]}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := `{"notebook_path":"nb.ipynb","cell_id":"cell-2","new_source":"new source\n"}`
+	diff := approvalUnifiedDiff(intake.Event{Tool: "NotebookEdit", CWD: dir, InputJSON: input})
+	if !strings.Contains(diff, "-old source") || !strings.Contains(diff, "+new source") {
+		t.Fatalf("diff = %s", diff)
+	}
+}
+
+func TestNotebookCellSourceRejectsInvalidSource(t *testing.T) {
+	if got, ok := notebookCellSource(`{"cells":[{"id":"cell-1","source":["ok",7]}]}`, "cell-1"); ok || got != "" {
+		t.Fatalf("got=%q ok=%v", got, ok)
+	}
+	if got, ok := notebookCellSource(`{"cells":[{"id":"cell-1","source":"ok"}]}`, "missing"); ok || got != "" {
+		t.Fatalf("got=%q ok=%v", got, ok)
 	}
 }
 
@@ -102,6 +150,171 @@ func TestApprovalTimeoutEventAudited(t *testing.T) {
 	}
 	if len(audit) != 1 || audit[0].Action != "approval.timeout" || !strings.Contains(audit[0].Detail, "tool=Bash") {
 		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+func TestApprovalTimeoutEventCancelsPendingApproval(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	approvalID, ch, err := d.Queue.Request(t.Context(), "s1", "shell", "Bash", `{"command":"sleep 400"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	if err := d.handleEvent(t.Context(), intake.Event{
+		Type:       intake.TypeApprovalTimeout,
+		Session:    "s1",
+		Managed:    true,
+		ApprovalID: approvalID,
+		Tool:       "Bash",
+		ToolTarget: "sleep 400",
+		InputJSON:  `{"command":"sleep 400"}`,
+		Text:       "approval request timed out after 5m0s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case dec := <-ch:
+		if dec.Verdict != approval.VerdictCancel || dec.Reason != "approval request timed out after 5m0s" {
+			t.Fatalf("decision = %#v", dec)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout decision not delivered")
+	}
+	ev := readTrustApprovalEvent(t, events)
+	if ev.Type != approval.EventDecided || ev.Decision.Verdict != approval.VerdictCancel {
+		t.Fatalf("approval event = %#v", ev)
+	}
+	a, err := d.Queue.Get(t.Context(), approvalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateCancelled || a.Reason != "approval request timed out after 5m0s" {
+		t.Fatalf("approval = %#v", a)
+	}
+}
+
+func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	s := NewSession("s1", "claude", "claude", nil, 0)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	result := make(chan approvalResult, 1)
+	go func() {
+		resp, err := d.handleApprovalRequest(t.Context(), intake.Event{
+			Type:      intake.TypeApprovalRequest,
+			Session:   "s1",
+			Managed:   true,
+			Agent:     "claude",
+			Tool:      "Bash",
+			InputJSON: `{"command":"echo ok"}`,
+		})
+		result <- approvalResult{resp: resp, err: err}
+	}()
+	approvalEv := readTrustApprovalEvent(t, events)
+	errs := make(chan error, 2)
+	go func() {
+		errs <- d.Queue.Decide(t.Context(), approvalEv.Approval.ID, approval.VerdictApprove, "", "", 1)
+	}()
+	go func() { errs <- d.Queue.Decide(t.Context(), approvalEv.Approval.ID, approval.VerdictDeny, "", "no", 2) }()
+	var succeeded, alreadyDecided int
+	for range 2 {
+		err := <-errs
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, approval.ErrAlreadyDecided):
+			alreadyDecided++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if succeeded != 1 || alreadyDecided != 1 {
+		t.Fatalf("succeeded=%d already_decided=%d", succeeded, alreadyDecided)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.resp.Decision != string(approval.VerdictApprove) && got.resp.Decision != "denied" {
+			t.Fatalf("response = %#v", got.resp)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval did not return")
+	}
+	a, err := d.Queue.Get(t.Context(), approvalEv.Approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateApproved && a.State != approval.StateDenied {
+		t.Fatalf("approval state = %s", a.State)
+	}
+}
+
+func TestApprovalRequestCancelsOnDaemonShutdown(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	s := NewSession("s1", "claude", "claude", nil, 0)
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan approvalResult, 1)
+	go func() {
+		resp, err := d.handleApprovalRequest(ctx, intake.Event{
+			Type:      intake.TypeApprovalRequest,
+			Session:   "s1",
+			Managed:   true,
+			Agent:     "claude",
+			Tool:      "Bash",
+			InputJSON: `{"command":"echo ok"}`,
+		})
+		result <- approvalResult{resp: resp, err: err}
+	}()
+	approvalEv := readTrustApprovalEvent(t, events)
+	cancel()
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.resp.Decision != "cancelled" || got.resp.Reason != "daemon shutdown" {
+			t.Fatalf("response = %#v", got.resp)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval did not return")
+	}
+	decidedEv := readTrustApprovalEvent(t, events)
+	if decidedEv.Type != approval.EventDecided || decidedEv.Decision.Verdict != approval.VerdictCancel || decidedEv.Decision.Reason != "daemon shutdown" {
+		t.Fatalf("approval event = %#v", decidedEv)
+	}
+	a, err := d.Queue.Get(t.Context(), approvalEv.Approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateCancelled || a.Reason != "daemon shutdown" {
+		t.Fatalf("approval = %#v", a)
 	}
 }
 
