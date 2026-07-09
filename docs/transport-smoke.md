@@ -139,7 +139,7 @@ onibi config set provider.output.signal.redaction strict
 - `default` redaction uses Onibi approval/output scrubbing.
 - `strict` additionally masks long token-like strings.
 - `off` disables config redaction; `ONIBI_CHAT_UNREDACTED=1` remains an env escape hatch.
-- Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, and `notify`; set an override to `inherit` to return to global defaults.
+- Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, and `notify`; set an override to `inherit` to return to global defaults.
 - Output is truncated before provider chunk send, so chat providers cannot stream unlimited terminal output.
 
 ## Notify-only
