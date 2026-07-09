@@ -22,6 +22,8 @@ Onibi runs local shells and coding agents in managed tmux-backed sessions, then 
 
 Status: v3 web-cockpit pivot in progress. The local shell cockpit, managed tmux session path, iPhone pairing, live terminal, resize/reconnect smoke, handover controls, Claude Code approval overlay, device management command surface, and Tailscale transport have local or real-phone coverage. Remaining work is tracked in GitHub issues.
 
+Launch demos and cockpit visuals live in [`SHOWCASE.md`](./SHOWCASE.md).
+
 ## Quick Start
 
 ```bash
