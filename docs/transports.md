@@ -20,6 +20,7 @@ The supported transports are:
 - `slack`: Slack Socket Mode workspace control.
 - `discord`: Discord Gateway bot control with slash-command fallback.
 - `zulip`: Zulip stream/topic control with one topic per session.
+- `irc`: IRC DM control with SASL auth, intended for libera.chat-style registered bot nicks.
 - `pushover`: notify-only approval alerts.
 - `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
@@ -241,6 +242,31 @@ Create an Onibi bot user in Zulip and copy its email/API key from the Zulip acco
 
 Onibi creates one Zulip topic per session: `<topic-prefix><session-id>`. Messages from `ONIBI_ZULIP_OWNER_EMAIL` in that topic are written to the matching PTY. Approval prompts are posted into the same topic; reply `approve <id>` or `deny <id>` to decide. Session output is sent back as topic messages with provider output redaction/truncation. Zulip event-queue API errors reconnect with bounded backoff and write `provider.zulip.reconnect`, `provider.zulip.text_in`, `provider.zulip.tail_chunk`, `provider.zulip.tail_error`, `provider.zulip.approval_sent`, and `provider.zulip.approval_error` audit rows. `onibi doctor --transport=zulip` checks required env and event-queue access.
 
+## IRC
+
+`onibi up --transport=irc` requires a registered bot nick. libera.chat supports SASL setup for automatic login and IRCv3 documents SASL PLAIN over `CAP REQ :sasl` plus `AUTHENTICATE PLAIN`.
+
+```bash
+ONIBI_IRC_ADDR=irc.libera.chat:6697
+ONIBI_IRC_NICK=onibi-bot
+ONIBI_IRC_USERNAME=onibi-bot
+ONIBI_IRC_PASSWORD=<nickserv-password>
+ONIBI_IRC_OWNER_NICK=<your-nick>
+onibi up --transport=irc
+```
+
+Optional:
+
+```bash
+ONIBI_IRC_PLAINTEXT=1
+```
+
+The default connection uses TLS. `ONIBI_IRC_PLAINTEXT=1` exists for local test servers only. IRC has no Onibi-supported E2EE path; traffic is visible to the IRC network/server unless your IRC network provides its own encryption layer. Use web LAN, WireGuard, ZeroTier, or Tailscale when terminal text must not pass through a chat network.
+
+The bridge only accepts direct `PRIVMSG` messages from `ONIBI_IRC_OWNER_NICK` to the bot nick. Send `!onibi approve <id>` or `!onibi deny <id>` to decide approvals. Any other owner DM is written to the active PTY. Session output and approval prompts are returned as owner DMs, chunked at 400 chars for IRC line safety. Sends are paced at one message every two seconds to match libera.chat's documented message-rate guidance. IRC reconnect, text input, tail chunks/errors, and approval send/errors write `provider.irc.*` audit rows. `onibi doctor --transport=irc` checks required env and SASL connect reachability.
+
+References: <https://libera.chat/guides/sasl>, <https://libera.chat/guides/faq>, <https://ircv3.net/specs/extensions/sasl-3.1>, and <https://datatracker.ietf.org/doc/html/rfc2812>.
+
 ## Signal
 
 Signal integration uses a local `signal-cli` JSON-RPC daemon over HTTP:
@@ -272,9 +298,10 @@ onibi config set provider.output.redaction strict
 onibi config set provider.output.slack.max_bytes 12000
 onibi config set provider.output.discord.redaction off
 onibi config set provider.output.zulip.max_chunks 4
+onibi config set provider.output.irc.max_bytes 2048
 ```
 
-`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
+`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 

@@ -62,6 +62,7 @@ type Daemon struct {
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
+	IRC                     IRCOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
@@ -123,6 +124,7 @@ type Options struct {
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
+	IRC                     IRCOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
@@ -171,6 +173,15 @@ type ZulipOptions struct {
 	Stream      string
 	TopicPrefix string
 	OwnerEmail  string
+}
+
+type IRCOptions struct {
+	Addr      string
+	Nick      string
+	Username  string
+	Password  string
+	OwnerNick string
+	Plaintext bool
 }
 
 type PushoverOptions struct {
@@ -263,6 +274,7 @@ func New(opts Options) *Daemon {
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
+		IRC:                     opts.IRC,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
@@ -564,6 +576,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.startSlackBridge(ctx, &wg, cancel)
 	d.startDiscordBridge(ctx, &wg, cancel)
 	d.startZulipBridge(ctx, &wg, cancel)
+	d.startIRCBridge(ctx, &wg, cancel)
 	d.startPushoverNotifier(ctx, &wg)
 	d.startNtfyNotifier(ctx, &wg)
 	d.startGotifyNotifier(ctx, &wg)

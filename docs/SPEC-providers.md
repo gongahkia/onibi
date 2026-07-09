@@ -150,6 +150,7 @@ below the target contract; `no` means not implemented today.
 | Slack | yes | yes | yes | yes | no | partial | no | partial |
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
 | Zulip | partial | partial | yes | yes | partial | partial | no | partial |
+| IRC | partial | partial | yes | yes | partial | partial | no | partial |
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
@@ -173,6 +174,10 @@ normalization.
 Zulip supports stream/topic messages, topic-mapped text input, slash-command
 approval replies, per-session topic tail output, event queue reconnect, and
 audit rows. Reaction decision callbacks remain future work.
+
+IRC supports registered-nick SASL PLAIN login, owner-DM text input, `!onibi`
+approval replies, DM tail chunking, reconnect backoff, send pacing, and audit
+rows. It has no Onibi-supported E2EE path.
 
 Discord supports Gateway text and slash-command fallback. E3 tracks components
 v2 buttons, tail streams, and full audit parity.

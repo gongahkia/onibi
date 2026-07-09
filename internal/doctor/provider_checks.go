@@ -11,6 +11,7 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/gotify"
+	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
@@ -62,6 +63,9 @@ var (
 	newZulipClient = func(baseURL, email, apiKey string) *zulip.Client {
 		return zulip.New(baseURL, email, apiKey)
 	}
+	newIRCClient = func(addr, nick, username, password string) *irc.Client {
+		return irc.New(addr, nick, username, password)
+	}
 )
 
 func Providers(ctx context.Context, opts Options) ProviderReport {
@@ -72,6 +76,7 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerSlack(ctx, opts, pa),
 		providerDiscord(ctx, opts, pa),
 		providerZulip(ctx, opts, pa),
+		providerIRC(ctx, opts, pa),
 		providerPushover(ctx, opts, pa),
 		providerNtfy(ctx, opts, pa),
 		providerGotify(ctx, opts, pa),
@@ -240,6 +245,36 @@ func providerZulip(ctx context.Context, opts Options, pa map[string]string) Prov
 		_ = newZulipClient(os.Getenv("ONIBI_ZULIP_URL"), os.Getenv("ONIBI_ZULIP_EMAIL"), os.Getenv("ONIBI_ZULIP_API_KEY")).DeleteQueue(ctx, q.QueueID)
 		row.Reachable = ReachableYes
 		row.Detail = "event queue ok"
+	})
+	return row
+}
+
+func providerIRC(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
+	row := providerRow("irc", pa)
+	missing := missingEnv("ONIBI_IRC_NICK", "ONIBI_IRC_PASSWORD", "ONIBI_IRC_OWNER_NICK")
+	row.Configured = len(missing) == 0
+	if !row.Configured {
+		row.Detail = "missing " + strings.Join(missing, ", ")
+		row.Fix = []string{"set ONIBI_IRC_NICK, ONIBI_IRC_PASSWORD, ONIBI_IRC_OWNER_NICK", "run onibi up --transport=irc"}
+		return row
+	}
+	row.Detail = "env present"
+	if opts.Offline {
+		return row
+	}
+	withProviderTimeout(ctx, func(ctx context.Context) {
+		c := newIRCClient(os.Getenv("ONIBI_IRC_ADDR"), os.Getenv("ONIBI_IRC_NICK"), os.Getenv("ONIBI_IRC_USERNAME"), os.Getenv("ONIBI_IRC_PASSWORD"))
+		if envBool("ONIBI_IRC_PLAINTEXT") {
+			c.Plaintext = true
+		}
+		if err := c.Connect(ctx); err != nil {
+			row.Reachable = ReachableNo
+			row.Detail = "SASL connect failed: " + err.Error()
+			return
+		}
+		_ = c.Close()
+		row.Reachable = ReachableYes
+		row.Detail = "SASL connect ok"
 	})
 	return row
 }
@@ -422,7 +457,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "pushover", "ntfy", "gotify", "apns"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

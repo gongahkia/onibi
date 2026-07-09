@@ -1,9 +1,11 @@
 package doctor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
+	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/slack"
@@ -28,7 +31,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "pushover", "ntfy", "gotify", "apns"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -63,6 +66,7 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"slack":    "ONIBI_SLACK_APP_TOKEN",
 		"discord":  "ONIBI_DISCORD_TOKEN",
 		"zulip":    "ONIBI_ZULIP_URL",
+		"irc":      "ONIBI_IRC_NICK",
 		"pushover": "ONIBI_PUSHOVER_TOKEN",
 		"ntfy":     "ONIBI_NTFY_TOPIC",
 		"gotify":   "ONIBI_GOTIFY_URL",
@@ -134,6 +138,7 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer zulipSrv.Close()
 	t.Setenv("ONIBI_ZULIP_URL", zulipSrv.URL)
+	withIRCFactory(t)
 	pushoverSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/messages.json") {
 			t.Fatalf("pushover path = %s", r.URL.Path)
@@ -344,6 +349,19 @@ func TestDoctorZulipProviderFakeAPI(t *testing.T) {
 	}
 }
 
+func TestDoctorIRCProviderFakeConn(t *testing.T) {
+	paths := doctorTestPaths(t, "irc")
+	t.Setenv("ONIBI_IRC_NICK", "onibi")
+	t.Setenv("ONIBI_IRC_USERNAME", "onibi")
+	t.Setenv("ONIBI_IRC_PASSWORD", "irc-pass")
+	t.Setenv("ONIBI_IRC_OWNER_NICK", "owner")
+	withIRCFactory(t)
+	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "IRC live API ok") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
 func TestDoctorNtfyProviderPublishSubscribeFakeAPI(t *testing.T) {
 	paths := doctorTestPaths(t, "ntfy")
 	topic := "AbcdefGhij1234567890_Z"
@@ -433,6 +451,51 @@ func withDiscordFactory(t *testing.T, baseURL string) {
 	t.Cleanup(func() { newDiscordClient = old })
 }
 
+func withIRCFactory(t *testing.T) {
+	t.Helper()
+	old := newIRCClient
+	newIRCClient = func(addr, nick, username, password string) *irc.Client {
+		clientConn, serverConn := net.Pipe()
+		c := irc.New("pipe", nick, username, password)
+		c.Plaintext = true
+		c.Dial = func(context.Context, string, string) (net.Conn, error) {
+			go serveIRCSASL(t, serverConn)
+			return clientConn, nil
+		}
+		return c
+	}
+	t.Cleanup(func() { newIRCClient = old })
+}
+
+func serveIRCSASL(t *testing.T, conn net.Conn) {
+	t.Helper()
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+	for _, want := range []string{"CAP REQ :sasl", "NICK onibi", "USER onibi 0 * :Onibi"} {
+		got, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if strings.TrimRight(got, "\r\n") != want {
+			t.Errorf("irc line = %q want %q", strings.TrimRight(got, "\r\n"), want)
+			return
+		}
+	}
+	_, _ = conn.Write([]byte(":irc.test CAP onibi ACK :sasl\r\n"))
+	if got, err := r.ReadString('\n'); err != nil || strings.TrimRight(got, "\r\n") != "AUTHENTICATE PLAIN" {
+		return
+	}
+	_, _ = conn.Write([]byte("AUTHENTICATE +\r\n"))
+	if _, err := r.ReadString('\n'); err != nil {
+		return
+	}
+	_, _ = conn.Write([]byte(":irc.test 903 onibi :SASL authentication successful\r\n"))
+	if got, err := r.ReadString('\n'); err != nil || strings.TrimRight(got, "\r\n") != "CAP END" {
+		return
+	}
+	_, _ = conn.Write([]byte(":irc.test 001 onibi :Welcome\r\n"))
+}
+
 func withTelegramProviderFactory(t *testing.T, baseURL string) {
 	t.Helper()
 	old := newTelegramProviderClient
@@ -508,6 +571,10 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_ZULIP_EMAIL", "onibi-bot@example.com")
 	t.Setenv("ONIBI_ZULIP_API_KEY", "zulip-key")
 	t.Setenv("ONIBI_ZULIP_STREAM", "onibi")
+	t.Setenv("ONIBI_IRC_NICK", "onibi")
+	t.Setenv("ONIBI_IRC_USERNAME", "onibi")
+	t.Setenv("ONIBI_IRC_PASSWORD", "irc-pass")
+	t.Setenv("ONIBI_IRC_OWNER_NICK", "owner")
 	t.Setenv("ONIBI_PUSHOVER_TOKEN", "push-token")
 	t.Setenv("ONIBI_PUSHOVER_USER_KEY", "user-key")
 	t.Setenv("ONIBI_NTFY_TOPIC", "AbcdefGhij1234567890_Z")
@@ -540,6 +607,12 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_ZULIP_STREAM",
 		"ONIBI_ZULIP_TOPIC_PREFIX",
 		"ONIBI_ZULIP_OWNER_EMAIL",
+		"ONIBI_IRC_ADDR",
+		"ONIBI_IRC_NICK",
+		"ONIBI_IRC_USERNAME",
+		"ONIBI_IRC_PASSWORD",
+		"ONIBI_IRC_OWNER_NICK",
+		"ONIBI_IRC_PLAINTEXT",
 		"ONIBI_PUSHOVER_TOKEN",
 		"ONIBI_PUSHOVER_USER_KEY",
 		"ONIBI_NTFY_TOPIC",

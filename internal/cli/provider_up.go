@@ -50,6 +50,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
+		IRC:                     opts.IRC,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
@@ -89,6 +90,7 @@ type envProviderOptions struct {
 	Slack    daemon.SlackOptions
 	Discord  daemon.DiscordOptions
 	Zulip    daemon.ZulipOptions
+	IRC      daemon.IRCOptions
 	Pushover daemon.PushoverOptions
 	Ntfy     daemon.NtfyOptions
 	Gotify   daemon.GotifyOptions
@@ -145,6 +147,19 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("zulip requires ONIBI_ZULIP_URL, ONIBI_ZULIP_EMAIL, ONIBI_ZULIP_API_KEY, ONIBI_ZULIP_STREAM")
 		}
 		return opts, "Zulip", nil
+	case "irc":
+		opts.IRC = daemon.IRCOptions{
+			Addr:      strings.TrimSpace(os.Getenv("ONIBI_IRC_ADDR")),
+			Nick:      envRequired("ONIBI_IRC_NICK"),
+			Username:  strings.TrimSpace(os.Getenv("ONIBI_IRC_USERNAME")),
+			Password:  envRequired("ONIBI_IRC_PASSWORD"),
+			OwnerNick: envRequired("ONIBI_IRC_OWNER_NICK"),
+			Plaintext: envBool("ONIBI_IRC_PLAINTEXT"),
+		}
+		if opts.IRC.Nick == "" || opts.IRC.Password == "" || opts.IRC.OwnerNick == "" {
+			return opts, "", fmt.Errorf("irc requires ONIBI_IRC_NICK, ONIBI_IRC_PASSWORD, ONIBI_IRC_OWNER_NICK")
+		}
+		return opts, "IRC", nil
 	case "pushover":
 		opts.Pushover = daemon.PushoverOptions{Token: envRequired("ONIBI_PUSHOVER_TOKEN"), UserKey: envRequired("ONIBI_PUSHOVER_USER_KEY")}
 		if opts.Pushover.Token == "" || opts.Pushover.UserKey == "" {
@@ -183,7 +198,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord", "zulip":
+	case "matrix", "slack", "discord", "zulip", "irc":
 		return true
 	default:
 		return false

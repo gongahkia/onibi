@@ -45,7 +45,7 @@ Side-by-side:
 | agent state | first-class blocked/working/done/idle rollups | session list, timeline, approvals, anomaly/push events |
 | direct terminal | terminal/SSH/direct attach; herdr-remote phone terminal view | `/ws/pty` live terminal with typing, soft keys, resize, replay |
 | approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, runtime trust, hook enforcement |
-| chat control | Telegram approval/notification surface in herdr-remote | Telegram/Slack/Matrix/Discord text I/O plus approvals where supported |
+| chat control | Telegram approval/notification surface in herdr-remote | Telegram/Slack/Matrix/Discord/Zulip/IRC text I/O plus approvals where supported |
 | extension model | CLI/socket API, integrations, plugins | adapters, intake socket, provider bridges, web event stream |
 
 Four differentiators:
@@ -53,7 +53,7 @@ Four differentiators:
 1. **Session hosting.** Herdr also hosts persistent PTY panes, but users adopt Herdr as the multiplexer and add `herdr-remote` when they want phone/browser access. Onibi bundles the session host and phone cockpit in one daemon flow: `onibi up` creates or attaches the managed session, serves the cockpit, and owns pairing/auth.
 2. **Real live terminal.** Herdr has real terminal panes and direct attach; current `herdr-remote` docs also show a phone terminal view. Onibi's distinction is that the live browser terminal is the default product surface, with xterm.js, mobile soft keys, resize/replay behavior, file/timeline panels, and handoff controls built around one session id.
 3. **Hook-based enforcement.** Herdr integrations primarily report session identity, lifecycle state, or both; its remote surface exposes approval actions for blocked agents. Onibi's approval path is the enforcement boundary: provider hooks send blocking requests to the Onibi queue, and deny/edit decisions feed back through the hook contract before tool execution continues.
-4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. Onibi's chat providers are broader control surfaces: Telegram, Matrix, Slack, and Discord can send text into the hosted session, while notify-only providers stay approval/alert-only.
+4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. Onibi's chat providers are broader control surfaces: Telegram, Matrix, Slack, Discord, Zulip, and IRC can send text into the hosted session, while notify-only providers stay approval/alert-only.
 
 When to pick Herdr over Onibi: choose Herdr if you already want a terminal-native multiplexer for many agent panes and mainly need state rollups, direct terminal attach, SSH workflows, or a phone notification/approval add-on. Choose Onibi if you want a self-contained mobile/browser cockpit, chat text input, transport choice, and an owner approval queue around a hosted session rather than a terminal multiplexer as the primary UI.
 
@@ -99,7 +99,7 @@ Claude Code Remote Control is Anthropic's first-party way to continue a local Cl
 
 That makes CCRC the obvious fit for Claude-only users who already live in Claude Code and want the official phone/browser path. It supports CLI and VS Code entry points, QR/session URL handoff, mobile push notifications, server mode, and Claude app/web access. Current Anthropic docs describe it as a research preview, list Pro, Max, Team, and Enterprise in the requirements, and say API keys are not supported. Team and Enterprise owners may also need to enable Remote Control before users can connect.
 
-Onibi overlaps on the local-session claim but keeps the host independent of one vendor's remote surface. It runs the session under Onibi's tmux-backed host, exposes a live xterm.js cockpit, and uses hook-level approval enforcement for supported agents. Claude Code is one supported adapter, not the whole product. The same Onibi daemon can host Codex, OpenCode, Goose, Gemini, Copilot CLI, Amp, Pi, and plain shell/TUI sessions, then route control through the browser cockpit or Telegram, Slack, Matrix, Discord, and notify-only providers.
+Onibi overlaps on the local-session claim but keeps the host independent of one vendor's remote surface. It runs the session under Onibi's tmux-backed host, exposes a live xterm.js cockpit, and uses hook-level approval enforcement for supported agents. Claude Code is one supported adapter, not the whole product. The same Onibi daemon can host Codex, OpenCode, Goose, Gemini, Copilot CLI, Amp, Pi, and plain shell/TUI sessions, then route control through the browser cockpit or Telegram, Slack, Matrix, Discord, Zulip, IRC, and notify-only providers.
 
 Core differences:
 

@@ -23,6 +23,7 @@ const (
 	ModeZeroTier        Mode = "zerotier"
 	ModeTelegram        Mode = "telegram"
 	ModeZulip           Mode = "zulip"
+	ModeIRC             Mode = "irc"
 	ModeCloudflareQuick Mode = "cloudflare-quick"
 	ModeCloudflareNamed Mode = "cloudflare-named"
 	ModeNgrok           Mode = "ngrok"
@@ -162,6 +163,8 @@ func NormalizeMode(mode string) Mode {
 		return ModeTelegram
 	case ModeZulip:
 		return ModeZulip
+	case ModeIRC:
+		return ModeIRC
 	case ModeCloudflareQuick:
 		return ModeCloudflareQuick
 	case ModeCloudflareNamed:
@@ -176,7 +179,7 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, pushover, ntfy, gotify, apns, auto"
+	return "lan, lan-loopback, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, irc, pushover, ntfy, gotify, apns, auto"
 }
 
 func IsRelayMode(mode string) bool {
