@@ -19,12 +19,14 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/chatout"
 	"github.com/gongahkia/onibi/internal/discord"
+	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/slack"
+	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/zulip"
 )
@@ -1275,14 +1277,7 @@ func (d *Daemon) ntfyApprovalActions(a *approval.Approval) ([]ntfy.Action, error
 	if baseURL == "" {
 		return nil, nil
 	}
-	if d.notifyActionSigner == nil {
-		return nil, errors.New("ntfy action signer unavailable")
-	}
-	approveURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
-	if err != nil {
-		return nil, err
-	}
-	denyURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
+	approveURL, denyURL, err := d.signedApprovalActionURLs(baseURL, a)
 	if err != nil {
 		return nil, err
 	}
@@ -1410,6 +1405,118 @@ func (d *Daemon) publishAPNsWithRetry(ctx context.Context, c *apns.Client, a *ap
 		}
 	}
 	return last, lastErr
+}
+
+func (d *Daemon) runSMSNotifier(ctx context.Context, c *sms.Client) {
+	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		approveURL, denyURL, err := d.signedApprovalActionURLs(d.SMS.ActionBaseURL, a)
+		if err != nil {
+			d.audit(ctx, "notify.sms.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		msg := sms.Message{To: d.SMS.To, Body: smsApprovalBody(a, approveURL, denyURL)}
+		resp, err := d.sendSMSWithRetry(ctx, c, a, msg)
+		if err != nil {
+			d.audit(ctx, "notify.sms.error", a.SessionID, "", 0, fmt.Sprintf("approval=%s sid=%t status=%s err=%s", a.ID, resp.SID != "", resp.Status, err.Error()))
+			return
+		}
+		d.audit(ctx, "notify.sms.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s sid=%t status=%s", a.ID, resp.SID != "", resp.Status))
+	})
+}
+
+func (d *Daemon) sendSMSWithRetry(ctx context.Context, c *sms.Client, a *approval.Approval, msg sms.Message) (sms.MessageResponse, error) {
+	var last sms.MessageResponse
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		resp, err := c.Send(ctx, msg)
+		if err == nil {
+			return resp, nil
+		}
+		last = resp
+		lastErr = err
+		if attempt == 3 {
+			break
+		}
+		d.audit(ctx, "notify.sms.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, err.Error()))
+		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return last, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last, lastErr
+}
+
+func smsApprovalBody(a *approval.Approval, approveURL, denyURL string) string {
+	return fmt.Sprintf("Onibi approval %s\n%s %s\nApprove: %s\nDeny: %s", a.ID, strings.TrimSpace(a.Agent), strings.TrimSpace(a.Tool), approveURL, denyURL)
+}
+
+func (d *Daemon) runEmailNotifier(ctx context.Context, c *emailapi.Client) {
+	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		approveURL, denyURL, err := d.signedApprovalActionURLs(d.Email.ActionBaseURL, a)
+		if err != nil {
+			d.audit(ctx, "notify.email.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		msg := emailapi.Message{
+			To:      d.Email.To,
+			Subject: "Onibi approval " + a.ID,
+			Body:    emailApprovalBody(a, d.providerOutputPolicy("notify"), approveURL, denyURL),
+		}
+		if err := d.sendEmailWithRetry(ctx, c, a, msg); err != nil {
+			d.audit(ctx, "notify.email.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		d.audit(ctx, "notify.email.sent", a.SessionID, "", 0, "approval="+a.ID)
+	})
+}
+
+func (d *Daemon) sendEmailWithRetry(ctx context.Context, c *emailapi.Client, a *approval.Approval, msg emailapi.Message) error {
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := c.Send(ctx, msg); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+		if attempt == 3 {
+			break
+		}
+		d.audit(ctx, "notify.email.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, last.Error()))
+		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last
+}
+
+func emailApprovalBody(a *approval.Approval, policy ProviderOutputPolicy, approveURL, denyURL string) string {
+	return formatApprovalWithPolicy(a, policy) + "\n\nApprove: " + approveURL + "\nDeny: " + denyURL + "\n\nLinks expire after 5 minutes and are single-use."
+}
+
+func (d *Daemon) signedApprovalActionURLs(baseURL string, a *approval.Approval) (string, string, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return "", "", errors.New("action base URL required")
+	}
+	if d.notifyActionSigner == nil {
+		return "", "", errors.New("notify action signer unavailable")
+	}
+	approveURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
+	if err != nil {
+		return "", "", err
+	}
+	denyURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
+	if err != nil {
+		return "", "", err
+	}
+	return approveURL, denyURL, nil
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

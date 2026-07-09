@@ -5,17 +5,21 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/smtp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/approval"
+	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
+	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/web"
 	apns2 "github.com/sideshow/apns2"
 )
@@ -231,6 +235,124 @@ func TestAPNsRetryAudit(t *testing.T) {
 			if !strings.Contains(string(sender.last.Payload.([]byte)), `"approval_id":"`+id+`"`) {
 				t.Fatalf("payload = %s", sender.last.Payload)
 			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("audit rows = %#v", rows)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func TestSMSActionURLRetryAudit(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, SMS: SMSOptions{To: "+15550002", ActionBaseURL: "https://onibi.example"}})
+	signer, err := web.NewActionSigner([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.notifyActionSigner = signer
+	gotBody := make(chan string, 1)
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, `{"message":"try again"}`, http.StatusBadGateway)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		gotBody <- r.Form.Get("Body")
+		_ = json.NewEncoder(w).Encode(sms.MessageResponse{SID: "SM123", Status: "queued"})
+	}))
+	defer srv.Close()
+	c := sms.New("AC123", "tok", "+15550001", "")
+	c.BaseURL = srv.URL
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go d.runSMSNotifier(ctx, c)
+	select {
+	case got := <-gotBody:
+		if !strings.Contains(got, "https://onibi.example/ntfy/approval/"+id+"/approve") || !strings.Contains(got, "https://onibi.example/ntfy/approval/"+id+"/deny") {
+			t.Fatalf("body = %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sms send")
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		rows, err := db.AuditAll(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, row := range rows {
+			seen[row.Action] = true
+		}
+		if seen["notify.sms.retry"] && seen["notify.sms.sent"] {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("audit rows = %#v", rows)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func TestEmailActionURLRetryAudit(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, Email: EmailOptions{To: "owner@example.com", ActionBaseURL: "https://onibi.example"}})
+	signer, err := web.NewActionSigner([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.notifyActionSigner = signer
+	gotBody := make(chan string, 1)
+	calls := 0
+	c := emailapi.New("smtp.example:587", "smtp.example", "user", "pass", "onibi@example.com")
+	c.SendMail = func(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
+		calls++
+		if calls == 1 {
+			return errors.New("try again")
+		}
+		gotBody <- string(msg)
+		return nil
+	}
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go d.runEmailNotifier(ctx, c)
+	select {
+	case got := <-gotBody:
+		if !strings.Contains(got, "https://onibi.example/ntfy/approval/"+id+"/approve") || !strings.Contains(got, "https://onibi.example/ntfy/approval/"+id+"/deny") {
+			t.Fatalf("body = %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for email send")
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		rows, err := db.AuditAll(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, row := range rows {
+			seen[row.Action] = true
+		}
+		if seen["notify.email.retry"] && seen["notify.email.sent"] {
 			return
 		}
 		select {

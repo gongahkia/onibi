@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/smtp"
 	"strings"
 	"testing"
 
@@ -17,10 +18,12 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
+	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/slack"
+	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -31,7 +34,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns", "sms", "email"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -71,6 +74,8 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"ntfy":     "ONIBI_NTFY_TOPIC",
 		"gotify":   "ONIBI_GOTIFY_URL",
 		"apns":     "ONIBI_APNS_KEY_PATH",
+		"sms":      "ONIBI_TWILIO_ACCOUNT_SID",
+		"email":    "ONIBI_SMTP_ADDR",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -164,6 +169,8 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	defer gotifySrv.Close()
 	t.Setenv("ONIBI_GOTIFY_URL", gotifySrv.URL)
 	withAPNsProviderFactory(t)
+	withSMSFactory(t)
+	withEmailFactory(t)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -429,6 +436,35 @@ func TestDoctorGotifyProviderSendWSFakeAPI(t *testing.T) {
 	}
 }
 
+func TestDoctorSMSProviderFakeAPI(t *testing.T) {
+	paths := doctorTestPaths(t, "sms")
+	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
+	t.Setenv("ONIBI_TWILIO_ACCOUNT_SID", "AC123")
+	t.Setenv("ONIBI_TWILIO_AUTH_TOKEN", "twilio-token")
+	t.Setenv("ONIBI_TWILIO_FROM", "+15550001")
+	t.Setenv("ONIBI_SMS_TO", "+15550002")
+	t.Setenv("ONIBI_SMS_ACTION_BASE_URL", "https://onibi.example")
+	withSMSFactory(t)
+	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "SMS live API ok") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestDoctorEmailProviderFakeSend(t *testing.T) {
+	paths := doctorTestPaths(t, "email")
+	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
+	t.Setenv("ONIBI_SMTP_ADDR", "smtp.example:587")
+	t.Setenv("ONIBI_EMAIL_FROM", "onibi@example.com")
+	t.Setenv("ONIBI_EMAIL_TO", "owner@example.com")
+	t.Setenv("ONIBI_EMAIL_ACTION_BASE_URL", "https://onibi.example")
+	withEmailFactory(t)
+	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "Email live API ok") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
 func withSlackFactory(t *testing.T, baseURL string) {
 	t.Helper()
 	old := newSlackClient
@@ -527,6 +563,45 @@ func withAPNsProviderFactory(t *testing.T) {
 	t.Cleanup(func() { newAPNsProviderClient = old })
 }
 
+func withSMSFactory(t *testing.T) {
+	t.Helper()
+	old := newSMSClient
+	newSMSClient = func(accountSID, authToken, from, messagingServiceSID string) *sms.Client {
+		c := sms.New(accountSID, authToken, from, messagingServiceSID)
+		c.BaseURL = "http://twilio.invalid"
+		c.HTTP = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusCreated,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"sid":"SM123","status":"queued"}`)),
+			}, nil
+		}).Client()
+		return c
+	}
+	t.Cleanup(func() { newSMSClient = old })
+}
+
+func withEmailFactory(t *testing.T) {
+	t.Helper()
+	old := newEmailClient
+	newEmailClient = func(addr, host, username, password, from string) *emailapi.Client {
+		c := emailapi.New(addr, host, username, password, from)
+		c.SendMail = func(string, smtp.Auth, string, []string, []byte) error { return nil }
+		return c
+	}
+	t.Cleanup(func() { newEmailClient = old })
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func (f roundTripFunc) Client() *http.Client {
+	return &http.Client{Transport: f}
+}
+
 type fakeAPNsPusher struct{}
 
 func (fakeAPNsPusher) PushApproval(context.Context, apns.PushRequest) (apns.PushResult, error) {
@@ -586,6 +661,15 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_APNS_TEAM_ID", "TEAM123456")
 	t.Setenv("ONIBI_APNS_TOPIC", "com.example.onibi")
 	t.Setenv("ONIBI_APNS_DEVICE_TOKEN", "abc123")
+	t.Setenv("ONIBI_TWILIO_ACCOUNT_SID", "AC123")
+	t.Setenv("ONIBI_TWILIO_AUTH_TOKEN", "twilio-token")
+	t.Setenv("ONIBI_TWILIO_FROM", "+15550001")
+	t.Setenv("ONIBI_SMS_TO", "+15550002")
+	t.Setenv("ONIBI_SMS_ACTION_BASE_URL", "https://onibi.example")
+	t.Setenv("ONIBI_SMTP_ADDR", "smtp.example:587")
+	t.Setenv("ONIBI_EMAIL_FROM", "onibi@example.com")
+	t.Setenv("ONIBI_EMAIL_TO", "owner@example.com")
+	t.Setenv("ONIBI_EMAIL_ACTION_BASE_URL", "https://onibi.example")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -627,6 +711,19 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_APNS_TOPIC",
 		"ONIBI_APNS_DEVICE_TOKEN",
 		"ONIBI_APNS_ENV",
+		"ONIBI_TWILIO_ACCOUNT_SID",
+		"ONIBI_TWILIO_AUTH_TOKEN",
+		"ONIBI_TWILIO_FROM",
+		"ONIBI_TWILIO_MESSAGING_SERVICE_SID",
+		"ONIBI_SMS_TO",
+		"ONIBI_SMS_ACTION_BASE_URL",
+		"ONIBI_SMTP_ADDR",
+		"ONIBI_SMTP_HOST",
+		"ONIBI_SMTP_USERNAME",
+		"ONIBI_SMTP_PASSWORD",
+		"ONIBI_EMAIL_FROM",
+		"ONIBI_EMAIL_TO",
+		"ONIBI_EMAIL_ACTION_BASE_URL",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

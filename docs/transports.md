@@ -25,6 +25,8 @@ The supported transports are:
 - `ntfy`: topic alerts with optional signed approval actions.
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
 - `apns`: direct Apple Push Notification service alerts using a user-provided APNs key and native app device token.
+- `sms`: Twilio SMS alerts with signed approval links.
+- `email`: SMTP alerts with signed approval links through a user-provided MTA.
 
 Signal support currently lives at the provider-client layer for a local `signal-cli` JSON-RPC daemon. It is documented below, but is not selectable through `onibi up --transport=signal` until the daemon bridge is live-verified with a linked Signal number.
 
@@ -354,6 +356,36 @@ onibi up --transport=apns
 ```
 
 APNs is notify-only and intended for users who bring their own Apple Developer account, APNs auth key, bundle topic, and native app device token. PWA-only Onibi cannot mint a native APNs device token. Approval notifications are sent as alert pushes with `apns-push-type=alert`, priority 10, a 30s TTL, and an `approval_id` custom payload field. APNs send/retry/error rows are written to local audit. When APNs env is absent, Onibi keeps the existing web-push notifier as the fallback path. See [`apns-setup.md`](./apns-setup.md).
+
+SMS:
+
+```bash
+ONIBI_TWILIO_ACCOUNT_SID=AC...
+ONIBI_TWILIO_AUTH_TOKEN=...
+ONIBI_TWILIO_FROM=+15551234567
+# or:
+ONIBI_TWILIO_MESSAGING_SERVICE_SID=MG...
+ONIBI_SMS_TO=+15557654321
+ONIBI_SMS_ACTION_BASE_URL=https://onibi.example.com
+onibi up --transport=sms
+```
+
+Create a Twilio account, buy or verify a sender, and use either `ONIBI_TWILIO_FROM` or a Messaging Service SID. Twilio SMS is not free; live probes and approval sends can bill your Twilio account. SMS is notify-only and does not accept terminal text input. Each approval SMS contains Approve/Deny URLs signed by Onibi, single-use, and valid for 5 minutes. `ONIBI_SMS_ACTION_BASE_URL` must route to this Onibi daemon's web listener; `onibi up --transport=sms` starts that listener when the action base URL is configured. Sends, retries, and errors write `notify.sms.*` audit rows.
+
+Email:
+
+```bash
+ONIBI_SMTP_ADDR=smtp.example.com:587
+ONIBI_SMTP_HOST=smtp.example.com
+ONIBI_SMTP_USERNAME=onibi@example.com
+ONIBI_SMTP_PASSWORD=...
+ONIBI_EMAIL_FROM=onibi@example.com
+ONIBI_EMAIL_TO=owner@example.com
+ONIBI_EMAIL_ACTION_BASE_URL=https://onibi.example.com
+onibi up --transport=email
+```
+
+Email uses the Go standard library SMTP client and a bring-your-own MTA. `ONIBI_SMTP_USERNAME` and `ONIBI_SMTP_PASSWORD` are optional for local or trusted relays; most public SMTP services require them. Email is notify-only and does not accept terminal text input. Each approval email contains Approve/Deny URLs signed by Onibi, single-use, and valid for 5 minutes. `ONIBI_EMAIL_ACTION_BASE_URL` must route to this Onibi daemon's web listener; `onibi up --transport=email` starts that listener when the action base URL is configured. Sends, retries, and errors write `notify.email.*` audit rows.
 
 ## Coverage status
 

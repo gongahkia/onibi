@@ -30,7 +30,7 @@ onibi install-hooks --agent claude
 onibi up
 ```
 
-`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `pushover`, `ntfy`, `gotify`, `apns`, and `auto`.
+`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `pushover`, `ntfy`, `gotify`, `apns`, `sms`, `email`, and `auto`.
 Run `onibi status`, `onibi update-check`, and `onibi doctor --fix` when validating an install or upgrade. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:
@@ -65,7 +65,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - Local shell fallback for arbitrary commands and `vim`.
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
 - Chat text control: Telegram, Matrix, Slack, Discord, Zulip, and IRC can route terminal text; approvals support provider-native actions where available.
-- Notify-only approvals: Pushover, ntfy, and Gotify publish approval alerts without terminal text input.
+- Notify-only approvals: Pushover, ntfy, Gotify, APNs, SMS, and email publish approval alerts without terminal text input.
 - [`docs/comparison.md`](./docs/comparison.md) covers tradeoffs against remote-agent and terminal-sharing tools.
 
 ## Roadmap
@@ -133,7 +133,7 @@ After `./bin/onibi up` and phone pairing:
 - `internal/pty` bridges web terminal I/O to local PTYs and tmux attach clients.
 - `internal/web` serves HTTPS, static frontend assets, `/ws/pty`, `/ws/events`, `/control`, `/approval`, and `/pair`.
 - `internal/telegram`, `internal/matrix`, `internal/slack`, `internal/discord`, `internal/zulip`, and `internal/irc` provide chat-native text input/output and approval callbacks.
-- `internal/pushover`, `internal/ntfy`, and `internal/gotify` provide notify-only approval delivery.
+- `internal/pushover`, `internal/ntfy`, `internal/gotify`, `internal/apns`, `internal/sms`, and `internal/email` provide notify-only approval delivery.
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.
 - `frontend/` contains the xterm.js cockpit.

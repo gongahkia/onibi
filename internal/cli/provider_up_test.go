@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gongahkia/onibi/internal/daemon"
+)
 
 func TestProviderOptionsFromEnvMatrix(t *testing.T) {
 	t.Setenv("ONIBI_MATRIX_HOMESERVER", "https://matrix.example")
@@ -38,7 +42,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") {
 		t.Fatal("chat transport classification failed")
 	}
-	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") || !isNotifyTransport("apns") {
+	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") || !isNotifyTransport("apns") || !isNotifyTransport("sms") || !isNotifyTransport("email") {
 		t.Fatal("notify transport classification failed")
 	}
 }
@@ -88,5 +92,48 @@ func TestProviderOptionsFromEnvAPNs(t *testing.T) {
 	}
 	if label != "APNs" || opts.APNs.Topic != "com.example.onibi" || opts.APNs.Environment != "development" || opts.APNs.DeviceToken != "abc123" {
 		t.Fatalf("opts=%#v label=%q", opts.APNs, label)
+	}
+}
+
+func TestProviderOptionsFromEnvSMS(t *testing.T) {
+	t.Setenv("ONIBI_TWILIO_ACCOUNT_SID", "AC123")
+	t.Setenv("ONIBI_TWILIO_AUTH_TOKEN", "tok")
+	t.Setenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID", "MG123")
+	t.Setenv("ONIBI_SMS_TO", "+15550002")
+	t.Setenv("ONIBI_SMS_ACTION_BASE_URL", "https://onibi.example")
+	opts, label, err := providerOptionsFromEnv("sms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if label != "SMS" || opts.SMS.MessagingServiceSID != "MG123" || opts.SMS.To != "+15550002" || opts.SMS.ActionBaseURL != "https://onibi.example" {
+		t.Fatalf("opts=%#v label=%q", opts.SMS, label)
+	}
+}
+
+func TestProviderOptionsFromEnvEmail(t *testing.T) {
+	t.Setenv("ONIBI_SMTP_ADDR", "smtp.example:587")
+	t.Setenv("ONIBI_SMTP_HOST", "smtp.example")
+	t.Setenv("ONIBI_SMTP_USERNAME", "user")
+	t.Setenv("ONIBI_SMTP_PASSWORD", "pass")
+	t.Setenv("ONIBI_EMAIL_FROM", "onibi@example.com")
+	t.Setenv("ONIBI_EMAIL_TO", "owner@example.com")
+	t.Setenv("ONIBI_EMAIL_ACTION_BASE_URL", "https://onibi.example")
+	opts, label, err := providerOptionsFromEnv("email")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if label != "Email" || opts.Email.Addr != "smtp.example:587" || opts.Email.Host != "smtp.example" || opts.Email.To != "owner@example.com" || opts.Email.ActionBaseURL != "https://onibi.example" {
+		t.Fatalf("opts=%#v label=%q", opts.Email, label)
+	}
+}
+
+func TestEnvProviderActionWebAddr(t *testing.T) {
+	opts := envProviderOptions{SMS: daemon.SMSOptions{ActionBaseURL: "https://onibi.example"}}
+	if got := envProviderActionWebAddr("sms", opts, ":8443"); got != ":8443" {
+		t.Fatalf("sms addr = %q", got)
+	}
+	opts = envProviderOptions{Ntfy: daemon.NtfyOptions{}}
+	if got := envProviderActionWebAddr("ntfy", opts, ":8443"); got != "" {
+		t.Fatalf("ntfy addr = %q", got)
 	}
 }

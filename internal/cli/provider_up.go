@@ -46,6 +46,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:              cfg.Daemon.PTYBufferBytes,
 		TerminalDefault:         cfg.Terminal.Default,
+		WebAddr:                 envProviderActionWebAddr(mode, opts, cfg.Web.ListenAddr),
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
@@ -55,6 +56,8 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
 		APNs:                    opts.APNs,
+		SMS:                     opts.SMS,
+		Email:                   opts.Email,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		UpdateAuto:              cfg.Update.Auto,
@@ -95,6 +98,8 @@ type envProviderOptions struct {
 	Ntfy     daemon.NtfyOptions
 	Gotify   daemon.GotifyOptions
 	APNs     daemon.APNsOptions
+	SMS      daemon.SMSOptions
+	Email    daemon.EmailOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -191,6 +196,33 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("apns requires ONIBI_APNS_KEY_PATH, ONIBI_APNS_KEY_ID, ONIBI_APNS_TEAM_ID, ONIBI_APNS_TOPIC, ONIBI_APNS_DEVICE_TOKEN")
 		}
 		return opts, "APNs", nil
+	case "sms":
+		opts.SMS = daemon.SMSOptions{
+			AccountSID:          envRequired("ONIBI_TWILIO_ACCOUNT_SID"),
+			AuthToken:           envRequired("ONIBI_TWILIO_AUTH_TOKEN"),
+			From:                strings.TrimSpace(os.Getenv("ONIBI_TWILIO_FROM")),
+			MessagingServiceSID: strings.TrimSpace(os.Getenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID")),
+			To:                  envRequired("ONIBI_SMS_TO"),
+			ActionBaseURL:       envRequired("ONIBI_SMS_ACTION_BASE_URL"),
+		}
+		if opts.SMS.AccountSID == "" || opts.SMS.AuthToken == "" || opts.SMS.To == "" || opts.SMS.ActionBaseURL == "" || (opts.SMS.From == "" && opts.SMS.MessagingServiceSID == "") {
+			return opts, "", fmt.Errorf("sms requires ONIBI_TWILIO_ACCOUNT_SID, ONIBI_TWILIO_AUTH_TOKEN, ONIBI_SMS_TO, ONIBI_SMS_ACTION_BASE_URL, and ONIBI_TWILIO_FROM or ONIBI_TWILIO_MESSAGING_SERVICE_SID")
+		}
+		return opts, "SMS", nil
+	case "email":
+		opts.Email = daemon.EmailOptions{
+			Addr:          envRequired("ONIBI_SMTP_ADDR"),
+			Host:          strings.TrimSpace(os.Getenv("ONIBI_SMTP_HOST")),
+			Username:      strings.TrimSpace(os.Getenv("ONIBI_SMTP_USERNAME")),
+			Password:      strings.TrimSpace(os.Getenv("ONIBI_SMTP_PASSWORD")),
+			From:          envRequired("ONIBI_EMAIL_FROM"),
+			To:            envRequired("ONIBI_EMAIL_TO"),
+			ActionBaseURL: envRequired("ONIBI_EMAIL_ACTION_BASE_URL"),
+		}
+		if opts.Email.Addr == "" || opts.Email.From == "" || opts.Email.To == "" || opts.Email.ActionBaseURL == "" {
+			return opts, "", fmt.Errorf("email requires ONIBI_SMTP_ADDR, ONIBI_EMAIL_FROM, ONIBI_EMAIL_TO, ONIBI_EMAIL_ACTION_BASE_URL")
+		}
+		return opts, "Email", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -207,11 +239,36 @@ func isEnvChatTransport(mode string) bool {
 
 func isNotifyTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover", "ntfy", "gotify", "apns":
+	case "pushover", "ntfy", "gotify", "apns", "sms", "email":
 		return true
 	default:
 		return false
 	}
+}
+
+func envProviderActionWebAddr(mode string, opts envProviderOptions, listenAddr string) string {
+	if !isNotifyTransport(mode) {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "ntfy":
+		if strings.TrimSpace(opts.Ntfy.ActionBaseURL) != "" {
+			return listenAddr
+		}
+	case "gotify":
+		if strings.TrimSpace(opts.Gotify.ActionBaseURL) != "" {
+			return listenAddr
+		}
+	case "sms":
+		if strings.TrimSpace(opts.SMS.ActionBaseURL) != "" {
+			return listenAddr
+		}
+	case "email":
+		if strings.TrimSpace(opts.Email.ActionBaseURL) != "" {
+			return listenAddr
+		}
+	}
+	return ""
 }
 
 func apnsConfigFromOptions(opts daemon.APNsOptions) apnsapi.Config {
