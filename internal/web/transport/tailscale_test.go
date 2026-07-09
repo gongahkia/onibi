@@ -127,6 +127,20 @@ func TestTailscaleURLFallsBackToServeStatus(t *testing.T) {
 
 func TestTailscaleURLParsesServeStatusBody(t *testing.T) {
 	got, err := funnelURLFromServeStatus([]byte(`{
+		"TCP": {
+			"443": {
+				"HTTPS": true
+			}
+		},
+		"Web": {
+			"dev.tail.ts.net:443": {
+				"Handlers": {
+					"/": {
+						"Proxy": "https+insecure://localhost:8443"
+					}
+				}
+			}
+		},
 		"AllowFunnel": {
 			"dev.tail.ts.net:8443": true,
 			"dev.tail.ts.net:443": true
@@ -136,6 +150,24 @@ func TestTailscaleURLParsesServeStatusBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "https://dev.tail.ts.net/" {
+		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestTailscaleURLParsesForegroundServeStatusBody(t *testing.T) {
+	got, err := funnelURLFromServeStatus([]byte(`{
+		"Foreground": {
+			"session-1": {
+				"AllowFunnel": {
+					"dev.tail.ts.net:8443": true
+				}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://dev.tail.ts.net:8443/" {
 		t.Fatalf("url = %q", got)
 	}
 }
