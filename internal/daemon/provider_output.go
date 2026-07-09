@@ -30,6 +30,7 @@ type ProviderOutputOverrides struct {
 	Discord  ProviderOutputPolicy
 	Zulip    ProviderOutputPolicy
 	IRC      ProviderOutputPolicy
+	Signal   ProviderOutputPolicy
 	Notify   ProviderOutputPolicy
 }
 
@@ -79,6 +80,8 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.Zulip
 	case "irc":
 		return o.IRC
+	case "signal":
+		return o.Signal
 	case "notify", "pushover", "ntfy", "gotify", "apns", "sms", "email":
 		return o.Notify
 	default:

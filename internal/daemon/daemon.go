@@ -63,6 +63,7 @@ type Daemon struct {
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
+	Signal                  SignalOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
@@ -85,6 +86,8 @@ type Daemon struct {
 	discordMu             sync.Mutex
 	discordApprovals      map[string]discordApprovalRef
 	discordTailThreads    map[string]string
+	signalMu              sync.Mutex
+	signalApprovals       map[int64]string
 	notifyActionSigner    *web.ActionSigner
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
@@ -127,6 +130,7 @@ type Options struct {
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
+	Signal                  SignalOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
@@ -186,6 +190,14 @@ type IRCOptions struct {
 	Password  string
 	OwnerNick string
 	Plaintext bool
+}
+
+type SignalOptions struct {
+	RPCURL     string
+	Account    string
+	Recipients []string
+	GroupID    string
+	Owner      string
 }
 
 type PushoverOptions struct {
@@ -271,6 +283,7 @@ func New(opts Options) *Daemon {
 		slackApprovals:          map[string]slackApprovalRef{},
 		discordApprovals:        map[string]discordApprovalRef{},
 		discordTailThreads:      map[string]string{},
+		signalApprovals:         map[int64]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
 		budgetDaily:             map[string]int64{},
@@ -298,6 +311,7 @@ func New(opts Options) *Daemon {
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
+		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
@@ -602,6 +616,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.startDiscordBridge(ctx, &wg, cancel)
 	d.startZulipBridge(ctx, &wg, cancel)
 	d.startIRCBridge(ctx, &wg, cancel)
+	d.startSignalBridge(ctx, &wg, cancel)
 	d.startPushoverNotifier(ctx, &wg)
 	d.startNtfyNotifier(ctx, &wg)
 	d.startGotifyNotifier(ctx, &wg)

@@ -74,6 +74,24 @@ ONIBI_SIGNAL_ACCOUNT=+15551234567
 ONIBI_SIGNAL_RECIPIENT=+15557654321
 ```
 
+Optional:
+
+```bash
+ONIBI_SIGNAL_RECIPIENTS=+15557654321,+15559876543
+ONIBI_SIGNAL_GROUP_ID=<base64-group-id>
+ONIBI_SIGNAL_OWNER=+15557654321
+```
+
+`ONIBI_SIGNAL_OWNER` restricts inbound text/reactions to one source. If it is unset and exactly one recipient is configured, Onibi only accepts events from that recipient. For group use, set `ONIBI_SIGNAL_OWNER` when you need owner-only control.
+
+Start Onibi:
+
+```bash
+onibi up --transport=signal
+```
+
+Onibi sends approval prompts to the configured recipient or group. React `👍` or `✅` to approve, react `👎` or `❌` to deny, and send plain text messages to write to the active PTY.
+
 Check the daemon:
 
 ```bash

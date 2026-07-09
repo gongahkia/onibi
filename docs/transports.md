@@ -28,7 +28,7 @@ The supported transports are:
 - `sms`: Twilio SMS alerts with signed approval links.
 - `email`: SMTP alerts with signed approval links through a user-provided MTA.
 
-Signal support currently lives at the provider-client layer for a local `signal-cli` JSON-RPC daemon. It is documented below, but is not selectable through `onibi up --transport=signal` until the daemon bridge is live-verified with a linked Signal number.
+Signal support uses a local `signal-cli` JSON-RPC daemon and is selectable with `onibi up --transport=signal`. It still needs live verification with a linked Signal number before it should be treated as production-ready.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
 Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=<mode>` for scripts.
@@ -277,17 +277,16 @@ Signal integration uses a local `signal-cli` JSON-RPC daemon over HTTP:
 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001
 ONIBI_SIGNAL_ACCOUNT=+15551234567
 ONIBI_SIGNAL_RECIPIENT=+15557654321
+onibi up --transport=signal
 ```
 
-The client in `internal/signal` wraps `POST /api/v1/rpc`, `GET /api/v1/events`, and `GET /api/v1/check`. It can send text, send emoji reactions against a target message author/timestamp, subscribe in manual receive mode, parse chunked SSE receive events, and reconnect with bounded backoff. Mock coverage lives in `go test -race ./internal/signal -run TestParityAxes`; live smoke is opt-in with a linked account:
+The client in `internal/signal` wraps `POST /api/v1/rpc`, `GET /api/v1/events`, and `GET /api/v1/check`. The daemon bridge checks the local daemon, posts approval prompts into the target conversation, maps `👍`/`✅` reactions on Onibi approval messages to approve and `👎`/`❌` reactions to deny, writes owner text messages to the active PTY, returns chunked terminal output, reconnects the events stream with bounded backoff, and writes `provider.signal.*` audit rows. Mock coverage lives in `go test -race ./internal/signal -run TestParityAxes`; live smoke is opt-in with a linked account:
 
 ```bash
 ONIBI_LIVE_SIGNAL=1 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001 ONIBI_SIGNAL_ACCOUNT=+15551234567 ONIBI_SIGNAL_RECIPIENT=+15557654321 go test ./internal/signal -run LiveSignal
 ```
 
-See [`signal-setup.md`](./signal-setup.md) for install, phone-link, daemon, and local security notes.
-
-Current limit: Signal approval reaction mapping and text-in routing are not wired into the Onibi daemon transport picker yet. That bridge needs real-device validation because Signal reactions identify the target message by author and timestamp.
+See [`signal-setup.md`](./signal-setup.md) for install, phone-link, daemon, and local security notes. [Unverified] Real linked-number reaction, text-in, and tail delivery still require live Signal smoke because reactions identify the target message by author and timestamp.
 
 ## Chat redaction
 
@@ -301,9 +300,10 @@ onibi config set provider.output.slack.max_bytes 12000
 onibi config set provider.output.discord.redaction off
 onibi config set provider.output.zulip.max_chunks 4
 onibi config set provider.output.irc.max_bytes 2048
+onibi config set provider.output.signal.redaction strict
 ```
 
-`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
+`provider.output.redaction` accepts `default`, `strict`, or `off`. Provider-specific overrides exist for `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, and `notify`; use `inherit` to clear an override. Set `ONIBI_CHAT_UNREDACTED=1` only when you intentionally want raw chat output.
 
 ## Notify-only
 

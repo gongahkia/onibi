@@ -191,7 +191,7 @@ func pairTransportCategoryChoices(current string) []pairTransportCategory {
 			category: transportCategoryChat,
 			label:    "Chat",
 			detail:   "natural text control",
-			status:   "Telegram, Matrix, Slack, Discord, Zulip, IRC",
+			status:   "Telegram, Matrix, Slack, Discord, Zulip, IRC, Signal",
 			active:   active == transportCategoryChat,
 		},
 		{
@@ -261,6 +261,15 @@ func pairTransportChoices(current string, category string) []pairTransportChoice
 				coverage: "unit + fake conn + live opt-in",
 				command:  "onibi up --transport=irc",
 				active:   current == "irc",
+			},
+			{
+				key:      "7",
+				mode:     "signal",
+				label:    "Signal",
+				detail:   "signal-cli JSON-RPC control",
+				coverage: "unit + fake RPC + live opt-in",
+				command:  "onibi up --transport=signal",
+				active:   current == "signal",
 			},
 		}
 	}

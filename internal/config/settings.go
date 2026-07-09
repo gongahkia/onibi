@@ -96,6 +96,7 @@ type ProviderOutput struct {
 	Discord   ProviderOutputOverride `yaml:"discord,omitempty" json:"discord,omitempty"`
 	Zulip     ProviderOutputOverride `yaml:"zulip,omitempty" json:"zulip,omitempty"`
 	IRC       ProviderOutputOverride `yaml:"irc,omitempty" json:"irc,omitempty"`
+	Signal    ProviderOutputOverride `yaml:"signal,omitempty" json:"signal,omitempty"`
 	Notify    ProviderOutputOverride `yaml:"notify,omitempty" json:"notify,omitempty"`
 }
 
@@ -572,6 +573,7 @@ type rawProviderOutput struct {
 	Discord   rawProviderOutputOverride `yaml:"discord"`
 	Zulip     rawProviderOutputOverride `yaml:"zulip"`
 	IRC       rawProviderOutputOverride `yaml:"irc"`
+	Signal    rawProviderOutputOverride `yaml:"signal"`
 	Notify    rawProviderOutputOverride `yaml:"notify"`
 }
 
@@ -652,6 +654,7 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Discord, meta, "discord", raw.Provider.Output.Discord)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Zulip, meta, "zulip", raw.Provider.Output.Zulip)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.IRC, meta, "irc", raw.Provider.Output.IRC)
+	applyRawProviderOutputOverride(&cfg.Provider.Output.Signal, meta, "signal", raw.Provider.Output.Signal)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Notify, meta, "notify", raw.Provider.Output.Notify)
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
@@ -668,7 +671,7 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 }
 
 func providerOutputProviderNames() []string {
-	return []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "notify"}
+	return []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "notify"}
 }
 
 func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputOverride {
@@ -685,6 +688,8 @@ func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputO
 		return out.Zulip
 	case "irc":
 		return out.IRC
+	case "signal":
+		return out.Signal
 	case "notify":
 		return out.Notify
 	default:
@@ -706,6 +711,8 @@ func providerOutputOverridePtr(out *ProviderOutput, provider string) *ProviderOu
 		return &out.Zulip
 	case "irc":
 		return &out.IRC
+	case "signal":
+		return &out.Signal
 	case "notify":
 		return &out.Notify
 	default:

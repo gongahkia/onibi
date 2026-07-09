@@ -52,6 +52,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
+		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
@@ -94,6 +95,7 @@ type envProviderOptions struct {
 	Discord  daemon.DiscordOptions
 	Zulip    daemon.ZulipOptions
 	IRC      daemon.IRCOptions
+	Signal   daemon.SignalOptions
 	Pushover daemon.PushoverOptions
 	Ntfy     daemon.NtfyOptions
 	Gotify   daemon.GotifyOptions
@@ -165,6 +167,18 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("irc requires ONIBI_IRC_NICK, ONIBI_IRC_PASSWORD, ONIBI_IRC_OWNER_NICK")
 		}
 		return opts, "IRC", nil
+	case "signal":
+		opts.Signal = daemon.SignalOptions{
+			RPCURL:     envRequired("ONIBI_SIGNAL_RPC_URL"),
+			Account:    envRequired("ONIBI_SIGNAL_ACCOUNT"),
+			Recipients: signalRecipientsFromEnv(),
+			GroupID:    strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")),
+			Owner:      strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_OWNER")),
+		}
+		if opts.Signal.RPCURL == "" || opts.Signal.Account == "" || (len(opts.Signal.Recipients) == 0 && opts.Signal.GroupID == "") {
+			return opts, "", fmt.Errorf("signal requires ONIBI_SIGNAL_RPC_URL, ONIBI_SIGNAL_ACCOUNT, and ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
+		}
+		return opts, "Signal", nil
 	case "pushover":
 		opts.Pushover = daemon.PushoverOptions{Token: envRequired("ONIBI_PUSHOVER_TOKEN"), UserKey: envRequired("ONIBI_PUSHOVER_USER_KEY")}
 		if opts.Pushover.Token == "" || opts.Pushover.UserKey == "" {
@@ -230,7 +244,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord", "zulip", "irc":
+	case "matrix", "slack", "discord", "zulip", "irc", "signal":
 		return true
 	default:
 		return false
@@ -297,4 +311,11 @@ func splitCSV(v string) []string {
 		}
 	}
 	return out
+}
+
+func signalRecipientsFromEnv() []string {
+	if v := strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")); v != "" {
+		return splitCSV(v)
+	}
+	return splitCSV(os.Getenv("ONIBI_SIGNAL_RECIPIENT"))
 }

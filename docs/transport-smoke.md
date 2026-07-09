@@ -133,6 +133,7 @@ onibi config set provider.output.slack.max_bytes 12000
 onibi config set provider.output.discord.redaction off
 onibi config set provider.output.zulip.max_chunks 4
 onibi config set provider.output.irc.max_bytes 2048
+onibi config set provider.output.signal.redaction strict
 ```
 
 - `default` redaction uses Onibi approval/output scrubbing.
@@ -214,7 +215,7 @@ ONIBI_LIVE_SIGNAL=1 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001 ONIBI_SIGNAL_ACCO
 - Run a linked `signal-cli` daemon before the test.
 - Set `ONIBI_SIGNAL_STREAM=1` only when you can send an inbound Signal message during the test window.
 - Confirm `go test -race ./internal/signal -run TestParityAxes` covers send, emoji reaction JSON-RPC, SSE chunking, and reconnect.
-- Confirm daemon-level text-in, approval reaction mapping, and audit wiring before enabling `--transport=signal`.
+- Run `onibi up --transport=signal`, react `👍` to an approval prompt, send a text message for PTY input, and confirm `provider.signal.reaction`, `provider.signal.text_in`, and `provider.signal.tail_chunk` audit rows.
 
 APNs:
 

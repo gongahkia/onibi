@@ -25,6 +25,7 @@ import (
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
+	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/web"
@@ -1207,6 +1208,163 @@ func (d *Daemon) postIRCTail(ctx context.Context, c *irc.Client, nick, sessionID
 			return
 		}
 		d.audit(ctx, "provider.irc.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("nick=%s index=%d bytes=%d", nick, i, len(chunk)))
+	}
+}
+
+func (d *Daemon) runSignalBridge(ctx context.Context, c *signalapi.Client) error {
+	if c == nil {
+		return errors.New("signal client nil")
+	}
+	if !d.signalHasTarget() {
+		return errors.New("signal recipient or group required")
+	}
+	if err := c.Check(ctx); err != nil {
+		return err
+	}
+	if _, err := c.SubscribeReceive(ctx); err != nil {
+		return err
+	}
+	go d.forwardApprovalsToSignal(ctx, c)
+	return c.TailEvents(ctx, signalapi.TailOptions{RetryMin: time.Second, RetryMax: 30 * time.Second}, func(ev signalapi.Event) error {
+		return d.handleSignalEvent(ctx, c, ev)
+	})
+}
+
+func (d *Daemon) handleSignalEvent(ctx context.Context, c *signalapi.Client, ev signalapi.Event) error {
+	if !d.signalAllowedSource(ev.Envelope) {
+		return nil
+	}
+	msg := ev.Envelope.DataMessage
+	if msg == nil {
+		return nil
+	}
+	if verdict, id, ok := d.signalReactionDecision(msg.Reaction); ok {
+		sessionID := d.approvalSessionID(ctx, id)
+		d.audit(ctx, "provider.signal.reaction", sessionID, "", 0, "approval="+id+" verdict="+string(verdict)+" source="+d.signalSource(ev.Envelope))
+		if err := d.decideProviderApproval(ctx, id, verdict, 0); err != nil {
+			_ = d.sendSignalText(ctx, c, "Approval "+id+" failed: "+err.Error())
+			return nil
+		}
+		_ = d.sendSignalText(ctx, c, "Approval "+id+" "+string(verdict)+".")
+		return nil
+	}
+	text := strings.TrimSpace(msg.Message)
+	if text == "" {
+		return nil
+	}
+	sessionID := d.providerTargetSessionID("")
+	d.audit(ctx, "provider.signal.text_in", sessionID, text, 0, "source="+d.signalSource(ev.Envelope))
+	out, err := d.handleProviderTextFor(ctx, "", text, 0, "signal")
+	if err != nil {
+		_ = d.sendSignalText(ctx, c, "Input failed: "+err.Error())
+		return nil
+	}
+	d.postSignalTail(ctx, c, sessionID, out)
+	return nil
+}
+
+func (d *Daemon) forwardApprovalsToSignal(ctx context.Context, c *signalapi.Client) {
+	if d.Queue == nil || !d.signalHasTarget() {
+		return
+	}
+	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
+		text := formatApprovalWithPolicy(a, d.providerOutputPolicy("signal")) + "\n\nReact \U0001f44d to approve or \U0001f44e to deny."
+		sent, err := c.Send(ctx, signalapi.SendRequest{Recipients: d.Signal.Recipients, GroupID: d.Signal.GroupID, Message: text})
+		if err != nil {
+			d.audit(ctx, "provider.signal.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		d.signalMu.Lock()
+		d.signalApprovals[sent.Timestamp] = a.ID
+		d.signalMu.Unlock()
+		d.audit(ctx, "provider.signal.approval_sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s timestamp=%d", a.ID, sent.Timestamp))
+	})
+}
+
+func (d *Daemon) postSignalTail(ctx context.Context, c *signalapi.Client, sessionID, text string) {
+	for i, chunk := range chatout.Chunks(text, 3800) {
+		if err := d.sendSignalText(ctx, c, chunk); err != nil {
+			d.audit(ctx, "provider.signal.tail_error", sessionID, "", 0, "err="+err.Error())
+			return
+		}
+		d.audit(ctx, "provider.signal.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("index=%d bytes=%d", i, len(chunk)))
+	}
+}
+
+func (d *Daemon) sendSignalText(ctx context.Context, c *signalapi.Client, text string) error {
+	_, err := c.Send(ctx, signalapi.SendRequest{Recipients: d.Signal.Recipients, GroupID: d.Signal.GroupID, Message: d.prepareProviderOutputFor("signal", text)})
+	return err
+}
+
+func (d *Daemon) signalHasTarget() bool {
+	return len(d.Signal.Recipients) > 0 || strings.TrimSpace(d.Signal.GroupID) != ""
+}
+
+func (d *Daemon) signalAllowedSource(env signalapi.Envelope) bool {
+	want := strings.TrimSpace(d.Signal.Owner)
+	if want == "" && strings.TrimSpace(d.Signal.GroupID) == "" && len(d.Signal.Recipients) == 1 {
+		want = d.Signal.Recipients[0]
+	}
+	if want == "" {
+		return true
+	}
+	for _, got := range []string{env.Source, env.SourceNumber, env.SourceUUID} {
+		if strings.EqualFold(strings.TrimSpace(got), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Daemon) signalSource(env signalapi.Envelope) string {
+	for _, v := range []string{env.SourceNumber, env.Source, env.SourceUUID, env.SourceName} {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return "unknown"
+}
+
+func (d *Daemon) signalReactionDecision(raw json.RawMessage) (approval.Verdict, string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", false
+	}
+	var r struct {
+		Emoji               string `json:"emoji"`
+		TargetSentTimestamp int64  `json:"targetSentTimestamp"`
+		TargetTimestamp     int64  `json:"targetTimestamp"`
+		Timestamp           int64  `json:"timestamp"`
+		Remove              bool   `json:"remove"`
+		IsRemove            bool   `json:"isRemove"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil || r.Remove || r.IsRemove {
+		return "", "", false
+	}
+	verdict := signalEmojiVerdict(r.Emoji)
+	if verdict == "" {
+		return "", "", false
+	}
+	ts := r.TargetSentTimestamp
+	if ts == 0 {
+		ts = r.TargetTimestamp
+	}
+	if ts == 0 {
+		ts = r.Timestamp
+	}
+	d.signalMu.Lock()
+	id := d.signalApprovals[ts]
+	d.signalMu.Unlock()
+	return verdict, id, id != ""
+}
+
+func signalEmojiVerdict(emoji string) approval.Verdict {
+	switch strings.TrimSpace(emoji) {
+	case "\U0001f44d", "\u2705":
+		return approval.VerdictApprove
+	case "\U0001f44e", "\u274c":
+		return approval.VerdictDeny
+	default:
+		return ""
 	}
 }
 

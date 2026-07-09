@@ -53,6 +53,21 @@ func TestPromptPairTransportSelectsTelegram(t *testing.T) {
 	}
 }
 
+func TestPromptPairTransportSelectsSignal(t *testing.T) {
+	cmd, out := transportPromptCmd("2\n7\n")
+	withPromptTTY(t, true)
+	got, prompted, err := promptPairTransport(cmd, "lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prompted || got != "signal" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
+	}
+	if !strings.Contains(out.String(), "Signal") || !strings.Contains(out.String(), "signal-cli") {
+		t.Fatalf("prompt output = %q", out.String())
+	}
+}
+
 func TestPromptPairTransportDefaultsToTelegramProvider(t *testing.T) {
 	cmd, _ := transportPromptCmd("\n\n")
 	withPromptTTY(t, true)

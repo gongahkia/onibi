@@ -21,6 +21,7 @@ func daemonProviderOutputOverrides(cfg config.Config) daemon.ProviderOutputOverr
 		Discord:  daemonProviderOutputOverride(cfg.Provider.Output.Discord),
 		Zulip:    daemonProviderOutputOverride(cfg.Provider.Output.Zulip),
 		IRC:      daemonProviderOutputOverride(cfg.Provider.Output.IRC),
+		Signal:   daemonProviderOutputOverride(cfg.Provider.Output.Signal),
 		Notify:   daemonProviderOutputOverride(cfg.Provider.Output.Notify),
 	}
 }
