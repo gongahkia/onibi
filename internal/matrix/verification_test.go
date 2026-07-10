@@ -3,9 +3,11 @@ package matrix
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -38,6 +40,99 @@ func TestSASCommitmentUsesCanonicalStartContent(t *testing.T) {
 	}
 	if _, err := SASCommitment("", start); err == nil {
 		t.Fatal("expected empty ephemeral key error")
+	}
+}
+
+func TestSASDecimalAndEmojiSequencesFromBytes(t *testing.T) {
+	dec, err := SASDecimalSequenceFromBytes([]byte{0xff, 0xff, 0xff, 0xff, 0xff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != [3]int{9191, 9191, 9191} {
+		t.Fatalf("decimal = %#v", dec)
+	}
+	emoji, err := SASEmojiSequenceFromBytes([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range emoji {
+		if item.Index != 63 || item.Description != "Pin" {
+			t.Fatalf("emoji = %#v", emoji)
+		}
+	}
+	dec, err = SASDecimalSequenceFromBytes([]byte{0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != [3]int{1000, 1000, 1000} {
+		t.Fatalf("decimal zero = %#v", dec)
+	}
+	emoji, err = SASEmojiSequenceFromBytes([]byte{0, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emoji[0].Index != 0 || emoji[0].Description != "Dog" {
+		t.Fatalf("emoji zero = %#v", emoji)
+	}
+}
+
+func TestSASDerivesSpecHKDFInfo(t *testing.T) {
+	info := SASInfo{
+		StartUserID:          "@alice:example",
+		StartDeviceID:        "ALICE",
+		StartPublicKey:       "alice-key",
+		AcceptUserID:         "@bob:example",
+		AcceptDeviceID:       "BOB",
+		AcceptPublicKey:      "bob-key",
+		TransactionID:        "txn-1",
+		KeyAgreementProtocol: KeyAgreementCurve25519SHA256,
+	}
+	b, err := SASBytes([]byte("shared-secret"), info, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(b) != "ec29b9635adf" {
+		t.Fatalf("bytes = %x", b)
+	}
+	dec, err := SASDecimalSequence([]byte("shared-secret"), info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != [3]int{8557, 2765, 5525} {
+		t.Fatalf("decimal = %#v", dec)
+	}
+	emoji, err := SASEmojiSequence([]byte("shared-secret"), info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []int{emoji[0].Index, emoji[1].Index, emoji[2].Index, emoji[3].Index, emoji[4].Index, emoji[5].Index, emoji[6].Index}
+	if strings.Join(intsToStrings(got), ",") != "59,2,38,57,24,53,43" || emoji[0].Description != "Bell" || emoji[6].Description != "Pencil" {
+		t.Fatalf("emoji = %#v", emoji)
+	}
+}
+
+func TestSASMACV2BuildsAndVerifiesContent(t *testing.T) {
+	info := SASMACInfo{UserID: "@alice:example", DeviceID: "ALICE", OtherUserID: "@bob:example", OtherDeviceID: "BOB", TransactionID: "txn-1"}
+	mac, err := SASMACV2([]byte("shared-secret"), info, "ed25519:ALICE", "alice-ed-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mac != "KgF4WALoprdD0NMkE1FM1S1iPhZFphTh//DYDLZCfpA" {
+		t.Fatalf("mac = %q", mac)
+	}
+	content, err := BuildSASMACContent([]byte("shared-secret"), info, map[string]string{"ed25519:ALICE": "alice-ed-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content.Keys != "e3rzEU0V0OLIj8qg6mZn5F+mdGQAMxdf5T5B2jyJcK4" || content.MAC["ed25519:ALICE"] != mac {
+		t.Fatalf("content = %#v", content)
+	}
+	if err := VerifySASMACContent([]byte("shared-secret"), info, content, map[string]string{"ed25519:ALICE": "alice-ed-key"}); err != nil {
+		t.Fatal(err)
+	}
+	content.MAC["ed25519:ALICE"] = "bad"
+	if err := VerifySASMACContent([]byte("shared-secret"), info, content, map[string]string{"ed25519:ALICE": "alice-ed-key"}); err == nil {
+		t.Fatal("expected MAC mismatch")
 	}
 }
 
@@ -141,4 +236,12 @@ func mustJSONRaw(t *testing.T, v any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func intsToStrings(values []int) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, strconv.Itoa(value))
+	}
+	return out
 }
