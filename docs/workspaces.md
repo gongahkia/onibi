@@ -76,8 +76,8 @@ on_overrun = "interrupt"
 [transports]
 default = "tailscale"
 web = ["lan", "tailscale"]
-chat = ["telegram"]
-notify = ["pushover"]
+chat = ["telegram", "signal"]
+notify = ["pushover", "ntfy", "sms", "email"]
 ```
 
 Trust and budget files use the same formats as `docs/trust-policies.md` and `docs/budgets.md`.
