@@ -151,10 +151,13 @@ below the target contract; `no` means not implemented today.
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
 | Zulip | partial | partial | yes | yes | partial | partial | no | partial |
 | IRC | partial | partial | yes | yes | partial | partial | no | partial |
+| Signal | partial | partial | yes | yes | partial | partial | no | partial |
 | Pushover | yes | no | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
 | APNs | yes | no | notify-only | no | no | no | no | partial |
+| SMS | partial | partial | notify-only | no | no | partial | no | partial |
+| Email | partial | partial | notify-only | no | no | partial | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -181,6 +184,10 @@ IRC supports registered-nick SASL PLAIN login, owner-DM text input, `!onibi`
 approval replies, DM tail chunking, reconnect backoff, send pacing, and audit
 rows. It has no Onibi-supported E2EE path.
 
+Signal supports local `signal-cli` JSON-RPC send/events, approval reactions,
+owner filtering, text input, tail chunking, reconnect backoff, and audit rows.
+Live linked-number verification remains required.
+
 Discord supports Gateway text and slash-command fallback. E3 tracks components
 v2 buttons, tail streams, and full audit parity.
 
@@ -200,6 +207,10 @@ approval page is the callback workaround.
 APNs is notify-only. It sends direct Apple alert pushes through a user-provided
 APNs auth key and native app device token. PWA-only Onibi cannot mint a native
 device token, so web push remains the fallback when APNs config is absent.
+
+SMS and email are notify-only failover transports. They send signed approval
+URLs through Twilio SMS or a user-provided SMTP relay and require an externally
+reachable Onibi action base URL for tap-through decisions.
 
 ## Conformance Expectations
 
