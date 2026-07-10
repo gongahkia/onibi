@@ -147,8 +147,8 @@ below the target contract; `no` means not implemented today.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Telegram | yes | yes | yes | yes | partial | partial | no | partial |
 | Matrix | yes | partial | yes | yes | partial | partial | no | partial |
-| Slack | yes | yes | yes | yes | no | partial | no | partial |
-| Discord | partial | partial | yes | yes | no | partial | no | partial |
+| Slack | yes | yes | yes | yes | partial | partial | no | partial |
+| Discord | partial | partial | yes | yes | partial | partial | no | partial |
 | Zulip | partial | partial | yes | yes | partial | partial | no | partial |
 | IRC | partial | partial | yes | yes | partial | partial | no | partial |
 | Signal | partial | partial | yes | yes | partial | partial | no | partial |
@@ -172,9 +172,9 @@ audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, and
 encrypted local crypto-state persistence. Encrypted rooms are not full
 Olm/Megolm E2EE yet; room-level privacy remains E2.
 
-Slack supports Socket Mode, message input, and approval button callbacks. E1
-tracks full parity for tail streams, rate-limit policy reporting, and audit
-normalization.
+Slack supports Socket Mode, message input, approval buttons/edit modals,
+chunked tail output, reconnect backoff, and audit rows. Live workspace
+verification remains required.
 
 Zulip supports stream/topic messages, topic-mapped text input, slash-command
 approval replies, per-session topic tail output, event queue reconnect, and
@@ -188,8 +188,9 @@ Signal supports local `signal-cli` JSON-RPC send/events, approval reactions,
 owner filtering, text input, tail chunking, reconnect backoff, and audit rows.
 Live linked-number verification remains required.
 
-Discord supports Gateway text and slash-command fallback. E3 tracks components
-v2 buttons, tail streams, and full audit parity.
+Discord supports Gateway text, slash-command fallback, components approval
+buttons/edit modals, per-session tail threads, reconnect backoff, and audit
+rows. Live guild verification remains required.
 
 Pushover is notify-only. It can send emergency-priority approval alerts and poll
 receipts, but it does not provide terminal input or native edit decisions.
