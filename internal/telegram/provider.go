@@ -98,7 +98,7 @@ func (p *Provider) OnInboundText(fn func(string, chatout.Sender)) error {
 	return nil
 }
 
-func (p *Provider) TailStream(ctx context.Context, _ string, ch <-chan []byte) error {
+func (p *Provider) TailStream(ctx context.Context, sessionID string, ch <-chan []byte) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -107,8 +107,20 @@ func (p *Provider) TailStream(ctx context.Context, _ string, ch <-chan []byte) e
 			if !ok {
 				return nil
 			}
-			if err := p.SendText(ctx, string(b)); err != nil {
-				return err
+			for i, chunk := range ChunkText(string(b), ProviderMessageChunkLimit) {
+				if _, err := p.client().SendMessage(ctx, p.chatID(), chunk, nil); err != nil {
+					_ = p.RecordInteraction(ctx, chatout.AuditInteraction{Kind: "provider.telegram.tail_error", SessionID: sessionID, Meta: map[string]any{"chat_id": p.chatID(), "err": err.Error()}})
+					return err
+				}
+				if err := p.RecordInteraction(ctx, chatout.AuditInteraction{
+					Kind:      "provider.telegram.tail_chunk",
+					SessionID: sessionID,
+					Payload:   chunk,
+					Sender:    chatout.Sender{ChannelID: strconv.FormatInt(p.chatID(), 10)},
+					Meta:      map[string]any{"chat_id": p.chatID(), "index": i, "bytes": len(chunk)},
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -135,7 +147,9 @@ func (p *Provider) Connect(ctx context.Context) error {
 		failures = 0
 		for _, update := range updates {
 			p.setOffset(update.UpdateID + 1)
-			p.routeUpdate(ctx, update)
+			if err := p.routeUpdate(ctx, update); err != nil {
+				return err
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -167,35 +181,44 @@ func (p *Provider) RateLimit() chatout.RateLimitPolicy {
 	}
 }
 
-func (p *Provider) routeUpdate(ctx context.Context, update Update) {
+func (p *Provider) routeUpdate(ctx context.Context, update Update) error {
 	if update.Message != nil {
 		if p.ChatID != 0 && update.Message.Chat.ID != p.ChatID {
-			return
+			return nil
 		}
 		text := strings.TrimSpace(update.Message.Text)
 		if text == "" {
-			return
+			return nil
+		}
+		sender := senderFromMessage(update.Message)
+		if err := p.RecordInteraction(ctx, chatout.AuditInteraction{
+			Kind:    "provider.telegram.text_in",
+			Payload: text,
+			Sender:  sender,
+			Meta:    map[string]any{"chat_id": update.Message.Chat.ID},
+		}); err != nil {
+			return err
 		}
 		p.mu.Lock()
 		fn := p.inbound
 		p.mu.Unlock()
 		if fn != nil {
-			fn(text, senderFromMessage(update.Message))
+			fn(text, sender)
 		}
-		return
+		return nil
 	}
 	if update.CallbackQuery == nil {
-		return
+		return nil
 	}
 	q := update.CallbackQuery
 	if q.Message == nil || (p.ChatID != 0 && q.Message.Chat.ID != p.ChatID) {
 		_ = p.client().AnswerCallbackQuery(ctx, q.ID, "not authorized")
-		return
+		return nil
 	}
 	action, approvalID, ok := strings.Cut(strings.TrimSpace(q.Data), ":")
 	if !ok || approvalID == "" {
 		_ = p.client().AnswerCallbackQuery(ctx, q.ID, "bad action")
-		return
+		return nil
 	}
 	verdict := ""
 	switch action {
@@ -205,16 +228,28 @@ func (p *Provider) routeUpdate(ctx context.Context, update Update) {
 		verdict = "deny"
 	default:
 		_ = p.client().AnswerCallbackQuery(ctx, q.ID, "unknown action")
-		return
+		return nil
+	}
+	sender := senderFromCallback(q)
+	messageID := strconv.FormatInt(q.Message.MessageID, 10)
+	if err := p.RecordInteraction(ctx, chatout.AuditInteraction{
+		Kind:      "provider.telegram.button",
+		MessageID: messageID,
+		Payload:   q.Data,
+		Sender:    sender,
+		Meta:      map[string]any{"action": action, "approval": approvalID, "chat_id": q.Message.Chat.ID, "from": q.From.ID},
+	}); err != nil {
+		return err
 	}
 	decision := chatout.Decision{
 		ApprovalID: approvalID,
 		Verdict:    verdict,
-		Sender:     senderFromCallback(q),
-		MessageID:  strconv.FormatInt(q.Message.MessageID, 10),
+		Sender:     sender,
+		MessageID:  messageID,
 	}
 	p.dispatchDecision(approvalID, decision)
 	_ = p.client().AnswerCallbackQuery(ctx, q.ID, "ok")
+	return nil
 }
 
 func (p *Provider) dispatchDecision(approvalID string, decision chatout.Decision) {
