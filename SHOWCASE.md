@@ -22,5 +22,5 @@ Verification status:
 - [x] Casts are under 3 minutes.
 - [x] Cast text is scrubbed for secrets and real hostnames.
 - [x] Browser playback checked in Chrome, Firefox, and WebKit.
-- [ ] Native Safari app playback checked; local WebDriver requires Safari remote automation.
+- [x] Native Safari app playback checked from `file://` with inline Data URL casts.
 - [ ] Replacement with real launch recordings, if desired.
