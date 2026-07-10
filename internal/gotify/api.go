@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,6 +31,16 @@ type Message struct {
 
 type Extras map[string]any
 
+type MessageResponse struct {
+	ID       int    `json:"id"`
+	AppID    int    `json:"appid"`
+	Message  string `json:"message"`
+	Title    string `json:"title"`
+	Priority int    `json:"priority"`
+	Date     string `json:"date"`
+	Extras   Extras `json:"extras"`
+}
+
 type StreamMessage struct {
 	ID       int    `json:"id"`
 	AppID    int    `json:"appid"`
@@ -44,6 +55,7 @@ type TailOptions struct {
 	RetryMin      time.Duration
 	RetryMax      time.Duration
 	MaxReconnects int
+	AfterError    func(error, time.Duration, int)
 }
 
 type handlerError struct {
@@ -63,26 +75,31 @@ func New(baseURL, appToken, clientToken string) *Client {
 }
 
 func (c *Client) Send(ctx context.Context, msg Message) error {
+	_, err := c.SendMessage(ctx, msg)
+	return err
+}
+
+func (c *Client) SendMessage(ctx context.Context, msg Message) (MessageResponse, error) {
 	if c == nil {
-		return errors.New("gotify client nil")
+		return MessageResponse{}, errors.New("gotify client nil")
 	}
 	if c.BaseURL == "" || c.AppToken == "" {
-		return errors.New("gotify url/app token required")
+		return MessageResponse{}, errors.New("gotify url/app token required")
 	}
 	if strings.TrimSpace(msg.Message) == "" {
-		return errors.New("gotify message required")
+		return MessageResponse{}, errors.New("gotify message required")
 	}
 	b, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return MessageResponse{}, err
 	}
 	reqURL, err := gotifyTokenURL(c.BaseURL+"/message", c.AppToken)
 	if err != nil {
-		return err
+		return MessageResponse{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(b))
 	if err != nil {
-		return err
+		return MessageResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Gotify-Key", c.AppToken)
@@ -92,13 +109,20 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		return MessageResponse{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("gotify send status %d", resp.StatusCode)
+		return MessageResponse{}, fmt.Errorf("gotify send status %d", resp.StatusCode)
 	}
-	return nil
+	var out MessageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		return MessageResponse{}, err
+	}
+	return out, nil
 }
 
 func (c *Client) Validate(ctx context.Context) error {
@@ -209,6 +233,9 @@ func (c *Client) Tail(ctx context.Context, opts TailOptions, handle func(StreamM
 			return err
 		}
 		reconnects++
+		if opts.AfterError != nil {
+			opts.AfterError(err, backoff, reconnects)
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():

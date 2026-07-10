@@ -206,8 +206,9 @@ do not verify `X-Message-Encryption` support; upstream E2E is tracked in
 
 Gotify sends REST messages, adds optional signed approval deep-links through
 `client::notification.click.url`, and can receive `/stream` WebSocket messages
-with reconnect backoff. Native buttons are not available in Gotify; the signed
-approval page is the callback workaround.
+with reconnect backoff. It also has a local notify-only `chatout.Provider`
+adapter. Native buttons are not available in Gotify; the signed approval page is
+the callback workaround.
 
 APNs is notify-only. It sends direct Apple alert pushes through a user-provided
 APNs auth key and native app device token. PWA-only Onibi cannot mint a native
