@@ -171,11 +171,11 @@ Matrix supports room text, approval reactions, chunked room-message tail output,
 audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, SAS
 verification to-device message shapes/state tracking, SAS HKDF decimal/emoji
 comparison helpers, `hkdf-hmac-sha256.v2` MAC helpers, room encrypted/key
-request content shapes, local Megolm encrypt/decrypt state wrappers, local Olm
-account/pre-key device-session encrypt/decrypt wrappers, local outbound
-`m.room_key` to-device sharing helpers, and encrypted local crypto/session-state
-persistence. Encrypted rooms are not full Olm/Megolm E2EE yet; room-level
-privacy remains E2.
+request content shapes, local Megolm encrypt/decrypt state wrappers, local
+Megolm room-event payload encrypt/decrypt/send helpers, local Olm account/pre-key
+device-session encrypt/decrypt wrappers, local outbound `m.room_key` to-device
+sharing helpers, and encrypted local crypto/session-state persistence. Encrypted
+rooms are not full Olm/Megolm E2EE yet; room-level privacy remains E2.
 
 Slack supports Socket Mode, message input, approval buttons/edit modals,
 chunked tail output, reconnect backoff, and audit rows. Live workspace
