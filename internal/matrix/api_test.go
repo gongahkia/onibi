@@ -42,7 +42,10 @@ func TestSyncRoomUsesRoomFilter(t *testing.T) {
 		}
 		var filter struct {
 			Room struct {
-				Rooms []string `json:"rooms"`
+				Rooms    []string `json:"rooms"`
+				Timeline struct {
+					Types []string `json:"types"`
+				} `json:"timeline"`
 			} `json:"room"`
 		}
 		if err := json.Unmarshal([]byte(r.URL.Query().Get("filter")), &filter); err != nil {
@@ -50,6 +53,9 @@ func TestSyncRoomUsesRoomFilter(t *testing.T) {
 		}
 		if len(filter.Room.Rooms) != 1 || filter.Room.Rooms[0] != "!room:example" {
 			t.Fatalf("filter = %#v", filter)
+		}
+		if !containsString(filter.Room.Timeline.Types, "m.reaction") {
+			t.Fatalf("filter missing reactions: %#v", filter.Room.Timeline.Types)
 		}
 		writeJSON(t, w, map[string]any{"next_batch": "s2", "rooms": map[string]any{"join": map[string]any{}}})
 	}))
@@ -87,6 +93,7 @@ func TestSendTextEscapesRoomAndTxn(t *testing.T) {
 
 func TestSendTextChunksAndRetriesRateLimit(t *testing.T) {
 	var bodies []RoomMessage
+	var eventIDs []string
 	var slept time.Duration
 	attempts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +111,9 @@ func TestSendTextChunksAndRetriesRateLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 		bodies = append(bodies, body)
-		writeJSON(t, w, map[string]any{"event_id": "$1"})
+		eventID := "$" + r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]
+		eventIDs = append(eventIDs, eventID)
+		writeJSON(t, w, map[string]any{"event_id": eventID})
 	}))
 	defer srv.Close()
 	txn := 0
@@ -117,14 +126,29 @@ func TestSendTextChunksAndRetriesRateLimit(t *testing.T) {
 		slept += d
 		return nil
 	}
-	if err := c.SendText(t.Context(), "!room:example", strings.Repeat("x", MessageChunkLimit+7)); err != nil {
+	gotEventIDs, err := c.SendTextEvents(t.Context(), "!room:example", strings.Repeat("x", MessageChunkLimit+7))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(bodies) != 2 || len(bodies[0].Body) != MessageChunkLimit || len(bodies[1].Body) != 7 {
 		t.Fatalf("bodies = %#v", bodies)
 	}
+	if strings.Join(gotEventIDs, ",") != strings.Join(eventIDs, ",") {
+		t.Fatalf("event ids = %#v want %#v", gotEventIDs, eventIDs)
+	}
 	if slept != 125*time.Millisecond {
 		t.Fatalf("slept = %s", slept)
+	}
+}
+
+func TestReactionParsesAnnotation(t *testing.T) {
+	ev := Event{Type: "m.reaction", Content: json.RawMessage(`{"m.relates_to":{"rel_type":"m.annotation","event_id":"$approval","key":"✅"}}`)}
+	eventID, key, ok := Reaction(ev)
+	if !ok || eventID != "$approval" || key != "✅" {
+		t.Fatalf("reaction = %q %q %v", eventID, key, ok)
+	}
+	if _, _, ok := Reaction(Event{Type: "m.room.message"}); ok {
+		t.Fatal("message parsed as reaction")
 	}
 }
 
@@ -227,4 +251,13 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func containsString(vals []string, want string) bool {
+	for _, v := range vals {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }

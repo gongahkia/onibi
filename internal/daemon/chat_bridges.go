@@ -32,7 +32,10 @@ import (
 	"github.com/gongahkia/onibi/internal/zulip"
 )
 
-const matrixKVSince = "matrix.since"
+const (
+	matrixKVSince          = "matrix.since"
+	matrixKVApprovalPrefix = "matrix.approval.event."
+)
 
 const (
 	slackEditCallback     = "onibi_approval_edit"
@@ -94,22 +97,85 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 		}
 		room := sync.Rooms.Join[d.Matrix.RoomID]
 		for _, ev := range room.Timeline.Events {
-			body := matrix.MessageBody(ev)
-			if body == "" || (d.Matrix.OwnerUserID != "" && ev.Sender != d.Matrix.OwnerUserID) {
-				continue
-			}
-			out, err := d.handleProviderTextFor(ctx, "", body, 0, "matrix")
-			if err != nil {
-				_ = c.SendText(ctx, d.Matrix.RoomID, "Input failed: "+err.Error())
-				continue
-			}
-			_ = c.SendText(ctx, d.Matrix.RoomID, out)
+			d.handleMatrixEvent(ctx, c, ev)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
+	}
+}
+
+func (d *Daemon) handleMatrixEvent(ctx context.Context, c *matrix.Client, ev matrix.Event) {
+	if d.Matrix.OwnerUserID != "" && ev.Sender != d.Matrix.OwnerUserID {
+		return
+	}
+	if eventID, key, ok := matrix.Reaction(ev); ok {
+		d.handleMatrixReaction(ctx, c, ev, eventID, key)
+		return
+	}
+	body := matrix.MessageBody(ev)
+	if body == "" {
+		return
+	}
+	sessionID := d.providerTargetSessionID("")
+	d.audit(ctx, "provider.matrix.text_in", sessionID, body, 0, "event_id="+ev.EventID+" sender="+ev.Sender)
+	out, err := d.handleProviderTextFor(ctx, "", body, 0, "matrix")
+	if err != nil {
+		_ = c.SendText(ctx, d.Matrix.RoomID, "Input failed: "+err.Error())
+		return
+	}
+	d.postMatrixTail(ctx, c, sessionID, out)
+}
+
+func (d *Daemon) handleMatrixReaction(ctx context.Context, c *matrix.Client, ev matrix.Event, eventID, key string) {
+	id := d.matrixApprovalForEvent(ctx, eventID)
+	if id == "" {
+		return
+	}
+	verdict := matrixReactionVerdict(key)
+	if verdict == "" {
+		return
+	}
+	sessionID := d.approvalSessionID(ctx, id)
+	d.audit(ctx, "provider.matrix.reaction", sessionID, key, 0, "event_id="+eventID+" reaction_event="+ev.EventID+" approval="+id+" sender="+ev.Sender)
+	text := d.handleMatrixApprovalDecision(ctx, id, verdict)
+	_ = c.SendText(ctx, d.Matrix.RoomID, text)
+}
+
+func (d *Daemon) handleMatrixApprovalDecision(ctx context.Context, id string, verdict approval.Verdict) string {
+	if id == "" || verdict == "" {
+		return "Approval decision failed: invalid Matrix reaction."
+	}
+	err := d.decideProviderApproval(ctx, id, verdict, 0)
+	state := approval.StateForVerdict(verdict)
+	note := "decision recorded"
+	if err != nil {
+		switch {
+		case errors.Is(err, approval.ErrAlreadyDecided):
+			note = "already decided"
+			if a, getErr := d.Queue.Get(ctx, id); getErr == nil {
+				state = a.State
+			}
+		case errors.Is(err, approval.ErrExpired):
+			note = "expired"
+			state = approval.StateExpired
+		default:
+			return "Approval decision failed: " + err.Error()
+		}
+	}
+	return "Approval " + id + ": " + string(state) + " (" + note + ")."
+}
+
+func (d *Daemon) postMatrixTail(ctx context.Context, c *matrix.Client, sessionID, text string) {
+	events, err := c.SendTextEventChunks(ctx, d.Matrix.RoomID, text)
+	if err != nil {
+		d.audit(ctx, "provider.matrix.tail_error", sessionID, "", 0, "err="+err.Error())
+		return
+	}
+	for i, ev := range events {
+		d.audit(ctx, "provider.matrix.tail_chunk", sessionID, ev.Body, 0, fmt.Sprintf("event_id=%s index=%d bytes=%d", ev.EventID, i, len(ev.Body)))
 	}
 }
 
@@ -135,9 +201,52 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 			}
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
-				_ = c.SendText(ctx, d.Matrix.RoomID, formatApprovalWithPolicy(&a, d.providerOutputPolicy("matrix")))
+				text := formatApprovalWithPolicy(&a, d.providerOutputPolicy("matrix")) + "\nReact ✅ to approve or ❌ to deny."
+				events, err := c.SendTextEventChunks(ctx, d.Matrix.RoomID, text)
+				if err != nil {
+					d.audit(ctx, "provider.matrix.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+					continue
+				}
+				eventIDs := make([]string, 0, len(events))
+				for _, ev := range events {
+					if ev.EventID == "" {
+						continue
+					}
+					eventIDs = append(eventIDs, ev.EventID)
+					d.storeMatrixApprovalEvent(ctx, ev.EventID, a.ID)
+				}
+				d.audit(ctx, "provider.matrix.approval_sent", a.SessionID, text, 0, "approval="+a.ID+" event_ids="+strings.Join(eventIDs, ","))
 			}
 		}
+	}
+}
+
+func (d *Daemon) storeMatrixApprovalEvent(ctx context.Context, eventID, approvalID string) {
+	if d.DB == nil || strings.TrimSpace(eventID) == "" || strings.TrimSpace(approvalID) == "" {
+		return
+	}
+	_ = d.DB.KVSetString(ctx, matrixKVApprovalPrefix+eventID, approvalID)
+}
+
+func (d *Daemon) matrixApprovalForEvent(ctx context.Context, eventID string) string {
+	if d.DB == nil || strings.TrimSpace(eventID) == "" {
+		return ""
+	}
+	id, _, err := d.DB.KVGetString(ctx, matrixKVApprovalPrefix+eventID)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
+func matrixReactionVerdict(key string) approval.Verdict {
+	switch strings.TrimSpace(key) {
+	case "✅", "👍":
+		return approval.VerdictApprove
+	case "❌", "👎":
+		return approval.VerdictDeny
+	default:
+		return ""
 	}
 }
 

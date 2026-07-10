@@ -47,6 +47,7 @@ type JoinedRoom struct {
 }
 
 type Event struct {
+	EventID string          `json:"event_id"`
 	Type    string          `json:"type"`
 	Sender  string          `json:"sender"`
 	Content json.RawMessage `json:"content"`
@@ -55,6 +56,25 @@ type Event struct {
 type RoomMessage struct {
 	MsgType string `json:"msgtype"`
 	Body    string `json:"body"`
+}
+
+type SendResponse struct {
+	EventID string `json:"event_id"`
+}
+
+type SentEvent struct {
+	EventID string
+	Body    string
+}
+
+type ReactionContent struct {
+	RelatesTo RelatesTo `json:"m.relates_to"`
+}
+
+type RelatesTo struct {
+	RelType string `json:"rel_type"`
+	EventID string `json:"event_id"`
+	Key     string `json:"key"`
 }
 
 type PowerLevels struct {
@@ -111,7 +131,7 @@ func (c *Client) SyncRoom(ctx context.Context, roomID, since string, timeout tim
 			"state": map[string]any{"types": []string{"m.room.encryption", "m.room.power_levels"}},
 			"timeline": map[string]any{
 				"limit": 20,
-				"types": []string{"m.room.message", "m.room.encrypted"},
+				"types": []string{"m.room.message", "m.reaction", "m.room.encrypted"},
 			},
 		},
 	}
@@ -134,14 +154,41 @@ func (c *Client) SyncRoom(ctx context.Context, roomID, since string, timeout tim
 }
 
 func (c *Client) SendText(ctx context.Context, roomID, text string) error {
-	return chatout.SendChunks(ctx, text, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
-		return c.sendTextChunk(ctx, roomID, chunk)
-	})
+	_, err := c.SendTextEvents(ctx, roomID, text)
+	return err
 }
 
-func (c *Client) sendTextChunk(ctx context.Context, roomID, text string) error {
+func (c *Client) SendTextEvents(ctx context.Context, roomID, text string) ([]string, error) {
+	events, err := c.SendTextEventChunks(ctx, roomID, text)
+	if err != nil {
+		return nil, err
+	}
+	eventIDs := make([]string, 0, len(events))
+	for _, ev := range events {
+		if ev.EventID != "" {
+			eventIDs = append(eventIDs, ev.EventID)
+		}
+	}
+	return eventIDs, nil
+}
+
+func (c *Client) SendTextEventChunks(ctx context.Context, roomID, text string) ([]SentEvent, error) {
+	var events []SentEvent
+	if err := chatout.SendChunks(ctx, text, MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
+		eventID, err := c.sendTextChunk(ctx, roomID, chunk)
+		if err == nil {
+			events = append(events, SentEvent{EventID: eventID, Body: chunk})
+		}
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (c *Client) sendTextChunk(ctx context.Context, roomID, text string) (string, error) {
 	if strings.TrimSpace(roomID) == "" {
-		return errors.New("matrix room id required")
+		return "", errors.New("matrix room id required")
 	}
 	if strings.TrimSpace(text) == "" {
 		text = "(empty)"
@@ -151,7 +198,11 @@ func (c *Client) sendTextChunk(ctx context.Context, roomID, text string) error {
 		txnID = c.TxnID()
 	}
 	p := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/send/m.room.message/" + url.PathEscape(txnID)
-	return c.do(ctx, http.MethodPut, p, RoomMessage{MsgType: "m.text", Body: text}, nil)
+	var out SendResponse
+	if err := c.do(ctx, http.MethodPut, p, RoomMessage{MsgType: "m.text", Body: text}, &out); err != nil {
+		return "", err
+	}
+	return out.EventID, nil
 }
 
 func (c *Client) PowerLevels(ctx context.Context, roomID string) (PowerLevels, error) {
@@ -209,6 +260,21 @@ func MessageBody(ev Event) string {
 		return ""
 	}
 	return strings.TrimSpace(msg.Body)
+}
+
+func Reaction(ev Event) (eventID, key string, ok bool) {
+	if ev.Type != "m.reaction" {
+		return "", "", false
+	}
+	var reaction ReactionContent
+	if err := json.Unmarshal(ev.Content, &reaction); err != nil {
+		return "", "", false
+	}
+	rel := reaction.RelatesTo
+	if rel.RelType != "m.annotation" || strings.TrimSpace(rel.EventID) == "" || strings.TrimSpace(rel.Key) == "" {
+		return "", "", false
+	}
+	return rel.EventID, rel.Key, true
 }
 
 func (c *Client) do(ctx context.Context, method, p string, payload any, dst any) error {

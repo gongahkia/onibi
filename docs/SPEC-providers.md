@@ -146,7 +146,7 @@ below the target contract; `no` means not implemented today.
 | Provider | Approval send | Decision callbacks | Text out | Text in | Tail stream | Reconnect | Notify receipt | Audit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Telegram | yes | yes | yes | yes | partial | partial | no | partial |
-| Matrix | partial | partial | yes | yes | no | partial | no | partial |
+| Matrix | yes | partial | yes | yes | partial | partial | no | partial |
 | Slack | yes | yes | yes | yes | no | partial | no | partial |
 | Discord | partial | partial | yes | yes | no | partial | no | partial |
 | Zulip | partial | partial | yes | yes | partial | partial | no | partial |
@@ -164,8 +164,9 @@ Telegram is the current broadest chat bridge: text input/output, approval
 buttons, command handling, and tail-style command output exist. Reconnect and
 audit should move behind the shared contract.
 
-Matrix supports room text and polling cursor state. Encrypted rooms are not full
-Olm/Megolm E2EE yet; room-level privacy remains E2.
+Matrix supports room text, approval reactions, chunked room-message tail output,
+audit rows, and polling cursor state. Encrypted rooms are not full Olm/Megolm
+E2EE yet; room-level privacy remains E2.
 
 Slack supports Socket Mode, message input, and approval button callbacks. E1
 tracks full parity for tail streams, rate-limit policy reporting, and audit

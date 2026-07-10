@@ -56,6 +56,8 @@ ONIBI_LIVE_MATRIX=1 ONIBI_MATRIX_HOMESERVER=... ONIBI_MATRIX_ACCESS_TOKEN=... ON
 
 - Run `onibi up --transport=matrix`.
 - Confirm the bot can `/sync`, send a room message, reconnect with the stored since token, and reject a room where it lacks owner/moderator power.
+- Trigger an approval, react `✅` or `👍` to the approval message, and confirm the local approval state becomes approved. Repeat with `❌` or `👎` for deny.
+- Send owner text in the configured room and confirm PTY input, tail output, and `provider.matrix.text_in`, `provider.matrix.tail_chunk`, and `provider.matrix.reaction` audit rows.
 - Confirm encrypted rooms fail unless `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` is intentionally set.
 - `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` only bypasses the startup guard. It does not provide Matrix Olm/Megolm E2EE, so encrypted-room support remains unsupported until a real E2EE client stack is integrated.
 - Restart Onibi and confirm the room does not replay old terminal input.
