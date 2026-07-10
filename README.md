@@ -66,7 +66,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
-- Chat text control: Telegram, Matrix, Slack, Discord, Zulip, and IRC can route terminal text; approvals support provider-native actions where available.
+- Chat text control: Telegram, Matrix, Slack, Discord, Zulip, IRC, and Signal can route terminal text; approvals support provider-native actions where available.
 - Notify-only approvals: Pushover, ntfy, Gotify, APNs, SMS, and email publish approval alerts without terminal text input.
 - [`docs/comparison.md`](./docs/comparison.md) covers tradeoffs against remote-agent and terminal-sharing tools.
 
@@ -134,7 +134,7 @@ After `./bin/onibi up` and phone pairing:
 - `internal/tmux` creates managed tmux-backed sessions for handover.
 - `internal/pty` bridges web terminal I/O to local PTYs and tmux attach clients.
 - `internal/web` serves HTTPS, static frontend assets, `/ws/pty`, `/ws/events`, `/control`, `/approval`, and `/pair`.
-- `internal/telegram`, `internal/matrix`, `internal/slack`, `internal/discord`, `internal/zulip`, and `internal/irc` provide chat-native text input/output and approval callbacks.
+- `internal/telegram`, `internal/matrix`, `internal/slack`, `internal/discord`, `internal/zulip`, `internal/irc`, and `internal/signal` provide chat-native text input/output and approval callbacks.
 - `internal/pushover`, `internal/ntfy`, `internal/gotify`, `internal/apns`, `internal/sms`, and `internal/email` provide notify-only approval delivery.
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.
