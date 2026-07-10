@@ -152,7 +152,7 @@ below the target contract; `no` means not implemented today.
 | Zulip | partial | partial | yes | yes | partial | partial | no | partial |
 | IRC | partial | partial | yes | yes | partial | partial | no | partial |
 | Signal | partial | partial | yes | yes | partial | partial | no | partial |
-| Pushover | yes | no | notify-only | no | no | no | yes | partial |
+| Pushover | yes | partial | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
 | APNs | yes | no | notify-only | no | no | no | no | partial |
@@ -192,8 +192,9 @@ Discord supports Gateway text, slash-command fallback, components approval
 buttons/edit modals, per-session tail threads, reconnect backoff, and audit
 rows. Live guild verification remains required.
 
-Pushover is notify-only. It can send emergency-priority approval alerts and poll
-receipts, but it does not provide terminal input or native edit decisions.
+Pushover is notify-only. It can send emergency-priority approval alerts, poll
+receipts, and map acknowledged receipts to approve, but it does not provide
+terminal input, deny callbacks, or native edit decisions.
 
 ntfy validates topic secrecy, publishes optional signed Approve/Deny action
 buttons, and can tail the JSON topic stream with reconnect/replay. Password E2E
