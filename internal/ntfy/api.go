@@ -55,6 +55,19 @@ type TailOptions struct {
 	RetryMin      time.Duration
 	RetryMax      time.Duration
 	MaxReconnects int
+	AfterError    func(error, time.Duration, int)
+}
+
+type handlerError struct {
+	err error
+}
+
+func (e handlerError) Error() string {
+	return e.err.Error()
+}
+
+func (e handlerError) Unwrap() error {
+	return e.err
 }
 
 func New(baseURL, topic, token string) *Client {
@@ -101,12 +114,17 @@ func weakTopicSecret(topic string) bool {
 }
 
 func (c *Client) Publish(ctx context.Context, msg Message) error {
+	_, err := c.PublishMessage(ctx, msg)
+	return err
+}
+
+func (c *Client) PublishMessage(ctx context.Context, msg Message) (StreamMessage, error) {
 	if err := c.validate(); err != nil {
-		return err
+		return StreamMessage{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.topicURL(), strings.NewReader(msg.Body))
 	if err != nil {
-		return err
+		return StreamMessage{}, err
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -120,7 +138,7 @@ func (c *Client) Publish(ctx context.Context, msg Message) error {
 	if len(msg.Actions) > 0 {
 		header, err := ActionsHeader(msg.Actions)
 		if err != nil {
-			return err
+			return StreamMessage{}, err
 		}
 		req.Header.Set("X-Actions", header)
 	}
@@ -130,14 +148,24 @@ func (c *Client) Publish(ctx context.Context, msg Message) error {
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		return StreamMessage{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("ntfy publish status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return StreamMessage{}, err
 	}
-	return nil
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return StreamMessage{}, fmt.Errorf("ntfy publish status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var out StreamMessage
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return StreamMessage{}, err
+	}
+	return out, nil
 }
 
 func ActionsHeader(actions []Action) (string, error) {
@@ -218,6 +246,10 @@ func (c *Client) TailJSON(ctx context.Context, opts TailOptions, handle func(Str
 	reconnects := 0
 	for {
 		lastID, err := c.streamJSON(ctx, since, handle)
+		var handled handlerError
+		if errors.As(err, &handled) {
+			return handled.err
+		}
 		if lastID != "" {
 			since = lastID
 		}
@@ -232,6 +264,9 @@ func (c *Client) TailJSON(ctx context.Context, opts TailOptions, handle func(Str
 			return nil
 		}
 		reconnects++
+		if opts.AfterError != nil {
+			opts.AfterError(err, backoff, reconnects)
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -295,7 +330,7 @@ func (c *Client) streamJSON(ctx context.Context, since string, handle func(Strea
 			lastID = msg.ID
 		}
 		if err := handle(msg); err != nil {
-			return lastID, err
+			return lastID, handlerError{err: err}
 		}
 	}
 }
