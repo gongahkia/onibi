@@ -198,8 +198,9 @@ terminal input, deny callbacks, or native edit decisions.
 
 ntfy validates topic secrecy, publishes optional signed Approve/Deny action
 buttons, and can tail the JSON topic stream with reconnect/replay. Password E2E
-is not implemented because current official ntfy publish docs do not verify
-`X-Message-Encryption` support.
+is not implemented because the 2026-07-10 official ntfy publish/subscribe docs
+do not verify `X-Message-Encryption` support; upstream E2E is tracked in
+<https://github.com/binwiederhier/ntfy/issues/69>.
 
 Gotify sends REST messages, adds optional signed approval deep-links through
 `client::notification.click.url`, and can receive `/stream` WebSocket messages
