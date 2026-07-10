@@ -168,9 +168,10 @@ buttons, command handling, and tail-style command output exist. Reconnect and
 audit should move behind the shared contract.
 
 Matrix supports room text, approval reactions, chunked room-message tail output,
-audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, and
-encrypted local crypto-state persistence. Encrypted rooms are not full
-Olm/Megolm E2EE yet; room-level privacy remains E2.
+audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, SAS
+verification to-device message shapes, and encrypted local crypto-state
+persistence. Encrypted rooms are not full Olm/Megolm E2EE yet; room-level
+privacy remains E2.
 
 Slack supports Socket Mode, message input, approval buttons/edit modals,
 chunked tail output, reconnect backoff, and audit rows. Live workspace
