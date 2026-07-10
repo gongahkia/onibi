@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	goolmaccount "maunium.net/go/mautrix/crypto/goolm/account"
+	goolmsession "maunium.net/go/mautrix/crypto/goolm/session"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -175,6 +176,76 @@ func DecryptOlmFromDevice(state CryptoState, pickleKey []byte, content OlmEncryp
 	}, plaintext, nil
 }
 
+func EncryptOlmWithSession(state OlmSessionState, pickleKey []byte, senderCurve25519 string, plaintext []byte) (OlmSessionState, OlmEncryptedContent, error) {
+	senderCurve25519 = strings.TrimSpace(senderCurve25519)
+	if senderCurve25519 == "" || strings.TrimSpace(state.SenderKey) == "" {
+		return state, OlmEncryptedContent{}, errors.New("matrix olm sender and recipient keys required")
+	}
+	if len(plaintext) == 0 {
+		return state, OlmEncryptedContent{}, errors.New("matrix olm plaintext required")
+	}
+	sess, err := loadOlmSession(state, pickleKey)
+	if err != nil {
+		return state, OlmEncryptedContent{}, err
+	}
+	if state.SessionID != "" && string(sess.ID()) != state.SessionID {
+		return state, OlmEncryptedContent{}, errors.New("matrix olm session id mismatch")
+	}
+	msgType, body, err := sess.Encrypt(plaintext)
+	if err != nil {
+		return state, OlmEncryptedContent{}, err
+	}
+	pickled, err := sess.Pickle(pickleKey)
+	if err != nil {
+		return state, OlmEncryptedContent{}, err
+	}
+	content, err := NewOlmEncryptedContent(senderCurve25519, state.SenderKey, string(body), int(msgType))
+	if err != nil {
+		return state, OlmEncryptedContent{}, err
+	}
+	state.SessionID = string(sess.ID())
+	state.Pickle = string(pickled)
+	return state, content, nil
+}
+
+func DecryptOlmWithSession(state OlmSessionState, pickleKey []byte, content OlmEncryptedContent, ownCurve25519 string) (OlmSessionState, []byte, error) {
+	ownCurve25519 = strings.TrimSpace(ownCurve25519)
+	if strings.TrimSpace(content.Algorithm) != AlgorithmOlmV1 {
+		return state, nil, errors.New("matrix olm algorithm mismatch")
+	}
+	if ownCurve25519 == "" {
+		return state, nil, errors.New("matrix olm recipient key required")
+	}
+	if strings.TrimSpace(content.SenderKey) == "" || strings.TrimSpace(state.SenderKey) == "" || content.SenderKey != state.SenderKey {
+		return state, nil, errors.New("matrix olm sender key mismatch")
+	}
+	info, ok := content.Ciphertext[ownCurve25519]
+	if !ok || strings.TrimSpace(info.Body) == "" {
+		return state, nil, errors.New("matrix olm ciphertext for device missing")
+	}
+	if info.Type != OlmMessageTypePreKey && info.Type != OlmMessageTypeMessage {
+		return state, nil, errors.New("matrix olm message type invalid")
+	}
+	sess, err := loadOlmSession(state, pickleKey)
+	if err != nil {
+		return state, nil, err
+	}
+	if state.SessionID != "" && string(sess.ID()) != state.SessionID {
+		return state, nil, errors.New("matrix olm session id mismatch")
+	}
+	plaintext, err := sess.Decrypt(info.Body, id.OlmMsgType(info.Type))
+	if err != nil {
+		return state, nil, err
+	}
+	pickled, err := sess.Pickle(pickleKey)
+	if err != nil {
+		return state, nil, err
+	}
+	state.SessionID = string(sess.ID())
+	state.Pickle = string(pickled)
+	return state, plaintext, nil
+}
+
 func loadOlmAccount(state CryptoState, pickleKey []byte) (*goolmaccount.Account, error) {
 	if len(pickleKey) == 0 {
 		return nil, errors.New("matrix olm pickle key required")
@@ -183,4 +254,14 @@ func loadOlmAccount(state CryptoState, pickleKey []byte) (*goolmaccount.Account,
 		return nil, errors.New("matrix olm account pickle required")
 	}
 	return goolmaccount.AccountFromPickled([]byte(state.AccountPickle), pickleKey)
+}
+
+func loadOlmSession(state OlmSessionState, pickleKey []byte) (*goolmsession.OlmSession, error) {
+	if len(pickleKey) == 0 {
+		return nil, errors.New("matrix olm pickle key required")
+	}
+	if strings.TrimSpace(state.Pickle) == "" {
+		return nil, errors.New("matrix olm session pickle required")
+	}
+	return goolmsession.OlmSessionFromPickled([]byte(state.Pickle), pickleKey)
 }

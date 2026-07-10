@@ -86,6 +86,96 @@ func TestOlmDeviceDecryptRejectsMismatchedContent(t *testing.T) {
 	}
 }
 
+func TestOlmSessionEncryptDecryptRoundTrip(t *testing.T) {
+	pickleKey := []byte("pickle-key")
+	alice, err := NewOlmAccountState("@alice:example", "ALICE", pickleKey, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := NewOlmAccountState("@bob:example", "BOB", pickleKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobKeys, err := OlmAccountOneTimeKeys(bob, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceCurve := alice.DeviceKeys.Keys["curve25519:ALICE"]
+	bobCurve := bob.DeviceKeys.Keys["curve25519:BOB"]
+	_, aliceSession, first, err := EncryptOlmForDevice(alice, pickleKey, bob.UserID, bob.DeviceID, bobCurve, firstOneTimeKey(t, bobKeys), []byte("open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, bobSession, plaintext, err := DecryptOlmFromDevice(bob, pickleKey, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(plaintext, []byte("open")) {
+		t.Fatalf("plaintext=%q", plaintext)
+	}
+	bobSession, reply, err := EncryptOlmWithSession(bobSession, pickleKey, bobCurve, []byte("ack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Ciphertext[aliceCurve].Type != OlmMessageTypeMessage {
+		t.Fatalf("reply=%#v", reply)
+	}
+	aliceSession, plaintext, err = DecryptOlmWithSession(aliceSession, pickleKey, reply, aliceCurve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(plaintext, []byte("ack")) {
+		t.Fatalf("plaintext=%q", plaintext)
+	}
+	aliceSession, second, err := EncryptOlmWithSession(aliceSession, pickleKey, aliceCurve, []byte("again"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Ciphertext[bobCurve].Type != OlmMessageTypeMessage {
+		t.Fatalf("second=%#v", second)
+	}
+	_, plaintext, err = DecryptOlmWithSession(bobSession, pickleKey, second, bobCurve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(plaintext, []byte("again")) {
+		t.Fatalf("plaintext=%q", plaintext)
+	}
+}
+
+func TestOlmSessionDecryptRejectsMismatchedContent(t *testing.T) {
+	pickleKey := []byte("pickle-key")
+	alice, err := NewOlmAccountState("@alice:example", "ALICE", pickleKey, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := NewOlmAccountState("@bob:example", "BOB", pickleKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobKeys, err := OlmAccountOneTimeKeys(bob, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobCurve := bob.DeviceKeys.Keys["curve25519:BOB"]
+	_, aliceSession, first, err := EncryptOlmForDevice(alice, pickleKey, bob.UserID, bob.DeviceID, bobCurve, firstOneTimeKey(t, bobKeys), []byte("open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bobSession, _, err := DecryptOlmFromDevice(bob, pickleKey, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reply, err := EncryptOlmWithSession(bobSession, pickleKey, bobCurve, []byte("ack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply.SenderKey = "other"
+	if _, _, err := DecryptOlmWithSession(aliceSession, pickleKey, reply, alice.DeviceKeys.Keys["curve25519:ALICE"]); err == nil {
+		t.Fatal("expected sender mismatch")
+	}
+}
+
 func firstOneTimeKey(t *testing.T, keys map[string]string) string {
 	t.Helper()
 	ids := make([]string, 0, len(keys))
