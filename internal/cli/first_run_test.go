@@ -90,6 +90,47 @@ func TestFirstRunNoDetectedHooksSkipsInstallAndStartsUp(t *testing.T) {
 	}
 }
 
+func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
+	paths := withDefaultState(t)
+	home := firstRunHome(t)
+	cfg, meta, err := config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Transport.Mode = "matrix"
+	if err := config.Save(meta.Path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	oldWebPair := webPairRun
+	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
+		transport, _ := cmd.Flags().GetString("transport")
+		if transport != "matrix" {
+			t.Fatalf("transport = %q", transport)
+		}
+		cmd.Println("first-run idempotent pair stub")
+		return nil
+	}
+	t.Cleanup(func() { webPairRun = oldWebPair })
+
+	out, _ := executeRootInput(t, "\n\n", "up", "--first-run", "--color", "never", "--no-logo")
+	got := out.String()
+	for _, want := range []string{"No detected agent config dirs", "Select category [2]", "Select provider [2]", "Transport matrix", "first-run idempotent pair stub"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected claude settings: %v", err)
+	}
+	cfg, _, err = config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Transport.Mode != "matrix" {
+		t.Fatalf("saved transport = %q", cfg.Transport.Mode)
+	}
+}
+
 func firstRunHome(t *testing.T) string {
 	t.Helper()
 	home, err := os.UserHomeDir()
