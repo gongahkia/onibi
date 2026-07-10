@@ -17,6 +17,12 @@ import (
 
 const MessageChunkLimit = 3500
 
+const (
+	AlgorithmOlmV1             = "m.olm.v1.curve25519-aes-sha2"
+	AlgorithmMegolmV1          = "m.megolm.v1.aes-sha2"
+	KeyAlgorithmSignedCurve255 = "signed_curve25519"
+)
+
 type Client struct {
 	Homeserver  string
 	AccessToken string
@@ -80,6 +86,38 @@ type RelatesTo struct {
 type PowerLevels struct {
 	Users        map[string]int `json:"users"`
 	UsersDefault int            `json:"users_default"`
+}
+
+type DeviceKeys struct {
+	UserID     string                       `json:"user_id"`
+	DeviceID   string                       `json:"device_id"`
+	Algorithms []string                     `json:"algorithms"`
+	Keys       map[string]string            `json:"keys"`
+	Signatures map[string]map[string]string `json:"signatures,omitempty"`
+}
+
+type KeysUploadRequest struct {
+	DeviceKeys   *DeviceKeys    `json:"device_keys,omitempty"`
+	OneTimeKeys  map[string]any `json:"one_time_keys,omitempty"`
+	FallbackKeys map[string]any `json:"fallback_keys,omitempty"`
+}
+
+type KeysUploadResponse struct {
+	OneTimeKeyCounts map[string]int `json:"one_time_key_counts"`
+}
+
+type KeysQueryResponse struct {
+	Failures   map[string]any                        `json:"failures"`
+	DeviceKeys map[string]map[string]json.RawMessage `json:"device_keys"`
+}
+
+type KeysClaimResponse struct {
+	Failures    map[string]any                                   `json:"failures"`
+	OneTimeKeys map[string]map[string]map[string]json.RawMessage `json:"one_time_keys"`
+}
+
+type ToDeviceRequest struct {
+	Messages map[string]map[string]any `json:"messages"`
 }
 
 func New(homeserver, token string) *Client {
@@ -246,6 +284,77 @@ func (c *Client) CheckRoomOwner(ctx context.Context, roomID string, minPower int
 		return who, fmt.Errorf("matrix room power level %d below required %d", level, minPower)
 	}
 	return who, nil
+}
+
+func (c *Client) UploadKeys(ctx context.Context, req KeysUploadRequest) (KeysUploadResponse, error) {
+	if req.DeviceKeys == nil && len(req.OneTimeKeys) == 0 && len(req.FallbackKeys) == 0 {
+		return KeysUploadResponse{}, errors.New("matrix key upload requires device, one-time, or fallback keys")
+	}
+	var out KeysUploadResponse
+	if err := c.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/upload", req, &out); err != nil {
+		return KeysUploadResponse{}, err
+	}
+	if out.OneTimeKeyCounts == nil {
+		out.OneTimeKeyCounts = map[string]int{}
+	}
+	return out, nil
+}
+
+func (c *Client) QueryKeys(ctx context.Context, deviceKeys map[string][]string, timeout time.Duration) (KeysQueryResponse, error) {
+	if len(deviceKeys) == 0 {
+		return KeysQueryResponse{}, errors.New("matrix key query requires users")
+	}
+	req := map[string]any{"device_keys": deviceKeys}
+	if timeout > 0 {
+		req["timeout"] = int(timeout.Milliseconds())
+	}
+	var out KeysQueryResponse
+	if err := c.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/query", req, &out); err != nil {
+		return KeysQueryResponse{}, err
+	}
+	if out.Failures == nil {
+		out.Failures = map[string]any{}
+	}
+	if out.DeviceKeys == nil {
+		out.DeviceKeys = map[string]map[string]json.RawMessage{}
+	}
+	return out, nil
+}
+
+func (c *Client) ClaimOneTimeKeys(ctx context.Context, oneTimeKeys map[string]map[string]string, timeout time.Duration) (KeysClaimResponse, error) {
+	if len(oneTimeKeys) == 0 {
+		return KeysClaimResponse{}, errors.New("matrix one-time key claim requires devices")
+	}
+	req := map[string]any{"one_time_keys": oneTimeKeys}
+	if timeout > 0 {
+		req["timeout"] = int(timeout.Milliseconds())
+	}
+	var out KeysClaimResponse
+	if err := c.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/claim", req, &out); err != nil {
+		return KeysClaimResponse{}, err
+	}
+	if out.Failures == nil {
+		out.Failures = map[string]any{}
+	}
+	if out.OneTimeKeys == nil {
+		out.OneTimeKeys = map[string]map[string]map[string]json.RawMessage{}
+	}
+	return out, nil
+}
+
+func (c *Client) SendToDevice(ctx context.Context, eventType string, messages map[string]map[string]any) error {
+	if strings.TrimSpace(eventType) == "" {
+		return errors.New("matrix to-device event type required")
+	}
+	if len(messages) == 0 {
+		return errors.New("matrix to-device messages required")
+	}
+	txnID := fmt.Sprintf("%d", time.Now().UnixNano())
+	if c.TxnID != nil {
+		txnID = c.TxnID()
+	}
+	p := "/_matrix/client/v3/sendToDevice/" + url.PathEscape(eventType) + "/" + url.PathEscape(txnID)
+	return c.do(ctx, http.MethodPut, p, ToDeviceRequest{Messages: messages}, nil)
 }
 
 func MessageBody(ev Event) string {

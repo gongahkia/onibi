@@ -207,6 +207,144 @@ func TestCheckRoomOwnerUsesUsersDefault(t *testing.T) {
 	}
 }
 
+func TestUploadKeysUsesClientServerShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/_matrix/client/v3/keys/upload" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		var req KeysUploadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.DeviceKeys == nil || req.DeviceKeys.UserID != "@bot:example" || req.DeviceKeys.DeviceID != "ONIBI" {
+			t.Fatalf("device keys = %#v", req.DeviceKeys)
+		}
+		if !containsString(req.DeviceKeys.Algorithms, AlgorithmOlmV1) || !containsString(req.DeviceKeys.Algorithms, AlgorithmMegolmV1) {
+			t.Fatalf("algorithms = %#v", req.DeviceKeys.Algorithms)
+		}
+		if req.OneTimeKeys["signed_curve25519:AAAA"] == nil {
+			t.Fatalf("one-time keys = %#v", req.OneTimeKeys)
+		}
+		writeJSON(t, w, map[string]any{"one_time_key_counts": map[string]int{KeyAlgorithmSignedCurve255: 1}})
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, "tok").UploadKeys(t.Context(), KeysUploadRequest{
+		DeviceKeys: &DeviceKeys{
+			UserID:     "@bot:example",
+			DeviceID:   "ONIBI",
+			Algorithms: []string{AlgorithmOlmV1, AlgorithmMegolmV1},
+			Keys:       map[string]string{"curve25519:ONIBI": "curve", "ed25519:ONIBI": "ed"},
+		},
+		OneTimeKeys: map[string]any{"signed_curve25519:AAAA": map[string]any{"key": "otk"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OneTimeKeyCounts[KeyAlgorithmSignedCurve255] != 1 {
+		t.Fatalf("counts = %#v", got.OneTimeKeyCounts)
+	}
+}
+
+func TestQueryAndClaimKeysUseClientServerShape(t *testing.T) {
+	var sawQuery, sawClaim bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_matrix/client/v3/keys/query":
+			sawQuery = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("query method = %s", r.Method)
+			}
+			var req struct {
+				DeviceKeys map[string][]string `json:"device_keys"`
+				Timeout    int                 `json:"timeout"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.DeviceKeys["@alice:example"][0] != "ALICE" || req.Timeout != 2500 {
+				t.Fatalf("query req = %#v", req)
+			}
+			writeJSON(t, w, map[string]any{"device_keys": map[string]any{"@alice:example": map[string]any{"ALICE": map[string]any{"device_id": "ALICE"}}}})
+		case "/_matrix/client/v3/keys/claim":
+			sawClaim = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("claim method = %s", r.Method)
+			}
+			var req struct {
+				OneTimeKeys map[string]map[string]string `json:"one_time_keys"`
+				Timeout     int                          `json:"timeout"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.OneTimeKeys["@alice:example"]["ALICE"] != KeyAlgorithmSignedCurve255 || req.Timeout != 1000 {
+				t.Fatalf("claim req = %#v", req)
+			}
+			writeJSON(t, w, map[string]any{"one_time_keys": map[string]any{"@alice:example": map[string]any{"ALICE": map[string]any{"signed_curve25519:AAAA": map[string]any{"key": "otk"}}}}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	query, err := c.QueryKeys(t.Context(), map[string][]string{"@alice:example": {"ALICE"}}, 2500*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.DeviceKeys["@alice:example"]["ALICE"] == nil {
+		t.Fatalf("query = %#v", query)
+	}
+	claim, err := c.ClaimOneTimeKeys(t.Context(), map[string]map[string]string{"@alice:example": {"ALICE": KeyAlgorithmSignedCurve255}}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim.OneTimeKeys["@alice:example"]["ALICE"]["signed_curve25519:AAAA"] == nil {
+		t.Fatalf("claim = %#v", claim)
+	}
+	if !sawQuery || !sawClaim {
+		t.Fatalf("saw query=%v claim=%v", sawQuery, sawClaim)
+	}
+}
+
+func TestSendToDeviceEscapesEventTypeAndTxn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/sendToDevice/m.room.encrypted/txn-1") {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		var req ToDeviceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Messages["@alice:example"]["ALICE"] == nil {
+			t.Fatalf("messages = %#v", req.Messages)
+		}
+		writeJSON(t, w, map[string]any{})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	c.TxnID = func() string { return "txn-1" }
+	err := c.SendToDevice(t.Context(), "m.room.encrypted", map[string]map[string]any{"@alice:example": {"ALICE": map[string]any{"type": "m.room_key"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestE2EEEndpointValidation(t *testing.T) {
+	c := New("https://matrix.example", "tok")
+	if _, err := c.UploadKeys(t.Context(), KeysUploadRequest{}); err == nil {
+		t.Fatal("expected empty upload error")
+	}
+	if _, err := c.QueryKeys(t.Context(), nil, 0); err == nil {
+		t.Fatal("expected empty query error")
+	}
+	if _, err := c.ClaimOneTimeKeys(t.Context(), nil, 0); err == nil {
+		t.Fatal("expected empty claim error")
+	}
+	if err := c.SendToDevice(t.Context(), "", nil); err == nil {
+		t.Fatal("expected empty to-device error")
+	}
+}
+
 func TestIsEncryptedRoom(t *testing.T) {
 	var encrypted bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
