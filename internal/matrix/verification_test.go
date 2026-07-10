@@ -76,3 +76,69 @@ func TestVerificationToDeviceValidation(t *testing.T) {
 		t.Fatal("expected content validation error")
 	}
 }
+
+func TestSASTransactionAppliesVerificationEvents(t *testing.T) {
+	state := SASTransactionState{UserID: "@alice:example"}
+	var err error
+	state, err = state.ApplyVerificationEvent(EventKeyVerificationStart, mustJSONRaw(t, DefaultSASStart("txn-1", "ALICE")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != SASStateStarted || state.TransactionID != "txn-1" || state.DeviceID != "ALICE" {
+		t.Fatalf("start state = %#v", state)
+	}
+	state, err = state.ApplyVerificationEvent(EventKeyVerificationAccept, mustJSONRaw(t, DefaultSASAccept("txn-1", "commitment")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != SASStateAccepted || state.Commitment != "commitment" {
+		t.Fatalf("accept state = %#v", state)
+	}
+	state, err = state.ApplyVerificationEvent(EventKeyVerificationKey, mustJSONRaw(t, VerificationKeyContent{TransactionID: "txn-1", Key: "curve-key"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != SASStateKeyReceived || state.EphemeralPublicKey != "curve-key" {
+		t.Fatalf("key state = %#v", state)
+	}
+	state, err = state.ApplyVerificationEvent(EventKeyVerificationMAC, mustJSONRaw(t, VerificationMACContent{TransactionID: "txn-1", Keys: "keys", MAC: map[string]string{"ed25519:ALICE": "mac"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != SASStateMACReceived {
+		t.Fatalf("mac state = %#v", state)
+	}
+	state, err = state.ApplyVerificationEvent(EventKeyVerificationDone, mustJSONRaw(t, VerificationDoneContent{TransactionID: "txn-1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != SASStateDone {
+		t.Fatalf("done state = %#v", state)
+	}
+}
+
+func TestSASTransactionRejectsInvalidTransitionAndMismatch(t *testing.T) {
+	state := SASTransactionState{TransactionID: "txn-1", State: SASStateStarted}
+	if _, err := state.ApplyVerificationEvent(EventKeyVerificationKey, mustJSONRaw(t, VerificationKeyContent{TransactionID: "txn-1", Key: "curve-key"})); err == nil {
+		t.Fatal("expected invalid transition error")
+	}
+	if _, err := state.ApplyVerificationEvent(EventKeyVerificationAccept, mustJSONRaw(t, DefaultSASAccept("other", "commitment"))); err == nil {
+		t.Fatal("expected transaction mismatch")
+	}
+	cancelled, err := state.ApplyVerificationEvent(EventKeyVerificationCancel, mustJSONRaw(t, VerificationCancelContent{TransactionID: "txn-1", Code: VerificationCancelUser, Reason: "user"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.State != SASStateCancelled {
+		t.Fatalf("cancelled = %#v", cancelled)
+	}
+}
+
+func mustJSONRaw(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}

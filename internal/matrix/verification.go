@@ -33,6 +33,13 @@ const (
 	VerificationCancelTimeout    = "m.timeout"
 	VerificationCancelMismatch   = "m.mismatched_sas"
 	VerificationCancelUnexpected = "m.unexpected_message"
+
+	SASStateStarted     = "started"
+	SASStateAccepted    = "accepted"
+	SASStateKeyReceived = "key_received"
+	SASStateMACReceived = "mac_received"
+	SASStateDone        = "done"
+	SASStateCancelled   = "cancelled"
 )
 
 type VerificationRelatesTo struct {
@@ -140,6 +147,91 @@ func SASCommitment(ephemeralPublicKey string, start VerificationStartContent) (s
 	return base64.RawStdEncoding.EncodeToString(sum[:]), nil
 }
 
+func (s SASTransactionState) ApplyVerificationEvent(eventType string, raw json.RawMessage) (SASTransactionState, error) {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return s, errors.New("matrix verification event type required")
+	}
+	next := s
+	switch eventType {
+	case EventKeyVerificationStart:
+		if s.State != "" && s.State != SASStateStarted {
+			return s, verificationTransitionError(s.State, eventType)
+		}
+		var content VerificationStartContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.DeviceID = firstNonEmptyString(next.DeviceID, content.FromDevice)
+		next.State = SASStateStarted
+	case EventKeyVerificationAccept:
+		if s.State != SASStateStarted {
+			return s, verificationTransitionError(s.State, eventType)
+		}
+		var content VerificationAcceptContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.Commitment = strings.TrimSpace(content.Commitment)
+		next.State = SASStateAccepted
+	case EventKeyVerificationKey:
+		if s.State != SASStateAccepted {
+			return s, verificationTransitionError(s.State, eventType)
+		}
+		var content VerificationKeyContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.EphemeralPublicKey = strings.TrimSpace(content.Key)
+		next.State = SASStateKeyReceived
+	case EventKeyVerificationMAC:
+		if s.State != SASStateKeyReceived {
+			return s, verificationTransitionError(s.State, eventType)
+		}
+		var content VerificationMACContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.State = SASStateMACReceived
+	case EventKeyVerificationDone:
+		if s.State != SASStateMACReceived {
+			return s, verificationTransitionError(s.State, eventType)
+		}
+		var content VerificationDoneContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.State = SASStateDone
+	case EventKeyVerificationCancel:
+		var content VerificationCancelContent
+		if err := json.Unmarshal(raw, &content); err != nil {
+			return s, err
+		}
+		if err := applyVerificationTransaction(&next, content.TransactionID); err != nil {
+			return s, err
+		}
+		next.State = SASStateCancelled
+	default:
+		return s, errors.New("matrix verification event unsupported")
+	}
+	return next, nil
+}
+
 func verificationStartCanonicalMap(start VerificationStartContent) map[string]any {
 	m := map[string]any{"method": start.Method}
 	if v := strings.TrimSpace(start.FromDevice); v != "" {
@@ -164,4 +256,33 @@ func verificationStartCanonicalMap(start VerificationStartContent) map[string]an
 		m["m.relates_to"] = start.RelatesTo
 	}
 	return m
+}
+
+func applyVerificationTransaction(state *SASTransactionState, transactionID string) error {
+	transactionID = strings.TrimSpace(transactionID)
+	if transactionID == "" {
+		return nil
+	}
+	if state.TransactionID != "" && state.TransactionID != transactionID {
+		return errors.New("matrix verification transaction mismatch")
+	}
+	state.TransactionID = transactionID
+	return nil
+}
+
+func verificationTransitionError(state, eventType string) error {
+	if state == "" {
+		state = "empty"
+	}
+	return errors.New("matrix verification invalid transition from " + state + " on " + eventType)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
