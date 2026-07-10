@@ -182,8 +182,8 @@ approval replies, per-session topic tail output, event queue reconnect, and
 audit rows. Reaction decision callbacks remain future work.
 
 IRC supports registered-nick SASL PLAIN login, owner-DM text input, `!onibi`
-approval replies, DM tail chunking, reconnect backoff, send pacing, and audit
-rows. It has no Onibi-supported E2EE path.
+approval replies, DM tail chunking, reconnect backoff, send pacing, audit rows,
+and a local `chatout.Provider` adapter. It has no Onibi-supported E2EE path.
 
 Signal supports local `signal-cli` JSON-RPC send/events, approval reactions,
 owner filtering, text input, tail chunking, reconnect backoff, and audit rows.
