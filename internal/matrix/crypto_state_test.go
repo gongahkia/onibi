@@ -24,6 +24,43 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 		},
 		OneTimeKeyCounts: map[string]int{KeyAlgorithmSignedCurve255: 7},
 		NextBatch:        "sync-token",
+		OlmSessions: map[string]OlmSessionState{
+			"@alice:example/ALICE": {
+				UserID:    "@alice:example",
+				DeviceID:  "ALICE",
+				SenderKey: "alice-curve-secret",
+				SessionID: "olm-session",
+				Pickle:    "secret-olm-session-pickle",
+			},
+		},
+		MegolmOutboundSessions: map[string]MegolmOutboundState{
+			"!room:example": {
+				RoomID:    "!room:example",
+				SessionID: "outbound-megolm-session",
+				Pickle:    "secret-outbound-megolm-pickle",
+				SharedWith: map[string][]string{
+					"@alice:example": {"ALICE"},
+				},
+			},
+		},
+		MegolmInboundSessions: map[string]MegolmInboundState{
+			"!room:example/alice-curve-secret/inbound-megolm-session": {
+				RoomID:    "!room:example",
+				SenderKey: "alice-curve-secret",
+				SessionID: "inbound-megolm-session",
+				Pickle:    "secret-inbound-megolm-pickle",
+			},
+		},
+		SASTransactions: map[string]SASTransactionState{
+			"txn-1": {
+				TransactionID:      "txn-1",
+				UserID:             "@alice:example",
+				DeviceID:           "ALICE",
+				State:              "started",
+				EphemeralPublicKey: "sas-ephemeral-secret",
+				Commitment:         "sas-commitment-secret",
+			},
+		},
 	}
 	if err := SaveCryptoState(t.Context(), db, state); err != nil {
 		t.Fatal(err)
@@ -32,7 +69,16 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("raw state ok=%v err=%v", ok, err)
 	}
-	for _, secret := range []string{"secret-olm-account-pickle", "curve-secret", "sync-token"} {
+	for _, secret := range []string{
+		"secret-olm-account-pickle",
+		"curve-secret",
+		"sync-token",
+		"secret-olm-session-pickle",
+		"secret-outbound-megolm-pickle",
+		"secret-inbound-megolm-pickle",
+		"sas-ephemeral-secret",
+		"sas-commitment-secret",
+	} {
 		if bytes.Contains(raw, []byte(secret)) {
 			t.Fatalf("raw state contains %q", secret)
 		}
@@ -49,6 +95,18 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	}
 	if got.OneTimeKeyCounts[KeyAlgorithmSignedCurve255] != 7 || got.NextBatch != "sync-token" {
 		t.Fatalf("state = %#v", got)
+	}
+	if got.OlmSessions["@alice:example/ALICE"].Pickle != "secret-olm-session-pickle" {
+		t.Fatalf("olm sessions = %#v", got.OlmSessions)
+	}
+	if got.MegolmOutboundSessions["!room:example"].Pickle != "secret-outbound-megolm-pickle" {
+		t.Fatalf("outbound sessions = %#v", got.MegolmOutboundSessions)
+	}
+	if got.MegolmInboundSessions["!room:example/alice-curve-secret/inbound-megolm-session"].Pickle != "secret-inbound-megolm-pickle" {
+		t.Fatalf("inbound sessions = %#v", got.MegolmInboundSessions)
+	}
+	if got.SASTransactions["txn-1"].Commitment != "sas-commitment-secret" {
+		t.Fatalf("sas transactions = %#v", got.SASTransactions)
 	}
 }
 
