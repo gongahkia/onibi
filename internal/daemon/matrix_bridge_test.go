@@ -3,7 +3,9 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,6 +94,40 @@ func TestMatrixTextInRoutesToPTYAndAuditsTail(t *testing.T) {
 	}
 }
 
+func TestMatrixEncryptedBypassAuditsPlaintextFallback(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", AllowEncrypted: true}})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/account/whoami"):
+			writeMatrixJSON(t, w, matrix.WhoAmI{UserID: "@bot:example"})
+		case strings.Contains(r.URL.Path, "/state/m.room.power_levels"):
+			writeMatrixJSON(t, w, matrix.PowerLevels{Users: map[string]int{"@bot:example": 100}})
+		case strings.Contains(r.URL.Path, "/state/m.room.encryption"):
+			writeMatrixJSON(t, w, map[string]any{"algorithm": "m.megolm.v1.aes-sha2"})
+		case strings.HasSuffix(r.URL.Path, "/sync"):
+			writeMatrixJSON(t, w, map[string]any{"next_batch": "s1", "rooms": map[string]any{"join": map[string]any{"!room:example": map[string]any{}}}})
+			cancel()
+		default:
+			t.Fatalf("unexpected matrix path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	err := d.runMatrixBridge(ctx, matrix.New(srv.URL, "tok"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runMatrixBridge err = %v", err)
+	}
+	audit, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(audit, "provider.matrix.encrypted_bypass") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
 func TestMatrixReactionVerdict(t *testing.T) {
 	if matrixReactionVerdict("✅") != approval.VerdictApprove || matrixReactionVerdict("👍") != approval.VerdictApprove {
 		t.Fatal("approve reaction mapping failed")
@@ -124,6 +160,14 @@ func matrixTestClient(t *testing.T, sent *[]string) *matrix.Client {
 	c := matrix.New(srv.URL, "tok")
 	c.TxnID = func() string { return "txn" }
 	return c
+}
+
+func writeMatrixJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func auditHas(entries []store.AuditEntry, action string) bool {

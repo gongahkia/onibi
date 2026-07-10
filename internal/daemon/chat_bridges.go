@@ -74,6 +74,9 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if encrypted && !d.Matrix.AllowEncrypted {
 		return errors.New("matrix encrypted rooms require real Olm/Megolm E2EE; use an unencrypted room or set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 only for send-only testing")
 	}
+	if encrypted {
+		d.audit(ctx, "provider.matrix.encrypted_bypass", "", "", 0, "room="+d.Matrix.RoomID+" allow_encrypted=true e2ee=false")
+	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
 	if d.DB != nil {

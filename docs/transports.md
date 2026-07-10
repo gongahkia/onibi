@@ -180,7 +180,7 @@ ONIBI_MATRIX_OWNER_USER_ID='@owner:example.org'
 ONIBI_MATRIX_ALLOW_ENCRYPTED=0
 ```
 
-Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, refuses encrypted rooms by default, stores the room-scoped `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors. Approval prompts are sent as room messages; react `✅` or `👍` to approve, react `❌` or `👎` to deny. Matrix text-in, tail chunks, approval sends, and reactions write `provider.matrix.*` audit rows. `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` only bypasses the guard for send-only testing; Onibi does not implement Matrix Olm/Megolm E2EE.
+Onibi validates the configured room through Matrix Client-Server APIs, checks the bot user's room power level, refuses encrypted rooms by default, stores the room-scoped `/sync` `next_batch` token for reconnect, sends terminal output with `m.room.message`, and surfaces homeserver errors. Approval prompts are sent as room messages; react `✅` or `👍` to approve, react `❌` or `👎` to deny. Matrix text-in, tail chunks, approval sends, and reactions write `provider.matrix.*` audit rows. `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` only bypasses the guard for send-only testing, records `provider.matrix.encrypted_bypass`, and still sends plaintext `m.room.message` events; Onibi does not implement Matrix Olm/Megolm E2EE.
 
 ## Slack
 
