@@ -17,6 +17,7 @@ import (
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
+	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
@@ -68,6 +69,9 @@ var (
 	newIRCClient = func(addr, nick, username, password string) *irc.Client {
 		return irc.New(addr, nick, username, password)
 	}
+	newSignalClient = func(baseURL, account string) *signalapi.Client {
+		return signalapi.New(baseURL, account)
+	}
 	newSMSClient = func(accountSID, authToken, from, messagingServiceSID string) *sms.Client {
 		return sms.New(accountSID, authToken, from, messagingServiceSID)
 	}
@@ -85,6 +89,7 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerDiscord(ctx, opts, pa),
 		providerZulip(ctx, opts, pa),
 		providerIRC(ctx, opts, pa),
+		providerSignal(ctx, opts, pa),
 		providerPushover(ctx, opts, pa),
 		providerNtfy(ctx, opts, pa),
 		providerGotify(ctx, opts, pa),
@@ -315,6 +320,34 @@ func providerPushover(ctx context.Context, opts Options, pa map[string]string) P
 	return row
 }
 
+func providerSignal(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
+	row := providerRow("signal", pa)
+	missing := missingEnv("ONIBI_SIGNAL_RPC_URL", "ONIBI_SIGNAL_ACCOUNT")
+	if strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENT")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")) == "" {
+		missing = append(missing, "ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
+	}
+	row.Configured = len(missing) == 0
+	if !row.Configured {
+		row.Detail = "missing " + strings.Join(missing, ", ")
+		row.Fix = []string{"set ONIBI_SIGNAL_RPC_URL, ONIBI_SIGNAL_ACCOUNT, and ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID", "run onibi up --transport=signal"}
+		return row
+	}
+	row.Detail = "env present; set ONIBI_DOCTOR_LIVE=1 for daemon check"
+	if opts.Offline || !doctorLiveProbe() {
+		return row
+	}
+	withProviderTimeout(ctx, func(ctx context.Context) {
+		if err := newSignalClient(os.Getenv("ONIBI_SIGNAL_RPC_URL"), os.Getenv("ONIBI_SIGNAL_ACCOUNT")).Check(ctx); err != nil {
+			row.Reachable = ReachableNo
+			row.Detail = "daemon check failed: " + err.Error()
+			return
+		}
+		row.Reachable = ReachableYes
+		row.Detail = "daemon check ok"
+	})
+	return row
+}
+
 func providerNtfy(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
 	row := providerRow("ntfy", pa)
 	topic := strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOPIC"))
@@ -522,7 +555,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns", "sms", "email"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

@@ -22,6 +22,7 @@ import (
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
+	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/store"
@@ -34,7 +35,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns", "sms", "email"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -70,6 +71,7 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"discord":  "ONIBI_DISCORD_TOKEN",
 		"zulip":    "ONIBI_ZULIP_URL",
 		"irc":      "ONIBI_IRC_NICK",
+		"signal":   "ONIBI_SIGNAL_RPC_URL",
 		"pushover": "ONIBI_PUSHOVER_TOKEN",
 		"ntfy":     "ONIBI_NTFY_TOPIC",
 		"gotify":   "ONIBI_GOTIFY_URL",
@@ -131,6 +133,8 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer discordSrv.Close()
 	withDiscordFactory(t, discordSrv.URL)
+	t.Setenv("ONIBI_SIGNAL_RPC_URL", "http://signal.invalid")
+	withSignalFactory(t)
 	zulipSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/register":
@@ -451,6 +455,19 @@ func TestDoctorSMSProviderFakeAPI(t *testing.T) {
 	}
 }
 
+func TestDoctorSignalProviderFakeAPI(t *testing.T) {
+	paths := doctorTestPaths(t, "signal")
+	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
+	t.Setenv("ONIBI_SIGNAL_RPC_URL", "http://signal.invalid")
+	t.Setenv("ONIBI_SIGNAL_ACCOUNT", "+15550001")
+	t.Setenv("ONIBI_SIGNAL_RECIPIENT", "+15550002")
+	withSignalFactory(t)
+	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "Signal daemon check ok") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
 func TestDoctorEmailProviderFakeSend(t *testing.T) {
 	paths := doctorTestPaths(t, "email")
 	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
@@ -501,6 +518,23 @@ func withIRCFactory(t *testing.T) {
 		return c
 	}
 	t.Cleanup(func() { newIRCClient = old })
+}
+
+func withSignalFactory(t *testing.T) {
+	t.Helper()
+	old := newSignalClient
+	newSignalClient = func(baseURL, account string) *signalapi.Client {
+		c := signalapi.New(baseURL, account)
+		c.HTTP = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+			}, nil
+		}).Client()
+		return c
+	}
+	t.Cleanup(func() { newSignalClient = old })
 }
 
 func serveIRCSASL(t *testing.T, conn net.Conn) {
@@ -650,6 +684,9 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_IRC_USERNAME", "onibi")
 	t.Setenv("ONIBI_IRC_PASSWORD", "irc-pass")
 	t.Setenv("ONIBI_IRC_OWNER_NICK", "owner")
+	t.Setenv("ONIBI_SIGNAL_RPC_URL", "http://signal.invalid")
+	t.Setenv("ONIBI_SIGNAL_ACCOUNT", "+15550001")
+	t.Setenv("ONIBI_SIGNAL_RECIPIENT", "+15550002")
 	t.Setenv("ONIBI_PUSHOVER_TOKEN", "push-token")
 	t.Setenv("ONIBI_PUSHOVER_USER_KEY", "user-key")
 	t.Setenv("ONIBI_NTFY_TOPIC", "AbcdefGhij1234567890_Z")
@@ -697,6 +734,12 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_IRC_PASSWORD",
 		"ONIBI_IRC_OWNER_NICK",
 		"ONIBI_IRC_PLAINTEXT",
+		"ONIBI_SIGNAL_RPC_URL",
+		"ONIBI_SIGNAL_ACCOUNT",
+		"ONIBI_SIGNAL_RECIPIENT",
+		"ONIBI_SIGNAL_RECIPIENTS",
+		"ONIBI_SIGNAL_GROUP_ID",
+		"ONIBI_SIGNAL_OWNER",
 		"ONIBI_PUSHOVER_TOKEN",
 		"ONIBI_PUSHOVER_USER_KEY",
 		"ONIBI_NTFY_TOPIC",

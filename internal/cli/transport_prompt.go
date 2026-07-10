@@ -103,7 +103,7 @@ func promptTransportCategory(cmd *cobra.Command, sc *bufio.Scanner, current stri
 		switch {
 		case raw == "url" || raw == "browser" || strings.Contains(raw, "web") || strings.Contains(raw, "cloudflare") || raw == "ngrok":
 			return transportCategoryWeb, nil
-		case strings.Contains(raw, "chat") || raw == "telegram" || raw == "slack" || raw == "discord" || raw == "matrix" || raw == "zulip" || raw == "irc":
+		case strings.Contains(raw, "chat") || raw == "telegram" || raw == "slack" || raw == "discord" || raw == "matrix" || raw == "zulip" || raw == "irc" || raw == "signal":
 			return transportCategoryChat, nil
 		case strings.Contains(raw, "notify") || raw == "pushover" || raw == "sms" || raw == "email":
 			return transportCategoryNotify, nil
@@ -422,7 +422,7 @@ func unavailableTransportChoices(category string) []unavailableTransportChoice {
 
 func normalizePairTransport(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto":
+	case "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "lan"
@@ -440,7 +440,7 @@ func modeForTransportKey(choices []pairTransportChoice, key string) string {
 
 func categoryForTransport(mode string) string {
 	switch normalizePairTransport(mode) {
-	case "telegram", "matrix", "slack", "discord", "zulip", "irc":
+	case "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal":
 		return transportCategoryChat
 	case "pushover", "ntfy", "gotify", "apns", "sms", "email":
 		return transportCategoryNotify

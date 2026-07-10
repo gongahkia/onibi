@@ -46,8 +46,8 @@ on_overrun = "interrupt"
 [transports]
 default = "tailscale"
 web = ["lan", "tailscale"]
-chat = ["telegram"]
-notify = ["pushover", "ntfy"]
+chat = ["telegram", "signal"]
+notify = ["pushover", "ntfy", "sms", "email"]
 
 [hooks]
 auto_install = ["claude", "codex", "shell:zsh"]
@@ -97,7 +97,7 @@ If `budget.session.on_overrun` is omitted, Onibi uses `interrupt`.
 `[transports]` declares workspace-preferred control surfaces.
 
 `transports.default`
-: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `pushover`, `ntfy`, `gotify`, `apns`, or `auto`.
+: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, `apns`, `sms`, `email`, or `auto`.
 
 `transports.web`
 : Optional ordered allowlist for browser cockpit modes.

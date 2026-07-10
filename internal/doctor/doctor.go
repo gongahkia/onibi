@@ -299,6 +299,8 @@ func (r *runner) checkTransportProvider() {
 		r.checkGotifyProvider()
 	case "apns":
 		r.checkAPNsProvider()
+	case "signal":
+		r.checkSignalProvider()
 	case "sms":
 		r.checkSMSProvider()
 	case "email":
@@ -666,6 +668,28 @@ func (r *runner) checkSMSProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "SMS live API ok: send sid="+providerValueOrDefault(resp.SID, "unknown"))
+}
+
+func (r *runner) checkSignalProvider() {
+	missing := missingEnv("ONIBI_SIGNAL_RPC_URL", "ONIBI_SIGNAL_ACCOUNT")
+	if strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENT")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")) == "" {
+		missing = append(missing, "ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
+	}
+	if len(missing) > 0 {
+		r.add("transport provider", Warn, "Signal missing "+strings.Join(missing, ", "))
+		return
+	}
+	if r.opts.Offline || !doctorLiveProbe() {
+		r.add("transport provider", Pass, "Signal env present; set ONIBI_DOCTOR_LIVE=1 for daemon check")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	if err := newSignalClient(os.Getenv("ONIBI_SIGNAL_RPC_URL"), os.Getenv("ONIBI_SIGNAL_ACCOUNT")).Check(ctx); err != nil {
+		r.add("transport provider", Warn, "Signal daemon check failed: "+err.Error())
+		return
+	}
+	r.add("transport provider", Pass, "Signal daemon check ok")
 }
 
 func (r *runner) checkEmailProvider() {

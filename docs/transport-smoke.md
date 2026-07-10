@@ -119,6 +119,7 @@ ONIBI_LIVE_IRC=1 ONIBI_IRC_NICK=onibi-bot ONIBI_IRC_USERNAME=onibi-bot ONIBI_IRC
 - Discord also checks `/onibi` command presence when `ONIBI_DISCORD_APPLICATION_ID` or `ONIBI_DISCORD_GUILD_ID` is set; doctor reports missing command but does not register it.
 - Zulip: required bot env and event-queue registration/deletion on the configured stream.
 - IRC: required bot/owner env and SASL connect to the configured server.
+- Signal: required local daemon env and `/api/v1/check` when `ONIBI_DOCTOR_LIVE=1`.
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
 - Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
