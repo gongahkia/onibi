@@ -69,6 +69,7 @@ type TailOptions struct {
 	RetryMin      time.Duration
 	RetryMax      time.Duration
 	MaxReconnects int
+	AfterError    func(error, time.Duration, int)
 }
 
 type RPCError struct {
@@ -301,6 +302,9 @@ func (c *Client) TailEvents(ctx context.Context, opts TailOptions, handle func(E
 			return err
 		}
 		reconnects++
+		if opts.AfterError != nil {
+			opts.AfterError(err, backoff, reconnects)
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():

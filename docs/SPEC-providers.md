@@ -186,8 +186,9 @@ approval replies, DM tail chunking, reconnect backoff, send pacing, audit rows,
 and a local `chatout.Provider` adapter. It has no Onibi-supported E2EE path.
 
 Signal supports local `signal-cli` JSON-RPC send/events, approval reactions,
-owner filtering, text input, tail chunking, reconnect backoff, and audit rows.
-Live linked-number verification remains required.
+owner filtering, text input, tail chunking, reconnect backoff, audit rows, and
+a local `chatout.Provider` adapter. Live linked-number verification remains
+required.
 
 Discord supports Gateway text, slash-command fallback, components approval
 buttons/edit modals, per-session tail threads, reconnect backoff, and audit
