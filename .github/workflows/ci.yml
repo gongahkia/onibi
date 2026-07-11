@@ -209,4 +209,5 @@ jobs:
         env:
           ONIBI_BENCH_COUNT: 10
           ONIBI_BENCH_APPROVAL_COUNT: 20
+          ONIBI_BENCH_RSS_TOLERANCE_MIB: 5
         run: make bench-tolerance

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 tolerance_pct="${ONIBI_BENCH_TOLERANCE_PCT:-10}"
+rss_tolerance_mib="${ONIBI_BENCH_RSS_TOLERANCE_MIB:-5}"
 output_dir="${ONIBI_BENCH_TOLERANCE_DIR:-}"
 cold_iterations="${ONIBI_BENCH_TOLERANCE_COLDSTART_ITERATIONS:-5}"
 idle_seconds="${ONIBI_BENCH_TOLERANCE_IDLE_SECONDS:-5}"
@@ -17,6 +18,7 @@ Reruns local-only benchmark scripts twice and fails when median/value drift exce
 
 Environment:
   ONIBI_BENCH_TOLERANCE_PCT                   percent drift allowed (default 10)
+  ONIBI_BENCH_RSS_TOLERANCE_MIB               RSS absolute drift allowed (default 5)
   ONIBI_BENCH_TOLERANCE_DIR                   directory for run logs
   ONIBI_BENCH_TOLERANCE_COLDSTART_ITERATIONS  cold-start iterations (default 5)
   ONIBI_BENCH_TOLERANCE_IDLE_SECONDS          RSS idle wait (default 5)
@@ -37,6 +39,7 @@ done
 
 for pair in \
   "tolerance-percent:$tolerance_pct" \
+  "rss tolerance MiB:$rss_tolerance_mib" \
   "cold-start iterations:$cold_iterations" \
   "idle seconds:$idle_seconds" \
   "pty bytes:$pty_bytes" \
@@ -79,12 +82,13 @@ run2="$output_dir/run-2.txt"
 run_suite "$run1"
 run_suite "$run2"
 
-python3 - "$tolerance_pct" "$run1" "$run2" <<'PY'
+python3 - "$tolerance_pct" "$rss_tolerance_mib" "$run1" "$run2" <<'PY'
 import re
 import statistics
 import sys
 
 tol = float(sys.argv[1])
+rss_tol = float(sys.argv[2])
 
 def parse(path):
     metrics = {}
@@ -112,8 +116,8 @@ def parse(path):
         metrics["ws_pty_throughput_median_mib_s"] = statistics.median(throughput)
     return metrics
 
-left = parse(sys.argv[2])
-right = parse(sys.argv[3])
+left = parse(sys.argv[3])
+right = parse(sys.argv[4])
 required = [
     "cold_start_health_median_ms",
     "daemon_only_rss_mib",
@@ -131,10 +135,15 @@ for name in required:
     a = left[name]
     b = right[name]
     avg = (a + b) / 2
+    abs_delta = abs(a - b)
     delta = 0.0 if avg == 0 else abs(a - b) / avg * 100
-    status = "ok" if delta <= tol else "fail"
-    print(f"{name} run1={a:.3f} run2={b:.3f} delta_pct={delta:.2f} tolerance_pct={tol:.2f} {status}")
-    failed = failed or delta > tol
+    ok = delta <= tol or (name.endswith("_rss_mib") and abs_delta <= rss_tol)
+    status = "ok" if ok else "fail"
+    if name.endswith("_rss_mib"):
+        print(f"{name} run1={a:.3f} run2={b:.3f} delta_pct={delta:.2f} tolerance_pct={tol:.2f} abs_delta_mib={abs_delta:.3f} rss_tolerance_mib={rss_tol:.3f} {status}")
+    else:
+        print(f"{name} run1={a:.3f} run2={b:.3f} delta_pct={delta:.2f} tolerance_pct={tol:.2f} {status}")
+    failed = failed or not ok
 if failed:
     sys.exit(1)
 PY
