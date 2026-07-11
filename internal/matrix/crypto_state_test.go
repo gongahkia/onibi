@@ -184,6 +184,38 @@ func TestEnsureCryptoStateInitializesLegacyEmptyState(t *testing.T) {
 	}
 }
 
+func TestE2EEBootstrap(t *testing.T) {
+	db := matrixStateDB(t)
+	state, pickleKey, created, err := EnsureCryptoState(t.Context(), db, "@bot:example", "ONIBI", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || len(pickleKey) != 32 || state.DeviceKeys == nil {
+		t.Fatalf("created=%v pickle=%d state=%#v", created, len(pickleKey), state)
+	}
+	state.SASTransactions = map[string]SASTransactionState{
+		"txn-1": {TransactionID: "txn-1", UserID: "@owner:example", DeviceID: "OWNER", State: SASStateDone},
+	}
+	state, err = MarkDeviceTrustedFromSAS(state, "txn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCryptoState(t.Context(), db, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err := LoadCryptoState(t.Context(), db)
+	if err != nil || !ok {
+		t.Fatalf("load ok=%v err=%v", ok, err)
+	}
+	if !IsDeviceTrusted(loaded, "@owner:example", "OWNER") {
+		t.Fatalf("trusted devices = %#v", loaded.TrustedDevices)
+	}
+	targets, err := TrustedRoomKeyShareTargets(loaded, []RoomKeyShareTarget{{UserID: "@owner:example", DeviceID: "OWNER"}})
+	if err != nil || len(targets) != 1 {
+		t.Fatalf("targets=%#v err=%v", targets, err)
+	}
+}
+
 func matrixStateDB(t *testing.T) *store.DB {
 	t.Helper()
 	key, err := envelope.NewKey()
