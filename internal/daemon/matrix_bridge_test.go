@@ -264,6 +264,87 @@ func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
 	}
 }
 
+func TestMatrixPostTailEncryptsMegolmRoomMessages(t *testing.T) {
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "matrix.sqlite"), store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	state, pickleKey, _, err := matrix.EnsureCryptoState(t.Context(), db, "@bot:example", "DEV", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound, roomKey, err := matrix.NewMegolmOutboundState("!room:example", pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderKey := state.DeviceKeys.Keys["curve25519:DEV"]
+	inbound, err := matrix.NewMegolmInboundState(roomKey, senderKey, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.MegolmOutboundSessions = map[string]matrix.MegolmOutboundState{"!room:example": outbound}
+	if err := matrix.SaveCryptoState(t.Context(), db, state); err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", AllowEncrypted: true}})
+	d.setMatrixEncryptedRoom(true)
+	var encrypted matrix.MegolmEncryptedContent
+	var sentPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sentPath = r.URL.Path
+		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/send/m.room.encrypted/txn-1") {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if strings.Contains(r.URL.Path, "/send/m.room.message/") {
+			t.Fatalf("plaintext send path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&encrypted); err != nil {
+			t.Fatal(err)
+		}
+		writeMatrixJSON(t, w, map[string]any{"event_id": "$encrypted"})
+	}))
+	t.Cleanup(srv.Close)
+	c := matrix.New(srv.URL, "tok")
+	c.TxnID = func() string { return "txn-1" }
+	d.postMatrixTail(t.Context(), c, "s1", "secret")
+	if encrypted.Ciphertext == "" || sentPath == "" {
+		t.Fatalf("encrypted=%#v path=%q", encrypted, sentPath)
+	}
+	_, payload, index, err := matrix.DecryptMegolmRoomEvent(inbound, pickleKey, encrypted, "!room:example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index != 0 || payload.Type != "m.room.message" {
+		t.Fatalf("index=%d payload=%#v", index, payload)
+	}
+	var msg matrix.RoomMessage
+	if err := json.Unmarshal(payload.Content, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.MsgType != "m.text" || msg.Body != "secret" {
+		t.Fatalf("message=%#v", msg)
+	}
+	loaded, ok, err := matrix.LoadCryptoState(t.Context(), db)
+	if err != nil || !ok {
+		t.Fatalf("crypto state ok=%v err=%v", ok, err)
+	}
+	if loaded.MegolmOutboundSessions["!room:example"].MessageIndex != 1 {
+		t.Fatalf("outbound = %#v", loaded.MegolmOutboundSessions["!room:example"])
+	}
+	audit, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(audit, "provider.matrix.tail_chunk") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
 type keysUploadProbe struct {
 	Request matrix.KeysUploadRequest
 }

@@ -83,6 +83,7 @@ type Daemon struct {
 	webAttachHosts        map[string]*pty.Host
 	slackMu               sync.Mutex
 	slackApprovals        map[string]slackApprovalRef
+	matrixEncryptedRoom   bool
 	discordMu             sync.Mutex
 	discordApprovals      map[string]discordApprovalRef
 	discordTailThreads    map[string]string

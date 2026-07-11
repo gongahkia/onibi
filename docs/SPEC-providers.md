@@ -177,7 +177,7 @@ encrypt/decrypt/send helpers, local Olm account/pre-key and stored type-1
 device-session encrypt/decrypt wrappers, local outbound `m.room_key` to-device
 sharing helpers for explicit devices and queried user devices, daemon startup
 room-key sharing to configured owner devices, configured inbound Megolm text
-routing, and encrypted local crypto/session-state initialization/persistence.
+routing, encrypted Megolm room-message sends, and encrypted local crypto/session-state initialization/persistence.
 Encrypted rooms are not full Olm/Megolm E2EE yet; room-level privacy remains E2.
 
 Slack supports Socket Mode, message input, approval buttons/edit modals,

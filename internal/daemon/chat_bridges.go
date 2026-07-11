@@ -74,6 +74,7 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if err != nil {
 		return err
 	}
+	d.setMatrixEncryptedRoom(encrypted)
 	if encrypted && !d.Matrix.AllowEncrypted {
 		return errors.New("matrix encrypted rooms require real Olm/Megolm E2EE; use an unencrypted room or set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 only for send-only testing")
 	}
@@ -187,6 +188,87 @@ func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client
 	return nil
 }
 
+func (d *Daemon) setMatrixEncryptedRoom(encrypted bool) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.matrixEncryptedRoom = encrypted
+	d.mu.Unlock()
+}
+
+func (d *Daemon) isMatrixEncryptedRoom() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.matrixEncryptedRoom
+}
+
+func (d *Daemon) sendMatrixTextEvents(ctx context.Context, c *matrix.Client, sessionID, text string) ([]matrix.SentEvent, error) {
+	if d == nil {
+		return nil, errors.New("daemon nil")
+	}
+	if c == nil {
+		return nil, errors.New("matrix client nil")
+	}
+	if !d.isMatrixEncryptedRoom() {
+		return c.SendTextEventChunks(ctx, d.Matrix.RoomID, text)
+	}
+	state, pickleKey, outbound, senderKey, err := d.matrixOutboundCrypto(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var events []matrix.SentEvent
+	if err := chatout.SendChunks(ctx, text, matrix.MessageChunkLimit, 0, c.Sleep, func(ctx context.Context, chunk string) error {
+		var encrypted matrix.MegolmEncryptedContent
+		outbound, encrypted, err = matrix.EncryptMegolmRoomEvent(outbound, pickleKey, senderKey, state.DeviceID, d.Matrix.RoomID, "m.room.message", matrix.RoomMessage{MsgType: "m.text", Body: chunk})
+		if err != nil {
+			return err
+		}
+		eventID, err := c.SendMegolmEncryptedEvent(ctx, d.Matrix.RoomID, encrypted)
+		if err != nil {
+			return err
+		}
+		events = append(events, matrix.SentEvent{EventID: eventID, Body: chunk})
+		state.MegolmOutboundSessions[d.Matrix.RoomID] = outbound
+		return matrix.SaveCryptoState(ctx, d.DB, state)
+	}); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (d *Daemon) matrixOutboundCrypto(ctx context.Context) (matrix.CryptoState, []byte, matrix.MegolmOutboundState, string, error) {
+	if d == nil || d.DB == nil {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", errors.New("matrix encrypted send requires crypto state db")
+	}
+	state, ok, err := matrix.LoadCryptoState(ctx, d.DB)
+	if err != nil {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", err
+	}
+	if !ok {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", errors.New("matrix encrypted send requires initialized crypto state")
+	}
+	pickleKey, err := state.PickleKeyBytes()
+	if err != nil {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", err
+	}
+	if state.DeviceKeys == nil {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", errors.New("matrix encrypted send requires device keys")
+	}
+	senderKey := strings.TrimSpace(state.DeviceKeys.Keys["curve25519:"+state.DeviceID])
+	if senderKey == "" {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", errors.New("matrix encrypted send requires sender curve25519 key")
+	}
+	outbound, ok := state.MegolmOutboundSessions[d.Matrix.RoomID]
+	if !ok || strings.TrimSpace(outbound.Pickle) == "" {
+		return matrix.CryptoState{}, nil, matrix.MegolmOutboundState{}, "", errors.New("matrix encrypted send requires initialized outbound Megolm state")
+	}
+	return state, pickleKey, outbound, senderKey, nil
+}
+
 func (d *Daemon) handleMatrixEvent(ctx context.Context, c *matrix.Client, ev matrix.Event) {
 	if d.Matrix.OwnerUserID != "" && ev.Sender != d.Matrix.OwnerUserID {
 		return
@@ -203,7 +285,7 @@ func (d *Daemon) handleMatrixEvent(ctx context.Context, c *matrix.Client, ev mat
 	d.audit(ctx, "provider.matrix.text_in", sessionID, body, 0, "event_id="+ev.EventID+" sender="+ev.Sender)
 	out, err := d.handleProviderTextFor(ctx, "", body, 0, "matrix")
 	if err != nil {
-		_ = c.SendText(ctx, d.Matrix.RoomID, "Input failed: "+err.Error())
+		_, _ = d.sendMatrixTextEvents(ctx, c, sessionID, "Input failed: "+err.Error())
 		return
 	}
 	d.postMatrixTail(ctx, c, sessionID, out)
@@ -221,7 +303,7 @@ func (d *Daemon) handleMatrixReaction(ctx context.Context, c *matrix.Client, ev 
 	sessionID := d.approvalSessionID(ctx, id)
 	d.audit(ctx, "provider.matrix.reaction", sessionID, key, 0, "event_id="+eventID+" reaction_event="+ev.EventID+" approval="+id+" sender="+ev.Sender)
 	text := d.handleMatrixApprovalDecision(ctx, id, verdict)
-	_ = c.SendText(ctx, d.Matrix.RoomID, text)
+	_, _ = d.sendMatrixTextEvents(ctx, c, sessionID, text)
 }
 
 func (d *Daemon) handleMatrixApprovalDecision(ctx context.Context, id string, verdict approval.Verdict) string {
@@ -249,7 +331,7 @@ func (d *Daemon) handleMatrixApprovalDecision(ctx context.Context, id string, ve
 }
 
 func (d *Daemon) postMatrixTail(ctx context.Context, c *matrix.Client, sessionID, text string) {
-	events, err := c.SendTextEventChunks(ctx, d.Matrix.RoomID, text)
+	events, err := d.sendMatrixTextEvents(ctx, c, sessionID, text)
 	if err != nil {
 		d.audit(ctx, "provider.matrix.tail_error", sessionID, "", 0, "err="+err.Error())
 		return
@@ -282,7 +364,7 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
 				text := formatApprovalWithPolicy(&a, d.providerOutputPolicy("matrix")) + "\nReact ✅ to approve or ❌ to deny."
-				events, err := c.SendTextEventChunks(ctx, d.Matrix.RoomID, text)
+				events, err := d.sendMatrixTextEvents(ctx, c, a.SessionID, text)
 				if err != nil {
 					d.audit(ctx, "provider.matrix.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
 					continue
