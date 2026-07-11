@@ -94,6 +94,50 @@ func TestProviderRoutesTextAndReactionDecision(t *testing.T) {
 	}
 }
 
+func TestProviderRoutesEncryptedMegolmText(t *testing.T) {
+	pickleKey := []byte("pickle-key")
+	outbound, roomKey, err := NewMegolmOutboundState("!room:example", pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inboundState, err := NewMegolmInboundState(roomKey, "sender-key", pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, encrypted, err := EncryptMegolmRoomEvent(outbound, pickleKey, "sender-key", "ONIBI", "!room:example", "m.room.message", RoomMessage{MsgType: "m.text", Body: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewProvider(nil, "!room:example")
+	p.OwnerUserID = "@owner:example"
+	p.PickleKey = pickleKey
+	p.CryptoState = &CryptoState{MegolmInboundSessions: map[string]MegolmInboundState{"inbound": inboundState}}
+	inbound := make(chan string, 1)
+	if err := p.OnInboundText(func(text string, sender chatout.Sender) {
+		inbound <- text + ":" + sender.ID
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.routeEvent(t.Context(), Event{EventID: "$encrypted", Type: EventRoomEncrypted, Sender: "@owner:example", Content: raw}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-inbound:
+		if got != "secret:@owner:example" {
+			t.Fatalf("inbound = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing encrypted inbound")
+	}
+	if p.CryptoState.MegolmInboundSessions["inbound"].SessionID != inboundState.SessionID {
+		t.Fatalf("inbound session = %#v", p.CryptoState.MegolmInboundSessions["inbound"])
+	}
+}
+
 func TestProviderTailStreamAuditsChunks(t *testing.T) {
 	var bodies []RoomMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

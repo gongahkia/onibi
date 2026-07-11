@@ -174,9 +174,9 @@ comparison helpers, `hkdf-hmac-sha256.v2` MAC helpers, room encrypted/key
 request content shapes, local Megolm encrypt/decrypt state wrappers, local
 Megolm room-event payload encrypt/decrypt/send helpers, local Olm account/pre-key
 and stored type-1 device-session encrypt/decrypt wrappers, local outbound
-`m.room_key` to-device sharing helpers, and encrypted local crypto/session-state
-persistence. Encrypted rooms are not full Olm/Megolm E2EE yet; room-level
-privacy remains E2.
+`m.room_key` to-device sharing helpers, configured inbound Megolm text routing,
+and encrypted local crypto/session-state persistence. Encrypted rooms are not
+full Olm/Megolm E2EE yet; room-level privacy remains E2.
 
 Slack supports Socket Mode, message input, approval buttons/edit modals,
 chunked tail output, reconnect backoff, and audit rows. Live workspace

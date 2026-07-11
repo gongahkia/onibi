@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -22,6 +23,8 @@ type Provider struct {
 	OwnerUserID string
 	Timeout     time.Duration
 	Audit       func(context.Context, chatout.AuditInteraction) error
+	CryptoState *CryptoState
+	PickleKey   []byte
 
 	mu             sync.Mutex
 	since          string
@@ -216,6 +219,9 @@ func (p *Provider) routeEvent(ctx context.Context, ev Event) error {
 		p.dispatchDecision(approvalID, eventID, chatout.Decision{ApprovalID: approvalID, Verdict: verdict, Sender: sender, MessageID: eventID})
 		return nil
 	}
+	if ev.Type == EventRoomEncrypted {
+		return p.routeEncryptedEvent(ctx, ev)
+	}
 	body := strings.TrimSpace(MessageBody(ev))
 	if body == "" || (p.OwnerUserID != "" && ev.Sender != p.OwnerUserID) {
 		return nil
@@ -236,6 +242,50 @@ func (p *Provider) routeEvent(ctx context.Context, ev Event) error {
 		fn(body, sender)
 	}
 	return nil
+}
+
+func (p *Provider) routeEncryptedEvent(ctx context.Context, ev Event) error {
+	if p == nil || p.CryptoState == nil || len(p.PickleKey) == 0 {
+		return nil
+	}
+	var content MegolmEncryptedContent
+	if err := json.Unmarshal(ev.Content, &content); err != nil || content.Algorithm != AlgorithmMegolmV1 {
+		return nil
+	}
+	key, inbound, ok := megolmInboundSessionFor(*p.CryptoState, content.SessionID)
+	if !ok {
+		return nil
+	}
+	next, payload, _, err := DecryptMegolmRoomEvent(inbound, p.PickleKey, content, p.roomID())
+	if err != nil {
+		return p.RecordInteraction(ctx, chatout.AuditInteraction{
+			Kind:      "provider.matrix.decrypt_error",
+			MessageID: ev.EventID,
+			Sender:    chatout.Sender{ID: ev.Sender, ChannelID: p.roomID()},
+			Meta:      map[string]any{"room": p.roomID(), "session_id": content.SessionID, "err": err.Error()},
+		})
+	}
+	if p.CryptoState.MegolmInboundSessions == nil {
+		p.CryptoState.MegolmInboundSessions = map[string]MegolmInboundState{}
+	}
+	p.CryptoState.MegolmInboundSessions[key] = next
+	if payload.Type == EventRoomEncrypted {
+		return nil
+	}
+	return p.routeEvent(ctx, Event{EventID: ev.EventID, Type: payload.Type, Sender: ev.Sender, Content: payload.Content})
+}
+
+func megolmInboundSessionFor(state CryptoState, sessionID string) (string, MegolmInboundState, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", MegolmInboundState{}, false
+	}
+	for key, session := range state.MegolmInboundSessions {
+		if session.SessionID == sessionID {
+			return key, session, true
+		}
+	}
+	return "", MegolmInboundState{}, false
 }
 
 func (p *Provider) dispatchDecision(approvalID, messageID string, decision chatout.Decision) {
