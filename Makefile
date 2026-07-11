@@ -1,4 +1,4 @@
-.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-e2e-gate release-dry release-smoke reproducible-build
+.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -75,3 +75,6 @@ release-smoke:
 
 reproducible-build:
 	scripts/reproducible-build.sh
+
+bench-tolerance:
+	scripts/bench-tolerance.sh

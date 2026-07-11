@@ -32,10 +32,13 @@ scripts/bench-coldstart.sh --iterations 5
 scripts/bench-idle-rss.sh --idle-seconds 5
 scripts/bench-throughput.sh --bytes 1048576 --count 5
 scripts/bench-approval-rtt.sh --count 10
+scripts/bench-tolerance.sh
 ```
 
 `ONIBI_BENCH_BINARY` points scripts at a specific binary. If unset, scripts use `./bin/onibi` when present or build a temp binary. The shell scripts force ephemeral HOME/XDG paths and `ONIBI_STORE_KEY_BACKEND=dotenv` so runs do not touch the user keychain.
 
 ## Tolerance
 
-For CI, compare median values against a per-runner baseline with a 10% warning threshold. Do not compare first-run cold-start numbers against warm runs unless certificate/state directories are reset the same way.
+`scripts/bench-tolerance.sh` reruns the local-only scripts twice and fails when median/value drift exceeds `ONIBI_BENCH_TOLERANCE_PCT` (default 10). CI config includes this gate on `ubuntu-latest`; current published Linux numbers remain [Unverified] until a CI artifact is recorded in this file.
+
+Do not compare first-run cold-start numbers against warm runs unless certificate/state directories are reset the same way.

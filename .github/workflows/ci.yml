@@ -195,3 +195,15 @@ jobs:
           install-only: true
       - name: compare fixed-input builds
         run: scripts/reproducible-build.sh
+
+  benchmark-tolerance:
+    name: benchmark tolerance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: rerun local benchmarks
+        run: make bench-tolerance
