@@ -198,6 +198,17 @@ func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	botState, _, _, err := matrix.EnsureCryptoState(t.Context(), db, "@bot:example", "DEV", matrixOneTimeKeyCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	botState, err = matrix.MarkDeviceTrusted(botState, "@owner:example", "OWNER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := matrix.SaveCryptoState(t.Context(), db, botState); err != nil {
+		t.Fatal(err)
+	}
 	pickleKey := []byte("owner-pickle-key")
 	owner, err := matrix.NewOlmAccountState("@owner:example", "OWNER", pickleKey, 1)
 	if err != nil {

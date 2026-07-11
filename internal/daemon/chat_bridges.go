@@ -172,7 +172,7 @@ func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client
 	if err != nil {
 		return err
 	}
-	state, outbound, err = c.ShareRoomKeyWithUsers(ctx, state, outbound, roomKey, pickleKey, []string{userID}, 10*time.Second)
+	state, outbound, err = c.ShareRoomKeyWithTrustedUsers(ctx, state, outbound, roomKey, pickleKey, []string{userID}, 10*time.Second)
 	if err != nil {
 		return err
 	}

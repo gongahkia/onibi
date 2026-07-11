@@ -214,3 +214,75 @@ func TestShareRoomKeyWithUsersResolvesAllDevices(t *testing.T) {
 		t.Fatalf("state=%#v outbound=%#v", nextState.OlmSessions, nextOutbound.SharedWith)
 	}
 }
+
+func TestShareRoomKeyWithTrustedUsersSkipsUntrustedDevices(t *testing.T) {
+	pickleKey := []byte("pickle-key")
+	alice, err := NewOlmAccountState("@alice:example", "ALICE", pickleKey, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobPhone, err := NewOlmAccountState("@bob:example", "PHONE", pickleKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobLaptop, err := NewOlmAccountState("@bob:example", "LAPTOP", pickleKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phoneOTKs, err := OlmAccountOneTimeKeys(bobPhone, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound, roomKey, err := NewMegolmOutboundState("!room:example", pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice.TrustedDevices = map[string][]string{"@bob:example": {"PHONE"}}
+	var sent map[string]map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_matrix/client/v3/keys/query":
+			writeJSON(t, w, map[string]any{"device_keys": map[string]any{"@bob:example": map[string]any{
+				"PHONE":  bobPhone.DeviceKeys,
+				"LAPTOP": bobLaptop.DeviceKeys,
+			}}})
+		case "/_matrix/client/v3/keys/claim":
+			var req struct {
+				OneTimeKeys map[string]map[string]string `json:"one_time_keys"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if len(req.OneTimeKeys["@bob:example"]) != 1 || req.OneTimeKeys["@bob:example"]["PHONE"] != KeyAlgorithmSignedCurve255 {
+				t.Fatalf("claim req = %#v", req)
+			}
+			writeJSON(t, w, map[string]any{"one_time_keys": map[string]any{"@bob:example": map[string]any{
+				"PHONE": map[string]any{"signed_curve25519:PHONE": map[string]any{"key": firstOneTimeKey(t, phoneOTKs)}},
+			}}})
+		case "/_matrix/client/v3/sendToDevice/m.room.encrypted/txn-1":
+			var req struct {
+				Messages map[string]map[string]json.RawMessage `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			sent = req.Messages
+			writeJSON(t, w, map[string]any{})
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	c.TxnID = func() string { return "txn-1" }
+	nextState, nextOutbound, err := c.ShareRoomKeyWithTrustedUsers(t.Context(), alice, outbound, roomKey, pickleKey, []string{"@bob:example"}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sent["@bob:example"]) != 1 || sent["@bob:example"]["PHONE"] == nil || sent["@bob:example"]["LAPTOP"] != nil {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if len(nextState.OlmSessions) != 1 || len(nextOutbound.SharedWith["@bob:example"]) != 1 || nextOutbound.SharedWith["@bob:example"][0] != "PHONE" {
+		t.Fatalf("state=%#v outbound=%#v", nextState.OlmSessions, nextOutbound.SharedWith)
+	}
+}

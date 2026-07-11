@@ -64,6 +64,33 @@ func (c *Client) ShareRoomKeyWithUsers(ctx context.Context, state CryptoState, o
 	return c.shareRoomKeyWithQueriedDevices(ctx, state, outbound, roomKey, pickleKey, targets, query, timeout)
 }
 
+func (c *Client) ShareRoomKeyWithTrustedUsers(ctx context.Context, state CryptoState, outbound MegolmOutboundState, roomKey RoomKeyContent, pickleKey []byte, userIDs []string, timeout time.Duration) (CryptoState, MegolmOutboundState, error) {
+	if c == nil {
+		return state, outbound, errors.New("matrix client nil")
+	}
+	userIDs, err := normalizeRoomKeyShareUsers(userIDs)
+	if err != nil {
+		return state, outbound, err
+	}
+	queryReq := map[string][]string{}
+	for _, userID := range userIDs {
+		queryReq[userID] = []string{}
+	}
+	query, err := c.QueryKeys(ctx, queryReq, timeout)
+	if err != nil {
+		return state, outbound, err
+	}
+	targets, err := RoomKeyShareTargetsFromQuery(query, userIDs)
+	if err != nil {
+		return state, outbound, err
+	}
+	targets, err = TrustedRoomKeyShareTargets(state, targets)
+	if err != nil {
+		return state, outbound, err
+	}
+	return c.shareRoomKeyWithQueriedDevices(ctx, state, outbound, roomKey, pickleKey, targets, query, timeout)
+}
+
 func (c *Client) shareRoomKeyWithQueriedDevices(ctx context.Context, state CryptoState, outbound MegolmOutboundState, roomKey RoomKeyContent, pickleKey []byte, targets []RoomKeyShareTarget, query KeysQueryResponse, timeout time.Duration) (CryptoState, MegolmOutboundState, error) {
 	if len(pickleKey) == 0 {
 		return state, outbound, errors.New("matrix room key share pickle key required")

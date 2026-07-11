@@ -63,6 +63,7 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 				Commitment:         "sas-commitment-secret",
 			},
 		},
+		TrustedDevices: map[string][]string{"@alice:example": {"ALICE"}},
 	}
 	if err := SaveCryptoState(t.Context(), db, state); err != nil {
 		t.Fatal(err)
@@ -110,6 +111,9 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	}
 	if got.SASTransactions["txn-1"].Commitment != "sas-commitment-secret" {
 		t.Fatalf("sas transactions = %#v", got.SASTransactions)
+	}
+	if got.TrustedDevices["@alice:example"][0] != "ALICE" {
+		t.Fatalf("trusted devices = %#v", got.TrustedDevices)
 	}
 }
 

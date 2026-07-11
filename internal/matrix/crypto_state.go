@@ -26,6 +26,7 @@ type CryptoState struct {
 	MegolmOutboundSessions map[string]MegolmOutboundState `json:"megolm_outbound_sessions,omitempty"`
 	MegolmInboundSessions  map[string]MegolmInboundState  `json:"megolm_inbound_sessions,omitempty"`
 	SASTransactions        map[string]SASTransactionState `json:"sas_transactions,omitempty"`
+	TrustedDevices         map[string][]string            `json:"trusted_devices,omitempty"`
 }
 
 type OlmSessionState struct {
