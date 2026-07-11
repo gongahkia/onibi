@@ -1,6 +1,6 @@
 # `advent of code`
 
-*It's beginning to look a lot like Christmas~*
+*it's beginning to look a lot like Christmas*
 
 ![](./asset/aoc.gif)
 
