@@ -36,9 +36,9 @@ type Host struct {
 	CloseFunc func() error
 	WaitFunc  func() error
 
-	hub    *Hub
-	mu     sync.Mutex
-	closed bool
+	hub      *Hub
+	mu       sync.Mutex
+	closed   bool
 	readDone chan struct{}
 }
 
@@ -82,12 +82,14 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 		cmd.Env = append(os.Environ(), env...)
 	}
 
-	master, err := cpty.StartWithSize(cmd, &cpty.Winsize{Rows: opts.Rows, Cols: opts.Cols})
+	h := &Host{Cmd: cmd, hub: NewHub(DefaultRingSize), readDone: make(chan struct{})}
+	_, err := startPTY(cmd, opts.Rows, opts.Cols, func(master *os.File) {
+		h.Master = master
+		go h.readMaster()
+	})
 	if err != nil {
 		return nil, fmt.Errorf("pty start: %w", err)
 	}
-	h := &Host{Cmd: cmd, Master: master, hub: NewHub(DefaultRingSize), readDone: make(chan struct{})}
-	go h.readMaster()
 	return h, nil
 }
 
