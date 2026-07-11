@@ -8,10 +8,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
@@ -126,6 +128,68 @@ func TestMatrixEncryptedBypassAuditsPlaintextFallback(t *testing.T) {
 	if !auditHas(audit, "provider.matrix.encrypted_bypass") {
 		t.Fatalf("audit = %#v", audit)
 	}
+}
+
+func TestMatrixBridgeInitializesAndUploadsCryptoKeys(t *testing.T) {
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "matrix.sqlite"), store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example"}})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var upload keysUploadProbe
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/account/whoami"):
+			writeMatrixJSON(t, w, matrix.WhoAmI{UserID: "@bot:example", DeviceID: "DEV"})
+		case strings.Contains(r.URL.Path, "/state/m.room.power_levels"):
+			writeMatrixJSON(t, w, matrix.PowerLevels{Users: map[string]int{"@bot:example": 100}})
+		case strings.Contains(r.URL.Path, "/state/m.room.encryption"):
+			w.WriteHeader(http.StatusNotFound)
+			writeMatrixJSON(t, w, map[string]any{"errcode": "M_NOT_FOUND", "error": "not found"})
+		case strings.HasSuffix(r.URL.Path, "/keys/upload"):
+			if err := json.NewDecoder(r.Body).Decode(&upload.Request); err != nil {
+				t.Fatal(err)
+			}
+			writeMatrixJSON(t, w, map[string]any{"one_time_key_counts": map[string]int{matrix.KeyAlgorithmSignedCurve255: len(upload.Request.OneTimeKeys)}})
+		case strings.HasSuffix(r.URL.Path, "/sync"):
+			writeMatrixJSON(t, w, map[string]any{"next_batch": "s1", "rooms": map[string]any{"join": map[string]any{"!room:example": map[string]any{}}}})
+			cancel()
+		default:
+			t.Fatalf("unexpected matrix path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	if err := d.runMatrixBridge(ctx, matrix.New(srv.URL, "tok")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runMatrixBridge err = %v", err)
+	}
+	if upload.Request.DeviceKeys == nil || upload.Request.DeviceKeys.UserID != "@bot:example" || upload.Request.DeviceKeys.DeviceID != "DEV" || upload.Request.DeviceKeys.Signatures["@bot:example"]["ed25519:DEV"] == "" || len(upload.Request.OneTimeKeys) != matrixOneTimeKeyCount {
+		t.Fatalf("upload = %#v", upload.Request)
+	}
+	state, ok, err := matrix.LoadCryptoState(t.Context(), db)
+	if err != nil || !ok {
+		t.Fatalf("crypto state ok=%v err=%v", ok, err)
+	}
+	if !state.AccountShared || state.DeviceID != "DEV" || state.OneTimeKeyCounts[matrix.KeyAlgorithmSignedCurve255] != matrixOneTimeKeyCount {
+		t.Fatalf("state = %#v", state)
+	}
+	audit, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(audit, "provider.matrix.crypto_upload") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+type keysUploadProbe struct {
+	Request matrix.KeysUploadRequest
 }
 
 func TestMatrixReactionVerdict(t *testing.T) {

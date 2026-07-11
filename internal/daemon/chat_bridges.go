@@ -35,6 +35,8 @@ import (
 const (
 	matrixKVSince          = "matrix.since"
 	matrixKVApprovalPrefix = "matrix.approval.event."
+	matrixDefaultDeviceID  = "ONIBI"
+	matrixOneTimeKeyCount  = 10
 )
 
 const (
@@ -64,7 +66,8 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if strings.TrimSpace(d.Matrix.RoomID) == "" {
 		return errors.New("matrix room id required")
 	}
-	if _, err := c.CheckRoomOwner(ctx, d.Matrix.RoomID, 50); err != nil {
+	who, err := c.CheckRoomOwner(ctx, d.Matrix.RoomID, 50)
+	if err != nil {
 		return err
 	}
 	encrypted, err := c.IsEncryptedRoom(ctx, d.Matrix.RoomID)
@@ -76,6 +79,9 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	}
 	if encrypted {
 		d.audit(ctx, "provider.matrix.encrypted_bypass", "", "", 0, "room="+d.Matrix.RoomID+" allow_encrypted=true e2ee=false")
+	}
+	if err := d.ensureMatrixCryptoState(ctx, c, who); err != nil {
+		return err
 	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
@@ -108,6 +114,37 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 		default:
 		}
 	}
+}
+
+func (d *Daemon) ensureMatrixCryptoState(ctx context.Context, c *matrix.Client, who matrix.WhoAmI) error {
+	if d == nil || d.DB == nil || d.DB.CryptBox() == nil {
+		return nil
+	}
+	deviceID := strings.TrimSpace(who.DeviceID)
+	if deviceID == "" {
+		deviceID = matrixDefaultDeviceID
+	}
+	state, pickleKey, created, err := matrix.EnsureCryptoState(ctx, d.DB, who.UserID, deviceID, matrixOneTimeKeyCount)
+	if err != nil {
+		return err
+	}
+	otks, err := matrix.OlmAccountOneTimeKeys(state, pickleKey)
+	if err != nil {
+		return err
+	}
+	uploadDeviceKeys := !state.AccountShared || created
+	if !uploadDeviceKeys && len(otks) == 0 {
+		return nil
+	}
+	next, resp, err := c.UploadCryptoKeys(ctx, state, pickleKey, uploadDeviceKeys)
+	if err != nil {
+		return err
+	}
+	if err := matrix.SaveCryptoState(ctx, d.DB, next); err != nil {
+		return err
+	}
+	d.audit(ctx, "provider.matrix.crypto_upload", "", "", 0, fmt.Sprintf("device_id=%s device_keys=%t one_time_keys=%d", next.DeviceID, uploadDeviceKeys, resp.OneTimeKeyCounts[matrix.KeyAlgorithmSignedCurve255]))
+	return nil
 }
 
 func (d *Daemon) handleMatrixEvent(ctx context.Context, c *matrix.Client, ev matrix.Event) {

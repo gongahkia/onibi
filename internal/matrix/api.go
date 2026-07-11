@@ -32,7 +32,8 @@ type Client struct {
 }
 
 type WhoAmI struct {
-	UserID string `json:"user_id"`
+	UserID   string `json:"user_id"`
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 type JoinedRooms struct {

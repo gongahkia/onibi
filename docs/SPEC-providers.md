@@ -170,7 +170,7 @@ audit should move behind the shared contract.
 Matrix supports room text, approval reactions, chunked room-message tail output,
 audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, SAS
 verification to-device message shapes/state tracking, signed device/one-time key
-upload helpers, SAS HKDF decimal/emoji comparison helpers,
+upload helpers with daemon startup wiring, SAS HKDF decimal/emoji comparison helpers,
 `hkdf-hmac-sha256.v2` MAC helpers, room encrypted/key request content shapes,
 local Megolm encrypt/decrypt state wrappers, local Megolm room-event payload
 encrypt/decrypt/send helpers, local Olm account/pre-key and stored type-1
