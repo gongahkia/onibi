@@ -39,6 +39,6 @@ scripts/bench-tolerance.sh
 
 ## Tolerance
 
-`scripts/bench-tolerance.sh` reruns the local-only scripts twice and fails when median/value drift exceeds `ONIBI_BENCH_TOLERANCE_PCT` (default 10). RSS metrics also allow `ONIBI_BENCH_RSS_TOLERANCE_MIB` absolute drift (default 5 MiB) for hosted-runner allocator/page-accounting noise. CI config includes this gate on `ubuntu-latest`; current published Linux numbers remain [Unverified] until a CI artifact is recorded in this file.
+`scripts/bench-tolerance.sh` reruns the local-only scripts twice and fails when median/value drift exceeds `ONIBI_BENCH_TOLERANCE_PCT` (default 10). PTY throughput uses `ONIBI_BENCH_THROUGHPUT_TOLERANCE_PCT` (default 25) for hosted-runner bandwidth jitter. Cold-start median also allows `ONIBI_BENCH_COLDSTART_TOLERANCE_MS` absolute drift (default 50 ms), approval RTT median allows `ONIBI_BENCH_APPROVAL_RTT_TOLERANCE_MS` absolute drift (default 1 ms), and RSS metrics allow `ONIBI_BENCH_RSS_TOLERANCE_MIB` absolute drift (default 5 MiB). CI config includes this gate on `ubuntu-latest`; current published Linux numbers remain [Unverified] until a CI artifact is recorded in this file.
 
 Do not compare first-run cold-start numbers against warm runs unless certificate/state directories are reset the same way.
