@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"bytes"
+	"encoding/base64"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,7 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	state := CryptoState{
 		UserID:        "@bot:example",
 		DeviceID:      "ONIBI",
+		PickleKey:     base64.RawStdEncoding.EncodeToString([]byte("secret-pickle-key")),
 		AccountPickle: "secret-olm-account-pickle",
 		AccountShared: true,
 		DeviceKeys: &DeviceKeys{
@@ -71,6 +73,7 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	}
 	for _, secret := range []string{
 		"secret-olm-account-pickle",
+		state.PickleKey,
 		"curve-secret",
 		"sync-token",
 		"secret-olm-session-pickle",
@@ -87,7 +90,7 @@ func TestCryptoStateRoundTripEncrypted(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load ok=%v err=%v", ok, err)
 	}
-	if got.UserID != state.UserID || got.DeviceID != state.DeviceID || got.AccountPickle != state.AccountPickle || !got.AccountShared {
+	if got.UserID != state.UserID || got.DeviceID != state.DeviceID || got.PickleKey != state.PickleKey || got.AccountPickle != state.AccountPickle || !got.AccountShared {
 		t.Fatalf("state = %#v", got)
 	}
 	if got.DeviceKeys.Keys["curve25519:ONIBI"] != "curve-secret" {
@@ -120,6 +123,60 @@ func TestCryptoStateMissingAndValidation(t *testing.T) {
 	}
 	if err := SaveCryptoState(t.Context(), db, CryptoState{UserID: "@bot:example"}); err == nil {
 		t.Fatal("expected missing device id error")
+	}
+}
+
+func TestEnsureCryptoStateCreatesEncryptedOlmAccount(t *testing.T) {
+	db := matrixStateDB(t)
+	state, pickleKey, created, err := EnsureCryptoState(t.Context(), db, "@bot:example", "ONIBI", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || len(pickleKey) != 32 || state.PickleKey == "" || state.AccountPickle == "" || state.DeviceKeys == nil {
+		t.Fatalf("created=%v key=%d state=%#v", created, len(pickleKey), state)
+	}
+	otks, err := OlmAccountOneTimeKeys(state, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(otks) != 2 {
+		t.Fatalf("one-time keys = %#v", otks)
+	}
+	raw, ok, err := db.KVGet(t.Context(), CryptoStateKVKey)
+	if err != nil || !ok {
+		t.Fatalf("raw state ok=%v err=%v", ok, err)
+	}
+	for _, secret := range []string{state.PickleKey, state.AccountPickle, state.DeviceKeys.Keys["curve25519:ONIBI"]} {
+		if bytes.Contains(raw, []byte(secret)) {
+			t.Fatalf("raw state contains %q", secret)
+		}
+	}
+	loaded, loadedKey, created, err := EnsureCryptoState(t.Context(), db, "@bot:example", "ONIBI", 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created || !bytes.Equal(loadedKey, pickleKey) || loaded.AccountPickle != state.AccountPickle || loaded.PickleKey != state.PickleKey {
+		t.Fatalf("created=%v loaded=%#v", created, loaded)
+	}
+	if _, _, _, err := EnsureCryptoState(t.Context(), db, "@other:example", "ONIBI", 2); err == nil {
+		t.Fatal("expected user mismatch")
+	}
+	if _, _, _, err := EnsureCryptoState(t.Context(), db, "@bot:example", "OTHER", 2); err == nil {
+		t.Fatal("expected device mismatch")
+	}
+}
+
+func TestEnsureCryptoStateInitializesLegacyEmptyState(t *testing.T) {
+	db := matrixStateDB(t)
+	if err := SaveCryptoState(t.Context(), db, CryptoState{UserID: "@bot:example", DeviceID: "ONIBI"}); err != nil {
+		t.Fatal(err)
+	}
+	state, pickleKey, created, err := EnsureCryptoState(t.Context(), db, "@bot:example", "ONIBI", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || len(pickleKey) != 32 || state.PickleKey == "" || state.AccountPickle == "" || state.DeviceKeys == nil {
+		t.Fatalf("created=%v key=%d state=%#v", created, len(pickleKey), state)
 	}
 }
 

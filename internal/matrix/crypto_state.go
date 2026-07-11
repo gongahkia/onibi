@@ -2,6 +2,8 @@ package matrix
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -15,6 +17,7 @@ type CryptoState struct {
 	UserID                 string                         `json:"user_id"`
 	DeviceID               string                         `json:"device_id"`
 	DeviceKeys             *DeviceKeys                    `json:"device_keys,omitempty"`
+	PickleKey              string                         `json:"pickle_key,omitempty"`
 	AccountPickle          string                         `json:"account_pickle,omitempty"`
 	AccountShared          bool                           `json:"account_shared,omitempty"`
 	OneTimeKeyCounts       map[string]int                 `json:"one_time_key_counts,omitempty"`
@@ -75,6 +78,62 @@ func SaveCryptoState(ctx context.Context, db *store.DB, state CryptoState) error
 		return err
 	}
 	return db.KVSetEncryptedString(ctx, CryptoStateKVKey, string(b))
+}
+
+func EnsureCryptoState(ctx context.Context, db *store.DB, userID, deviceID string, oneTimeKeyCount uint) (CryptoState, []byte, bool, error) {
+	state, ok, err := LoadCryptoState(ctx, db)
+	if err != nil {
+		return CryptoState{}, nil, false, err
+	}
+	if ok {
+		userID = strings.TrimSpace(userID)
+		deviceID = strings.TrimSpace(deviceID)
+		if userID != "" && state.UserID != userID {
+			return CryptoState{}, nil, false, errors.New("matrix crypto state user mismatch")
+		}
+		if deviceID != "" && state.DeviceID != deviceID {
+			return CryptoState{}, nil, false, errors.New("matrix crypto state device mismatch")
+		}
+		if strings.TrimSpace(state.PickleKey) == "" && strings.TrimSpace(state.AccountPickle) == "" {
+			return initializeCryptoState(ctx, db, state.UserID, state.DeviceID, oneTimeKeyCount)
+		}
+		pickleKey, err := state.PickleKeyBytes()
+		if err != nil {
+			return CryptoState{}, nil, false, err
+		}
+		return state, pickleKey, false, nil
+	}
+	return initializeCryptoState(ctx, db, userID, deviceID, oneTimeKeyCount)
+}
+
+func initializeCryptoState(ctx context.Context, db *store.DB, userID, deviceID string, oneTimeKeyCount uint) (CryptoState, []byte, bool, error) {
+	pickleKey := make([]byte, 32)
+	if _, err := rand.Read(pickleKey); err != nil {
+		return CryptoState{}, nil, false, err
+	}
+	state, err := NewOlmAccountState(userID, deviceID, pickleKey, oneTimeKeyCount)
+	if err != nil {
+		return CryptoState{}, nil, false, err
+	}
+	state.PickleKey = base64.RawStdEncoding.EncodeToString(pickleKey)
+	if err := SaveCryptoState(ctx, db, state); err != nil {
+		return CryptoState{}, nil, false, err
+	}
+	return state, pickleKey, true, nil
+}
+
+func (s CryptoState) PickleKeyBytes() ([]byte, error) {
+	if strings.TrimSpace(s.PickleKey) == "" {
+		return nil, errors.New("matrix crypto state pickle key required")
+	}
+	key, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(s.PickleKey))
+	if err != nil {
+		return nil, err
+	}
+	if len(key) == 0 {
+		return nil, errors.New("matrix crypto state pickle key required")
+	}
+	return key, nil
 }
 
 func LoadCryptoState(ctx context.Context, db *store.DB) (CryptoState, bool, error) {
