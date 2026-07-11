@@ -1,7 +1,5 @@
 package cli
 
-//lint:file-ignore SA1019 release artifacts use OpenPGP signatures
-
 import (
 	"archive/tar"
 	"bytes"
@@ -22,12 +20,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/minio/selfupdate"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/openpgp"
 )
 
 const updateTimeout = 10 * time.Second
@@ -346,7 +344,7 @@ func verifyUpdateSignature(checksums, signature []byte) error {
 	if err != nil {
 		return fmt.Errorf("parse release public key: %w", err)
 	}
-	if _, err := openpgp.CheckDetachedSignature(ring, bytes.NewReader(checksums), bytes.NewReader(signature)); err != nil {
+	if _, err := openpgp.CheckDetachedSignature(ring, bytes.NewReader(checksums), bytes.NewReader(signature), nil); err != nil {
 		return fmt.Errorf("verify checksums signature: %w", err)
 	}
 	return nil

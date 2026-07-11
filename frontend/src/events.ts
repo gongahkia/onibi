@@ -1,5 +1,10 @@
 import { decodeText, RelayE2E } from "./e2e";
 
+const eventRealm = typeof window === "undefined" ? globalThis : window;
+const WebEvent = eventRealm.Event;
+const WebCustomEvent = eventRealm.CustomEvent;
+const WebEventTarget = eventRealm.EventTarget;
+
 export type EventEnvelope<T = unknown> = {
   type: string;
   ts: string;
@@ -54,7 +59,7 @@ export type ToastPayload = {
   level?: string;
 };
 
-export class EventsWS extends EventTarget {
+export class EventsWS extends WebEventTarget {
   private url = "";
   private ws: WebSocket | undefined;
   private reconnectTimer = 0;
@@ -96,7 +101,7 @@ export class EventsWS extends EventTarget {
     socket.addEventListener("open", () => void this.handleOpen(socket));
     socket.addEventListener("message", (event) => void this.handleMessage(event));
     socket.addEventListener("close", () => {
-      this.dispatchEvent(new Event("close"));
+      this.dispatchEvent(new WebEvent("close"));
       if (!this.stopped) {
         this.scheduleReconnect();
       }
@@ -111,7 +116,7 @@ export class EventsWS extends EventTarget {
       const attach = { type: "attach", verify_token: this.e2e.verifyToken() };
       socket.send(await this.e2e.sealText(JSON.stringify(attach), "ws:events"));
     }
-    this.dispatchEvent(new Event("open"));
+    this.dispatchEvent(new WebEvent("open"));
   }
 
   private scheduleReconnect(): void {
@@ -130,7 +135,7 @@ export class EventsWS extends EventTarget {
         ? event.data
         : decodeText((await this.e2e.open(event.data, "ws:events")).data);
     const envelope = JSON.parse(raw) as EventEnvelope;
-    this.dispatchEvent(new CustomEvent<EventEnvelope>("event", { detail: envelope }));
-    this.dispatchEvent(new CustomEvent<EventEnvelope>(envelope.type, { detail: envelope }));
+    this.dispatchEvent(new WebCustomEvent<EventEnvelope>("event", { detail: envelope }));
+    this.dispatchEvent(new WebCustomEvent<EventEnvelope>(envelope.type, { detail: envelope }));
   }
 }

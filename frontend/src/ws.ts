@@ -1,5 +1,10 @@
 import { decodeText, RelayE2E } from "./e2e";
 
+const eventRealm = typeof window === "undefined" ? globalThis : window;
+const WebEvent = eventRealm.Event;
+const WebCustomEvent = eventRealm.CustomEvent;
+const WebEventTarget = eventRealm.EventTarget;
+
 type SnapshotFrame = {
   type: "snapshot";
   seq: number;
@@ -14,7 +19,7 @@ type ResizeFrame = {
 
 type ServerFrame = SnapshotFrame | ResizeFrame;
 
-export class TerminalWS extends EventTarget {
+export class TerminalWS extends WebEventTarget {
   private url = "";
   private sessionId = "";
   private lastSeq = 0;
@@ -77,7 +82,7 @@ export class TerminalWS extends EventTarget {
     socket.addEventListener("open", () => void this.handleOpen(socket));
     socket.addEventListener("message", (event) => void this.handleMessage(event));
     socket.addEventListener("close", () => {
-      this.dispatchEvent(new Event("close"));
+      this.dispatchEvent(new WebEvent("close"));
       if (!this.stopped) {
         this.scheduleReconnect();
       }
@@ -98,7 +103,7 @@ export class TerminalWS extends EventTarget {
       attach.verify_token = this.e2e.verifyToken();
     }
     await this.sendTyped("text", new TextEncoder().encode(JSON.stringify(attach)), socket);
-    this.dispatchEvent(new Event("open"));
+    this.dispatchEvent(new WebEvent("open"));
   }
 
   private async sendTyped(
@@ -120,7 +125,7 @@ export class TerminalWS extends EventTarget {
     window.clearTimeout(this.reconnectTimer);
     const delay = Math.min(8000, 250 * 2 ** this.attempts);
     this.attempts += 1;
-    this.dispatchEvent(new CustomEvent<number>("reconnecting", { detail: delay }));
+    this.dispatchEvent(new WebCustomEvent<number>("reconnecting", { detail: delay }));
     this.reconnectTimer = window.setTimeout(() => this.open(), delay);
   }
 
@@ -154,17 +159,17 @@ export class TerminalWS extends EventTarget {
     if (frame.type === "snapshot") {
       const data = decodeBase64(frame.base64_data);
       this.lastSeq = frame.seq;
-      this.dispatchEvent(new CustomEvent<ArrayBuffer>("data", { detail: data }));
+      this.dispatchEvent(new WebCustomEvent<ArrayBuffer>("data", { detail: data }));
       return;
     }
     if (frame.type === "resize") {
-      this.dispatchEvent(new CustomEvent<ResizeFrame>("resize", { detail: frame }));
+      this.dispatchEvent(new WebCustomEvent<ResizeFrame>("resize", { detail: frame }));
     }
   }
 
   private handleBinary(data: ArrayBuffer): void {
     this.lastSeq += data.byteLength;
-    this.dispatchEvent(new CustomEvent<ArrayBuffer>("data", { detail: data }));
+    this.dispatchEvent(new WebCustomEvent<ArrayBuffer>("data", { detail: data }));
   }
 }
 

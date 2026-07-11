@@ -60,7 +60,9 @@ test("index declares iOS and Android install metadata", () => {
   expect(html).toContain(
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
   );
-  expect(html).toContain('<link rel="apple-touch-icon" sizes="512x512" href="/icons/onibi-512.png">');
+  expect(html).toContain(
+    '<link rel="apple-touch-icon" sizes="512x512" href="/icons/onibi-512.png">'
+  );
 });
 
 function readManifest(path: string): WebManifest {

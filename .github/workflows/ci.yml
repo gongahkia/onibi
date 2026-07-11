@@ -206,4 +206,7 @@ jobs:
           go-version: stable
           cache: true
       - name: rerun local benchmarks
+        env:
+          ONIBI_BENCH_COUNT: 10
+          ONIBI_BENCH_APPROVAL_COUNT: 20
         run: make bench-tolerance

@@ -17,7 +17,7 @@ test("uploads pasted image and inserts returned path", async () => {
   });
   const event = pasteEvent(new File([pngBytes], "clip.png", { type: "image/png" }));
   root.dispatchEvent(event);
-  await vi.waitFor(() => expect(sent).toEqual(["/tmp/onibi-clip.png"]));
+  await waitFor(() => expect(sent).toEqual(["/tmp/onibi-clip.png"]));
   expect(event.defaultPrevented).toBe(true);
   expect(uploaded).toHaveLength(1);
   expect(uploaded[0].mime).toBe("image/png");
@@ -40,7 +40,7 @@ test("rejects pasted svg before upload", async () => {
     showToast: (message) => toast.push(message)
   });
   root.dispatchEvent(pasteEvent(new File(["<svg></svg>"], "clip.svg", { type: "image/svg+xml" })));
-  await vi.waitFor(() => expect(toast).toContain("Image paste supports PNG, JPEG, or WebP."));
+  await waitFor(() => expect(toast).toContain("Image paste supports PNG, JPEG, or WebP."));
   expect(uploaded).toEqual([]);
   expect(sent).toEqual([]);
 });
@@ -60,7 +60,7 @@ test("quotes paths with shell-special characters", () => {
 });
 
 function pasteEvent(file: File): ClipboardEvent {
-  const event = new Event("paste", { bubbles: true, cancelable: true }) as ClipboardEvent;
+  const event = new window.Event("paste", { bubbles: true, cancelable: true }) as ClipboardEvent;
   Object.defineProperty(event, "clipboardData", {
     value: {
       files: [file],
@@ -68,4 +68,18 @@ function pasteEvent(file: File): ClipboardEvent {
     }
   });
   return event;
+}
+
+async function waitFor(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < 100; i += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw lastError;
 }

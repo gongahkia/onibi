@@ -126,7 +126,7 @@ func parseFirstRunHookSelection(raw string, targets []hookTarget) ([]hookTarget,
 	for _, part := range parts {
 		idx, ok := firstRunHookIndex(part, targets)
 		if !ok {
-			return nil, fmt.Errorf("Choose all, none, or comma-separated numbers/names.")
+			return nil, fmt.Errorf("choose all, none, or comma-separated numbers/names")
 		}
 		if !seen[idx] {
 			selected = append(selected, targets[idx])

@@ -1,7 +1,7 @@
 import { EventsWS } from "../events";
 import { TerminalWS } from "../ws";
 
-class FakeWebSocket extends EventTarget {
+class FakeWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSING = 2;
@@ -13,9 +13,9 @@ class FakeWebSocket extends EventTarget {
   readyState = FakeWebSocket.CONNECTING;
   binaryType: BinaryType = "blob";
   readonly sent: unknown[] = [];
+  private readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
 
   constructor(url: string | URL, protocols?: string | string[]) {
-    super();
     this.url = String(url);
     this.protocols = protocols;
     FakeWebSocket.instances.push(this);
@@ -33,6 +33,33 @@ class FakeWebSocket extends EventTarget {
   open(): void {
     this.readyState = FakeWebSocket.OPEN;
     this.dispatchEvent(new Event("open"));
+  }
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+    if (listener === null) {
+      return;
+    }
+    const listeners = this.listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+    if (listener === null) {
+      return;
+    }
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      if (typeof listener === "function") {
+        listener.call(this, event);
+      } else {
+        listener.handleEvent(event);
+      }
+    }
+    return !event.defaultPrevented;
   }
 }
 

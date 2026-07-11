@@ -127,7 +127,7 @@ func TestOlmSessionEncryptDecryptRoundTrip(t *testing.T) {
 	if !bytes.Equal(plaintext, []byte("ack")) {
 		t.Fatalf("plaintext=%q", plaintext)
 	}
-	aliceSession, second, err := EncryptOlmWithSession(aliceSession, pickleKey, aliceCurve, []byte("again"))
+	_, second, err := EncryptOlmWithSession(aliceSession, pickleKey, aliceCurve, []byte("again"))
 	if err != nil {
 		t.Fatal(err)
 	}

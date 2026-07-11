@@ -14,10 +14,15 @@ import (
 func TestProviderSendsApprovalToOwnerDM(t *testing.T) {
 	c, serverConn := providerPipeClient(t)
 	p := NewProvider(c, "owner")
-	done := make(chan string, 1)
+	done := make(chan lineResult, 1)
 	go func() {
 		r := bufio.NewReader(serverConn)
-		done <- readTestLine(t, r)
+		line, err := readTestLine(r)
+		if err != nil {
+			done <- lineResult{err: err}
+			return
+		}
+		done <- lineResult{lines: []string{line}}
 	}()
 	msgID, err := p.SendApproval(t.Context(), chatout.ApprovalRequest{
 		ID:        "apr_1",
@@ -34,7 +39,11 @@ func TestProviderSendsApprovalToOwnerDM(t *testing.T) {
 		t.Fatalf("msg id = %q", msgID)
 	}
 	select {
-	case line := <-done:
+	case result := <-done:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		line := result.lines[0]
 		if !strings.HasPrefix(line, "PRIVMSG owner :Approval apr_1") || !strings.Contains(line, FormatOnibiCommand("approve", "apr_1")) {
 			t.Fatalf("line = %q", line)
 		}
@@ -116,10 +125,20 @@ func TestProviderTailStreamAuditsChunks(t *testing.T) {
 		audit = append(audit, item)
 		return nil
 	}
-	done := make(chan []string, 1)
+	done := make(chan lineResult, 1)
 	go func() {
 		r := bufio.NewReader(serverConn)
-		done <- []string{readTestLine(t, r), readTestLine(t, r)}
+		first, err := readTestLine(r)
+		if err != nil {
+			done <- lineResult{err: err}
+			return
+		}
+		second, err := readTestLine(r)
+		if err != nil {
+			done <- lineResult{err: err}
+			return
+		}
+		done <- lineResult{lines: []string{first, second}}
 	}()
 	ch := make(chan []byte, 1)
 	ch <- []byte(strings.Repeat("x", MessageChunkLimit+2))
@@ -128,7 +147,11 @@ func TestProviderTailStreamAuditsChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case lines := <-done:
+	case result := <-done:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		lines := result.lines
 		if len(strings.TrimPrefix(lines[0], "PRIVMSG owner :")) != MessageChunkLimit || !strings.HasSuffix(lines[1], "xx") {
 			t.Fatalf("lines = %#v", lines)
 		}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -36,33 +37,57 @@ func TestSASLConnectShape(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		r := bufio.NewReader(serverConn)
-		if got := readTestLine(t, r); got != "CAP REQ :sasl" {
-			t.Fatalf("cap = %q", got)
+		if err := expectTestLine(r, "CAP REQ :sasl"); err != nil {
+			done <- err
+			return
 		}
-		if got := readTestLine(t, r); got != "NICK onibi" {
-			t.Fatalf("nick = %q", got)
+		if err := expectTestLine(r, "NICK onibi"); err != nil {
+			done <- err
+			return
 		}
-		if got := readTestLine(t, r); got != "USER acct 0 * :Onibi" {
-			t.Fatalf("user = %q", got)
+		if err := expectTestLine(r, "USER acct 0 * :Onibi"); err != nil {
+			done <- err
+			return
 		}
-		writeTestLine(t, serverConn, ":irc.test CAP onibi ACK :sasl")
-		if got := readTestLine(t, r); got != "AUTHENTICATE PLAIN" {
-			t.Fatalf("authenticate = %q", got)
+		if err := writeTestLine(serverConn, ":irc.test CAP onibi ACK :sasl"); err != nil {
+			done <- err
+			return
 		}
-		writeTestLine(t, serverConn, "AUTHENTICATE +")
-		got := strings.TrimPrefix(readTestLine(t, r), "AUTHENTICATE ")
+		if err := expectTestLine(r, "AUTHENTICATE PLAIN"); err != nil {
+			done <- err
+			return
+		}
+		if err := writeTestLine(serverConn, "AUTHENTICATE +"); err != nil {
+			done <- err
+			return
+		}
+		line, err := readTestLine(r)
+		if err != nil {
+			done <- err
+			return
+		}
+		got := strings.TrimPrefix(line, "AUTHENTICATE ")
 		decoded, err := base64.StdEncoding.DecodeString(got)
 		if err != nil {
-			t.Fatal(err)
+			done <- err
+			return
 		}
 		if string(decoded) != "\x00acct\x00secret" {
-			t.Fatalf("sasl payload = %q", decoded)
+			done <- fmt.Errorf("sasl payload = %q", decoded)
+			return
 		}
-		writeTestLine(t, serverConn, ":irc.test 903 onibi :SASL authentication successful")
-		if got := readTestLine(t, r); got != "CAP END" {
-			t.Fatalf("cap end = %q", got)
+		if err := writeTestLine(serverConn, ":irc.test 903 onibi :SASL authentication successful"); err != nil {
+			done <- err
+			return
 		}
-		writeTestLine(t, serverConn, ":irc.test 001 onibi :Welcome")
+		if err := expectTestLine(r, "CAP END"); err != nil {
+			done <- err
+			return
+		}
+		if err := writeTestLine(serverConn, ":irc.test 001 onibi :Welcome"); err != nil {
+			done <- err
+			return
+		}
 		done <- nil
 	}()
 	if err := c.Connect(t.Context()); err != nil {
@@ -90,15 +115,29 @@ func TestSendPrivmsgChunksAndPaces(t *testing.T) {
 		return nil
 	}
 	c.SendPace = 10 * time.Millisecond
-	done := make(chan []string, 1)
+	done := make(chan lineResult, 1)
 	go func() {
 		r := bufio.NewReader(serverConn)
-		done <- []string{readTestLine(t, r), readTestLine(t, r)}
+		first, err := readTestLine(r)
+		if err != nil {
+			done <- lineResult{err: err}
+			return
+		}
+		second, err := readTestLine(r)
+		if err != nil {
+			done <- lineResult{err: err}
+			return
+		}
+		done <- lineResult{lines: []string{first, second}}
 	}()
 	if err := c.SendPrivmsg(t.Context(), "owner", strings.Repeat("x", MessageChunkLimit+3)); err != nil {
 		t.Fatal(err)
 	}
-	lines := <-done
+	result := <-done
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	lines := result.lines
 	if !strings.HasPrefix(lines[0], "PRIVMSG owner :") || len(strings.TrimPrefix(lines[0], "PRIVMSG owner :")) != MessageChunkLimit {
 		t.Fatalf("line0 = %q", lines[0])
 	}
@@ -117,18 +156,31 @@ func TestParseOnibiCommand(t *testing.T) {
 	}
 }
 
-func readTestLine(t *testing.T, r *bufio.Reader) string {
-	t.Helper()
-	line, err := r.ReadString('\n')
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimRight(line, "\r\n")
+type lineResult struct {
+	lines []string
+	err   error
 }
 
-func writeTestLine(t *testing.T, c net.Conn, line string) {
-	t.Helper()
-	if _, err := c.Write([]byte(line + "\r\n")); err != nil {
-		t.Fatal(err)
+func readTestLine(r *bufio.Reader) (string, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
 	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+func expectTestLine(r *bufio.Reader, want string) error {
+	got, err := readTestLine(r)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("line = %q, want %q", got, want)
+	}
+	return nil
+}
+
+func writeTestLine(c net.Conn, line string) error {
+	_, err := c.Write([]byte(line + "\r\n"))
+	return err
 }

@@ -203,7 +203,7 @@ func saveVAPIDKeys(ctx context.Context, keys VAPIDKeys) error {
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(vapidSecret{PrivateKey: keys.PrivateKey, PublicKey: keys.PublicKey})
+	body, err := json.Marshal(vapidSecret(keys))
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,5 @@
 package cli
 
-//lint:file-ignore SA1019 update tests generate OpenPGP signatures
-
 import (
 	"archive/tar"
 	"bytes"
@@ -19,11 +17,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/updatecheck"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
 )
 
 func TestUpdateCheckOnlyStablePrintsLatest(t *testing.T) {
