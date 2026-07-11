@@ -104,11 +104,12 @@ func NewMegolmInboundState(roomKey RoomKeyContent, senderKey string, pickleKey [
 		return MegolmInboundState{}, err
 	}
 	return MegolmInboundState{
-		RoomID:          strings.TrimSpace(roomKey.RoomID),
-		SenderKey:       strings.TrimSpace(senderKey),
-		SessionID:       string(sess.ID()),
-		Pickle:          string(pickled),
-		FirstKnownIndex: int(sess.FirstKnownIndex()),
+		RoomID:                 strings.TrimSpace(roomKey.RoomID),
+		SenderKey:              strings.TrimSpace(senderKey),
+		SessionID:              string(sess.ID()),
+		Pickle:                 string(pickled),
+		FirstKnownIndex:        int(sess.FirstKnownIndex()),
+		ReceivedMessageIndices: map[uint]bool{},
 	}, nil
 }
 
@@ -136,11 +137,18 @@ func DecryptMegolmState(state MegolmInboundState, pickleKey []byte, content Mego
 	if err != nil {
 		return state, nil, 0, err
 	}
+	if state.ReceivedMessageIndices[index] {
+		return state, nil, 0, errors.New("matrix megolm replayed message index")
+	}
 	pickled, err := sess.Pickle(pickleKey)
 	if err != nil {
 		return state, nil, 0, err
 	}
 	state.Pickle = string(pickled)
 	state.FirstKnownIndex = int(sess.FirstKnownIndex())
+	if state.ReceivedMessageIndices == nil {
+		state.ReceivedMessageIndices = map[uint]bool{}
+	}
+	state.ReceivedMessageIndices[index] = true
 	return state, plaintext, index, nil
 }

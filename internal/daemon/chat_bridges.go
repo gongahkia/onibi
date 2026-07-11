@@ -76,19 +76,27 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	}
 	d.setMatrixEncryptedRoom(encrypted)
 	if encrypted && !d.Matrix.AllowEncrypted {
-		return errors.New("matrix encrypted rooms require real Olm/Megolm E2EE; use an unencrypted room or set ONIBI_MATRIX_ALLOW_ENCRYPTED=1 only for send-only testing")
+		return errors.New("matrix encrypted rooms require ONIBI_MATRIX_ALLOW_ENCRYPTED=1")
 	}
-	if encrypted {
-		d.audit(ctx, "provider.matrix.encrypted_bypass", "", "", 0, "room="+d.Matrix.RoomID+" allow_encrypted=true e2ee=false")
+	if encrypted && (strings.TrimSpace(d.Matrix.OwnerUserID) == "" || strings.TrimSpace(d.Matrix.OwnerDeviceID) == "") {
+		return errors.New("matrix encrypted rooms require ONIBI_MATRIX_OWNER_USER_ID and ONIBI_MATRIX_OWNER_DEVICE_ID")
 	}
 	cryptoState, pickleKey, cryptoReady, err := d.ensureMatrixCryptoState(ctx, c, who)
 	if err != nil {
 		return err
 	}
-	if encrypted && cryptoReady && strings.TrimSpace(d.Matrix.OwnerUserID) != "" {
-		if err := d.ensureMatrixRoomKeyShared(ctx, c, cryptoState, pickleKey, d.Matrix.OwnerUserID); err != nil {
+	if encrypted && !cryptoReady {
+		return errors.New("matrix encrypted rooms require an encrypted local crypto state store")
+	}
+	if encrypted && cryptoReady {
+		cryptoState, err = d.ensureMatrixTrustedOwnerDevice(ctx, c, cryptoState)
+		if err != nil {
 			return err
 		}
+		if err := d.ensureMatrixRoomKeyShared(ctx, c, cryptoState, pickleKey, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID); err != nil {
+			return err
+		}
+		d.audit(ctx, "provider.matrix.e2ee_enabled", "", "", 0, "room="+d.Matrix.RoomID+" owner_device="+d.Matrix.OwnerDeviceID)
 	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
@@ -105,15 +113,30 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 				continue
 			}
 		}
+		if encrypted {
+			for _, ev := range sync.ToDevice.Events {
+				if err := d.handleMatrixToDeviceEvent(ctx, ev); err != nil {
+					d.audit(ctx, "provider.matrix.to_device_error", "", "", 0, "type="+ev.Type+" err="+err.Error())
+				}
+			}
+		}
+		room := sync.Rooms.Join[d.Matrix.RoomID]
+		for _, ev := range room.Timeline.Events {
+			if encrypted && ev.Type == matrix.EventRoomEncrypted {
+				var err error
+				ev, err = d.decryptMatrixRoomEvent(ctx, ev)
+				if err != nil {
+					d.audit(ctx, "provider.matrix.decrypt_error", "", "", 0, "event_id="+ev.EventID+" err="+err.Error())
+					continue
+				}
+			}
+			d.handleMatrixEvent(ctx, c, ev)
+		}
 		if sync.NextBatch != "" {
 			since = sync.NextBatch
 			if d.DB != nil {
 				_ = d.DB.KVSetString(ctx, matrixKVSince, since)
 			}
-		}
-		room := sync.Rooms.Join[d.Matrix.RoomID]
-		for _, ev := range room.Timeline.Events {
-			d.handleMatrixEvent(ctx, c, ev)
 		}
 		select {
 		case <-ctx.Done():
@@ -154,7 +177,30 @@ func (d *Daemon) ensureMatrixCryptoState(ctx context.Context, c *matrix.Client, 
 	return next, pickleKey, true, nil
 }
 
-func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client, state matrix.CryptoState, pickleKey []byte, userID string) error {
+func (d *Daemon) ensureMatrixTrustedOwnerDevice(ctx context.Context, c *matrix.Client, state matrix.CryptoState) (matrix.CryptoState, error) {
+	query, err := c.QueryKeys(ctx, map[string][]string{d.Matrix.OwnerUserID: {d.Matrix.OwnerDeviceID}}, 10*time.Second)
+	if err != nil {
+		return state, err
+	}
+	keys, err := matrix.DeviceKeysFromQuery(query, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID)
+	if err != nil {
+		return state, err
+	}
+	if _, ok := matrix.TrustedDeviceKeyFor(state, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID); !ok && !d.Matrix.SASVerified {
+		return state, errors.New("matrix encrypted rooms require ONIBI_MATRIX_SAS_VERIFIED=1 after manual SAS comparison before first owner-device pin")
+	}
+	next, err := matrix.PinTrustedDevice(state, keys)
+	if err != nil {
+		return state, err
+	}
+	if err := matrix.SaveCryptoState(ctx, d.DB, next); err != nil {
+		return state, err
+	}
+	d.audit(ctx, "provider.matrix.owner_device_pinned", "", "", 0, "user="+d.Matrix.OwnerUserID+" device="+d.Matrix.OwnerDeviceID)
+	return next, nil
+}
+
+func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client, state matrix.CryptoState, pickleKey []byte, userID, deviceID string) error {
 	if d == nil || d.DB == nil {
 		return nil
 	}
@@ -172,7 +218,10 @@ func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client
 	if err != nil {
 		return err
 	}
-	state, outbound, err = c.ShareRoomKeyWithTrustedUsers(ctx, state, outbound, roomKey, pickleKey, []string{userID}, 10*time.Second)
+	if !matrix.IsDeviceTrusted(state, userID, deviceID) {
+		return errors.New("matrix room key share requires a pinned SAS-verified owner device")
+	}
+	state, outbound, err = c.ShareRoomKeyWithDevices(ctx, state, outbound, roomKey, pickleKey, []matrix.RoomKeyShareTarget{{UserID: userID, DeviceID: deviceID}}, 10*time.Second)
 	if err != nil {
 		return err
 	}
@@ -186,6 +235,112 @@ func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client
 	}
 	d.audit(ctx, "provider.matrix.room_key_shared", "", "", 0, fmt.Sprintf("room=%s users=1 devices=%d", d.Matrix.RoomID, shared))
 	return nil
+}
+
+func (d *Daemon) handleMatrixToDeviceEvent(ctx context.Context, ev matrix.Event) error {
+	if ev.Type != matrix.EventRoomEncrypted || ev.Sender != d.Matrix.OwnerUserID {
+		return nil
+	}
+	if d.DB == nil {
+		return errors.New("matrix encrypted to-device event requires crypto state db")
+	}
+	state, ok, err := matrix.LoadCryptoState(ctx, d.DB)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("matrix encrypted to-device event requires initialized crypto state")
+	}
+	pickleKey, err := state.PickleKeyBytes()
+	if err != nil {
+		return err
+	}
+	trusted, ok := matrix.TrustedDeviceKeyFor(state, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID)
+	if !ok {
+		return errors.New("matrix encrypted to-device event requires pinned owner device")
+	}
+	var content matrix.OlmEncryptedContent
+	if err := json.Unmarshal(ev.Content, &content); err != nil {
+		return err
+	}
+	next, session, payload, err := matrix.DecryptOlmToDevice(state, pickleKey, content)
+	if err != nil {
+		return err
+	}
+	if !matrix.IsTrustedDeviceEvent(next, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID, content.SenderKey, payload.Keys["ed25519"]) || trusted.Curve25519Key != content.SenderKey {
+		return errors.New("matrix encrypted to-device event sender is not the pinned owner device")
+	}
+	roomKey, err := matrix.ValidateOlmRoomKeyPayload(payload, ev.Sender, next, trusted)
+	if err != nil {
+		return err
+	}
+	if roomKey.RoomID != d.Matrix.RoomID {
+		return errors.New("matrix encrypted to-device room key does not match configured room")
+	}
+	session.UserID = d.Matrix.OwnerUserID
+	session.DeviceID = d.Matrix.OwnerDeviceID
+	if next.OlmSessions == nil {
+		next.OlmSessions = map[string]matrix.OlmSessionState{}
+	}
+	next.OlmSessions[matrix.OlmSessionKey(session.UserID, session.DeviceID, session.SessionID)] = session
+	inbound, err := matrix.NewMegolmInboundState(roomKey, trusted.Curve25519Key, pickleKey)
+	if err != nil {
+		return err
+	}
+	next, err = matrix.StoreMegolmInboundSession(next, inbound)
+	if err != nil {
+		return err
+	}
+	if err := matrix.SaveCryptoState(ctx, d.DB, next); err != nil {
+		return err
+	}
+	d.audit(ctx, "provider.matrix.room_key_received", "", "", 0, "room="+roomKey.RoomID+" session="+roomKey.SessionID+" owner_device="+d.Matrix.OwnerDeviceID)
+	return nil
+}
+
+func (d *Daemon) decryptMatrixRoomEvent(ctx context.Context, ev matrix.Event) (matrix.Event, error) {
+	if d.DB == nil {
+		return matrix.Event{}, errors.New("matrix encrypted room event requires crypto state db")
+	}
+	state, ok, err := matrix.LoadCryptoState(ctx, d.DB)
+	if err != nil {
+		return matrix.Event{}, err
+	}
+	if !ok {
+		return matrix.Event{}, errors.New("matrix encrypted room event requires initialized crypto state")
+	}
+	pickleKey, err := state.PickleKeyBytes()
+	if err != nil {
+		return matrix.Event{}, err
+	}
+	trusted, ok := matrix.TrustedDeviceKeyFor(state, d.Matrix.OwnerUserID, d.Matrix.OwnerDeviceID)
+	if !ok {
+		return matrix.Event{}, errors.New("matrix encrypted room event requires pinned owner device")
+	}
+	var content matrix.MegolmEncryptedContent
+	if err := json.Unmarshal(ev.Content, &content); err != nil {
+		return matrix.Event{}, err
+	}
+	if content.Algorithm != matrix.AlgorithmMegolmV1 || content.SenderKey != trusted.Curve25519Key {
+		return matrix.Event{}, errors.New("matrix encrypted room event sender is not the pinned owner device")
+	}
+	key, inbound, ok := matrix.MegolmInboundSessionFor(state, content.SenderKey, content.SessionID)
+	if !ok {
+		return matrix.Event{}, errors.New("matrix encrypted room event has no trusted inbound session")
+	}
+	nextInbound, payload, _, err := matrix.DecryptMegolmRoomEvent(inbound, pickleKey, content, d.Matrix.RoomID)
+	if err != nil {
+		return matrix.Event{}, err
+	}
+	if payload.Type == matrix.EventRoomEncrypted {
+		return matrix.Event{}, errors.New("matrix encrypted room event nested encryption rejected")
+	}
+	state.MegolmInboundSessions[key] = nextInbound
+	if err := matrix.SaveCryptoState(ctx, d.DB, state); err != nil {
+		return matrix.Event{}, err
+	}
+	d.audit(ctx, "provider.matrix.decrypt", "", "", 0, "event_id="+ev.EventID+" session="+content.SessionID+" type="+payload.Type)
+	return matrix.Event{EventID: ev.EventID, Type: payload.Type, Sender: ev.Sender, Content: payload.Content}, nil
 }
 
 func (d *Daemon) setMatrixEncryptedRoom(encrypted bool) {

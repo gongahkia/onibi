@@ -168,18 +168,13 @@ buttons, command handling, and tail-style command output exist. Reconnect and
 audit should move behind the shared contract.
 
 Matrix supports room text, approval reactions, chunked room-message tail output,
-audit rows, polling cursor state, Client-Server E2EE key endpoint shapes, SAS
-verification to-device message shapes/state tracking, SAS-completed trusted-device
-state, signed device/one-time key upload helpers with daemon startup wiring, SAS
-HKDF decimal/emoji comparison helpers, `hkdf-hmac-sha256.v2` MAC helpers, room
-encrypted/key request content shapes, local Megolm encrypt/decrypt state wrappers,
-local Megolm room-event payload encrypt/decrypt/send helpers, local Olm
-account/pre-key and stored type-1 device-session encrypt/decrypt wrappers, local
-outbound `m.room_key` to-device sharing helpers for explicit devices and queried
-user devices, daemon startup trust-gated room-key sharing to configured owner
-devices, configured inbound Megolm text routing, encrypted Megolm room-message
-sends, and encrypted local crypto/session-state initialization/persistence.
-Encrypted rooms are not full Olm/Megolm E2EE yet; room-level privacy remains E2.
+audit rows, polling cursor state, signed device/one-time key upload, and encrypted
+crypto/session-state persistence. Encrypted rooms pin one signed owner device after
+an explicit SAS assertion, share outbound `m.room_key` only with that device,
+consume inbound `m.room_key` to-device events, decrypt owner Megolm text/reactions,
+and reject replayed message indices. [Unverified] Interactive SAS verification,
+cross-signing, and a real encrypted-room end-to-end result remain incomplete, so
+room-level privacy remains E2.
 
 Slack supports Socket Mode, message input, approval buttons/edit modals,
 chunked tail output, reconnect backoff, and audit rows. Live workspace

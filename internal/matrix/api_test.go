@@ -17,6 +17,9 @@ func TestSyncUsesSinceTokenAndParsesMessage(t *testing.T) {
 		}
 		writeJSON(t, w, map[string]any{
 			"next_batch": "s2",
+			"to_device": map[string]any{"events": []any{map[string]any{
+				"type": "m.room.encrypted", "sender": "@owner:example", "content": map[string]any{"algorithm": "m.olm.v1.curve25519-aes-sha2"},
+			}}},
 			"rooms": map[string]any{"join": map[string]any{"!room:example": map[string]any{
 				"timeline": map[string]any{"events": []any{map[string]any{
 					"type": "m.room.message", "sender": "@owner:example", "content": map[string]any{"msgtype": "m.text", "body": "ls"},
@@ -30,7 +33,7 @@ func TestSyncUsesSinceTokenAndParsesMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev := got.Rooms.Join["!room:example"].Timeline.Events[0]
-	if got.NextBatch != "s2" || MessageBody(ev) != "ls" {
+	if got.NextBatch != "s2" || MessageBody(ev) != "ls" || len(got.ToDevice.Events) != 1 || got.ToDevice.Events[0].Sender != "@owner:example" {
 		t.Fatalf("sync = %#v body=%q", got, MessageBody(ev))
 	}
 }

@@ -42,7 +42,10 @@ type JoinedRooms struct {
 
 type SyncResponse struct {
 	NextBatch string `json:"next_batch"`
-	Rooms     struct {
+	ToDevice  struct {
+		Events []Event `json:"events"`
+	} `json:"to_device"`
+	Rooms struct {
 		Join map[string]JoinedRoom `json:"join"`
 	} `json:"rooms"`
 }

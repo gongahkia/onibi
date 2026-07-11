@@ -27,6 +27,7 @@ type CryptoState struct {
 	MegolmInboundSessions  map[string]MegolmInboundState  `json:"megolm_inbound_sessions,omitempty"`
 	SASTransactions        map[string]SASTransactionState `json:"sas_transactions,omitempty"`
 	TrustedDevices         map[string][]string            `json:"trusted_devices,omitempty"`
+	TrustedDeviceKeys      map[string]TrustedDeviceKey    `json:"trusted_device_keys,omitempty"`
 }
 
 type OlmSessionState struct {
@@ -47,11 +48,19 @@ type MegolmOutboundState struct {
 }
 
 type MegolmInboundState struct {
-	RoomID          string `json:"room_id"`
-	SenderKey       string `json:"sender_key"`
-	SessionID       string `json:"session_id"`
-	Pickle          string `json:"pickle"`
-	FirstKnownIndex int    `json:"first_known_index,omitempty"`
+	RoomID                 string        `json:"room_id"`
+	SenderKey              string        `json:"sender_key"`
+	SessionID              string        `json:"session_id"`
+	Pickle                 string        `json:"pickle"`
+	FirstKnownIndex        int           `json:"first_known_index,omitempty"`
+	ReceivedMessageIndices map[uint]bool `json:"received_message_indices,omitempty"`
+}
+
+type TrustedDeviceKey struct {
+	UserID        string `json:"user_id"`
+	DeviceID      string `json:"device_id"`
+	Curve25519Key string `json:"curve25519_key"`
+	Ed25519Key    string `json:"ed25519_key"`
 }
 
 type SASTransactionState struct {

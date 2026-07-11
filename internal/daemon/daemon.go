@@ -157,7 +157,9 @@ type MatrixOptions struct {
 	AccessToken    string
 	RoomID         string
 	OwnerUserID    string
+	OwnerDeviceID  string
 	AllowEncrypted bool
+	SASVerified    bool
 }
 
 type SlackOptions struct {

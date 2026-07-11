@@ -96,7 +96,7 @@ func TestMatrixTextInRoutesToPTYAndAuditsTail(t *testing.T) {
 	}
 }
 
-func TestMatrixEncryptedBypassAuditsPlaintextFallback(t *testing.T) {
+func TestMatrixEncryptedRoomRequiresPinnedOwnerDevice(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", AllowEncrypted: true}})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -118,15 +118,8 @@ func TestMatrixEncryptedBypassAuditsPlaintextFallback(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	err := d.runMatrixBridge(ctx, matrix.New(srv.URL, "tok"))
-	if !errors.Is(err, context.Canceled) {
+	if err == nil || !strings.Contains(err.Error(), "OWNER_USER_ID") {
 		t.Fatalf("runMatrixBridge err = %v", err)
-	}
-	audit, err := db.AuditAll(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !auditHas(audit, "provider.matrix.encrypted_bypass") {
-		t.Fatalf("audit = %#v", audit)
 	}
 }
 
@@ -198,15 +191,8 @@ func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	botState, _, _, err := matrix.EnsureCryptoState(t.Context(), db, "@bot:example", "DEV", matrixOneTimeKeyCount)
+	_, _, _, err = matrix.EnsureCryptoState(t.Context(), db, "@bot:example", "DEV", matrixOneTimeKeyCount)
 	if err != nil {
-		t.Fatal(err)
-	}
-	botState, err = matrix.MarkDeviceTrusted(botState, "@owner:example", "OWNER")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := matrix.SaveCryptoState(t.Context(), db, botState); err != nil {
 		t.Fatal(err)
 	}
 	pickleKey := []byte("owner-pickle-key")
@@ -218,7 +204,11 @@ func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", OwnerUserID: "@owner:example", AllowEncrypted: true}})
+	ownerKeys, err := matrix.SignedDeviceKeys(owner, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", OwnerUserID: "@owner:example", OwnerDeviceID: "OWNER", AllowEncrypted: true, SASVerified: true}})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	var sent map[string]map[string]json.RawMessage
@@ -233,7 +223,7 @@ func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/keys/upload"):
 			writeMatrixJSON(t, w, map[string]any{"one_time_key_counts": map[string]int{matrix.KeyAlgorithmSignedCurve255: matrixOneTimeKeyCount}})
 		case strings.HasSuffix(r.URL.Path, "/keys/query"):
-			writeMatrixJSON(t, w, map[string]any{"device_keys": map[string]any{"@owner:example": map[string]any{"OWNER": owner.DeviceKeys}}})
+			writeMatrixJSON(t, w, map[string]any{"device_keys": map[string]any{"@owner:example": map[string]any{"OWNER": ownerKeys}}})
 		case strings.HasSuffix(r.URL.Path, "/keys/claim"):
 			writeMatrixJSON(t, w, map[string]any{"one_time_keys": map[string]any{"@owner:example": map[string]any{"OWNER": map[string]any{"signed_curve25519:OWNER": map[string]any{"key": firstMatrixOneTimeKey(t, ownerOTKs)}}}}})
 		case strings.Contains(r.URL.Path, "/sendToDevice/m.room.encrypted/"):
@@ -352,6 +342,100 @@ func TestMatrixPostTailEncryptsMegolmRoomMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !auditHas(audit, "provider.matrix.tail_chunk") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+func TestMatrixDecryptsPinnedOwnerMegolmInboundEventAndRejectsReplay(t *testing.T) {
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "matrix.sqlite"), store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	bot, botPickle, _, err := matrix.EnsureCryptoState(t.Context(), db, "@bot:example", "BOT", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerPickle := []byte("owner-pickle-key")
+	owner, err := matrix.NewOlmAccountState("@owner:example", "OWNER", ownerPickle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerKeys, err := matrix.SignedDeviceKeys(owner, ownerPickle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err = matrix.PinTrustedDevice(bot, ownerKeys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := matrix.SaveCryptoState(t.Context(), db, bot); err != nil {
+		t.Fatal(err)
+	}
+	botOTKs, err := matrix.OlmAccountOneTimeKeys(bot, botPickle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomOutbound, roomKey, err := matrix.NewMegolmOutboundState("!room:example", ownerPickle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(matrix.OlmPayload{
+		Type:          matrix.EventRoomKey,
+		Content:       roomKey,
+		Sender:        "@owner:example",
+		Recipient:     "@bot:example",
+		Keys:          map[string]string{"ed25519": ownerKeys.Keys["ed25519:OWNER"]},
+		RecipientKeys: map[string]string{"ed25519": bot.DeviceKeys.Keys["ed25519:BOT"]},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerCurve := ownerKeys.Keys["curve25519:OWNER"]
+	_, _, toDevice, err := matrix.EncryptOlmForDevice(owner, ownerPickle, "@bot:example", "BOT", bot.DeviceKeys.Keys["curve25519:BOT"], firstMatrixOneTimeKey(t, botOTKs), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toDeviceRaw, err := json.Marshal(toDevice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", OwnerUserID: "@owner:example", OwnerDeviceID: "OWNER", AllowEncrypted: true, SASVerified: true}})
+	if err := d.handleMatrixToDeviceEvent(t.Context(), matrix.Event{Type: matrix.EventRoomEncrypted, Sender: "@owner:example", Content: toDeviceRaw}); err != nil {
+		t.Fatal(err)
+	}
+	roomOutbound, encrypted, err := matrix.EncryptMegolmRoomEvent(roomOutbound, ownerPickle, ownerCurve, "OWNER", "!room:example", "m.room.message", matrix.RoomMessage{MsgType: "m.text", Body: "pwd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = roomOutbound
+	raw, err := json.Marshal(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := d.decryptMatrixRoomEvent(t.Context(), matrix.Event{EventID: "$encrypted", Type: matrix.EventRoomEncrypted, Sender: "@owner:example", Content: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type != "m.room.message" || matrix.MessageBody(ev) != "pwd" {
+		t.Fatalf("event = %#v", ev)
+	}
+	if _, err := d.decryptMatrixRoomEvent(t.Context(), matrix.Event{EventID: "$replay", Type: matrix.EventRoomEncrypted, Sender: "@owner:example", Content: raw}); err == nil || !strings.Contains(err.Error(), "replayed") {
+		t.Fatalf("replay err = %v", err)
+	}
+	state, ok, err := matrix.LoadCryptoState(t.Context(), db)
+	if err != nil || !ok || len(state.MegolmInboundSessions) != 1 {
+		t.Fatalf("state ok=%v err=%v state=%#v", ok, err, state)
+	}
+	audit, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(audit, "provider.matrix.room_key_received") || !auditHas(audit, "provider.matrix.decrypt") {
 		t.Fatalf("audit = %#v", audit)
 	}
 }

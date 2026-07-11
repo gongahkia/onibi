@@ -2,7 +2,11 @@ package matrix
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+
+	"maunium.net/go/mautrix/crypto/signatures"
+	"maunium.net/go/mautrix/id"
 )
 
 func MarkDeviceTrusted(state CryptoState, userID, deviceID string) (CryptoState, error) {
@@ -45,6 +49,47 @@ func IsDeviceTrusted(state CryptoState, userID, deviceID string) bool {
 		}
 	}
 	return false
+}
+
+func TrustedDeviceKeyFor(state CryptoState, userID, deviceID string) (TrustedDeviceKey, bool) {
+	key, ok := state.TrustedDeviceKeys[trustedDeviceKey(userID, deviceID)]
+	return key, ok
+}
+
+func PinTrustedDevice(state CryptoState, keys DeviceKeys) (CryptoState, error) {
+	keys.UserID = strings.TrimSpace(keys.UserID)
+	keys.DeviceID = strings.TrimSpace(keys.DeviceID)
+	curve25519 := deviceKeyValue(&keys, "curve25519")
+	ed25519 := deviceKeyValue(&keys, "ed25519")
+	if keys.UserID == "" || keys.DeviceID == "" || curve25519 == "" || ed25519 == "" || !roomKeyShareContainsString(keys.Algorithms, AlgorithmOlmV1) || !roomKeyShareContainsString(keys.Algorithms, AlgorithmMegolmV1) {
+		return state, errors.New("matrix trusted device keys incomplete")
+	}
+	ok, err := signatures.VerifySignatureJSON(keys, id.UserID(keys.UserID), keys.DeviceID, id.Ed25519(ed25519))
+	if err != nil || !ok {
+		if err != nil {
+			return state, fmt.Errorf("matrix trusted device signature: %w", err)
+		}
+		return state, errors.New("matrix trusted device signature invalid")
+	}
+	pinned := TrustedDeviceKey{UserID: keys.UserID, DeviceID: keys.DeviceID, Curve25519Key: curve25519, Ed25519Key: ed25519}
+	if state.TrustedDeviceKeys == nil {
+		state.TrustedDeviceKeys = map[string]TrustedDeviceKey{}
+	}
+	key := trustedDeviceKey(keys.UserID, keys.DeviceID)
+	if existing, ok := state.TrustedDeviceKeys[key]; ok && existing != pinned {
+		return state, errors.New("matrix trusted device key changed; repeat SAS verification before replacing it")
+	}
+	state.TrustedDeviceKeys[key] = pinned
+	return MarkDeviceTrusted(state, keys.UserID, keys.DeviceID)
+}
+
+func IsTrustedDeviceEvent(state CryptoState, userID, deviceID, curve25519, ed25519 string) bool {
+	pinned, ok := TrustedDeviceKeyFor(state, userID, deviceID)
+	return ok && IsDeviceTrusted(state, userID, deviceID) && pinned.Curve25519Key == strings.TrimSpace(curve25519) && pinned.Ed25519Key == strings.TrimSpace(ed25519)
+}
+
+func trustedDeviceKey(userID, deviceID string) string {
+	return strings.TrimSpace(userID) + "/" + strings.TrimSpace(deviceID)
 }
 
 func TrustedRoomKeyShareTargets(state CryptoState, targets []RoomKeyShareTarget) ([]RoomKeyShareTarget, error) {

@@ -113,7 +113,9 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			AccessToken:    envRequired("ONIBI_MATRIX_ACCESS_TOKEN"),
 			RoomID:         envRequired("ONIBI_MATRIX_ROOM_ID"),
 			OwnerUserID:    strings.TrimSpace(os.Getenv("ONIBI_MATRIX_OWNER_USER_ID")),
+			OwnerDeviceID:  strings.TrimSpace(os.Getenv("ONIBI_MATRIX_OWNER_DEVICE_ID")),
 			AllowEncrypted: envBool("ONIBI_MATRIX_ALLOW_ENCRYPTED"),
+			SASVerified:    envBool("ONIBI_MATRIX_SAS_VERIFIED"),
 		}
 		if opts.Matrix.Homeserver == "" || opts.Matrix.AccessToken == "" || opts.Matrix.RoomID == "" {
 			return opts, "", fmt.Errorf("matrix requires ONIBI_MATRIX_HOMESERVER, ONIBI_MATRIX_ACCESS_TOKEN, ONIBI_MATRIX_ROOM_ID")
