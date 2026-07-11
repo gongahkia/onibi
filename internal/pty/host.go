@@ -39,6 +39,7 @@ type Host struct {
 	hub    *Hub
 	mu     sync.Mutex
 	closed bool
+	readDone chan struct{}
 }
 
 // SpawnOptions configures Spawn.
@@ -85,7 +86,7 @@ func Spawn(ctx context.Context, opts SpawnOptions) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pty start: %w", err)
 	}
-	h := &Host{Cmd: cmd, Master: master, hub: NewHub(DefaultRingSize)}
+	h := &Host{Cmd: cmd, Master: master, hub: NewHub(DefaultRingSize), readDone: make(chan struct{})}
 	go h.readMaster()
 	return h, nil
 }
@@ -127,6 +128,9 @@ func NewVirtualHost(write func([]byte) (int, error), close func() error, wait fu
 }
 
 func (h *Host) readMaster() {
+	if h.readDone != nil {
+		defer close(h.readDone)
+	}
 	buf := make([]byte, 4096)
 	for {
 		n, err := h.Master.Read(buf)
@@ -150,7 +154,16 @@ func (h *Host) Wait() error {
 	if h.Cmd == nil {
 		return errors.New("pty: not started")
 	}
-	return h.Cmd.Wait()
+	err := h.Cmd.Wait()
+	h.waitForReader()
+	return err
+}
+
+func (h *Host) waitForReader() {
+	if h.readDone == nil {
+		return
+	}
+	<-h.readDone
 }
 
 // Pipe copies PTY output into w until EOF or error. Typically called in a
