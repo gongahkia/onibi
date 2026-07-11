@@ -29,6 +29,42 @@ func (c *Client) ShareRoomKeyWithDevices(ctx context.Context, state CryptoState,
 	if c == nil {
 		return state, outbound, errors.New("matrix client nil")
 	}
+	targets, err := normalizeRoomKeyShareTargets(targets)
+	if err != nil {
+		return state, outbound, err
+	}
+	queryReq := roomKeyShareDeviceMap(targets)
+	query, err := c.QueryKeys(ctx, queryReq, timeout)
+	if err != nil {
+		return state, outbound, err
+	}
+	return c.shareRoomKeyWithQueriedDevices(ctx, state, outbound, roomKey, pickleKey, targets, query, timeout)
+}
+
+func (c *Client) ShareRoomKeyWithUsers(ctx context.Context, state CryptoState, outbound MegolmOutboundState, roomKey RoomKeyContent, pickleKey []byte, userIDs []string, timeout time.Duration) (CryptoState, MegolmOutboundState, error) {
+	if c == nil {
+		return state, outbound, errors.New("matrix client nil")
+	}
+	userIDs, err := normalizeRoomKeyShareUsers(userIDs)
+	if err != nil {
+		return state, outbound, err
+	}
+	queryReq := map[string][]string{}
+	for _, userID := range userIDs {
+		queryReq[userID] = []string{}
+	}
+	query, err := c.QueryKeys(ctx, queryReq, timeout)
+	if err != nil {
+		return state, outbound, err
+	}
+	targets, err := RoomKeyShareTargetsFromQuery(query, userIDs)
+	if err != nil {
+		return state, outbound, err
+	}
+	return c.shareRoomKeyWithQueriedDevices(ctx, state, outbound, roomKey, pickleKey, targets, query, timeout)
+}
+
+func (c *Client) shareRoomKeyWithQueriedDevices(ctx context.Context, state CryptoState, outbound MegolmOutboundState, roomKey RoomKeyContent, pickleKey []byte, targets []RoomKeyShareTarget, query KeysQueryResponse, timeout time.Duration) (CryptoState, MegolmOutboundState, error) {
 	if len(pickleKey) == 0 {
 		return state, outbound, errors.New("matrix room key share pickle key required")
 	}
@@ -41,18 +77,9 @@ func (c *Client) ShareRoomKeyWithDevices(ctx context.Context, state CryptoState,
 	if outbound.SessionID != "" && outbound.SessionID != roomKey.SessionID {
 		return state, outbound, errors.New("matrix room key share session mismatch")
 	}
-	targets, err := normalizeRoomKeyShareTargets(targets)
-	if err != nil {
-		return state, outbound, err
-	}
 	senderEd25519 := deviceKeyValue(state.DeviceKeys, "ed25519")
 	if senderEd25519 == "" {
 		return state, outbound, errors.New("matrix room key share sender ed25519 key required")
-	}
-	queryReq := roomKeyShareDeviceMap(targets)
-	query, err := c.QueryKeys(ctx, queryReq, timeout)
-	if err != nil {
-		return state, outbound, err
 	}
 	queried := map[string]DeviceKeys{}
 	for _, target := range targets {
@@ -66,11 +93,11 @@ func (c *Client) ShareRoomKeyWithDevices(ctx context.Context, state CryptoState,
 		queried[roomKeyShareTargetKey(target)] = deviceKeys
 	}
 	claimReq := map[string]map[string]string{}
-	for userID, deviceIDs := range queryReq {
-		claimReq[userID] = map[string]string{}
-		for _, deviceID := range deviceIDs {
-			claimReq[userID][deviceID] = KeyAlgorithmSignedCurve255
+	for _, target := range targets {
+		if claimReq[target.UserID] == nil {
+			claimReq[target.UserID] = map[string]string{}
 		}
+		claimReq[target.UserID][target.DeviceID] = KeyAlgorithmSignedCurve255
 	}
 	claim, err := c.ClaimOneTimeKeys(ctx, claimReq, timeout)
 	if err != nil {
@@ -133,6 +160,54 @@ func (c *Client) ShareRoomKeyWithDevices(ctx context.Context, state CryptoState,
 func OlmSessionKey(userID, deviceID, sessionID string) string {
 	parts := []string{strings.TrimSpace(userID), strings.TrimSpace(deviceID), strings.TrimSpace(sessionID)}
 	return strings.Join(parts, "/")
+}
+
+func RoomKeyShareTargetsFromQuery(resp KeysQueryResponse, userIDs []string) ([]RoomKeyShareTarget, error) {
+	userIDs, err := normalizeRoomKeyShareUsers(userIDs)
+	if err != nil {
+		return nil, err
+	}
+	var targets []RoomKeyShareTarget
+	for _, userID := range userIDs {
+		byDevice := resp.DeviceKeys[userID]
+		if len(byDevice) == 0 {
+			return nil, fmt.Errorf("matrix room key share no device keys for %s", userID)
+		}
+		deviceIDs := make([]string, 0, len(byDevice))
+		for deviceID := range byDevice {
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+		sort.Strings(deviceIDs)
+		for _, deviceID := range deviceIDs {
+			target := RoomKeyShareTarget{UserID: userID, DeviceID: deviceID}
+			if _, err := roomKeyShareDeviceKeys(resp, target); err != nil {
+				return nil, err
+			}
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
+}
+
+func normalizeRoomKeyShareUsers(userIDs []string) ([]string, error) {
+	if len(userIDs) == 0 {
+		return nil, errors.New("matrix room key share users required")
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(userIDs))
+	for _, userID := range userIDs {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			return nil, errors.New("matrix room key share user required")
+		}
+		if seen[userID] {
+			continue
+		}
+		seen[userID] = true
+		out = append(out, userID)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func normalizeRoomKeyShareTargets(targets []RoomKeyShareTarget) ([]RoomKeyShareTarget, error) {
