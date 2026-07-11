@@ -100,6 +100,8 @@ The machine-readable `onibi update-check --json` contract is documented in
 replacing `__ONIBI_RELEASE_GPG_KEY_B64__` with the same base64 public key used by
 the release workflow. The unrendered template fails closed instead of installing
 without signature verification.
+Use `scripts/prepare-install-pages.sh <pages-dir>` to render the dedicated
+`get.onibi.sh` Pages payload with `index.html`, `CNAME`, and `.nojekyll`.
 
 No release notes may claim notarization passed unless the tagged release was
 built with those values and verified on a clean Mac using

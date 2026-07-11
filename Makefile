@@ -1,8 +1,9 @@
-.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance
+.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance install-pages
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
 BUILD_DIR := bin
+INSTALL_PAGES_DIR ?= dist/get-onibi-pages
 FRONTEND_JS_GZ_LIMIT := 256000
 VERSION ?= $(shell git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --dirty 2>/dev/null || echo v2-dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -78,3 +79,6 @@ reproducible-build:
 
 bench-tolerance:
 	scripts/bench-tolerance.sh
+
+install-pages:
+	scripts/prepare-install-pages.sh "$(INSTALL_PAGES_DIR)"

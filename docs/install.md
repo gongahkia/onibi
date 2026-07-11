@@ -8,10 +8,10 @@ Export the same public key used by the release workflow:
 
 ```bash
 GPG_PUBLIC_KEY_B64="$(gpg --armor --export "$GPG_FINGERPRINT" | base64 | tr -d '\n')"
-scripts/render-install.sh /path/to/get-onibi-pages/index.html
+scripts/prepare-install-pages.sh /path/to/get-onibi-pages
 ```
 
-The rendered `index.html` is shell script content. GitHub Pages serves it for `curl -sSf https://get.onibi.sh`; the file extension only gives Pages a root document.
+The helper writes `index.html`, `CNAME`, and `.nojekyll`, then runs `sh -n` over the rendered installer. The rendered `index.html` is shell script content. GitHub Pages serves it for `curl -sSf https://get.onibi.sh`; the file extension only gives Pages a root document.
 
 ## GitHub Pages
 
@@ -20,6 +20,7 @@ Use a small Pages repository or branch dedicated to the installer endpoint:
 ```text
 index.html
 CNAME
+.nojekyll
 ```
 
 `CNAME` must contain:
