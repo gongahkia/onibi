@@ -14,6 +14,13 @@ func TestMegolmStateEncryptDecryptRoundTrip(t *testing.T) {
 	if outbound.SessionID == "" || roomKey.SessionID != outbound.SessionID || roomKey.SessionKey == "" {
 		t.Fatalf("outbound=%#v roomKey=%#v", outbound, roomKey)
 	}
+	exported, err := RoomKeyFromMegolmOutboundState(outbound, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.SessionID != roomKey.SessionID || exported.SessionKey != roomKey.SessionKey || exported.RoomID != roomKey.RoomID {
+		t.Fatalf("exported=%#v roomKey=%#v", exported, roomKey)
+	}
 	inbound, err := NewMegolmInboundState(roomKey, "sender-key", pickleKey)
 	if err != nil {
 		t.Fatal(err)

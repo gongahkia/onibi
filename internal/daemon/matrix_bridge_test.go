@@ -188,8 +188,93 @@ func TestMatrixBridgeInitializesAndUploadsCryptoKeys(t *testing.T) {
 	}
 }
 
+func TestMatrixBridgeSharesRoomKeyToOwnerDevices(t *testing.T) {
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "matrix.sqlite"), store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	pickleKey := []byte("owner-pickle-key")
+	owner, err := matrix.NewOlmAccountState("@owner:example", "OWNER", pickleKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerOTKs, err := matrix.OlmAccountOneTimeKeys(owner, pickleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example", OwnerUserID: "@owner:example", AllowEncrypted: true}})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var sent map[string]map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/account/whoami"):
+			writeMatrixJSON(t, w, matrix.WhoAmI{UserID: "@bot:example", DeviceID: "DEV"})
+		case strings.Contains(r.URL.Path, "/state/m.room.power_levels"):
+			writeMatrixJSON(t, w, matrix.PowerLevels{Users: map[string]int{"@bot:example": 100}})
+		case strings.Contains(r.URL.Path, "/state/m.room.encryption"):
+			writeMatrixJSON(t, w, map[string]any{"algorithm": matrix.AlgorithmMegolmV1})
+		case strings.HasSuffix(r.URL.Path, "/keys/upload"):
+			writeMatrixJSON(t, w, map[string]any{"one_time_key_counts": map[string]int{matrix.KeyAlgorithmSignedCurve255: matrixOneTimeKeyCount}})
+		case strings.HasSuffix(r.URL.Path, "/keys/query"):
+			writeMatrixJSON(t, w, map[string]any{"device_keys": map[string]any{"@owner:example": map[string]any{"OWNER": owner.DeviceKeys}}})
+		case strings.HasSuffix(r.URL.Path, "/keys/claim"):
+			writeMatrixJSON(t, w, map[string]any{"one_time_keys": map[string]any{"@owner:example": map[string]any{"OWNER": map[string]any{"signed_curve25519:OWNER": map[string]any{"key": firstMatrixOneTimeKey(t, ownerOTKs)}}}}})
+		case strings.Contains(r.URL.Path, "/sendToDevice/m.room.encrypted/"):
+			var req struct {
+				Messages map[string]map[string]json.RawMessage `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			sent = req.Messages
+			writeMatrixJSON(t, w, map[string]any{})
+		case strings.HasSuffix(r.URL.Path, "/sync"):
+			writeMatrixJSON(t, w, map[string]any{"next_batch": "s1", "rooms": map[string]any{"join": map[string]any{"!room:example": map[string]any{}}}})
+			cancel()
+		default:
+			t.Fatalf("unexpected matrix path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	if err := d.runMatrixBridge(ctx, matrix.New(srv.URL, "tok")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runMatrixBridge err = %v", err)
+	}
+	if sent["@owner:example"]["OWNER"] == nil {
+		t.Fatalf("sent = %#v", sent)
+	}
+	state, ok, err := matrix.LoadCryptoState(t.Context(), db)
+	if err != nil || !ok {
+		t.Fatalf("crypto state ok=%v err=%v", ok, err)
+	}
+	if state.MegolmOutboundSessions["!room:example"].SharedWith["@owner:example"][0] != "OWNER" {
+		t.Fatalf("state = %#v", state.MegolmOutboundSessions)
+	}
+	audit, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(audit, "provider.matrix.room_key_shared") {
+		t.Fatalf("audit = %#v", audit)
+	}
+}
+
 type keysUploadProbe struct {
 	Request matrix.KeysUploadRequest
+}
+
+func firstMatrixOneTimeKey(t *testing.T, keys map[string]string) string {
+	t.Helper()
+	for _, key := range keys {
+		return key
+	}
+	t.Fatal("expected one-time key")
+	return ""
 }
 
 func TestMatrixReactionVerdict(t *testing.T) {

@@ -37,6 +37,23 @@ func NewMegolmOutboundState(roomID string, pickleKey []byte) (MegolmOutboundStat
 	}, roomKey, nil
 }
 
+func RoomKeyFromMegolmOutboundState(state MegolmOutboundState, pickleKey []byte) (RoomKeyContent, error) {
+	if len(pickleKey) == 0 {
+		return RoomKeyContent{}, errors.New("matrix megolm pickle key required")
+	}
+	if strings.TrimSpace(state.RoomID) == "" || strings.TrimSpace(state.SessionID) == "" || strings.TrimSpace(state.Pickle) == "" {
+		return RoomKeyContent{}, errors.New("matrix megolm outbound state incomplete")
+	}
+	sess, err := goolmsession.MegolmOutboundSessionFromPickled([]byte(state.Pickle), pickleKey)
+	if err != nil {
+		return RoomKeyContent{}, err
+	}
+	if string(sess.ID()) != state.SessionID {
+		return RoomKeyContent{}, errors.New("matrix megolm outbound session id mismatch")
+	}
+	return NewRoomKeyContent(state.RoomID, state.SessionID, sess.Key(), false)
+}
+
 func EncryptMegolmState(state MegolmOutboundState, pickleKey []byte, senderKey, deviceID string, plaintext []byte) (MegolmOutboundState, MegolmEncryptedContent, error) {
 	if len(pickleKey) == 0 {
 		return state, MegolmEncryptedContent{}, errors.New("matrix megolm pickle key required")

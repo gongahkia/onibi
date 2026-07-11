@@ -80,8 +80,14 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	if encrypted {
 		d.audit(ctx, "provider.matrix.encrypted_bypass", "", "", 0, "room="+d.Matrix.RoomID+" allow_encrypted=true e2ee=false")
 	}
-	if err := d.ensureMatrixCryptoState(ctx, c, who); err != nil {
+	cryptoState, pickleKey, cryptoReady, err := d.ensureMatrixCryptoState(ctx, c, who)
+	if err != nil {
 		return err
+	}
+	if encrypted && cryptoReady && strings.TrimSpace(d.Matrix.OwnerUserID) != "" {
+		if err := d.ensureMatrixRoomKeyShared(ctx, c, cryptoState, pickleKey, d.Matrix.OwnerUserID); err != nil {
+			return err
+		}
 	}
 	go d.forwardApprovalsToMatrix(ctx, c)
 	since := ""
@@ -116,9 +122,9 @@ func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
 	}
 }
 
-func (d *Daemon) ensureMatrixCryptoState(ctx context.Context, c *matrix.Client, who matrix.WhoAmI) error {
+func (d *Daemon) ensureMatrixCryptoState(ctx context.Context, c *matrix.Client, who matrix.WhoAmI) (matrix.CryptoState, []byte, bool, error) {
 	if d == nil || d.DB == nil || d.DB.CryptBox() == nil {
-		return nil
+		return matrix.CryptoState{}, nil, false, nil
 	}
 	deviceID := strings.TrimSpace(who.DeviceID)
 	if deviceID == "" {
@@ -126,24 +132,58 @@ func (d *Daemon) ensureMatrixCryptoState(ctx context.Context, c *matrix.Client, 
 	}
 	state, pickleKey, created, err := matrix.EnsureCryptoState(ctx, d.DB, who.UserID, deviceID, matrixOneTimeKeyCount)
 	if err != nil {
-		return err
+		return matrix.CryptoState{}, nil, false, err
 	}
 	otks, err := matrix.OlmAccountOneTimeKeys(state, pickleKey)
 	if err != nil {
-		return err
+		return matrix.CryptoState{}, nil, false, err
 	}
 	uploadDeviceKeys := !state.AccountShared || created
 	if !uploadDeviceKeys && len(otks) == 0 {
-		return nil
+		return state, pickleKey, true, nil
 	}
 	next, resp, err := c.UploadCryptoKeys(ctx, state, pickleKey, uploadDeviceKeys)
 	if err != nil {
-		return err
+		return matrix.CryptoState{}, nil, false, err
 	}
 	if err := matrix.SaveCryptoState(ctx, d.DB, next); err != nil {
-		return err
+		return matrix.CryptoState{}, nil, false, err
 	}
 	d.audit(ctx, "provider.matrix.crypto_upload", "", "", 0, fmt.Sprintf("device_id=%s device_keys=%t one_time_keys=%d", next.DeviceID, uploadDeviceKeys, resp.OneTimeKeyCounts[matrix.KeyAlgorithmSignedCurve255]))
+	return next, pickleKey, true, nil
+}
+
+func (d *Daemon) ensureMatrixRoomKeyShared(ctx context.Context, c *matrix.Client, state matrix.CryptoState, pickleKey []byte, userID string) error {
+	if d == nil || d.DB == nil {
+		return nil
+	}
+	if state.MegolmOutboundSessions == nil {
+		state.MegolmOutboundSessions = map[string]matrix.MegolmOutboundState{}
+	}
+	outbound, ok := state.MegolmOutboundSessions[d.Matrix.RoomID]
+	var roomKey matrix.RoomKeyContent
+	var err error
+	if ok {
+		roomKey, err = matrix.RoomKeyFromMegolmOutboundState(outbound, pickleKey)
+	} else {
+		outbound, roomKey, err = matrix.NewMegolmOutboundState(d.Matrix.RoomID, pickleKey)
+	}
+	if err != nil {
+		return err
+	}
+	state, outbound, err = c.ShareRoomKeyWithUsers(ctx, state, outbound, roomKey, pickleKey, []string{userID}, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	state.MegolmOutboundSessions[d.Matrix.RoomID] = outbound
+	if err := matrix.SaveCryptoState(ctx, d.DB, state); err != nil {
+		return err
+	}
+	shared := 0
+	for _, devices := range outbound.SharedWith {
+		shared += len(devices)
+	}
+	d.audit(ctx, "provider.matrix.room_key_shared", "", "", 0, fmt.Sprintf("room=%s users=1 devices=%d", d.Matrix.RoomID, shared))
 	return nil
 }
 
