@@ -1,4 +1,4 @@
-# Onibi
+# `Onibi`
 
 <p align="center">
   <img src="./asset/logo/marketing.png" width="50%" alt="Onibi">
