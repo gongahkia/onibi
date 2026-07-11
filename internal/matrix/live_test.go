@@ -16,7 +16,7 @@ func TestLiveMatrix(t *testing.T) {
 	if os.Getenv("ONIBI_LIVE_MATRIX") != "1" {
 		t.Skip("set ONIBI_LIVE_MATRIX=1")
 	}
-	envs := []string{"ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID", "ONIBI_MATRIX_OWNER_USER_ID"}
+	envs := []string{"ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID", "ONIBI_MATRIX_OWNER_USER_ID", "ONIBI_MATRIX_OWNER_DEVICE_ID", "ONIBI_MATRIX_SAS_VERIFIED"}
 	rec, err := liveartifact.New("matrix", envs...)
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +65,9 @@ func liveMatrixE2EE(t *testing.T, rec *liveartifact.Recorder, c *Client, roomID 
 	if ownerUserID == "" || ownerDeviceID == "" || deviceID == "" {
 		t.Fatal("ONIBI_MATRIX_OWNER_USER_ID, ONIBI_MATRIX_OWNER_DEVICE_ID, and device_id/ONIBI_MATRIX_DEVICE_ID required for E2EE live smoke")
 	}
+	if !liveMatrixSASVerified() {
+		t.Fatal("ONIBI_MATRIX_SAS_VERIFIED=1 required after manually verifying owner device SAS before E2EE live smoke")
+	}
 	encrypted, err := c.IsEncryptedRoom(t.Context(), roomID)
 	if err != nil {
 		rec.Error("e2ee-encryption-state", err)
@@ -97,6 +100,7 @@ func liveMatrixE2EE(t *testing.T, rec *liveartifact.Recorder, c *Client, roomID 
 	if err != nil {
 		t.Fatal(err)
 	}
+	rec.Record("e2ee-sas-verified", map[string]any{"owner_user_id": ownerUserID, "owner_device_id": ownerDeviceID})
 	outbound, roomKey, err := NewMegolmOutboundState(roomID, pickleKey)
 	if err != nil {
 		t.Fatal(err)
@@ -127,4 +131,23 @@ func liveMatrixE2EE(t *testing.T, rec *liveartifact.Recorder, c *Client, roomID 
 		t.Fatal(err)
 	}
 	rec.Record("e2ee-send", map[string]any{"event_id": eventID, "session_id": outbound.SessionID, "message_index": outbound.MessageIndex})
+}
+
+func liveMatrixSASVerified() bool {
+	return strings.TrimSpace(os.Getenv("ONIBI_MATRIX_SAS_VERIFIED")) == "1"
+}
+
+func TestLiveMatrixSASVerifiedGate(t *testing.T) {
+	t.Setenv("ONIBI_MATRIX_SAS_VERIFIED", "")
+	if liveMatrixSASVerified() {
+		t.Fatal("empty SAS gate passed")
+	}
+	t.Setenv("ONIBI_MATRIX_SAS_VERIFIED", "true")
+	if liveMatrixSASVerified() {
+		t.Fatal("non-1 SAS gate passed")
+	}
+	t.Setenv("ONIBI_MATRIX_SAS_VERIFIED", "1")
+	if !liveMatrixSASVerified() {
+		t.Fatal("SAS gate rejected 1")
+	}
 }

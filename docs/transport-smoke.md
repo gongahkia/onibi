@@ -52,7 +52,7 @@ ONIBI_TELEGRAM_TOKEN="$ONIBI_LIVE_TELEGRAM_TOKEN" onibi telegram status --check
 
 ```bash
 ONIBI_LIVE_MATRIX=1 ONIBI_MATRIX_HOMESERVER=... ONIBI_MATRIX_ACCESS_TOKEN=... ONIBI_MATRIX_ROOM_ID=... go test ./internal/matrix -run LiveMatrix
-ONIBI_LIVE_MATRIX=1 ONIBI_LIVE_MATRIX_E2EE=1 ONIBI_MATRIX_HOMESERVER=https://matrix.org ONIBI_MATRIX_ACCESS_TOKEN=... ONIBI_MATRIX_ROOM_ID=... ONIBI_MATRIX_OWNER_USER_ID=... ONIBI_MATRIX_OWNER_DEVICE_ID=... go test ./internal/matrix -run LiveMatrix
+ONIBI_LIVE_MATRIX=1 ONIBI_LIVE_MATRIX_E2EE=1 ONIBI_MATRIX_SAS_VERIFIED=1 ONIBI_MATRIX_HOMESERVER=https://matrix.org ONIBI_MATRIX_ACCESS_TOKEN=... ONIBI_MATRIX_ROOM_ID=... ONIBI_MATRIX_OWNER_USER_ID=... ONIBI_MATRIX_OWNER_DEVICE_ID=... go test ./internal/matrix -run LiveMatrix
 ```
 
 - Run `onibi up --transport=matrix`.
@@ -60,7 +60,7 @@ ONIBI_LIVE_MATRIX=1 ONIBI_LIVE_MATRIX_E2EE=1 ONIBI_MATRIX_HOMESERVER=https://mat
 - Trigger an approval, react `✅` or `👍` to the approval message, and confirm the local approval state becomes approved. Repeat with `❌` or `👎` for deny.
 - Send owner text in the configured room and confirm PTY input, tail output, and `provider.matrix.text_in`, `provider.matrix.tail_chunk`, and `provider.matrix.reaction` audit rows.
 - Confirm encrypted rooms fail unless `ONIBI_MATRIX_ALLOW_ENCRYPTED=1` is intentionally set.
-- For encrypted rooms, use `ONIBI_MATRIX_ALLOW_ENCRYPTED=1`, an encrypted store, and a SAS-trusted owner device in Matrix crypto state; confirm startup records `provider.matrix.encrypted_bypass`, shares `m.room_key` only to trusted owner devices, and sends tail/approval/reaction replies as `m.room.encrypted` room events. The E2EE live smoke should use a fresh Onibi Matrix device/access token because `/keys/upload` can reject changed device identity keys for an existing device.
+- For encrypted rooms, use `ONIBI_MATRIX_ALLOW_ENCRYPTED=1`, an encrypted store, and a SAS-trusted owner device in Matrix crypto state; confirm startup records `provider.matrix.encrypted_bypass`, shares `m.room_key` only to trusted owner devices, and sends tail/approval/reaction replies as `m.room.encrypted` room events. The E2EE live smoke requires `ONIBI_MATRIX_SAS_VERIFIED=1` after manually comparing SAS on the owner device and should use a fresh Onibi Matrix device/access token because `/keys/upload` can reject changed device identity keys for an existing device.
 - Keep encrypted-room support open until a real homeserver/client smoke proves SAS pairing, room-key receipt, encrypted inbound text, encrypted outbound tail, and reaction approvals.
 - Restart Onibi and confirm the room does not replay old terminal input.
 - Trigger a bad homeserver/token and confirm the error is surfaced.
