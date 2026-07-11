@@ -297,10 +297,21 @@ Before real-machine runs, keep running the local artifact gate:
 ```bash
 goreleaser release --snapshot --clean
 scripts/release-smoke.sh dist
+scripts/fresh-machine-doc-check.sh
 ```
 
 `scripts/release-smoke.sh` verifies checksums, archive membership, host-platform
 binary execution, preflight doctor in an isolated HOME, and SSH size-only smoke.
+`scripts/fresh-machine-doc-check.sh` verifies this runbook still names every
+required screenshot, transcript command, platform section, and release reference.
+After the real macOS and Ubuntu runs, use:
+
+```bash
+scripts/fresh-machine-doc-check.sh --require-artifacts --smoke-dir "$ONIBI_SMOKE_DIR"
+```
+
+That stricter mode fails until the repo contains real PNG screenshots and the
+run directory contains the expected transcripts.
 
 ## Close Criteria
 

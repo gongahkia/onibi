@@ -109,6 +109,8 @@ jobs:
           cache: true
       - name: check generated README blocks
         run: make gen-readme-check
+      - name: check fresh-machine smoke doc
+        run: make fresh-machine-doc-check
 
   vulncheck:
     name: govulncheck
