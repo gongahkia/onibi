@@ -564,11 +564,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	if d.WebAddr != "" {
-		if d.DB != nil {
-			if _, err := web.EnsureVAPIDKeys(ctx, d.DB); err != nil {
-				return err
-			}
-		}
+		// VAPID keys live in the OS secret store. On macOS, a locked or
+		// unapproved Keychain item can block SecItemCopyMatching indefinitely.
+		// Do not make the cockpit listener (or QR pairing) wait on that optional
+		// Web Push setup; the push endpoint initializes the keys on first use.
 		certDir := d.WebCertDir
 		if certDir == "" {
 			certDir = filepath.Join(d.Paths.StateDir, "web")
