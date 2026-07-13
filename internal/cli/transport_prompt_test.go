@@ -9,25 +9,24 @@ import (
 )
 
 func TestPromptPairTransportSelectsTailscale(t *testing.T) {
-	cmd, out := transportPromptCmd("1\n2\n")
+	cmd, out := transportPromptCmd("2\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prompted {
-		t.Fatal("prompt not shown")
+	if !prompted || got != "tailscale" {
+		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-	if got != "tailscale" {
-		t.Fatalf("transport = %q", got)
-	}
-	if !strings.Contains(out.String(), "Connection category") || !strings.Contains(out.String(), "Tailscale Funnel") || !strings.Contains(out.String(), "Cloudflare Quick") || !strings.Contains(out.String(), "COVERAGE") {
-		t.Fatalf("prompt output = %q", out.String())
+	for _, want := range []string{"Web cockpit transport", "Tailscale Funnel", "Cloudflare Quick", "COVERAGE"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("prompt output missing %q:\n%s", want, out.String())
+		}
 	}
 }
 
-func TestPromptPairTransportEnterKeepsCurrent(t *testing.T) {
-	cmd, _ := transportPromptCmd("\n\n")
+func TestPromptPairTransportKeepsCurrentOnEnter(t *testing.T) {
+	cmd, _ := transportPromptCmd("\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "auto")
 	if err != nil {
@@ -38,65 +37,25 @@ func TestPromptPairTransportEnterKeepsCurrent(t *testing.T) {
 	}
 }
 
-func TestPromptPairTransportSelectsTelegram(t *testing.T) {
-	cmd, out := transportPromptCmd("2\n1\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "telegram" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "Telegram") || !strings.Contains(out.String(), "live opt-in") {
-		t.Fatalf("prompt output = %q", out.String())
-	}
-}
-
-func TestPromptPairTransportSelectsSignal(t *testing.T) {
-	cmd, out := transportPromptCmd("2\n7\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "signal" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "Signal") || !strings.Contains(out.String(), "signal-cli") {
-		t.Fatalf("prompt output = %q", out.String())
-	}
-}
-
-func TestPromptPairTransportDefaultsToTelegramProvider(t *testing.T) {
-	cmd, _ := transportPromptCmd("\n\n")
+func TestPromptPairTransportExcludesProviderControl(t *testing.T) {
+	cmd, out := transportPromptCmd("telegram\n1\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "telegram")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prompted || got != "telegram" {
+	if !prompted || got != "lan" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-}
-
-func TestPromptPairTransportSelectsNotifyProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("3\n2\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "ntfy" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "Pushover") || !strings.Contains(out.String(), "Gotify") {
-		t.Fatalf("prompt output = %q", out.String())
+	for _, unwanted := range []string{"Chat", "Notify-only", "Telegram", "Signal", "Pushover"} {
+		if strings.Contains(out.String(), unwanted) {
+			t.Fatalf("prompt exposes deferred provider %q:\n%s", unwanted, out.String())
+		}
 	}
 }
 
 func TestPromptPairTransportSelectsCloudflareQuick(t *testing.T) {
-	cmd, out := transportPromptCmd("1\ncloudflare-quick\n")
+	cmd, _ := transportPromptCmd("cloudflare-quick\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
@@ -104,54 +63,6 @@ func TestPromptPairTransportSelectsCloudflareQuick(t *testing.T) {
 	}
 	if !prompted || got != "cloudflare-quick" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "Cloudflare Named") || !strings.Contains(out.String(), "ngrok") {
-		t.Fatalf("prompt output = %q", out.String())
-	}
-}
-
-func TestPromptPairTransportSelectsWireGuard(t *testing.T) {
-	cmd, out := transportPromptCmd("1\nwireguard\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "wireguard" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "WireGuard") || !strings.Contains(out.String(), "self-hosted mesh VPN") {
-		t.Fatalf("prompt output = %q", out.String())
-	}
-}
-
-func TestPromptPairTransportSelectsZeroTier(t *testing.T) {
-	cmd, out := transportPromptCmd("1\nzerotier\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "zerotier" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if !strings.Contains(out.String(), "ZeroTier") || !strings.Contains(out.String(), "self-hosted mesh overlay") {
-		t.Fatalf("prompt output = %q", out.String())
-	}
-}
-
-func TestPromptPairTransportBackFromProvider(t *testing.T) {
-	cmd, out := transportPromptCmd("2\nb\n1\n8\n")
-	withPromptTTY(t, true)
-	got, prompted, err := promptPairTransport(cmd, "lan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prompted || got != "auto" {
-		t.Fatalf("prompted=%v transport=%q", prompted, got)
-	}
-	if strings.Count(out.String(), "Connection category") != 2 {
-		t.Fatalf("prompt output = %q", out.String())
 	}
 }
 

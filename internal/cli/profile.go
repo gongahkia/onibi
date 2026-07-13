@@ -32,7 +32,6 @@ func profileCmd() *cobra.Command {
 	}
 	add.Flags().String("transport", "", "pairing transport for this profile")
 	add.Flags().String("agent", "", "agent executable for this profile")
-	add.Flags().String("workspace", "", "workspace name for this profile")
 	add.Flags().String("cwd", "", "working directory for this profile")
 	add.Flags().Bool("use", false, "mark profile as last used")
 	list := &cobra.Command{
@@ -140,7 +139,6 @@ func runProfileUse(cmd *cobra.Command, args []string) error {
 func profileFromFlags(cmd *cobra.Command, name string) (store.Profile, error) {
 	transport, _ := cmd.Flags().GetString("transport")
 	agent, _ := cmd.Flags().GetString("agent")
-	workspace, _ := cmd.Flags().GetString("workspace")
 	cwd, _ := cmd.Flags().GetString("cwd")
 	transport = strings.TrimSpace(transport)
 	if transport != "" {
@@ -169,10 +167,9 @@ func profileFromFlags(cmd *cobra.Command, name string) (store.Profile, error) {
 		Name:      strings.TrimSpace(name),
 		Transport: transport,
 		Agent:     strings.TrimSpace(agent),
-		Workspace: strings.TrimSpace(workspace),
 		CWD:       cwd,
 	}
-	if profile.Transport == "" && profile.Agent == "" && profile.Workspace == "" && profile.CWD == "" {
+	if profile.Transport == "" && profile.Agent == "" && profile.CWD == "" {
 		return store.Profile{}, fmt.Errorf("profile %q has no flags", profile.Name)
 	}
 	return profile, nil
@@ -185,9 +182,6 @@ func profileSummary(profile store.Profile) string {
 	}
 	if profile.Agent != "" {
 		parts = append(parts, "agent="+profile.Agent)
-	}
-	if profile.Workspace != "" {
-		parts = append(parts, "workspace="+profile.Workspace)
 	}
 	if profile.CWD != "" {
 		parts = append(parts, "cwd="+profile.CWD)

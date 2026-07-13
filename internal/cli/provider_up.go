@@ -18,6 +18,9 @@ import (
 )
 
 func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg config.Config, logger *slog.Logger, started time.Time, shellCWD string) error {
+	if !cfg.Experimental.Providers {
+		return fmt.Errorf("%s is deferred in v1; set experimental.providers=true to opt into unsupported provider behavior", cfg.Transport.Mode)
+	}
 	mode := strings.ToLower(strings.TrimSpace(cfg.Transport.Mode))
 	opts, label, err := providerOptionsFromEnv(mode)
 	if err != nil {
@@ -46,6 +49,7 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:              cfg.Daemon.PTYBufferBytes,
 		TerminalDefault:         cfg.Terminal.Default,
+		ExperimentalProviders:   cfg.Experimental.Providers,
 		WebAddr:                 envProviderActionWebAddr(mode, opts, cfg.Web.ListenAddr),
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,

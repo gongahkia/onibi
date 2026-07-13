@@ -25,7 +25,7 @@ func TestNtfySignedActionApprovesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer})
+	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer, ExperimentalProviders: true})
 	id, _, err := q.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestNtfySignedActionRequiresPost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(Options{DB: db, ApprovalQueue: approval.New(db, time.Minute), ActionSigner: signer})
+	srv := New(Options{DB: db, ApprovalQueue: approval.New(db, time.Minute), ActionSigner: signer, ExperimentalProviders: true})
 	req := httptest.NewRequest(http.MethodGet, "/ntfy/approval/a1/approve", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -85,7 +85,7 @@ func TestNtfySignedActionRejectsBadSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer})
+	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer, ExperimentalProviders: true})
 	req := httptest.NewRequest(http.MethodPost, "/ntfy/approval/a1/approve?exp=4102444800&nonce=n&sig=bad", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -105,7 +105,7 @@ func TestGotifySignedApprovalPageRendersOneUseActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer})
+	srv := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer, ExperimentalProviders: true})
 	id, _, err := q.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)

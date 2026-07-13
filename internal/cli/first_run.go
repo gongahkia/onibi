@@ -179,22 +179,7 @@ func firstRunInstallHookTargets(cmd *cobra.Command, db *store.DB, targets []hook
 }
 
 func firstRunSelectTransport(cmd *cobra.Command, sc *bufio.Scanner, current string) (string, error) {
-	current = normalizePairTransport(current)
-	style := styleFor(cmd)
-	for {
-		category, err := promptTransportCategory(cmd, sc, current, style)
-		if err != nil {
-			return "", err
-		}
-		selected, back, err := promptTransportProvider(cmd, sc, current, category, style)
-		if err != nil {
-			return "", err
-		}
-		if back {
-			continue
-		}
-		return selected, nil
-	}
+	return promptWebTransport(cmd, sc, current, styleFor(cmd))
 }
 
 func printFirstRunTrustStep(cmd *cobra.Command, transport string) {

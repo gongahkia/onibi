@@ -24,14 +24,12 @@ import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
 import { RecordingPlayerPanel } from "./recording-player";
-import { WorkspaceSwitcher } from "./workspaces";
 import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
-import { VoiceInputController } from "./voice";
 import { SharePanel } from "./share";
 import { AgentsFeed } from "./agents-feed";
 
@@ -70,20 +68,12 @@ const events = new EventsWS();
 const approvalWakeLock = new ApprovalWakeLock();
 const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
 const anomalies = new AnomalyOverlay(approvalRoot);
-const voiceInput = new VoiceInputController({
-  root: document.body,
-  sendText: (text) => ws.sendText(text),
-  showToast,
-  focus: () => term.focus(),
-  storage: window.localStorage
-});
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
 let recordings: RecordingPlayerPanel | undefined;
-let workspaceSwitcher: WorkspaceSwitcher | undefined;
 let sharePanel: SharePanel | undefined;
 let agentsFeed: AgentsFeed | undefined;
 let terminalInputEnabled = false;
@@ -205,7 +195,6 @@ async function boot(): Promise<void> {
       decreaseFontSize: () => changeTerminalFontSize(-1),
       increaseFontSize: () => changeTerminalFontSize(1),
       pasteImage: () => imagePaste?.pasteFromClipboard() ?? Promise.resolve(false),
-      voiceInput: () => voiceInput.toggle(),
       readOnly: viewerMode
     });
     connectTerminal(info);
@@ -222,28 +211,8 @@ async function showSessionsHome(): Promise<void> {
   viewerMode = false;
   terminalInputEnabled = false;
   showListChrome();
-  const workspaceControl = document.createElement("div");
-  const list = new SessionsListView(
-    sessionListRoot,
-    getJSON,
-    navigateToSession,
-    workspaceControl,
-    postJSON,
-    showToast
-  );
+  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, postJSON, showToast);
   sessionList = list;
-  workspaceSwitcher = new WorkspaceSwitcher(
-    workspaceControl,
-    getJSON,
-    postJSON,
-    (name) => {
-      list.setWorkspace(name);
-      setRouteWorkspace(name);
-    },
-    showToast
-  );
-  await workspaceSwitcher.load();
-  list.setWorkspace(workspaceSwitcher.current(), false);
   await connectSessionListEvents();
   await list.load();
   refreshPushOnOpen();
@@ -277,16 +246,6 @@ function routeSessionID(): string | null {
     return querySession;
   }
   return null;
-}
-
-function setRouteWorkspace(name: string): void {
-  const url = new URL(window.location.href);
-  if (name.trim() === "") {
-    url.searchParams.delete("workspace");
-  } else {
-    url.searchParams.set("workspace", name.trim());
-  }
-  window.history.replaceState(null, "", url);
 }
 
 async function getJSON<T>(path: string): Promise<T> {

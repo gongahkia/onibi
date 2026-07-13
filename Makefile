@@ -9,6 +9,7 @@ VERSION ?= $(shell git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --dirty 2
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=$(VERSION) -X github.com/gongahkia/onibi/internal/buildinfo.Commit=$(COMMIT) -X github.com/gongahkia/onibi/internal/buildinfo.Date=$(DATE)
+GO_PACKAGES = $(shell scripts/go-packages.sh)
 
 build: frontend-size-check
 	@mkdir -p $(BUILD_DIR)
@@ -36,14 +37,14 @@ install: build
 	install -m 0755 $(BUILD_DIR)/$(NOTIFY_BINARY) $(HOME)/.local/bin/$(NOTIFY_BINARY)
 
 test:
-	go test -race -count=1 ./...
+	go test -race -count=1 $(GO_PACKAGES)
 
 vet:
-	go vet ./...
+	go vet $(GO_PACKAGES)
 
 staticcheck:
 	@command -v staticcheck >/dev/null 2>&1 || (echo "staticcheck not installed: go install honnef.co/go/tools/cmd/staticcheck@latest" && exit 1)
-	staticcheck ./...
+	staticcheck $(GO_PACKAGES)
 
 tidy:
 	go mod tidy

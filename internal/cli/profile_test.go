@@ -8,12 +8,12 @@ import (
 func TestProfileCommandsAddListUseRemove(t *testing.T) {
 	withDefaultState(t)
 	cwd := t.TempDir()
-	out, _ := executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--workspace", "work-ws", "--cwd", cwd, "--color", "never")
+	out, _ := executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--cwd", cwd, "--color", "never")
 	if !strings.Contains(out.String(), "Profile work added") {
 		t.Fatalf("add output = %q", out.String())
 	}
 	out, _ = executeRoot(t, "profile", "list", "--color", "never")
-	for _, want := range []string{"work", "transport=tailscale", "agent=sh", "workspace=work-ws", "cwd=" + cwd} {
+	for _, want := range []string{"work", "transport=tailscale", "agent=sh", "cwd=" + cwd} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("list output missing %q: %q", want, out.String())
 		}

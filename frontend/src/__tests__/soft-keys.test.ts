@@ -10,7 +10,6 @@ test("emits terminal escape sequences from soft keys", async () => {
   const sent: number[][] = [];
   let pageUp = 0;
   let focused = 0;
-  let voice = 0;
   new SoftKeyBar({
     root,
     sendBytes: (data) => sent.push(Array.from(data)),
@@ -25,10 +24,7 @@ test("emits terminal escape sequences from soft keys", async () => {
     getTheme: () => "ghostty-default",
     setTheme: () => {},
     decreaseFontSize: () => {},
-    increaseFontSize: () => {},
-    voiceInput: () => {
-      voice += 1;
-    }
+    increaseFontSize: () => {}
   });
   pointerDown(dom, button(root, "Esc"));
   pointerDown(dom, button(root, "Ctrl"));
@@ -36,10 +32,8 @@ test("emits terminal escape sequences from soft keys", async () => {
   pointerDown(dom, button(root, "Alt"));
   pointerDown(dom, button(root, "Tab"));
   pointerDown(dom, button(root, "PgUp"));
-  pointerDown(dom, button(root, "Mic"));
   expect(sent).toEqual([[0x1b], [0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x43], [0x1b, 0x09]]);
   expect(pageUp).toBe(1);
-  expect(voice).toBe(1);
   expect(focused).toBeGreaterThan(0);
   dom.window.close();
 });

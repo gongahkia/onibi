@@ -19,18 +19,19 @@ const cliTelegramTestToken = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
 
 func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 	paths := withDefaultState(t)
+	enableExperimentalProviders(t, paths)
 	withDotenvSecretStore(t)
 	withFakeTelegramClient(t)
 
-	out, _ := executeRoot(t, "telegram", "setup", "--token", cliTelegramTestToken, "--color", "never")
+	out, _ := executeRoot(t, "experimental", "telegram", "setup", "--token", cliTelegramTestToken, "--color", "never")
 	if !strings.Contains(out.String(), "Stored Telegram bot @onibi_test_bot") || !strings.Contains(out.String(), "Pair: send /start") {
 		t.Fatalf("setup output:\n%s", out.String())
 	}
-	out, _ = executeRoot(t, "telegram", "status", "--color", "never")
+	out, _ = executeRoot(t, "experimental", "telegram", "status", "--color", "never")
 	if !strings.Contains(out.String(), "token") || !strings.Contains(out.String(), "true") {
 		t.Fatalf("status output:\n%s", out.String())
 	}
-	out, _ = executeRoot(t, "telegram", "status", "--json", "--check", "--color", "never")
+	out, _ = executeRoot(t, "experimental", "telegram", "status", "--json", "--check", "--color", "never")
 	var status telegramStatusReport
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status json: %v\n%s", err, out.String())
@@ -48,7 +49,7 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "telegram", "disable", "--color", "never")
+	executeRoot(t, "experimental", "telegram", "disable", "--color", "never")
 
 	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
 	if err != nil {
@@ -71,6 +72,7 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 
 func TestTelegramSetupNoCheckStoresLocalToken(t *testing.T) {
 	paths := withDefaultState(t)
+	enableExperimentalProviders(t, paths)
 	withDotenvSecretStore(t)
 	old := newTelegramClient
 	newTelegramClient = func(string) *telegram.Client {
@@ -79,7 +81,7 @@ func TestTelegramSetupNoCheckStoresLocalToken(t *testing.T) {
 	}
 	t.Cleanup(func() { newTelegramClient = old })
 
-	out, _ := executeRoot(t, "telegram", "setup", "--no-check", "--token", cliTelegramTestToken, "--color", "never")
+	out, _ := executeRoot(t, "experimental", "telegram", "setup", "--no-check", "--token", cliTelegramTestToken, "--color", "never")
 	for _, want := range []string{"live check skipped", "Pair: send /start", "Check: onibi telegram status --check"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("setup output missing %q:\n%s", want, out.String())
@@ -95,12 +97,13 @@ func TestTelegramSetupNoCheckStoresLocalToken(t *testing.T) {
 }
 
 func TestTelegramStatusUsesEnvToken(t *testing.T) {
-	withDefaultState(t)
+	paths := withDefaultState(t)
+	enableExperimentalProviders(t, paths)
 	withDotenvSecretStore(t)
 	withFakeTelegramClient(t)
 	t.Setenv(telegramTokenEnv, cliTelegramTestToken)
 
-	out, _ := executeRoot(t, "telegram", "status", "--json", "--check", "--color", "never")
+	out, _ := executeRoot(t, "experimental", "telegram", "status", "--json", "--check", "--color", "never")
 	var status telegramStatusReport
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status json: %v\n%s", err, out.String())
@@ -113,6 +116,22 @@ func TestTelegramStatusUsesEnvToken(t *testing.T) {
 func TestTelegramRemainsExplicitOptInDefaultTransport(t *testing.T) {
 	if got := config.Default().Transport.Mode; got != "lan" {
 		t.Fatalf("default transport = %q", got)
+	}
+}
+
+func TestTelegramIsNotADefaultRootCommand(t *testing.T) {
+	_, _, err := executeRootAllowError(t, "telegram", "status", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func enableExperimentalProviders(t *testing.T, paths config.Paths) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Experimental.Providers = true
+	if err := config.Save(paths.Config, cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 

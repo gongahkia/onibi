@@ -30,7 +30,7 @@ func TestFirstRunHappyPathInstallsDetectedHooksAndStartsUp(t *testing.T) {
 	}
 	t.Cleanup(func() { webPairRun = oldWebPair })
 
-	out, _ := executeRootInput(t, "all\n1\n2\n", "up", "--first-run", "--color", "never", "--no-logo")
+	out, _ := executeRootInput(t, "all\n2\n", "up", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
 	for _, want := range []string{"First run", "Detected hooks", "Installed claude hooks", "Transport tailscale", "first-run pair stub"} {
 		if !strings.Contains(got, want) {
@@ -97,14 +97,14 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Transport.Mode = "matrix"
+	cfg.Transport.Mode = "tailscale"
 	if err := config.Save(meta.Path, cfg); err != nil {
 		t.Fatal(err)
 	}
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
-		if transport != "matrix" {
+		if transport != "tailscale" {
 			t.Fatalf("transport = %q", transport)
 		}
 		cmd.Println("first-run idempotent pair stub")
@@ -114,7 +114,7 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 
 	out, _ := executeRootInput(t, "\n\n", "up", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
-	for _, want := range []string{"No detected agent config dirs", "Select category [2]", "Select provider [2]", "Transport matrix", "first-run idempotent pair stub"} {
+	for _, want := range []string{"No detected agent config dirs", "Select transport [2]", "Transport tailscale", "first-run idempotent pair stub"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -126,7 +126,7 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Transport.Mode != "matrix" {
+	if cfg.Transport.Mode != "tailscale" {
 		t.Fatalf("saved transport = %q", cfg.Transport.Mode)
 	}
 }

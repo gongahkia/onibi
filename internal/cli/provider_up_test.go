@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"testing"
+	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 )
 
@@ -20,6 +25,17 @@ func TestProviderOptionsFromEnvMatrix(t *testing.T) {
 	}
 	if label != "Matrix" || opts.Matrix.RoomID != "!room:example" || opts.Matrix.OwnerUserID != "@owner:example" || opts.Matrix.OwnerDeviceID != "OWNER" || !opts.Matrix.AllowEncrypted || !opts.Matrix.SASVerified {
 		t.Fatalf("opts=%#v label=%q", opts, label)
+	}
+}
+
+func TestRunEnvProviderUpRequiresExperimentalOptIn(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	cfg := config.Default()
+	cfg.Transport.Mode = "matrix"
+	err := runEnvProviderUp(cmd, config.Paths{}, nil, cfg, nil, time.Time{}, "")
+	if err == nil || err.Error() != "matrix is deferred in v1; set experimental.providers=true to opt into unsupported provider behavior" {
+		t.Fatalf("unexpected err: %v", err)
 	}
 }
 

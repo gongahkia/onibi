@@ -57,7 +57,6 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - iPhone trusted local CA profile.
 - Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
 - Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
-- Voice prompt dictation from the phone cockpit; see [`docs/voice.md`](./docs/voice.md).
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.

@@ -11,7 +11,6 @@ test("session dashboard attaches and double-confirms kill", async () => {
     root,
     async () => [session()],
     (id) => navigated.push(id),
-    undefined,
     async (path, body) => {
       posts.push({ path, body });
       return new Response("ok", { status: 200 });

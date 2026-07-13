@@ -55,6 +55,7 @@ type Daemon struct {
 	WebCertDir              string
 	RelayKeys               *web.RelayKeys
 	RequireWebE2E           bool
+	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramPair            string
@@ -123,6 +124,7 @@ type Options struct {
 	WebCertDir              string
 	RelayKeys               *web.RelayKeys
 	RequireWebE2E           bool
+	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramPair            string
@@ -306,6 +308,7 @@ func New(opts Options) *Daemon {
 		WebCertDir:              opts.WebCertDir,
 		RelayKeys:               opts.RelayKeys,
 		RequireWebE2E:           opts.RequireWebE2E,
+		ExperimentalProviders:   opts.ExperimentalProviders,
 		TelegramToken:           opts.TelegramToken,
 		TelegramOwnerID:         opts.TelegramOwnerID,
 		TelegramPair:            opts.TelegramPair,
@@ -577,30 +580,31 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return err
 		}
 		webServer := web.New(web.Options{
-			TLSCert:         cert,
-			DB:              d.DB,
-			ApprovalQueue:   d.Queue,
-			EventBus:        d.Events,
-			PTYHosts:        d.webPTYHosts,
-			SessionIDs:      d.webSessionIDs,
-			SessionList:     d.WebSessions,
-			PTYHost:         d.EnsureWebPTYHost,
-			Handover:        d.HandoverSession,
-			Scroll:          d.ScrollSession,
-			TrustRuntime:    d.AddRuntimeTrustRule,
-			AnomalyAllow:    d.AddAnomalyAllowlistRule,
-			SessionCost:     d.SessionCost,
-			Timeline:        d.WebTimeline,
-			Snapshots:       d.WebSnapshots,
-			SnapshotRestore: d.WebRestoreSnapshot,
-			SnapshotFork:    d.WebForkSnapshot,
-			RecordingList:   d.WebRecordings,
-			RecordingPath:   d.WebRecordingPath,
-			UploadDir:       filepath.Join(d.Paths.StateDir, "uploads"),
-			RelayKeys:       d.RelayKeys,
-			RequireE2E:      d.RequireWebE2E,
-			ActionSigner:    d.notifyActionSigner,
-			Log:             d.Log,
+			TLSCert:               cert,
+			DB:                    d.DB,
+			ApprovalQueue:         d.Queue,
+			EventBus:              d.Events,
+			PTYHosts:              d.webPTYHosts,
+			SessionIDs:            d.webSessionIDs,
+			SessionList:           d.WebSessions,
+			PTYHost:               d.EnsureWebPTYHost,
+			Handover:              d.HandoverSession,
+			Scroll:                d.ScrollSession,
+			TrustRuntime:          d.AddRuntimeTrustRule,
+			AnomalyAllow:          d.AddAnomalyAllowlistRule,
+			SessionCost:           d.SessionCost,
+			Timeline:              d.WebTimeline,
+			Snapshots:             d.WebSnapshots,
+			SnapshotRestore:       d.WebRestoreSnapshot,
+			SnapshotFork:          d.WebForkSnapshot,
+			RecordingList:         d.WebRecordings,
+			RecordingPath:         d.WebRecordingPath,
+			UploadDir:             filepath.Join(d.Paths.StateDir, "uploads"),
+			RelayKeys:             d.RelayKeys,
+			RequireE2E:            d.RequireWebE2E,
+			ExperimentalProviders: d.ExperimentalProviders,
+			ActionSigner:          d.notifyActionSigner,
+			Log:                   d.Log,
 		})
 		wg.Add(1)
 		go func() {
@@ -612,19 +616,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
-	d.startTelegramBridge(ctx, &wg, cancel)
-	d.startMatrixBridge(ctx, &wg, cancel)
-	d.startSlackBridge(ctx, &wg, cancel)
-	d.startDiscordBridge(ctx, &wg, cancel)
-	d.startZulipBridge(ctx, &wg, cancel)
-	d.startIRCBridge(ctx, &wg, cancel)
-	d.startSignalBridge(ctx, &wg, cancel)
-	d.startPushoverNotifier(ctx, &wg)
-	d.startNtfyNotifier(ctx, &wg)
-	d.startGotifyNotifier(ctx, &wg)
-	d.startAPNsNotifier(ctx, &wg)
-	d.startSMSNotifier(ctx, &wg)
-	d.startEmailNotifier(ctx, &wg)
+	if d.ExperimentalProviders {
+		d.startTelegramBridge(ctx, &wg, cancel)
+		d.startMatrixBridge(ctx, &wg, cancel)
+		d.startSlackBridge(ctx, &wg, cancel)
+		d.startDiscordBridge(ctx, &wg, cancel)
+		d.startZulipBridge(ctx, &wg, cancel)
+		d.startIRCBridge(ctx, &wg, cancel)
+		d.startSignalBridge(ctx, &wg, cancel)
+		d.startPushoverNotifier(ctx, &wg)
+		d.startNtfyNotifier(ctx, &wg)
+		d.startGotifyNotifier(ctx, &wg)
+		d.startAPNsNotifier(ctx, &wg)
+		d.startSMSNotifier(ctx, &wg)
+		d.startEmailNotifier(ctx, &wg)
+	}
 	if !d.apnsConfigured() {
 		d.startWebPushNotifier(ctx, &wg)
 	}

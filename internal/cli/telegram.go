@@ -221,6 +221,9 @@ func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 }
 
 func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg config.Config, logger *slog.Logger, started time.Time, shellCWD string) error {
+	if !cfg.Experimental.Providers {
+		return errors.New("telegram is deferred in v1; set experimental.providers=true to opt into unsupported provider behavior")
+	}
 	token, botUser, err := telegramTokenForUp(cmd, paths)
 	if err != nil {
 		return err
@@ -237,22 +240,23 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 		}
 	}
 	d := daemon.New(daemon.Options{
-		Paths:                 paths,
-		DB:                    db,
-		Log:                   logger,
-		ApprovalTTL:           cfg.Daemon.ApprovalTimeout.Std(),
-		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
+		Paths:                  paths,
+		DB:                     db,
+		Log:                    logger,
+		ApprovalTTL:            cfg.Daemon.ApprovalTimeout.Std(),
+		ApprovalSweepInterval:  cfg.Daemon.ApprovalSweepInterval.Std(),
 		ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers,
-		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:            cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:       cfg.Terminal.Default,
-		TelegramToken:         token,
-		TelegramOwnerID:       ownerID,
-		TelegramPair:          pairCode,
-		UpdateAuto:            cfg.Update.Auto,
-		UpdateChannel:         cfg.Update.Channel,
-		SkipRestore:           true,
+		IdleThreshold:          cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:           cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:             cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:        cfg.Terminal.Default,
+		ExperimentalProviders:  cfg.Experimental.Providers,
+		TelegramToken:          token,
+		TelegramOwnerID:        ownerID,
+		TelegramPair:           pairCode,
+		UpdateAuto:             cfg.Update.Auto,
+		UpdateChannel:          cfg.Update.Channel,
+		SkipRestore:            true,
 	})
 	session, err := startManagedWebPairShell(cmd.Context(), d, cfg, shellCWD, logger)
 	if err != nil {

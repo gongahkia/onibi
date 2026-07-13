@@ -22,7 +22,6 @@ import (
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/timeline"
-	"github.com/gongahkia/onibi/internal/workspace"
 )
 
 func TestCertGenerateOrLoadRoundTrip(t *testing.T) {
@@ -485,7 +484,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/sessions?include=local,remote&workspace=alpha", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sessions?include=local,remote&workspace=legacy", nil)
 	req.AddCookie(rr.Result().Cookies()[0])
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -500,9 +499,6 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 		t.Fatalf("sessions = %#v", got)
 	}
 	if !gotOpts.IncludeRemote {
-		t.Fatalf("options = %#v", gotOpts)
-	}
-	if gotOpts.Workspace != "alpha" {
 		t.Fatalf("options = %#v", gotOpts)
 	}
 }
@@ -557,58 +553,6 @@ func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
 	}
 	if got.Counts[SessionStateAwaitingApproval] != 1 || got.Counts[SessionStateWorking] != 1 || got.Counts[SessionStateBlocked] != 1 || got.Counts[SessionStateIdle] != 1 {
 		t.Fatalf("counts = %#v", got.Counts)
-	}
-}
-
-func TestWorkspacesEndpointListsAndSwitches(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	ctx := context.Background()
-	wsStore, err := workspace.NewDBStore(srv.db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := wsStore.Upsert(ctx, workspace.DBEntry{Name: "alpha", Path: "/tmp/alpha", LastSeen: time.Unix(2, 0).UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := wsStore.Upsert(ctx, workspace.DBEntry{Name: "beta", Path: "/tmp/beta", LastSeen: time.Unix(1, 0).UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	rr := httptest.NewRecorder()
-	sessionID, err := srv.CreateOwnerSession(ctx, rr, "test device")
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/workspaces", strings.NewReader(`{"name":"beta"}`))
-	req.AddCookie(rr.Result().Cookies()[0])
-	addCSRF(req, sessionID)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
-	}
-	var switched WorkspaceState
-	if err := json.Unmarshal(w.Body.Bytes(), &switched); err != nil {
-		t.Fatal(err)
-	}
-	if switched.Current != "beta" || len(switched.Workspaces) != 2 {
-		t.Fatalf("state = %#v", switched)
-	}
-	req = httptest.NewRequest(http.MethodGet, "/workspaces", nil)
-	req.AddCookie(rr.Result().Cookies()[0])
-	w = httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
-	}
-	var got WorkspaceState
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Current != "beta" || got.Workspaces[0].Name != "alpha" || got.Workspaces[1].Name != "beta" {
-		t.Fatalf("state = %#v", got)
 	}
 }
 

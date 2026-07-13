@@ -23,6 +23,7 @@ func configCmd() *cobra.Command {
 	cmd.Flags().Bool("get", false, "print one config value")
 	cmd.Flags().Bool("set", false, "set one config value")
 	cmd.Flags().Bool("init", false, "create config.yaml with defaults")
+	cmd.Flags().Bool("migrate", false, "migrate legacy config for v1 and create a backup")
 	cmd.Flags().Bool("validate", false, "validate config.yaml")
 	cmd.Flags().Bool("path", false, "print config and state paths")
 	cmd.Flags().Bool("json", false, "print JSON with --show")
@@ -33,6 +34,7 @@ func configCmd() *cobra.Command {
 		configGetCmd(),
 		configSetCmd(),
 		configInitCmd(),
+		configMigrateCmd(),
 		configValidateCmd(),
 		configPathCmd(),
 	)
@@ -40,7 +42,7 @@ func configCmd() *cobra.Command {
 }
 
 func runConfig(cmd *cobra.Command, args []string) error {
-	action, err := selectedActionFlag(cmd, "show", "list", "get", "set", "init", "validate", "path")
+	action, err := selectedActionFlag(cmd, "show", "list", "get", "set", "init", "migrate", "validate", "path")
 	if err != nil {
 		return err
 	}
@@ -70,6 +72,11 @@ func runConfig(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		return runConfigInit(cmd)
+	case "migrate":
+		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
+			return err
+		}
+		return runConfigMigrate(cmd)
 	case "validate":
 		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
 			return err
@@ -81,15 +88,15 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		}
 		return runConfigPath(cmd)
 	default:
-		return showActionHelp(cmd, args, "show", "list", "get", "set", "init", "validate", "path")
+		return showActionHelp(cmd, args, "show", "list", "get", "set", "init", "migrate", "validate", "path")
 	}
 }
 
 func configShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
-		Use:   "show",
-		Short: "Print effective config",
+		Use:    "show",
+		Short:  "Print effective config",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigShow(cmd)
 		},
@@ -101,8 +108,8 @@ func configShowCmd() *cobra.Command {
 func configListCmd() *cobra.Command {
 	return &cobra.Command{
 		Hidden: true,
-		Use:   "list",
-		Short: "List supported config keys",
+		Use:    "list",
+		Short:  "List supported config keys",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigList(cmd)
 		},
@@ -112,9 +119,9 @@ func configListCmd() *cobra.Command {
 func configGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Hidden: true,
-		Use:   "get <key>",
-		Short: "Print one config value",
-		Args:  cobra.ExactArgs(1),
+		Use:    "get <key>",
+		Short:  "Print one config value",
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigGet(cmd, args)
 		},
@@ -124,9 +131,9 @@ func configGetCmd() *cobra.Command {
 func configSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Hidden: true,
-		Use:   "set <key> <value>",
-		Short: "Set one config value",
-		Args:  cobra.ExactArgs(2),
+		Use:    "set <key> <value>",
+		Short:  "Set one config value",
+		Args:   cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigSet(cmd, args)
 		},
@@ -136,8 +143,8 @@ func configSetCmd() *cobra.Command {
 func configInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
-		Use:   "init",
-		Short: "Create config.yaml with defaults",
+		Use:    "init",
+		Short:  "Create config.yaml with defaults",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigInit(cmd)
 		},
@@ -146,11 +153,22 @@ func configInitCmd() *cobra.Command {
 	return cmd
 }
 
+func configMigrateCmd() *cobra.Command {
+	return &cobra.Command{
+		Hidden: true,
+		Use:    "migrate",
+		Short:  "Migrate legacy config for v1",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigMigrate(cmd)
+		},
+	}
+}
+
 func configValidateCmd() *cobra.Command {
 	return &cobra.Command{
 		Hidden: true,
-		Use:   "validate",
-		Short: "Validate config.yaml",
+		Use:    "validate",
+		Short:  "Validate config.yaml",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigValidate(cmd)
 		},
@@ -160,8 +178,8 @@ func configValidateCmd() *cobra.Command {
 func configPathCmd() *cobra.Command {
 	return &cobra.Command{
 		Hidden: true,
-		Use:   "path",
-		Short: "Print config and state paths",
+		Use:    "path",
+		Short:  "Print config and state paths",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigPath(cmd)
 		},
@@ -259,6 +277,26 @@ func runConfigInit(cmd *cobra.Command) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s Created %s\n", styleFor(cmd).green("[OK]"), paths.Config)
+	return nil
+}
+
+func runConfigMigrate(cmd *cobra.Command) error {
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	result, err := config.Migrate(paths)
+	if err != nil {
+		return err
+	}
+	if !result.Changed() {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s already uses the v1 config schema\n", styleFor(cmd).green("[OK]"), result.Path)
+		return nil
+	}
+	for _, change := range result.Changes {
+		fmt.Fprintln(cmd.OutOrStdout(), change)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Migrated %s; backup: %s\n", styleFor(cmd).green("[OK]"), result.Path, result.BackupPath)
 	return nil
 }
 

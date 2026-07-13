@@ -3,13 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
-	"github.com/gongahkia/onibi/internal/workspace"
 )
 
 func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) ([]web.SessionSummary, error) {
@@ -19,12 +16,6 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 	rows, err := d.webSessionRows(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if opts.Workspace != "" {
-		rows, err = d.filterWorkspaceSessionRows(ctx, rows, opts.Workspace)
-		if err != nil {
-			return nil, err
-		}
 	}
 	pending, err := d.pendingApprovalCounts(ctx)
 	if err != nil {
@@ -48,7 +39,7 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 			RoleRequired:          "owner",
 		})
 	}
-	if opts.IncludeRemote && opts.Workspace == "" {
+	if opts.IncludeRemote {
 		remote, err := d.tailnetPeerSessions(ctx)
 		if err != nil {
 			d.Log.Debug("tailnet peer discovery failed", "err", err)
@@ -57,45 +48,6 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 		}
 	}
 	return out, nil
-}
-
-func (d *Daemon) filterWorkspaceSessionRows(ctx context.Context, rows []store.SessionEntry, name string) ([]store.SessionEntry, error) {
-	if d.DB == nil {
-		return rows, nil
-	}
-	wsStore, err := workspace.NewDBStore(d.DB)
-	if err != nil {
-		return nil, err
-	}
-	entry, ok, err := wsStore.Get(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-	out := rows[:0]
-	for _, row := range rows {
-		if pathInWorkspace(row.CWD, entry.Path) {
-			out = append(out, row)
-		}
-	}
-	return out, nil
-}
-
-func pathInWorkspace(path, root string) bool {
-	path = strings.TrimSpace(path)
-	root = strings.TrimSpace(root)
-	if path == "" || root == "" {
-		return false
-	}
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (d *Daemon) webSessionRows(ctx context.Context) ([]store.SessionEntry, error) {

@@ -39,7 +39,6 @@ export class SessionsListView {
   private rows: SessionSummary[] = [];
   private loading = false;
   private status = "";
-  private workspace = "";
   private readonly killArmed = new Map<string, number>();
   private suppressAttachUntil = 0;
 
@@ -47,7 +46,6 @@ export class SessionsListView {
     private readonly root: HTMLElement,
     private readonly fetchJSON: FetchJSON,
     private readonly navigate: (sessionID: string) => void,
-    private readonly workspaceControl?: HTMLElement,
     private readonly postJSON?: PostJSON,
     private readonly toast?: (message: string) => void
   ) {}
@@ -62,16 +60,6 @@ export class SessionsListView {
       this.status = "sessions unavailable";
     } finally {
       this.loading = false;
-      this.render();
-    }
-  }
-
-  setWorkspace(name: string, reload = true): void {
-    this.workspace = name.trim();
-    this.rows = [];
-    if (reload) {
-      void this.load();
-    } else {
       this.render();
     }
   }
@@ -99,12 +87,7 @@ export class SessionsListView {
   }
 
   private sessionsPath(): string {
-    const params = new URLSearchParams();
-    params.set("include", this.workspace === "" ? "remote" : "local");
-    if (this.workspace !== "") {
-      params.set("workspace", this.workspace);
-    }
-    return `/sessions?${params.toString()}`;
+    return "/sessions?include=remote";
   }
 
   private async loadCost(id: string): Promise<void> {
@@ -144,9 +127,6 @@ export class SessionsListView {
     reload.textContent = "Reload";
     reload.addEventListener("click", () => void this.load());
     header.append(title);
-    if (this.workspaceControl !== undefined) {
-      header.append(this.workspaceControl);
-    }
     header.append(reload);
 
     const body = document.createElement("div");

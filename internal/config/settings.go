@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/capability"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,13 +40,14 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
-	Daemon    Daemon    `yaml:"daemon" json:"daemon"`
-	Shell     Shell     `yaml:"shell" json:"shell"`
-	Web       Web       `yaml:"web" json:"web"`
-	Transport Transport `yaml:"transport" json:"transport"`
-	Provider  Provider  `yaml:"provider" json:"provider"`
-	Terminal  Terminal  `yaml:"terminal" json:"terminal"`
-	Update    Update    `yaml:"update" json:"update"`
+	Daemon       Daemon       `yaml:"daemon" json:"daemon"`
+	Shell        Shell        `yaml:"shell" json:"shell"`
+	Web          Web          `yaml:"web" json:"web"`
+	Transport    Transport    `yaml:"transport" json:"transport"`
+	Provider     Provider     `yaml:"provider" json:"provider"`
+	Experimental Experimental `yaml:"experimental" json:"experimental"`
+	Terminal     Terminal     `yaml:"terminal" json:"terminal"`
+	Update       Update       `yaml:"update" json:"update"`
 }
 
 type Daemon struct {
@@ -84,6 +86,10 @@ type Transport struct {
 
 type Provider struct {
 	Output ProviderOutput `yaml:"output" json:"output"`
+}
+
+type Experimental struct {
+	Providers bool `yaml:"providers" json:"providers"`
 }
 
 type ProviderOutput struct {
@@ -160,6 +166,10 @@ func Load(paths Paths) (Config, LoadMeta, error) {
 		return cfg, meta, err
 	}
 	meta.Exists = true
+	return loadBytes(path, b, cfg, meta)
+}
+
+func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMeta, error) {
 	var raw rawConfig
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
@@ -247,10 +257,15 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Web.ListenAddr) == "" {
 		return fmt.Errorf("web.listen_addr required")
 	}
-	switch strings.ToLower(strings.TrimSpace(c.Transport.Mode)) {
-	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto":
+	mode := strings.ToLower(strings.TrimSpace(c.Transport.Mode))
+	switch {
+	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
+	case capability.IsDeferredProviderTransport(mode):
+		if !c.Experimental.Providers {
+			return fmt.Errorf("transport.mode %q is deferred in v1; run `onibi config --migrate` or set experimental.providers=true to opt into unsupported provider behavior", mode)
+		}
 	default:
-		return fmt.Errorf("transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, irc, signal, pushover, ntfy, gotify, apns, sms, email, auto")
+		return fmt.Errorf("transport.mode must be a v1 web transport or a deferred provider transport with experimental.providers=true")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "iterm", "iterm2", "terminal", "none":
@@ -395,6 +410,12 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Transport.Mode = strings.ToLower(strings.TrimSpace(value))
 	case "transport.saddr":
 		cfg.Transport.SAddr = strings.TrimSpace(value)
+	case "experimental.providers":
+		v, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("experimental.providers must be boolean")
+		}
+		cfg.Experimental.Providers = v
 	case "provider.output.max_chunks":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil {
@@ -459,6 +480,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Transport.Mode, nil
 	case "transport.saddr":
 		return cfg.Transport.SAddr, nil
+	case "experimental.providers":
+		return strconv.FormatBool(cfg.Experimental.Providers), nil
 	case "provider.output.max_chunks":
 		return strconv.Itoa(cfg.Provider.Output.MaxChunks), nil
 	case "provider.output.max_bytes":
@@ -492,8 +515,9 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "pairing transport: lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, irc, signal, pushover, ntfy, gotify, apns, sms, email, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
+		{"experimental.providers", strconv.FormatBool(def.Experimental.Providers), strconv.FormatBool(cfg.Experimental.Providers), meta.Explicit["experimental.providers"], "allow deferred and unsupported chat/notify provider transports"},
 		{"update.auto", strconv.FormatBool(def.Update.Auto), strconv.FormatBool(cfg.Update.Auto), meta.Explicit["update.auto"], "opt-in daemon update checks at startup and every 24h"},
 		{"update.channel", def.Update.Channel, cfg.Update.Channel, meta.Explicit["update.channel"], "update channel: stable"},
 		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},
@@ -516,13 +540,14 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 }
 
 type rawConfig struct {
-	Daemon    rawDaemon    `yaml:"daemon"`
-	Shell     rawShell     `yaml:"shell"`
-	Web       rawWeb       `yaml:"web"`
-	Transport rawTransport `yaml:"transport"`
-	Provider  rawProvider  `yaml:"provider"`
-	Terminal  rawTerminal  `yaml:"terminal"`
-	Update    rawUpdate    `yaml:"update"`
+	Daemon       rawDaemon       `yaml:"daemon"`
+	Shell        rawShell        `yaml:"shell"`
+	Web          rawWeb          `yaml:"web"`
+	Transport    rawTransport    `yaml:"transport"`
+	Provider     rawProvider     `yaml:"provider"`
+	Experimental rawExperimental `yaml:"experimental"`
+	Terminal     rawTerminal     `yaml:"terminal"`
+	Update       rawUpdate       `yaml:"update"`
 }
 
 type rawDaemon struct {
@@ -561,6 +586,10 @@ type rawTransport struct {
 
 type rawProvider struct {
 	Output rawProviderOutput `yaml:"output"`
+}
+
+type rawExperimental struct {
+	Providers *bool `yaml:"providers"`
 }
 
 type rawProviderOutput struct {
@@ -635,6 +664,10 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Transport.SAddr != nil {
 		cfg.Transport.SAddr = strings.TrimSpace(*raw.Transport.SAddr)
 		meta.Explicit["transport.saddr"] = true
+	}
+	if raw.Experimental.Providers != nil {
+		cfg.Experimental.Providers = *raw.Experimental.Providers
+		meta.Explicit["experimental.providers"] = true
 	}
 	if raw.Provider.Output.MaxChunks != nil {
 		cfg.Provider.Output.MaxChunks = *raw.Provider.Output.MaxChunks

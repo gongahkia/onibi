@@ -30,60 +30,62 @@ const (
 )
 
 type Options struct {
-	TLSCert         tls.Certificate
-	DB              *store.DB
-	ApprovalQueue   *approval.Queue
-	EventBus        *EventBus
-	PTYHosts        func() map[string]*pty.Host
-	SessionIDs      func() []string
-	SessionList     func(context.Context, SessionListOptions) ([]SessionSummary, error)
-	PTYHost         func(context.Context, string) (*pty.Host, error)
-	Handover        func(context.Context, string, string) (string, error)
-	Scroll          func(context.Context, string, string) error
-	TrustRuntime    func(context.Context, TrustRuntimeRequest) (string, error)
-	AnomalyAllow    func(context.Context, AnomalyAllowlistRequest) (string, error)
-	SessionCost     func(context.Context, string) (SessionCost, bool, error)
-	Timeline        func(context.Context, int) ([]timeline.TimelineEvent, error)
-	Snapshots       func(context.Context) ([]Snapshot, error)
-	SnapshotRestore func(context.Context, string) (SnapshotActionResult, error)
-	SnapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
-	RecordingList   func(context.Context) ([]RecordingSummary, error)
-	RecordingPath   func(context.Context, string) (string, bool, error)
-	UploadDir       string
-	RelayKeys       *RelayKeys
-	RequireE2E      bool
-	ActionSigner    *ActionSigner
-	Log             *slog.Logger
+	TLSCert               tls.Certificate
+	DB                    *store.DB
+	ApprovalQueue         *approval.Queue
+	EventBus              *EventBus
+	PTYHosts              func() map[string]*pty.Host
+	SessionIDs            func() []string
+	SessionList           func(context.Context, SessionListOptions) ([]SessionSummary, error)
+	PTYHost               func(context.Context, string) (*pty.Host, error)
+	Handover              func(context.Context, string, string) (string, error)
+	Scroll                func(context.Context, string, string) error
+	TrustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
+	AnomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
+	SessionCost           func(context.Context, string) (SessionCost, bool, error)
+	Timeline              func(context.Context, int) ([]timeline.TimelineEvent, error)
+	Snapshots             func(context.Context) ([]Snapshot, error)
+	SnapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
+	SnapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	RecordingList         func(context.Context) ([]RecordingSummary, error)
+	RecordingPath         func(context.Context, string) (string, bool, error)
+	UploadDir             string
+	RelayKeys             *RelayKeys
+	RequireE2E            bool
+	ExperimentalProviders bool
+	ActionSigner          *ActionSigner
+	Log                   *slog.Logger
 }
 
 type Server struct {
-	tlsCert         tls.Certificate
-	db              *store.DB
-	approvalQueue   *approval.Queue
-	eventBus        *EventBus
-	ptyHosts        func() map[string]*pty.Host
-	sessionIDs      func() []string
-	sessionList     func(context.Context, SessionListOptions) ([]SessionSummary, error)
-	ptyHost         func(context.Context, string) (*pty.Host, error)
-	handover        func(context.Context, string, string) (string, error)
-	scroll          func(context.Context, string, string) error
-	trustRuntime    func(context.Context, TrustRuntimeRequest) (string, error)
-	anomalyAllow    func(context.Context, AnomalyAllowlistRequest) (string, error)
-	sessionCost     func(context.Context, string) (SessionCost, bool, error)
-	timeline        func(context.Context, int) ([]timeline.TimelineEvent, error)
-	snapshots       func(context.Context) ([]Snapshot, error)
-	snapshotRestore func(context.Context, string) (SnapshotActionResult, error)
-	snapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
-	recordingList   func(context.Context) ([]RecordingSummary, error)
-	recordingPath   func(context.Context, string) (string, bool, error)
-	uploadDir       string
-	relayKeys       *RelayKeys
-	requireE2E      bool
-	actionSigner    *ActionSigner
-	log             *slog.Logger
-	e2eMu           sync.Mutex
-	e2eHTTPReplay   map[string]time.Time
-	e2eHTTPResponse map[*http.Request]e2eHTTPMeta
+	tlsCert               tls.Certificate
+	db                    *store.DB
+	approvalQueue         *approval.Queue
+	eventBus              *EventBus
+	ptyHosts              func() map[string]*pty.Host
+	sessionIDs            func() []string
+	sessionList           func(context.Context, SessionListOptions) ([]SessionSummary, error)
+	ptyHost               func(context.Context, string) (*pty.Host, error)
+	handover              func(context.Context, string, string) (string, error)
+	scroll                func(context.Context, string, string) error
+	trustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
+	anomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
+	sessionCost           func(context.Context, string) (SessionCost, bool, error)
+	timeline              func(context.Context, int) ([]timeline.TimelineEvent, error)
+	snapshots             func(context.Context) ([]Snapshot, error)
+	snapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
+	snapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	recordingList         func(context.Context) ([]RecordingSummary, error)
+	recordingPath         func(context.Context, string) (string, bool, error)
+	uploadDir             string
+	relayKeys             *RelayKeys
+	requireE2E            bool
+	experimentalProviders bool
+	actionSigner          *ActionSigner
+	log                   *slog.Logger
+	e2eMu                 sync.Mutex
+	e2eHTTPReplay         map[string]time.Time
+	e2eHTTPResponse       map[*http.Request]e2eHTTPMeta
 }
 
 func New(opts Options) *Server {
@@ -91,30 +93,31 @@ func New(opts Options) *Server {
 		opts.Log = slog.Default()
 	}
 	return &Server{
-		tlsCert:         opts.TLSCert,
-		db:              opts.DB,
-		approvalQueue:   opts.ApprovalQueue,
-		eventBus:        opts.EventBus,
-		ptyHosts:        opts.PTYHosts,
-		sessionIDs:      opts.SessionIDs,
-		sessionList:     opts.SessionList,
-		ptyHost:         opts.PTYHost,
-		handover:        opts.Handover,
-		scroll:          opts.Scroll,
-		trustRuntime:    opts.TrustRuntime,
-		anomalyAllow:    opts.AnomalyAllow,
-		sessionCost:     opts.SessionCost,
-		timeline:        opts.Timeline,
-		snapshots:       opts.Snapshots,
-		snapshotRestore: opts.SnapshotRestore,
-		snapshotFork:    opts.SnapshotFork,
-		recordingList:   opts.RecordingList,
-		recordingPath:   opts.RecordingPath,
-		uploadDir:       opts.UploadDir,
-		relayKeys:       opts.RelayKeys,
-		requireE2E:      opts.RequireE2E,
-		actionSigner:    opts.ActionSigner,
-		log:             opts.Log,
+		tlsCert:               opts.TLSCert,
+		db:                    opts.DB,
+		approvalQueue:         opts.ApprovalQueue,
+		eventBus:              opts.EventBus,
+		ptyHosts:              opts.PTYHosts,
+		sessionIDs:            opts.SessionIDs,
+		sessionList:           opts.SessionList,
+		ptyHost:               opts.PTYHost,
+		handover:              opts.Handover,
+		scroll:                opts.Scroll,
+		trustRuntime:          opts.TrustRuntime,
+		anomalyAllow:          opts.AnomalyAllow,
+		sessionCost:           opts.SessionCost,
+		timeline:              opts.Timeline,
+		snapshots:             opts.Snapshots,
+		snapshotRestore:       opts.SnapshotRestore,
+		snapshotFork:          opts.SnapshotFork,
+		recordingList:         opts.RecordingList,
+		recordingPath:         opts.RecordingPath,
+		uploadDir:             opts.UploadDir,
+		relayKeys:             opts.RelayKeys,
+		requireE2E:            opts.RequireE2E,
+		experimentalProviders: opts.ExperimentalProviders,
+		actionSigner:          opts.ActionSigner,
+		log:                   opts.Log,
 	}
 }
 
@@ -126,7 +129,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ws/pty", s.handleWSPTY)
 	mux.HandleFunc("/ws/events", s.handleWSEvents)
 	mux.HandleFunc("/session-info", s.handleSessionInfo)
-	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/sessions/status", s.handleSessionsStatus)
 	mux.HandleFunc("/sessions", s.handleSessions)
 	mux.HandleFunc("/files/tree", s.handleFilesTree)
@@ -138,6 +140,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/recordings/{id}", s.handleRecordingCast)
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
+	mux.HandleFunc("/fleet/hosts", s.handleFleetHosts)
+	mux.HandleFunc("/fleet/enroll/challenge", s.handleFleetEnrollmentChallenge)
+	mux.HandleFunc("/fleet/enroll/proof", s.handleFleetEnrollmentProof)
+	mux.HandleFunc("/fleet/heartbeat", s.handleFleetHeartbeat)
 	mux.HandleFunc("/share", s.handleShare)
 	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
@@ -155,9 +161,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
-	mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
-	mux.HandleFunc("/gotify/approval/{id}", s.handleGotifyApprovalPage)
-	mux.HandleFunc("/gotify/approval/{id}/{verdict}", s.handleGotifyApprovalAction)
+	if s.experimentalProviders {
+		mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
+		mux.HandleFunc("/gotify/approval/{id}", s.handleGotifyApprovalPage)
+		mux.HandleFunc("/gotify/approval/{id}/{verdict}", s.handleGotifyApprovalAction)
+	}
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
 	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
 	mux.HandleFunc("/", s.handleRoot)

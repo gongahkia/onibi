@@ -13,7 +13,6 @@ type SoftKeyBarOptions = {
   decreaseFontSize: () => void;
   increaseFontSize: () => void;
   pasteImage?: () => Promise<boolean>;
-  voiceInput?: () => Promise<void> | void;
   readOnly?: boolean;
 };
 
@@ -93,9 +92,6 @@ export class SoftKeyBar {
     frag.append(this.actionButton("A-", options.decreaseFontSize));
     frag.append(this.actionButton("A+", options.increaseFontSize));
     frag.append(this.pasteButton());
-    if (options.voiceInput !== undefined) {
-      frag.append(this.voiceButton());
-    }
     this.themePicker = this.themeSelect(options.getTheme());
     frag.append(this.themePicker);
     options.root.replaceChildren(frag);
@@ -146,17 +142,6 @@ export class SoftKeyBar {
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       void this.paste();
-    });
-    return el;
-  }
-
-  private voiceButton(): HTMLButtonElement {
-    const el = this.button("Mic");
-    el.classList.add("softkey-voice");
-    el.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      void this.options.voiceInput?.();
-      this.options.focus();
     });
     return el;
   }

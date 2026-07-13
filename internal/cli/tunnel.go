@@ -174,7 +174,7 @@ func promptTunnelTransport(cmd *cobra.Command, current string) (string, bool, er
 func tunnelTransportChoices(current string) []pairTransportChoice {
 	var out []pairTransportChoice
 	key := 1
-	for _, c := range pairTransportChoices(current, transportCategoryWeb) {
+	for _, c := range pairTransportChoices(current) {
 		if !tunnelTransportSupported(c.mode) {
 			continue
 		}

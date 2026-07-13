@@ -1,0 +1,106 @@
+package fleet
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func testHost(t *testing.T) Host {
+	t.Helper()
+	return Host{
+		ID:              "host-macbook",
+		OwnerID:         "owner-local",
+		DisplayName:     "MacBook Pro",
+		IdentityPublic:  "base64-public-key",
+		Endpoint:        Endpoint{Kind: EndpointMesh, URL: "https://macbook.tailnet.ts.net"},
+		ProtocolVersion: ProtocolVersion,
+		BinaryVersion:   "v1.0.0",
+		Capabilities:    []string{"session.read", "approval.write", "session.read"},
+		State:           HostStateActive,
+		RegisteredAt:    time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),
+		LastSeenAt:      time.Date(2026, 7, 13, 0, 1, 0, 0, time.UTC),
+	}
+}
+
+func TestHostValidateAndNormalize(t *testing.T) {
+	host := testHost(t).Normalized()
+	if err := host.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(host.Capabilities, ","); got != "approval.write,session.read" {
+		t.Fatalf("capabilities = %q", got)
+	}
+}
+
+func TestHostRejectsInvalidEndpointAndRevocationState(t *testing.T) {
+	host := testHost(t)
+	host.Endpoint.URL = "http://macbook.tailnet.ts.net"
+	if err := host.Validate(); err == nil {
+		t.Fatal("expected endpoint validation error")
+	}
+	host = testHost(t)
+	host.State = HostStateRevoked
+	if err := host.Validate(); err == nil || !strings.Contains(err.Error(), "revoked_at") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestEnvelopeRejectsIncompatibleAndMalformedInputs(t *testing.T) {
+	env := Envelope{Version: ProtocolVersion, Type: MessageHeartbeat, RequestID: "req-123", SentAt: time.Now(), Body: []byte(`{}`)}
+	if err := env.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	env.Version++
+	if err := env.Validate(); err == nil || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	env.Version = ProtocolVersion
+	env.RequestID = "bad/request"
+	if err := env.Validate(); err == nil || !strings.Contains(err.Error(), "request_id") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestSnapshotValidatesHostReferences(t *testing.T) {
+	host := testHost(t)
+	snapshot := Snapshot{
+		Version:     ProtocolVersion,
+		GeneratedAt: time.Now(),
+		Hosts:       []Host{host},
+		Sessions:    []Session{{ID: "session-1", HostID: host.ID, Agent: "claude", State: "working", LastActivity: time.Now()}},
+		Approvals:   []Approval{{ID: "approval-1", HostID: host.ID, SessionID: "session-1", State: "pending", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute)}},
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Sessions[0].HostID = "unknown-host"
+	if err := snapshot.Validate(); err == nil || !strings.Contains(err.Error(), "unknown host") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestEnrollmentSigningPayloadBindsChallengeAndHostIdentity(t *testing.T) {
+	host := testHost(t)
+	challenge := EnrollmentChallenge{Version: ProtocolVersion, ID: "enroll-123", OwnerID: host.OwnerID, Nonce: "nonce", HubPublic: "hub-public", ExpiresAt: time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)}
+	if err := challenge.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	payload := string(EnrollmentSigningPayload(challenge, host))
+	for _, want := range []string{challenge.ID, challenge.Nonce, host.ID, host.OwnerID, host.IdentityPublic} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("payload missing %q: %q", want, payload)
+		}
+	}
+}
+
+func TestHeartbeatSigningPayloadNormalizesCapabilities(t *testing.T) {
+	heartbeat := Heartbeat{Version: ProtocolVersion, HostID: "host-macbook", SentAt: time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC), BinaryVersion: "v1.0.0", Capabilities: []string{"session.read", "APPROVAL.WRITE", "session.read"}, Signature: "signature"}
+	if err := heartbeat.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	payload := string(HeartbeatSigningPayload(heartbeat))
+	if !strings.Contains(payload, "approval.write,session.read") {
+		t.Fatalf("payload = %q", payload)
+	}
+}

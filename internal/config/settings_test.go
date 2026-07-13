@@ -243,7 +243,7 @@ func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto"} {
+	for _, value := range []string{"lan", "lan-loopback", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
@@ -253,10 +253,26 @@ func TestTransportModeValues(t *testing.T) {
 	}
 }
 
+func TestDeferredProviderTransportRequiresExplicitOptIn(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "transport.mode", "telegram"); err == nil || !strings.Contains(err.Error(), "experimental.providers=true") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if err := Set(&cfg, "experimental.providers", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "transport.mode", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Get(cfg, "experimental.providers"); err != nil || got != "true" {
+		t.Fatalf("experimental.providers = %q, %v", got, err)
+	}
+}
+
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "transport.mode must be one of lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, telegram, matrix, slack, discord, zulip, irc, signal, pushover, ntfy, gotify, apns, sms, email, auto") {
+	if err == nil || !strings.Contains(err.Error(), "transport.mode must be a v1 web transport") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
-	"github.com/gongahkia/onibi/internal/workspace"
 )
 
 func TestWebSessionsAggregatesActiveRows(t *testing.T) {
@@ -83,7 +82,7 @@ func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
 	}
 }
 
-func TestWebSessionsFiltersWorkspace(t *testing.T) {
+func TestWebSessionsIncludeAllActiveSessions(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "test.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -98,19 +97,12 @@ func TestWebSessionsFiltersWorkspace(t *testing.T) {
 	if err := db.SessionUpsertStart(ctx, "s2", "other", "codex", betaRoot, "codex", "pty", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsStore, err := workspace.NewDBStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := wsStore.Upsert(ctx, workspace.DBEntry{Name: "alpha", Path: alphaRoot, LastSeen: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
 	d := New(Options{DB: db})
-	rows, err := d.WebSessions(ctx, web.SessionListOptions{Workspace: "alpha", IncludeRemote: true})
+	rows, err := d.WebSessions(ctx, web.SessionListOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ID != "s1" {
+	if len(rows) != 2 || rows[0].ID != "s1" || rows[1].ID != "s2" {
 		t.Fatalf("rows = %#v", rows)
 	}
 }

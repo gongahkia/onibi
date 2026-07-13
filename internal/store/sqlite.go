@@ -285,6 +285,28 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   last_seen_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_seen ON push_subscriptions(last_seen_at);
+
+CREATE TABLE IF NOT EXISTS fleet_hosts (
+  id          TEXT PRIMARY KEY,
+  data_enc    BLOB NOT NULL,
+  state       TEXT NOT NULL,
+  registered_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL DEFAULT 0,
+  revoked_at  INTEGER NOT NULL DEFAULT 0,
+  last_heartbeat_ns INTEGER NOT NULL DEFAULT 0,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fleet_hosts_state_last_seen ON fleet_hosts(state, last_seen_at);
+
+CREATE TABLE IF NOT EXISTS fleet_enrollment_challenges (
+  id          TEXT PRIMARY KEY,
+  host_enc    BLOB NOT NULL,
+  nonce_hash  BLOB NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fleet_enrollment_expires ON fleet_enrollment_challenges(expires_at, consumed_at);
 `
 
 func (d *DB) migrate() error {
@@ -327,6 +349,9 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "web_sessions", "revoked_reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "fleet_hosts", "last_heartbeat_ns", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "pairing_tokens", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -578,6 +603,21 @@ func (d *DB) KVSetEncryptedString(ctx context.Context, key, value string) error 
 		return err
 	}
 	return d.KVSet(ctx, key, sealed, 0)
+}
+
+// KVSetEncryptedStringIfAbsent stores an encrypted value only if key has no
+// existing row. It returns true when this call created the row.
+func (d *DB) KVSetEncryptedStringIfAbsent(ctx context.Context, key, value string) (bool, error) {
+	sealed, err := d.sealString(ctx, "kv", key, "value", value)
+	if err != nil {
+		return false, err
+	}
+	result, err := d.sql.ExecContext(ctx, `INSERT INTO kv(key, value, expire) VALUES (?, ?, 0) ON CONFLICT(key) DO NOTHING`, key, sealed)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 // KVGet returns the value and a found bool. Honors expire (returns
