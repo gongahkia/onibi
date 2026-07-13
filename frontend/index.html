@@ -144,9 +144,20 @@
       #toolbar {
         top: env(safe-area-inset-top);
         height: 44px;
-        justify-content: flex-end;
+        justify-content: flex-start;
         padding: 6px 10px;
         border-bottom: 1px solid var(--chrome-border);
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      #toolbar::-webkit-scrollbar {
+        display: none;
+      }
+      #toolbar > * {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
       }
       #softkeys {
         bottom: var(--keyboard-bottom);

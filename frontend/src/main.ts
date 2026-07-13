@@ -345,6 +345,10 @@ function installControls(
     );
   }
   root.replaceChildren(...controls);
+  // A phone-width toolbar has more controls than can fit. Always begin at the
+  // first control and allow a deliberate horizontal swipe to reach the rest;
+  // flex-end previously clipped the leading controls with no way to recover them.
+  root.scrollLeft = 0;
 }
 
 function controlButton(label: string, action: () => void, tourID = ""): HTMLButtonElement {
