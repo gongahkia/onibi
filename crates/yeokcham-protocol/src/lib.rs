@@ -6,6 +6,7 @@ mod domain;
 mod encrypted_message;
 mod error_code;
 mod extension_frame;
+mod local_mesh_profile;
 mod mailbox_capability;
 mod message_payload;
 mod negotiation;
@@ -28,6 +29,10 @@ pub use encrypted_message::{
 };
 pub use error_code::{ProtocolErrorCode, ProtocolErrorCodeError};
 pub use extension_frame::{ExtensionFrame, ExtensionFrameError, MAX_EXTENSION_DATA_BYTES};
+pub use local_mesh_profile::{
+    LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,
+    LocalMeshTransportKind,
+};
 pub use mailbox_capability::{
     MAILBOX_CAPABILITY_SCHEMA_VERSION, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
     MailboxCapability, MailboxCapabilityError,
