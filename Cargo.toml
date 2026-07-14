@@ -19,6 +19,7 @@ repository = "https://github.com/gongahkia/yeokcham"
 [workspace.dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
 minicbor = { version = "2.2.2", features = ["std"] }
+sha2 = { version = "0.11.0", default-features = false }
 thiserror = "2.0.17"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
