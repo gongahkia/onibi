@@ -711,6 +711,52 @@
   width: min(100%, 640px);
 }
 
+.approval-inbox-form {
+  width: min(100%, 640px);
+}
+
+.approval-inbox-list {
+  display: grid;
+  gap: 8px;
+}
+
+.approval-inbox-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--button-border);
+  border-radius: 3px;
+  padding: 8px;
+}
+
+.approval-inbox-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--page-fg);
+  font: 700 12px var(--mono-font);
+}
+
+.approval-inbox-heading span,
+.approval-inbox-source {
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.approval-inbox-source {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-inbox-source-value {
+  overflow-wrap: anywhere;
+}
+
+.approval-inbox-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .fleet-host-list,
 .fleet-host-detail {
   display: grid;

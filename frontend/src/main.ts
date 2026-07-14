@@ -34,6 +34,7 @@ import { SharePanel } from "./share";
 import { AgentsFeed } from "./agents-feed";
 import { PairedHostsPanel } from "./paired-hosts-panel";
 import { FleetHostsPanel } from "./fleet-hosts";
+import { ApprovalInboxPanel } from "./approval-inbox";
 
 type SessionInfo = {
   session_id: string;
@@ -80,6 +81,7 @@ let sharePanel: SharePanel | undefined;
 let agentsFeed: AgentsFeed | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
 let fleetHosts: FleetHostsPanel | undefined;
+let approvalInbox: ApprovalInboxPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -125,6 +127,7 @@ events.addEventListener("event", (event) => {
     anomalies.handleEnvelope(envelope);
   }
   sessionList?.handleEnvelope(envelope);
+  approvalInbox?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
   agentsFeed?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
@@ -233,9 +236,10 @@ async function showSessionsHome(): Promise<void> {
   showListChrome();
   pairedHosts = new PairedHostsPanel(document.body, showToast);
   fleetHosts = new FleetHostsPanel(document.body, getJSON);
+  approvalInbox = new ApprovalInboxPanel(document.body, getJSON, postJSON, showToast);
   const hostControls = document.createElement("div");
   hostControls.className = "session-list-header-controls";
-  hostControls.append(pairedHosts.element, fleetHosts.element);
+  hostControls.append(pairedHosts.element, fleetHosts.element, approvalInbox.element);
   const list = new SessionsListView(
     sessionListRoot,
     getJSON,

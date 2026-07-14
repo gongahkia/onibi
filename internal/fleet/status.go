@@ -31,6 +31,7 @@ type HomeSessionStatus struct {
 
 type HomeApprovalStatus struct {
 	ID        string    `json:"id"`
+	HostID    string    `json:"host_id,omitempty"`
 	SessionID string    `json:"session_id"`
 	Agent     string    `json:"agent"`
 	Tool      string    `json:"tool"`
@@ -58,6 +59,7 @@ func (s HomeStatus) Validate() error {
 		hosts[host.ID] = true
 	}
 	sessions := make(map[string]bool, len(s.Sessions))
+	sessionHosts := make(map[string]string, len(s.Sessions))
 	for _, session := range s.Sessions {
 		if !validID(session.ID) || strings.TrimSpace(session.Agent) == "" || !validHomeSessionState(session.State) || session.LastActivity.IsZero() || session.PendingApprovals < 0 {
 			return errors.New("invalid fleet home session")
@@ -75,11 +77,21 @@ func (s HomeStatus) Validate() error {
 		if session.HostID != "" && !hosts[session.HostID] {
 			return fmt.Errorf("fleet home session %q references unknown host %q", session.ID, session.HostID)
 		}
+		if session.Remote && session.HostID == "" {
+			return fmt.Errorf("remote fleet home session %q requires host", session.ID)
+		}
 		sessions[session.ID] = true
+		sessionHosts[session.ID] = session.HostID
 	}
 	for _, approval := range s.PendingApprovals {
 		if !validID(approval.ID) || !validID(approval.SessionID) || strings.TrimSpace(approval.Agent) == "" || strings.TrimSpace(approval.Tool) == "" || approval.State != "pending" || approval.CreatedAt.IsZero() || !approval.ExpiresAt.After(approval.CreatedAt) {
 			return errors.New("invalid fleet home approval")
+		}
+		if approval.HostID != "" && !hosts[approval.HostID] {
+			return fmt.Errorf("fleet home approval %q references unknown host %q", approval.ID, approval.HostID)
+		}
+		if hostID, ok := sessionHosts[approval.SessionID]; ok && approval.HostID != hostID {
+			return fmt.Errorf("fleet home approval %q host does not match session", approval.ID)
 		}
 	}
 	return nil

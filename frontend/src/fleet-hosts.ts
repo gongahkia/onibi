@@ -26,10 +26,12 @@ export type FleetSession = {
   recovery_state?: FleetRecoveryState;
   recovery_reason?: string;
   recovery_updated_at?: string;
+  remote?: boolean;
 };
 
 export type FleetApproval = {
   id: string;
+  host_id?: string;
   session_id: string;
   agent: string;
   tool: string;

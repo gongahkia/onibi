@@ -58,6 +58,7 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 		Sessions:         make([]fleet.HomeSessionStatus, 0, len(sessionStatus.Sessions)),
 		PendingApprovals: make([]fleet.HomeApprovalStatus, 0, len(pending)),
 	}
+	sessionHosts := make(map[string]string, len(sessionStatus.Sessions))
 	for _, session := range sessionStatus.Sessions {
 		lastActivity, ok := parseWebTime(session.LastActivity)
 		if !ok {
@@ -85,10 +86,12 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 			homeSession.RecoveryUpdatedAt = recoveryUpdatedAt
 		}
 		status.Sessions = append(status.Sessions, homeSession)
+		sessionHosts[session.ID] = session.HostID
 	}
 	for _, approval := range pending {
 		status.PendingApprovals = append(status.PendingApprovals, fleet.HomeApprovalStatus{
 			ID:        approval.ID,
+			HostID:    sessionHosts[approval.SessionID],
 			SessionID: approval.SessionID,
 			Agent:     approval.Agent,
 			Tool:      approval.Tool,
