@@ -17,6 +17,7 @@ type SessionListOptions struct {
 
 type SessionSummary struct {
 	ID                    string                     `json:"id"`
+	HostID                string                     `json:"host_id,omitempty"`
 	Agent                 string                     `json:"agent"`
 	CWD                   string                     `json:"cwd"`
 	StartedAt             string                     `json:"started_at"`
@@ -52,6 +53,7 @@ type SessionsStatusResponse struct {
 
 type SessionStatus struct {
 	ID                    string                     `json:"id"`
+	HostID                string                     `json:"host_id,omitempty"`
 	Agent                 string                     `json:"agent"`
 	CWD                   string                     `json:"cwd,omitempty"`
 	State                 SessionState               `json:"state"`
@@ -152,6 +154,7 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 		out.Counts[state]++
 		out.Sessions = append(out.Sessions, SessionStatus{
 			ID:                    row.ID,
+			HostID:                row.HostID,
 			Agent:                 row.Agent,
 			CWD:                   row.CWD,
 			State:                 state,

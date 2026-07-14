@@ -106,7 +106,7 @@ func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
 		t.Fatalf("rows = %#v", rows)
 	}
 	got := rows[0]
-	if !got.Remote || got.PeerName != "work-mac" || got.RemoteURL != "https://peer.tail.ts.net/" || got.RoleRequired != "remote" {
+	if !got.Remote || got.HostID != host.ID || got.LastActivity == "" || got.PeerName != "work-mac" || got.RemoteURL != "https://peer.tail.ts.net/" || got.RoleRequired != "remote" {
 		t.Fatalf("remote row = %#v", got)
 	}
 	if !slices.Contains(probed, "https://peer.tail.ts.net/") || slices.Contains(probed, "https://plain.tail.ts.net/") {

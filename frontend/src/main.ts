@@ -33,6 +33,7 @@ import type { ImageUploadRequest } from "./image-paste";
 import { SharePanel } from "./share";
 import { AgentsFeed } from "./agents-feed";
 import { PairedHostsPanel } from "./paired-hosts-panel";
+import { FleetHostsPanel } from "./fleet-hosts";
 
 type SessionInfo = {
   session_id: string;
@@ -78,6 +79,7 @@ let recordings: RecordingPlayerPanel | undefined;
 let sharePanel: SharePanel | undefined;
 let agentsFeed: AgentsFeed | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
+let fleetHosts: FleetHostsPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -230,13 +232,17 @@ async function showSessionsHome(): Promise<void> {
   terminalInputEnabled = false;
   showListChrome();
   pairedHosts = new PairedHostsPanel(document.body, showToast);
+  fleetHosts = new FleetHostsPanel(document.body, getJSON);
+  const hostControls = document.createElement("div");
+  hostControls.className = "session-list-header-controls";
+  hostControls.append(pairedHosts.element, fleetHosts.element);
   const list = new SessionsListView(
     sessionListRoot,
     getJSON,
     navigateToSession,
     postJSON,
     showToast,
-    pairedHosts.element
+    hostControls
   );
   sessionList = list;
   await connectSessionListEvents();

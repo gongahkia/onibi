@@ -472,6 +472,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 		gotOpts = opts
 		return []SessionSummary{{
 			ID:                    "s1",
+			HostID:                "host-work-mac",
 			Agent:                 "claude",
 			CWD:                   "/tmp/repo",
 			StartedAt:             "2026-06-30T00:00:00Z",
@@ -498,7 +499,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 || got[0].TokensUsed != 120 || got[0].RoleRequired != "owner" {
+	if len(got) != 1 || got[0].ID != "s1" || got[0].HostID != "host-work-mac" || got[0].PendingApprovalsCount != 2 || got[0].TokensUsed != 120 || got[0].RoleRequired != "owner" {
 		t.Fatalf("sessions = %#v", got)
 	}
 	if !gotOpts.IncludeRemote {

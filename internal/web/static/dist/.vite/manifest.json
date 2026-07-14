@@ -5,7 +5,7 @@
     "isDynamicEntry": true
   },
   "index.html": {
-    "file": "assets/index-DbYO2J8c.js",
+    "file": "assets/index-DLGrTbXP.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -25,7 +25,7 @@
       "node_modules/shiki/dist/langs/typescript.mjs"
     ],
     "css": [
-      "assets/index-BN4yySeZ.css"
+      "assets/index-7xKtWxxB.css"
     ]
   },
   "node_modules/asciinema-player/dist/index.js": {

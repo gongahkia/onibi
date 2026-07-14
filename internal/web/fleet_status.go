@@ -66,6 +66,7 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		homeSession := fleet.HomeSessionStatus{
 			ID:               session.ID,
+			HostID:           session.HostID,
 			Agent:            session.Agent,
 			State:            string(session.State),
 			LastActivity:     lastActivity,

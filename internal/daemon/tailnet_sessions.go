@@ -169,8 +169,10 @@ func (d *Daemon) tailnetPeerSessions(ctx context.Context) ([]web.SessionSummary,
 		name := tailnetPeerName(peer)
 		out = append(out, web.SessionSummary{
 			ID:           "remote:" + host.ID,
+			HostID:       host.ID,
 			Agent:        "onibi",
 			CWD:          remoteURL,
+			LastActivity: formatWebSessionTime(time.Now()),
 			RoleRequired: "remote",
 			Remote:       true,
 			PeerName:     name,

@@ -17,6 +17,7 @@ type HomeStatus struct {
 
 type HomeSessionStatus struct {
 	ID                string               `json:"id"`
+	HostID            string               `json:"host_id,omitempty"`
 	Agent             string               `json:"agent"`
 	State             string               `json:"state"`
 	LastActivity      time.Time            `json:"last_activity"`
@@ -70,6 +71,9 @@ func (s HomeStatus) Validate() error {
 		}
 		if sessions[session.ID] {
 			return fmt.Errorf("duplicate fleet home session %q", session.ID)
+		}
+		if session.HostID != "" && !hosts[session.HostID] {
+			return fmt.Errorf("fleet home session %q references unknown host %q", session.ID, session.HostID)
 		}
 		sessions[session.ID] = true
 	}

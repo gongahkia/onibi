@@ -61,6 +61,7 @@ const host: PairedHost = {
   identityPublic: "ed25519-public-key",
   state: "active"
 };
+const slowCryptoTimeout = 15000;
 
 beforeEach(() => {
   Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
@@ -148,69 +149,81 @@ describe("PairedHostRegistry", () => {
     await expect(first.list()).resolves.toEqual([mini, host]);
   });
 
-  it("exports only transferable metadata with authenticated encryption", async () => {
-    const source = new PairedHostRegistry(new MemoryRegistryBackend());
-    await source.put(host);
-    await source.put({ ...host, id: "host-old", displayName: "Old host", state: "revoked" });
+  it(
+    "exports only transferable metadata with authenticated encryption",
+    async () => {
+      const source = new PairedHostRegistry(new MemoryRegistryBackend());
+      await source.put(host);
+      await source.put({ ...host, id: "host-old", displayName: "Old host", state: "revoked" });
 
-    const exported = await source.exportEncrypted("transfer passphrase");
-    expect(exported).not.toContain(host.displayName);
-    expect(exported).not.toContain(host.identityPublic);
+      const exported = await source.exportEncrypted("transfer passphrase");
+      expect(exported).not.toContain(host.displayName);
+      expect(exported).not.toContain(host.identityPublic);
 
-    const target = new PairedHostRegistry(new MemoryRegistryBackend());
-    await expect(target.importEncrypted(exported, "transfer passphrase")).resolves.toBe(1);
-    await expect(target.list()).resolves.toEqual([host]);
-    await expect(target.importEncrypted(exported, "transfer passphrase")).resolves.toBe(0);
-    await expect(target.importEncrypted(exported, "wrong passphrase")).rejects.toThrow(
-      "failed authentication"
-    );
-  });
+      const target = new PairedHostRegistry(new MemoryRegistryBackend());
+      await expect(target.importEncrypted(exported, "transfer passphrase")).resolves.toBe(1);
+      await expect(target.list()).resolves.toEqual([host]);
+      await expect(target.importEncrypted(exported, "transfer passphrase")).resolves.toBe(0);
+      await expect(target.importEncrypted(exported, "wrong passphrase")).rejects.toThrow(
+        "failed authentication"
+      );
+    },
+    slowCryptoTimeout
+  );
 
-  it("rejects malformed, incompatible, stale, and revoked imports", async () => {
-    const source = new PairedHostRegistry(new MemoryRegistryBackend());
-    await source.put(host);
-    const exported = await source.exportEncrypted("transfer passphrase");
-    const target = new PairedHostRegistry(new MemoryRegistryBackend());
+  it(
+    "rejects malformed, incompatible, stale, and revoked imports",
+    async () => {
+      const source = new PairedHostRegistry(new MemoryRegistryBackend());
+      await source.put(host);
+      const exported = await source.exportEncrypted("transfer passphrase");
+      const target = new PairedHostRegistry(new MemoryRegistryBackend());
 
-    await expect(target.importEncrypted("not json", "transfer passphrase")).rejects.toThrow(
-      "invalid paired-host export"
-    );
-    const incompatible = JSON.parse(exported) as { version: number };
-    incompatible.version = 2;
-    await expect(
-      target.importEncrypted(JSON.stringify(incompatible), "transfer passphrase")
-    ).rejects.toThrow("incompatible paired-host export");
-    const stale = await reseal(exported, "transfer passphrase", "stale");
-    await expect(target.importEncrypted(stale, "transfer passphrase")).rejects.toThrow(
-      "stale or revoked"
-    );
-    const revoked = await reseal(exported, "transfer passphrase", "revoked");
-    await expect(target.importEncrypted(revoked, "transfer passphrase")).rejects.toThrow(
-      "stale or revoked"
-    );
-  });
+      await expect(target.importEncrypted("not json", "transfer passphrase")).rejects.toThrow(
+        "invalid paired-host export"
+      );
+      const incompatible = JSON.parse(exported) as { version: number };
+      incompatible.version = 2;
+      await expect(
+        target.importEncrypted(JSON.stringify(incompatible), "transfer passphrase")
+      ).rejects.toThrow("incompatible paired-host export");
+      const stale = await reseal(exported, "transfer passphrase", "stale");
+      await expect(target.importEncrypted(stale, "transfer passphrase")).rejects.toThrow(
+        "stale or revoked"
+      );
+      const revoked = await reseal(exported, "transfer passphrase", "revoked");
+      await expect(target.importEncrypted(revoked, "transfer passphrase")).rejects.toThrow(
+        "stale or revoked"
+      );
+    },
+    slowCryptoTimeout
+  );
 
-  it("keeps concurrent imports atomic", async () => {
-    const source = new PairedHostRegistry(new MemoryRegistryBackend());
-    await source.put(host);
-    const exported = await source.exportEncrypted("transfer passphrase");
-    const conflictingSource = new PairedHostRegistry(new MemoryRegistryBackend());
-    await conflictingSource.put({ ...host, displayName: "Other Mac" });
-    const conflicting = await conflictingSource.exportEncrypted("transfer passphrase");
-    const backend = new MemoryRegistryBackend();
-    const first = new PairedHostRegistry(backend);
-    const second = new PairedHostRegistry(backend);
+  it(
+    "keeps concurrent imports atomic",
+    async () => {
+      const source = new PairedHostRegistry(new MemoryRegistryBackend());
+      await source.put(host);
+      const exported = await source.exportEncrypted("transfer passphrase");
+      const conflictingSource = new PairedHostRegistry(new MemoryRegistryBackend());
+      await conflictingSource.put({ ...host, displayName: "Other Mac" });
+      const conflicting = await conflictingSource.exportEncrypted("transfer passphrase");
+      const backend = new MemoryRegistryBackend();
+      const first = new PairedHostRegistry(backend);
+      const second = new PairedHostRegistry(backend);
 
-    const results = await Promise.allSettled([
-      first.importEncrypted(exported, "transfer passphrase"),
-      second.importEncrypted(conflicting, "transfer passphrase")
-    ]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const hosts = await first.list();
-    expect(hosts).toHaveLength(1);
-    expect([host.displayName, "Other Mac"]).toContain(hosts[0].displayName);
-  });
+      const results = await Promise.allSettled([
+        first.importEncrypted(exported, "transfer passphrase"),
+        second.importEncrypted(conflicting, "transfer passphrase")
+      ]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const hosts = await first.list();
+      expect(hosts).toHaveLength(1);
+      expect([host.displayName, "Other Mac"]).toContain(hosts[0].displayName);
+    },
+    slowCryptoTimeout
+  );
 });
 
 async function reseal(

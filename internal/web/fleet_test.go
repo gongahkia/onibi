@@ -276,7 +276,7 @@ func TestFleetStatusAggregatesOwnerHomeReadModel(t *testing.T) {
 		if !opts.IncludeRemote {
 			t.Fatal("fleet status must request remote sessions")
 		}
-		return []SessionSummary{{ID: "session-home", Agent: "claude", LastActivity: now.Format(time.RFC3339Nano), PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryOrphaned, RecoveryReason: "tmux reconnect timed out", RecoveryUpdatedAt: now.Format(time.RFC3339Nano), RoleRequired: "owner"}}, nil
+		return []SessionSummary{{ID: "session-home", HostID: host.ID, Agent: "claude", LastActivity: now.Format(time.RFC3339Nano), PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryOrphaned, RecoveryReason: "tmux reconnect timed out", RecoveryUpdatedAt: now.Format(time.RFC3339Nano), RoleRequired: "owner"}}, nil
 	}
 	approvalID, _, err := srv.approvalQueue.Request(context.Background(), "session-home", "claude", "Bash", `{"secret":"must-not-leak"}`)
 	if err != nil {
@@ -311,7 +311,7 @@ func TestFleetStatusAggregatesOwnerHomeReadModel(t *testing.T) {
 	if err := status.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Hosts) != 1 || status.Hosts[0].ID != host.ID || len(status.Sessions) != 1 || status.Sessions[0].State != string(SessionStateAwaitingApproval) || status.Sessions[0].RecoveryState != fleet.SessionRecoveryOrphaned || status.Sessions[0].RecoveryReason != "tmux reconnect timed out" || len(status.PendingApprovals) != 1 || status.PendingApprovals[0].ID != approvalID {
+	if len(status.Hosts) != 1 || status.Hosts[0].ID != host.ID || len(status.Sessions) != 1 || status.Sessions[0].HostID != host.ID || status.Sessions[0].State != string(SessionStateAwaitingApproval) || status.Sessions[0].RecoveryState != fleet.SessionRecoveryOrphaned || status.Sessions[0].RecoveryReason != "tmux reconnect timed out" || len(status.PendingApprovals) != 1 || status.PendingApprovals[0].ID != approvalID {
 		t.Fatalf("fleet status = %#v", status)
 	}
 	var wg sync.WaitGroup

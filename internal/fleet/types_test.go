@@ -108,7 +108,7 @@ func TestHomeStatusValidatesVersionAndRedactedApprovalMetadata(t *testing.T) {
 		Version:     ProtocolVersion,
 		GeneratedAt: now,
 		Hosts:       []Host{testHost(t)},
-		Sessions:    []HomeSessionStatus{{ID: "session-1", Agent: "claude", State: "awaiting-approval", LastActivity: now, PendingApprovals: 1, RecoveryState: SessionRecoveryOrphaned, RecoveryReason: "tmux reconnect timed out", RecoveryUpdatedAt: now}},
+		Sessions:    []HomeSessionStatus{{ID: "session-1", HostID: "host-macbook", Agent: "claude", State: "awaiting-approval", LastActivity: now, PendingApprovals: 1, RecoveryState: SessionRecoveryOrphaned, RecoveryReason: "tmux reconnect timed out", RecoveryUpdatedAt: now}},
 		PendingApprovals: []HomeApprovalStatus{{
 			ID: "approval-1", SessionID: "session-1", Agent: "claude", Tool: "Bash", State: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute),
 		}},
@@ -116,6 +116,11 @@ func TestHomeStatusValidatesVersionAndRedactedApprovalMetadata(t *testing.T) {
 	if err := status.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	status.Sessions[0].HostID = "unknown-host"
+	if err := status.Validate(); err == nil || !strings.Contains(err.Error(), "unknown host") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	status.Sessions[0].HostID = "host-macbook"
 	status.Version++
 	if err := status.Validate(); err == nil {
 		t.Fatal("expected incompatible home status error")
