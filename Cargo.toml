@@ -18,6 +18,7 @@ repository = "https://github.com/gongahkia/yeokcham"
 
 [workspace.dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
+minicbor = { version = "2.2.2", features = ["std"] }
 thiserror = "2.0.17"
 tracing = "0.1.41"
 zeroize = { version = "1.8.2", features = ["derive"] }
