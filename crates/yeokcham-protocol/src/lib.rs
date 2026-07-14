@@ -17,6 +17,7 @@ mod negotiation;
 mod qr_verification;
 mod recipient_capability;
 mod safety_number;
+mod signed_prekey;
 mod signing;
 mod tor_maildrop_profile;
 mod version;
@@ -70,6 +71,10 @@ pub use recipient_capability::{
 };
 pub use safety_number::{
     SAFETY_NUMBER_FINGERPRINT_BYTES, SafetyNumberError, SafetyNumberFingerprint,
+};
+pub use signed_prekey::{
+    SIGNED_PREKEY_INITIAL_GENERATION, SIGNED_PREKEY_SCHEMA_VERSION, SignedPrekey,
+    SignedPrekeyError, SignedPrekeyPublic,
 };
 pub use signing::SigningInputError;
 pub use tor_maildrop_profile::{
