@@ -41,6 +41,16 @@ impl VersionRange {
         self.minimum.get() <= version.get() && version.get() <= self.maximum.get()
     }
 
+    #[must_use]
+    pub const fn minimum(self) -> ProtocolVersion {
+        self.minimum
+    }
+
+    #[must_use]
+    pub const fn maximum(self) -> ProtocolVersion {
+        self.maximum
+    }
+
     pub fn negotiate(self, peer: Self) -> Result<ProtocolVersion> {
         let maximum = self.maximum.min(peer.maximum);
         if self.contains(maximum) && peer.contains(maximum) {
