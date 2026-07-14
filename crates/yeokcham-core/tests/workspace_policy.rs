@@ -65,3 +65,25 @@ fn ci_audits_dependencies_on_every_change_and_weekly() {
     assert!(workflow.contains("cargo install cargo-audit --version 0.22.2 --locked"));
     assert!(workflow.contains("cargo audit --deny warnings"));
 }
+
+#[test]
+fn ci_enforces_the_dependency_license_allowlist() {
+    let policy = fs::read_to_string(workspace_file("deny.toml"))
+        .expect("workspace must include dependency policy");
+    for license in ["Apache-2.0", "BlueOak-1.0.0", "MIT", "Unicode-3.0"] {
+        assert!(
+            policy.contains(license),
+            "license policy must allow {license}"
+        );
+    }
+    assert!(policy.contains("confidence-threshold = 0.8"));
+
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("  licenses:\n    runs-on: ubuntu-latest"));
+    assert!(
+        workflow
+            .contains("EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25")
+    );
+    assert!(workflow.contains("command-arguments: licenses"));
+}

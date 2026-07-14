@@ -35,3 +35,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo install cargo-audit --version 0.22.2 --locked
       - run: cargo audit --deny warnings
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          command-arguments: licenses
+          rust-version: "1.93.0"

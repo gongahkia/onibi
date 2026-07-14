@@ -1,0 +1,3 @@
+[licenses]
+confidence-threshold = 0.8
+allow = ["Apache-2.0", "BlueOak-1.0.0", "MIT", "Unicode-3.0"]
