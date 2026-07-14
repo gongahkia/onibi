@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/capability"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -27,6 +29,35 @@ func TestDoctorFlagsMissingStoreKey(t *testing.T) {
 	}
 	if !strings.Contains(check.Detail, "missing") {
 		t.Fatalf("detail = %q", check.Detail)
+	}
+}
+
+func TestDoctorPlatformPolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		goos    string
+		version string
+		status  Status
+		detail  string
+	}{
+		{name: "macOS release host", mode: "release", goos: "darwin", version: "14.5.1", status: Pass, detail: "v1 release host"},
+		{name: "old macOS", mode: "release", goos: "darwin", version: "13.6.7", status: Fail, detail: "below the v1 minimum"},
+		{name: "Linux beta", mode: "preflight", goos: "linux", status: Warn, detail: "Linux is beta"},
+		{name: "Linux release", mode: "release", goos: "linux", status: Fail, detail: "requires macOS 14+"},
+		{name: "unsupported host", mode: "preflight", goos: "freebsd", status: Fail, detail: "unsupported host freebsd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := Run(context.Background(), Options{Paths: doctorTestPaths(t, "lan"), Mode: tt.mode, GOOS: tt.goos, OSVersion: tt.version})
+			check := checkNamed(t, report, "platform")
+			if check.Status != tt.status || !strings.Contains(check.Detail, tt.detail) {
+				t.Fatalf("platform check = %#v", check)
+			}
+			if tt.status == Fail && !slices.Contains(check.Blocks, "release") {
+				t.Fatalf("platform blocks = %#v", check.Blocks)
+			}
+		})
 	}
 }
 
@@ -251,6 +282,9 @@ func doctorTestPaths(t *testing.T, mode string) config.Paths {
 	}
 	cfg := config.Default()
 	cfg.Transport.Mode = mode
+	if capability.IsDeferredProviderTransport(mode) {
+		cfg.Experimental.Providers = true
+	}
 	if err := config.Save(paths.Config, cfg); err != nil {
 		t.Fatal(err)
 	}

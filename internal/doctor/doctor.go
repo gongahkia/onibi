@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +82,8 @@ type Options struct {
 	Transport    string
 	NotifyBin    string
 	AfterUpgrade bool
+	GOOS         string
+	OSVersion    string
 }
 
 func Run(ctx context.Context, opts Options) Report {
@@ -121,6 +125,7 @@ func (r *runner) run() {
 	default:
 		r.add("doctor mode", Fail, "invalid mode "+r.opts.Mode)
 	}
+	r.checkPlatform()
 	r.checkStateDir()
 	r.checkEnvFile()
 	r.checkStoreKey()
@@ -140,6 +145,73 @@ func (r *runner) run() {
 	if r.opts.AfterUpgrade {
 		r.checkAfterUpgradeHooks()
 	}
+}
+
+func (r *runner) checkPlatform() {
+	switch r.hostOS() {
+	case "darwin":
+		version, err := r.macOSVersion()
+		if err != nil {
+			r.addPlatform(Fail, "cannot verify macOS version: "+err.Error(), "install macOS 14+ and rerun onibi doctor --release")
+			return
+		}
+		major, err := macOSMajor(version)
+		if err != nil {
+			r.addPlatform(Fail, "cannot parse macOS version "+strconv.Quote(version), "install macOS 14+ and rerun onibi doctor --release")
+			return
+		}
+		if major < 14 {
+			r.addPlatform(Fail, "macOS "+version+" is below the v1 minimum of macOS 14", "upgrade to macOS 14+ and rerun onibi doctor --release")
+			return
+		}
+		r.add("platform", Pass, "macOS "+version+" is a v1 release host (Keychain + launchd)")
+	case "linux":
+		if r.opts.Mode == "release" {
+			r.addPlatform(Fail, "Linux is beta; v1 release approval requires macOS 14+ with Keychain and launchd", "run scripts/macos-release-gate.sh on macOS 14+")
+			return
+		}
+		r.addPlatform(Warn, "Linux is beta; Secret Service and systemd user-service coverage are required before deployment", "run scripts/linux-beta-smoke.sh and do not use Linux for v1 release approval")
+	default:
+		r.addPlatform(Fail, "unsupported host "+r.hostOS()+"; v1 supports macOS 14+ and Linux beta only", "use macOS 14+ for v1 release approval")
+	}
+}
+
+func (r *runner) hostOS() string {
+	if goos := strings.ToLower(strings.TrimSpace(r.opts.GOOS)); goos != "" {
+		return goos
+	}
+	return runtime.GOOS
+}
+
+func (r *runner) macOSVersion() (string, error) {
+	if version := strings.TrimSpace(r.opts.OSVersion); version != "" {
+		return version, nil
+	}
+	out, err := exec.CommandContext(r.ctx, "sw_vers", "-productVersion").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func macOSMajor(version string) (int, error) {
+	major, _, _ := strings.Cut(strings.TrimSpace(version), ".")
+	return strconv.Atoi(major)
+}
+
+func (r *runner) addPlatform(st Status, detail, next string) {
+	c := Check{Name: "platform", Status: st, Detail: detail, Code: "platform"}
+	if st != Pass {
+		c.Impact = "This host cannot satisfy the v1 release security and service-runtime requirements."
+		c.SafeFix = next
+		c.ManualFix = "verify the host OS, credential backend, and user service manually"
+		c.Retry = "onibi doctor"
+		c.Next = next
+		if st == Fail {
+			c.Blocks = []string{"release"}
+		}
+	}
+	r.checks = append(r.checks, c)
 }
 
 func (r *runner) checkStateDir() {

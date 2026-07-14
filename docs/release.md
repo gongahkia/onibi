@@ -22,12 +22,15 @@ make build
 ./bin/onibi update-check --repo .
 ./bin/onibi doctor --after-upgrade --offline
 ./bin/onibi doctor --release --offline
+scripts/macos-release-gate.sh
 goreleaser release --snapshot --clean
 scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
-The real-machine install walkthrough is
+The macOS gate is release-blocking. Linux is beta-only; run
+[`linux-beta.md`](./linux-beta.md) separately and do not substitute Linux
+evidence for the macOS gate. The real-machine install walkthrough is
 [`fresh-machine-smoke.md`](./fresh-machine-smoke.md). Run it on a stock macOS
 14+ user and a stock Ubuntu 24.04 VM before closing release-readiness issues.
 

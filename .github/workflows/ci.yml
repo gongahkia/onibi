@@ -28,6 +28,44 @@ jobs:
       - name: go test
         run: go test -race -count=1 $(scripts/go-packages.sh)
 
+  linux-beta:
+    name: linux beta matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: run Linux beta smoke
+        run: scripts/linux-beta-smoke.sh "$RUNNER_TEMP/onibi-linux-beta"
+      - name: upload Linux beta evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-beta-evidence
+          path: ${{ runner.temp }}/onibi-linux-beta
+          if-no-files-found: error
+
+  macos-release-gate:
+    name: macOS release gate
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: run macOS release gate
+        run: scripts/macos-release-gate.sh "$RUNNER_TEMP/onibi-macos-release"
+      - name: upload macOS release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-evidence
+          path: ${{ runner.temp }}/onibi-macos-release
+          if-no-files-found: error
+
   lint:
     name: staticcheck
     runs-on: ubuntu-latest
