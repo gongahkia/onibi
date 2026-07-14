@@ -426,6 +426,13 @@ func (q *Queue) DropWaiter(id string) {
 	q.mu.Unlock()
 }
 
+func (q *Queue) InvalidateWaiters(ids []string, reason string) {
+	decision := Decision{Verdict: VerdictCancel, Reason: reason, DecidedAt: time.Now().UTC().Unix()}
+	for _, id := range ids {
+		q.deliver(id, decision)
+	}
+}
+
 func (q *Queue) publish(ev Event) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

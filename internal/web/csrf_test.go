@@ -95,6 +95,7 @@ func TestCSRFAllMutatingEndpointsRejectMissing(t *testing.T) {
 		{http.MethodPost, "/snapshots/snap/fork", `{"turn":1,"new_prompt":"go"}`},
 		{http.MethodPost, "/anomaly/allowlist", `{"session_id":"s1","rule_name":"rule"}`},
 		{http.MethodPost, "/trust/runtime", `{"session_id":"s1","tool":"Edit"}`},
+		{http.MethodPost, "/fleet/revoke", `{"version":1,"host_id":"host-1"}`},
 		{http.MethodPut, "/files/content?session=s1&path=x", `{"content":"x"}`},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))

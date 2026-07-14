@@ -149,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/fleet/enroll/proof", s.handleFleetEnrollmentProof)
 	mux.HandleFunc("/fleet/rotate/challenge", s.handleFleetKeyRotationChallenge)
 	mux.HandleFunc("/fleet/rotate/proof", s.handleFleetKeyRotationProof)
+	mux.HandleFunc("/fleet/revoke", s.handleFleetRevoke)
 	mux.HandleFunc("/fleet/heartbeat", s.handleFleetHeartbeat)
 	mux.HandleFunc("/fleet/link", s.handleFleetLink)
 	mux.HandleFunc("/share", s.handleShare)

@@ -114,6 +114,21 @@ type KeyRotationRequest struct {
 	NewIdentityPublic string `json:"new_identity_public"`
 }
 
+type RevocationRequest struct {
+	Version uint16 `json:"version"`
+	HostID  string `json:"host_id"`
+}
+
+func (r RevocationRequest) Validate() error {
+	if r.Version != ProtocolVersion {
+		return fmt.Errorf("fleet revocation version %d is incompatible with %d", r.Version, ProtocolVersion)
+	}
+	if !validID(r.HostID) {
+		return errors.New("invalid fleet revocation request")
+	}
+	return nil
+}
+
 func (r KeyRotationRequest) Validate() error {
 	if r.Version != ProtocolVersion {
 		return fmt.Errorf("fleet key rotation version %d is incompatible with %d", r.Version, ProtocolVersion)

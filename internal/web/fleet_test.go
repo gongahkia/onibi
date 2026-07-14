@@ -16,6 +16,7 @@ import (
 
 	approvals "github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestFleetEnrollmentRequiresOwnerCSRFAndVerifiesHostProof(t *testing.T) {
@@ -321,6 +322,80 @@ func TestFleetStatusAggregatesOwnerHomeReadModel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestFleetRevokeInvalidatesSessionsAndPendingActions(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.approvalQueue = approvals.New(srv.db, time.Minute)
+	host, private := testFleetLinkHost(t, srv)
+	approvalID, decisions, err := srv.approvalQueue.Request(context.Background(), "session-revoke", "claude", "Bash", `{"command":"echo keep"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := httptest.NewRecorder()
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), owner, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerCookie := owner.Result().Cookies()[0]
+	second := httptest.NewRecorder()
+	secondSessionID, err := srv.CreateOwnerSession(context.Background(), second, "tablet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(fleet.RevocationRequest{Version: fleet.ProtocolVersion, HostID: host.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingCSRF := httptest.NewRequest(http.MethodPost, "/fleet/revoke", strings.NewReader(string(body)))
+	missingCSRF.AddCookie(ownerCookie)
+	missingCSRFW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(missingCSRFW, missingCSRF)
+	if missingCSRFW.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf revoke = %d", missingCSRFW.Code)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/fleet/revoke", strings.NewReader(string(body)))
+	req.AddCookie(ownerCookie)
+	addCSRF(req, ownerSessionID)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fleet revoke = %d body=%s", w.Code, w.Body.String())
+	}
+	revoked, ok, err := srv.db.FleetHostGet(context.Background(), host.ID)
+	if err != nil || !ok || revoked.State != fleet.HostStateRevoked || revoked.RevokedAt == nil {
+		t.Fatalf("revoked host=%#v ok=%v err=%v", revoked, ok, err)
+	}
+	for _, sessionID := range []string{ownerSessionID, secondSessionID} {
+		if status, err := srv.db.WebSessionStatus(context.Background(), sessionID); err != nil || status.Valid || status.Reason != store.WebSessionReasonFleetEmergency {
+			t.Fatalf("session %q status=%#v err=%v", sessionID, status, err)
+		}
+	}
+	approval, err := srv.approvalQueue.Get(context.Background(), approvalID)
+	if err != nil || approval.State != approvals.StateCancelled {
+		t.Fatalf("approval=%#v err=%v", approval, err)
+	}
+	select {
+	case decision := <-decisions:
+		if decision.Verdict != approvals.VerdictCancel {
+			t.Fatalf("revoke decision = %#v", decision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending action was not cancelled")
+	}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
+	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
+	heartbeatBody, err := json.Marshal(heartbeat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	heartbeatReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(heartbeatBody)))
+	heartbeatW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(heartbeatW, heartbeatReq)
+	if heartbeatW.Code != http.StatusNotFound {
+		t.Fatalf("revoked heartbeat = %d", heartbeatW.Code)
 	}
 }
 
