@@ -201,10 +201,19 @@ func LANResolved(port int, lanHosts []string, fallbackHost string) Resolved {
 }
 
 func resolveLAN(port int, lanHosts []string, fallbackHost string) (Resolved, error) {
-	if err := validateLANReachability(lanHosts, fallbackHost); err != nil {
+	routableHosts := make([]string, 0, len(lanHosts))
+	for _, host := range lanHosts {
+		if isRoutableLANHost(host) {
+			routableHosts = append(routableHosts, host)
+		}
+	}
+	if !isRoutableLANHost(fallbackHost) {
+		fallbackHost = ""
+	}
+	if err := validateLANReachability(routableHosts, fallbackHost); err != nil {
 		return Resolved{}, err
 	}
-	return LANResolved(port, lanHosts, fallbackHost), nil
+	return LANResolved(port, routableHosts, fallbackHost), nil
 }
 
 func validateLANReachability(lanHosts []string, fallbackHost string) error {
@@ -226,7 +235,7 @@ func isRoutableLANHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return true
+		return !strings.ContainsAny(host, `/\\@?#:`)
 	}
 	return !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsMulticast() && !ip.IsLinkLocalUnicast()
 }

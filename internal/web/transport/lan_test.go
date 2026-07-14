@@ -91,6 +91,78 @@ func TestLANResolveAllowsHostnameFallback(t *testing.T) {
 	}
 }
 
+func TestLANResolveFiltersUnroutableTargets(t *testing.T) {
+	pt, err := Resolve(t.Context(), ResolverOptions{
+		Mode:         "lan",
+		Port:         18443,
+		LANHosts:     []string{"127.0.0.1", "169.254.1.2", "172.20.10.2"},
+		FallbackHost: "localhost",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pt.URLs("tok"); len(got) != 1 || got[0] != "https://172.20.10.2:18443/pair/tok" {
+		t.Fatalf("urls=%#v", got)
+	}
+}
+
+func TestLANLifecycleIPv4IPv6AndHotspotContract(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		host string
+		pair string
+	}{
+		{name: "ipv4", host: "192.168.1.20", pair: "https://192.168.1.20:18443/pair/pair-token"},
+		{name: "ipv6", host: "fd00::20", pair: "https://[fd00::20]:18443/pair/pair-token"},
+		{name: "hotspot", host: "172.20.10.2", pair: "https://172.20.10.2:18443/pair/pair-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := NewLifecycle(ResolverOptions{Mode: "lan", Port: 18443, LANHosts: []string{tc.host}})
+			if _, err := session.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if health, err := session.Health(t.Context()); err != nil || !health.Healthy || health.State != LifecycleHealthy {
+				t.Fatalf("health=%#v err=%v", health, err)
+			}
+			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != tc.pair {
+				t.Fatalf("urls=%#v err=%v", urls, err)
+			}
+			candidate, err := session.Enrollment()
+			if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" || candidate.Endpoint.URL != strings.TrimSuffix(tc.pair, "/pair/pair-token") {
+				t.Fatalf("candidate=%#v err=%v", candidate, err)
+			}
+			if _, err := session.Reconnect(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if health, err := session.Health(t.Context()); err != nil || !health.Healthy || health.State != LifecycleHealthy {
+				t.Fatalf("restarted health=%#v err=%v", health, err)
+			}
+			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != tc.pair {
+				t.Fatalf("restarted urls=%#v err=%v", urls, err)
+			}
+			if err := session.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := session.Health(t.Context()); err == nil {
+				t.Fatal("expected stopped lifecycle health failure")
+			}
+		})
+	}
+}
+
+func TestLANClientIsolationDiagnosticFailsClosed(t *testing.T) {
+	_, err := Resolve(t.Context(), ResolverOptions{
+		Mode:         "lan",
+		Port:         18443,
+		LANHosts:     []string{"127.0.0.1", "::1", "169.254.1.2"},
+		FallbackHost: "localhost",
+	})
+	var diagnostic *DiagnosticError
+	if err == nil || !errors.As(err, &diagnostic) || diagnostic.Code != DiagLANUnreachable || !strings.Contains(err.Error(), "client isolation") {
+		t.Fatalf("err=%v diagnostic=%#v", err, diagnostic)
+	}
+}
+
 func TestResolvedTargetURLsUseProviderBaseURL(t *testing.T) {
 	pt := Resolved{Mode: ModeTailscale, BaseURL: "https://dev.tail.ts.net/"}
 	got := pt.TargetURLs()

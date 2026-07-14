@@ -157,6 +157,17 @@ func (s *Session) Enrollment() (EnrollmentCandidate, error) {
 	}
 	endpoint := fleet.Endpoint{URL: resolved.RedactedBaseURL()}
 	switch resolved.Mode {
+	case ModeLAN:
+		for _, target := range resolved.TargetURLs() {
+			candidate := fleet.Endpoint{Kind: fleet.EndpointMesh, URL: target}
+			if candidate.Validate() == nil {
+				endpoint = candidate
+				break
+			}
+		}
+		if endpoint.Kind == "" {
+			return EnrollmentCandidate{}, errors.New("transport does not provide a valid fleet enrollment endpoint")
+		}
 	case ModeTailscale, ModeWireGuard, ModeZeroTier:
 		endpoint.Kind = fleet.EndpointMesh
 	case ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
