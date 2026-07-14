@@ -3,9 +3,11 @@ package transport
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/faulttest"
+	"github.com/gongahkia/onibi/internal/fleet"
 )
 
 func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T) {
@@ -33,6 +35,85 @@ func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T
 	}
 	if provider.enables != 2 || provider.disables != 2 {
 		t.Fatalf("enables=%d disables=%d", provider.enables, provider.disables)
+	}
+}
+
+func TestTransportConformance(t *testing.T) {
+	for _, tc := range []struct {
+		mode Mode
+		url  string
+		kind fleet.EndpointKind
+	}{
+		{mode: ModeTailscale, url: "https://public.example.test", kind: fleet.EndpointRelay},
+		{mode: ModeTailscalePrivate, url: "https://node.tail.ts.net", kind: fleet.EndpointMesh},
+		{mode: ModeWireGuard, url: "https://100.64.0.2:8443", kind: fleet.EndpointMesh},
+		{mode: ModeZeroTier, url: "https://10.147.20.4:8443", kind: fleet.EndpointMesh},
+		{mode: ModeCloudflareQuick, url: "https://quick.trycloudflare.com", kind: fleet.EndpointRelay},
+		{mode: ModeCloudflareNamed, url: "https://named.example.test", kind: fleet.EndpointRelay},
+		{mode: ModeNgrok, url: "https://demo.ngrok-free.app", kind: fleet.EndpointRelay},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			provider := &faulttest.Provider{URLValue: tc.url}
+			session := NewLifecycle(ResolverOptions{Mode: string(tc.mode), Port: 8443, Providers: conformanceProviderFactory(tc.mode, provider)})
+			if _, err := session.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+				t.Fatalf("health=%#v err=%v", report, err)
+			}
+			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != strings.TrimRight(tc.url, "/")+"/pair/pair-token" {
+				t.Fatalf("urls=%#v err=%v", urls, err)
+			}
+			candidate, err := session.Enrollment()
+			if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != tc.kind {
+				t.Fatalf("candidate=%#v err=%v", candidate, err)
+			}
+			provider.SetCheckError(Diagnostic(DiagActivationLag, string(tc.mode), "fault injected transport loss", errors.New("network reset")))
+			if _, err := session.Health(t.Context()); err == nil {
+				t.Fatal("expected health failure")
+			}
+			provider.SetCheckError(nil)
+			if _, err := session.Reconnect(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+				t.Fatalf("recovered health=%#v err=%v", report, err)
+			}
+			if err := session.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if enables, disables := provider.Counts(); enables != 2 || disables != 2 {
+				t.Fatalf("enables=%d disables=%d", enables, disables)
+			}
+			if ports := provider.Ports(); len(ports) != 2 || ports[0] != 8443 || ports[1] != 8443 {
+				t.Fatalf("ports=%#v", ports)
+			}
+			diagnostics := session.Diagnostics()
+			if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+				t.Fatalf("diagnostics=%#v", diagnostics)
+			}
+		})
+	}
+}
+
+func conformanceProviderFactory(mode Mode, provider Provider) ProviderFactory {
+	switch mode {
+	case ModeTailscale:
+		return ProviderFactory{Tailscale: func() Provider { return provider }}
+	case ModeTailscalePrivate:
+		return ProviderFactory{TailscalePrivate: func() Provider { return provider }}
+	case ModeWireGuard:
+		return ProviderFactory{WireGuard: func() Provider { return provider }}
+	case ModeZeroTier:
+		return ProviderFactory{ZeroTier: func() Provider { return provider }}
+	case ModeCloudflareQuick:
+		return ProviderFactory{CloudflareQuick: func() Provider { return provider }}
+	case ModeCloudflareNamed:
+		return ProviderFactory{CloudflareNamed: func() Provider { return provider }}
+	case ModeNgrok:
+		return ProviderFactory{Ngrok: func() Provider { return provider }}
+	default:
+		panic("unsupported conformance transport " + string(mode))
 	}
 }
 

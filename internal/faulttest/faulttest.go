@@ -159,6 +159,7 @@ type Provider struct {
 	DisableErr error
 	enables    int
 	disables   int
+	ports      []int
 }
 
 func (p *Provider) Check(context.Context) error {
@@ -167,10 +168,11 @@ func (p *Provider) Check(context.Context) error {
 	return p.CheckErr
 }
 
-func (p *Provider) Enable(context.Context, int) error {
+func (p *Provider) Enable(_ context.Context, port int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.enables++
+	p.ports = append(p.ports, port)
 	return p.EnableErr
 }
 
@@ -197,4 +199,10 @@ func (p *Provider) Counts() (int, int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.enables, p.disables
+}
+
+func (p *Provider) Ports() []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]int(nil), p.ports...)
 }
