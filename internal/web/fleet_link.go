@@ -27,6 +27,7 @@ const (
 
 type fleetLinkConnection struct {
 	hostID         string
+	ownerID        string
 	identityPublic string
 	conn           *websocket.Conn
 	mu             sync.Mutex
@@ -93,6 +94,15 @@ func (s *Server) handleFleetLink(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "unknown fleet host")
 		return
 	}
+	ownerID, err := s.db.FleetOwnerID(ctx)
+	if err != nil {
+		_ = conn.Close(websocket.StatusInternalError, "fleet link unavailable")
+		return
+	}
+	if auth.OwnerID != ownerID || host.OwnerID != ownerID {
+		_ = conn.Close(websocket.StatusPolicyViolation, "unknown fleet host")
+		return
+	}
 	public, err := decodeEd25519Public(host.IdentityPublic)
 	if err != nil {
 		_ = conn.Close(websocket.StatusInternalError, "invalid fleet host identity")
@@ -110,6 +120,7 @@ func (s *Server) handleFleetLink(w http.ResponseWriter, r *http.Request) {
 	}
 	accepted := fleet.LinkAccepted{
 		Version:     fleet.ProtocolVersion,
+		OwnerID:     ownerID,
 		HostID:      host.ID,
 		ChallengeID: challenge.ID,
 		Nonce:       challenge.Nonce,
@@ -119,7 +130,7 @@ func (s *Server) handleFleetLink(w http.ResponseWriter, r *http.Request) {
 	if err := writeFleetLink(ctx, conn, accepted); err != nil {
 		return
 	}
-	link := &fleetLinkConnection{hostID: host.ID, identityPublic: host.IdentityPublic, conn: conn}
+	link := &fleetLinkConnection{hostID: host.ID, ownerID: ownerID, identityPublic: host.IdentityPublic, conn: conn}
 	previous := s.setFleetLink(link)
 	if previous != nil {
 		_ = previous.conn.Close(websocket.StatusPolicyViolation, "replaced by newer fleet link")
@@ -158,6 +169,13 @@ func (s *Server) SendFleetControl(ctx context.Context, control fleet.Control) er
 	if !ok || host.State != fleet.HostStateActive {
 		return errors.New("fleet host unavailable")
 	}
+	ownerID, err := s.db.FleetOwnerID(ctx)
+	if err != nil {
+		return err
+	}
+	if control.OwnerID != ownerID || host.OwnerID != ownerID {
+		return errors.New("fleet host owner mismatch")
+	}
 	s.fleetLinkMu.Lock()
 	link := s.fleetLinks[control.HostID]
 	s.fleetLinkMu.Unlock()
@@ -167,6 +185,10 @@ func (s *Server) SendFleetControl(ctx context.Context, control fleet.Control) er
 	if link.identityPublic != host.IdentityPublic {
 		s.closeFleetLink(control.HostID)
 		return errors.New("fleet host identity changed")
+	}
+	if link.ownerID != ownerID {
+		s.closeFleetLink(control.HostID)
+		return errors.New("fleet host owner changed")
 	}
 	body, err := json.Marshal(control)
 	if err != nil {
@@ -199,6 +221,13 @@ func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame f
 	if !ok || !fleetHostCanHeartbeat(host.State) {
 		return errors.New("fleet host unavailable")
 	}
+	ownerID, err := s.db.FleetOwnerID(ctx)
+	if err != nil {
+		return err
+	}
+	if host.OwnerID != ownerID {
+		return errors.New("fleet host owner mismatch")
+	}
 	public, err := decodeEd25519Public(host.IdentityPublic)
 	if err != nil {
 		return err
@@ -214,7 +243,7 @@ func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame f
 	if err := heartbeat.Validate(); err != nil {
 		return err
 	}
-	if heartbeat.HostID != hostID || !heartbeat.SentAt.Equal(frame.Envelope.SentAt) {
+	if heartbeat.OwnerID != ownerID || heartbeat.HostID != hostID || !heartbeat.SentAt.Equal(frame.Envelope.SentAt) {
 		return errors.New("fleet heartbeat link mismatch")
 	}
 	now := time.Now().UTC()

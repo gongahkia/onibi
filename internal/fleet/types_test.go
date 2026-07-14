@@ -142,7 +142,7 @@ func TestEnrollmentSigningPayloadBindsChallengeAndHostIdentity(t *testing.T) {
 }
 
 func TestHeartbeatSigningPayloadNormalizesCapabilities(t *testing.T) {
-	heartbeat := Heartbeat{Version: ProtocolVersion, HostID: "host-macbook", SentAt: time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC), BinaryVersion: "v1.0.0", Capabilities: []string{"session.read", "APPROVAL.WRITE", "session.read"}, Signature: "signature"}
+	heartbeat := Heartbeat{Version: ProtocolVersion, OwnerID: "owner-local", HostID: "host-macbook", SentAt: time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC), BinaryVersion: "v1.0.0", Capabilities: []string{"session.read", "APPROVAL.WRITE", "session.read"}, Signature: "signature"}
 	if err := heartbeat.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestKeyRotationProtocolValidationAndBinding(t *testing.T) {
 
 func TestLinkProtocolBindsChallengeAndFrames(t *testing.T) {
 	challenge := LinkChallenge{Version: ProtocolVersion, ID: "link-123", Nonce: "nonce", ExpiresAt: time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC)}
-	auth := LinkAuthenticate{Version: ProtocolVersion, HostID: "host-macbook", ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Date(2026, 7, 14, 1, 2, 0, 0, time.UTC), Signature: "signature"}
+	auth := LinkAuthenticate{Version: ProtocolVersion, OwnerID: "owner-local", HostID: "host-macbook", ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Date(2026, 7, 14, 1, 2, 0, 0, time.UTC), Signature: "signature"}
 	if err := challenge.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestLinkProtocolBindsChallengeAndFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := string(LinkAuthenticateSigningPayload(challenge, auth))
-	for _, want := range []string{challenge.ID, challenge.Nonce, auth.HostID, auth.SentAt.UTC().Format(time.RFC3339Nano)} {
+	for _, want := range []string{challenge.ID, challenge.Nonce, auth.OwnerID, auth.HostID, auth.SentAt.UTC().Format(time.RFC3339Nano)} {
 		if !strings.Contains(payload, want) {
 			t.Fatalf("link authentication payload missing %q: %q", want, payload)
 		}

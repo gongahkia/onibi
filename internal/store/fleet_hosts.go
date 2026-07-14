@@ -177,6 +177,9 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 	if err := host.Validate(); err != nil {
 		return fleet.Host{}, false, err
 	}
+	if heartbeat.OwnerID != host.OwnerID {
+		return fleet.Host{}, false, errors.New("fleet heartbeat owner mismatch")
+	}
 	host.LastSeenAt = heartbeat.SentAt.UTC()
 	host.BinaryVersion = strings.TrimSpace(heartbeat.BinaryVersion)
 	host.Capabilities = normalizedFleetCapabilities(heartbeat.Capabilities)

@@ -20,6 +20,7 @@ import (
 )
 
 func TestFleetLinkReconnectsAndVerifiesHubControls(t *testing.T) {
+	const ownerID = "owner-local"
 	hostPublic, hostPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -51,12 +52,16 @@ func TestFleetLinkReconnectsAndVerifiesHubControls(t *testing.T) {
 		if err := wsjson.Read(ctx, conn, &auth); err != nil {
 			return
 		}
+		if auth.OwnerID != ownerID {
+			_ = conn.Close(websocket.StatusPolicyViolation, "invalid owner")
+			return
+		}
 		signature, err := base64.RawURLEncoding.DecodeString(auth.Signature)
 		if err != nil || !ed25519.Verify(hostPublic, fleet.LinkAuthenticateSigningPayload(challenge, auth), signature) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "invalid authentication")
 			return
 		}
-		accepted := fleet.LinkAccepted{Version: fleet.ProtocolVersion, HostID: auth.HostID, ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Now().UTC()}
+		accepted := fleet.LinkAccepted{Version: fleet.ProtocolVersion, OwnerID: auth.OwnerID, HostID: auth.HostID, ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Now().UTC()}
 		accepted.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(hubPrivate, fleet.LinkAcceptedSigningPayload(challenge, accepted)))
 		if err := wsjson.Write(ctx, conn, accepted); err != nil {
 			return
@@ -70,7 +75,7 @@ func TestFleetLinkReconnectsAndVerifiesHubControls(t *testing.T) {
 			return
 		}
 		heartbeats.Add(1)
-		control := fleet.Control{Version: fleet.ProtocolVersion, ID: "control-test", HostID: auth.HostID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)}
+		control := fleet.Control{Version: fleet.ProtocolVersion, ID: "control-test", OwnerID: auth.OwnerID, HostID: auth.HostID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)}
 		body, err := json.Marshal(control)
 		if err != nil {
 			return
@@ -88,6 +93,7 @@ func TestFleetLinkReconnectsAndVerifiesHubControls(t *testing.T) {
 	controls := make(chan fleet.Control, 2)
 	link, err := NewFleetLink(FleetLinkOptions{
 		HubURL:        "https://hub.example.test",
+		OwnerID:       ownerID,
 		HostID:        "host-daemon",
 		PrivateKey:    hostPrivate,
 		HubPublic:     hubPublic,
@@ -119,14 +125,14 @@ func TestFleetLinkReconnectsAndVerifiesHubControls(t *testing.T) {
 }
 
 func TestFleetLinkRequiresHTTPSHubURL(t *testing.T) {
-	_, err := NewFleetLink(FleetLinkOptions{HubURL: "http://hub.example.test", HostID: "host-daemon", PrivateKey: make(ed25519.PrivateKey, ed25519.PrivateKeySize), HubPublic: make(ed25519.PublicKey, ed25519.PublicKeySize), BinaryVersion: "v1.0.0"})
+	_, err := NewFleetLink(FleetLinkOptions{HubURL: "http://hub.example.test", OwnerID: "owner-local", HostID: "host-daemon", PrivateKey: make(ed25519.PrivateKey, ed25519.PrivateKeySize), HubPublic: make(ed25519.PublicKey, ed25519.PublicKeySize), BinaryVersion: "v1.0.0"})
 	if err == nil {
 		t.Fatal("expected HTTPS fleet hub URL error")
 	}
 }
 
 func TestFleetLinkRejectsMalformedLocalStatus(t *testing.T) {
-	_, err := NewFleetLink(FleetLinkOptions{HubURL: "https://hub.example.test", HostID: "host-daemon", PrivateKey: make(ed25519.PrivateKey, ed25519.PrivateKeySize), HubPublic: make(ed25519.PublicKey, ed25519.PublicKeySize), BinaryVersion: "v1.0.0", Capabilities: []string{"bad/capability"}})
+	_, err := NewFleetLink(FleetLinkOptions{HubURL: "https://hub.example.test", OwnerID: "owner-local", HostID: "host-daemon", PrivateKey: make(ed25519.PrivateKey, ed25519.PrivateKeySize), HubPublic: make(ed25519.PublicKey, ed25519.PublicKeySize), BinaryVersion: "v1.0.0", Capabilities: []string{"bad/capability"}})
 	if err == nil {
 		t.Fatal("expected malformed fleet link status error")
 	}

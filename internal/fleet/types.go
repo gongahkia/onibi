@@ -194,6 +194,7 @@ func KeyRotationSigningPayload(challenge KeyRotationChallenge) []byte {
 
 type Heartbeat struct {
 	Version       uint16    `json:"version"`
+	OwnerID       string    `json:"owner_id"`
 	HostID        string    `json:"host_id"`
 	SentAt        time.Time `json:"sent_at"`
 	BinaryVersion string    `json:"binary_version"`
@@ -205,7 +206,7 @@ func (h Heartbeat) Validate() error {
 	if h.Version != ProtocolVersion {
 		return fmt.Errorf("fleet heartbeat version %d is incompatible with %d", h.Version, ProtocolVersion)
 	}
-	if !validID(h.HostID) || h.SentAt.IsZero() || strings.TrimSpace(h.BinaryVersion) == "" || strings.TrimSpace(h.Signature) == "" {
+	if !validID(h.OwnerID) || !validID(h.HostID) || h.SentAt.IsZero() || strings.TrimSpace(h.BinaryVersion) == "" || strings.TrimSpace(h.Signature) == "" {
 		return errors.New("invalid fleet heartbeat")
 	}
 	for _, capability := range h.Capabilities {
@@ -220,6 +221,7 @@ func HeartbeatSigningPayload(heartbeat Heartbeat) []byte {
 	capabilities := normalizedCapabilities(heartbeat.Capabilities)
 	return []byte(strings.Join([]string{
 		"onibi-fleet-heartbeat-v1",
+		heartbeat.OwnerID,
 		heartbeat.HostID,
 		heartbeat.SentAt.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(heartbeat.BinaryVersion),

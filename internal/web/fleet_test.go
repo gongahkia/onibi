@@ -167,13 +167,17 @@ func TestFleetEnrollmentRejectsInvalidProofWithoutConsumingChallenge(t *testing.
 func TestFleetHeartbeatRequiresValidMonotonicHostProof(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
+	ownerID, err := srv.db.FleetOwnerID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	host := fleet.Host{
 		ID:              "host-heartbeat",
-		OwnerID:         "owner-local",
+		OwnerID:         ownerID,
 		DisplayName:     "Mac Studio",
 		IdentityPublic:  base64.RawURLEncoding.EncodeToString(public),
 		Endpoint:        fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://studio.tailnet.ts.net"},
@@ -186,7 +190,7 @@ func TestFleetHeartbeatRequiresValidMonotonicHostProof(t *testing.T) {
 	if err := srv.db.FleetHostUpsert(context.Background(), host); err != nil {
 		t.Fatal(err)
 	}
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read", "approval.write"}}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read", "approval.write"}}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
 	body, _ := json.Marshal(heartbeat)
 	req := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(body)))
@@ -200,6 +204,17 @@ func TestFleetHeartbeatRequiresValidMonotonicHostProof(t *testing.T) {
 	srv.Handler().ServeHTTP(replayW, replay)
 	if replayW.Code != http.StatusConflict {
 		t.Fatalf("replayed heartbeat = %d body=%s", replayW.Code, replayW.Body.String())
+	}
+	foreign := heartbeat
+	foreign.OwnerID = "owner-foreign"
+	foreign.SentAt = time.Now().UTC().Add(time.Second)
+	foreign.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(foreign)))
+	foreignBody, _ := json.Marshal(foreign)
+	foreignReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(foreignBody)))
+	foreignW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(foreignW, foreignReq)
+	if foreignW.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner heartbeat = %d body=%s", foreignW.Code, foreignW.Body.String())
 	}
 	heartbeat.Signature = "invalid"
 	bad, _ := json.Marshal(heartbeat)
@@ -233,7 +248,7 @@ func TestFleetHostsMarksStaleAndHeartbeatRecovers(t *testing.T) {
 	if listW.Code != http.StatusOK || !strings.Contains(listW.Body.String(), `"state":"stale"`) {
 		t.Fatalf("fleet hosts = %d body=%s", listW.Code, listW.Body.String())
 	}
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
 	body, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -385,7 +400,7 @@ func TestFleetRevokeInvalidatesSessionsAndPendingActions(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("pending action was not cancelled")
 	}
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
 	heartbeatBody, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -460,7 +475,7 @@ func TestFleetKeyRotationRequiresDualProofAndInvalidatesOldIdentity(t *testing.T
 	if replayW.Code != http.StatusNotFound {
 		t.Fatalf("replayed rotation proof = %d", replayW.Code)
 	}
-	oldHeartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
+	oldHeartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
 	oldHeartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(currentPrivate, fleet.HeartbeatSigningPayload(oldHeartbeat)))
 	oldBody, _ := json.Marshal(oldHeartbeat)
 	oldReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(oldBody)))

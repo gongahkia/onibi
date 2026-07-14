@@ -410,6 +410,15 @@ func (s *Server) handleFleetHeartbeat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown host", http.StatusNotFound)
 		return
 	}
+	ownerID, err := s.db.FleetOwnerID(r.Context())
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	if heartbeat.OwnerID != ownerID || host.OwnerID != ownerID {
+		http.Error(w, "unknown host", http.StatusNotFound)
+		return
+	}
 	publicKey, err := decodeEd25519Public(host.IdentityPublic)
 	if err != nil {
 		http.Error(w, "invalid host identity", http.StatusInternalServerError)

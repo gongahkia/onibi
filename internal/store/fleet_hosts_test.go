@@ -94,13 +94,18 @@ func TestFleetHostHeartbeatIsMonotonic(t *testing.T) {
 	if err := db.FleetHostUpsert(context.Background(), host); err != nil {
 		t.Fatal(err)
 	}
-	beat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: host.LastSeenAt.Add(time.Second), BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}, Signature: "signature"}
+	beat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: host.LastSeenAt.Add(time.Second), BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}, Signature: "signature"}
 	got, applied, err := db.FleetHostRecordHeartbeat(context.Background(), beat)
 	if err != nil || !applied || got.BinaryVersion != "v1.2.0" {
 		t.Fatalf("host=%#v applied=%v err=%v", got, applied, err)
 	}
 	if _, applied, err := db.FleetHostRecordHeartbeat(context.Background(), beat); err != nil || applied {
 		t.Fatalf("replayed heartbeat applied=%v err=%v", applied, err)
+	}
+	beat.OwnerID = "owner-foreign"
+	beat.SentAt = beat.SentAt.Add(time.Second)
+	if _, _, err := db.FleetHostRecordHeartbeat(context.Background(), beat); err == nil {
+		t.Fatal("expected cross-owner heartbeat error")
 	}
 }
 
@@ -125,7 +130,7 @@ func TestFleetHostMarksStaleAndRecoversOnNewHeartbeat(t *testing.T) {
 	if err != nil || !ok || stale.State != fleet.HostStateStale {
 		t.Fatalf("stale host=%#v ok=%v err=%v", stale, ok, err)
 	}
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"session.read"}, Signature: "signature"}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"session.read"}, Signature: "signature"}
 	recovered, applied, err := db.FleetHostRecordHeartbeat(context.Background(), heartbeat)
 	if err != nil || !applied || recovered.State != fleet.HostStateActive || recovered.BinaryVersion != heartbeat.BinaryVersion {
 		t.Fatalf("recovered=%#v applied=%v err=%v", recovered, applied, err)

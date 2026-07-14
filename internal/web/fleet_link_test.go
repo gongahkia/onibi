@@ -36,7 +36,7 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 	if err := wsjson.Read(ctx, conn, &challenge); err != nil {
 		t.Fatal(err)
 	}
-	auth := fleet.LinkAuthenticate{Version: fleet.ProtocolVersion, HostID: host.ID, ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Now().UTC()}
+	auth := fleet.LinkAuthenticate{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Now().UTC()}
 	auth.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.LinkAuthenticateSigningPayload(challenge, auth)))
 	if err := wsjson.Write(ctx, conn, auth); err != nil {
 		t.Fatal(err)
@@ -45,10 +45,10 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 	if err := wsjson.Read(ctx, conn, &accepted); err != nil {
 		t.Fatal(err)
 	}
-	if accepted.HostID != host.ID || accepted.ChallengeID != challenge.ID {
+	if accepted.OwnerID != host.OwnerID || accepted.HostID != host.ID || accepted.ChallengeID != challenge.ID {
 		t.Fatalf("acceptance = %#v", accepted)
 	}
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"approval.write", "session.read"}}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"approval.write", "session.read"}}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
 	body, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 	if err := wsjson.Write(ctx, conn, frame); err != nil {
 		t.Fatal(err)
 	}
-	control := fleet.Control{Version: fleet.ProtocolVersion, ID: "control-123", HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	control := fleet.Control{Version: fleet.ProtocolVersion, ID: "control-123", OwnerID: host.OwnerID, HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)}
 	deadline := time.Now().Add(time.Second)
 	for {
 		err = srv.SendFleetControl(ctx, control)
@@ -82,12 +82,12 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 	if err := json.Unmarshal(controlFrame.Envelope.Body, &delivered); err != nil {
 		t.Fatal(err)
 	}
-	if delivered.ID != control.ID || delivered.HostID != host.ID {
+	if delivered.ID != control.ID || delivered.OwnerID != host.OwnerID || delivered.HostID != host.ID {
 		t.Fatalf("delivered control = %#v", delivered)
 	}
 	controls := []fleet.Control{
-		{Version: fleet.ProtocolVersion, ID: "control-124", HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)},
-		{Version: fleet.ProtocolVersion, ID: "control-125", HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)},
+		{Version: fleet.ProtocolVersion, ID: "control-124", OwnerID: host.OwnerID, HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)},
+		{Version: fleet.ProtocolVersion, ID: "control-125", OwnerID: host.OwnerID, HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)},
 	}
 	errCh := make(chan error, len(controls))
 	var wg sync.WaitGroup
@@ -144,6 +144,22 @@ func TestFleetLinkRejectsVersionStaleAndRevokedFrames(t *testing.T) {
 	if err := srv.applyFleetLinkFrame(context.Background(), host.ID, valid); err != nil {
 		t.Fatal(err)
 	}
+	crossOwner := valid
+	var heartbeat fleet.Heartbeat
+	if err := json.Unmarshal(crossOwner.Envelope.Body, &heartbeat); err != nil {
+		t.Fatal(err)
+	}
+	heartbeat.OwnerID = "owner-foreign"
+	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
+	body, err := json.Marshal(heartbeat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossOwner.Envelope.Body = body
+	crossOwner.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.LinkFrameSigningPayload(crossOwner.Envelope)))
+	if err := srv.applyFleetLinkFrame(context.Background(), host.ID, crossOwner); err == nil {
+		t.Fatal("expected cross-owner fleet link frame error")
+	}
 	incompatible := valid
 	incompatible.Envelope.Version++
 	if err := srv.applyFleetLinkFrame(context.Background(), host.ID, incompatible); err == nil {
@@ -167,6 +183,44 @@ func TestFleetLinkRejectsVersionStaleAndRevokedFrames(t *testing.T) {
 	revoked := testFleetLinkHeartbeatFrame(t, host, private, time.Now().UTC().Add(time.Second))
 	if err := srv.applyFleetLinkFrame(context.Background(), host.ID, revoked); err == nil {
 		t.Fatal("expected revoked fleet link frame error")
+	}
+}
+
+func TestFleetLinkRejectsCrossOwnerAuthentication(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host, private := testFleetLinkHost(t, srv)
+	ts := httptest.NewTLSServer(srv.Handler())
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "wss"+strings.TrimPrefix(ts.URL, "https")+"/fleet/link", &websocket.DialOptions{HTTPClient: ts.Client(), Subprotocols: []string{fleetLinkSubprotocol}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	var challenge fleet.LinkChallenge
+	if err := wsjson.Read(ctx, conn, &challenge); err != nil {
+		t.Fatal(err)
+	}
+	auth := fleet.LinkAuthenticate{Version: fleet.ProtocolVersion, OwnerID: "owner-foreign", HostID: host.ID, ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Now().UTC()}
+	auth.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.LinkAuthenticateSigningPayload(challenge, auth)))
+	if err := wsjson.Write(ctx, conn, auth); err != nil {
+		t.Fatal(err)
+	}
+	var accepted fleet.LinkAccepted
+	if err := wsjson.Read(ctx, conn, &accepted); err == nil {
+		t.Fatal("expected cross-owner fleet link authentication error")
+	}
+}
+
+func TestSendFleetControlRejectsCrossOwner(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host, _ := testFleetLinkHost(t, srv)
+	control := fleet.Control{Version: fleet.ProtocolVersion, ID: "control-foreign", OwnerID: "owner-foreign", HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	if err := srv.SendFleetControl(context.Background(), control); err == nil {
+		t.Fatal("expected cross-owner fleet control error")
 	}
 }
 
@@ -211,7 +265,7 @@ func testFleetLinkHost(t *testing.T, srv *Server) (fleet.Host, ed25519.PrivateKe
 
 func testFleetLinkHeartbeatFrame(t *testing.T, host fleet.Host, private ed25519.PrivateKey, sentAt time.Time) fleet.LinkFrame {
 	t.Helper()
-	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: sentAt, BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: sentAt, BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
 	body, err := json.Marshal(heartbeat)
 	if err != nil {

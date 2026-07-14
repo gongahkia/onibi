@@ -34,6 +34,7 @@ type FleetLinkDial func(context.Context, string) (*websocket.Conn, error)
 
 type FleetLinkOptions struct {
 	HubURL            string
+	OwnerID           string
 	HostID            string
 	PrivateKey        ed25519.PrivateKey
 	HubPublic         ed25519.PublicKey
@@ -49,6 +50,7 @@ type FleetLinkOptions struct {
 
 type FleetLink struct {
 	hubURL            string
+	ownerID           string
 	hostID            string
 	privateKey        ed25519.PrivateKey
 	hubPublic         ed25519.PublicKey
@@ -67,11 +69,12 @@ func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
 		return nil, err
 	}
 	hostID := strings.TrimSpace(opts.HostID)
+	ownerID := strings.TrimSpace(opts.OwnerID)
 	binaryVersion := strings.TrimSpace(opts.BinaryVersion)
 	if len(opts.PrivateKey) != ed25519.PrivateKeySize || len(opts.HubPublic) != ed25519.PublicKeySize {
 		return nil, errors.New("invalid fleet link configuration")
 	}
-	if err := (fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: hostID, SentAt: time.Now().UTC(), BinaryVersion: binaryVersion, Capabilities: opts.Capabilities, Signature: "configured"}).Validate(); err != nil {
+	if err := (fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: ownerID, HostID: hostID, SentAt: time.Now().UTC(), BinaryVersion: binaryVersion, Capabilities: opts.Capabilities, Signature: "configured"}).Validate(); err != nil {
 		return nil, err
 	}
 	if opts.HeartbeatInterval <= 0 {
@@ -95,6 +98,7 @@ func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
 	}
 	return &FleetLink{
 		hubURL:            hubURL,
+		ownerID:           ownerID,
 		hostID:            hostID,
 		privateKey:        append(ed25519.PrivateKey(nil), opts.PrivateKey...),
 		hubPublic:         append(ed25519.PublicKey(nil), opts.HubPublic...),
@@ -156,6 +160,7 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 	}
 	auth := fleet.LinkAuthenticate{
 		Version:     fleet.ProtocolVersion,
+		OwnerID:     l.ownerID,
 		HostID:      l.hostID,
 		ChallengeID: challenge.ID,
 		Nonce:       challenge.Nonce,
@@ -172,7 +177,7 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 	if err := accepted.Validate(); err != nil {
 		return err
 	}
-	if accepted.HostID != l.hostID || accepted.ChallengeID != challenge.ID || len(accepted.Nonce) != len(challenge.Nonce) || subtle.ConstantTimeCompare([]byte(accepted.Nonce), []byte(challenge.Nonce)) != 1 {
+	if accepted.OwnerID != l.ownerID || accepted.HostID != l.hostID || accepted.ChallengeID != challenge.ID || len(accepted.Nonce) != len(challenge.Nonce) || subtle.ConstantTimeCompare([]byte(accepted.Nonce), []byte(challenge.Nonce)) != 1 {
 		return errors.New("fleet link acceptance mismatch")
 	}
 	if skew := time.Now().UTC().Sub(accepted.SentAt.UTC()); skew > fleetLinkMaxSkew || skew < -fleetLinkMaxSkew {
@@ -207,6 +212,7 @@ func (l *FleetLink) writeHeartbeat(ctx context.Context, conn *websocket.Conn) er
 	now := time.Now().UTC()
 	heartbeat := fleet.Heartbeat{
 		Version:       fleet.ProtocolVersion,
+		OwnerID:       l.ownerID,
 		HostID:        l.hostID,
 		SentAt:        now,
 		BinaryVersion: l.binaryVersion,
@@ -249,7 +255,7 @@ func (l *FleetLink) readControls(ctx context.Context, conn *websocket.Conn) erro
 		if err := control.Validate(); err != nil {
 			return err
 		}
-		if control.HostID != l.hostID || !control.ExpiresAt.After(time.Now().UTC()) {
+		if control.OwnerID != l.ownerID || control.HostID != l.hostID || !control.ExpiresAt.After(time.Now().UTC()) {
 			return errors.New("invalid fleet control target")
 		}
 		if l.onControl != nil {
