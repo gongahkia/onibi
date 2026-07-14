@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod contact_store;
+mod ratchet_store;
 mod state_store;
 
 use yeokcham_core::{Error, Result};
@@ -10,6 +11,7 @@ pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
 };
+pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
     StateStoreError,

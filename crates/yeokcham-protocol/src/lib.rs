@@ -4,6 +4,7 @@ mod contact_invitation;
 mod delivery_profile;
 mod direct_profile;
 mod domain;
+mod double_ratchet;
 mod encrypted_header;
 mod encrypted_message;
 mod error_code;
@@ -39,6 +40,9 @@ pub use direct_profile::{
     DIRECT_PROFILE_CONFIG_SCHEMA_VERSION, DirectProfileConfig, DirectProfileConfigError,
 };
 pub use domain::CryptoDomain;
+pub use double_ratchet::{
+    DOUBLE_RATCHET_STATE_SCHEMA_VERSION, DoubleRatchetError, DoubleRatchetState, RATCHET_KEY_BYTES,
+};
 pub use encrypted_header::{
     ENCRYPTED_HEADER_SCHEMA_VERSION, EncryptedHeader, EncryptedHeaderError,
 };
