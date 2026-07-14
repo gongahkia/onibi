@@ -109,21 +109,37 @@ impl DeliveryProfileConstraints {
         })
     }
 
-    pub fn validate(self, profile: DeliveryProfile) -> Result<(), DeliveryProfileConstraintError> {
+    #[must_use]
+    pub fn decide(self, profile: DeliveryProfile) -> DeliveryProfilePolicyDecision {
         let allowed = match profile.kind() {
             DeliveryProfileKind::Direct => self.direct_allowed,
             DeliveryProfileKind::TorMaildrop => self.tor_maildrop_allowed,
             DeliveryProfileKind::LocalMesh => self.local_mesh_allowed,
         };
         if allowed {
-            Ok(())
+            DeliveryProfilePolicyDecision::Allow
         } else {
-            Err(DeliveryProfileConstraintError::Disallowed(profile.kind()))
+            DeliveryProfilePolicyDecision::Deny(DeliveryProfileConstraintError::Disallowed(
+                profile.kind(),
+            ))
+        }
+    }
+
+    pub fn validate(self, profile: DeliveryProfile) -> Result<(), DeliveryProfileConstraintError> {
+        match self.decide(profile) {
+            DeliveryProfilePolicyDecision::Allow => Ok(()),
+            DeliveryProfilePolicyDecision::Deny(error) => Err(error),
         }
     }
 }
 
-#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeliveryProfilePolicyDecision {
+    Allow,
+    Deny(DeliveryProfileConstraintError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DeliveryProfileConstraintError {
     #[error("at least one delivery profile must be allowed")]
     NoAllowedProfiles,
@@ -151,7 +167,7 @@ pub enum DeliveryProfileError {
 mod tests {
     use super::{
         DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
-        DeliveryProfileError, DeliveryProfileKind,
+        DeliveryProfileError, DeliveryProfileKind, DeliveryProfilePolicyDecision,
     };
 
     #[test]
@@ -216,6 +232,21 @@ mod tests {
         assert_eq!(
             DeliveryProfileConstraints::new(false, false, false).unwrap_err(),
             DeliveryProfileConstraintError::NoAllowedProfiles
+        );
+    }
+
+    #[test]
+    fn decides_profile_policy_without_boolean_fallback() {
+        let constraints = DeliveryProfileConstraints::new(true, false, false).unwrap();
+        assert_eq!(
+            constraints.decide(DeliveryProfile::new(DeliveryProfileKind::Direct)),
+            DeliveryProfilePolicyDecision::Allow
+        );
+        assert_eq!(
+            constraints.decide(DeliveryProfile::new(DeliveryProfileKind::LocalMesh)),
+            DeliveryProfilePolicyDecision::Deny(DeliveryProfileConstraintError::Disallowed(
+                DeliveryProfileKind::LocalMesh
+            ))
         );
     }
 }
