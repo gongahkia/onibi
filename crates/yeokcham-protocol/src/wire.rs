@@ -5,6 +5,8 @@ use crate::ProtocolVersion;
 
 pub const MAX_FRAME_BYTES: usize = 1_048_576;
 const MAX_DECODER_DEPTH: usize = 1;
+const MIN_FRAME_BYTES: usize = 4;
+const MAX_ENVELOPE_OVERHEAD_BYTES: usize = 10;
 const ENVELOPE_FIELDS: u64 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,10 +50,10 @@ impl WireLimits {
     };
 
     pub fn new(maximum_frame_bytes: usize, maximum_payload_bytes: usize) -> Result<Self, Error> {
-        if maximum_frame_bytes == 0 || maximum_frame_bytes > MAX_FRAME_BYTES {
+        if !(MIN_FRAME_BYTES..=MAX_FRAME_BYTES).contains(&maximum_frame_bytes) {
             return Err(Error::ResourceLimit("invalid maximum frame size"));
         }
-        if maximum_payload_bytes > maximum_frame_bytes {
+        if maximum_payload_bytes > maximum_frame_bytes.saturating_sub(MAX_ENVELOPE_OVERHEAD_BYTES) {
             return Err(Error::ResourceLimit("payload limit exceeds frame limit"));
         }
         Ok(Self {
@@ -63,6 +65,8 @@ impl WireLimits {
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum WireError {
+    #[error("frame is smaller than the minimum envelope size")]
+    FrameTooSmall,
     #[error("frame exceeds configured limit")]
     FrameTooLarge,
     #[error("payload exceeds configured limit")]
@@ -106,6 +110,9 @@ impl WireEnvelope {
     }
 
     pub fn decode(frame: &[u8], limits: WireLimits) -> Result<Self, WireError> {
+        if frame.len() < MIN_FRAME_BYTES {
+            return Err(WireError::FrameTooSmall);
+        }
         if frame.len() > limits.maximum_frame_bytes {
             return Err(WireError::FrameTooLarge);
         }
@@ -152,7 +159,7 @@ fn reject_nested_value(decoder: &Decoder<'_>, depth: usize) -> Result<(), WireEr
 
 #[cfg(test)]
 mod tests {
-    use super::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
+    use super::{EnvelopeKind, MIN_FRAME_BYTES, WireEnvelope, WireError, WireLimits};
     use crate::ProtocolVersion;
 
     fn envelope() -> WireEnvelope {
@@ -203,6 +210,20 @@ mod tests {
         assert_eq!(
             WireEnvelope::decode(&encoded, limits).unwrap_err(),
             WireError::PayloadTooLarge
+        );
+    }
+
+    #[test]
+    fn enforces_frame_length_boundaries() {
+        assert!(WireLimits::new(MIN_FRAME_BYTES - 1, 0).is_err());
+        assert!(WireLimits::new(64, 55).is_err());
+        assert_eq!(
+            WireEnvelope::decode(&[0x83, 0x01, 0x02], WireLimits::REFERENCE).unwrap_err(),
+            WireError::FrameTooSmall
+        );
+        assert_eq!(
+            WireEnvelope::decode(&[0; 65], WireLimits::new(64, 0).unwrap()).unwrap_err(),
+            WireError::FrameTooLarge
         );
     }
 
