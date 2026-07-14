@@ -475,7 +475,7 @@ Run `onibi doctor --transport=cloudflare-named` before startup to verify the bin
 ngrok http https://localhost:<web-port>
 ```
 
-Onibi discovers the public URL from the local Agent API at `http://127.0.0.1:4040/api/tunnels` and accepts only `https://` public URLs. If the Agent API exposes only `http://`, startup fails instead of printing an insecure pairing URL.
+Onibi discovers the public URL from the local Agent API at `http://127.0.0.1:4040/api/tunnels` and accepts only `https://` public URLs. If the Agent API exposes only `http://`, startup fails instead of printing an insecure pairing URL. Health checks revalidate the exact active Agent API tunnel; a missing or changed tunnel fails closed and requires lifecycle reconnect.
 
 Optional:
 
@@ -487,6 +487,6 @@ ONIBI_NGROK_AGENT_API=http://127.0.0.1:4040
 
 `onibi ngrok setup` stores the authtoken as `onibi.ngrok.token.v1` in the OS secret store, with the same 0600 dotenv fallback used by other Onibi credentials. `ONIBI_NGROK_AUTHTOKEN` remains an env-only override for automation. Reserved domains require an auth token.
 
-Run `onibi doctor --transport=ngrok` before startup to verify the `ngrok` binary and reserved-domain token state. Cleanup requests tunnel shutdown through the Agent API and then kills the local process.
+Run `onibi doctor --transport=ngrok` before startup to verify the `ngrok` binary and reserved-domain token state. Cleanup requests tunnel shutdown through the Agent API and then kills the local process. ngrok endpoints are relay fleet candidates and still require owner proof; public reachability is not authorization.
 
 ngrok free-plan limits change over time; current ngrok docs list HTTP request rate limits, TCP connection rate limits, monthly HTTP request quotas, and data-transfer quotas. Check https://ngrok.com/docs/pricing-limits/free-plan-limits before using ngrok for long-running or shared demos.

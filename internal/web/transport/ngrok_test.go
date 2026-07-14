@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -135,4 +136,118 @@ func TestNgrokEnableUsesTokenEnv(t *testing.T) {
 	if !reflect.DeepEqual(runner.envCalls, want) {
 		t.Fatalf("env calls = %#v", runner.envCalls)
 	}
+}
+
+func TestNgrokLifecycleDetectsLossRecoversAndEnrollsRelay(t *testing.T) {
+	var state struct {
+		sync.Mutex
+		active  bool
+		deletes int
+	}
+	setActive := func(active bool) {
+		state.Lock()
+		state.active = active
+		state.Unlock()
+	}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		state.Lock()
+		defer state.Unlock()
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/tunnels":
+			body := ngrokTunnelList{}
+			if state.active {
+				body.Tunnels = []ngrokTunnel{{Name: "command_line", PublicURL: "https://demo.ngrok-free.app", Config: ngrokTunnelConfig{Addr: "https://localhost:8443"}}}
+			}
+			_ = json.NewEncoder(w).Encode(body)
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/tunnels/command_line":
+			state.active = false
+			state.deletes++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	runner := &ngrokLifecycleRunner{processes: []*fakeProcess{newFakeProcess(), newFakeProcess()}, onStart: func() { setActive(true) }}
+	provider := &Ngrok{Bin: "ngrok", AgentAPI: api.URL, Client: api.Client(), runner: runner}
+	session := NewLifecycle(ResolverOptions{Mode: string(ModeNgrok), Port: 8443, Providers: ProviderFactory{Ngrok: func() Provider { return provider }}})
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+		t.Fatalf("health=%#v err=%v", report, err)
+	}
+	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://demo.ngrok-free.app/pair/pair-token" {
+		t.Fatalf("urls=%#v err=%v", urls, err)
+	}
+	candidate, err := session.Enrollment()
+	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "relay" {
+		t.Fatalf("candidate=%#v err=%v", candidate, err)
+	}
+	setActive(false)
+	if _, err := session.Health(t.Context()); err == nil {
+		t.Fatal("expected health failure")
+	}
+	if _, err := session.Reconnect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+		t.Fatalf("recovered health=%#v err=%v", report, err)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state.Lock()
+	deletes := state.deletes
+	state.Unlock()
+	if deletes != 2 || len(runner.calls) != 2 {
+		t.Fatalf("deletes=%d starts=%d", deletes, len(runner.calls))
+	}
+	diagnostics := session.Diagnostics()
+	if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+		t.Fatalf("diagnostics=%#v", diagnostics)
+	}
+}
+
+func TestNgrokDisableReportsAgentCleanupFailure(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/tunnels":
+			_ = json.NewEncoder(w).Encode(ngrokTunnelList{Tunnels: []ngrokTunnel{{Name: "command_line", PublicURL: "https://demo.ngrok-free.app", Config: ngrokTunnelConfig{Addr: "https://localhost:8443"}}}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/tunnels/command_line":
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	proc := newFakeProcess()
+	n := &Ngrok{Bin: "ngrok", AgentAPI: api.URL, Client: api.Client(), runner: &fakeProcessRunner{proc: proc}}
+	if err := n.Enable(t.Context(), 8443); err != nil {
+		t.Fatal(err)
+	}
+	err := n.Disable(t.Context())
+	var diag *DiagnosticError
+	if !errors.As(err, &diag) || diag.Code != DiagCleanup || !proc.killed {
+		t.Fatalf("err=%#v killed=%v", err, proc.killed)
+	}
+}
+
+type ngrokLifecycleRunner struct {
+	processes []*fakeProcess
+	onStart   func()
+	calls     [][]string
+}
+
+func (r *ngrokLifecycleRunner) Start(_ context.Context, name string, args ...string) (managedProcess, error) {
+	if len(r.processes) == 0 {
+		return nil, errors.New("missing ngrok process")
+	}
+	if r.onStart != nil {
+		r.onStart()
+	}
+	p := r.processes[0]
+	r.processes = r.processes[1:]
+	r.calls = append(r.calls, append([]string{name}, args...))
+	return p, nil
 }

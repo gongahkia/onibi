@@ -288,5 +288,6 @@ ONIBI_NGROK_DOMAIN=...
 - Run `onibi up --transport=ngrok`.
 - Confirm QR URL includes `#k=...` and starts with `https://`.
 - Pair from iPhone Safari and Chrome over LTE.
+- Stop the Agent API tunnel, confirm health fails with an actionable diagnostic, then reconnect and pair again.
 - Confirm Agent API tunnel cleanup and process cleanup in logs.
 - Keep demos under ngrok's current free-plan quotas; check https://ngrok.com/docs/pricing-limits/free-plan-limits before public sharing.

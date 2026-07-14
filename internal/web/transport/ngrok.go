@@ -38,6 +38,7 @@ type Ngrok struct {
 	process   managedProcess
 	tunnel    string
 	publicURL string
+	localPort int
 }
 
 func NewNgrokFromEnv() *Ngrok {
@@ -63,12 +64,34 @@ func ngrokBin() string {
 	return "ngrok"
 }
 
-func (n *Ngrok) Check(context.Context) error {
+func (n *Ngrok) Check(ctx context.Context) error {
 	if err := checkBinary(n.bin(), n.lookPath, ngrokProvider); err != nil {
 		return err
 	}
 	if strings.TrimSpace(n.Domain) != "" && strings.TrimSpace(n.Authtoken) == "" {
 		return Diagnostic(DiagAuthMissing, ngrokProvider, NgrokAuthtokenEnv+" required when "+NgrokDomainEnv+" is set", nil)
+	}
+	n.mu.Lock()
+	active := n.process != nil
+	tunnelName := n.tunnel
+	publicURL := n.publicURL
+	localPort := n.localPort
+	n.mu.Unlock()
+	if !active {
+		return nil
+	}
+	if tunnelName == "" || publicURL == "" || localPort == 0 {
+		return Diagnostic(DiagActivationLag, ngrokProvider, "active tunnel state is incomplete", nil)
+	}
+	tunnel, ok, err := n.discoverTunnel(ctx, localPort)
+	if err != nil {
+		return Diagnostic(DiagActivationLag, ngrokProvider, "Agent API health check failed", err)
+	}
+	if !ok {
+		return Diagnostic(DiagActivationLag, ngrokProvider, "Agent API has no active HTTPS tunnel", nil)
+	}
+	if tunnel.Name != tunnelName || strings.TrimRight(tunnel.PublicURL, "/") != publicURL {
+		return Diagnostic(DiagActivationLag, ngrokProvider, "Agent API active tunnel changed", nil)
 	}
 	return nil
 }
@@ -107,12 +130,13 @@ func (n *Ngrok) Enable(ctx context.Context, localPort int) error {
 	n.mu.Unlock()
 	tunnel, err := n.waitForTunnel(ctx, localPort, ngrokActivationWait)
 	if err != nil {
-		_ = proc.Kill()
+		_ = n.Disable(context.Background())
 		return err
 	}
 	n.mu.Lock()
 	n.tunnel = tunnel.Name
 	n.publicURL = strings.TrimRight(tunnel.PublicURL, "/")
+	n.localPort = localPort
 	n.mu.Unlock()
 	return nil
 }
@@ -133,6 +157,7 @@ func (n *Ngrok) Disable(ctx context.Context) error {
 	n.process = nil
 	n.tunnel = ""
 	n.publicURL = ""
+	n.localPort = 0
 	n.mu.Unlock()
 	var shutdownErr error
 	if tunnel != "" {
