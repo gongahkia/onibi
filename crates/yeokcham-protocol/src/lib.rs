@@ -5,6 +5,7 @@ mod domain;
 mod encrypted_message;
 mod mailbox_capability;
 mod message_payload;
+mod signing;
 mod version;
 mod wire;
 
@@ -22,5 +23,6 @@ pub use mailbox_capability::{
 pub use message_payload::{
     MAX_MESSAGE_PAYLOAD_BYTES, MessageContentType, MessagePayload, MessagePayloadError,
 };
+pub use signing::SigningInputError;
 pub use version::{ProtocolVersion, VersionRange};
 pub use wire::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
