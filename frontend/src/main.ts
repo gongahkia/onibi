@@ -36,6 +36,7 @@ import { PairedHostsPanel } from "./paired-hosts-panel";
 import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
 import { FleetHomeView } from "./fleet-home";
+import { SessionPickerPanel } from "./session-picker";
 
 type SessionInfo = {
   session_id: string;
@@ -84,6 +85,7 @@ let pairedHosts: PairedHostsPanel | undefined;
 let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
 let fleetHome: FleetHomeView | undefined;
+let sessionPicker: SessionPickerPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -240,6 +242,13 @@ async function showSessionsHome(): Promise<void> {
   pairedHosts = new PairedHostsPanel(document.body, showToast);
   fleetHosts = new FleetHostsPanel(document.body, getJSON);
   approvalInbox = new ApprovalInboxPanel(document.body, getJSON, postJSON, showToast);
+  sessionPicker = new SessionPickerPanel(document.body, getJSON, (session) => {
+    if (session.remote_url !== undefined && session.remote_url !== "") {
+      window.location.href = session.remote_url;
+      return;
+    }
+    navigateToSession(session.id);
+  });
   const hostControls = document.createElement("div");
   hostControls.className = "session-list-header-controls";
   hostControls.append(pairedHosts.element, fleetHosts.element, approvalInbox.element);
@@ -255,6 +264,7 @@ async function showSessionsHome(): Promise<void> {
     },
     (hostID) => fleetHosts?.openHost(hostID),
     () => approvalInbox?.open(),
+    () => sessionPicker?.open(),
     hostControls
   );
   fleetHome = home;

@@ -14,6 +14,7 @@ test("fleet home renders loading and failure states", async () => {
     () => {},
     () => {},
     () => {},
+    () => {},
     document.createElement("div")
   );
   const loading = home.load();
@@ -29,6 +30,7 @@ test("fleet home renders loading and failure states", async () => {
     async () => {
       throw new Error("offline");
     },
+    () => {},
     () => {},
     () => {},
     () => {},
@@ -53,6 +55,7 @@ test("fleet home prioritizes approvals, host attention, and live session state",
     () => {
       inbox++;
     },
+    () => {},
     document.createElement("div")
   );
   await home.load();

@@ -16,6 +16,7 @@ export class FleetHomeView {
     private readonly navigateSession: (session: FleetSession) => void,
     private readonly openHost: (hostID: string) => void,
     private readonly openInbox: () => void,
+    private readonly openSessionPicker: () => void,
     private readonly headerControl: HTMLElement
   ) {}
 
@@ -143,6 +144,12 @@ export class FleetHomeView {
 
   private activeSessions(): HTMLElement {
     const section = sectionTitle("active sessions");
+    const picker = document.createElement("button");
+    picker.type = "button";
+    picker.className = "fleet-home-picker";
+    picker.textContent = "view all sessions";
+    picker.addEventListener("click", () => this.openSessionPicker());
+    section.append(picker);
     const sessions = (this.payload?.sessions ?? [])
       .filter((session) => session.state !== "idle")
       .sort((left, right) => sessionRank(left) - sessionRank(right));
