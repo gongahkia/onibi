@@ -341,6 +341,96 @@ func TestFleetKeyRotationRejectsIncompatibleStaleAndRevokedRequests(t *testing.T
 	}
 }
 
+func TestFleetEnrollmentRejectsMalformedIncompatibleExpiredAndRevokedInputs(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	ownerID, err := srv.db.FleetOwnerID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseHost := fleet.Host{
+		ID:              "host-enroll",
+		DisplayName:     "MacBook Pro",
+		IdentityPublic:  base64.RawURLEncoding.EncodeToString(public),
+		Endpoint:        fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://macbook.tailnet.ts.net"},
+		ProtocolVersion: fleet.ProtocolVersion,
+		BinaryVersion:   "v1.0.0",
+	}
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := rr.Result().Cookies()[0]
+	malformedReq := httptest.NewRequest(http.MethodPost, "/fleet/enroll/challenge", strings.NewReader(`{"host":{}}`))
+	malformedReq.AddCookie(cookie)
+	addCSRF(malformedReq, sessionID)
+	malformedW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(malformedW, malformedReq)
+	if malformedW.Code != http.StatusBadRequest {
+		t.Fatalf("malformed enrollment challenge = %d", malformedW.Code)
+	}
+	incompatible := baseHost
+	incompatible.ProtocolVersion++
+	incompatibleBody, _ := json.Marshal(fleetEnrollmentChallengeRequest{Host: incompatible})
+	incompatibleReq := httptest.NewRequest(http.MethodPost, "/fleet/enroll/challenge", strings.NewReader(string(incompatibleBody)))
+	incompatibleReq.AddCookie(cookie)
+	addCSRF(incompatibleReq, sessionID)
+	incompatibleW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(incompatibleW, incompatibleReq)
+	if incompatibleW.Code != http.StatusBadRequest {
+		t.Fatalf("incompatible enrollment challenge = %d", incompatibleW.Code)
+	}
+	body, _ := json.Marshal(fleetEnrollmentChallengeRequest{Host: baseHost})
+	challengeReq := httptest.NewRequest(http.MethodPost, "/fleet/enroll/challenge", strings.NewReader(string(body)))
+	challengeReq.AddCookie(cookie)
+	addCSRF(challengeReq, sessionID)
+	challengeW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(challengeW, challengeReq)
+	if challengeW.Code != http.StatusOK {
+		t.Fatalf("enrollment challenge = %d body=%s", challengeW.Code, challengeW.Body.String())
+	}
+	var challenge fleet.EnrollmentChallenge
+	if err := json.NewDecoder(challengeW.Body).Decode(&challenge); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.db.SQL().Exec(`UPDATE fleet_enrollment_challenges SET expires_at = 0 WHERE id = ?`, challenge.ID); err != nil {
+		t.Fatal(err)
+	}
+	baseHost.OwnerID = challenge.OwnerID
+	baseHost.State = fleet.HostStatePending
+	expiredProof, _ := json.Marshal(fleet.EnrollmentProof{Version: fleet.ProtocolVersion, ChallengeID: challenge.ID, Nonce: challenge.Nonce, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.EnrollmentSigningPayload(challenge, baseHost)))})
+	expiredReq := httptest.NewRequest(http.MethodPost, "/fleet/enroll/proof", strings.NewReader(string(expiredProof)))
+	expiredW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(expiredW, expiredReq)
+	if expiredW.Code != http.StatusNotFound {
+		t.Fatalf("expired enrollment proof = %d", expiredW.Code)
+	}
+	revokedHost := baseHost
+	revokedHost.ID = "host-revoked"
+	revokedHost.OwnerID = ownerID
+	revokedHost.State = fleet.HostStateRevoked
+	now := time.Now().UTC()
+	revokedHost.RegisteredAt = now.Add(-time.Minute)
+	revokedHost.RevokedAt = &now
+	if err := srv.db.FleetHostUpsert(context.Background(), revokedHost); err != nil {
+		t.Fatal(err)
+	}
+	revokedBody, _ := json.Marshal(fleetEnrollmentChallengeRequest{Host: revokedHost})
+	revokedReq := httptest.NewRequest(http.MethodPost, "/fleet/enroll/challenge", strings.NewReader(string(revokedBody)))
+	revokedReq.AddCookie(cookie)
+	addCSRF(revokedReq, sessionID)
+	revokedW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(revokedW, revokedReq)
+	if revokedW.Code != http.StatusConflict {
+		t.Fatalf("revoked enrollment challenge = %d", revokedW.Code)
+	}
+}
+
 func testFleetRotationHost(t *testing.T, srv *Server) (fleet.Host, ed25519.PrivateKey, *http.Cookie, string) {
 	t.Helper()
 	ownerID, err := srv.db.FleetOwnerID(context.Background())

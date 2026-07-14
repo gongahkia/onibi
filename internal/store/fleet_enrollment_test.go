@@ -74,6 +74,50 @@ func TestFleetEnrollmentConsumesNonceOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestFleetEnrollmentConsumesNonceOnlyOnceConcurrently(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	host := testFleetHost()
+	host.State = fleet.HostStatePending
+	challenge := fleet.EnrollmentChallenge{Version: fleet.ProtocolVersion, ID: "enroll-456", OwnerID: host.OwnerID, Nonce: "nonce", HubPublic: "hub-public", ExpiresAt: time.Now().Add(time.Minute)}
+	if err := db.FleetEnrollmentIssue(context.Background(), challenge, host); err != nil {
+		t.Fatal(err)
+	}
+	const consumers = 12
+	results := make(chan bool, consumers)
+	errs := make(chan error, consumers)
+	var wg sync.WaitGroup
+	for range consumers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := db.FleetEnrollmentConsume(context.Background(), challenge.ID, challenge.Nonce)
+			results <- ok
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	successes := 0
+	for ok := range results {
+		if ok {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful enrollment consumes = %d", successes)
+	}
+}
+
 func TestFleetKeyRotationConsumesNonceOnlyOnceConcurrently(t *testing.T) {
 	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
 	if err != nil {

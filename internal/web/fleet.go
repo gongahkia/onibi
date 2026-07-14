@@ -107,6 +107,16 @@ func (s *Server) handleFleetEnrollmentChallenge(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if existing, found, err := s.db.FleetHostGet(r.Context(), host.ID); err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	} else if found && existing.State == fleet.HostStateRevoked {
+		http.Error(w, "host is revoked", http.StatusConflict)
+		return
+	} else if found {
+		http.Error(w, "host is already enrolled", http.StatusConflict)
+		return
+	}
 	challengeID, err := newFleetEnrollmentID()
 	if err != nil {
 		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
@@ -186,6 +196,16 @@ func (s *Server) handleFleetEnrollmentProof(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	host := enrollment.Host
+	if existing, found, err := s.db.FleetHostGet(r.Context(), host.ID); err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	} else if found && existing.State == fleet.HostStateRevoked {
+		http.Error(w, "host is revoked", http.StatusConflict)
+		return
+	} else if found {
+		http.Error(w, "host is already enrolled", http.StatusConflict)
+		return
+	}
 	host.State = fleet.HostStateActive
 	host.LastSeenAt = time.Now().UTC()
 	if err := s.db.FleetHostUpsert(r.Context(), host); err != nil {
