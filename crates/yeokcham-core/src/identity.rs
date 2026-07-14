@@ -1,6 +1,6 @@
 use std::fmt;
 
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use getrandom::{SysRng, rand_core::TryRng};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -27,6 +27,18 @@ impl IdentityPublicKey {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; ED25519_PUBLIC_KEY_BYTES] {
         &self.0
+    }
+
+    pub fn verify(
+        &self,
+        message: &[u8],
+        signature: &[u8; ED25519_SIGNATURE_BYTES],
+    ) -> Result<(), IdentitySignatureError> {
+        let verifying_key =
+            VerifyingKey::from_bytes(&self.0).map_err(|_| IdentitySignatureError::Invalid)?;
+        verifying_key
+            .verify_strict(message, &Signature::from_bytes(signature))
+            .map_err(|_| IdentitySignatureError::Invalid)
     }
 }
 
@@ -111,6 +123,12 @@ pub enum IdentityPublicKeyError {
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum IdentitySignatureError {
+    #[error("Ed25519 signature verification failed")]
+    Invalid,
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum IdentitySerializationError {
     #[error("identity serialization has an invalid length")]
     InvalidLength,
@@ -127,6 +145,7 @@ mod tests {
     use super::{
         ED25519_PUBLIC_KEY_BYTES, IDENTITY_SERIALIZATION_VERSION, IdentityKeypair,
         IdentityPublicKey, IdentityPublicKeyError, IdentitySerializationError,
+        IdentitySignatureError,
     };
 
     #[test]
@@ -137,12 +156,12 @@ mod tests {
         let signature = first.sign(message);
 
         assert_ne!(first.public_key(), second.public_key());
-        assert!(
-            first
-                .signing_key
-                .verifying_key()
-                .verify(message, &ed25519_dalek::Signature::from_bytes(&signature))
-                .is_ok()
+        assert_eq!(first.public_key().verify(message, &signature), Ok(()));
+        let mut altered_signature = signature;
+        altered_signature[0] ^= 1;
+        assert_eq!(
+            first.public_key().verify(message, &altered_signature),
+            Err(IdentitySignatureError::Invalid)
         );
         let output = format!("{first:?}");
         assert!(output.contains("signing_key: \"REDACTED\""));
