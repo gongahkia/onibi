@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod contact_invitation;
 mod delivery_profile;
 mod direct_profile;
 mod domain;
@@ -21,6 +22,10 @@ mod tor_maildrop_profile;
 mod version;
 mod wire;
 
+pub use contact_invitation::{
+    CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
+    ContactInvitation, ContactInvitationError,
+};
 pub use delivery_profile::{
     DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
     DeliveryProfileConstraints, DeliveryProfileError, DeliveryProfileKind,

@@ -1,10 +1,11 @@
 use std::fmt;
 
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use getrandom::{SysRng, rand_core::TryRng};
 use zeroize::{Zeroize, Zeroizing};
 
 pub const ED25519_PUBLIC_KEY_BYTES: usize = 32;
+pub const ED25519_SIGNATURE_BYTES: usize = 64;
 pub const IDENTITY_SERIALIZATION_VERSION: u8 = 1;
 pub const IDENTITY_SERIALIZED_BYTES: usize = 1 + ED25519_PUBLIC_KEY_BYTES * 2;
 
@@ -49,6 +50,11 @@ impl IdentityKeypair {
     #[must_use]
     pub fn public_key(&self) -> IdentityPublicKey {
         IdentityPublicKey(self.signing_key.verifying_key().to_bytes())
+    }
+
+    #[must_use]
+    pub fn sign(&self, message: &[u8]) -> [u8; ED25519_SIGNATURE_BYTES] {
+        self.signing_key.sign(message).to_bytes()
     }
 
     #[must_use]
@@ -128,14 +134,14 @@ mod tests {
         let first = IdentityKeypair::generate().unwrap();
         let second = IdentityKeypair::generate().unwrap();
         let message = b"yeokcham identity key generation";
-        let signature = first.signing_key.sign(message);
+        let signature = first.sign(message);
 
         assert_ne!(first.public_key(), second.public_key());
         assert!(
             first
                 .signing_key
                 .verifying_key()
-                .verify(message, &signature)
+                .verify(message, &ed25519_dalek::Signature::from_bytes(&signature))
                 .is_ok()
         );
         let output = format!("{first:?}");
