@@ -168,6 +168,11 @@ func (f *fakeSSHRemote) ServiceStatus(sshtransport.Platform) (string, error) {
 	return "active\n", nil
 }
 
+func (f *fakeSSHRemote) RestartService(sshtransport.Platform) error {
+	f.calls = append(f.calls, "restart")
+	return nil
+}
+
 func (f *fakeSSHRemote) Teardown(sshtransport.Platform) error {
 	f.calls = append(f.calls, "teardown")
 	return nil

@@ -67,3 +67,12 @@ func TestServiceStatusAndTeardownCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestRestartServiceCommands(t *testing.T) {
+	if got := "systemctl --user restart " + remoteSystemdUnit; !strings.Contains(got, "restart onibi.service") {
+		t.Fatalf("linux restart command = %q", got)
+	}
+	if got := `launchctl kickstart -k "gui/$(id -u)/` + remoteLaunchdID + `"`; !strings.Contains(got, "kickstart -k") {
+		t.Fatalf("macOS restart command = %q", got)
+	}
+}

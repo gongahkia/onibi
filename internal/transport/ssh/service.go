@@ -46,6 +46,20 @@ func (c *Client) ServiceStatus(platform Platform) (string, error) {
 	}
 }
 
+func (c *Client) RestartService(platform Platform) error {
+	if err := ValidatePlatform(platform); err != nil {
+		return err
+	}
+	switch platform.GOOS {
+	case "linux":
+		return c.runRemote("systemctl --user restart " + remoteSystemdUnit)
+	case "darwin":
+		return c.runRemote(`launchctl kickstart -k "gui/$(id -u)/` + remoteLaunchdID + `"`)
+	default:
+		return fmt.Errorf("ssh: unsupported service os: %s", platform.GOOS)
+	}
+}
+
 func (c *Client) Teardown(platform Platform) error {
 	if err := ValidatePlatform(platform); err != nil {
 		return err

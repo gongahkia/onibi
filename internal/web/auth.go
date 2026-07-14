@@ -142,6 +142,8 @@ func csrfTokenForSession(sessionID string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+func CSRFTokenForSession(sessionID string) string { return csrfTokenForSession(sessionID) }
+
 func (s *Server) requireWSAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	auth, ok := s.requireWSAuthInfo(w, r)
 	if !ok {

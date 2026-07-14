@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +27,8 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/envelope"
+	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/fleetnode"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
@@ -44,7 +47,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: onibi up [--transport=lan-loopback] [--no-qr] [--shell sh] [--no-login-shell]")
+		return errors.New("usage: onibi up [--transport=lan-loopback] [--no-qr] [--shell sh] [--no-login-shell] | onibi fleet")
 	}
 	switch args[0] {
 	case "up", "start":
@@ -52,6 +55,8 @@ func run(args []string) error {
 	case "version":
 		fmt.Printf("onibi %s\ncommit %s\ndate %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date)
 		return nil
+	case "fleet":
+		return runFleet(args[1:])
 	default:
 		return fmt.Errorf("unsupported remote build command %q", args[0])
 	}
@@ -98,6 +103,10 @@ func runUp(args []string) error {
 		return err
 	}
 	defer db.Close()
+	fleetLink, err := remoteFleetLink(context.Background(), db)
+	if err != nil {
+		return err
+	}
 	logger, closeLog, err := newLogger(paths, *logFilePath)
 	if err != nil {
 		return err
@@ -126,6 +135,7 @@ func runUp(args []string) error {
 		WebCertDir:             certDir,
 		RelayKeys:              relayKeys,
 		RequireWebE2E:          webtransport.IsRelayMode(cfg.Transport.Mode),
+		FleetLink:              fleetLink,
 		SkipRestore:            true,
 	})
 	session, err := spawnShell(ctx, d, cfg)
@@ -173,6 +183,120 @@ func runUp(args []string) error {
 		}
 		return err
 	}
+}
+
+func runFleet(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: onibi fleet identity|proof|configure")
+	}
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	if err := paths.EnsureDirs(); err != nil {
+		return err
+	}
+	db, err := openDB(paths)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	switch args[0] {
+	case "identity":
+		fs := flag.NewFlagSet("fleet identity", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		endpoint := fs.String("endpoint", "", "SSH endpoint")
+		displayName := fs.String("display-name", "SSH host", "host display name")
+		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return errors.New("usage: onibi fleet identity --endpoint user@host[:port] [--display-name name]")
+		}
+		identity, err := fleetnode.LoadOrCreateIdentity(context.Background(), db)
+		if err != nil {
+			return err
+		}
+		host, err := identity.Host(*displayName, fleet.Endpoint{Kind: fleet.EndpointSSH, URL: strings.TrimSpace(*endpoint)}, buildinfo.Version, []string{"approval.write", "session.read", "session.write"})
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(host)
+	case "proof":
+		fs := flag.NewFlagSet("fleet proof", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		challengeText := fs.String("challenge", "", "base64 enrollment challenge")
+		hostText := fs.String("host", "", "base64 fleet host")
+		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return errors.New("usage: onibi fleet proof --challenge base64 --host base64")
+		}
+		var challenge fleet.EnrollmentChallenge
+		var host fleet.Host
+		if err := decodeRemoteFleetValue(*challengeText, &challenge); err != nil {
+			return err
+		}
+		if err := decodeRemoteFleetValue(*hostText, &host); err != nil {
+			return err
+		}
+		identity, err := fleetnode.LoadOrCreateIdentity(context.Background(), db)
+		if err != nil {
+			return err
+		}
+		proof, err := identity.Sign(challenge, host)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(proof)
+	case "configure":
+		fs := flag.NewFlagSet("fleet configure", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		enrollmentText := fs.String("enrollment", "", "base64 enrollment result")
+		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return errors.New("usage: onibi fleet configure --enrollment base64")
+		}
+		var enrollment fleetnode.Enrollment
+		if err := decodeRemoteFleetValue(*enrollmentText, &enrollment); err != nil {
+			return err
+		}
+		identity, err := fleetnode.LoadOrCreateIdentity(context.Background(), db)
+		if err != nil {
+			return err
+		}
+		_, err = fleetnode.Configure(context.Background(), db, identity, enrollment)
+		return err
+	default:
+		return fmt.Errorf("unsupported remote fleet command %q", args[0])
+	}
+}
+
+func remoteFleetLink(ctx context.Context, db *store.DB) (*daemon.FleetLink, error) {
+	config, found, err := fleetnode.LoadConfig(ctx, db)
+	if err != nil || !found {
+		return nil, err
+	}
+	identity, err := fleetnode.LoadOrCreateIdentity(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	private, err := identity.PrivateKeyBytes()
+	if err != nil {
+		return nil, err
+	}
+	hubPublic, err := base64.RawURLEncoding.DecodeString(config.HubPublic)
+	if err != nil {
+		return nil, err
+	}
+	return daemon.NewFleetLink(daemon.FleetLinkOptions{HubURL: config.HubURL, OwnerID: config.OwnerID, HostID: config.HostID, PrivateKey: private, HubPublic: hubPublic, BinaryVersion: config.BinaryVersion, Capabilities: config.Capabilities})
+}
+
+func decodeRemoteFleetValue(raw string, dst any) error {
+	b, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil || len(b) == 0 || len(b) > 64<<10 {
+		return errors.New("invalid remote fleet payload")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(b)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return errors.New("invalid remote fleet payload")
+	}
+	return nil
 }
 
 func openDB(paths config.Paths) (*store.DB, error) {

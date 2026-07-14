@@ -89,6 +89,16 @@ Ctrl-C in the local `onibi up --ssh ...` command closes the local tunnel and SSH
 
 If a forwarded connection fails, the local listener stays open and retries that forward once through a newly authenticated SSH client using the existing host-key pin. Reconnection never reinstalls or restarts the remote daemon.
 
+## Fleet enrollment
+
+An SSH-provisioned host can join an already reachable HTTPS fleet hub without retaining the controller tunnel:
+
+```bash
+ONIBI_FLEET_OWNER_SESSION='owner-session-cookie-value' onibi ssh enroll user@example.internal --hub https://hub.example.test
+```
+
+The command uses the owner session only to request the hub challenge, has the remote host sign it with an encrypted persistent identity, verifies the hub proof remotely, stores the resulting link configuration encrypted, then restarts the remote user service. It does not store the owner session or depend on the bootstrap tunnel after enrollment.
+
 ## Status and teardown
 
 Check the remote service:
