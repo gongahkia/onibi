@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 const (
@@ -135,6 +136,7 @@ func (s *Server) handleFleetLink(w http.ResponseWriter, r *http.Request) {
 	if previous != nil {
 		_ = previous.conn.Close(websocket.StatusPolicyViolation, "replaced by newer fleet link")
 	}
+	go s.dispatchPendingFleetControls(context.WithoutCancel(ctx), host.ID)
 	defer s.removeFleetLink(link)
 	for {
 		var frame fleet.LinkFrame
@@ -207,11 +209,48 @@ func (s *Server) SendFleetControl(ctx context.Context, control fleet.Control) er
 	return link.write(ctx, frame)
 }
 
+func (s *Server) dispatchFleetControl(ctx context.Context, command store.ControlCommand) error {
+	if s.db == nil {
+		return errors.New("command store unavailable")
+	}
+	ownerID, err := s.db.FleetOwnerID(ctx)
+	if err != nil {
+		return err
+	}
+	control := fleet.Control{Version: fleet.ProtocolVersion, ID: command.ID, OwnerID: ownerID, HostID: command.HostID, Command: command.Action, Payload: command.Payload, ExpiresAt: command.ExpiresAt}
+	if err := s.SendFleetControl(ctx, control); err != nil {
+		return err
+	}
+	return s.db.ControlCommandMarkDispatched(ctx, command.ID, time.Now().UTC())
+}
+
+func (s *Server) dispatchPendingFleetControls(ctx context.Context, hostID string) {
+	if s.db == nil {
+		return
+	}
+	now := time.Now().UTC()
+	if _, err := s.db.ControlCommandsExpire(ctx, now); err != nil {
+		s.log.Warn("expire fleet controls", "host_id", hostID, "err", err)
+		return
+	}
+	commands, err := s.db.ControlCommandsActiveForHost(ctx, hostID)
+	if err != nil {
+		s.log.Warn("load pending fleet controls", "host_id", hostID, "err", err)
+		return
+	}
+	for _, command := range commands {
+		if err := s.dispatchFleetControl(ctx, command); err != nil {
+			s.log.Warn("dispatch fleet control", "command_id", command.ID, "host_id", hostID, "err", err)
+			return
+		}
+	}
+}
+
 func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame fleet.LinkFrame) error {
 	if err := frame.Validate(); err != nil {
 		return err
 	}
-	if frame.Envelope.Type != fleet.MessageHeartbeat {
+	if frame.Envelope.Type != fleet.MessageHeartbeat && frame.Envelope.Type != fleet.MessageControlResult {
 		return errors.New("unsupported fleet link message")
 	}
 	host, ok, err := s.db.FleetHostGet(ctx, hostID)
@@ -236,6 +275,17 @@ func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame f
 	if err != nil || !ed25519.Verify(public, fleet.LinkFrameSigningPayload(frame.Envelope), signature) {
 		return errors.New("invalid fleet link signature")
 	}
+	switch frame.Envelope.Type {
+	case fleet.MessageHeartbeat:
+		return s.applyFleetHeartbeat(ctx, hostID, ownerID, public, frame)
+	case fleet.MessageControlResult:
+		return s.applyFleetControlResult(ctx, hostID, ownerID, frame)
+	default:
+		return errors.New("unsupported fleet link message")
+	}
+}
+
+func (s *Server) applyFleetHeartbeat(ctx context.Context, hostID, ownerID string, public ed25519.PublicKey, frame fleet.LinkFrame) error {
 	var heartbeat fleet.Heartbeat
 	if err := json.Unmarshal(frame.Envelope.Body, &heartbeat); err != nil {
 		return err
@@ -260,6 +310,44 @@ func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame f
 	}
 	if !applied {
 		return errors.New("stale fleet heartbeat")
+	}
+	return nil
+}
+
+func (s *Server) applyFleetControlResult(ctx context.Context, hostID, ownerID string, frame fleet.LinkFrame) error {
+	var result fleet.ControlResult
+	if err := json.Unmarshal(frame.Envelope.Body, &result); err != nil {
+		return err
+	}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.OwnerID != ownerID || result.HostID != hostID || !result.CompletedAt.Equal(frame.Envelope.SentAt) {
+		return errors.New("fleet control result mismatch")
+	}
+	now := time.Now().UTC()
+	if skew := now.Sub(result.CompletedAt.UTC()); skew > fleetHeartbeatMaxSkew || skew < -fleetHeartbeatMaxSkew {
+		return errors.New("fleet control result timestamp outside allowed skew")
+	}
+	command, err := s.db.ControlCommand(ctx, result.ID)
+	if err != nil {
+		return err
+	}
+	if command.HostID != hostID {
+		return errors.New("fleet control result host mismatch")
+	}
+	if command.State.Terminal() {
+		if command.State == result.State && command.Result == result.Error {
+			return nil
+		}
+		return errors.New("fleet control result conflicts with terminal command")
+	}
+	applied, err := s.db.ControlCommandComplete(ctx, result.ID, result.State, result.Error, result.CompletedAt)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return errors.New("fleet control result was not applied")
 	}
 	return nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
@@ -84,6 +85,45 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 	}
 	if delivered.ID != control.ID || delivered.OwnerID != host.OwnerID || delivered.HostID != host.ID {
 		t.Fatalf("delivered control = %#v", delivered)
+	}
+	command, created, err := srv.db.ControlCommandCreate(ctx, store.ControlCommand{ID: "control-result", HostID: host.ID, SessionID: "s1", Action: "interrupt", Payload: []byte(`{"session_id":"s1"}`), State: fleet.CommandPending, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Minute)})
+	if err != nil || !created {
+		t.Fatalf("command=%#v created=%v err=%v", command, created, err)
+	}
+	if err := srv.dispatchFleetControl(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	if err := wsjson.Read(ctx, conn, &controlFrame); err != nil {
+		t.Fatal(err)
+	}
+	var resultControl fleet.Control
+	if err := json.Unmarshal(controlFrame.Envelope.Body, &resultControl); err != nil || resultControl.ID != command.ID {
+		t.Fatalf("result control=%#v err=%v", resultControl, err)
+	}
+	completed := time.Now().UTC()
+	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: command.ID, OwnerID: host.OwnerID, HostID: host.ID, State: fleet.CommandSucceeded, CompletedAt: completed}
+	resultBody, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultEnvelope := fleet.Envelope{Version: fleet.ProtocolVersion, Type: fleet.MessageControlResult, RequestID: command.ID, SentAt: completed, Body: resultBody}
+	resultFrame := fleet.LinkFrame{Envelope: resultEnvelope, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.LinkFrameSigningPayload(resultEnvelope)))}
+	if err := wsjson.Write(ctx, conn, resultFrame); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(time.Second)
+	for {
+		stored, err := srv.db.ControlCommand(ctx, command.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.State == fleet.CommandSucceeded {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("command not completed: %#v", stored)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	controls := []fleet.Control{
 		{Version: fleet.ProtocolVersion, ID: "control-124", OwnerID: host.OwnerID, HostID: host.ID, Command: "interrupt", ExpiresAt: time.Now().UTC().Add(time.Minute)},

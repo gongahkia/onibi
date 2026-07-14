@@ -2,7 +2,13 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
+	"time"
+
+	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func (d *Daemon) SendSessionKey(ctx context.Context, id, key string) error {
@@ -63,4 +69,82 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	default:
 		return errors.New("unsupported action")
 	}
+}
+
+func (d *Daemon) handleFleetControl(ctx context.Context, control fleet.Control) fleet.ControlResult {
+	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: fleet.CommandFailed, Error: "control execution failed", CompletedAt: time.Now().UTC()}
+	if d == nil || d.DB == nil {
+		result.Error = "command store unavailable"
+		return result
+	}
+	var payload fleet.ControlPayload
+	if err := json.Unmarshal(control.Payload, &payload); err != nil || strings.TrimSpace(payload.SessionID) == "" {
+		result.Error = "invalid control payload"
+		return result
+	}
+	command, created, err := d.DB.ControlCommandCreate(ctx, store.ControlCommand{ID: control.ID, HostID: control.HostID, SessionID: payload.SessionID, Action: control.Command, Payload: control.Payload, State: fleet.CommandPending, CreatedAt: time.Now().UTC(), ExpiresAt: control.ExpiresAt.UTC()})
+	if err != nil {
+		result.Error = fleetControlError(err)
+		return result
+	}
+	if !created {
+		if !command.State.Terminal() {
+			_, _ = d.DB.ControlCommandComplete(ctx, command.ID, fleet.CommandTimedOut, "command recovery required", time.Now().UTC())
+			command, _ = d.DB.ControlCommand(ctx, command.ID)
+		}
+		return fleetControlResult(control, command)
+	}
+	if !control.ExpiresAt.After(time.Now().UTC()) {
+		_, _ = d.DB.ControlCommandComplete(ctx, command.ID, fleet.CommandTimedOut, "command timed out", time.Now().UTC())
+		command, _ = d.DB.ControlCommand(ctx, command.ID)
+		return fleetControlResult(control, command)
+	}
+	err = d.executeFleetControl(ctx, command, payload)
+	state := fleet.CommandSucceeded
+	message := ""
+	if err != nil {
+		state = fleet.CommandFailed
+		message = fleetControlError(err)
+	}
+	if _, completeErr := d.DB.ControlCommandComplete(ctx, command.ID, state, message, time.Now().UTC()); completeErr != nil {
+		result.Error = fleetControlError(completeErr)
+		return result
+	}
+	command, err = d.DB.ControlCommand(ctx, command.ID)
+	if err != nil {
+		result.Error = fleetControlError(err)
+		return result
+	}
+	return fleetControlResult(control, command)
+}
+
+func (d *Daemon) executeFleetControl(ctx context.Context, command store.ControlCommand, payload fleet.ControlPayload) error {
+	switch command.Action {
+	case "interrupt", "kill":
+		return d.ControlSession(ctx, command.SessionID, command.Action)
+	case "input":
+		if strings.TrimSpace(payload.Input) == "" {
+			return errors.New("control input required")
+		}
+		_, err := d.SendSessionTextAndCapture(ctx, command.SessionID, payload.Input, true)
+		return err
+	case "handover":
+		if strings.TrimSpace(payload.Target) == "" {
+			return errors.New("handover target required")
+		}
+		_, err := d.HandoverSession(ctx, command.SessionID, payload.Target)
+		return err
+	default:
+		return errors.New("unsupported control action")
+	}
+}
+
+func fleetControlResult(control fleet.Control, command store.ControlCommand) fleet.ControlResult {
+	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: command.State, Error: command.Result, CompletedAt: command.CompletedAt}
+	if !result.State.Terminal() {
+		result.State = fleet.CommandTimedOut
+		result.Error = "command recovery required"
+		result.CompletedAt = time.Now().UTC()
+	}
+	return result
 }

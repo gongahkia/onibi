@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -46,6 +47,7 @@ type FleetLinkOptions struct {
 	HTTPClient        *http.Client
 	Dial              FleetLinkDial
 	OnControl         func(context.Context, fleet.Control) error
+	OnControlResult   func(context.Context, fleet.Control) fleet.ControlResult
 }
 
 type FleetLink struct {
@@ -61,6 +63,7 @@ type FleetLink struct {
 	reconnectMax      time.Duration
 	dial              FleetLinkDial
 	onControl         func(context.Context, fleet.Control) error
+	onControlResult   func(context.Context, fleet.Control) fleet.ControlResult
 }
 
 func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
@@ -109,6 +112,7 @@ func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
 		reconnectMax:      opts.ReconnectMax,
 		dial:              dial,
 		onControl:         opts.OnControl,
+		onControlResult:   opts.OnControlResult,
 	}, nil
 }
 
@@ -146,6 +150,12 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(fleetLinkMaxFrameSize)
+	var writeMu sync.Mutex
+	write := func(ctx context.Context, value any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return writeFleetLinkFrame(ctx, conn, value)
+	}
 	handshakeCtx, cancel := context.WithTimeout(ctx, fleetLinkHandshakeTimeout)
 	defer cancel()
 	var challenge fleet.LinkChallenge
@@ -167,7 +177,7 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 		SentAt:      time.Now().UTC(),
 	}
 	auth.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(l.privateKey, fleet.LinkAuthenticateSigningPayload(challenge, auth)))
-	if err := writeFleetLinkFrame(handshakeCtx, conn, auth); err != nil {
+	if err := write(handshakeCtx, auth); err != nil {
 		return err
 	}
 	var accepted fleet.LinkAccepted
@@ -187,11 +197,11 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 	if err != nil || !ed25519.Verify(l.hubPublic, fleet.LinkAcceptedSigningPayload(challenge, accepted), acceptedSignature) {
 		return errors.New("invalid fleet link acceptance proof")
 	}
-	if err := l.writeHeartbeat(ctx, conn); err != nil {
+	if err := l.writeHeartbeat(ctx, write); err != nil {
 		return err
 	}
 	readErr := make(chan error, 1)
-	go func() { readErr <- l.readControls(ctx, conn) }()
+	go func() { readErr <- l.readControls(ctx, conn, write) }()
 	ticker := time.NewTicker(l.heartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -201,14 +211,14 @@ func (l *FleetLink) runOnce(ctx context.Context) error {
 		case err := <-readErr:
 			return err
 		case <-ticker.C:
-			if err := l.writeHeartbeat(ctx, conn); err != nil {
+			if err := l.writeHeartbeat(ctx, write); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (l *FleetLink) writeHeartbeat(ctx context.Context, conn *websocket.Conn) error {
+func (l *FleetLink) writeHeartbeat(ctx context.Context, write func(context.Context, any) error) error {
 	now := time.Now().UTC()
 	heartbeat := fleet.Heartbeat{
 		Version:       fleet.ProtocolVersion,
@@ -229,10 +239,10 @@ func (l *FleetLink) writeHeartbeat(ctx context.Context, conn *websocket.Conn) er
 	}
 	envelope := fleet.Envelope{Version: fleet.ProtocolVersion, Type: fleet.MessageHeartbeat, RequestID: requestID, SentAt: now, Body: body}
 	frame := fleet.LinkFrame{Envelope: envelope, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(l.privateKey, fleet.LinkFrameSigningPayload(envelope)))}
-	return writeFleetLinkFrame(ctx, conn, frame)
+	return write(ctx, frame)
 }
 
-func (l *FleetLink) readControls(ctx context.Context, conn *websocket.Conn) error {
+func (l *FleetLink) readControls(ctx context.Context, conn *websocket.Conn, write func(context.Context, any) error) error {
 	for {
 		var frame fleet.LinkFrame
 		if err := wsjson.Read(ctx, conn, &frame); err != nil {
@@ -258,12 +268,61 @@ func (l *FleetLink) readControls(ctx context.Context, conn *websocket.Conn) erro
 		if control.OwnerID != l.ownerID || control.HostID != l.hostID || !control.ExpiresAt.After(time.Now().UTC()) {
 			return errors.New("invalid fleet control target")
 		}
-		if l.onControl != nil {
-			if err := l.onControl(ctx, control); err != nil {
-				return err
+		result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: fleet.CommandSucceeded, CompletedAt: time.Now().UTC()}
+		if l.onControlResult != nil {
+			result = l.onControlResult(ctx, control)
+			result.Version = fleet.ProtocolVersion
+			result.ID = control.ID
+			result.OwnerID = control.OwnerID
+			result.HostID = control.HostID
+			if result.CompletedAt.IsZero() {
+				result.CompletedAt = time.Now().UTC()
 			}
+		} else if l.onControl == nil {
+			result.State = fleet.CommandFailed
+			result.Error = "control handler unavailable"
+		} else if err := l.onControl(ctx, control); err != nil {
+			result.State = fleet.CommandFailed
+			result.Error = fleetControlError(err)
+		}
+		if err := result.Validate(); err != nil {
+			result = fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: fleet.CommandFailed, Error: fleetControlError(err), CompletedAt: time.Now().UTC()}
+		}
+		if err := l.writeControlResult(ctx, write, result); err != nil {
+			return err
 		}
 	}
+}
+
+func (l *FleetLink) SetControlResultHandler(handler func(context.Context, fleet.Control) fleet.ControlResult) {
+	if l == nil {
+		return
+	}
+	l.onControlResult = handler
+}
+
+func (l *FleetLink) writeControlResult(ctx context.Context, write func(context.Context, any) error, result fleet.ControlResult) error {
+	body, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	envelope := fleet.Envelope{Version: fleet.ProtocolVersion, Type: fleet.MessageControlResult, RequestID: result.ID, SentAt: result.CompletedAt, Body: body}
+	frame := fleet.LinkFrame{Envelope: envelope, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(l.privateKey, fleet.LinkFrameSigningPayload(envelope)))}
+	return write(ctx, frame)
+}
+
+func fleetControlError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.TrimSpace(err.Error())
+	if len(message) > 512 {
+		return message[:512]
+	}
+	if message == "" {
+		return "control failed"
+	}
+	return message
 }
 
 func normalizeFleetLinkURL(raw string) (string, error) {

@@ -30,8 +30,37 @@ const (
 	MessageHeartbeat            MessageType = "host.heartbeat"
 	MessageFleetSnapshot        MessageType = "fleet.snapshot"
 	MessageControl              MessageType = "fleet.control"
+	MessageControlResult        MessageType = "fleet.control.result"
 	MessageRevoke               MessageType = "host.revoke"
 )
+
+type CommandState string
+
+const (
+	CommandPending    CommandState = "pending"
+	CommandDispatched CommandState = "dispatched"
+	CommandSucceeded  CommandState = "succeeded"
+	CommandFailed     CommandState = "failed"
+	CommandTimedOut   CommandState = "timed_out"
+)
+
+func (s CommandState) Terminal() bool {
+	switch s {
+	case CommandSucceeded, CommandFailed, CommandTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s CommandState) Valid() bool {
+	switch s {
+	case CommandPending, CommandDispatched, CommandSucceeded, CommandFailed, CommandTimedOut:
+		return true
+	default:
+		return false
+	}
+}
 
 type Envelope struct {
 	Version   uint16      `json:"version"`
@@ -521,7 +550,7 @@ func (s Snapshot) Validate() error {
 
 func validMessageType(v MessageType) bool {
 	switch v {
-	case MessageEnrollmentChallenge, MessageEnrollmentProof, MessageKeyRotationChallenge, MessageKeyRotationProof, MessageHeartbeat, MessageFleetSnapshot, MessageControl, MessageRevoke:
+	case MessageEnrollmentChallenge, MessageEnrollmentProof, MessageKeyRotationChallenge, MessageKeyRotationProof, MessageHeartbeat, MessageFleetSnapshot, MessageControl, MessageControlResult, MessageRevoke:
 		return true
 	default:
 		return false

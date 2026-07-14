@@ -320,6 +320,21 @@ CREATE TABLE IF NOT EXISTS fleet_key_rotation_challenges (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_fleet_key_rotation_expires ON fleet_key_rotation_challenges(expires_at, consumed_at);
+
+CREATE TABLE IF NOT EXISTS control_commands (
+  id           TEXT PRIMARY KEY,
+  host_id      TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  action       TEXT NOT NULL,
+  payload_enc  BLOB NOT NULL DEFAULT X'',
+  state        TEXT NOT NULL,
+  result       TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  completed_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_control_commands_host_state ON control_commands(host_id, state, expires_at);
 `
 
 func (d *DB) migrate() error {

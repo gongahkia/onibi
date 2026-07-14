@@ -359,6 +359,9 @@ func New(opts Options) *Daemon {
 	}
 	d.Queue.Log = opts.Log
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
+	if d.FleetLink != nil {
+		d.FleetLink.SetControlResultHandler(d.handleFleetControl)
+	}
 
 	// intake server: fire-and-forget + approval RPC
 	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
@@ -716,6 +719,9 @@ func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 	if d.DB != nil {
 		if err := d.DB.KVPurgeExpired(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Warn("purge expired kv", slog.Any("err", err))
+		}
+		if _, err := d.DB.ControlCommandsExpire(ctx, time.Now().UTC()); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Warn("expire control commands", slog.Any("err", err))
 		}
 	}
 	if !d.SkipRestore {

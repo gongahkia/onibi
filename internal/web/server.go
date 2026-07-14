@@ -166,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/fonts/", s.handleFonts)
 	mux.HandleFunc("/control", s.handleControl)
+	mux.HandleFunc("/control/{id}", s.handleControl)
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
