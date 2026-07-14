@@ -11,13 +11,20 @@ type SnapshotFrame = {
   base64_data: string;
 };
 
+type RecoveryFrame = {
+  type: "recovery";
+  mode: "replay" | "snapshot";
+  seq: number;
+  replay_bytes: number;
+};
+
 type ResizeFrame = {
   type: "resize";
   rows: number;
   cols: number;
 };
 
-type ServerFrame = SnapshotFrame | ResizeFrame;
+type ServerFrame = SnapshotFrame | RecoveryFrame | ResizeFrame;
 
 export class TerminalWS extends WebEventTarget {
   private url = "";
@@ -34,6 +41,7 @@ export class TerminalWS extends WebEventTarget {
   }
 
   connect(url: string, sessionId: string, lastSeq = 0): void {
+    this.ws?.close();
     this.url = url;
     this.sessionId = sessionId;
     this.lastSeq = lastSeq;
@@ -44,7 +52,9 @@ export class TerminalWS extends WebEventTarget {
   close(): void {
     this.stopped = true;
     window.clearTimeout(this.reconnectTimer);
-    this.ws?.close();
+    const socket = this.ws;
+    this.ws = undefined;
+    socket?.close();
   }
 
   resume(): void {
@@ -76,12 +86,26 @@ export class TerminalWS extends WebEventTarget {
   }
 
   private open(): void {
+    if (
+      this.stopped ||
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
     const socket = new WebSocket(this.url, ["onibi.pty.v1"]);
+    let messages = Promise.resolve();
     socket.binaryType = "arraybuffer";
     this.ws = socket;
     socket.addEventListener("open", () => void this.handleOpen(socket));
-    socket.addEventListener("message", (event) => void this.handleMessage(event));
+    socket.addEventListener("message", (event) => {
+      messages = messages.then(() => this.handleMessage(socket, event)).catch(() => socket.close());
+    });
     socket.addEventListener("close", () => {
+      if (this.ws !== socket) {
+        return;
+      }
+      this.ws = undefined;
       this.dispatchEvent(new WebEvent("close"));
       if (!this.stopped) {
         this.scheduleReconnect();
@@ -91,6 +115,10 @@ export class TerminalWS extends WebEventTarget {
   }
 
   private async handleOpen(socket: WebSocket): Promise<void> {
+    if (this.ws !== socket || this.stopped) {
+      socket.close();
+      return;
+    }
     this.attempts = 0;
     const attach: { type: "attach"; session_id: string; last_seq: number; verify_token?: string } =
       {
@@ -103,6 +131,9 @@ export class TerminalWS extends WebEventTarget {
       attach.verify_token = this.e2e.verifyToken();
     }
     await this.sendTyped("text", new TextEncoder().encode(JSON.stringify(attach)), socket);
+    if (this.ws !== socket || this.stopped) {
+      return;
+    }
     this.dispatchEvent(new WebEvent("open"));
   }
 
@@ -129,13 +160,19 @@ export class TerminalWS extends WebEventTarget {
     this.reconnectTimer = window.setTimeout(() => this.open(), delay);
   }
 
-  private async handleMessage(event: MessageEvent): Promise<void> {
+  private async handleMessage(socket: WebSocket, event: MessageEvent): Promise<void> {
+    if (this.ws !== socket || this.stopped) {
+      return;
+    }
     if (this.e2e !== undefined) {
       if (typeof event.data !== "string") {
         this.ws?.close();
         return;
       }
       const frame = await this.e2e.open(event.data, "ws:pty");
+      if (this.ws !== socket || this.stopped) {
+        return;
+      }
       if (frame.type === "text") {
         this.handleText(decodeText(frame.data));
         return;
@@ -160,6 +197,11 @@ export class TerminalWS extends WebEventTarget {
       const data = decodeBase64(frame.base64_data);
       this.lastSeq = frame.seq;
       this.dispatchEvent(new WebCustomEvent<ArrayBuffer>("data", { detail: data }));
+      return;
+    }
+    if (frame.type === "recovery") {
+      this.lastSeq = frame.seq;
+      this.dispatchEvent(new WebCustomEvent<RecoveryFrame>("recovered", { detail: frame }));
       return;
     }
     if (frame.type === "resize") {

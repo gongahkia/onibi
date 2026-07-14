@@ -16,6 +16,7 @@ import (
 )
 
 var newTmuxController = tmux.New
+var spawnWebPTYHost = pty.Spawn
 
 const (
 	managedSessionCaptureInterval = 2 * time.Second
@@ -334,40 +335,67 @@ func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, er
 		}
 		return s.Host, nil
 	}
-	d.webAttachMu.Lock()
-	if h := d.webAttachHosts[s.ID]; h != nil {
+	for {
+		d.webAttachMu.Lock()
+		if d.webAttachHosts == nil {
+			d.webAttachHosts = map[string]*pty.Host{}
+		}
+		if d.webAttachPending == nil {
+			d.webAttachPending = map[string]chan struct{}{}
+		}
+		if h := d.webAttachHosts[s.ID]; h != nil {
+			d.webAttachMu.Unlock()
+			return h, nil
+		}
+		if pending := d.webAttachPending[s.ID]; pending != nil {
+			d.webAttachMu.Unlock()
+			select {
+			case <-pending:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		pending := make(chan struct{})
+		d.webAttachPending[s.ID] = pending
 		d.webAttachMu.Unlock()
-		return h, nil
-	}
-	d.webAttachMu.Unlock()
 
-	ctrl := newTmuxController()
-	if err := ctrl.EnablePassthrough(ctx, s.TmuxTarget); err != nil {
-		d.Log.Warn("enable tmux passthrough", "session", s.ID, "target", s.TmuxTarget, "err", err)
+		ctrl := newTmuxController()
+		if err := ctrl.EnablePassthrough(ctx, s.TmuxTarget); err != nil {
+			d.Log.Warn("enable tmux passthrough", "session", s.ID, "target", s.TmuxTarget, "err", err)
+		}
+		_ = ctrl.DetachClients(ctx, s.TmuxTarget)
+		args := tmuxWebAttachArgs(s.TmuxTarget)
+		var host *pty.Host
+		var err error
+		if len(args) == 0 {
+			err = errors.New("tmux attach command unavailable")
+		} else {
+			host, err = spawnWebPTYHost(ctx, pty.SpawnOptions{
+				Name: args[0],
+				Args: args[1:],
+				Env:  []string{"ONIBI_SOCK=" + d.Paths.Socket, "ONIBI_SESSION_ID=" + s.ID},
+				Dir:  s.CWD,
+			})
+		}
+
+		d.webAttachMu.Lock()
+		delete(d.webAttachPending, s.ID)
+		if err == nil {
+			d.webAttachHosts[s.ID] = host
+		}
+		close(pending)
+		d.webAttachMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		d.startRecording(&Session{ID: s.ID, Host: host})
+		go func() {
+			_ = host.Wait()
+			d.clearWebAttachHost(s.ID, host)
+		}()
+		return host, nil
 	}
-	_ = ctrl.DetachClients(ctx, s.TmuxTarget)
-	args := tmuxWebAttachArgs(s.TmuxTarget)
-	if len(args) == 0 {
-		return nil, errors.New("tmux attach command unavailable")
-	}
-	host, err := pty.Spawn(ctx, pty.SpawnOptions{
-		Name: args[0],
-		Args: args[1:],
-		Env:  []string{"ONIBI_SOCK=" + d.Paths.Socket, "ONIBI_SESSION_ID=" + s.ID},
-		Dir:  s.CWD,
-	})
-	if err != nil {
-		return nil, err
-	}
-	d.webAttachMu.Lock()
-	d.webAttachHosts[s.ID] = host
-	d.webAttachMu.Unlock()
-	d.startRecording(&Session{ID: s.ID, Host: host})
-	go func() {
-		_ = host.Wait()
-		d.clearWebAttachHost(s.ID, host)
-	}()
-	return host, nil
 }
 
 func (d *Daemon) HandoverSession(ctx context.Context, id, target string) (string, error) {

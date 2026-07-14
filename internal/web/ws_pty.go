@@ -17,17 +17,16 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const (
-	ptyAttachTimeout = 10 * time.Second
-	wsWriteTimeout   = 5 * time.Second
-)
+const wsWriteTimeout = 5 * time.Second
 
 var (
 	wsPingInterval      = 30 * time.Second
 	wsPingTimeout       = 10 * time.Second
 	wsAuthCheckInterval = 5 * time.Second
+	ptyAttachTimeout    = 10 * time.Second
 	wsPingMu            sync.RWMutex
 	wsAuthCheckMu       sync.RWMutex
+	ptyAttachTimeoutMu  sync.RWMutex
 )
 
 type ptyAttachFrame struct {
@@ -47,6 +46,13 @@ type ptySnapshotFrame struct {
 	Type       string `json:"type"`
 	Seq        uint64 `json:"seq"`
 	Base64Data string `json:"base64_data"`
+}
+
+type ptyRecoveryFrame struct {
+	Type        string `json:"type"`
+	Mode        string `json:"mode"`
+	Seq         uint64 `json:"seq"`
+	ReplayBytes int    `json:"replay_bytes"`
 }
 
 type ptyResizeFrame struct {
@@ -152,6 +158,19 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("web pty replay failed", "request_id", reqID, "session_id", attach.SessionID, "err", err, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data))
 		return
 	}
+	mode := "replay"
+	if replay.Snapshot {
+		mode = "snapshot"
+	}
+	if err := writeWSJSON(ctx, c, &writeMu, ptyRecoveryFrame{
+		Type:        "recovery",
+		Mode:        mode,
+		Seq:         replay.Seq,
+		ReplayBytes: len(replay.Data),
+	}, wsE2E); err != nil {
+		s.log.Warn("web pty recovery feedback failed", "request_id", reqID, "session_id", attach.SessionID, "err", err, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data))
+		return
+	}
 	s.log.Info("web pty replay sent", "request_id", reqID, "session_id", attach.SessionID, "snapshot", replay.Snapshot, "replay_bytes", len(replay.Data), "seq", replay.Seq)
 
 	go func() {
@@ -190,7 +209,10 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 }
 
 func readPTYAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ptyAttachFrame, error) {
-	readCtx, cancel := context.WithTimeout(ctx, ptyAttachTimeout)
+	ptyAttachTimeoutMu.RLock()
+	timeout := ptyAttachTimeout
+	ptyAttachTimeoutMu.RUnlock()
+	readCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	typ, p, err := c.Read(readCtx)
 	if err != nil {
@@ -235,7 +257,9 @@ func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, c
 			if frame.Type == "resize" {
 				return host.Resize(frame.Rows, frame.Cols)
 			}
-			return nil
+			if frame.Type == "attach" {
+				return errors.New("web: duplicate attach")
+			}
 		}
 		if readOnly {
 			return nil

@@ -85,6 +85,7 @@ func (h *Hub) SubscribeFrom(ctx context.Context, bufCap int, seq uint64) (Replay
 	}
 
 	h.mu.Lock()
+	h.flushLocked()
 	replay := h.replaySinceLocked(seq)
 	if h.closed {
 		close(sub.ch)

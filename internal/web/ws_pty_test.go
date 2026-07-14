@@ -42,6 +42,10 @@ func TestWSPTYAttachValidLastSeqReturnsDelta(t *testing.T) {
 	if !bytes.Contains(p, []byte("delta-output")) {
 		t.Fatalf("delta = %q", p)
 	}
+	recovery := readPTYRecoveryForTest(t, c)
+	if recovery.Mode != "replay" || recovery.ReplayBytes != len(p) || recovery.Seq != uint64(len(p)) {
+		t.Fatalf("recovery = %#v", recovery)
+	}
 }
 
 func TestWSPTYAttachStaleLastSeqReturnsSnapshot(t *testing.T) {
@@ -70,12 +74,71 @@ func TestWSPTYAttachStaleLastSeqReturnsSnapshot(t *testing.T) {
 	if !bytes.Contains(data, []byte("snapshot-line")) {
 		t.Fatalf("snapshot data missing marker")
 	}
+	recovery := readPTYRecoveryForTest(t, c)
+	if recovery.Mode != "snapshot" || recovery.Seq != frame.Seq || recovery.ReplayBytes != len(data) {
+		t.Fatalf("recovery = %#v", recovery)
+	}
+}
+
+func TestWSPTYAttachAfterHostRestartReturnsSnapshot(t *testing.T) {
+	host := spawnPTYForTest(t, "printf restarted-output; sleep 2")
+	waitForReplay(t, host, 0, func(r pty.Replay) bool {
+		return bytes.Contains(r.Data, []byte("restarted-output"))
+	})
+	c := dialPTYForTest(t, host)
+	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 999})
+
+	typ, p := readWSForTest(t, c)
+	if typ != websocket.MessageText {
+		t.Fatalf("message type = %v", typ)
+	}
+	var frame ptySnapshotFrame
+	if err := json.Unmarshal(p, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != "snapshot" || frame.Seq == 0 {
+		t.Fatalf("snapshot = %#v", frame)
+	}
+	recovery := readPTYRecoveryForTest(t, c)
+	if recovery.Mode != "snapshot" || recovery.Seq != frame.Seq {
+		t.Fatalf("recovery = %#v", recovery)
+	}
+}
+
+func TestWSPTYAttachTimeoutClosesConnection(t *testing.T) {
+	withPTYAttachTimeout(t, 20*time.Millisecond)
+	host := pty.NewVirtualHost(nil, nil, nil)
+	c := dialPTYForTest(t, host)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, err := c.Read(ctx)
+	if err == nil {
+		t.Fatal("attach timeout did not close connection")
+	}
+	if status := websocket.CloseStatus(err); status != -1 && status != websocket.StatusPolicyViolation {
+		t.Fatalf("close status = %v err=%v", websocket.CloseStatus(err), err)
+	}
+}
+
+func TestWSPTYDuplicateAttachClosesConnection(t *testing.T) {
+	host := pty.NewVirtualHost(nil, nil, nil)
+	c := dialPTYForTest(t, host)
+	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1"})
+	_ = readPTYRecoveryForTest(t, c)
+	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, err := c.Read(ctx)
+	if err == nil {
+		t.Fatal("duplicate attach did not close connection")
+	}
 }
 
 func TestWSPTYResizeFrameResizesHost(t *testing.T) {
 	host := spawnPTYForTest(t, "cat")
 	c := dialPTYForTest(t, host)
 	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
+	_ = readPTYRecoveryForTest(t, c)
 	writeWSJSONForTest(t, c, ptyControlFrame{Type: "resize", Rows: 22, Cols: 77})
 
 	typ, p := readWSForTest(t, c)
@@ -111,6 +174,7 @@ func TestWSPTYViewerInputFramesAreDropped(t *testing.T) {
 	host := spawnPTYForTest(t, "cat")
 	c := dialPTYForTestWithRole(t, host, store.PairRoleViewer)
 	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
+	_ = readPTYRecoveryForTest(t, c)
 	writeWSBinaryForTest(t, c, []byte("viewer-blocked\n"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
@@ -233,6 +297,7 @@ func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 	if err := c.Write(ctx, typ, sealed); err != nil {
 		t.Fatal(err)
 	}
+	readE2EPTYRecoveryForTest(t, c, client)
 	if err := c.Write(ctx, typ, sealed); err != nil {
 		t.Fatal(err)
 	}
@@ -439,6 +504,22 @@ func readWSForTest(t *testing.T, c *websocket.Conn) (websocket.MessageType, []by
 	return typ, p
 }
 
+func readPTYRecoveryForTest(t *testing.T, c *websocket.Conn) ptyRecoveryFrame {
+	t.Helper()
+	typ, p := readWSForTest(t, c)
+	if typ != websocket.MessageText {
+		t.Fatalf("recovery message type = %v", typ)
+	}
+	var frame ptyRecoveryFrame
+	if err := json.Unmarshal(p, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != "recovery" {
+		t.Fatalf("recovery frame = %#v", frame)
+	}
+	return frame
+}
+
 func waitForAuditAction(t *testing.T, db *store.DB, action string) store.AuditEntry {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -493,6 +574,19 @@ func withWSAuthCheckInterval(t *testing.T, interval time.Duration) {
 		wsAuthCheckMu.Lock()
 		wsAuthCheckInterval = old
 		wsAuthCheckMu.Unlock()
+	})
+}
+
+func withPTYAttachTimeout(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	ptyAttachTimeoutMu.Lock()
+	old := ptyAttachTimeout
+	ptyAttachTimeout = timeout
+	ptyAttachTimeoutMu.Unlock()
+	t.Cleanup(func() {
+		ptyAttachTimeoutMu.Lock()
+		ptyAttachTimeout = old
+		ptyAttachTimeoutMu.Unlock()
 	})
 }
 
@@ -631,6 +725,30 @@ func readE2EPTYForTest(t *testing.T, c *websocket.Conn, client wsCodec) (<-chan 
 		}
 	}()
 	return messages, errs
+}
+
+func readE2EPTYRecoveryForTest(t *testing.T, c *websocket.Conn, client wsCodec) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	typ, p, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, p, err = client.decrypt(typ, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typ != websocket.MessageText {
+		t.Fatalf("recovery message type = %v", typ)
+	}
+	var frame ptyRecoveryFrame
+	if err := json.Unmarshal(p, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != "recovery" {
+		t.Fatalf("recovery frame = %#v", frame)
+	}
 }
 
 func waitForE2EPTYPayload(t *testing.T, messages <-chan []byte, errs <-chan error, want []byte) {

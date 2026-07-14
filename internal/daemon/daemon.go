@@ -83,6 +83,7 @@ type Daemon struct {
 	mu                    sync.Mutex
 	webAttachMu           sync.Mutex
 	webAttachHosts        map[string]*pty.Host
+	webAttachPending      map[string]chan struct{}
 	slackMu               sync.Mutex
 	slackApprovals        map[string]slackApprovalRef
 	matrixEncryptedRoom   bool
@@ -289,6 +290,7 @@ func New(opts Options) *Daemon {
 		Registry:                NewRegistry(),
 		Events:                  web.NewEventBus(),
 		webAttachHosts:          map[string]*pty.Host{},
+		webAttachPending:        map[string]chan struct{}{},
 		slackApprovals:          map[string]slackApprovalRef{},
 		discordApprovals:        map[string]discordApprovalRef{},
 		discordTailThreads:      map[string]string{},

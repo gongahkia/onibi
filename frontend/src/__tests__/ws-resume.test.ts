@@ -102,6 +102,12 @@ test("terminal ws resumes immediately and reattaches from latest snapshot seq", 
     })
   );
   await flush();
+  first.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({ type: "recovery", mode: "snapshot", seq: 42, replay_bytes: 8 })
+    })
+  );
+  await flush();
   first.close();
   expect(FakeWebSocket.instances).toHaveLength(1);
   client.resume();
@@ -118,6 +124,37 @@ test("terminal ws resumes immediately and reattaches from latest snapshot seq", 
   });
   client.resume();
   expect(FakeWebSocket.instances).toHaveLength(2);
+  client.close();
+});
+
+test("terminal ws reports recovery and ignores messages from replaced sockets", async () => {
+  const client = new TerminalWS();
+  const recovered: unknown[] = [];
+  const received: unknown[] = [];
+  client.addEventListener("recovered", (event) => recovered.push((event as CustomEvent).detail));
+  client.addEventListener("data", (event) => received.push((event as CustomEvent).detail));
+  client.connect("wss://onibi.test/ws/pty", "session-1");
+  const first = FakeWebSocket.instances[0];
+  first.open();
+  await flush();
+  first.close();
+  client.resume();
+  const second = FakeWebSocket.instances[1];
+  second.open();
+  await flush();
+  first.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({ type: "recovery", mode: "snapshot", seq: 99, replay_bytes: 4 })
+    })
+  );
+  second.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({ type: "recovery", mode: "replay", seq: 0, replay_bytes: 0 })
+    })
+  );
+  await flush();
+  expect(recovered).toEqual([{ type: "recovery", mode: "replay", seq: 0, replay_bytes: 0 }]);
+  expect(received).toEqual([]);
   client.close();
 });
 

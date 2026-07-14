@@ -182,6 +182,26 @@ func TestHubWriteCoalesces(t *testing.T) {
 	}
 }
 
+func TestHubSubscribeFromDoesNotRepeatPendingCoalescedOutput(t *testing.T) {
+	h := NewHub(64)
+	if _, err := h.Write([]byte("pending")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	replay, ch, unsub := h.SubscribeFrom(ctx, DefaultSubscriberBuffer, 0)
+	defer unsub()
+	if got := string(replay.Data); got != "pending" {
+		t.Fatalf("replay = %q", got)
+	}
+	if _, err := h.Write([]byte("next")); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readFrame(t, ch)); got != "next" {
+		t.Fatalf("live frame = %q", got)
+	}
+}
+
 func TestHostResizeBroadcastsFrame(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

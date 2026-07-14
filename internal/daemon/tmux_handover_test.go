@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/pty"
@@ -52,6 +54,68 @@ func TestHandoverMacClosesWebAttachAndReturnsAttachHint(t *testing.T) {
 	}
 	if !strings.Contains(msg, "tmux attach-session -t onibi-s1") {
 		t.Fatalf("message = %q", msg)
+	}
+}
+
+func TestEnsureWebPTYHostCoalescesConcurrentAttaches(t *testing.T) {
+	runner := &tmuxRunner{}
+	oldController := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
+	t.Cleanup(func() { newTmuxController = oldController })
+	oldSpawn := spawnWebPTYHost
+	spawned := make(chan struct{}, 1)
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	var calls atomic.Int32
+	host := pty.NewVirtualHost(nil, nil, func() error {
+		<-finished
+		return nil
+	})
+	spawnWebPTYHost = func(context.Context, pty.SpawnOptions) (*pty.Host, error) {
+		calls.Add(1)
+		spawned <- struct{}{}
+		<-release
+		return host, nil
+	}
+	t.Cleanup(func() {
+		spawnWebPTYHost = oldSpawn
+		close(finished)
+	})
+
+	d := New(Options{})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	s.Transport = "tmux"
+	s.TmuxTarget = "onibi-s1"
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		host *pty.Host
+		err  error
+	}
+	results := make(chan result, 2)
+	go func() {
+		h, err := d.EnsureWebPTYHost(context.Background(), s.ID)
+		results <- result{host: h, err: err}
+	}()
+	<-spawned
+	go func() {
+		h, err := d.EnsureWebPTYHost(context.Background(), s.ID)
+		results <- result{host: h, err: err}
+	}()
+	select {
+	case got := <-results:
+		t.Fatalf("attach completed before shared spawn: %#v", got)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	first := <-results
+	second := <-results
+	if first.err != nil || second.err != nil || first.host != host || second.host != host {
+		t.Fatalf("results = %#v %#v", first, second)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("spawn calls = %d", got)
 	}
 }
 

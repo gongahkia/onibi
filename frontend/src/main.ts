@@ -98,6 +98,22 @@ ws.addEventListener("open", () => {
   ws.sendResize(term.rows, term.cols);
 });
 ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
+ws.addEventListener("recovered", (event) => {
+  const recovery = (event as CustomEvent<{ mode: "replay" | "snapshot"; replay_bytes: number }>)
+    .detail;
+  const message =
+    recovery.mode === "snapshot"
+      ? "Terminal restored from buffered output."
+      : recovery.replay_bytes > 0
+        ? "Terminal reconnected."
+        : "Terminal connected.";
+  showToast(message);
+  window.setTimeout(() => {
+    if (toast.textContent === message) {
+      hideToast();
+    }
+  }, 1200);
+});
 events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
   if (!viewerMode) {
