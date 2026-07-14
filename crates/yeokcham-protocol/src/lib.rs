@@ -12,6 +12,7 @@ mod local_mesh_profile;
 mod mailbox_capability;
 mod message_payload;
 mod negotiation;
+mod qr_verification;
 mod recipient_capability;
 mod safety_number;
 mod signing;
@@ -49,6 +50,10 @@ pub use message_payload::{
     MAX_MESSAGE_PAYLOAD_BYTES, MessageContentType, MessagePayload, MessagePayloadError,
 };
 pub use negotiation::{VersionNegotiation, VersionNegotiationError};
+pub use qr_verification::{
+    QR_VERIFICATION_PAYLOAD_BYTES, QR_VERIFICATION_SCHEMA_VERSION, QrVerificationError,
+    QrVerificationPayload,
+};
 pub use recipient_capability::{
     RECIPIENT_CAPABILITY_SCHEMA_VERSION, RecipientCapability, RecipientCapabilityError,
 };

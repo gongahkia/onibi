@@ -2,9 +2,9 @@ use yeokcham_protocol::{
     DeliveryProfile, DeliveryProfileKind, DirectProfileConfig, EncryptedHeader,
     EncryptedMessageEnvelope, ExtensionFrame, IdentityIdentifier, LocalMeshProfileConfig,
     LocalMeshTransportKind, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
-    MailboxCapability, MessageContentType, MessagePayload, ProtocolVersion, RecipientCapability,
-    TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig, VersionNegotiation, VersionRange,
-    WireEnvelope, WireLimits,
+    MailboxCapability, MessageContentType, MessagePayload, ProtocolVersion, QrVerificationPayload,
+    RecipientCapability, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
+    VersionNegotiation, VersionRange, WireEnvelope, WireLimits,
 };
 
 const VECTORS: &str = include_str!("../vectors/protocol-v1.txt");
@@ -113,6 +113,10 @@ fn protocol_v1_vectors_match_public_encoders() {
         .as_bytes()
         .to_vec(),
     );
+    assert_vector!(
+        "qr_verification",
+        qr_verification_payload().encode().unwrap(),
+    );
 }
 
 fn version_range(minimum: u16, maximum: u16) -> VersionRange {
@@ -137,6 +141,22 @@ fn mailbox_capability() -> MailboxCapability {
         [0x33; MAILBOX_CAPABILITY_TOKEN_BYTES],
     )
     .unwrap()
+}
+
+fn qr_verification_payload() -> QrVerificationPayload {
+    let first = yeokcham_core::IdentityPublicKey::from_bytes([
+        0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07,
+        0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07,
+        0x51, 0x1a,
+    ])
+    .unwrap();
+    let second = yeokcham_core::IdentityPublicKey::from_bytes([
+        0x3d, 0x40, 0x17, 0xc3, 0xe8, 0x43, 0x89, 0x5a, 0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e,
+        0xbc, 0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c, 0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4,
+        0x66, 0x0c,
+    ])
+    .unwrap();
+    QrVerificationPayload::new(first, second).unwrap()
 }
 
 fn vector(name: &str) -> Vec<u8> {
