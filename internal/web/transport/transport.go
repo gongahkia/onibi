@@ -108,9 +108,10 @@ type Resolved struct {
 	LANHosts     []string
 	FallbackHost string
 	cleanup      func(context.Context) error
+	health       func(context.Context) error
 }
 
-func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
+func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 	mode := NormalizeMode(opts.Mode)
 	if mode == "" {
 		mode = ModeLAN
@@ -145,6 +146,10 @@ func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
 	default:
 		return Resolved{}, fmt.Errorf("unsupported transport %q", opts.Mode)
 	}
+}
+
+func Resolve(ctx context.Context, opts ResolverOptions) (Resolved, error) {
+	return NewLifecycle(opts).Start(ctx)
 }
 
 func NormalizeMode(mode string) Mode {
@@ -254,6 +259,16 @@ func (r Resolved) Disable(ctx context.Context) error {
 	return r.cleanup(ctx)
 }
 
+func (r Resolved) Health(ctx context.Context) error {
+	if r.health != nil {
+		return r.health(ctx)
+	}
+	if len(r.TargetURLs()) == 0 {
+		return Diagnostic(DiagURLParse, string(r.Mode), "transport produced no target URL", nil)
+	}
+	return nil
+}
+
 func (r Resolved) Cleanup(ctx context.Context, logger *slog.Logger) {
 	if r.cleanup == nil {
 		return
@@ -323,6 +338,7 @@ func startProvider(ctx context.Context, mode Mode, port int, provider Provider) 
 	return Resolved{
 		Mode:    mode,
 		BaseURL: baseURL,
+		health:  provider.Check,
 		cleanup: func(ctx context.Context) error {
 			return provider.Disable(ctx)
 		},
