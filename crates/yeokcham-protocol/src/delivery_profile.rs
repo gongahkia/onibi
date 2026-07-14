@@ -86,6 +86,51 @@ impl DeliveryProfile {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeliveryProfileConstraints {
+    direct_allowed: bool,
+    tor_maildrop_allowed: bool,
+    local_mesh_allowed: bool,
+}
+
+impl DeliveryProfileConstraints {
+    pub fn new(
+        direct_allowed: bool,
+        tor_maildrop_allowed: bool,
+        local_mesh_allowed: bool,
+    ) -> Result<Self, DeliveryProfileConstraintError> {
+        if !direct_allowed && !tor_maildrop_allowed && !local_mesh_allowed {
+            return Err(DeliveryProfileConstraintError::NoAllowedProfiles);
+        }
+        Ok(Self {
+            direct_allowed,
+            tor_maildrop_allowed,
+            local_mesh_allowed,
+        })
+    }
+
+    pub fn validate(self, profile: DeliveryProfile) -> Result<(), DeliveryProfileConstraintError> {
+        let allowed = match profile.kind() {
+            DeliveryProfileKind::Direct => self.direct_allowed,
+            DeliveryProfileKind::TorMaildrop => self.tor_maildrop_allowed,
+            DeliveryProfileKind::LocalMesh => self.local_mesh_allowed,
+        };
+        if allowed {
+            Ok(())
+        } else {
+            Err(DeliveryProfileConstraintError::Disallowed(profile.kind()))
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum DeliveryProfileConstraintError {
+    #[error("at least one delivery profile must be allowed")]
+    NoAllowedProfiles,
+    #[error("delivery profile is disallowed: {0:?}")]
+    Disallowed(DeliveryProfileKind),
+}
+
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DeliveryProfileError {
     #[error("unsupported delivery-profile schema version: {0}")]
@@ -104,7 +149,10 @@ pub enum DeliveryProfileError {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeliveryProfile, DeliveryProfileError, DeliveryProfileKind};
+    use super::{
+        DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
+        DeliveryProfileError, DeliveryProfileKind,
+    };
 
     #[test]
     fn canonical_profiles_round_trip() {
@@ -148,6 +196,26 @@ mod tests {
         assert_eq!(
             DeliveryProfile::decode(&[0x82, 0x01, 0x01, 0]).unwrap_err(),
             DeliveryProfileError::TrailingBytes
+        );
+    }
+
+    #[test]
+    fn validates_profile_allowlist() {
+        let constraints = DeliveryProfileConstraints::new(false, true, false).unwrap();
+        assert!(
+            constraints
+                .validate(DeliveryProfile::new(DeliveryProfileKind::TorMaildrop))
+                .is_ok()
+        );
+        assert_eq!(
+            constraints
+                .validate(DeliveryProfile::new(DeliveryProfileKind::Direct))
+                .unwrap_err(),
+            DeliveryProfileConstraintError::Disallowed(DeliveryProfileKind::Direct)
+        );
+        assert_eq!(
+            DeliveryProfileConstraints::new(false, false, false).unwrap_err(),
+            DeliveryProfileConstraintError::NoAllowedProfiles
         );
     }
 }

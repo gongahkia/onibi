@@ -13,7 +13,8 @@ mod version;
 mod wire;
 
 pub use delivery_profile::{
-    DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileError, DeliveryProfileKind,
+    DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
+    DeliveryProfileConstraints, DeliveryProfileError, DeliveryProfileKind,
 };
 pub use domain::CryptoDomain;
 pub use encrypted_message::{
