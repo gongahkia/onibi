@@ -1,7 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod state_store;
+
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
+
+pub use state_store::{
+    EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
+    StateStoreError,
+};
 
 #[derive(Debug)]
 pub struct Daemon {

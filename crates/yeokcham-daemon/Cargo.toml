@@ -10,8 +10,13 @@ repository.workspace = true
 default = []
 
 [dependencies]
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+rusqlite.workspace = true
+thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
+zeroize.workspace = true
 
 [lints]
 workspace = true
