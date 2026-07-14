@@ -13,6 +13,7 @@ mod mailbox_capability;
 mod message_payload;
 mod negotiation;
 mod recipient_capability;
+mod safety_number;
 mod signing;
 mod tor_maildrop_profile;
 mod version;
@@ -50,6 +51,9 @@ pub use message_payload::{
 pub use negotiation::{VersionNegotiation, VersionNegotiationError};
 pub use recipient_capability::{
     RECIPIENT_CAPABILITY_SCHEMA_VERSION, RecipientCapability, RecipientCapabilityError,
+};
+pub use safety_number::{
+    SAFETY_NUMBER_FINGERPRINT_BYTES, SafetyNumberError, SafetyNumberFingerprint,
 };
 pub use signing::SigningInputError;
 pub use tor_maildrop_profile::{
