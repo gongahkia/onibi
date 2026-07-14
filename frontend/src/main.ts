@@ -38,6 +38,7 @@ import { ApprovalInboxPanel } from "./approval-inbox";
 import { FleetHomeView } from "./fleet-home";
 import { SessionPickerPanel } from "./session-picker";
 import { TerminalStatus } from "./terminal-status";
+import { InterventionPanel } from "./intervention-panel";
 
 type SessionInfo = {
   session_id: string;
@@ -87,6 +88,7 @@ let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
 let fleetHome: FleetHomeView | undefined;
 let sessionPicker: SessionPickerPanel | undefined;
+let interventionPanel: InterventionPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -210,6 +212,20 @@ async function boot(): Promise<void> {
     sharePanel = viewerMode
       ? undefined
       : new SharePanel(document.body, info.session_id, getJSON, postJSON, showToast);
+    interventionPanel = viewerMode
+      ? undefined
+      : new InterventionPanel(
+          document.body,
+          info.session_id,
+          postJSON,
+          getJSON,
+          () => term.focus(),
+          (target) => {
+            if (target === "mac") {
+              ws.close();
+            }
+          }
+        );
     agentsFeed = viewerMode ? undefined : new AgentsFeed(getJSON, navigateToSession);
     installControls(
       toolbar,
@@ -219,7 +235,8 @@ async function boot(): Promise<void> {
       timeline,
       recordings,
       filesPanel,
-      sharePanel
+      sharePanel,
+      interventionPanel
     );
     void agentsFeed?.load();
     new SoftKeyBar({
@@ -348,7 +365,8 @@ function installControls(
   timelinePanel: TimelinePanel,
   recordingsPanel: RecordingPlayerPanel,
   filesPanel: FilesPanel,
-  share: SharePanel | undefined
+  share: SharePanel | undefined,
+  intervention: InterventionPanel | undefined
 ): void {
   const controls: HTMLElement[] = [
     terminalStatus.element,
@@ -361,14 +379,11 @@ function installControls(
   if (agents !== undefined) {
     controls.unshift(agents.element);
   }
+  if (intervention !== undefined) {
+    controls.unshift(intervention.element);
+  }
   if (info.role !== "viewer") {
-    controls.push(
-      controlButton("SHARE", () => share?.open()),
-      controlButton("MAC", () => postHandover(info, "mac"), "handover-mac"),
-      controlButton("PHONE", () => postHandover(info, "phone"), "handover-phone"),
-      controlButton("INT", () => postControl(info.session_id, "interrupt")),
-      controlButton("KILL", killGate(info.session_id))
-    );
+    controls.push(controlButton("SHARE", () => share?.open()));
   }
   root.replaceChildren(...controls);
   // A phone-width toolbar has more controls than can fit. Always begin at the
@@ -409,20 +424,6 @@ function controlButton(label: string, action: () => void, tourID = ""): HTMLButt
     term.focus();
   });
   return el;
-}
-
-function killGate(sessionID: string): () => void {
-  let armedUntil = 0;
-  return () => {
-    const now = Date.now();
-    if (armedUntil < now) {
-      armedUntil = now + 2000;
-      showToast("Tap KILL again to send SIGKILL.");
-      return;
-    }
-    armedUntil = 0;
-    postControl(sessionID, "kill");
-  };
 }
 
 function enablePush(): void {
@@ -472,43 +473,6 @@ function navigateToSession(sessionID: string): void {
   }
   saveLastSessionID(sessionID);
   window.location.href = `/s/${encodeURIComponent(sessionID)}`;
-}
-
-function postHandover(info: SessionInfo, target: "mac" | "phone"): void {
-  void (async () => {
-    showToast(target === "mac" ? "Opening on Mac..." : "Returning to phone...");
-    ws.close();
-    try {
-      const response = await postJSON("/handover", { session_id: info.session_id, target });
-      const text = await response.text();
-      let body = {} as { message?: unknown };
-      try {
-        body = text === "" ? {} : (JSON.parse(text) as { message?: unknown });
-      } catch {
-        body = {};
-      }
-      if (!response.ok) {
-        const msg =
-          typeof body.message === "string"
-            ? body.message
-            : text.trim() || `handover ${response.status}`;
-        throw new Error(msg);
-      }
-      const msg =
-        typeof body.message === "string" && body.message.trim() !== ""
-          ? body.message
-          : "Handover complete.";
-      showToast(msg);
-      if (target === "phone") {
-        connectTerminal(info);
-      }
-    } catch (err) {
-      connectTerminal(info);
-      showToast(err instanceof Error ? err.message : "Handover failed.");
-    } finally {
-      term.focus();
-    }
-  })();
 }
 
 async function postJSON(path: string, body: Record<string, unknown>): Promise<Response> {

@@ -19,9 +19,9 @@ const steps: TourStep[] = [
     targets: ["#term"]
   },
   {
-    title: "MAC / PHONE",
-    body: "MAC opens the session on desktop; PHONE returns it here.",
-    targets: ['[data-tour="handover-mac"]', '[data-tour="handover-phone"]', "#toolbar"]
+    title: "Intervene",
+    body: "ACT opens acknowledged interrupt, input, handoff, and kill controls.",
+    targets: ['[data-tour="intervention"]', "#toolbar"]
   },
   {
     title: "Approval card",
