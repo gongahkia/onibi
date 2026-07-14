@@ -18,6 +18,7 @@ import (
 
 	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/envelope"
+	"github.com/gongahkia/onibi/internal/setup"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -143,6 +144,163 @@ func TestHealthzReturnsE2EVerifierForOwnerSession(t *testing.T) {
 	}
 	if !got.OK || got.E2E || got.KeyVerifierHex != "" {
 		t.Fatalf("no-cookie healthz = %#v", got)
+	}
+}
+
+func TestRelayPairKeyExpiryFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := setup.NewToken(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(ctx, db, token, key, -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	verifier, err := relayPairVerifier(key, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := sealPairConfirm(t, key, token, verifier)
+	req := httptest.NewRequest(http.MethodPost, "/pair/confirm", bytes.NewReader(frame.body))
+	req.Header.Set("Content-Type", e2eContentType)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expired relay pair status=%d body=%q", w.Code, w.Body.String())
+	}
+	commit, found, err := db.KVGetString(ctx, relayPairCommitPrefix+token)
+	if err != nil || !found || commit != envelope.Commitment(key) || strings.Contains(commit, envelope.EncodeKey(key)) {
+		t.Fatalf("commit=%q found=%v err=%v", commit, found, err)
+	}
+}
+
+func TestRelayRestartRejectsOldKeyAndPermitsFreshPair(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	beforeRestart := NewRelayKeys()
+	oldKey, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldToken, err := setup.NewToken(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := beforeRestart.RegisterPair(ctx, db, oldToken, oldKey, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	afterRestart := NewRelayKeys()
+	srv := New(Options{DB: db, RelayKeys: afterRestart, RequireE2E: true})
+	oldVerifier, err := relayPairVerifier(oldKey, oldToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldFrame := sealPairConfirm(t, oldKey, oldToken, oldVerifier)
+	oldReq := httptest.NewRequest(http.MethodPost, "/pair/confirm", bytes.NewReader(oldFrame.body))
+	oldReq.Header.Set("Content-Type", e2eContentType)
+	oldW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(oldW, oldReq)
+	if oldW.Code != http.StatusUnauthorized {
+		t.Fatalf("old relay key status=%d body=%q", oldW.Code, oldW.Body.String())
+	}
+	newKey, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newToken, err := setup.NewToken(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := afterRestart.RegisterPair(ctx, db, newToken, newKey, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	newVerifier, err := relayPairVerifier(newKey, newToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newFrame := sealPairConfirm(t, newKey, newToken, newVerifier)
+	newReq := httptest.NewRequest(http.MethodPost, "/pair/confirm", bytes.NewReader(newFrame.body))
+	newReq.Header.Set("Content-Type", e2eContentType)
+	newW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(newW, newReq)
+	if newW.Code != http.StatusOK {
+		t.Fatalf("fresh relay key status=%d body=%q", newW.Code, newW.Body.String())
+	}
+}
+
+func TestRelaySessionReattachAfterTunnelReconnect(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	keys := NewRelayKeys()
+	key, err := envelope.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.RegisterPair(ctx, db, "tok", key, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{DB: db, RelayKeys: keys, RequireE2E: true})
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(ctx, rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.BindSession(ctx, db, "tok", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	verify, err := relayVerifyToken(key, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(verify)
+	if err := srv.verifyRelayAttach(ctx, sessionID, encoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.verifyRelayAttach(ctx, sessionID, encoded); err != nil {
+		t.Fatal(err)
+	}
+	first := newSeqWSCodec(key, sessionID, e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	second := newSeqWSCodec(key, sessionID, e2eInfoPTY, e2eDirC2S, e2eDirS2C)
+	client, err := newSeqWSClientCodec(key, sessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, body, err := client.encrypt(websocket.MessageBinary, []byte("before reconnect"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, plain, err := first.decrypt(typ, body); err != nil || string(plain) != "before reconnect" {
+		t.Fatalf("first reconnect frame=%q err=%v", plain, err)
+	}
+	client, err = newSeqWSClientCodec(key, sessionID, e2eInfoPTY, e2eDirS2C, e2eDirC2S)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, body, err = client.encrypt(websocket.MessageBinary, []byte("after reconnect"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, plain, err := second.decrypt(typ, body); err != nil || string(plain) != "after reconnect" {
+		t.Fatalf("second reconnect frame=%q err=%v", plain, err)
 	}
 }
 
