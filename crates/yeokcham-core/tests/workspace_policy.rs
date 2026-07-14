@@ -54,3 +54,14 @@ fn workspace_features_are_explicitly_opt_in() {
         );
     }
 }
+
+#[test]
+fn ci_audits_dependencies_on_every_change_and_weekly() {
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("schedule:"));
+    assert!(workflow.contains("cron: \"17 3 * * 1\""));
+    assert!(workflow.contains("  audit:\n    runs-on: ubuntu-latest"));
+    assert!(workflow.contains("cargo install cargo-audit --version 0.22.2 --locked"));
+    assert!(workflow.contains("cargo audit --deny warnings"));
+}
