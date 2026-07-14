@@ -11,6 +11,8 @@ default = []
 test-fixtures = []
 
 [dependencies]
+ed25519-dalek.workspace = true
+getrandom.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
