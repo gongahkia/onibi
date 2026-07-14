@@ -2,7 +2,10 @@
 
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
-use std::{error::Error, fmt::Write as _, fs, path::PathBuf};
+use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::PathBuf};
+
+const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
+const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
 #[command(name = "yeokcham", version, about = "Yeokcham secure courier")]
@@ -24,6 +27,10 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    ProtocolVectors {
+        #[arg(long)]
+        verify: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -43,6 +50,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             let metadata = release_metadata(&source_revision, source_date_epoch, &lockfile)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
             fs::write(output, metadata)?;
+        }
+        Command::ProtocolVectors { verify } => {
+            if let Some(input) = verify {
+                if fs::metadata(&input)?.len() > MAX_PROTOCOL_VECTOR_BYTES {
+                    return Err("protocol vector file exceeds maximum size".into());
+                }
+                let candidate = fs::read_to_string(input)?;
+                verify_protocol_vectors(&candidate).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, error)
+                })?;
+            } else {
+                print!("{PROTOCOL_V1_VECTORS}");
+            }
         }
     }
     Ok(())
@@ -87,6 +107,48 @@ fn is_canonical_revision(revision: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
+fn verify_protocol_vectors(candidate: &str) -> Result<(), &'static str> {
+    let expected = parse_protocol_vectors(PROTOCOL_V1_VECTORS)
+        .expect("bundled protocol vectors must be valid");
+    let candidate = parse_protocol_vectors(candidate)?;
+    if candidate.len() != expected.len() {
+        return Err("protocol vector names do not match");
+    }
+    for (name, expected_value) in expected {
+        if candidate.get(name) != Some(&expected_value) {
+            return Err("protocol vector bytes do not match");
+        }
+    }
+    Ok(())
+}
+
+fn parse_protocol_vectors(input: &str) -> Result<BTreeMap<&str, &str>, &'static str> {
+    let mut vectors = BTreeMap::new();
+    for line in input.lines() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            return Err("protocol vector has an invalid line");
+        };
+        if name.is_empty() || !is_canonical_hex(value) {
+            return Err("protocol vector has an invalid name or value");
+        }
+        if vectors.insert(name, value).is_some() {
+            return Err("protocol vector name is duplicated");
+        }
+    }
+    Ok(vectors)
+}
+
+fn is_canonical_hex(value: &str) -> bool {
+    !value.is_empty()
+        && value.len().is_multiple_of(2)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::release_metadata;
@@ -108,5 +170,37 @@ mod tests {
     #[test]
     fn metadata_rejects_noncanonical_source_revisions() {
         assert!(release_metadata("ABC", 0, b"lockfile").is_err());
+    }
+
+    #[test]
+    fn verifies_reordered_protocol_vectors() {
+        let candidate = concat!(
+            "wire_envelope=83010243010203\n",
+            "# peer implementation output\n",
+            "encrypted_message=8241a142b2c3\n",
+            "version_offer=83010103\n",
+            "version_accept=820203\n",
+            "version_reject=83030101\n",
+            "message_payload_text=8201426869\n",
+            "extension_frame=82182a420102\n",
+            "delivery_profile_direct=820101\n",
+            "direct_profile=84010444c000020119115c\n",
+            "tor_maildrop_profile=83015820111111111111111111111111111111111111111111111111111111111111111119115c\n",
+            "local_mesh_profile_bluetooth=820104\n",
+            "mailbox_capability=8301502222222222222222222222222222222258203333333333333333333333333333333333333333333333333333333333333333\n",
+            "recipient_capability_direct=8401014b84010444c000020119115c40\n",
+            "encrypted_header_direct=8201508401014b84010444c000020119115c40\n",
+        );
+        assert!(super::verify_protocol_vectors(candidate).is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_protocol_vectors() {
+        assert!(super::verify_protocol_vectors("version_offer=83010103\n").is_err());
+        assert!(super::verify_protocol_vectors("version_offer=8301010G\n").is_err());
+        assert!(
+            super::verify_protocol_vectors("version_offer=83010103\nversion_offer=83010103\n")
+                .is_err()
+        );
     }
 }

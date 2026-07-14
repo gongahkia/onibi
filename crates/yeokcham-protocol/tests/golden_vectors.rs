@@ -7,7 +7,7 @@ use yeokcham_protocol::{
     WireEnvelope, WireLimits,
 };
 
-const VECTORS: &str = include_str!("testdata/protocol-v1.txt");
+const VECTORS: &str = include_str!("../vectors/protocol-v1.txt");
 
 macro_rules! assert_vector {
     ($name:expr, $actual:expr $(,)?) => {
