@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod delivery_profile;
+mod direct_profile;
 mod domain;
 mod encrypted_message;
 mod error_code;
@@ -16,6 +17,9 @@ pub use delivery_profile::{
     DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
     DeliveryProfileConstraints, DeliveryProfileError, DeliveryProfileKind,
     DeliveryProfilePolicyDecision,
+};
+pub use direct_profile::{
+    DIRECT_PROFILE_CONFIG_SCHEMA_VERSION, DirectProfileConfig, DirectProfileConfigError,
 };
 pub use domain::CryptoDomain;
 pub use encrypted_message::{
