@@ -8,6 +8,7 @@ repository.workspace = true
 
 [features]
 default = []
+test-fixtures = []
 
 [dependencies]
 thiserror.workspace = true
