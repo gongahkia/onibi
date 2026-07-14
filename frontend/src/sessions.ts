@@ -53,7 +53,8 @@ export class SessionsListView {
     private readonly fetchJSON: FetchJSON,
     private readonly navigate: (sessionID: string) => void,
     private readonly postJSON?: PostJSON,
-    private readonly toast?: (message: string) => void
+    private readonly toast?: (message: string) => void,
+    private readonly headerControl?: HTMLElement
   ) {}
 
   async load(): Promise<void> {
@@ -133,6 +134,9 @@ export class SessionsListView {
     reload.textContent = "Reload";
     reload.addEventListener("click", () => void this.load());
     header.append(title);
+    if (this.headerControl !== undefined) {
+      header.append(this.headerControl);
+    }
     header.append(reload);
 
     const body = document.createElement("div");

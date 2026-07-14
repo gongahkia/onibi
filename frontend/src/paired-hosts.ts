@@ -6,6 +6,11 @@ const keysStore = "keys";
 const recordsStore = "records";
 const registryKeyID = "registry-key";
 const registryAADPrefix = "onibi-paired-hosts/v1/";
+const exportAAD = "onibi-paired-host-export/v1";
+const exportKDFIterations = 600000;
+const maxExportHosts = 128;
+const maxExportPayloadBytes = 1 << 20;
+const minExportPassphraseBytes = 12;
 
 export type PairedHostState = "pending" | "active" | "stale" | "revoked";
 export type PairedHostEndpointKind = "mesh" | "ssh" | "relay";
@@ -30,12 +35,28 @@ export interface EncryptedPairedHost {
   ciphertext: ArrayBuffer;
 }
 
+export interface PairedHostRegistryExport {
+  version: number;
+  kdf: {
+    name: "PBKDF2";
+    hash: "SHA-256";
+    iterations: number;
+    salt: string;
+  };
+  cipher: {
+    name: "AES-GCM";
+    iv: string;
+    ciphertext: string;
+  };
+}
+
 export interface PairedHostRegistryBackend {
   getKey(): Promise<CryptoKey | undefined>;
   addKey(key: CryptoKey): Promise<void>;
   getRecord(id: string): Promise<EncryptedPairedHost | undefined>;
   listRecords(): Promise<EncryptedPairedHost[]>;
   putRecord(record: EncryptedPairedHost): Promise<void>;
+  putRecordsIfAbsent(records: EncryptedPairedHost[]): Promise<void>;
   deleteRecord(id: string): Promise<void>;
 }
 
@@ -46,15 +67,12 @@ export class PairedHostRegistry {
 
   async put(host: PairedHost): Promise<void> {
     const normalized = normalizePairedHost(host);
+    const previous = await this.get(normalized.id);
+    if (previous?.state === "revoked" && normalized.state !== "revoked") {
+      throw new Error("cannot reactivate revoked paired-host record");
+    }
     const key = await this.encryptionKey();
-    const iv = randomBytes(12);
-    const plaintext = new TextEncoder().encode(JSON.stringify(normalized));
-    const ciphertext = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: copyBuffer(iv), additionalData: registryAAD(normalized.id) },
-      key,
-      plaintext
-    );
-    await this.backend.putRecord({ id: normalized.id, iv: copyBuffer(iv), ciphertext });
+    await this.backend.putRecord(await this.encrypt(normalized, key));
   }
 
   async get(id: string): Promise<PairedHost | undefined> {
@@ -81,6 +99,84 @@ export class PairedHostRegistry {
       throw new Error("invalid paired-host id");
     }
     await this.backend.deleteRecord(id);
+  }
+
+  async revoke(id: string): Promise<void> {
+    const host = await this.get(id);
+    if (host === undefined) {
+      throw new Error("paired-host record not found");
+    }
+    if (host.state === "revoked") {
+      return;
+    }
+    await this.put({ ...host, state: "revoked" });
+  }
+
+  async exportEncrypted(passphrase: string): Promise<string> {
+    assertExportPassphrase(passphrase);
+    const hosts = (await this.list()).filter(
+      (host) => host.state === "pending" || host.state === "active"
+    );
+    if (hosts.length > maxExportHosts) {
+      throw new Error("too many paired-host records to export");
+    }
+    const salt = randomBytes(16);
+    const key = await exportKey(passphrase, salt);
+    const plaintext = new TextEncoder().encode(
+      JSON.stringify({ version: pairedHostRegistryVersion, hosts })
+    );
+    const iv = randomBytes(12);
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: copyBuffer(iv), additionalData: exportAdditionalData() },
+      key,
+      plaintext
+    );
+    const envelope: PairedHostRegistryExport = {
+      version: pairedHostRegistryVersion,
+      kdf: {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        iterations: exportKDFIterations,
+        salt: toBase64URL(salt)
+      },
+      cipher: {
+        name: "AES-GCM",
+        iv: toBase64URL(iv),
+        ciphertext: toBase64URL(new Uint8Array(ciphertext))
+      }
+    };
+    return JSON.stringify(envelope);
+  }
+
+  async importEncrypted(serialized: string, passphrase: string): Promise<number> {
+    assertExportPassphrase(passphrase);
+    const hosts = await decryptExport(serialized, passphrase);
+    const existing = new Map((await this.list()).map((host) => [host.id, host]));
+    const additions: PairedHost[] = [];
+    for (const host of hosts) {
+      const previous = existing.get(host.id);
+      if (previous === undefined) {
+        additions.push(host);
+        continue;
+      }
+      if (JSON.stringify(previous) !== JSON.stringify(host)) {
+        throw new Error("paired-host import conflicts with existing id " + host.id);
+      }
+    }
+    if (additions.length === 0) {
+      return 0;
+    }
+    const key = await this.encryptionKey();
+    const records = await Promise.all(additions.map((host) => this.encrypt(host, key)));
+    try {
+      await this.backend.putRecordsIfAbsent(records);
+    } catch (error) {
+      if (isConstraintError(error)) {
+        throw new Error("paired-host import conflicts with an existing record");
+      }
+      throw error;
+    }
+    return additions.length;
   }
 
   private async encryptionKey(): Promise<CryptoKey> {
@@ -134,6 +230,17 @@ export class PairedHostRegistry {
     }
     return host;
   }
+
+  private async encrypt(host: PairedHost, key: CryptoKey): Promise<EncryptedPairedHost> {
+    const iv = randomBytes(12);
+    const plaintext = new TextEncoder().encode(JSON.stringify(host));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: copyBuffer(iv), additionalData: registryAAD(host.id) },
+      key,
+      plaintext
+    );
+    return { id: host.id, iv: copyBuffer(iv), ciphertext };
+  }
 }
 
 class IndexedDBPairedHostRegistryBackend implements PairedHostRegistryBackend {
@@ -169,6 +276,21 @@ class IndexedDBPairedHostRegistryBackend implements PairedHostRegistryBackend {
     });
   }
 
+  async putRecordsIfAbsent(records: EncryptedPairedHost[]): Promise<void> {
+    await this.run(recordsStore, "readwrite", async (store) => {
+      for (const record of records) {
+        if (
+          (await requestResult<EncryptedPairedHost | undefined>(store.get(record.id))) !== undefined
+        ) {
+          throw new DOMException("paired-host record exists", "ConstraintError");
+        }
+      }
+      for (const record of records) {
+        await requestResult(store.add(record));
+      }
+    });
+  }
+
   async deleteRecord(id: string): Promise<void> {
     await this.run(recordsStore, "readwrite", async (store) => {
       await requestResult(store.delete(id));
@@ -183,13 +305,165 @@ class IndexedDBPairedHostRegistryBackend implements PairedHostRegistryBackend {
     const db = await openPairedHostDatabase();
     try {
       const tx = db.transaction(storeName, mode);
-      const value = await fn(tx.objectStore(storeName));
-      await transactionDone(tx);
-      return value;
+      try {
+        const value = await fn(tx.objectStore(storeName));
+        await transactionDone(tx);
+        return value;
+      } catch (error) {
+        try {
+          tx.abort();
+        } catch {}
+        throw error;
+      }
     } finally {
       db.close();
     }
   }
+}
+
+async function decryptExport(serialized: string, passphrase: string): Promise<PairedHost[]> {
+  if (new TextEncoder().encode(serialized).byteLength > maxExportPayloadBytes * 2) {
+    throw new Error("paired-host export is too large");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw new Error("invalid paired-host export");
+  }
+  const envelope = normalizeExport(value);
+  const salt = fromBase64URL(envelope.kdf.salt);
+  const iv = fromBase64URL(envelope.cipher.iv);
+  const ciphertext = fromBase64URL(envelope.cipher.ciphertext);
+  if (
+    salt.byteLength !== 16 ||
+    iv.byteLength !== 12 ||
+    ciphertext.byteLength === 0 ||
+    ciphertext.byteLength > maxExportPayloadBytes
+  ) {
+    throw new Error("invalid paired-host export");
+  }
+  const key = await exportKey(passphrase, salt);
+  let plaintext: ArrayBuffer;
+  try {
+    plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: copyBuffer(iv), additionalData: exportAdditionalData() },
+      key,
+      copyBuffer(ciphertext)
+    );
+  } catch {
+    throw new Error("paired-host export failed authentication");
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(plaintext));
+  } catch {
+    throw new Error("invalid paired-host export payload");
+  }
+  if (
+    !isRecord(payload) ||
+    payload.version !== pairedHostRegistryVersion ||
+    !Array.isArray(payload.hosts) ||
+    payload.hosts.length > maxExportHosts
+  ) {
+    throw new Error("incompatible paired-host export");
+  }
+  const ids = new Set<string>();
+  const hosts = payload.hosts.map((host) => normalizePairedHost(host));
+  for (const host of hosts) {
+    if (host.state === "stale" || host.state === "revoked") {
+      throw new Error("stale or revoked paired-host imports are not allowed");
+    }
+    if (ids.has(host.id)) {
+      throw new Error("duplicate paired-host id in export");
+    }
+    ids.add(host.id);
+  }
+  return hosts;
+}
+
+function normalizeExport(value: unknown): PairedHostRegistryExport {
+  if (
+    !isRecord(value) ||
+    value.version !== pairedHostRegistryVersion ||
+    !isRecord(value.kdf) ||
+    !isRecord(value.cipher)
+  ) {
+    throw new Error("incompatible paired-host export");
+  }
+  if (
+    value.kdf.name !== "PBKDF2" ||
+    value.kdf.hash !== "SHA-256" ||
+    value.kdf.iterations !== exportKDFIterations ||
+    value.cipher.name !== "AES-GCM"
+  ) {
+    throw new Error("incompatible paired-host export");
+  }
+  const salt = stringValue(value.kdf.salt);
+  const iv = stringValue(value.cipher.iv);
+  const ciphertext = stringValue(value.cipher.ciphertext);
+  if (salt === "" || iv === "" || ciphertext === "") {
+    throw new Error("invalid paired-host export");
+  }
+  return {
+    version: pairedHostRegistryVersion,
+    kdf: { name: "PBKDF2", hash: "SHA-256", iterations: exportKDFIterations, salt },
+    cipher: { name: "AES-GCM", iv, ciphertext }
+  };
+}
+
+async function exportKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: copyBuffer(salt), iterations: exportKDFIterations, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function assertExportPassphrase(passphrase: string): void {
+  if (new TextEncoder().encode(passphrase).byteLength < minExportPassphraseBytes) {
+    throw new Error("paired-host export passphrase must be at least 12 bytes");
+  }
+}
+
+function exportAdditionalData(): ArrayBuffer {
+  return copyBuffer(new TextEncoder().encode(exportAAD));
+}
+
+function toBase64URL(value: Uint8Array): string {
+  let binary = "";
+  for (const byte of value) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function fromBase64URL(value: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error("invalid paired-host export encoding");
+  }
+  const padded =
+    value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  let binary: string;
+  try {
+    binary = atob(padded);
+  } catch {
+    throw new Error("invalid paired-host export encoding");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function normalizePairedHost(value: unknown): PairedHost {
@@ -239,7 +513,14 @@ function validState(value: string): value is PairedHostState {
 
 function validEndpoint(kind: string, value: string): kind is PairedHostEndpointKind {
   if (kind === "ssh") {
-    return value.length > 0 && !/[\r\n]/.test(value);
+    const match = /^([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(?::([0-9]{1,5}))?$/.exec(
+      value
+    );
+    if (match === null) {
+      return false;
+    }
+    const port = match[3] === undefined ? 0 : Number(match[3]);
+    return port === 0 || (port >= 1 && port <= 65535);
   }
   if (kind !== "mesh" && kind !== "relay") {
     return false;
@@ -251,6 +532,7 @@ function validEndpoint(kind: string, value: string): kind is PairedHostEndpointK
       endpoint.host !== "" &&
       endpoint.username === "" &&
       endpoint.password === "" &&
+      endpoint.pathname === "/" &&
       endpoint.search === "" &&
       endpoint.hash === ""
     );

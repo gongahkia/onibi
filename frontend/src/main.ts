@@ -32,6 +32,7 @@ import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { SharePanel } from "./share";
 import { AgentsFeed } from "./agents-feed";
+import { PairedHostsPanel } from "./paired-hosts-panel";
 
 type SessionInfo = {
   session_id: string;
@@ -76,6 +77,7 @@ let timeline: TimelinePanel | undefined;
 let recordings: RecordingPlayerPanel | undefined;
 let sharePanel: SharePanel | undefined;
 let agentsFeed: AgentsFeed | undefined;
+let pairedHosts: PairedHostsPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -227,7 +229,15 @@ async function showSessionsHome(): Promise<void> {
   viewerMode = false;
   terminalInputEnabled = false;
   showListChrome();
-  const list = new SessionsListView(sessionListRoot, getJSON, navigateToSession, postJSON, showToast);
+  pairedHosts = new PairedHostsPanel(document.body, showToast);
+  const list = new SessionsListView(
+    sessionListRoot,
+    getJSON,
+    navigateToSession,
+    postJSON,
+    showToast,
+    pairedHosts.element
+  );
   sessionList = list;
   await connectSessionListEvents();
   await list.load();
