@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/capability"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -31,7 +32,7 @@ func runFirstRunWizard(cmd *cobra.Command, paths config.Paths, db *store.DB) err
 	printCLIHeader(cmd, "First run")
 
 	fmt.Fprintln(out, style.bold("Step 1/4: hooks"))
-	targets, err := detectedHookTargets(cmd, db, "/usr/bin/onibi-notify", cfg.Shell.MinDuration.Std().Milliseconds())
+	targets, err := firstRunDetectedHookTargets(cmd, db)
 	if err != nil {
 		return err
 	}
@@ -74,6 +75,25 @@ func runFirstRunWizard(cmd *cobra.Command, paths config.Paths, db *store.DB) err
 	fmt.Fprintln(out, "After pairing, use MAC and PHONE for handoff; use Esc, Tab, Ctrl, Alt, arrows, Paste, ^C, ^D, and ^Z from the soft-key bar.")
 	fmt.Fprintln(out)
 	return nil
+}
+
+func firstRunDetectedHookTargets(cmd *cobra.Command, db *store.DB) ([]hookTarget, error) {
+	targets := make([]hookTarget, 0, len(capability.V1Agents()))
+	for _, name := range capability.V1Agents() {
+		agent, ok := adapters.Get(name)
+		if !ok {
+			return nil, adapters.Unsupported(name)
+		}
+		if agent.DetectPresence == nil || !agent.DetectPresence() {
+			continue
+		}
+		target, err := agentHookTarget(cmd, db, name)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+	}
+	return targets, nil
 }
 
 func firstRunSelectHookTargets(cmd *cobra.Command, sc *bufio.Scanner, targets []hookTarget) ([]hookTarget, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/gongahkia/onibi/internal/capability"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -128,6 +129,51 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	}
 	if cfg.Transport.Mode != "tailscale" {
 		t.Fatalf("saved transport = %q", cfg.Transport.Mode)
+	}
+}
+
+func TestFirstRunOffersOnlyV1AgentsAndWebTransports(t *testing.T) {
+	withDefaultState(t)
+	home := firstRunHome(t)
+	for _, dir := range []string{
+		".claude",
+		".codex",
+		".pi",
+		".gemini",
+		filepath.Join(".config", "opencode"),
+	} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, ".zshrc"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openUpTestDB(t)
+	cmd := Root()
+	targets, err := firstRunDetectedHookTargets(cmd, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target.Kind != "agent" {
+			t.Fatalf("unexpected first-run hook target: %+v", target)
+		}
+		got = append(got, target.Name)
+	}
+	if strings.Join(got, ",") != strings.Join(capability.V1Agents(), ",") {
+		t.Fatalf("first-run agents = %v, want %v", got, capability.V1Agents())
+	}
+	transportModes := make([]string, 0, len(capability.V1WebTransports()))
+	for _, choice := range pairTransportChoices("") {
+		if !capability.IsV1WebTransport(choice.mode) {
+			t.Fatalf("first-run offered non-v1 transport %q", choice.mode)
+		}
+		transportModes = append(transportModes, choice.mode)
+	}
+	if strings.Join(transportModes, ",") != strings.Join(capability.V1WebTransports(), ",") {
+		t.Fatalf("first-run transports = %v, want %v", transportModes, capability.V1WebTransports())
 	}
 }
 
