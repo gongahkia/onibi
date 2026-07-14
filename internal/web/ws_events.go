@@ -14,6 +14,7 @@ import (
 )
 
 type eventEnvelope struct {
+	Seq     uint64 `json:"seq"`
 	Type    string `json:"type"`
 	TS      string `json:"ts"`
 	Payload any    `json:"payload"`
@@ -21,7 +22,15 @@ type eventEnvelope struct {
 
 type eventsAttachFrame struct {
 	Type        string `json:"type"`
+	LastSeq     uint64 `json:"last_seq"`
 	VerifyToken string `json:"verify_token,omitempty"`
+}
+
+type eventsRecoveryFrame struct {
+	Type        string `json:"type"`
+	Mode        string `json:"mode"`
+	Seq         uint64 `json:"seq"`
+	ReplayCount int    `json:"replay_count"`
 }
 
 const (
@@ -73,13 +82,13 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	go s.watchWebSession(ctx, c, sessionID, cancel, reqID)
 	var writeMu sync.Mutex
 	wsE2E := newSeqWSCodec(sessionKey, sessionID, e2eInfoEvents, e2eDirC2S, e2eDirS2C)
+	attach, err := readEventsAttach(ctx, c, wsE2E)
+	if err != nil {
+		s.log.Warn("web events attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
+		_ = c.Close(websocket.StatusPolicyViolation, "attach required")
+		return
+	}
 	if wsE2E != nil {
-		attach, err := readEventsAttach(ctx, c, wsE2E)
-		if err != nil {
-			s.log.Warn("web events attach failed", "request_id", reqID, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
-			_ = c.Close(websocket.StatusPolicyViolation, "attach required")
-			return
-		}
 		if err := s.verifyRelayAttach(ctx, sessionID, attach.VerifyToken); err != nil {
 			s.log.Warn("web events attach failed", "request_id", reqID, "reason", "bad_relay_verifier", "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 			_ = c.Close(websocket.StatusPolicyViolation, "bad relay verifier")
@@ -100,26 +109,12 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	var appEvents <-chan Event
 	var unsubAppEvents func()
+	appReplay := EventReplay{Snapshot: attach.LastSeq > 0}
 	if s.eventBus != nil {
-		appEvents, unsubAppEvents = s.eventBus.Subscribe()
+		appReplay, appEvents, unsubAppEvents = s.eventBus.SubscribeFrom(attach.LastSeq)
 		defer unsubAppEvents()
 	}
 	sentApprovalRequests := map[string]bool{}
-	if err := writeEvent(ctx, c, &writeMu, wsE2E, "server.hello", map[string]any{
-		"endpoint":   "events",
-		"session_id": sessionID,
-	}); err != nil {
-		s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "server.hello", "err", err)
-		return
-	}
-	eventsSent++
-	for _, id := range s.activeSessionIDs() {
-		if err := writeEvent(ctx, c, &writeMu, wsE2E, "session.started", map[string]any{"session_id": id}); err != nil {
-			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "session.started", "err", err)
-			return
-		}
-		eventsSent++
-	}
 	lastSessionsStatus := time.Time{}
 	writeSessionsStatus := func(force bool) error {
 		if s.sessionList == nil {
@@ -142,14 +137,37 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		eventsSent++
 		return nil
 	}
-	if err := writeSessionsStatus(true); err != nil {
-		return
+	writeSnapshot := func() error {
+		if err := writeEvent(ctx, c, &writeMu, wsE2E, "server.hello", map[string]any{
+			"endpoint":   "events",
+			"session_id": sessionID,
+		}); err != nil {
+			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "server.hello", "err", err)
+			return err
+		}
+		eventsSent++
+		for _, id := range s.activeSessionIDs() {
+			if err := writeEvent(ctx, c, &writeMu, wsE2E, "session.started", map[string]any{"session_id": id}); err != nil {
+				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", "session.started", "err", err)
+				return err
+			}
+			eventsSent++
+		}
+		if err := writeSessionsStatus(true); err != nil {
+			return err
+		}
+		n, err := s.writeTimelineReplay(ctx, c, &writeMu, wsE2E, reqID, sessionID)
+		if err != nil {
+			return err
+		}
+		eventsSent += n
+		return nil
 	}
-	n, err := s.writeTimelineReplay(ctx, c, &writeMu, wsE2E, reqID, sessionID)
-	if err != nil {
-		return
+	if attach.LastSeq == 0 || appReplay.Snapshot {
+		if err := writeSnapshot(); err != nil {
+			return
+		}
 	}
-	eventsSent += n
 	if s.approvalQueue != nil {
 		pending, err := s.approvalQueue.Pending(ctx)
 		if err != nil {
@@ -165,6 +183,27 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 			eventsSent++
 		}
 	}
+	for _, ev := range appReplay.Events {
+		if err := writeSequencedEvent(ctx, c, &writeMu, wsE2E, ev); err != nil {
+			s.log.Warn("web events replay failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "seq", ev.Seq, "err", err)
+			return
+		}
+		eventsSent++
+	}
+	mode := "replay"
+	if attach.LastSeq == 0 || appReplay.Snapshot {
+		mode = "snapshot"
+	}
+	if err := writeEvent(ctx, c, &writeMu, wsE2E, "events.recovery", eventsRecoveryFrame{
+		Type:        "events.recovery",
+		Mode:        mode,
+		Seq:         appReplay.Seq,
+		ReplayCount: len(appReplay.Events),
+	}); err != nil {
+		s.log.Warn("web events recovery feedback failed", "request_id", reqID, "session_id", sessionID, "err", err)
+		return
+	}
+	go s.watchWSEventsFrames(ctx, c, wsE2E, cancel, reqID, sessionID)
 	if approvalEvents == nil && appEvents == nil {
 		s.log.Info("web events ws waiting without event sources", "request_id", reqID, "session_id", sessionID)
 		<-ctx.Done()
@@ -205,8 +244,8 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			if err := writeEvent(ctx, c, &writeMu, wsE2E, ev.Type, ev.Payload); err != nil {
-				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "err", err)
+			if err := writeSequencedEvent(ctx, c, &writeMu, wsE2E, ev); err != nil {
+				s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", ev.Type, "seq", ev.Seq, "err", err)
 				return
 			}
 			eventsSent++
@@ -230,7 +269,7 @@ func sessionsStatusRefreshEvent(typ string) bool {
 }
 
 func readEventsAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (eventsAttachFrame, error) {
-	readCtx, cancel := context.WithTimeout(ctx, ptyAttachTimeout)
+	readCtx, cancel := context.WithTimeout(ctx, websocketAttachTimeout())
 	defer cancel()
 	typ, p, err := c.Read(readCtx)
 	if err != nil {
@@ -255,6 +294,36 @@ func readEventsAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ev
 	return attach, nil
 }
 
+func (s *Server) watchWSEventsFrames(ctx context.Context, c *websocket.Conn, codec wsCodec, cancel context.CancelFunc, reqID, sessionID string) {
+	for {
+		typ, p, err := c.Read(ctx)
+		if err != nil {
+			cancel()
+			return
+		}
+		if codec != nil {
+			typ, p, err = codec.decrypt(typ, p)
+			if err != nil {
+				s.log.Warn("web events client frame rejected", "request_id", reqID, "session_id", sessionID, "err", err)
+				_ = c.Close(websocket.StatusPolicyViolation, "invalid event frame")
+				cancel()
+				return
+			}
+		}
+		reason := "unexpected event frame"
+		if typ == websocket.MessageText {
+			var frame eventsAttachFrame
+			if json.Unmarshal(p, &frame) == nil && frame.Type == "attach" {
+				reason = "duplicate event attach"
+			}
+		}
+		s.log.Warn("web events client frame rejected", "request_id", reqID, "session_id", sessionID, "reason", reason)
+		_ = c.Close(websocket.StatusPolicyViolation, reason)
+		cancel()
+		return
+	}
+}
+
 func (s *Server) writeTimelineReplay(ctx context.Context, c *websocket.Conn, writeMu *sync.Mutex, codec wsCodec, reqID, sessionID string) (int, error) {
 	if s.timeline == nil {
 		return 0, nil
@@ -276,7 +345,16 @@ func (s *Server) writeTimelineReplay(ctx context.Context, c *websocket.Conn, wri
 }
 
 func writeEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, codec wsCodec, typ string, payload any) error {
+	return writeEventEnvelope(ctx, c, mu, codec, 0, typ, payload)
+}
+
+func writeSequencedEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, codec wsCodec, ev Event) error {
+	return writeEventEnvelope(ctx, c, mu, codec, ev.Seq, ev.Type, ev.Payload)
+}
+
+func writeEventEnvelope(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, codec wsCodec, seq uint64, typ string, payload any) error {
 	return writeWSJSON(ctx, c, mu, eventEnvelope{
+		Seq:     seq,
 		Type:    typ,
 		TS:      time.Now().UTC().Format(time.RFC3339Nano),
 		Payload: payload,

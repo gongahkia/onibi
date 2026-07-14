@@ -209,10 +209,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 }
 
 func readPTYAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ptyAttachFrame, error) {
-	ptyAttachTimeoutMu.RLock()
-	timeout := ptyAttachTimeout
-	ptyAttachTimeoutMu.RUnlock()
-	readCtx, cancel := context.WithTimeout(ctx, timeout)
+	readCtx, cancel := context.WithTimeout(ctx, websocketAttachTimeout())
 	defer cancel()
 	typ, p, err := c.Read(readCtx)
 	if err != nil {
@@ -235,6 +232,13 @@ func readPTYAttach(ctx context.Context, c *websocket.Conn, codec wsCodec) (ptyAt
 		return ptyAttachFrame{}, errors.New("web: invalid attach")
 	}
 	return attach, nil
+}
+
+func websocketAttachTimeout() time.Duration {
+	ptyAttachTimeoutMu.RLock()
+	timeout := ptyAttachTimeout
+	ptyAttachTimeoutMu.RUnlock()
+	return timeout
 }
 
 func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec, readOnly bool) error {

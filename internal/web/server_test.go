@@ -303,6 +303,9 @@ func TestWSEventsAcceptsCookieAndToken(t *testing.T) {
 	if got := c.Subprotocol(); got != eventsSubprotocol {
 		t.Fatalf("subprotocol = %q", got)
 	}
+	if err := wsjson.Write(ctx, c, eventsAttachFrame{Type: "attach"}); err != nil {
+		t.Fatal(err)
+	}
 	var hello map[string]any
 	if err := wsjson.Read(ctx, c, &hello); err != nil {
 		t.Fatal(err)

@@ -167,18 +167,71 @@ test("events ws resumes closed sockets without duplicating open sockets", async 
   expect(FakeWebSocket.instances).toHaveLength(1);
   first.open();
   await flush();
+  expect(JSON.parse(first.sent[0] as string)).toEqual({ type: "attach", last_seq: 0 });
   client.resume();
   expect(FakeWebSocket.instances).toHaveLength(1);
+  first.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({
+        seq: 0,
+        type: "events.recovery",
+        ts: "2026-07-14T00:00:00Z",
+        payload: { mode: "snapshot", seq: 4, replay_count: 0 }
+      })
+    })
+  );
+  await flush();
   first.close();
   client.resume();
   expect(FakeWebSocket.instances).toHaveLength(2);
   vi.advanceTimersByTime(8000);
   expect(FakeWebSocket.instances).toHaveLength(2);
+  const second = FakeWebSocket.instances[1];
+  second.open();
+  await flush();
+  expect(JSON.parse(second.sent[0] as string)).toEqual({ type: "attach", last_seq: 4 });
   client.resume();
   expect(FakeWebSocket.instances).toHaveLength(2);
   client.close();
 });
 
-function flush(): Promise<void> {
-  return Promise.resolve();
+test("events ws rejects duplicate and gapped checkpoints", async () => {
+  const client = new EventsWS();
+  const events: unknown[] = [];
+  const errors: unknown[] = [];
+  client.addEventListener("event", (event) => events.push((event as CustomEvent).detail));
+  client.addEventListener("protocolerror", (event) => errors.push((event as CustomEvent).detail));
+  client.connect("wss://onibi.test/ws/events", 2);
+  const socket = FakeWebSocket.instances[0];
+  socket.open();
+  await flush();
+  socket.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({ seq: 3, type: "event.three", ts: "2026-07-14T00:00:00Z", payload: {} })
+    })
+  );
+  await flush();
+  socket.dispatchEvent(
+    new MessageEvent("message", {
+      data: JSON.stringify({
+        seq: 3,
+        type: "event.duplicate",
+        ts: "2026-07-14T00:00:01Z",
+        payload: {}
+      })
+    })
+  );
+  await flush();
+  expect(events).toEqual([
+    { seq: 3, type: "event.three", ts: "2026-07-14T00:00:00Z", payload: {} }
+  ]);
+  expect(errors).toEqual(["event sequence gap or replay"]);
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  client.close();
+});
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+  }
 }
