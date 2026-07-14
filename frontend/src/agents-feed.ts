@@ -1,6 +1,8 @@
 import type { EventEnvelope } from "./events";
 
 export type SessionState = "idle" | "working" | "awaiting-approval" | "blocked";
+export type SessionRecoveryState =
+  "healthy" | "reconnecting" | "recovering" | "orphaned" | "failed" | "terminated";
 
 export type SessionStatus = {
   id: string;
@@ -9,6 +11,9 @@ export type SessionStatus = {
   state: SessionState;
   last_activity: string;
   pending_approvals_count: number;
+  recovery_state?: SessionRecoveryState;
+  recovery_reason?: string;
+  recovery_updated_at?: string;
   role_required: string;
   remote?: boolean;
   peer_name?: string;
@@ -147,8 +152,10 @@ export class AgentsFeed {
   private row(session: SessionStatus): HTMLButtonElement {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `agents-feed-row state-${session.state}`;
-    row.title = session.id;
+    const attachable = !hasUnhealthyRecovery(session);
+    row.className = `agents-feed-row state-${session.state}${attachable ? "" : " recovery-unhealthy"}`;
+    row.title = recoveryText(session) ?? session.id;
+    row.disabled = !attachable;
     const dot = document.createElement("span");
     dot.className = `agent-dot state-${session.state}`;
     const main = document.createElement("span");
@@ -158,17 +165,22 @@ export class AgentsFeed {
     title.textContent = sessionTitle(session);
     const meta = document.createElement("span");
     meta.className = "agents-feed-meta";
-    meta.textContent = `${stateText(session.state)} / ${formatWhen(session.last_activity)}`;
+    const recovery = recoveryText(session);
+    meta.textContent = [recovery, stateText(session.state), formatWhen(session.last_activity)]
+      .filter((part): part is string => part !== undefined && part !== "")
+      .join(" / ");
     main.append(title, meta);
     row.append(dot, main);
-    row.addEventListener("click", () => {
-      this.close();
-      if (session.remote_url !== undefined && session.remote_url !== "") {
-        window.location.href = session.remote_url;
-        return;
-      }
-      this.navigate(session.id);
-    });
+    if (attachable) {
+      row.addEventListener("click", () => {
+        this.close();
+        if (session.remote_url !== undefined && session.remote_url !== "") {
+          window.location.href = session.remote_url;
+          return;
+        }
+        this.navigate(session.id);
+      });
+    }
     return row;
   }
 }
@@ -199,11 +211,15 @@ function feedLabel(payload: SessionsStatusPayload): string {
   const parts = stateOrder
     .map((state) => `${payload.counts[state] ?? 0} ${stateText(state)}`)
     .join(", ");
-  return `${count} sessions: ${parts}`;
+  const recovering = payload.sessions.filter(hasUnhealthyRecovery).length;
+  return `${count} sessions: ${parts}${recovering > 0 ? `, ${recovering} recovering` : ""}`;
 }
 
 function sortSessions(sessions: SessionStatus[]): SessionStatus[] {
   return [...sessions].sort((a, b) => {
+    if (hasUnhealthyRecovery(a) !== hasUnhealthyRecovery(b)) {
+      return hasUnhealthyRecovery(a) ? -1 : 1;
+    }
     const stateDelta = stateRank(a.state) - stateRank(b.state);
     if (stateDelta !== 0) {
       return stateDelta;
@@ -242,6 +258,20 @@ function formatWhen(raw: string): string {
     return "-";
   }
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function hasUnhealthyRecovery(session: SessionStatus): boolean {
+  return session.recovery_state !== undefined && session.recovery_state !== "healthy";
+}
+
+function recoveryText(session: SessionStatus): string | undefined {
+  if (!hasUnhealthyRecovery(session)) {
+    return undefined;
+  }
+  const reason = session.recovery_reason?.trim();
+  return reason === undefined || reason === ""
+    ? `recovery ${session.recovery_state}`
+    : `recovery ${session.recovery_state}: ${reason}`;
 }
 
 function shortID(id: string): string {

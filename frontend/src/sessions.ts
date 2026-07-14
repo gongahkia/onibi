@@ -9,6 +9,9 @@ export type SessionSummary = {
   started_at: string;
   last_activity: string;
   pending_approvals_count: number;
+  recovery_state?: SessionRecoveryState;
+  recovery_reason?: string;
+  recovery_updated_at?: string;
   tokens_used: number;
   cost_usd: number;
   role_required: string;
@@ -16,6 +19,9 @@ export type SessionSummary = {
   peer_name?: string;
   remote_url?: string;
 };
+
+type SessionRecoveryState =
+  "healthy" | "reconnecting" | "recovering" | "orphaned" | "failed" | "terminated";
 
 export type SessionCostPayload = {
   session_id: string;
@@ -175,11 +181,15 @@ export class SessionsListView {
 
     const actions = document.createElement("span");
     actions.className = "session-list-actions";
-    const attach = sessionAction("Attach");
-    attach.addEventListener("click", (event) => {
-      event.stopPropagation();
-      this.attach(row);
-    });
+    const attachable = canAttach(row);
+    const attach = sessionAction(attachable ? "Attach" : recoveryAction(row));
+    attach.disabled = !attachable;
+    if (attachable) {
+      attach.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.attach(row);
+      });
+    }
     actions.append(attach);
     if (row.remote !== true && this.postJSON !== undefined) {
       const kill = sessionAction(
@@ -201,12 +211,16 @@ export class SessionsListView {
       if ((event.target as Element | null)?.closest("button") !== null) {
         return;
       }
-      this.attach(row);
+      if (attachable) {
+        this.attach(row);
+      }
     });
     el.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        this.attach(row);
+        if (attachable) {
+          this.attach(row);
+        }
       }
     });
     this.installLongPressKill(el, row);
@@ -388,10 +402,12 @@ function sortedRows(rows: SessionSummary[]): SessionSummary[] {
 }
 
 function sessionMeta(row: SessionSummary): string {
+  const recovery = recoveryText(row);
   if (row.remote === true) {
-    return "remote";
+    return [recovery, "remote"].filter((part): part is string => part !== undefined).join(" / ");
   }
-  const parts = [`${formatTokens(row.tokens_used)}`];
+  const parts = recovery === undefined ? [] : [recovery];
+  parts.push(`${formatTokens(row.tokens_used)}`);
   if (row.cost_usd > 0) {
     parts.push(formatUSD(row.cost_usd));
   }
@@ -410,6 +426,9 @@ function sessionRowClass(row: SessionSummary): string {
   }
   if (row.remote === true) {
     classes.push("remote");
+  }
+  if (hasUnhealthyRecovery(row)) {
+    classes.push("recovery-unhealthy");
   }
   return classes.join(" ");
 }
@@ -476,4 +495,26 @@ function formatWhen(raw: string): string {
 
 function shortID(id: string): string {
   return id.length <= 8 ? id : id.slice(0, 8);
+}
+
+function hasUnhealthyRecovery(row: SessionSummary): boolean {
+  return row.recovery_state !== undefined && row.recovery_state !== "healthy";
+}
+
+function recoveryText(row: SessionSummary): string | undefined {
+  if (!hasUnhealthyRecovery(row)) {
+    return undefined;
+  }
+  const reason = row.recovery_reason?.trim();
+  return reason === undefined || reason === ""
+    ? `recovery ${row.recovery_state}`
+    : `recovery ${row.recovery_state}: ${reason}`;
+}
+
+function canAttach(row: SessionSummary): boolean {
+  return !hasUnhealthyRecovery(row);
+}
+
+function recoveryAction(row: SessionSummary): string {
+  return row.recovery_state === undefined ? "Unavailable" : row.recovery_state;
 }

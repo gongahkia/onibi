@@ -204,6 +204,11 @@
   border-color: var(--button-active-border);
 }
 
+.agents-feed-row.recovery-unhealthy,
+.session-list-row.recovery-unhealthy {
+  border-color: #f0b429;
+}
+
 .agents-feed-main {
   display: grid;
   gap: 3px;
@@ -351,6 +356,11 @@
 
 .session-list-action.danger {
   border-color: #da3633;
+}
+
+.session-list-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .session-list-empty {

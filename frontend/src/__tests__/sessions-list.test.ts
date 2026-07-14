@@ -28,6 +28,30 @@ test("session dashboard attaches and double-confirms kill", async () => {
   dom.window.close();
 });
 
+test("session dashboard exposes recovery and disables attachment", async () => {
+  const dom = installDOM('<main id="sessions"></main>');
+  const { SessionsListView } = await import("../sessions");
+  const root = requireRoot();
+  const navigated: string[] = [];
+  const view = new SessionsListView(
+    root,
+    async () => [
+      { ...session(), recovery_state: "orphaned", recovery_reason: "tmux reconnect timed out" }
+    ],
+    (id) => navigated.push(id)
+  );
+  await view.load();
+  const attach = button(root, "orphaned");
+  expect(attach.disabled).toBe(true);
+  expect(root.querySelector(".session-list-row")?.classList.contains("recovery-unhealthy")).toBe(
+    true
+  );
+  expect(root.textContent).toContain("recovery orphaned: tmux reconnect timed out");
+  click(dom, root.querySelector(".session-list-row")!);
+  expect(navigated).toEqual([]);
+  dom.window.close();
+});
+
 function session(): SessionSummary {
   return {
     id: "s1",

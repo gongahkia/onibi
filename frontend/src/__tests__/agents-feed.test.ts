@@ -42,6 +42,35 @@ test("agents feed accepts sessions status websocket payload", async () => {
   dom.window.close();
 });
 
+test("agents feed prioritizes and labels unhealthy recovery", async () => {
+  const dom = installDOM('<div id="toolbar"></div>');
+  const { AgentsFeed } = await import("../agents-feed");
+  const feed = new AgentsFeed(
+    async () => ({
+      ...emptyPayload(),
+      sessions: [
+        {
+          ...session("s1", "claude", "idle", "2026-07-08T00:01:00Z", 0),
+          recovery_state: "orphaned",
+          recovery_reason: "tmux reconnect timed out"
+        }
+      ]
+    }),
+    () => {}
+  );
+  document.getElementById("toolbar")?.append(feed.element);
+  await feed.load();
+  click(dom, feed.element.querySelector("button")!);
+  const row = feed.element.querySelector(".agents-feed-row");
+  expect(row?.classList.contains("recovery-unhealthy")).toBe(true);
+  expect((row as HTMLButtonElement | null)?.disabled).toBe(true);
+  expect(row?.textContent).toContain("recovery orphaned: tmux reconnect timed out");
+  expect(feed.element.querySelector("button")?.getAttribute("aria-label")).toContain(
+    "1 recovering"
+  );
+  dom.window.close();
+});
+
 function statusPayload(): SessionsStatusPayload {
   return {
     generated_at: "2026-07-08T00:01:00Z",
