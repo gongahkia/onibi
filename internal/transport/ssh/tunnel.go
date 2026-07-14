@@ -34,6 +34,10 @@ type tunnelDialer interface {
 	Dial(network, addr string) (net.Conn, error)
 }
 
+type tunnelReconnector interface {
+	ReconnectTunnel() error
+}
+
 func (c *Client) StartTunnel(ctx context.Context, opts TunnelOptions) (*Tunnel, error) {
 	return startTunnel(ctx, c, opts)
 }
@@ -87,6 +91,11 @@ func (t *Tunnel) accept(ctx context.Context, dialer tunnelDialer, remoteAddr str
 
 func proxyTunnelConn(local net.Conn, dialer tunnelDialer, remoteAddr string) {
 	remote, err := dialer.Dial("tcp", remoteAddr)
+	if err != nil {
+		if reconnectable, ok := dialer.(tunnelReconnector); ok && reconnectable.ReconnectTunnel() == nil {
+			remote, err = dialer.Dial("tcp", remoteAddr)
+		}
+	}
 	if err != nil {
 		_ = local.Close()
 		return

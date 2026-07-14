@@ -87,6 +87,8 @@ The remote service uses `lan-loopback` so generated pair URLs target loopback in
 
 Ctrl-C in the local `onibi up --ssh ...` command closes the local tunnel and SSH client. It does not uninstall the remote service.
 
+If a forwarded connection fails, the local listener stays open and retries that forward once through a newly authenticated SSH client using the existing host-key pin. Reconnection never reinstalls or restarts the remote daemon.
+
 ## Status and teardown
 
 Check the remote service:

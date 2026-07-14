@@ -102,6 +102,21 @@ func TestNormalizeDialAddressDefaultsPort(t *testing.T) {
 	}
 }
 
+func TestClientReconnectTunnelReplacesForwardingClient(t *testing.T) {
+	next := &xssh.Client{}
+	c := &Client{reconnect: func() (*xssh.Client, error) { return next, nil }}
+	if err := c.ReconnectTunnel(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Client != next {
+		t.Fatal("forwarding client was not replaced")
+	}
+	c.closed = true
+	if err := c.ReconnectTunnel(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("closed reconnect err = %v", err)
+	}
+}
+
 func testPublicKey(t *testing.T) xssh.PublicKey {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)

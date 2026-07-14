@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
@@ -19,6 +20,9 @@ const defaultPort = "22"
 
 type Client struct {
 	*xssh.Client
+	mu        sync.Mutex
+	reconnect func() (*xssh.Client, error)
+	closed    bool
 }
 
 type Options struct {
@@ -64,11 +68,61 @@ func ConnectWithOptions(host, user string, key []byte, opts Options) (*Client, e
 		HostKeyCallback: hostKeyCallback(knownHostsPath, defaultPrompt(opts.In, opts.Out)),
 		Timeout:         timeout,
 	}
-	client, err := xssh.Dial("tcp", normalizeDialAddress(host), cfg)
+	dial := func() (*xssh.Client, error) {
+		return xssh.Dial("tcp", normalizeDialAddress(host), cfg)
+	}
+	client, err := dial()
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: client}, nil
+	return &Client{Client: client, reconnect: dial}, nil
+}
+
+func (c *Client) Dial(network, addr string) (net.Conn, error) {
+	c.mu.Lock()
+	client := c.Client
+	closed := c.closed
+	c.mu.Unlock()
+	if closed || client == nil {
+		return nil, net.ErrClosed
+	}
+	return client.Dial(network, addr)
+}
+
+func (c *Client) ReconnectTunnel() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return net.ErrClosed
+	}
+	if c.reconnect == nil {
+		return errors.New("ssh: tunnel reconnect unavailable")
+	}
+	next, err := c.reconnect()
+	if err != nil {
+		return fmt.Errorf("ssh: reconnect tunnel: %w", err)
+	}
+	previous := c.Client
+	c.Client = next
+	if previous != nil {
+		_ = previous.Close()
+	}
+	return nil
+}
+
+func (c *Client) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	client := c.Client
+	c.mu.Unlock()
+	if client == nil {
+		return nil
+	}
+	return client.Close()
 }
 
 func hostKeyCallback(path string, prompt HostKeyPrompt) xssh.HostKeyCallback {
