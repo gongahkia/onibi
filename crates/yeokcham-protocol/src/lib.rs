@@ -3,6 +3,7 @@
 mod delivery_profile;
 mod direct_profile;
 mod domain;
+mod encrypted_header;
 mod encrypted_message;
 mod error_code;
 mod extension_frame;
@@ -25,6 +26,9 @@ pub use direct_profile::{
     DIRECT_PROFILE_CONFIG_SCHEMA_VERSION, DirectProfileConfig, DirectProfileConfigError,
 };
 pub use domain::CryptoDomain;
+pub use encrypted_header::{
+    ENCRYPTED_HEADER_SCHEMA_VERSION, EncryptedHeader, EncryptedHeaderError,
+};
 pub use encrypted_message::{
     EncryptedMessageEnvelope, EncryptedMessageError, MAX_ENCRYPTED_HEADER_BYTES,
 };
