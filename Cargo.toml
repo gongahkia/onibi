@@ -1,0 +1,36 @@
+[workspace]
+members = [
+  "crates/yeokcham-core",
+  "crates/yeokcham-protocol",
+  "crates/yeokcham-daemon",
+  "crates/yeokcham-relay",
+  "crates/yeokcham-ffi",
+  "crates/yeokcham-cli",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "Apache-2.0"
+repository = "https://github.com/gongahkia/yeokcham"
+
+[workspace.dependencies]
+clap = { version = "4.5.51", features = ["derive"] }
+thiserror = "2.0.17"
+tracing = "0.1.41"
+zeroize = { version = "1.8.2", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+missing_const_for_fn = "allow"

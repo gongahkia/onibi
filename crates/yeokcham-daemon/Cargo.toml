@@ -1,0 +1,15 @@
+[package]
+name = "yeokcham-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+yeokcham-core = { path = "../yeokcham-core" }
+yeokcham-protocol = { path = "../yeokcham-protocol" }
+
+[lints]
+workspace = true
+

@@ -1,37 +1,26 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  push:
     branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+  verify:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.93.0
         with:
-          go-version: "1.26.4"
-          cache: true
-      - run: go vet ./...
-      - run: go test -race -count=1 ./...
-      - run: go build ./cmd/onibi ./clients/onibi-notify
+          components: clippy,rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
 
-  vulnerability-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.4"
-          cache: true
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
