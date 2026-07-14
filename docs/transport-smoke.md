@@ -42,6 +42,13 @@ ONIBI_LIVE_TAILSCALE=1 go test ./internal/web/transport -run LiveTailscale
 - Run `onibi doctor --transport=tailscale-private` and confirm it reports login, HTTPS, DNS-name, and active Serve-handler readiness without requiring Funnel policy.
 - Confirm terminal input/output, resize, `/ws/events` approvals, reconnect after `tailscale serve --bg off`, and shutdown cleanup log `tailscale serve --bg off`.
 
+## WireGuard
+
+- Configure the Mac and phone as WireGuard peers, then run `onibi up --transport=wireguard`.
+- Confirm the QR points to the selected WireGuard interface address and pairs only from the authorized peer network.
+- Remove the selected interface address, confirm health reports the stale endpoint, restore or select another routable interface, then reconnect and pair again.
+- Confirm fleet enrollment requires owner proof; WireGuard reachability is not authorization.
+
 ## Telegram
 
 ```bash

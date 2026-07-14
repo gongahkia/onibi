@@ -77,6 +77,48 @@ func TestResolveWireGuardStartsProvider(t *testing.T) {
 	}
 }
 
+func TestWireGuardLifecycleDetectsEndpointChangeAndRecovers(t *testing.T) {
+	addrs := map[string][]net.Addr{
+		"wg0":   {mustAddr(t, "10.8.0.2/24")},
+		"utun7": {mustAddr(t, "fd00::2/64")},
+	}
+	wg := testWireGuard("wg0 utun7\n", addrs)
+	session := NewLifecycle(ResolverOptions{Mode: string(ModeWireGuard), Port: 8443, Providers: ProviderFactory{WireGuard: func() Provider { return wg }}})
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+		t.Fatalf("health=%#v err=%v", report, err)
+	}
+	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://10.8.0.2:8443/pair/pair-token" {
+		t.Fatalf("urls=%#v err=%v", urls, err)
+	}
+	candidate, err := session.Enrollment()
+	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" {
+		t.Fatalf("candidate=%#v err=%v", candidate, err)
+	}
+	delete(addrs, "wg0")
+	if _, err := session.Health(t.Context()); err == nil {
+		t.Fatal("expected endpoint health failure")
+	}
+	if _, err := session.Reconnect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy || len(report.Targets) != 1 || report.Targets[0] != "https://[fd00::2]:8443" {
+		t.Fatalf("recovered health=%#v err=%v", report, err)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if wg.InterfaceName() != "" {
+		t.Fatalf("interface after shutdown=%q", wg.InterfaceName())
+	}
+	diagnostics := session.Diagnostics()
+	if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+		t.Fatalf("diagnostics=%#v", diagnostics)
+	}
+}
+
 func testWireGuard(interfaces string, addrs map[string][]net.Addr) *WireGuard {
 	return &WireGuard{
 		Bin: "wg",

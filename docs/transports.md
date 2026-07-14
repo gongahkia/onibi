@@ -125,6 +125,7 @@ Security model:
 
 - WireGuard carries packets between the laptop and phone; Onibi does not manage server keys or peer authorization.
 - Onibi auth is unchanged: single-use pair token first, then owner cookie on every protected page and WebSocket upgrade.
+- Fleet enrollment treats the WireGuard URL as a mesh endpoint and still requires owner proof; network reachability is not authorization.
 - The local HTTPS certificate must include the WireGuard interface IP. This is automatic when the interface is up before `onibi up` starts.
 
 Operational notes:
@@ -132,6 +133,7 @@ Operational notes:
 - Configure WireGuard on the laptop and phone first; see [`wireguard-setup.md`](./wireguard-setup.md).
 - `onibi doctor --transport=wireguard` verifies the `wg` binary, checks `wg show interfaces`, and confirms the selected interface has a routable IP.
 - If the phone cannot open the QR URL, verify both peers are connected and that the phone can reach the laptop's WireGuard IP with another HTTPS service before debugging Onibi.
+- If the selected interface or its address changes, health fails rather than retaining a stale QR URL; reconnect resolves a fresh endpoint.
 
 ## ZeroTier
 

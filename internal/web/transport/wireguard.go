@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -24,6 +25,7 @@ type WireGuard struct {
 	runner         commandRunner
 	lookPath       func(string) (string, error)
 	interfaceAddrs func(string) ([]net.Addr, error)
+	mu             sync.Mutex
 	port           int
 	host           string
 	iface          string
@@ -47,8 +49,19 @@ func wireGuardBin() string {
 }
 
 func (w *WireGuard) Check(ctx context.Context) error {
-	_, _, err := w.resolveHost(ctx)
-	return err
+	host, iface, err := w.resolveHost(ctx)
+	if err != nil {
+		return err
+	}
+	w.mu.Lock()
+	activePort := w.port
+	activeHost := w.host
+	activeIface := w.iface
+	w.mu.Unlock()
+	if activePort > 0 && (host != activeHost || iface != activeIface) {
+		return Diagnostic(DiagActivationLag, wireguardProvider, "active WireGuard endpoint changed", nil)
+	}
+	return nil
 }
 
 func (w *WireGuard) Enable(ctx context.Context, localPort int) error {
@@ -59,14 +72,19 @@ func (w *WireGuard) Enable(ctx context.Context, localPort int) error {
 	if err != nil {
 		return err
 	}
+	w.mu.Lock()
 	w.port = localPort
 	w.host = host
 	w.iface = iface
+	w.mu.Unlock()
 	return nil
 }
 
 func (w *WireGuard) URL(ctx context.Context) (string, error) {
+	w.mu.Lock()
 	host := strings.TrimSpace(w.host)
+	port := w.port
+	w.mu.Unlock()
 	if host == "" {
 		var iface string
 		var err error
@@ -74,10 +92,12 @@ func (w *WireGuard) URL(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		w.mu.Lock()
 		w.host = host
 		w.iface = iface
+		port = w.port
+		w.mu.Unlock()
 	}
-	port := w.port
 	if port <= 0 || port > 65535 {
 		return "", errors.New("wireguard local port not set")
 	}
@@ -85,6 +105,11 @@ func (w *WireGuard) URL(ctx context.Context) (string, error) {
 }
 
 func (w *WireGuard) Disable(context.Context) error {
+	w.mu.Lock()
+	w.port = 0
+	w.host = ""
+	w.iface = ""
+	w.mu.Unlock()
 	return nil
 }
 
@@ -93,12 +118,16 @@ func (w *WireGuard) BindHost(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	w.mu.Lock()
 	w.host = host
 	w.iface = iface
+	w.mu.Unlock()
 	return host, nil
 }
 
 func (w *WireGuard) InterfaceName() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return strings.TrimSpace(w.iface)
 }
 
