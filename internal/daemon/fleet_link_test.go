@@ -131,6 +131,48 @@ func TestFleetLinkRequiresHTTPSHubURL(t *testing.T) {
 	}
 }
 
+func TestFleetLinkRejectsIncompatibleHubProtocol(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{fleetLinkSubprotocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		_ = wsjson.Write(ctx, conn, fleet.LinkChallenge{Version: fleet.ProtocolVersion + 1, ID: "link-test", Nonce: "nonce", ExpiresAt: time.Now().UTC().Add(time.Minute)})
+	}))
+	defer server.Close()
+	link, err := NewFleetLink(FleetLinkOptions{
+		HubURL:        "https://hub.example.test",
+		OwnerID:       "owner-local",
+		HostID:        "host-daemon",
+		PrivateKey:    private,
+		HubPublic:     hubPublic,
+		BinaryVersion: "v1.0.0",
+		Dial: func(ctx context.Context, _ string) (*websocket.Conn, error) {
+			conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{Subprotocols: []string{fleetLinkSubprotocol}})
+			return conn, err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := link.RunOnce(ctx); err == nil {
+		t.Fatal("expected incompatible hub protocol error")
+	}
+}
+
 func TestFleetLinkRejectsMalformedLocalStatus(t *testing.T) {
 	_, err := NewFleetLink(FleetLinkOptions{HubURL: "https://hub.example.test", OwnerID: "owner-local", HostID: "host-daemon", PrivateKey: make(ed25519.PrivateKey, ed25519.PrivateKeySize), HubPublic: make(ed25519.PublicKey, ed25519.PublicKeySize), BinaryVersion: "v1.0.0", Capabilities: []string{"bad/capability"}})
 	if err == nil {
