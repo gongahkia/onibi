@@ -39,6 +39,7 @@ pub use one_time_prekey::{
 };
 pub use prekey::{
     X25519_KEY_BYTES, X25519_PREKEY_SERIALIZATION_VERSION, X25519_PREKEY_SERIALIZED_BYTES,
-    X25519Prekey, X25519PrekeyError, X25519PrekeyPublicKey, X25519PrekeySerializationError,
+    X25519Prekey, X25519PrekeyError, X25519PrekeyPublicKey, X25519PrekeyPublicKeyError,
+    X25519PrekeySerializationError,
 };
 pub use secret::Secret;

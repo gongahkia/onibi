@@ -14,6 +14,7 @@ mod local_mesh_profile;
 mod mailbox_capability;
 mod message_payload;
 mod negotiation;
+mod prekey_bundle;
 mod qr_verification;
 mod recipient_capability;
 mod safety_number;
@@ -62,6 +63,10 @@ pub use message_payload::{
     MAX_MESSAGE_PAYLOAD_BYTES, MessageContentType, MessagePayload, MessagePayloadError,
 };
 pub use negotiation::{VersionNegotiation, VersionNegotiationError};
+pub use prekey_bundle::{
+    MAX_ONE_TIME_PREKEYS, MAX_PREKEY_BUNDLE_BYTES, OneTimePrekeyPublic,
+    PREKEY_BUNDLE_SCHEMA_VERSION, PrekeyBundle, PrekeyBundleError,
+};
 pub use qr_verification::{
     QR_VERIFICATION_PAYLOAD_BYTES, QR_VERIFICATION_SCHEMA_VERSION, QrVerificationError,
     QrVerificationPayload,
@@ -74,7 +79,7 @@ pub use safety_number::{
 };
 pub use signed_prekey::{
     SIGNED_PREKEY_INITIAL_GENERATION, SIGNED_PREKEY_SCHEMA_VERSION, SignedPrekey,
-    SignedPrekeyError, SignedPrekeyPublic,
+    SignedPrekeyError, SignedPrekeyPublic, SignedPrekeyValidationError,
 };
 pub use signing::SigningInputError;
 pub use tor_maildrop_profile::{

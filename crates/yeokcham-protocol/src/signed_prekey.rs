@@ -94,6 +94,35 @@ impl SignedPrekeyPublic {
     pub const fn signature(&self) -> &[u8; ED25519_SIGNATURE_BYTES] {
         &self.signature
     }
+
+    pub fn verify(
+        &self,
+        identity: &yeokcham_core::IdentityPublicKey,
+    ) -> Result<(), SignedPrekeyValidationError> {
+        if self.generation == 0 {
+            return Err(SignedPrekeyValidationError::InvalidGeneration);
+        }
+        let input = signing_input(self.generation, &self.prekey)
+            .map_err(|_| SignedPrekeyValidationError::InvalidSignature)?;
+        identity
+            .verify(&input, &self.signature)
+            .map_err(|_| SignedPrekeyValidationError::InvalidSignature)
+    }
+
+    pub(crate) fn from_parts(
+        generation: u64,
+        prekey: X25519PrekeyPublicKey,
+        signature: [u8; ED25519_SIGNATURE_BYTES],
+    ) -> Result<Self, SignedPrekeyValidationError> {
+        if generation == 0 {
+            return Err(SignedPrekeyValidationError::InvalidGeneration);
+        }
+        Ok(Self {
+            generation,
+            prekey,
+            signature,
+        })
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
@@ -104,6 +133,14 @@ pub enum SignedPrekeyError {
     GenerationExhausted,
     #[error("signed prekey signing input encoding failed")]
     Encode,
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SignedPrekeyValidationError {
+    #[error("signed prekey generation is invalid")]
+    InvalidGeneration,
+    #[error("signed prekey signature is invalid")]
+    InvalidSignature,
 }
 
 fn next_generation(generation: u64) -> Result<u64, SignedPrekeyError> {
@@ -141,8 +178,8 @@ fn signing_input(
 #[cfg(test)]
 mod tests {
     use super::{
-        SIGNED_PREKEY_INITIAL_GENERATION, SignedPrekey, SignedPrekeyError, next_generation,
-        signing_input,
+        SIGNED_PREKEY_INITIAL_GENERATION, SignedPrekey, SignedPrekeyError,
+        SignedPrekeyValidationError, next_generation, signing_input,
     };
     use yeokcham_core::IdentityKeypair;
 
@@ -160,6 +197,7 @@ mod tests {
                 .verify(&first_input, first.signature()),
             Ok(())
         );
+        assert_eq!(first.verify(&identity.public_key()), Ok(()));
         signed_prekey.rotate(&identity).unwrap();
         let second = signed_prekey.public();
         let second_input = signing_input(second.generation(), second.prekey()).unwrap();
@@ -172,6 +210,7 @@ mod tests {
                 .verify(&second_input, second.signature()),
             Ok(())
         );
+        assert_eq!(second.verify(&identity.public_key()), Ok(()));
         let output = format!("{signed_prekey:?}");
         assert!(output.contains("prekey: \"REDACTED\""));
         assert!(!output.contains("StaticSecret"));
@@ -182,6 +221,19 @@ mod tests {
         assert_eq!(
             next_generation(u64::MAX).unwrap_err(),
             SignedPrekeyError::GenerationExhausted
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_signed_prekey_generations() {
+        let prekey = SignedPrekey::generate(&IdentityKeypair::generate().unwrap())
+            .unwrap()
+            .public();
+
+        assert_eq!(
+            super::SignedPrekeyPublic::from_parts(0, *prekey.prekey(), *prekey.signature())
+                .unwrap_err(),
+            SignedPrekeyValidationError::InvalidGeneration
         );
     }
 }

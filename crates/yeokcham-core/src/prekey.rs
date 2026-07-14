@@ -12,6 +12,15 @@ pub const X25519_PREKEY_SERIALIZED_BYTES: usize = 1 + X25519_KEY_BYTES;
 pub struct X25519PrekeyPublicKey([u8; X25519_KEY_BYTES]);
 
 impl X25519PrekeyPublicKey {
+    pub fn from_bytes(bytes: [u8; X25519_KEY_BYTES]) -> Result<Self, X25519PrekeyPublicKeyError> {
+        let public_key = PublicKey::from(bytes);
+        let verifier = StaticSecret::from([1; X25519_KEY_BYTES]);
+        if !verifier.diffie_hellman(&public_key).was_contributory() {
+            return Err(X25519PrekeyPublicKeyError::Weak);
+        }
+        Ok(Self(bytes))
+    }
+
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; X25519_KEY_BYTES] {
         &self.0
@@ -94,6 +103,12 @@ pub enum X25519PrekeyError {
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum X25519PrekeyPublicKeyError {
+    #[error("X25519 public key is weak")]
+    Weak,
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum X25519PrekeySerializationError {
     #[error("X25519 prekey serialization has an invalid length")]
     InvalidLength,
@@ -108,7 +123,8 @@ mod tests {
     use x25519_dalek::PublicKey;
 
     use super::{
-        X25519_PREKEY_SERIALIZATION_VERSION, X25519Prekey, X25519PrekeySerializationError,
+        X25519_PREKEY_SERIALIZATION_VERSION, X25519Prekey, X25519PrekeyPublicKey,
+        X25519PrekeyPublicKeyError, X25519PrekeySerializationError,
     };
 
     #[test]
@@ -151,6 +167,20 @@ mod tests {
         assert_eq!(
             X25519Prekey::deserialize(&weak).unwrap_err(),
             X25519PrekeySerializationError::WeakSecret
+        );
+    }
+
+    #[test]
+    fn validates_contributory_public_prekeys() {
+        let public = X25519Prekey::generate().unwrap().public_key();
+
+        assert_eq!(
+            X25519PrekeyPublicKey::from_bytes(*public.as_bytes()).unwrap(),
+            public
+        );
+        assert_eq!(
+            X25519PrekeyPublicKey::from_bytes([0; 32]).unwrap_err(),
+            X25519PrekeyPublicKeyError::Weak
         );
     }
 }
