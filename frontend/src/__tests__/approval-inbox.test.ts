@@ -68,6 +68,45 @@ test("approval inbox shows exact provenance and confirms its action target", asy
   dom.window.close();
 });
 
+test("approval inbox retains cached approvals and locks a pending decision", async () => {
+  const dom = installDOM('<main id="root"></main>');
+  const { ApprovalInboxPanel } = await import("../approval-inbox");
+  let fail = false;
+  let calls = 0;
+  let resolvePost: ((response: Response) => void) | undefined;
+  const panel = new ApprovalInboxPanel(
+    requireRoot(),
+    async () => {
+      if (fail) {
+        throw new Error("offline");
+      }
+      return status();
+    },
+    async () => {
+      calls += 1;
+      return new Promise<Response>((resolve) => {
+        resolvePost = resolve;
+      });
+    },
+    () => {}
+  );
+  panel.open();
+  await settle();
+  fail = true;
+  click(dom, button(requireRoot(), "Reload"));
+  await settle();
+  expect(requireRoot().textContent).toContain("approval data may be stale: reconnect then reload");
+  expect(requireRoot().textContent).toContain("approval-remote");
+  click(dom, button(card(requireRoot(), "approval-remote"), "Approve"));
+  click(dom, button(requireRoot(), "Confirm approve"));
+  click(dom, button(requireRoot(), "Approve"));
+  expect(calls).toBe(1);
+  expect(button(requireRoot(), "Approve").disabled).toBe(true);
+  resolvePost?.(new Response("ok", { status: 200 }));
+  await settle();
+  dom.window.close();
+});
+
 function status(): FleetStatus {
   return {
     generated_at: "2026-07-14T01:00:00Z",

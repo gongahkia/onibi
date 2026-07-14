@@ -16,6 +16,8 @@ export class ApprovalInboxPanel {
   private loading = false;
   private status = "";
   private approveArmedID = "";
+  private decidingID = "";
+  private offline = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -55,20 +57,47 @@ export class ApprovalInboxPanel {
     }
   }
 
+  setOffline(offline: boolean): void {
+    this.offline = offline;
+    if (this.modal === undefined) {
+      return;
+    }
+    if (offline) {
+      this.status =
+        this.payload === undefined
+          ? "offline: reconnect then reload"
+          : "offline: showing cached approvals";
+      this.render();
+      return;
+    }
+    void this.load();
+  }
+
   private close(): void {
     this.modal?.remove();
     this.modal = undefined;
   }
 
   private async load(): Promise<void> {
+    if (this.offline) {
+      this.status =
+        this.payload === undefined
+          ? "offline: reconnect then reload"
+          : "offline: showing cached approvals";
+      this.render();
+      return;
+    }
     this.loading = true;
-    this.status = "";
+    this.status = this.payload === undefined ? "" : "refreshing approvals";
     this.render();
     try {
       this.payload = await this.fetchJSON<FleetStatus>("/fleet/status");
+      this.status = "";
     } catch {
-      this.payload = undefined;
-      this.status = "approval inbox unavailable";
+      this.status =
+        this.payload === undefined
+          ? "approval inbox unavailable"
+          : "approval data may be stale: reconnect then reload";
     } finally {
       this.loading = false;
       this.render();
@@ -96,7 +125,7 @@ export class ApprovalInboxPanel {
   }
 
   private body(): HTMLElement {
-    if (this.loading) {
+    if (this.loading && this.payload === undefined) {
       return empty("loading approval inbox");
     }
     if (this.payload === undefined) {
@@ -140,7 +169,12 @@ export class ApprovalInboxPanel {
       "primary"
     );
     const deny = button("Deny", "danger");
-    if (!provenance.actionable) {
+    if (this.decidingID !== "") {
+      approve.disabled = true;
+      deny.disabled = true;
+      approve.title = "approval decision pending";
+      deny.title = "approval decision pending";
+    } else if (!provenance.actionable) {
       approve.disabled = true;
       deny.disabled = true;
       approve.title = "host provenance not reported";
@@ -178,6 +212,9 @@ export class ApprovalInboxPanel {
   }
 
   private async approve(id: string): Promise<void> {
+    if (this.decidingID !== "") {
+      return;
+    }
     if (this.approveArmedID !== id) {
       this.approveArmedID = id;
       this.status = `tap Approve again for ${id}`;
@@ -188,6 +225,10 @@ export class ApprovalInboxPanel {
   }
 
   private async decide(id: string, verdict: "approve" | "deny"): Promise<void> {
+    if (this.decidingID !== "") {
+      return;
+    }
+    this.decidingID = id;
     this.approveArmedID = "";
     this.status = `sending ${verdict}`;
     this.render();
@@ -200,6 +241,9 @@ export class ApprovalInboxPanel {
       await this.load();
     } catch (error) {
       this.status = error instanceof Error ? error.message : "approval action failed";
+      this.render();
+    } finally {
+      this.decidingID = "";
       this.render();
     }
   }

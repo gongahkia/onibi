@@ -41,6 +41,32 @@ test("fleet home renders loading and failure states", async () => {
   failed.window.close();
 });
 
+test("fleet home retains pending approvals when refresh data is stale", async () => {
+  const dom = installDOM('<main id="root"></main>');
+  const { FleetHomeView } = await import("../fleet-home");
+  let fail = false;
+  const home = new FleetHomeView(
+    requireRoot(),
+    async () => {
+      if (fail) {
+        throw new Error("offline");
+      }
+      return status();
+    },
+    () => {},
+    () => {},
+    () => {},
+    () => {},
+    document.createElement("div")
+  );
+  await home.load();
+  fail = true;
+  await home.load();
+  expect(requireRoot().textContent).toContain("fleet data may be stale: reconnect then reload");
+  expect(requireRoot().textContent).toContain("pending approvals (1)");
+  dom.window.close();
+});
+
 test("fleet home prioritizes approvals, host attention, and live session state", async () => {
   const dom = installDOM('<main id="root"></main>');
   const { FleetHomeView } = await import("../fleet-home");

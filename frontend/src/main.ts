@@ -296,6 +296,15 @@ async function showSessionsHome(): Promise<void> {
     hostControls
   );
   fleetHome = home;
+  const setFleetOffline = (offline: boolean) => {
+    home.setOffline(offline);
+    approvalInbox?.setOffline(offline);
+  };
+  window.addEventListener("offline", () => setFleetOffline(true));
+  window.addEventListener("online", () => setFleetOffline(false));
+  if (!navigator.onLine) {
+    setFleetOffline(true);
+  }
   await connectSessionListEvents();
   await home.load();
   refreshPushOnOpen();

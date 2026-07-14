@@ -9,6 +9,8 @@ export class FleetHomeView {
   private payload: FleetStatus | undefined;
   private loading = false;
   private status = "";
+  private offline = false;
+  private loadID = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -21,18 +23,53 @@ export class FleetHomeView {
   ) {}
 
   async load(): Promise<void> {
+    if (this.offline) {
+      this.status =
+        this.payload === undefined
+          ? "offline: reconnect then reload"
+          : "offline: showing cached fleet data";
+      this.render();
+      return;
+    }
+    const loadID = ++this.loadID;
     this.loading = true;
-    this.status = "";
+    this.status = this.payload === undefined ? "" : "refreshing fleet data";
     this.render();
     try {
-      this.payload = await this.fetchJSON<FleetStatus>("/fleet/status");
+      const payload = await this.fetchJSON<FleetStatus>("/fleet/status");
+      if (loadID !== this.loadID) {
+        return;
+      }
+      this.payload = payload;
+      this.status = "";
     } catch {
-      this.payload = undefined;
-      this.status = "fleet home unavailable";
+      if (loadID !== this.loadID) {
+        return;
+      }
+      this.status =
+        this.payload === undefined
+          ? "fleet home unavailable"
+          : "fleet data may be stale: reconnect then reload";
     } finally {
+      if (loadID !== this.loadID) {
+        return;
+      }
       this.loading = false;
       this.render();
     }
+  }
+
+  setOffline(offline: boolean): void {
+    this.offline = offline;
+    if (offline) {
+      this.status =
+        this.payload === undefined
+          ? "offline: reconnect then reload"
+          : "offline: showing cached fleet data";
+      this.render();
+      return;
+    }
+    void this.load();
   }
 
   handleEnvelope(envelope: EventEnvelope): void {
@@ -93,7 +130,7 @@ export class FleetHomeView {
   }
 
   private body(): HTMLElement {
-    if (this.loading) {
+    if (this.loading && this.payload === undefined) {
       return empty("loading fleet home");
     }
     if (this.payload === undefined) {
@@ -101,6 +138,13 @@ export class FleetHomeView {
     }
     const body = document.createElement("div");
     body.className = "fleet-home-grid";
+    if (this.status !== "") {
+      const freshness = document.createElement("div");
+      freshness.className = "fleet-home-freshness";
+      freshness.setAttribute("role", "status");
+      freshness.textContent = this.status;
+      body.append(freshness);
+    }
     body.append(this.approvalSummary(), this.hostAttention(), this.activeSessions());
     return body;
   }
