@@ -1,10 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod contact_store;
 mod state_store;
 
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
 
+pub use contact_store::{
+    CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
+    ContactVerificationMethod,
+};
 pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
     StateStoreError,

@@ -12,6 +12,7 @@ default = []
 [dependencies]
 chacha20poly1305.workspace = true
 getrandom.workspace = true
+minicbor.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
