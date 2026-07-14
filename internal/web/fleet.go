@@ -365,6 +365,7 @@ func (s *Server) handleFleetKeyRotationProof(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "key rotation unavailable", http.StatusConflict)
 		return
 	}
+	s.closeFleetLink(host.ID)
 	privateKey, err := s.fleetHubKey(r.Context())
 	if err != nil {
 		http.Error(w, "fleet unavailable", http.StatusInternalServerError)

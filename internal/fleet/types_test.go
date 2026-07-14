@@ -133,3 +133,30 @@ func TestKeyRotationProtocolValidationAndBinding(t *testing.T) {
 		t.Fatal("expected incompatible key rotation request error")
 	}
 }
+
+func TestLinkProtocolBindsChallengeAndFrames(t *testing.T) {
+	challenge := LinkChallenge{Version: ProtocolVersion, ID: "link-123", Nonce: "nonce", ExpiresAt: time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC)}
+	auth := LinkAuthenticate{Version: ProtocolVersion, HostID: "host-macbook", ChallengeID: challenge.ID, Nonce: challenge.Nonce, SentAt: time.Date(2026, 7, 14, 1, 2, 0, 0, time.UTC), Signature: "signature"}
+	if err := challenge.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	payload := string(LinkAuthenticateSigningPayload(challenge, auth))
+	for _, want := range []string{challenge.ID, challenge.Nonce, auth.HostID, auth.SentAt.UTC().Format(time.RFC3339Nano)} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("link authentication payload missing %q: %q", want, payload)
+		}
+	}
+	envelope := Envelope{Version: ProtocolVersion, Type: MessageHeartbeat, RequestID: "link-frame", SentAt: auth.SentAt, Body: []byte(`{"host_id":"host-macbook"}`)}
+	frame := LinkFrame{Envelope: envelope, Signature: "signature"}
+	if err := frame.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	changed := envelope
+	changed.Body = []byte(`{"host_id":"host-other"}`)
+	if string(LinkFrameSigningPayload(envelope)) == string(LinkFrameSigningPayload(changed)) {
+		t.Fatal("link frame payload did not bind body")
+	}
+}

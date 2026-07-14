@@ -78,6 +78,7 @@ type Daemon struct {
 	UpdateCheckInterval     time.Duration
 	UpdateCheckTimeout      time.Duration
 	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
+	FleetLink               *FleetLink
 
 	mu                    sync.Mutex
 	webAttachMu           sync.Mutex
@@ -147,6 +148,7 @@ type Options struct {
 	UpdateCheckInterval     time.Duration
 	UpdateCheckTimeout      time.Duration
 	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
+	FleetLink               *FleetLink
 	Budget                  *budget.ClaudeParser
 	Recorder                *web.Recorder
 	TailnetStatus           func(context.Context) ([]byte, error)
@@ -331,6 +333,7 @@ func New(opts Options) *Daemon {
 		UpdateCheckInterval:     opts.UpdateCheckInterval,
 		UpdateCheckTimeout:      opts.UpdateCheckTimeout,
 		UpdateCheck:             opts.UpdateCheck,
+		FleetLink:               opts.FleetLink,
 		tailnetStatus:           tailnetStatusOrDefault(opts.TailnetStatus),
 		tailnetHealth:           tailnetHealthOrDefault(opts.TailnetHealth),
 	}
@@ -558,6 +561,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	d.startAutoUpdateChecks(ctx, &wg)
+	if d.FleetLink != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.FleetLink.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				d.Log.Error("fleet link", slog.Any("err", err))
+			}
+		}()
+	}
 	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "" || strings.TrimSpace(d.SMS.ActionBaseURL) != "" || strings.TrimSpace(d.Email.ActionBaseURL) != "") && d.notifyActionSigner == nil {
 		signer, err := web.NewActionSigner(nil)
 		if err != nil {

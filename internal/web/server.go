@@ -86,6 +86,8 @@ type Server struct {
 	e2eMu                 sync.Mutex
 	e2eHTTPReplay         map[string]time.Time
 	e2eHTTPResponse       map[*http.Request]e2eHTTPMeta
+	fleetLinkMu           sync.Mutex
+	fleetLinks            map[string]*fleetLinkConnection
 }
 
 func New(opts Options) *Server {
@@ -118,6 +120,7 @@ func New(opts Options) *Server {
 		experimentalProviders: opts.ExperimentalProviders,
 		actionSigner:          opts.ActionSigner,
 		log:                   opts.Log,
+		fleetLinks:            make(map[string]*fleetLinkConnection),
 	}
 }
 
@@ -146,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/fleet/rotate/challenge", s.handleFleetKeyRotationChallenge)
 	mux.HandleFunc("/fleet/rotate/proof", s.handleFleetKeyRotationProof)
 	mux.HandleFunc("/fleet/heartbeat", s.handleFleetHeartbeat)
+	mux.HandleFunc("/fleet/link", s.handleFleetLink)
 	mux.HandleFunc("/share", s.handleShare)
 	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
