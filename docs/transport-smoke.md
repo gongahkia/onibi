@@ -4,6 +4,8 @@ Default CI is hermetic. Live provider checks run only when the listed env vars a
 
 Live tests write sanitized JSON artifacts to `ONIBI_LIVE_ARTIFACT_DIR` when set, otherwise `/tmp/onibi-live-smoke`. Artifacts record env-key presence, timings, URLs, and scrubbed errors; they must not contain tokens, approval payload secrets, or terminal secrets.
 
+For physical iPhone runs, use [`iphone-transport-smoke.md`](./iphone-transport-smoke.md) and attach its token-redacted JSON evidence to the relevant issue.
+
 ## Always-run local checks
 
 ```bash
