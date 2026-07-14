@@ -5,6 +5,8 @@ mod identity;
 mod keystore;
 #[cfg(target_os = "macos")]
 mod keystore_macos;
+#[cfg(any(target_os = "windows", test))]
+mod keystore_windows;
 mod secret;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixture;
@@ -21,4 +23,9 @@ pub use keystore::{
 };
 #[cfg(target_os = "macos")]
 pub use keystore_macos::{MACOS_KEYCHAIN_SERVICE, MacOsKeystore, MacOsKeystoreError};
+#[cfg(target_os = "windows")]
+pub use keystore_windows::{
+    MAX_WINDOWS_CREDENTIAL_SECRET_BYTES, WINDOWS_CREDENTIAL_SERVICE, WindowsKeystore,
+    WindowsKeystoreError,
+};
 pub use secret::Secret;

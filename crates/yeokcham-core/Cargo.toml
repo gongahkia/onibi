@@ -21,6 +21,10 @@ zeroize.workspace = true
 security-framework.workspace = true
 security-framework-sys.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring-core.workspace = true
+windows-native-keyring-store.workspace = true
+
 [dev-dependencies]
 tracing-subscriber.workspace = true
 
