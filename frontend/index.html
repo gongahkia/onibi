@@ -28,7 +28,7 @@
         --panel-bg: rgba(29, 31, 33, 0.96);
         --panel-solid-bg: #1D1F21;
         --sessions-height: 34px;
-        --softkey-height: 88px;
+        --softkey-height: 52px;
         --visual-viewport-height: 100dvh;
         --keyboard-bottom: 0px;
         --mono-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace;
@@ -164,10 +164,9 @@
         min-height: calc(env(safe-area-inset-bottom) + var(--softkey-height));
         justify-content: flex-start;
         align-content: flex-start;
-        flex-wrap: wrap;
-        padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+        padding: 6px 10px calc(env(safe-area-inset-bottom) + 6px);
         border-top: 1px solid var(--chrome-border);
-        overflow-x: auto;
+        overflow: visible;
         overscroll-behavior: contain;
       }
       .control-button,
@@ -178,12 +177,12 @@
         background: var(--button-bg);
         color: var(--button-fg);
         font: 600 12px var(--mono-font);
-        min-height: 30px;
+        min-height: 40px;
         touch-action: manipulation;
       }
       .control-button,
       .softkey-button {
-        min-width: 54px;
+        min-width: 44px;
       }
       .softkey-button.active {
         background: var(--button-active-bg);
@@ -193,10 +192,61 @@
       .softkey-paste[hidden] {
         display: none;
       }
+      .softkey-primary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .softkey-more {
+        position: relative;
+      }
+      .softkey-more > summary {
+        display: grid;
+        place-items: center;
+        min-width: 52px;
+        min-height: 40px;
+        box-sizing: border-box;
+        border: 1px solid var(--button-border);
+        border-radius: 2px;
+        background: var(--button-bg);
+        color: var(--button-fg);
+        cursor: pointer;
+        font: 600 12px var(--mono-font);
+        list-style: none;
+      }
+      .softkey-more > summary::-webkit-details-marker {
+        display: none;
+      }
+      .softkey-more[open] > summary {
+        border-color: var(--button-active-border);
+      }
+      .softkey-more-menu {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 6px);
+        z-index: 14;
+        display: none;
+        grid-template-columns: repeat(4, minmax(44px, 1fr));
+        gap: 6px;
+        width: min(320px, calc(100vw - 20px));
+        box-sizing: border-box;
+        border: 1px solid var(--chrome-border);
+        border-radius: 3px;
+        background: var(--panel-bg);
+        padding: 8px;
+        box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.32);
+      }
+      .softkey-more[open] .softkey-more-menu {
+        display: grid;
+      }
+      .softkey-more-menu .softkey-theme {
+        grid-column: span 2;
+      }
       .softkey-view-only {
         display: inline-flex;
         align-items: center;
-        min-height: 30px;
+        min-height: 40px;
         box-sizing: border-box;
         border: 1px solid var(--button-active-border);
         border-radius: 2px;

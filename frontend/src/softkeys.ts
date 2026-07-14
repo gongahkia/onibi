@@ -63,48 +63,77 @@ const keys: KeyDef[] = [
   { label: "^Z", base: bytes(0x1a) }
 ];
 
+const primaryKeyLabels = new Set(["Esc", "↑", "↓", "^C"]);
+
 export class SoftKeyBar {
   private modifier: Modifier | undefined;
   private readonly buttons = new Map<Modifier, HTMLButtonElement>();
   private readonly themePicker: HTMLSelectElement;
 
   constructor(private readonly options: SoftKeyBarOptions) {
-    const frag = document.createDocumentFragment();
+    const primary = document.createElement("div");
+    primary.className = "softkey-primary";
+    const more = document.createElement("details");
+    more.className = "softkey-more";
+    const summary = document.createElement("summary");
+    summary.textContent = "More";
+    more.append(summary);
+    const menu = document.createElement("div");
+    menu.className = "softkey-more-menu";
     if (options.readOnly === true) {
       const banner = document.createElement("div");
       banner.className = "softkey-view-only";
       banner.textContent = "VIEW ONLY";
-      frag.append(banner);
-      frag.append(this.actionButton("A-", options.decreaseFontSize));
-      frag.append(this.actionButton("A+", options.increaseFontSize));
+      primary.append(banner, this.actionButton("A-", options.decreaseFontSize));
+      menu.append(this.actionButton("A+", options.increaseFontSize));
       this.themePicker = this.themeSelect(options.getTheme());
-      frag.append(this.themePicker);
-      options.root.replaceChildren(frag);
+      menu.append(this.themePicker);
+      more.append(menu);
+      primary.append(more);
+      options.root.replaceChildren(primary);
       return;
     }
-    frag.append(this.modifierButton("Ctrl", "ctrl"));
-    frag.append(this.modifierButton("Alt", "alt"));
     for (const key of keys) {
-      frag.append(this.keyButton(key));
+      if (primaryKeyLabels.has(key.label)) {
+        primary.append(this.keyButton(key));
+      }
     }
-    frag.append(this.pageButton("PgUp", options.pageUp));
-    frag.append(this.pageButton("PgDn", options.pageDown));
-    frag.append(this.actionButton("A-", options.decreaseFontSize));
-    frag.append(this.actionButton("A+", options.increaseFontSize));
-    frag.append(this.pasteButton());
+    menu.append(this.modifierButton("Ctrl", "ctrl"), this.modifierButton("Alt", "alt"));
+    for (const key of keys) {
+      if (!primaryKeyLabels.has(key.label)) {
+        menu.append(this.keyButton(key));
+      }
+    }
+    menu.append(this.pageButton("PgUp", options.pageUp));
+    menu.append(this.pageButton("PgDn", options.pageDown));
+    menu.append(this.actionButton("A-", options.decreaseFontSize));
+    menu.append(this.actionButton("A+", options.increaseFontSize));
+    menu.append(this.pasteButton());
     this.themePicker = this.themeSelect(options.getTheme());
-    frag.append(this.themePicker);
-    options.root.replaceChildren(frag);
+    menu.append(this.themePicker);
+    more.append(menu);
+    primary.append(more);
+    options.root.replaceChildren(primary);
   }
 
   private modifierButton(label: string, modifier: Modifier): HTMLButtonElement {
     const el = this.button(label);
     this.buttons.set(modifier, el);
-    el.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
+    let pointerAt = 0;
+    const toggle = () => {
       this.modifier = this.modifier === modifier ? undefined : modifier;
       this.renderModifier();
       this.options.focus();
+    };
+    el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      pointerAt = Date.now();
+      toggle();
+    });
+    el.addEventListener("click", () => {
+      if (Date.now() - pointerAt >= 250) {
+        toggle();
+      }
     });
     return el;
   }
@@ -113,12 +142,14 @@ export class SoftKeyBar {
     const el = this.button(key.label);
     let holdTimer = 0;
     let repeatTimer = 0;
+    let pointerAt = 0;
     const stop = () => {
       window.clearTimeout(holdTimer);
       window.clearInterval(repeatTimer);
     };
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      pointerAt = Date.now();
       el.setPointerCapture(event.pointerId);
       this.sendKey(key);
       if (key.repeat === true) {
@@ -130,6 +161,11 @@ export class SoftKeyBar {
     el.addEventListener("pointerup", stop);
     el.addEventListener("pointercancel", stop);
     el.addEventListener("lostpointercapture", stop);
+    el.addEventListener("click", () => {
+      if (Date.now() - pointerAt >= 250) {
+        this.sendKey(key);
+      }
+    });
     return el;
   }
 
@@ -139,20 +175,37 @@ export class SoftKeyBar {
     el.hidden =
       navigator.clipboard?.readText === undefined &&
       (navigator.clipboard?.read === undefined || this.options.pasteImage === undefined);
+    let pointerAt = 0;
     el.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      pointerAt = Date.now();
       void this.paste();
+    });
+    el.addEventListener("click", () => {
+      if (Date.now() - pointerAt >= 250) {
+        void this.paste();
+      }
     });
     return el;
   }
 
   private pageButton(label: string, action: () => void): HTMLButtonElement {
     const el = this.button(label);
-    el.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
+    let pointerAt = 0;
+    const page = () => {
       void action();
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
+      }
+    };
+    el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      pointerAt = Date.now();
+      page();
+    });
+    el.addEventListener("click", () => {
+      if (Date.now() - pointerAt >= 250) {
+        page();
       }
     });
     return el;
@@ -160,10 +213,20 @@ export class SoftKeyBar {
 
   private actionButton(label: string, action: () => void): HTMLButtonElement {
     const el = this.button(label);
-    el.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
+    let pointerAt = 0;
+    const perform = () => {
       action();
       this.options.focus();
+    };
+    el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      pointerAt = Date.now();
+      perform();
+    });
+    el.addEventListener("click", () => {
+      if (Date.now() - pointerAt >= 250) {
+        perform();
+      }
     });
     return el;
   }
@@ -210,14 +273,12 @@ export class SoftKeyBar {
     el.type = "button";
     el.className = "softkey-button";
     el.textContent = label;
-    el.tabIndex = -1;
     return el;
   }
 
   private themeSelect(current: TerminalThemeName): HTMLSelectElement {
     const el = document.createElement("select");
     el.className = "softkey-button softkey-theme";
-    el.tabIndex = -1;
     for (const theme of terminalThemeNames) {
       const option = document.createElement("option");
       option.value = theme;

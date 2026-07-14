@@ -37,6 +37,7 @@ import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
 import { FleetHomeView } from "./fleet-home";
 import { SessionPickerPanel } from "./session-picker";
+import { TerminalStatus } from "./terminal-status";
 
 type SessionInfo = {
   session_id: string;
@@ -89,6 +90,10 @@ let sessionPicker: SessionPickerPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
+const terminalStatus = new TerminalStatus(() => {
+  ws.close();
+  window.location.href = "/";
+});
 
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
@@ -103,14 +108,20 @@ ws.addEventListener("data", (event) => {
 ws.addEventListener("open", () => {
   splash.hidden = true;
   hideToast();
+  terminalStatus.setConnected();
   fit.fit();
   logCrampedPortraitCols(term);
   ws.sendResize(term.rows, term.cols);
 });
-ws.addEventListener("reconnecting", () => showToast("Reconnecting..."));
+ws.addEventListener("close", () => terminalStatus.setDisconnected());
+ws.addEventListener("reconnecting", (event) => {
+  terminalStatus.setReconnecting((event as CustomEvent<number>).detail);
+  showToast("Reconnecting...");
+});
 ws.addEventListener("recovered", (event) => {
   const recovery = (event as CustomEvent<{ mode: "replay" | "snapshot"; replay_bytes: number }>)
     .detail;
+  terminalStatus.setRecovered(recovery);
   const message =
     recovery.mode === "snapshot"
       ? "Terminal restored from buffered output."
@@ -340,6 +351,7 @@ function installControls(
   share: SharePanel | undefined
 ): void {
   const controls: HTMLElement[] = [
+    terminalStatus.element,
     controlButton("TL", () => timelinePanel.toggle()),
     controlButton("SNAP", () => snapshotsPanel.toggle()),
     controlButton("REC", () => recordingsPanel.toggle()),
@@ -382,7 +394,6 @@ function controlButton(label: string, action: () => void, tourID = ""): HTMLButt
   el.type = "button";
   el.className = "control-button";
   el.textContent = label;
-  el.tabIndex = -1;
   if (tourID !== "") {
     el.dataset.tour = tourID;
   }

@@ -95,6 +95,28 @@
   border-color: var(--button-active-border);
 }
 
+.terminal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.terminal-status-state {
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.terminal-status[data-state="reconnecting"] .terminal-status-state,
+.terminal-status[data-state="disconnected"] .terminal-status-state {
+  color: #d29922;
+}
+
+.terminal-status[data-state="recovered"] .terminal-status-state {
+  color: #3fb950;
+}
+
 .session-name,
 .session-cost {
   min-width: 0;

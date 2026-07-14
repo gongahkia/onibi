@@ -38,6 +38,38 @@ test("emits terminal escape sequences from soft keys", async () => {
   dom.window.close();
 });
 
+test("keeps essential soft keys visible and supports keyboard activation", async () => {
+  const dom = installDOM('<div id="softkeys"></div>');
+  const { SoftKeyBar } = await import("../softkeys");
+  const root = document.getElementById("softkeys");
+  if (root === null) {
+    throw new Error("missing softkeys root");
+  }
+  const sent: number[][] = [];
+  new SoftKeyBar({
+    root,
+    sendBytes: (data) => sent.push(Array.from(data)),
+    sendText: () => {},
+    pageUp: () => {},
+    pageDown: () => {},
+    focus: () => {},
+    getTheme: () => "ghostty-default",
+    setTheme: () => {},
+    decreaseFontSize: () => {},
+    increaseFontSize: () => {}
+  });
+  expect(root.querySelector(".softkey-primary")?.textContent).toContain("Esc");
+  expect(root.querySelector(".softkey-primary")?.textContent).toContain("More");
+  expect(
+    Array.from(root.querySelectorAll(".softkey-primary > button")).map((el) => el.textContent)
+  ).toEqual(["Esc", "↑", "↓", "^C"]);
+  const tab = button(root, "Tab");
+  expect(tab.tabIndex).toBe(0);
+  tab.click();
+  expect(sent).toEqual([[0x09]]);
+  dom.window.close();
+});
+
 function installDOM(markup: string): JSDOM {
   const dom = new JSDOM(markup, { url: "https://onibi.test/" });
   const win = dom.window;
