@@ -56,22 +56,30 @@ export class ApprovalOverlay {
     const title = document.createElement("div");
     title.className = "approval-title";
     title.textContent = payload.tool;
+    const target = document.createElement("div");
+    target.className = "approval-target";
+    target.textContent = `target: ${payload.file_path || "not reported"}`;
     const meta = document.createElement("div");
     meta.className = "approval-meta";
     meta.textContent = `${payload.agent} / ${payload.session_id}`;
     const badge = document.createElement("div");
     badge.className = "approval-risk";
     badge.textContent = payload.risk_level;
-    header.append(title, meta, badge);
+    header.append(title, target, meta, badge);
 
-    const input = document.createElement("div");
+    const input = document.createElement("details");
     input.className = "approval-input";
+    const summary = document.createElement("summary");
+    summary.textContent = inputSummary(payload);
+    input.append(summary);
+    const evidence = document.createElement("div");
     if (payload.unified_diff !== undefined && payload.unified_diff !== "") {
-      input.classList.add("approval-diff");
-      prepareUnifiedDiff(input, payload.unified_diff);
+      evidence.className = "approval-diff";
+      prepareUnifiedDiff(evidence, payload.unified_diff);
     } else {
-      input.append(...lineNodes(payload.scrubbed_input));
+      evidence.append(...lineNodes(payload.scrubbed_input));
     }
+    input.append(evidence);
     const budget = budgetWarningNode(payload);
 
     const actions = document.createElement("div");
@@ -182,7 +190,13 @@ export class ApprovalOverlay {
     status: HTMLElement
   ): Promise<void> {
     status.textContent = "Sending...";
-    const response = await this.postJSON(`/approval/${encodeURIComponent(id)}`, body);
+    let response: Response;
+    try {
+      response = await this.postJSON(`/approval/${encodeURIComponent(id)}`, body);
+    } catch {
+      status.textContent = "Connection failed. Retry.";
+      return;
+    }
     if (!response.ok) {
       status.textContent = await response.text();
       return;
@@ -259,6 +273,17 @@ function budgetWarningNode(payload: ApprovalRequestedPayload): HTMLElement | und
   meta.textContent = `${warning.scope} ${formatTokens(warning.projected_tokens)} / ${formatTokens(warning.limit_tokens)} tokens; overrun: ${warning.on_overrun}`;
   box.append(title, meta);
   return box;
+}
+
+function inputSummary(payload: ApprovalRequestedPayload): string {
+  if (payload.unified_diff !== undefined && payload.unified_diff !== "") {
+    return `${lineCount(payload.unified_diff)} line diff`;
+  }
+  const lines = lineCount(payload.scrubbed_input);
+  const first = payload.scrubbed_input.split(/\r?\n/, 1)[0].trim();
+  return first === ""
+    ? `${lines} line input`
+    : `${first.slice(0, 96)}${first.length > 96 ? "…" : ""}`;
 }
 
 let diff2htmlUILoad: Promise<Diff2HtmlUIModule> | undefined;

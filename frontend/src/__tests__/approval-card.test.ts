@@ -20,9 +20,12 @@ test("renders approval JSON and posts approve and deny decisions", async () => {
     payload: approvalPayload()
   });
   expect(root.querySelector(".approval-card")?.textContent).toContain("shell");
+  expect(root.textContent).toContain("target: not reported");
+  expect(root.querySelector(".approval-input")?.hasAttribute("open")).toBe(false);
   expect(root.textContent).toContain('"cmd"');
   button(root, "Approve").click();
   await settle();
+  expect(root.querySelector(".approval-status")?.textContent).toBe("Done.");
   button(root, "Deny").click();
   await settle();
   expect(calls).toEqual([
@@ -35,6 +38,43 @@ test("renders approval JSON and posts approve and deny decisions", async () => {
     payload: { id: "ap-1", session_id: "s-1", verdict: "approve" }
   });
   expect(root.querySelector(".approval-card")).toBeNull();
+  dom.window.close();
+});
+
+test("shows compact loading, failed, and successful approval states", async () => {
+  const dom = installDOM('<main id="approvals"></main>');
+  const { ApprovalOverlay } = await import("../approval");
+  const root = document.getElementById("approvals");
+  if (root === null) {
+    throw new Error("missing approvals root");
+  }
+  const overlay = new ApprovalOverlay(root);
+  overlay.handleEnvelope({
+    type: "approval.requested",
+    ts: "2026-07-08T00:00:00Z",
+    payload: {
+      ...approvalPayload(),
+      id: "ap-loading",
+      file_path: "/tmp/onibi-test.txt",
+      unified_diff: smallUnifiedDiff()
+    }
+  });
+  expect(root.textContent).toContain("target: /tmp/onibi-test.txt");
+  expect(root.querySelector(".approval-input")?.tagName).toBe("DETAILS");
+  expect(root.querySelector(".approval-diff")?.textContent).toBe("Loading diff...");
+
+  overlay.setPostJSON(async () => {
+    throw new TypeError("offline");
+  });
+  button(root, "Approve").click();
+  expect(root.querySelector(".approval-status")?.textContent).toBe("Sending...");
+  await settle();
+  expect(root.querySelector(".approval-status")?.textContent).toBe("Connection failed. Retry.");
+
+  overlay.setPostJSON(async () => new Response("ok", { status: 200 }));
+  button(root, "Deny").click();
+  await settle();
+  expect(root.querySelector(".approval-status")?.textContent).toBe("Done.");
   dom.window.close();
 });
 

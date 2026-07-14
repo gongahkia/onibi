@@ -832,6 +832,23 @@
   gap: 6px;
 }
 
+.approval-target {
+  min-width: 0;
+  color: var(--page-fg);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.approval-input > summary {
+  cursor: pointer;
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.approval-input > :not(summary) {
+  margin-top: 8px;
+}
+
 .fleet-host-list,
 .fleet-host-detail {
   display: grid;
