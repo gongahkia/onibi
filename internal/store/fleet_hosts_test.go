@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -100,6 +101,76 @@ func TestFleetHostHeartbeatIsMonotonic(t *testing.T) {
 	}
 	if _, applied, err := db.FleetHostRecordHeartbeat(context.Background(), beat); err != nil || applied {
 		t.Fatalf("replayed heartbeat applied=%v err=%v", applied, err)
+	}
+}
+
+func TestFleetHostMarksStaleAndRecoversOnNewHeartbeat(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	host := testFleetHost()
+	now := time.Now().UTC().Truncate(time.Second)
+	host.RegisteredAt = now.Add(-2 * fleet.HostStaleAfter)
+	host.LastSeenAt = now.Add(-fleet.HostStaleAfter - time.Second)
+	if err := db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	marked, err := db.FleetHostMarkStaleBefore(context.Background(), now.Add(-fleet.HostStaleAfter))
+	if err != nil || marked != 1 {
+		t.Fatalf("marked=%d err=%v", marked, err)
+	}
+	stale, ok, err := db.FleetHostGet(context.Background(), host.ID)
+	if err != nil || !ok || stale.State != fleet.HostStateStale {
+		t.Fatalf("stale host=%#v ok=%v err=%v", stale, ok, err)
+	}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"session.read"}, Signature: "signature"}
+	recovered, applied, err := db.FleetHostRecordHeartbeat(context.Background(), heartbeat)
+	if err != nil || !applied || recovered.State != fleet.HostStateActive || recovered.BinaryVersion != heartbeat.BinaryVersion {
+		t.Fatalf("recovered=%#v applied=%v err=%v", recovered, applied, err)
+	}
+}
+
+func TestFleetHostStaleSweepIsConcurrentSafe(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	host := testFleetHost()
+	now := time.Now().UTC().Truncate(time.Second)
+	host.RegisteredAt = now.Add(-2 * fleet.HostStaleAfter)
+	host.LastSeenAt = now.Add(-fleet.HostStaleAfter - time.Second)
+	if err := db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	marked := make(chan int, 8)
+	errs := make(chan error, 8)
+	for range cap(marked) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, err := db.FleetHostMarkStaleBefore(context.Background(), now.Add(-fleet.HostStaleAfter))
+			marked <- n
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(marked)
+	close(errs)
+	total := 0
+	for n := range marked {
+		total += n
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if total != 1 {
+		t.Fatalf("stale hosts marked = %d", total)
 	}
 }
 

@@ -89,7 +89,7 @@ func (s *Server) handleFleetLink(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusInternalError, "fleet link unavailable")
 		return
 	}
-	if !ok || host.State != fleet.HostStateActive {
+	if !ok || !fleetHostCanHeartbeat(host.State) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "unknown fleet host")
 		return
 	}
@@ -144,8 +144,12 @@ func (s *Server) SendFleetControl(ctx context.Context, control fleet.Control) er
 	if err := control.Validate(); err != nil {
 		return err
 	}
-	if !control.ExpiresAt.After(time.Now().UTC()) {
+	now := time.Now().UTC()
+	if !control.ExpiresAt.After(now) {
 		return errors.New("fleet control expired")
+	}
+	if _, err := s.db.FleetHostMarkStaleBefore(ctx, now.Add(-fleet.HostStaleAfter)); err != nil {
+		return err
 	}
 	host, ok, err := s.db.FleetHostGet(ctx, control.HostID)
 	if err != nil {
@@ -192,7 +196,7 @@ func (s *Server) applyFleetLinkFrame(ctx context.Context, hostID string, frame f
 	if err != nil {
 		return err
 	}
-	if !ok || host.State != fleet.HostStateActive {
+	if !ok || !fleetHostCanHeartbeat(host.State) {
 		return errors.New("fleet host unavailable")
 	}
 	public, err := decodeEd25519Public(host.IdentityPublic)

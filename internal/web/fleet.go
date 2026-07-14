@@ -51,6 +51,10 @@ func (s *Server) handleFleetHosts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
 		return
 	}
+	if _, err := s.db.FleetHostMarkStaleBefore(r.Context(), time.Now().UTC().Add(-fleet.HostStaleAfter)); err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
 	hosts, err := s.db.FleetHostList(r.Context())
 	if err != nil {
 		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
@@ -402,7 +406,7 @@ func (s *Server) handleFleetHeartbeat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
 		return
 	}
-	if !ok || host.State != fleet.HostStateActive {
+	if !ok || !fleetHostCanHeartbeat(host.State) {
 		http.Error(w, "unknown host", http.StatusNotFound)
 		return
 	}
@@ -427,6 +431,10 @@ func (s *Server) handleFleetHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"host": updated})
+}
+
+func fleetHostCanHeartbeat(state fleet.HostState) bool {
+	return state == fleet.HostStateActive || state == fleet.HostStateStale
 }
 
 func (s *Server) fleetHubKey(ctx context.Context) (ed25519.PrivateKey, error) {

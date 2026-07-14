@@ -15,7 +15,10 @@ import (
 
 const ProtocolVersion uint16 = 1
 
-const EnrollmentTTL = 10 * time.Minute
+const (
+	EnrollmentTTL  = 10 * time.Minute
+	HostStaleAfter = 2 * time.Minute
+)
 
 type MessageType string
 

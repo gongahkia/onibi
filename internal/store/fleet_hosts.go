@@ -141,9 +141,10 @@ func (d *DB) FleetHostRotateIdentity(ctx context.Context, hostID, currentIdentit
 	return host, true, nil
 }
 
-// FleetHostRecordHeartbeat atomically applies a strictly newer heartbeat to
-// an active host. false means the host is missing, inactive, or stale input
-// replayed an already recorded timestamp.
+// fleet host record heartbeat atomically applies a strictly newer heartbeat to
+// an active or stale host. a newer heartbeat restores a stale host to active.
+// false means the host is missing, revoked, or stale input replayed an already
+// recorded timestamp.
 func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heartbeat) (fleet.Host, bool, error) {
 	if err := heartbeat.Validate(); err != nil {
 		return fleet.Host{}, false, err
@@ -161,7 +162,7 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 	} else if err != nil {
 		return fleet.Host{}, false, err
 	}
-	if state != string(fleet.HostStateActive) || heartbeat.SentAt.UTC().UnixNano() <= lastHeartbeatNS {
+	if (state != string(fleet.HostStateActive) && state != string(fleet.HostStateStale)) || heartbeat.SentAt.UTC().UnixNano() <= lastHeartbeatNS {
 		return fleet.Host{}, false, nil
 	}
 	payload, err := d.openFleetHost(ctx, heartbeat.HostID, sealed)
@@ -179,6 +180,10 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 	host.LastSeenAt = heartbeat.SentAt.UTC()
 	host.BinaryVersion = strings.TrimSpace(heartbeat.BinaryVersion)
 	host.Capabilities = normalizedFleetCapabilities(heartbeat.Capabilities)
+	host.State = fleet.HostStateActive
+	if err := host.Validate(); err != nil {
+		return fleet.Host{}, false, err
+	}
 	payload, err = json.Marshal(host)
 	if err != nil {
 		return fleet.Host{}, false, err
@@ -188,9 +193,9 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 		return fleet.Host{}, false, err
 	}
 	result, err := tx.ExecContext(ctx,
-		`UPDATE fleet_hosts SET data_enc = ?, last_seen_at = ?, last_heartbeat_ns = ?, updated_at = ?
-		 WHERE id = ? AND state = ? AND last_heartbeat_ns = ?`,
-		updatedSealed, host.LastSeenAt.Unix(), host.LastSeenAt.UnixNano(), time.Now().UTC().Unix(), host.ID, string(fleet.HostStateActive), lastHeartbeatNS,
+		`UPDATE fleet_hosts SET data_enc = ?, state = ?, last_seen_at = ?, last_heartbeat_ns = ?, updated_at = ?
+		 WHERE id = ? AND state IN (?, ?) AND last_heartbeat_ns = ? AND data_enc = ?`,
+		updatedSealed, string(fleet.HostStateActive), host.LastSeenAt.Unix(), host.LastSeenAt.UnixNano(), time.Now().UTC().Unix(), host.ID, string(fleet.HostStateActive), string(fleet.HostStateStale), lastHeartbeatNS, sealed,
 	)
 	if err != nil {
 		return fleet.Host{}, false, err
@@ -203,6 +208,91 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 		return fleet.Host{}, false, err
 	}
 	return host, true, nil
+}
+
+func (d *DB) FleetHostMarkStaleBefore(ctx context.Context, cutoff time.Time) (int, error) {
+	if cutoff.IsZero() {
+		return 0, errors.New("fleet host stale cutoff required")
+	}
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, data_enc, last_seen_at, last_heartbeat_ns FROM fleet_hosts
+		 WHERE state = ? AND (
+		   (last_heartbeat_ns > 0 AND last_heartbeat_ns <= ?) OR
+		   (last_heartbeat_ns = 0 AND last_seen_at > 0 AND last_seen_at <= ?)
+		 )`,
+		string(fleet.HostStateActive), cutoff.UTC().UnixNano(), cutoff.UTC().Unix())
+	if err != nil {
+		return 0, err
+	}
+	type candidate struct {
+		id       string
+		sealed   []byte
+		lastSeen int64
+		lastBeat int64
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var candidate candidate
+		if err := rows.Scan(&candidate.id, &candidate.sealed, &candidate.lastSeen, &candidate.lastBeat); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, candidate := range candidates {
+		payload, err := d.openFleetHost(ctx, candidate.id, candidate.sealed)
+		if err != nil {
+			return 0, err
+		}
+		var host fleet.Host
+		if err := json.Unmarshal(payload, &host); err != nil {
+			return 0, err
+		}
+		host = host.Normalized()
+		if err := host.Validate(); err != nil {
+			return 0, err
+		}
+		host.State = fleet.HostStateStale
+		if err := host.Validate(); err != nil {
+			return 0, err
+		}
+		payload, err = json.Marshal(host)
+		if err != nil {
+			return 0, err
+		}
+		sealed, err := d.sealFleetHost(ctx, host.ID, payload)
+		if err != nil {
+			return 0, err
+		}
+		result, err := tx.ExecContext(ctx,
+			`UPDATE fleet_hosts SET data_enc = ?, state = ?, updated_at = ?
+			 WHERE id = ? AND state = ? AND last_seen_at = ? AND last_heartbeat_ns = ? AND data_enc = ?`,
+			sealed, string(fleet.HostStateStale), time.Now().UTC().Unix(), host.ID, string(fleet.HostStateActive), candidate.lastSeen, candidate.lastBeat, candidate.sealed)
+		if err != nil {
+			return 0, err
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		marked += int(changed)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return marked, nil
 }
 
 func (d *DB) sealFleetHost(ctx context.Context, id string, payload []byte) ([]byte, error) {

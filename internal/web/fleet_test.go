@@ -207,6 +207,46 @@ func TestFleetHeartbeatRequiresValidMonotonicHostProof(t *testing.T) {
 	}
 }
 
+func TestFleetHostsMarksStaleAndHeartbeatRecovers(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host, private := testFleetLinkHost(t, srv)
+	now := time.Now().UTC().Truncate(time.Second)
+	host.RegisteredAt = now.Add(-2 * fleet.HostStaleAfter)
+	host.LastSeenAt = now.Add(-fleet.HostStaleAfter - time.Second)
+	if err := srv.db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	owner := httptest.NewRecorder()
+	_, err := srv.CreateOwnerSession(context.Background(), owner, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listReq := httptest.NewRequest(http.MethodGet, "/fleet/hosts", nil)
+	listReq.AddCookie(owner.Result().Cookies()[0])
+	listW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(listW, listReq)
+	if listW.Code != http.StatusOK || !strings.Contains(listW.Body.String(), `"state":"stale"`) {
+		t.Fatalf("fleet hosts = %d body=%s", listW.Code, listW.Body.String())
+	}
+	heartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: now, BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}}
+	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.HeartbeatSigningPayload(heartbeat)))
+	body, err := json.Marshal(heartbeat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	heartbeatReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(body)))
+	heartbeatW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(heartbeatW, heartbeatReq)
+	if heartbeatW.Code != http.StatusOK {
+		t.Fatalf("stale heartbeat = %d body=%s", heartbeatW.Code, heartbeatW.Body.String())
+	}
+	recovered, ok, err := srv.db.FleetHostGet(context.Background(), host.ID)
+	if err != nil || !ok || recovered.State != fleet.HostStateActive || recovered.BinaryVersion != heartbeat.BinaryVersion {
+		t.Fatalf("recovered host=%#v ok=%v err=%v", recovered, ok, err)
+	}
+}
+
 func TestFleetKeyRotationRequiresDualProofAndInvalidatesOldIdentity(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
