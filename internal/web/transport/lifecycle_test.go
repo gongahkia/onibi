@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/gongahkia/onibi/internal/faulttest"
 )
 
 func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T) {
@@ -65,6 +67,35 @@ func TestLifecycleCoversStaticLANWithoutProviderBypass(t *testing.T) {
 	}
 	if err := session.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLifecycleRecoversFromFaultInjectedTransportLoss(t *testing.T) {
+	provider := &faulttest.Provider{URLValue: "https://relay.example.test"}
+	session := NewLifecycle(ResolverOptions{Mode: string(ModeCloudflareQuick), Port: 8443, Providers: ProviderFactory{CloudflareQuick: func() Provider { return provider }}})
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	provider.SetCheckError(Diagnostic(DiagActivationLag, "relay", "fault injected transport loss", errors.New("network reset")))
+	if _, err := session.Health(t.Context()); err == nil {
+		t.Fatal("expected transport health failure")
+	}
+	provider.SetCheckError(nil)
+	if _, err := session.Reconnect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy || report.State != LifecycleHealthy {
+		t.Fatalf("report=%#v err=%v", report, err)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	enables, disables := provider.Counts()
+	if enables != 2 || disables != 2 {
+		t.Fatalf("enables=%d disables=%d", enables, disables)
+	}
+	if diagnostics := session.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+		t.Fatalf("diagnostics=%#v", diagnostics)
 	}
 }
 
