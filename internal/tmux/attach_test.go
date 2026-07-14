@@ -194,6 +194,35 @@ func TestListPanesParsesRows(t *testing.T) {
 	}
 }
 
+func TestListSessionsParsesUniqueNames(t *testing.T) {
+	r := &fakeRunner{out: []byte("onibi-a\nonibi-a\nother\n")}
+	c := NewWithRunner(r)
+	sessions, err := c.ListSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[0].Name != "onibi-a" || sessions[1].Name != "other" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+	want := [][]string{{"tmux", "list-sessions", "-F", "#{session_name}"}}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
+func TestSessionEnvironmentReadsNamedValue(t *testing.T) {
+	r := &fakeRunner{out: []byte("ONIBI_SESSION_ID=session-123\n")}
+	c := NewWithRunner(r)
+	value, ok, err := c.SessionEnvironment(context.Background(), "onibi-123", "ONIBI_SESSION_ID")
+	if err != nil || !ok || value != "session-123" {
+		t.Fatalf("value=%q ok=%v err=%v", value, ok, err)
+	}
+	want := [][]string{{"tmux", "show-environment", "-t", "onibi-123", "ONIBI_SESSION_ID"}}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestDefaultBinUsesEnvOverride(t *testing.T) {
 	t.Setenv("ONIBI_TMUX_BIN", "/tmp/onibi-tmux")
 	if got := DefaultBin(); got != "/tmp/onibi-tmux" {

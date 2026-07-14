@@ -36,6 +36,10 @@ type Pane struct {
 	Title   string
 }
 
+type Session struct {
+	Name string
+}
+
 type StartOptions struct {
 	WindowName string
 	CWD        string
@@ -106,6 +110,45 @@ func (c *Controller) ListPanes(ctx context.Context) ([]Pane, error) {
 		})
 	}
 	return panes, nil
+}
+
+func (c *Controller) ListSessions(ctx context.Context) ([]Session, error) {
+	out, err := c.run(ctx, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	sessions := make([]Session, 0, len(lines))
+	seen := make(map[string]bool, len(lines))
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		sessions = append(sessions, Session{Name: name})
+	}
+	return sessions, nil
+}
+
+func (c *Controller) SessionEnvironment(ctx context.Context, target, variable string) (string, bool, error) {
+	if strings.TrimSpace(target) == "" || strings.TrimSpace(variable) == "" {
+		return "", false, errors.New("tmux session environment target and variable required")
+	}
+	out, err := c.run(ctx, "show-environment", "-t", target, variable)
+	if err != nil {
+		return "", false, err
+	}
+	line := strings.TrimSpace(string(out))
+	prefix := variable + "="
+	if !strings.HasPrefix(line, prefix) {
+		return "", false, nil
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if value == "" {
+		return "", false, nil
+	}
+	return value, true, nil
 }
 
 func (c *Controller) Capture(ctx context.Context, target string, lines int) (string, error) {

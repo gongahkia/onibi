@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestRestoreSessionsRecoversTmuxWithoutDuplicates(t *testing.T) {
 	if err := db.SessionUpsertStart(ctx, "session-123", "Claude", "claude", "/tmp", "claude", "tmux", "onibi-session", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	runner := &sessionRecoveryTmuxRunner{output: []byte("restored\n")}
+	runner := &sessionRecoveryTmuxRunner{listOutput: []byte("onibi-session\n"), sessionIDs: map[string]string{"onibi-session": "session-123"}, output: []byte("restored\n")}
 	old := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
 	t.Cleanup(func() { newTmuxController = old })
@@ -99,11 +100,121 @@ func TestTmuxCaptureDisconnectTimesOutAsOrphaned(t *testing.T) {
 	}
 }
 
-type sessionRecoveryTmuxRunner struct {
-	output []byte
-	err    error
+func TestRestoreSessionsReconcilesDiscoveredTmuxOwnership(t *testing.T) {
+	db, err := store.OpenEphemeral(t.TempDir() + "/recovery.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	now := time.Now().UTC()
+	for _, row := range []struct {
+		id     string
+		target string
+	}{
+		{"session-live", "onibi-live"},
+		{"session-duplicate", "onibi-live"},
+		{"session-missing", "onibi-missing"},
+		{"session-foreign", "onibi-foreign"},
+	} {
+		if err := db.SessionUpsertStart(ctx, row.id, row.id, "claude", "/tmp", "claude", "tmux", row.target, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &sessionRecoveryTmuxRunner{listOutput: []byte("onibi-live\nonibi-unowned\nonibi-foreign\n"), sessionIDs: map[string]string{"onibi-live": "session-live", "onibi-foreign": "other-session"}, output: []byte("restored\n")}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
+	t.Cleanup(func() { newTmuxController = old })
+	d := New(Options{DB: db})
+	d.restoreSessions(ctx)
+	for _, tc := range []struct {
+		id    string
+		state fleet.SessionRecoveryState
+	}{
+		{"session-live", fleet.SessionRecoveryHealthy},
+		{"session-duplicate", fleet.SessionRecoveryFailed},
+		{"session-missing", fleet.SessionRecoveryOrphaned},
+		{"session-foreign", fleet.SessionRecoveryOrphaned},
+	} {
+		entry, ok, err := db.Session(ctx, tc.id)
+		if err != nil || !ok || entry.RecoveryState != tc.state || entry.Ended {
+			t.Fatalf("session %q = %#v ok=%v err=%v", tc.id, entry, ok, err)
+		}
+	}
+	if sessions := d.Registry.List(); len(sessions) != 1 || sessions[0].ID != "session-live" {
+		t.Fatalf("reconciled sessions=%#v", sessions)
+	}
+	if runner.count("kill-session") != 0 || runner.count("capture-pane") != 1 {
+		t.Fatalf("tmux calls=%#v", runner.callsSnapshot())
+	}
 }
 
-func (r *sessionRecoveryTmuxRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+func TestRestoreSessionsRetainsOwnershipWhenDiscoveryFails(t *testing.T) {
+	db, err := store.OpenEphemeral(t.TempDir() + "/recovery.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := db.SessionUpsertStart(ctx, "session-123", "Claude", "claude", "/tmp", "claude", "tmux", "onibi-session", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	runner := &sessionRecoveryTmuxRunner{listErr: errors.New("tmux unavailable")}
+	old := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
+	t.Cleanup(func() { newTmuxController = old })
+	d := New(Options{DB: db})
+	d.restoreSessions(ctx)
+	entry, ok, err := db.Session(ctx, "session-123")
+	if err != nil || !ok || entry.Ended || entry.RecoveryState != fleet.SessionRecoveryReconnecting || entry.RecoveryReason == "" {
+		t.Fatalf("discovery failure session=%#v ok=%v err=%v", entry, ok, err)
+	}
+	if sessions := d.Registry.List(); len(sessions) != 0 || runner.count("capture-pane") != 0 || runner.count("kill-session") != 0 {
+		t.Fatalf("discovery failure sessions=%#v calls=%#v", sessions, runner.callsSnapshot())
+	}
+}
+
+type sessionRecoveryTmuxRunner struct {
+	mu         sync.Mutex
+	listOutput []byte
+	listErr    error
+	sessionIDs map[string]string
+	output     []byte
+	err        error
+	calls      [][]string
+}
+
+func (r *sessionRecoveryTmuxRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, append([]string{name}, args...))
+	if len(args) > 0 && args[0] == "list-sessions" {
+		return r.listOutput, r.listErr
+	}
+	if len(args) == 4 && args[0] == "show-environment" {
+		if identity, ok := r.sessionIDs[args[2]]; ok {
+			return []byte(args[3] + "=" + identity + "\n"), nil
+		}
+		return nil, nil
+	}
 	return r.output, r.err
+}
+
+func (r *sessionRecoveryTmuxRunner) count(command string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, call := range r.calls {
+		if len(call) > 1 && call[1] == command {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *sessionRecoveryTmuxRunner) callsSnapshot() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]string(nil), r.calls...)
 }

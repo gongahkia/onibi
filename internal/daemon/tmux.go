@@ -164,20 +164,64 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		return
 	}
 	ctrl := newTmuxController()
+	discovered, discoverErr := ctrl.ListSessions(ctx)
+	liveTargets := make(map[string]bool, len(discovered))
+	if discoverErr == nil {
+		for _, session := range discovered {
+			liveTargets[session.Name] = true
+		}
+	} else {
+		d.audit(ctx, "session.discovery.failed", "", "", 0, discoverErr.Error())
+	}
+	ownedTargets := make(map[string]bool, len(rows))
+	for _, session := range d.Registry.List() {
+		if session.Transport == "tmux" && strings.TrimSpace(session.TmuxTarget) != "" {
+			ownedTargets[session.TmuxTarget] = true
+		}
+	}
 	var restored, stale int
 	for _, row := range rows {
 		if _, err := d.Registry.Get(row.ID); err == nil {
 			continue
 		}
 		if row.Transport == "tmux" && strings.TrimSpace(row.TmuxTarget) != "" {
+			if ownedTargets[row.TmuxTarget] {
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryFailed, "duplicate tmux ownership target="+row.TmuxTarget)
+				d.audit(ctx, "session.duplicate", row.ID, "", 0, "target="+row.TmuxTarget)
+				stale++
+				continue
+			}
 			d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryRecovering, "daemon restart")
+			if discoverErr != nil {
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryReconnecting, "tmux discovery unavailable: "+discoverErr.Error())
+				continue
+			}
+			if !liveTargets[row.TmuxTarget] {
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryOrphaned, "tmux target absent after discovery")
+				d.audit(ctx, "session.orphaned", row.ID, "", 0, "target absent after discovery="+row.TmuxTarget)
+				stale++
+				continue
+			}
+			verified, err := managedTmuxOwnership(ctx, ctrl, row)
+			if err != nil {
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryReconnecting, "tmux ownership lookup unavailable: "+err.Error())
+				d.audit(ctx, "session.reconnecting", row.ID, "", 0, "ownership lookup target="+row.TmuxTarget+": "+err.Error())
+				continue
+			}
+			if !verified {
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryOrphaned, "tmux ownership identity mismatch")
+				d.audit(ctx, "session.orphaned", row.ID, "", 0, "ownership mismatch target="+row.TmuxTarget)
+				stale++
+				continue
+			}
 			if err := d.restoreTmuxSession(ctx, ctrl, row); err != nil {
-				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryOrphaned, "tmux target unavailable: "+err.Error())
-				d.audit(ctx, "session.orphaned", row.ID, "", 0, "missing tmux target "+row.TmuxTarget+": "+err.Error())
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryReconnecting, "tmux capture unavailable: "+err.Error())
+				d.audit(ctx, "session.reconnecting", row.ID, "", 0, "capture unavailable target="+row.TmuxTarget+": "+err.Error())
 				stale++
 				continue
 			}
 			d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryHealthy, "")
+			ownedTargets[row.TmuxTarget] = true
 			restored++
 			continue
 		}
@@ -185,9 +229,27 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		d.audit(ctx, "session.failed", row.ID, "", 0, "unrecoverable daemon restart transport="+row.Transport)
 		stale++
 	}
+	if discoverErr == nil {
+		for target := range liveTargets {
+			if strings.HasPrefix(target, "onibi-") && !ownedTargets[target] {
+				d.audit(ctx, "session.discovery.unowned", "", "", 0, "target="+target)
+			}
+		}
+	}
 	if restored > 0 || stale > 0 {
 		d.audit(ctx, "session.reconcile", "", "", 0, fmt.Sprintf("restored=%d stale=%d", restored, stale))
 	}
+}
+
+func managedTmuxOwnership(ctx context.Context, ctrl *tmux.Controller, row store.SessionEntry) (bool, error) {
+	if !strings.HasPrefix(row.TmuxTarget, "onibi-") || row.Agent == "tmux" {
+		return true, nil
+	}
+	identity, ok, err := ctrl.SessionEnvironment(ctx, row.TmuxTarget, "ONIBI_SESSION_ID")
+	if err != nil {
+		return false, err
+	}
+	return ok && identity == row.ID, nil
 }
 
 func (d *Daemon) transitionSessionRecovery(ctx context.Context, id string, state fleet.SessionRecoveryState, reason string) {
