@@ -9,6 +9,7 @@ mod keystore_linux;
 mod keystore_macos;
 #[cfg(any(target_os = "windows", test))]
 mod keystore_windows;
+mod prekey;
 mod secret;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixture;
@@ -32,4 +33,5 @@ pub use keystore_windows::{
     MAX_WINDOWS_CREDENTIAL_SECRET_BYTES, WINDOWS_CREDENTIAL_SERVICE, WindowsKeystore,
     WindowsKeystoreError,
 };
+pub use prekey::{X25519_KEY_BYTES, X25519Prekey, X25519PrekeyError, X25519PrekeyPublicKey};
 pub use secret::Secret;
