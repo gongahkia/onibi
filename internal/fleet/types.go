@@ -18,6 +18,7 @@ const ProtocolVersion uint16 = 1
 const (
 	EnrollmentTTL  = 10 * time.Minute
 	HostStaleAfter = 2 * time.Minute
+	MeshHealthSkew = 2 * time.Minute
 )
 
 type MessageType string
@@ -135,6 +136,44 @@ type EnrollmentProof struct {
 	ChallengeID string `json:"challenge_id"`
 	Nonce       string `json:"nonce"`
 	Signature   string `json:"signature"`
+}
+
+type MeshHealthRequest struct {
+	Version uint16    `json:"version"`
+	Nonce   string    `json:"nonce"`
+	SentAt  time.Time `json:"sent_at"`
+}
+
+type MeshHealthResponse struct {
+	Version   uint16    `json:"version"`
+	HostID    string    `json:"host_id"`
+	Nonce     string    `json:"nonce"`
+	SentAt    time.Time `json:"sent_at"`
+	Signature string    `json:"signature"`
+}
+
+func (r MeshHealthRequest) Validate() error {
+	if r.Version != ProtocolVersion || !validMeshHealthNonce(r.Nonce) || r.SentAt.IsZero() {
+		return errors.New("invalid fleet mesh health request")
+	}
+	return nil
+}
+
+func (r MeshHealthResponse) Validate() error {
+	if r.Version != ProtocolVersion || !validID(r.HostID) || !validMeshHealthNonce(r.Nonce) || r.SentAt.IsZero() || strings.TrimSpace(r.Signature) == "" {
+		return errors.New("invalid fleet mesh health response")
+	}
+	return nil
+}
+
+func MeshHealthSigningPayload(request MeshHealthRequest, response MeshHealthResponse) []byte {
+	return []byte(strings.Join([]string{
+		"onibi-fleet-mesh-health-v1",
+		response.HostID,
+		request.Nonce,
+		request.SentAt.UTC().Format(time.RFC3339Nano),
+		response.SentAt.UTC().Format(time.RFC3339Nano),
+	}, "\n"))
 }
 
 type KeyRotationRequest struct {
@@ -585,6 +624,11 @@ func validID(v string) bool {
 		return false
 	}
 	return true
+}
+
+func validMeshHealthNonce(v string) bool {
+	v = strings.TrimSpace(v)
+	return len(v) >= 16 && len(v) <= 256
 }
 
 func validCapability(v string) bool {

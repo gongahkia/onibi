@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -56,15 +59,43 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 }
 
 func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
-	status := `{"BackendState":"Running","Self":{"DNSName":"self.tail.ts.net."},"Peer":{"n1":{"DNSName":"peer.tail.ts.net.","HostName":"work-mac"},"n2":{"DNSName":"plain.tail.ts.net.","HostName":"no-daemon"}}}`
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ownerID, err := db.FleetOwnerID(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := fleet.Host{
+		ID:              "host-work-mac",
+		OwnerID:         ownerID,
+		DisplayName:     "Work Mac",
+		IdentityPublic:  base64.RawURLEncoding.EncodeToString(public),
+		Endpoint:        fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://peer.tail.ts.net"},
+		ProtocolVersion: fleet.ProtocolVersion,
+		BinaryVersion:   "v1.0.0",
+		State:           fleet.HostStateActive,
+		RegisteredAt:    time.Now().UTC(),
+	}
+	if err := db.FleetHostUpsert(t.Context(), host); err != nil {
+		t.Fatal(err)
+	}
+	status := `{"BackendState":"Running","Self":{"DNSName":"self.tail.ts.net."},"Peer":{"n1":{"DNSName":"peer.tail.ts.net.","HostName":"work-mac","Online":true},"n2":{"DNSName":"plain.tail.ts.net.","HostName":"no-daemon","Online":true}}}`
 	var probed []string
 	d := New(Options{
+		DB: db,
 		TailnetStatus: func(context.Context) ([]byte, error) {
 			return []byte(status), nil
 		},
-		TailnetHealth: func(_ context.Context, url string) (bool, error) {
+		TailnetHealth: func(_ context.Context, url string, got fleet.Host) (bool, error) {
 			probed = append(probed, url)
-			return url == "https://peer.tail.ts.net/", nil
+			return url == "https://peer.tail.ts.net/" && got.ID == host.ID, nil
 		},
 	})
 	rows, err := d.WebSessions(t.Context(), web.SessionListOptions{IncludeRemote: true})
@@ -78,8 +109,39 @@ func TestWebSessionsIncludesTailnetPeers(t *testing.T) {
 	if !got.Remote || got.PeerName != "work-mac" || got.RemoteURL != "https://peer.tail.ts.net/" || got.RoleRequired != "remote" {
 		t.Fatalf("remote row = %#v", got)
 	}
-	if !slices.Contains(probed, "https://peer.tail.ts.net/") || !slices.Contains(probed, "https://plain.tail.ts.net/") {
+	if !slices.Contains(probed, "https://peer.tail.ts.net/") || slices.Contains(probed, "https://plain.tail.ts.net/") {
 		t.Fatalf("probed = %#v", probed)
+	}
+}
+
+func TestTailnetHealthResponseRequiresEnrolledIdentity(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	host := fleet.Host{
+		ID:              "host-work-mac",
+		OwnerID:         "owner-local",
+		DisplayName:     "Work Mac",
+		IdentityPublic:  base64.RawURLEncoding.EncodeToString(public),
+		Endpoint:        fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://peer.tail.ts.net"},
+		ProtocolVersion: fleet.ProtocolVersion,
+		BinaryVersion:   "v1.0.0",
+		State:           fleet.HostStateActive,
+		RegisteredAt:    now,
+	}
+	request := fleet.MeshHealthRequest{Version: fleet.ProtocolVersion, Nonce: "mesh-health-nonce-0001", SentAt: now}
+	response := fleet.MeshHealthResponse{Version: fleet.ProtocolVersion, HostID: host.ID, Nonce: request.Nonce, SentAt: now}
+	response.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.MeshHealthSigningPayload(request, response)))
+	healthy, err := validateTailnetHealthResponse(request, response, host)
+	if err != nil || !healthy {
+		t.Fatalf("healthy=%v err=%v", healthy, err)
+	}
+	response.Signature = "invalid"
+	healthy, err = validateTailnetHealthResponse(request, response, host)
+	if err != nil || healthy {
+		t.Fatalf("invalid signature healthy=%v err=%v", healthy, err)
 	}
 }
 

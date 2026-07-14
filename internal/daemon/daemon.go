@@ -17,6 +17,7 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
@@ -103,7 +104,7 @@ type Daemon struct {
 	anomalyHistory        map[string][]anomaly.Action
 	started               time.Time
 	tailnetStatus         func(context.Context) ([]byte, error)
-	tailnetHealth         func(context.Context, string) (bool, error)
+	tailnetHealth         func(context.Context, string, fleet.Host) (bool, error)
 	tmuxCaptureInterval   time.Duration
 	tmuxRecoveryTimeout   time.Duration
 
@@ -155,7 +156,7 @@ type Options struct {
 	Budget                  *budget.ClaudeParser
 	Recorder                *web.Recorder
 	TailnetStatus           func(context.Context) ([]byte, error)
-	TailnetHealth           func(context.Context, string) (bool, error)
+	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
 	SkipRestore             bool
 }
 

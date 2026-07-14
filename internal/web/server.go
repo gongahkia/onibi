@@ -152,6 +152,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/fleet/revoke", s.handleFleetRevoke)
 	mux.HandleFunc("/fleet/heartbeat", s.handleFleetHeartbeat)
 	mux.HandleFunc("/fleet/link", s.handleFleetLink)
+	mux.HandleFunc("/fleet/mesh-health", s.handleFleetMeshHealth)
 	mux.HandleFunc("/share", s.handleShare)
 	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)

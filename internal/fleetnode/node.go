@@ -90,6 +90,18 @@ func LoadOrCreateIdentity(ctx context.Context, db *store.DB) (Identity, error) {
 	return parseIdentity(raw)
 }
 
+func LoadIdentity(ctx context.Context, db *store.DB) (Identity, bool, error) {
+	if db == nil {
+		return Identity{}, false, errors.New("fleet node store required")
+	}
+	raw, found, err := db.KVGetEncryptedString(ctx, identityKey)
+	if err != nil || !found {
+		return Identity{}, found, err
+	}
+	identity, err := parseIdentity(raw)
+	return identity, true, err
+}
+
 func (i Identity) PublicKey() (ed25519.PublicKey, error) {
 	if strings.TrimSpace(i.HostID) == "" || !strings.HasPrefix(i.HostID, "host-") || len(i.HostID) != len("host-")+32 {
 		return nil, errors.New("invalid fleet node host id")
