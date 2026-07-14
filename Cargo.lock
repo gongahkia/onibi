@@ -718,6 +718,7 @@ dependencies = [
  "minicbor",
  "thiserror",
  "yeokcham-core",
+ "zeroize",
 ]
 
 [[package]]

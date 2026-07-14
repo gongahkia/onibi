@@ -13,6 +13,7 @@ default = []
 minicbor.workspace = true
 thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
+zeroize.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
