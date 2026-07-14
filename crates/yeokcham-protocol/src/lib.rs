@@ -10,6 +10,7 @@ mod mailbox_capability;
 mod message_payload;
 mod negotiation;
 mod signing;
+mod tor_maildrop_profile;
 mod version;
 mod wire;
 
@@ -36,5 +37,9 @@ pub use message_payload::{
 };
 pub use negotiation::{VersionNegotiation, VersionNegotiationError};
 pub use signing::SigningInputError;
+pub use tor_maildrop_profile::{
+    TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
+    TorMaildropProfileConfig, TorMaildropProfileConfigError,
+};
 pub use version::{ProtocolVersion, VersionRange};
 pub use wire::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
