@@ -36,13 +36,14 @@ pub struct KeystoreSecret(Zeroizing<Vec<u8>>);
 
 impl KeystoreSecret {
     pub fn new(value: Vec<u8>) -> Result<Self, KeystoreSecretError> {
+        let value = Zeroizing::new(value);
         if value.is_empty() {
             return Err(KeystoreSecretError::Empty);
         }
         if value.len() > MAX_KEYSTORE_SECRET_BYTES {
             return Err(KeystoreSecretError::TooLong);
         }
-        Ok(Self(Zeroizing::new(value)))
+        Ok(Self(value))
     }
 
     #[must_use]
