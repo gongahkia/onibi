@@ -11,6 +11,7 @@ mod keystore_macos;
 mod keystore_windows;
 mod one_time_prekey;
 mod prekey;
+mod relay_identity;
 mod secret;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixture;
@@ -41,5 +42,9 @@ pub use prekey::{
     X25519_KEY_BYTES, X25519_PREKEY_SERIALIZATION_VERSION, X25519_PREKEY_SERIALIZED_BYTES,
     X25519Prekey, X25519PrekeyError, X25519PrekeyPublicKey, X25519PrekeyPublicKeyError,
     X25519PrekeySerializationError,
+};
+pub use relay_identity::{
+    RelayIdentityKeyError, RelayPublicKey, RelayPublicKeyError, RelaySignatureError,
+    RelaySigningKeypair,
 };
 pub use secret::Secret;

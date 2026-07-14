@@ -17,6 +17,7 @@ mod negotiation;
 mod prekey_bundle;
 mod qr_verification;
 mod recipient_capability;
+mod relay_invitation;
 mod safety_number;
 mod signed_prekey;
 mod signing;
@@ -73,6 +74,10 @@ pub use qr_verification::{
 };
 pub use recipient_capability::{
     RECIPIENT_CAPABILITY_SCHEMA_VERSION, RecipientCapability, RecipientCapabilityError,
+};
+pub use relay_invitation::{
+    MAX_RELAY_INVITATION_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, RELAY_INVITATION_GRANT_ID_BYTES,
+    RELAY_INVITATION_SCHEMA_VERSION, RelayInvitation, RelayInvitationError,
 };
 pub use safety_number::{
     SAFETY_NUMBER_FINGERPRINT_BYTES, SafetyNumberError, SafetyNumberFingerprint,
