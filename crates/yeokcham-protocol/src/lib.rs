@@ -7,6 +7,7 @@ mod encrypted_header;
 mod encrypted_message;
 mod error_code;
 mod extension_frame;
+mod identity_export;
 mod identity_identifier;
 mod local_mesh_profile;
 mod mailbox_capability;
@@ -37,6 +38,11 @@ pub use encrypted_message::{
 };
 pub use error_code::{ProtocolErrorCode, ProtocolErrorCodeError};
 pub use extension_frame::{ExtensionFrame, ExtensionFrameError, MAX_EXTENSION_DATA_BYTES};
+pub use identity_export::{
+    IDENTITY_EXPORT_BYTES, IDENTITY_EXPORT_FORMAT_VERSION, IDENTITY_EXPORT_SALT_BYTES,
+    IdentityExportError, IdentityExportPassphrase, IdentityExportPassphraseError,
+    MAX_IDENTITY_EXPORT_PASSPHRASE_BYTES, export_identity, import_identity,
+};
 pub use identity_identifier::{IDENTITY_IDENTIFIER_BYTES, IdentityIdentifier};
 pub use local_mesh_profile::{
     LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,

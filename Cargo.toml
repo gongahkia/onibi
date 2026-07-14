@@ -17,6 +17,8 @@ license = "Apache-2.0"
 repository = "https://github.com/gongahkia/yeokcham"
 
 [workspace.dependencies]
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"] }
 clap = { version = "4.5.51", features = ["derive"] }
 criterion = { version = "0.8.2", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "rand_core", "zeroize"] }
