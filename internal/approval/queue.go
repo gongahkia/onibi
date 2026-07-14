@@ -17,7 +17,7 @@ import (
 )
 
 // ErrAlreadyDecided is returned by Decide when the approval is already in a
-// terminal state. Idempotent callers should treat this as success.
+// terminal state.
 var ErrAlreadyDecided = errors.New("approval already decided")
 
 // ErrUnknownApproval is returned when no row matches the supplied id.
@@ -37,6 +37,7 @@ const DefaultMaxSubscribers = 32
 type DecisionResult struct {
 	Decision  Decision
 	Delivered bool
+	Replayed  bool
 }
 
 // Queue owns the in-memory waiters map plus the SQLite-backed state machine.
@@ -276,6 +277,25 @@ func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict
 	return q.finish(ctx, a, verdict, editedJSON, reason, decidedBy, now)
 }
 
+func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) (DecisionResult, error) {
+	res, err := q.DecideWithResult(ctx, id, verdict, editedJSON, reason, decidedBy)
+	if !errors.Is(err, ErrAlreadyDecided) {
+		return res, err
+	}
+	a, getErr := q.Get(ctx, id)
+	if getErr != nil {
+		return DecisionResult{}, getErr
+	}
+	if a.State != StateForVerdict(verdict) || (verdict == VerdictEdit && a.EditedJSON != editedJSON) {
+		return DecisionResult{}, ErrAlreadyDecided
+	}
+	d, ok := decisionFromApproval(a)
+	if !ok {
+		return DecisionResult{}, ErrAlreadyDecided
+	}
+	return DecisionResult{Decision: d, Replayed: true}, nil
+}
+
 func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, editedJSON, reason string, decidedBy int64, now time.Time) (DecisionResult, error) {
 	st := StateForVerdict(verdict)
 	res, err := q.db.SQL().ExecContext(ctx,
@@ -492,6 +512,32 @@ func eventTypeForVerdict(v Verdict) string {
 		return EventExpired
 	}
 	return EventDecided
+}
+
+func decisionFromApproval(a *Approval) (Decision, bool) {
+	if a == nil {
+		return Decision{}, false
+	}
+	var verdict Verdict
+	switch a.State {
+	case StateApproved:
+		verdict = VerdictApprove
+	case StateDenied:
+		verdict = VerdictDeny
+	case StateEdited:
+		verdict = VerdictEdit
+	case StateExpired:
+		verdict = VerdictExpire
+	case StateCancelled:
+		verdict = VerdictCancel
+	default:
+		return Decision{}, false
+	}
+	d := Decision{Verdict: verdict, Reason: a.Reason, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt.Unix()}
+	if verdict == VerdictEdit && a.EditedJSON != "" {
+		d.UpdatedInput = json.RawMessage(a.EditedJSON)
+	}
+	return d, true
 }
 
 func sha256Hex(s string) string {

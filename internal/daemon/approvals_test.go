@@ -202,6 +202,71 @@ func TestApprovalTimeoutEventCancelsPendingApproval(t *testing.T) {
 	}
 }
 
+func TestRestorePendingApprovalsRetainsDisconnectedRestartedApproval(t *testing.T) {
+	db := openDaemonTestDB(t)
+	before := New(Options{DB: db})
+	id, _, err := before.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"sleep 400"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.Queue.DropWaiter(id)
+
+	after := New(Options{DB: db})
+	if err := after.RestorePendingApprovals(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := after.Queue.Pending(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != id || pending[0].State != approval.StatePending {
+		t.Fatalf("pending = %#v", pending)
+	}
+	audit, err := db.AuditRecent(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || audit[0].Action != "approval.recovered" || !strings.Contains(audit[0].Detail, id) {
+		t.Fatalf("audit = %#v", audit)
+	}
+	res, err := after.Queue.DecideIdempotently(t.Context(), id, approval.VerdictApprove, "", "", 0)
+	if err != nil || res.Delivered || res.Replayed || res.Decision.Verdict != approval.VerdictApprove {
+		t.Fatalf("result=%#v err=%v", res, err)
+	}
+}
+
+func TestRestorePendingApprovalsExpiresOverdueOnlyOnce(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL().ExecContext(t.Context(), `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Unix(), id); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RestorePendingApprovals(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RestorePendingApprovals(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	a, err := d.Queue.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StateExpired {
+		t.Fatalf("approval = %#v", a)
+	}
+	n, err := db.AuditCount(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
 func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})

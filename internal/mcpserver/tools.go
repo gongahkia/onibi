@@ -317,7 +317,7 @@ func (s *Server) decideApproval(ctx context.Context, in decideApprovalInput) (de
 	if verdict == approval.VerdictDeny {
 		reason = "denied via MCP"
 	}
-	res, err := q.DecideWithResult(ctx, id, verdict, edited, reason, 0)
+	res, err := q.DecideIdempotently(ctx, id, verdict, edited, reason, 0)
 	if err != nil {
 		return decideApprovalOutput{}, err
 	}

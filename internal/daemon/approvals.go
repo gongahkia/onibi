@@ -225,7 +225,19 @@ func (d *Daemon) startDemoApproval(ctx context.Context, ev intake.Event) (string
 }
 
 func (d *Daemon) RestorePendingApprovals(ctx context.Context) error {
-	_ = ctx
+	if d == nil || d.DB == nil || d.Queue == nil {
+		return nil
+	}
+	if _, err := d.Queue.ExpireOverdue(ctx); err != nil {
+		return err
+	}
+	pending, err := d.Queue.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range pending {
+		d.audit(ctx, "approval.recovered", a.SessionID, "", 0, "id="+a.ID)
+	}
 	return nil
 }
 

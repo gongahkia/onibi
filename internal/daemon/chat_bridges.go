@@ -500,6 +500,28 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 	if d.Queue == nil {
 		return
 	}
+	sent := map[string]bool{}
+	send := func(a *approval.Approval) {
+		if a == nil || sent[a.ID] {
+			return
+		}
+		sent[a.ID] = true
+		text := formatApprovalWithPolicy(a, d.providerOutputPolicy("matrix")) + "\nReact ✅ to approve or ❌ to deny."
+		events, err := d.sendMatrixTextEvents(ctx, c, a.SessionID, text)
+		if err != nil {
+			d.audit(ctx, "provider.matrix.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
+			return
+		}
+		eventIDs := make([]string, 0, len(events))
+		for _, ev := range events {
+			if ev.EventID == "" {
+				continue
+			}
+			eventIDs = append(eventIDs, ev.EventID)
+			d.storeMatrixApprovalEvent(ctx, ev.EventID, a.ID)
+		}
+		d.audit(ctx, "provider.matrix.approval_sent", a.SessionID, text, 0, "approval="+a.ID+" event_ids="+strings.Join(eventIDs, ","))
+	}
 	events, unsub, err := d.Queue.Subscribe()
 	if err != nil {
 		if d.Log != nil {
@@ -508,6 +530,11 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 		return
 	}
 	defer unsub()
+	if pending, err := d.Queue.Pending(ctx); err == nil {
+		for _, a := range pending {
+			send(a)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -518,21 +545,7 @@ func (d *Daemon) forwardApprovalsToMatrix(ctx context.Context, c *matrix.Client)
 			}
 			if ev.Type == approval.EventRequested {
 				a := ev.Approval
-				text := formatApprovalWithPolicy(&a, d.providerOutputPolicy("matrix")) + "\nReact ✅ to approve or ❌ to deny."
-				events, err := d.sendMatrixTextEvents(ctx, c, a.SessionID, text)
-				if err != nil {
-					d.audit(ctx, "provider.matrix.approval_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-					continue
-				}
-				eventIDs := make([]string, 0, len(events))
-				for _, ev := range events {
-					if ev.EventID == "" {
-						continue
-					}
-					eventIDs = append(eventIDs, ev.EventID)
-					d.storeMatrixApprovalEvent(ctx, ev.EventID, a.ID)
-				}
-				d.audit(ctx, "provider.matrix.approval_sent", a.SessionID, text, 0, "approval="+a.ID+" event_ids="+strings.Join(eventIDs, ","))
+				send(&a)
 			}
 		}
 	}
@@ -775,7 +788,7 @@ func (d *Daemon) handleSlackEditSubmission(ctx context.Context, c *slack.Client,
 		d.audit(ctx, "provider.slack.edit_rejected", a.SessionID, edited, 0, "approval="+id+" user="+action.User.ID+" err="+err.Error())
 		return slackModalError(err.Error())
 	}
-	if err := d.Queue.Decide(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
+	if _, err := d.Queue.DecideIdempotently(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
 		return slackModalError(err.Error())
 	}
 	d.audit(ctx, "provider.slack.edit_submit", a.SessionID, edited, 0, "approval="+id+" user="+action.User.ID)
@@ -1350,7 +1363,7 @@ func (d *Daemon) handleDiscordEditSubmit(ctx context.Context, c *discord.Client,
 		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
 		return
 	}
-	if err := d.Queue.Decide(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
+	if _, err := d.Queue.DecideIdempotently(ctx, id, approval.VerdictEdit, edited, "provider edit", 0); err != nil {
 		_ = c.RespondInteraction(ctx, in.ID, in.Token, "Edit failed: "+err.Error())
 		return
 	}
@@ -2210,7 +2223,8 @@ func (d *Daemon) decideProviderApproval(ctx context.Context, id string, verdict 
 	if d.Queue == nil || strings.TrimSpace(id) == "" {
 		return errors.New("approval queue/id required")
 	}
-	return d.Queue.Decide(ctx, id, verdict, "", fmt.Sprintf("provider %s", verdict), actor)
+	_, err := d.Queue.DecideIdempotently(ctx, id, verdict, "", fmt.Sprintf("provider %s", verdict), actor)
+	return err
 }
 
 func set(vals []string) map[string]bool {

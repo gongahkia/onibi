@@ -71,7 +71,7 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	err = s.approvalQueue.Decide(r.Context(), id, verdict, req.EditedInput, req.Reason, 0)
+	_, err = s.approvalQueue.DecideIdempotently(r.Context(), id, verdict, req.EditedInput, req.Reason, 0)
 	if err != nil {
 		s.log.Warn("web approval decide failed", "request_id", requestID(r), "approval_id", id, "session_id", a.SessionID, "agent", a.Agent, "tool", a.Tool, "verdict", verdict, "err", err, "age_ms", time.Since(a.CreatedAt).Milliseconds(), "ttl_remaining_ms", time.Until(a.ExpiresAt).Milliseconds(), "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
 		writeApprovalError(w, err)

@@ -183,6 +183,42 @@ func TestApprovalEndpointTerminalStates(t *testing.T) {
 	}
 }
 
+func TestApprovalEndpointRetriesSameDecision(t *testing.T) {
+	ctx := context.Background()
+	srv, cleanup := testApprovalInboxServer(t)
+	defer cleanup()
+	id, ch, err := srv.approvalQueue.Request(ctx, "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	ownerID, err := srv.CreateOwnerSession(ctx, rr, "test device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := rr.Result().Cookies()[0]
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/approval/"+id, strings.NewReader(`{"verdict":"approve"}`))
+		req.AddCookie(cookie)
+		addCSRF(req, ownerID)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
+		}
+	}
+	if got := <-ch; got.Verdict != approval.VerdictApprove {
+		t.Fatalf("decision = %#v", got)
+	}
+	n, err := srv.db.AuditCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
 func testApprovalInboxServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))

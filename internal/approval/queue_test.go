@@ -116,6 +116,79 @@ func TestDecideOnlyOnceWins(t *testing.T) {
 	}
 }
 
+func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	events, unsubscribe, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	id, ch, err := q.Request(ctx, "s", "claude", "Bash", "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+
+	results := make(chan DecisionResult, 20)
+	errs := make(chan error, 20)
+	var wg sync.WaitGroup
+	for range cap(results) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := q.DecideIdempotently(ctx, id, VerdictApprove, "", "", 1)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- res
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	var delivered, replayed int
+	for res := range results {
+		if res.Delivered {
+			delivered++
+		}
+		if res.Replayed {
+			replayed++
+		}
+		if res.Decision.Verdict != VerdictApprove {
+			t.Fatalf("decision = %#v", res.Decision)
+		}
+	}
+	if delivered != 1 || replayed != 19 {
+		t.Fatalf("delivered=%d replayed=%d", delivered, replayed)
+	}
+	if got := <-ch; got.Verdict != VerdictApprove {
+		t.Fatalf("waiter decision = %#v", got)
+	}
+	if ev := <-events; ev.Type != EventDecided || ev.Decision.Verdict != VerdictApprove {
+		t.Fatalf("event = %#v", ev)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("duplicate event = %#v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := q.DecideIdempotently(ctx, id, VerdictDeny, "", "", 1); !errors.Is(err, ErrAlreadyDecided) {
+		t.Fatalf("conflicting replay err = %v", err)
+	}
+	n, err := q.db.AuditCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
 func TestDecideRejectsUnknown(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	err := q.Decide(context.Background(), "deadbeef", VerdictApprove, "", "", 1)

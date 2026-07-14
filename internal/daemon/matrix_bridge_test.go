@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/envelope"
@@ -51,6 +52,38 @@ func TestMatrixReactionApprovesPendingApproval(t *testing.T) {
 	}
 	if !auditHas(audit, "provider.matrix.reaction") || !auditHas(audit, "approval.decided") {
 		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+func TestMatrixForwardApprovalsReplaysPending(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, Matrix: MatrixOptions{RoomID: "!room:example"}})
+	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"pwd"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var msg matrix.RoomMessage
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			t.Fatal(err)
+		}
+		sent <- msg.Body
+		writeMatrixJSON(t, w, matrix.SendResponse{EventID: "$sent"})
+	}))
+	defer srv.Close()
+	c := matrix.New(srv.URL, "tok")
+	c.TxnID = func() string { return "txn" }
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go d.forwardApprovalsToMatrix(ctx, c)
+	select {
+	case msg := <-sent:
+		if !strings.Contains(msg, id) {
+			t.Fatalf("message = %q", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending approval not replayed")
 	}
 }
 

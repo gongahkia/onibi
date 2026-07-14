@@ -371,7 +371,7 @@ func (b *telegramBridge) decideApproval(ctx context.Context, chatID int64, id st
 			return
 		}
 	}
-	if err := b.d.Queue.Decide(ctx, id, verdict, edited, reason, chatID); err != nil {
+	if _, err := b.d.Queue.DecideIdempotently(ctx, id, verdict, edited, reason, chatID); err != nil {
 		b.send(ctx, chatID, "Approval failed: "+err.Error(), nil)
 		return
 	}
