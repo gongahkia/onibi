@@ -14,5 +14,12 @@ minicbor.workspace = true
 thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "wire"
+harness = false
+
 [lints]
 workspace = true
