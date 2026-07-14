@@ -10,6 +10,7 @@ mod local_mesh_profile;
 mod mailbox_capability;
 mod message_payload;
 mod negotiation;
+mod recipient_capability;
 mod signing;
 mod tor_maildrop_profile;
 mod version;
@@ -41,6 +42,9 @@ pub use message_payload::{
     MAX_MESSAGE_PAYLOAD_BYTES, MessageContentType, MessagePayload, MessagePayloadError,
 };
 pub use negotiation::{VersionNegotiation, VersionNegotiationError};
+pub use recipient_capability::{
+    RECIPIENT_CAPABILITY_SCHEMA_VERSION, RecipientCapability, RecipientCapabilityError,
+};
 pub use signing::SigningInputError;
 pub use tor_maildrop_profile::{
     TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
