@@ -9,7 +9,8 @@ Onibi v3 groups connection options by control surface:
 The supported transports are:
 
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
-- `tailscale`: QR points at the device's Tailscale Funnel URL.
+- `tailscale`: QR points at the device's public Tailscale Funnel URL.
+- `tailscale-private`: QR points at the device's tailnet-only Tailscale Serve URL.
 - `wireguard`: QR points at a self-hosted WireGuard interface address.
 - `zerotier`: QR points at a ZeroTier-managed virtual network address.
 - `cloudflare-quick`: QR points at a temporary `trycloudflare.com` URL.
@@ -57,6 +58,30 @@ Operational notes:
 - Explicit LAN mode fails early with `lan_unreachable` when Onibi cannot detect a routable LAN or `.local` host. Use hotspot, `--transport=tailscale`, `--transport=wireguard`, `--transport=zerotier`, `--transport=cloudflare-quick`, or `--transport=ngrok`.
 - The live smoke matrix for home Wi-Fi, hotspot, client isolation, captive Wi-Fi, IPv4/IPv6, and auto fallback is in [`docs/transport-smoke.md`](./transport-smoke.md#lan-and-hotspot).
 
+## Tailscale Serve
+
+`onibi up --transport=tailscale-private` keeps the local HTTPS cockpit tailnet-only and prints a QR for a URL such as:
+
+```text
+https://device-name.tailnet.ts.net/pair/<token>
+```
+
+Implementation details:
+
+- Onibi checks `tailscale status --json`; `BackendState` must be `Running`, and the local node must expose the Tailscale HTTPS capability and a valid Tailscale DNS name. It does not require Funnel capability or public-port policy.
+- Onibi runs `tailscale serve --bg https+insecure://localhost:<web-port>`, then requires `tailscale serve status --json` to show an active private HTTPS handler for that node's DNS name.
+- On shutdown, Onibi runs `tailscale serve --bg off`.
+
+Security model:
+
+- Only devices authenticated to the tailnet can reach the Serve URL; transport reachability does not authorize cockpit or fleet access.
+- Onibi still requires a single-use pair token, owner cookie, and owner proof for fleet enrollment. Serve enrollment is classified as a mesh endpoint.
+
+Operational notes:
+
+- The Mac and phone must be logged in to the same authorized tailnet.
+- Use `onibi doctor --transport=tailscale-private` to check the binary, daemon login state, HTTPS capability, DNS name, and active Serve handler.
+
 ## Tailscale Funnel
 
 `onibi up --transport=tailscale` keeps the same local HTTPS cockpit, enables Funnel in the background, and prints a QR for a URL such as:
@@ -78,6 +103,7 @@ Security model:
 - Tailscale documents that Funnel relay servers do not decrypt traffic between public devices and your device: <https://tailscale.com/docs/features/tailscale-funnel>.
 - TLS is terminated on the user's device by Tailscale, then proxied to Onibi's local HTTPS listener.
 - Onibi auth is unchanged: single-use pair token first, then owner cookie on every protected page and WebSocket upgrade.
+- Funnel enrollment is classified as a relay endpoint and still requires owner proof; public reachability is not authorization.
 
 Operational notes:
 

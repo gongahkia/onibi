@@ -28,7 +28,7 @@ onibi install-hooks --agent claude
 onibi up
 ```
 
-`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, `apns`, `sms`, `email`, and `auto`.
+`onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, `apns`, `sms`, `email`, and `auto`.
 Run `onibi status`, `onibi update-check`, and `onibi doctor --fix` when validating an install or upgrade. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:

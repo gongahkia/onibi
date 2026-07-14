@@ -127,6 +127,17 @@ func TestDoctorTailscaleWarnsWithoutFunnelCaps(t *testing.T) {
 	}
 }
 
+func TestDoctorTailscalePrivatePassesWithoutFunnelCaps(t *testing.T) {
+	paths := doctorTestPaths(t, "tailscale-private")
+	t.Setenv(transport.TailscaleBinEnv, fakeTailscale(t, `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{}}}}`, `{"Web":{"dev.tail.ts.net:443":{}}}`))
+
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "tailscale")
+	if check.Status != Pass || !strings.Contains(check.Detail, "Serve active") {
+		t.Fatalf("tailscale check = %#v", check)
+	}
+}
+
 func TestDoctorTailscaleSkippedForLAN(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	report := Run(context.Background(), Options{Paths: paths})

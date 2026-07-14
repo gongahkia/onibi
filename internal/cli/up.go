@@ -48,12 +48,13 @@ var upServicePID = func(ctx context.Context) (int, bool, error) {
 var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
-		Tailscale:       func() webtransport.Provider { return webtransport.NewTailscale() },
-		WireGuard:       func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
-		ZeroTier:        func() webtransport.Provider { return webtransport.NewZeroTierFromEnv() },
-		CloudflareQuick: func() webtransport.Provider { return webtransport.NewCloudflareQuick() },
-		CloudflareNamed: func() webtransport.Provider { return webtransport.NewCloudflareNamedFromEnv() },
-		Ngrok:           func() webtransport.Provider { return webtransport.NewNgrokFromEnv() },
+		Tailscale:        func() webtransport.Provider { return webtransport.NewTailscale() },
+		TailscalePrivate: func() webtransport.Provider { return webtransport.NewTailscalePrivate() },
+		WireGuard:        func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
+		ZeroTier:         func() webtransport.Provider { return webtransport.NewZeroTierFromEnv() },
+		CloudflareQuick:  func() webtransport.Provider { return webtransport.NewCloudflareQuick() },
+		CloudflareNamed:  func() webtransport.Provider { return webtransport.NewCloudflareNamedFromEnv() },
+		Ngrok:            func() webtransport.Provider { return webtransport.NewNgrokFromEnv() },
 	}
 }
 var wireGuardBindHost = func(ctx context.Context) (string, error) {
@@ -510,6 +511,8 @@ func cleanupPairTransport(logger *slog.Logger, pt webtransport.Resolved) {
 	switch pt.Mode {
 	case webtransport.ModeTailscale:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale funnel --bg off")
+	case webtransport.ModeTailscalePrivate:
+		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale serve --bg off")
 	case webtransport.ModeCloudflareQuick, webtransport.ModeCloudflareNamed:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "cloudflared process kill")
 	case webtransport.ModeNgrok:

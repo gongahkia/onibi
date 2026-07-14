@@ -58,6 +58,12 @@ func TestTunnelSupportsZeroTier(t *testing.T) {
 	}
 }
 
+func TestTunnelSupportsTailscalePrivate(t *testing.T) {
+	if !tunnelTransportSupported("tailscale-private") {
+		t.Fatal("tailscale-private should support ad-hoc web tunnels")
+	}
+}
+
 func TestTunnelRejectsNamedCloudflareTransport(t *testing.T) {
 	if tunnelTransportSupported("cloudflare-named") {
 		t.Fatal("cloudflare-named should not support ad-hoc web tunnels")

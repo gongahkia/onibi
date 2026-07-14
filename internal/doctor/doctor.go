@@ -255,7 +255,9 @@ func (r *runner) checkTransportProvider() {
 	case "auto":
 		r.add("transport provider", Pass, "Auto coverage: Tailscale -> LAN only")
 	case "tailscale":
-		r.add("transport provider", Pass, "Tailscale coverage: unit + fake runner + live opt-in")
+		r.add("transport provider", Pass, "Tailscale Funnel coverage: unit + fake runner + live opt-in")
+	case "tailscale-private":
+		r.add("transport provider", Pass, "Tailscale Serve coverage: unit + fake runner")
 	case "wireguard":
 		r.add("transport provider", Pass, "WireGuard coverage: unit + interface probe + live opt-in")
 	case "zerotier":
@@ -798,7 +800,7 @@ func (r *runner) checkTailscale() {
 		return
 	}
 	mode := strings.ToLower(strings.TrimSpace(r.transportMode(cfg)))
-	if mode != "tailscale" && mode != "auto" {
+	if mode != "tailscale" && mode != "tailscale-private" && mode != "auto" {
 		r.add("tailscale", Pass, "not selected (transport="+mode+")")
 		return
 	}
@@ -808,11 +810,23 @@ func (r *runner) checkTailscale() {
 		return
 	}
 	ts := transport.NewTailscale()
+	if mode == "tailscale-private" {
+		ts = transport.NewTailscalePrivate()
+	}
 	if err := ts.Check(r.ctx); err != nil {
 		r.add("tailscale", Warn, err.Error())
 		return
 	}
-	if url, err := ts.URL(r.ctx); err == nil {
+	url, urlErr := ts.URL(r.ctx)
+	if mode == "tailscale-private" {
+		if urlErr != nil {
+			r.add("tailscale", Pass, "ready; no active Serve")
+			return
+		}
+		r.add("tailscale", Pass, "ready; Serve active at "+url)
+		return
+	}
+	if urlErr == nil {
 		r.add("tailscale", Pass, "ready; Funnel active at "+url)
 		return
 	}

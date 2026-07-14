@@ -214,7 +214,7 @@ func printFirstRunTrustStep(cmd *cobra.Command, transport string) {
 
 func firstRunNeedsLocalCert(transport string) bool {
 	switch normalizePairTransport(transport) {
-	case "lan", "tailscale", "wireguard", "zerotier", "auto":
+	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "auto":
 		return true
 	default:
 		return false

@@ -68,6 +68,22 @@ func TestTailscaleDetectRejectsMissingHTTPSAndFunnelCaps(t *testing.T) {
 	}
 }
 
+func TestTailscalePrivateDetectRequiresRunningHTTPSAndDNSName(t *testing.T) {
+	ts := testTailscalePrivate(statusRunningPrivate(), servePrivate())
+	ok, err := ts.Detect(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("Detect ok=%v err=%v", ok, err)
+	}
+	for _, status := range []string{
+		`{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{}}}`,
+		`{"BackendState":"Running","Self":{"DNSName":"bad host","CapMap":{"https":{}}}}`,
+	} {
+		if _, err := testTailscalePrivate(status, servePrivate()).Detect(context.Background()); err == nil {
+			t.Fatalf("Detect(%s) unexpectedly succeeded", status)
+		}
+	}
+}
+
 func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	r := &fakeTSRunner{outputs: map[string][]byte{
 		"tailscale status --json":                               []byte(statusRunningFunnel()),
@@ -88,6 +104,27 @@ func TestTailscaleEnableUsesHTTPSInsecureTargetAndPollsURL(t *testing.T) {
 	}
 }
 
+func TestTailscalePrivateEnableUsesServeAndPollsURL(t *testing.T) {
+	r := &fakeTSRunner{outputs: map[string][]byte{
+		"tailscale status --json":                              []byte(statusRunningPrivate()),
+		"tailscale serve --bg https+insecure://localhost:8443": []byte("ok\n"),
+		"tailscale serve status --json":                        []byte(servePrivate()),
+	}}
+	ts := &Tailscale{Bin: "tailscale", private: true, runner: r}
+	if err := ts.Enable(context.Background(), 8443); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"tailscale", "status", "--json"},
+		{"tailscale", "serve", "--bg", "https+insecure://localhost:8443"},
+		{"tailscale", "status", "--json"},
+		{"tailscale", "serve", "status", "--json"},
+	}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestTailscaleURLParsesFunnelStatus(t *testing.T) {
 	got, err := testTailscale(statusRunningFunnel(), serveActive()).URL(context.Background())
 	if err != nil {
@@ -95,6 +132,23 @@ func TestTailscaleURLParsesFunnelStatus(t *testing.T) {
 	}
 	if got != "https://dev.tail.ts.net/" {
 		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestTailscalePrivateURLParsesActiveServeStatus(t *testing.T) {
+	got, err := testTailscalePrivate(statusRunningPrivate(), servePrivate()).URL(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://dev.tail.ts.net/" {
+		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestTailscalePrivateURLRejectsInactiveServeStatus(t *testing.T) {
+	_, err := testTailscalePrivate(statusRunningPrivate(), `{}`).URL(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no active private HTTPS handler") {
+		t.Fatalf("URL err = %v", err)
 	}
 }
 
@@ -207,6 +261,20 @@ func TestTailscaleDisableTurnsFunnelOff(t *testing.T) {
 	}
 }
 
+func TestTailscalePrivateDisableTurnsServeOff(t *testing.T) {
+	r := &fakeTSRunner{outputs: map[string][]byte{
+		"tailscale serve --bg off": []byte("off\n"),
+	}}
+	ts := &Tailscale{Bin: "tailscale", private: true, runner: r}
+	if err := ts.Disable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"tailscale", "serve", "--bg", "off"}}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}
+
 func TestTailscaleDisableReportsCleanupFailure(t *testing.T) {
 	r := &fakeTSRunner{errs: map[string]error{
 		"tailscale funnel --bg off": errors.New("boom"),
@@ -223,14 +291,29 @@ func statusRunningFunnel() string {
 	return `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{},"funnel":{},"https://tailscale.com/cap/funnel-ports?ports=443,8443-8444":{}}}}`
 }
 
+func statusRunningPrivate() string {
+	return `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{}}}}`
+}
+
 func serveActive() string {
 	return `{"AllowFunnel":{"dev.tail.ts.net:443":true},"Web":{"dev.tail.ts.net:443":{}}}`
+}
+
+func servePrivate() string {
+	return `{"Web":{"dev.tail.ts.net:443":{"Handlers":{"/":{"Proxy":"https+insecure://localhost:8443"}}}}}`
 }
 
 func testTailscale(status, serve string) *Tailscale {
 	return &Tailscale{Bin: "tailscale", runner: &fakeTSRunner{outputs: map[string][]byte{
 		"tailscale status --json":        []byte(status),
 		"tailscale funnel status --json": []byte(serve),
+	}}}
+}
+
+func testTailscalePrivate(status, serve string) *Tailscale {
+	return &Tailscale{Bin: "tailscale", private: true, runner: &fakeTSRunner{outputs: map[string][]byte{
+		"tailscale status --json":       []byte(status),
+		"tailscale serve status --json": []byte(serve),
 	}}}
 }
 

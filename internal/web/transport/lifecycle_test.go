@@ -36,6 +36,74 @@ func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T
 	}
 }
 
+func TestTailscalePrivateAndFunnelLifecycleEnrollment(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode Mode
+		url  string
+		kind string
+		new  func(*lifecycleProvider) ProviderFactory
+	}{
+		{
+			name: "private serve mesh",
+			mode: ModeTailscalePrivate,
+			url:  "https://dev.tail.ts.net/",
+			kind: "mesh",
+			new: func(p *lifecycleProvider) ProviderFactory {
+				return ProviderFactory{TailscalePrivate: func() Provider { return p }}
+			},
+		},
+		{
+			name: "public funnel relay",
+			mode: ModeTailscale,
+			url:  "https://dev.tail.ts.net/",
+			kind: "relay",
+			new: func(p *lifecycleProvider) ProviderFactory {
+				return ProviderFactory{Tailscale: func() Provider { return p }}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &lifecycleProvider{url: tc.url}
+			session := NewLifecycle(ResolverOptions{Mode: string(tc.mode), Port: 8443, Providers: tc.new(provider)})
+			if _, err := session.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+				t.Fatalf("health=%#v err=%v", report, err)
+			}
+			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != tc.url+"pair/pair-token" {
+				t.Fatalf("urls=%#v err=%v", urls, err)
+			}
+			candidate, err := session.Enrollment()
+			if err != nil || !candidate.RequiresOwnerProof || string(candidate.Endpoint.Kind) != tc.kind {
+				t.Fatalf("candidate=%#v err=%v", candidate, err)
+			}
+			provider.checkErr = Diagnostic(DiagActivationLag, "tailscale", "fault injected transport loss", errors.New("network reset"))
+			if _, err := session.Health(t.Context()); err == nil {
+				t.Fatal("expected health failure")
+			}
+			provider.checkErr = nil
+			if _, err := session.Reconnect(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+				t.Fatalf("recovered health=%#v err=%v", report, err)
+			}
+			if err := session.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if provider.enables != 2 || provider.disables != 2 {
+				t.Fatalf("enables=%d disables=%d", provider.enables, provider.disables)
+			}
+			diagnostics := session.Diagnostics()
+			if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+				t.Fatalf("diagnostics=%#v", diagnostics)
+			}
+		})
+	}
+}
+
 func TestLifecycleRecordsHealthDiagnostics(t *testing.T) {
 	provider := &lifecycleProvider{url: "https://relay.example.test", checkErr: Diagnostic(DiagActivationLag, "relay", "unavailable", errors.New("down"))}
 	session := NewLifecycle(ResolverOptions{Mode: string(ModeCloudflareQuick), Port: 8443, Providers: ProviderFactory{CloudflareQuick: func() Provider { return provider }}})

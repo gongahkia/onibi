@@ -35,6 +35,13 @@ ONIBI_LIVE_TAILSCALE=1 go test ./internal/web/transport -run LiveTailscale
 - Capture `tailscale funnel status --json` and `tailscale serve status --json`; at least one must expose the active Funnel host used in the QR.
 - Confirm terminal input/output, resize, `/ws/events` approvals, and shutdown cleanup log `tailscale funnel --bg off`.
 
+## Tailscale private
+
+- Run `onibi up --transport=tailscale-private` with the Mac and phone in the same tailnet.
+- Scan the `*.ts.net` QR from the authorized phone; confirm it is unavailable from a device outside the tailnet.
+- Run `onibi doctor --transport=tailscale-private` and confirm it reports login, HTTPS, DNS-name, and active Serve-handler readiness without requiring Funnel policy.
+- Confirm terminal input/output, resize, `/ws/events` approvals, reconnect after `tailscale serve --bg off`, and shutdown cleanup log `tailscale serve --bg off`.
+
 ## Telegram
 
 ```bash

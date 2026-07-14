@@ -515,7 +515,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "terminal used by visible sessions: auto, ghostty, iterm2, terminal, or none"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
 		{"experimental.providers", strconv.FormatBool(def.Experimental.Providers), strconv.FormatBool(cfg.Experimental.Providers), meta.Explicit["experimental.providers"], "allow deferred and unsupported chat/notify provider transports"},
 		{"update.auto", strconv.FormatBool(def.Update.Auto), strconv.FormatBool(cfg.Update.Auto), meta.Explicit["update.auto"], "opt-in daemon update checks at startup and every 24h"},

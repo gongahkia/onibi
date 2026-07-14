@@ -16,18 +16,19 @@ import (
 type Mode string
 
 const (
-	ModeLAN             Mode = "lan"
-	ModeLANLoopback     Mode = "lan-loopback"
-	ModeTailscale       Mode = "tailscale"
-	ModeWireGuard       Mode = "wireguard"
-	ModeZeroTier        Mode = "zerotier"
-	ModeTelegram        Mode = "telegram"
-	ModeZulip           Mode = "zulip"
-	ModeIRC             Mode = "irc"
-	ModeCloudflareQuick Mode = "cloudflare-quick"
-	ModeCloudflareNamed Mode = "cloudflare-named"
-	ModeNgrok           Mode = "ngrok"
-	ModeAuto            Mode = "auto"
+	ModeLAN              Mode = "lan"
+	ModeLANLoopback      Mode = "lan-loopback"
+	ModeTailscale        Mode = "tailscale"
+	ModeTailscalePrivate Mode = "tailscale-private"
+	ModeWireGuard        Mode = "wireguard"
+	ModeZeroTier         Mode = "zerotier"
+	ModeTelegram         Mode = "telegram"
+	ModeZulip            Mode = "zulip"
+	ModeIRC              Mode = "irc"
+	ModeCloudflareQuick  Mode = "cloudflare-quick"
+	ModeCloudflareNamed  Mode = "cloudflare-named"
+	ModeNgrok            Mode = "ngrok"
+	ModeAuto             Mode = "auto"
 )
 
 type DiagnosticCode string
@@ -93,12 +94,13 @@ type ResolverOptions struct {
 }
 
 type ProviderFactory struct {
-	Tailscale       func() Provider
-	WireGuard       func() Provider
-	ZeroTier        func() Provider
-	CloudflareQuick func() Provider
-	CloudflareNamed func() Provider
-	Ngrok           func() Provider
+	Tailscale        func() Provider
+	TailscalePrivate func() Provider
+	WireGuard        func() Provider
+	ZeroTier         func() Provider
+	CloudflareQuick  func() Provider
+	CloudflareNamed  func() Provider
+	Ngrok            func() Provider
 }
 
 type Resolved struct {
@@ -126,6 +128,8 @@ func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, erro
 		return Resolved{Mode: ModeLANLoopback, Port: opts.Port, LANHosts: []string{"127.0.0.1"}}, nil
 	case ModeTailscale:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
+	case ModeTailscalePrivate:
+		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.TailscalePrivate, func() Provider { return NewTailscalePrivate() }))
 	case ModeWireGuard:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.WireGuard, func() Provider { return NewWireGuardFromEnv() }))
 	case ModeZeroTier:
@@ -160,6 +164,8 @@ func NormalizeMode(mode string) Mode {
 		return ModeLANLoopback
 	case ModeTailscale:
 		return ModeTailscale
+	case ModeTailscalePrivate:
+		return ModeTailscalePrivate
 	case ModeWireGuard:
 		return ModeWireGuard
 	case ModeZeroTier:
@@ -184,12 +190,12 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, auto"
+	return "lan, lan-loopback, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, auto"
 }
 
 func IsRelayMode(mode string) bool {
 	switch NormalizeMode(mode) {
-	case ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
+	case ModeTailscale, ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
 		return true
 	default:
 		return false

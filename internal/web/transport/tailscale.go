@@ -25,6 +25,7 @@ const (
 
 type Tailscale struct {
 	Bin      string
+	private  bool
 	runner   commandRunner
 	lookPath func(string) (string, error)
 }
@@ -64,6 +65,7 @@ type tailscalePeer struct {
 type serveStatus struct {
 	AllowFunnel map[string]bool             `json:"AllowFunnel"`
 	Foreground  map[string]serveStatusLayer `json:"Foreground"`
+	Web         map[string]json.RawMessage  `json:"Web"`
 }
 
 type serveStatusLayer struct {
@@ -72,6 +74,10 @@ type serveStatusLayer struct {
 
 func NewTailscale() *Tailscale {
 	return &Tailscale{Bin: TailscaleBin(), runner: execCommandRunner{}, lookPath: exec.LookPath}
+}
+
+func NewTailscalePrivate() *Tailscale {
+	return &Tailscale{Bin: TailscaleBin(), private: true, runner: execCommandRunner{}, lookPath: exec.LookPath}
 }
 
 func TailscaleBin() string {
@@ -105,6 +111,10 @@ func (t *Tailscale) Check(ctx context.Context) error {
 	if !st.Self.hasCap(tailscaleHTTPSCap) {
 		return errors.New("tailscale HTTPS is not enabled")
 	}
+	if t.private {
+		_, err := tailscalePrivateURL(st)
+		return err
+	}
 	if !st.Self.hasCap(tailscaleFunnelCap) {
 		return errors.New("tailscale Funnel node attribute is not enabled")
 	}
@@ -122,20 +132,39 @@ func (t *Tailscale) Enable(ctx context.Context, localPort int) error {
 		return err
 	}
 	target := fmt.Sprintf("https+insecure://localhost:%d", localPort)
-	if _, err := t.run(ctx, "funnel", "--bg", target); err != nil {
-		return fmt.Errorf("tailscale funnel --bg: %w", err)
+	command := "funnel"
+	if t.private {
+		command = "serve"
 	}
-	return t.waitForFunnel(ctx)
+	if _, err := t.run(ctx, command, "--bg", target); err != nil {
+		return fmt.Errorf("tailscale %s --bg: %w", command, err)
+	}
+	return t.waitForURL(ctx)
 }
 
 func (t *Tailscale) Disable(ctx context.Context) error {
-	if _, err := t.run(ctx, "funnel", "--bg", "off"); err != nil {
-		return Diagnostic(DiagCleanup, "tailscale", "tailscale funnel --bg off failed", err)
+	command := "funnel"
+	if t.private {
+		command = "serve"
+	}
+	if _, err := t.run(ctx, command, "--bg", "off"); err != nil {
+		return Diagnostic(DiagCleanup, "tailscale", fmt.Sprintf("tailscale %s --bg off failed", command), err)
 	}
 	return nil
 }
 
 func (t *Tailscale) URL(ctx context.Context) (string, error) {
+	if t.private {
+		st, err := t.status(ctx)
+		if err != nil {
+			return "", err
+		}
+		out, err := t.run(ctx, "serve", "status", "--json")
+		if err != nil {
+			return "", fmt.Errorf("tailscale serve status --json: %w", err)
+		}
+		return privateURLFromServeStatus(st, out)
+	}
 	out, err := t.run(ctx, "funnel", "status", "--json")
 	if err == nil {
 		return funnelURLFromServeStatus(out)
@@ -160,7 +189,7 @@ func (t *Tailscale) status(ctx context.Context) (tailscaleStatus, error) {
 	return st, nil
 }
 
-func (t *Tailscale) waitForFunnel(ctx context.Context) error {
+func (t *Tailscale) waitForURL(ctx context.Context) error {
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(200 * time.Millisecond)
@@ -173,7 +202,11 @@ func (t *Tailscale) waitForFunnel(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			return Diagnostic(DiagActivationLag, "tailscale", "tailscale funnel did not become active", nil)
+			command := "Funnel"
+			if t.private {
+				command = "Serve"
+			}
+			return Diagnostic(DiagActivationLag, "tailscale", "tailscale "+command+" did not become active", nil)
 		case <-tick.C:
 		}
 	}
@@ -310,6 +343,43 @@ func activeFunnelHostPorts(st serveStatus) []string {
 		}
 	}
 	return out
+}
+
+func privateURLFromServeStatus(status tailscaleStatus, body []byte) (string, error) {
+	base, err := tailscalePrivateURL(status)
+	if err != nil {
+		return "", err
+	}
+	var serve serveStatus
+	if err := json.Unmarshal(body, &serve); err != nil {
+		return "", Diagnostic(DiagURLParse, "tailscale", "parse tailscale serve status", err)
+	}
+	want, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	for hostPort := range serve.Web {
+		host, port := splitHostPort(hostPort)
+		if strings.EqualFold(strings.TrimSuffix(host, "."), want.Hostname()) && (port == "" || port == "443") {
+			return base, nil
+		}
+	}
+	return "", errors.New("tailscale serve status has no active private HTTPS handler")
+}
+
+func tailscalePrivateURL(status tailscaleStatus) (string, error) {
+	if status.Self == nil {
+		return "", errors.New("tailscale status missing Self")
+	}
+	host := strings.TrimSuffix(strings.TrimSpace(status.Self.DNSName), ".")
+	if host == "" || strings.ContainsAny(host, " /\\@?#:") {
+		return "", errors.New("tailscale status has invalid Self DNSName")
+	}
+	u, err := url.Parse("https://" + host)
+	if err != nil || u.Hostname() != host || u.Port() != "" {
+		return "", errors.New("tailscale status has invalid Self DNSName")
+	}
+	return "https://" + host + "/", nil
 }
 
 func splitHostPort(v string) (string, string) {

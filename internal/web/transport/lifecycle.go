@@ -168,9 +168,9 @@ func (s *Session) Enrollment() (EnrollmentCandidate, error) {
 		if endpoint.Kind == "" {
 			return EnrollmentCandidate{}, errors.New("transport does not provide a valid fleet enrollment endpoint")
 		}
-	case ModeTailscale, ModeWireGuard, ModeZeroTier:
+	case ModeTailscalePrivate, ModeWireGuard, ModeZeroTier:
 		endpoint.Kind = fleet.EndpointMesh
-	case ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
+	case ModeTailscale, ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
 		endpoint.Kind = fleet.EndpointRelay
 	default:
 		return EnrollmentCandidate{}, errors.New("transport does not provide a fleet enrollment endpoint")

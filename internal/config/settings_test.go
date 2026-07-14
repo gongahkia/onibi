@@ -243,7 +243,7 @@ func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "lan-loopback", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "auto"} {
+	for _, value := range []string{"lan", "lan-loopback", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
