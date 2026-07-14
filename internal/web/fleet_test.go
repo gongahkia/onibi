@@ -6,12 +6,15 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	approvals "github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/fleet"
 )
 
@@ -244,6 +247,80 @@ func TestFleetHostsMarksStaleAndHeartbeatRecovers(t *testing.T) {
 	recovered, ok, err := srv.db.FleetHostGet(context.Background(), host.ID)
 	if err != nil || !ok || recovered.State != fleet.HostStateActive || recovered.BinaryVersion != heartbeat.BinaryVersion {
 		t.Fatalf("recovered host=%#v ok=%v err=%v", recovered, ok, err)
+	}
+}
+
+func TestFleetStatusAggregatesOwnerHomeReadModel(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	srv.approvalQueue = approvals.New(srv.db, time.Minute)
+	host, _ := testFleetLinkHost(t, srv)
+	now := time.Now().UTC()
+	srv.sessionList = func(_ context.Context, opts SessionListOptions) ([]SessionSummary, error) {
+		if !opts.IncludeRemote {
+			t.Fatal("fleet status must request remote sessions")
+		}
+		return []SessionSummary{{ID: "session-home", Agent: "claude", LastActivity: now.Format(time.RFC3339Nano), PendingApprovalsCount: 1, RoleRequired: "owner"}}, nil
+	}
+	approvalID, _, err := srv.approvalQueue.Request(context.Background(), "session-home", "claude", "Bash", `{"secret":"must-not-leak"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.approvalQueue.DropWaiter(approvalID)
+	unauth := httptest.NewRequest(http.MethodGet, "/fleet/status", nil)
+	unauthW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(unauthW, unauth)
+	if unauthW.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth fleet status = %d", unauthW.Code)
+	}
+	owner := httptest.NewRecorder()
+	if _, err := srv.CreateOwnerSession(context.Background(), owner, "phone"); err != nil {
+		t.Fatal(err)
+	}
+	ownerCookie := owner.Result().Cookies()[0]
+	req := httptest.NewRequest(http.MethodGet, "/fleet/status", nil)
+	req.AddCookie(ownerCookie)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fleet status = %d body=%s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "must-not-leak") {
+		t.Fatal("fleet status leaked approval input")
+	}
+	var status fleet.HomeStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Hosts) != 1 || status.Hosts[0].ID != host.ID || len(status.Sessions) != 1 || status.Sessions[0].State != string(SessionStateAwaitingApproval) || len(status.PendingApprovals) != 1 || status.PendingApprovals[0].ID != approvalID {
+		t.Fatalf("fleet status = %#v", status)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for range cap(errs) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			request := httptest.NewRequest(http.MethodGet, "/fleet/status", nil)
+			request.AddCookie(ownerCookie)
+			response := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				errs <- fmt.Errorf("concurrent fleet status = %d", response.Code)
+				return
+			}
+			errs <- nil
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

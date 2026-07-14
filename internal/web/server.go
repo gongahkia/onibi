@@ -144,6 +144,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/sessions/{id}/recording.cast", s.handleSessionRecording)
 	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/fleet/hosts", s.handleFleetHosts)
+	mux.HandleFunc("/fleet/status", s.handleFleetStatus)
 	mux.HandleFunc("/fleet/enroll/challenge", s.handleFleetEnrollmentChallenge)
 	mux.HandleFunc("/fleet/enroll/proof", s.handleFleetEnrollmentProof)
 	mux.HandleFunc("/fleet/rotate/challenge", s.handleFleetKeyRotationChallenge)

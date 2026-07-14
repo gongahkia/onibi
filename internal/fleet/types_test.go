@@ -102,6 +102,31 @@ func TestSnapshotValidatesHostReferences(t *testing.T) {
 	}
 }
 
+func TestHomeStatusValidatesVersionAndRedactedApprovalMetadata(t *testing.T) {
+	now := time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)
+	status := HomeStatus{
+		Version:     ProtocolVersion,
+		GeneratedAt: now,
+		Hosts:       []Host{testHost(t)},
+		Sessions:    []HomeSessionStatus{{ID: "session-1", Agent: "claude", State: "awaiting-approval", LastActivity: now, PendingApprovals: 1}},
+		PendingApprovals: []HomeApprovalStatus{{
+			ID: "approval-1", SessionID: "session-1", Agent: "claude", Tool: "Bash", State: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute),
+		}},
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	status.Version++
+	if err := status.Validate(); err == nil {
+		t.Fatal("expected incompatible home status error")
+	}
+	status.Version = ProtocolVersion
+	status.Sessions[0].PendingApprovals = -1
+	if err := status.Validate(); err == nil {
+		t.Fatal("expected malformed home status error")
+	}
+}
+
 func TestEnrollmentSigningPayloadBindsChallengeAndHostIdentity(t *testing.T) {
 	host := testHost(t)
 	challenge := EnrollmentChallenge{Version: ProtocolVersion, ID: "enroll-123", OwnerID: host.OwnerID, Nonce: "nonce", HubPublic: "hub-public", ExpiresAt: time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)}
