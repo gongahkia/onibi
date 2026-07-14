@@ -187,6 +187,11 @@ mod tests {
                 .unwrap_err(),
             WireError::InvalidEnvelopeShape
         );
+        assert_eq!(
+            WireEnvelope::decode(&[0x84, 0x01, 0x02, 0x40, 0x00], WireLimits::REFERENCE)
+                .unwrap_err(),
+            WireError::InvalidEnvelopeShape
+        );
     }
 
     #[test]
