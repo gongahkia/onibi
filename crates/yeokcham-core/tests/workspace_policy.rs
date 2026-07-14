@@ -30,3 +30,27 @@ fn pins_toolchain_and_tracks_lockfile() {
         "Cargo.lock must be a Cargo-generated lockfile"
     );
 }
+
+#[test]
+fn workspace_features_are_explicitly_opt_in() {
+    let policy = fs::read_to_string(workspace_file("FEATURES.md"))
+        .expect("workspace must document feature policy");
+    assert!(policy.contains("default = []"));
+    assert!(policy.contains("must be additive"));
+
+    for package in [
+        "yeokcham-cli",
+        "yeokcham-core",
+        "yeokcham-daemon",
+        "yeokcham-ffi",
+        "yeokcham-protocol",
+        "yeokcham-relay",
+    ] {
+        let manifest = fs::read_to_string(workspace_file(&format!("crates/{package}/Cargo.toml")))
+            .expect("workspace crate must include Cargo.toml");
+        assert!(
+            manifest.contains("[features]\ndefault = []"),
+            "{package} must keep all features opt-in"
+        );
+    }
+}

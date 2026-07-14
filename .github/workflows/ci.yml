@@ -22,5 +22,6 @@ jobs:
           components: clippy,rustfmt
       - run: cargo metadata --locked --format-version 1
       - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --no-default-features --locked
+      - run: cargo test --workspace --all-features --locked

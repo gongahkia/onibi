@@ -10,10 +10,12 @@ repository.workspace = true
 name = "yeokcham"
 path = "src/main.rs"
 
+[features]
+default = []
+
 [dependencies]
 clap.workspace = true
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 
 [lints]
 workspace = true
-

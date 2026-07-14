@@ -6,10 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+
 [dependencies]
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 
 [lints]
 workspace = true
-
