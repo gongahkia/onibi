@@ -95,6 +95,7 @@ WantedBy=default.target
 		writeRemoteFileCommand(path, unit),
 		"systemctl --user daemon-reload",
 		"systemctl --user enable --now " + remoteSystemdUnit,
+		"systemctl --user restart " + remoteSystemdUnit,
 	}, "\n")
 }
 

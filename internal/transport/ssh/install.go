@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -62,13 +63,15 @@ func (c *Client) InstallBinaries(platform Platform, opts InstallOptions) (Instal
 	if err := sc.MkdirAll(tempDir); err != nil {
 		return InstallResult{}, err
 	}
-	if err := uploadExecutable(sc, binaries.Onibi, tempDir+"/"+onibiBinary); err != nil {
+	onibiSHA256, err := uploadExecutable(sc, binaries.Onibi, tempDir+"/"+onibiBinary)
+	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := uploadExecutable(sc, binaries.Notify, tempDir+"/"+notifyBinary); err != nil {
+	notifySHA256, err := uploadExecutable(sc, binaries.Notify, tempDir+"/"+notifyBinary)
+	if err != nil {
 		return InstallResult{}, err
 	}
-	cmd := installCommand(tempDir, remoteBinDir(opts.RemoteBinDir), token)
+	cmd := installCommand(tempDir, remoteBinDir(opts.RemoteBinDir), token, onibiSHA256, notifySHA256)
 	if err := c.runRemote(cmd); err != nil {
 		return InstallResult{}, err
 	}
@@ -117,24 +120,28 @@ func executableFile(path string) bool {
 	return err == nil && !info.IsDir() && info.Mode()&0111 != 0
 }
 
-func uploadExecutable(sc *sftp.Client, local, remote string) error {
+func uploadExecutable(sc *sftp.Client, local, remote string) (string, error) {
 	src, err := os.Open(local)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer src.Close()
 	dst, err := sc.Create(remote)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := io.Copy(dst, src); err != nil {
+	hash := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(dst, hash), src); err != nil {
 		_ = dst.Close()
-		return err
+		return "", err
 	}
 	if err := dst.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return sc.Chmod(remote, 0755)
+	if err := sc.Chmod(remote, 0755); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (c *Client) runRemote(cmd string) error {
@@ -155,12 +162,19 @@ func (c *Client) RunOutput(cmd string) (string, error) {
 	return string(out), nil
 }
 
-func installCommand(tempDir, remoteDir, token string) string {
+func installCommand(tempDir, remoteDir, token, onibiSHA256, notifySHA256 string) string {
 	binDir := remoteDirExpr(remoteDir)
 	onibiTmp := ".onibi." + token
 	notifyTmp := ".onibi-notify." + token
 	return strings.Join([]string{
 		"set -eu",
+		"sha256() {",
+		`  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'`,
+		`  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'`,
+		`  else echo "ssh: remote SHA-256 utility unavailable" >&2; exit 1; fi`,
+		"}",
+		`test "$(sha256 ` + shellQuote(tempDir+"/"+onibiBinary) + `)" = ` + shellQuote(onibiSHA256) + ` || { echo "ssh: artifact checksum mismatch: onibi" >&2; exit 1; }`,
+		`test "$(sha256 ` + shellQuote(tempDir+"/"+notifyBinary) + `)" = ` + shellQuote(notifySHA256) + ` || { echo "ssh: artifact checksum mismatch: onibi-notify" >&2; exit 1; }`,
 		"mkdir -p " + binDir,
 		"install -m 0755 " + shellQuote(tempDir+"/"+onibiBinary) + " " + binDir + "/" + onibiTmp,
 		"install -m 0755 " + shellQuote(tempDir+"/"+notifyBinary) + " " + binDir + "/" + notifyTmp,

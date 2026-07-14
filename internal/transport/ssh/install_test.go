@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,9 +57,13 @@ func TestResolveLocalBinariesRequiresExecutables(t *testing.T) {
 	}
 }
 
-func TestInstallCommandUsesFinalAtomicMove(t *testing.T) {
-	cmd := installCommand("/tmp/onibi.abc.linux_armv7", defaultRemoteBins, "abc")
+func TestInstallCommandVerifiesArtifactsBeforeAtomicMove(t *testing.T) {
+	cmd := installCommand("/tmp/onibi.abc.linux_armv7", defaultRemoteBins, "abc", strings.Repeat("a", 64), strings.Repeat("b", 64))
 	for _, want := range []string{
+		`sha256() {`,
+		`sha256sum "$1"`,
+		`artifact checksum mismatch: onibi`,
+		`artifact checksum mismatch: onibi-notify`,
 		`mkdir -p "$HOME/.local/bin"`,
 		`install -m 0755 /tmp/onibi.abc.linux_armv7/onibi "$HOME/.local/bin"/.onibi.abc`,
 		`mv -f "$HOME/.local/bin"/.onibi.abc "$HOME/.local/bin"/onibi`,
@@ -68,6 +73,25 @@ func TestInstallCommandUsesFinalAtomicMove(t *testing.T) {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("command missing %q:\n%s", want, cmd)
 		}
+	}
+	if strings.Index(cmd, "artifact checksum mismatch: onibi") > strings.Index(cmd, `mkdir -p "$HOME/.local/bin"`) {
+		t.Fatalf("checksum verification must precede install:\n%s", cmd)
+	}
+}
+
+func TestInstallCommandRejectsChecksumMismatchBeforeReplacement(t *testing.T) {
+	root := t.TempDir()
+	tempDir := filepath.Join(root, "upload")
+	remoteDir := filepath.Join(root, "bin")
+	writeExecutable(t, filepath.Join(tempDir, onibiBinary))
+	writeExecutable(t, filepath.Join(tempDir, notifyBinary))
+	cmd := exec.Command("sh", "-c", installCommand(tempDir, remoteDir, "abc", strings.Repeat("0", 64), strings.Repeat("0", 64)))
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "artifact checksum mismatch: onibi") {
+		t.Fatalf("err=%v output=%q", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(remoteDir, onibiBinary)); !os.IsNotExist(err) {
+		t.Fatalf("onibi was replaced after checksum mismatch: %v", err)
 	}
 }
 

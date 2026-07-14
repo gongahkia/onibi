@@ -12,6 +12,7 @@ func TestSystemdInstallCommand(t *testing.T) {
 		`ExecStart=%h/.local/bin/onibi up --transport=lan-loopback --no-qr`,
 		`systemctl --user daemon-reload`,
 		`systemctl --user enable --now onibi.service`,
+		`systemctl --user restart onibi.service`,
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("systemd command missing %q:\n%s", want, cmd)

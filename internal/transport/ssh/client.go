@@ -84,8 +84,11 @@ func hostKeyCallback(path string, prompt HostKeyPrompt) xssh.HostKeyCallback {
 			return nil
 		} else {
 			var keyErr *knownhosts.KeyError
-			if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
+			if !errors.As(err, &keyErr) {
 				return err
+			}
+			if len(keyErr.Want) > 0 {
+				return fmt.Errorf("ssh: host key mismatch for %s (got %s); refusing automatic replacement; confirm reprovisioning then update %s: %w", knownHostAddress(hostname, remote), xssh.FingerprintSHA256(key), path, err)
 			}
 			ok, promptErr := prompt(hostname, remote, key)
 			if promptErr != nil {

@@ -21,7 +21,7 @@ local artifact picker
   v
 remote /tmp/onibi.<token>.<arch>
   |
-  | 4. SFTP upload, chmod 0755
+  | 4. SFTP upload, chmod 0755, SHA-256 verification
   v
 remote $HOME/.local/bin
   |
@@ -52,7 +52,7 @@ Onibi uses `~/.ssh/known_hosts` by default.
 
 - Known matching host keys are accepted.
 - Unknown host keys print the key type and SHA256 fingerprint and require typing `yes`.
-- Host-key mismatches fail instead of prompting.
+- Host-key mismatches fail instead of prompting or replacing the pin. The error identifies the presented fingerprint and requires explicit reprovisioning confirmation before updating `known_hosts`.
 - Onibi does not use an insecure host-key callback.
 
 For first contact, verify the fingerprint out of band before accepting it. For rebuilt hosts, remove the stale key with `ssh-keygen -R <host>` only after confirming the host was intentionally reprovisioned.
@@ -78,6 +78,8 @@ macOS installs a LaunchAgent:
 ```
 
 Onibi uses user services instead of root services because the remote terminal, config, certificates, SQLite state, and installed binaries all live in the target user's home directory. Running as root would cross UID boundaries, require privileged install paths, and make terminal sessions less representative of the user shell the phone is meant to control.
+
+Bootstrap verifies the SHA-256 of each uploaded binary on the remote host before replacing either executable. Reinstalling reloads and restarts the user service, so a failed replacement remains explicit instead of leaving an old daemon running unnoticed.
 
 ## Tunnel and pairing
 

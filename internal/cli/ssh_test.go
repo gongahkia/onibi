@@ -96,6 +96,38 @@ func TestMintRemotePairURLRejectsBadTunnelURL(t *testing.T) {
 	}
 }
 
+func TestSSHStatusAndTeardownExerciseRemoteLifecycle(t *testing.T) {
+	oldReadKey := readSSHKey
+	oldConnect := connectSSHClient
+	fake := &fakeSSHRemote{platform: sshtransport.Platform{GOOS: "linux", GOARCH: "arm64"}}
+	readSSHKey = func(*cobra.Command) ([]byte, error) { return []byte("key"), nil }
+	connectSSHClient = func(sshTarget, []byte, *cobra.Command) (sshRemoteClient, error) { return fake, nil }
+	t.Cleanup(func() {
+		readSSHKey = oldReadKey
+		connectSSHClient = oldConnect
+	})
+	status := sshCmd()
+	var out strings.Builder
+	status.SetOut(&out)
+	if err := runSSHStatus(status, []string{"pi@host"}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "active\n" {
+		t.Fatalf("status output = %q", out.String())
+	}
+	teardown := sshCmd()
+	teardown.SetOut(&out)
+	if err := runSSHTeardown(teardown, []string{"pi@host"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "SSH remote torn down") {
+		t.Fatalf("teardown output = %q", out.String())
+	}
+	if got, want := strings.Join(fake.calls, "|"), "detect|status|close|detect|teardown|close"; got != want {
+		t.Fatalf("calls = %q, want %q", got, want)
+	}
+}
+
 type fakeSSHRemote struct {
 	platform sshtransport.Platform
 	tunnel   fakeSSHTunnel
@@ -132,10 +164,12 @@ func (f *fakeSSHRemote) RunOutput(cmd string) (string, error) {
 }
 
 func (f *fakeSSHRemote) ServiceStatus(sshtransport.Platform) (string, error) {
+	f.calls = append(f.calls, "status")
 	return "active\n", nil
 }
 
 func (f *fakeSSHRemote) Teardown(sshtransport.Platform) error {
+	f.calls = append(f.calls, "teardown")
 	return nil
 }
 

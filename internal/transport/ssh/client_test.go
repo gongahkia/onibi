@@ -62,6 +62,9 @@ func TestHostKeyCallbackRejectsMismatchedKnownHostWithoutPrompt(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected mismatch error")
 	}
+	if !strings.Contains(err.Error(), "refusing automatic replacement") || !strings.Contains(err.Error(), xssh.FingerprintSHA256(newKey)) {
+		t.Fatalf("mismatch diagnostic = %v", err)
+	}
 	var keyErr *knownhosts.KeyError
 	if !errors.As(err, &keyErr) || len(keyErr.Want) == 0 {
 		t.Fatalf("err = %v", err)
