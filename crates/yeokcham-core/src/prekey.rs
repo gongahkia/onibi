@@ -2,9 +2,11 @@ use std::fmt;
 
 use getrandom::{SysRng, rand_core::TryRng};
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const X25519_KEY_BYTES: usize = 32;
+pub const X25519_PREKEY_SERIALIZATION_VERSION: u8 = 1;
+pub const X25519_PREKEY_SERIALIZED_BYTES: usize = 1 + X25519_KEY_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct X25519PrekeyPublicKey([u8; X25519_KEY_BYTES]);
@@ -28,6 +30,10 @@ impl X25519Prekey {
             secret.zeroize();
             return Err(X25519PrekeyError::Randomness);
         }
+        if secret.iter().all(|byte| *byte == 0) {
+            secret.zeroize();
+            return Err(X25519PrekeyError::Randomness);
+        }
         let secret_key = StaticSecret::from(secret);
         secret.zeroize();
         Ok(Self { secret: secret_key })
@@ -36,6 +42,38 @@ impl X25519Prekey {
     #[must_use]
     pub fn public_key(&self) -> X25519PrekeyPublicKey {
         X25519PrekeyPublicKey(PublicKey::from(&self.secret).to_bytes())
+    }
+
+    #[must_use]
+    pub fn serialize(&self) -> Zeroizing<[u8; X25519_PREKEY_SERIALIZED_BYTES]> {
+        let mut secret = self.secret.to_bytes();
+        let mut serialized = Zeroizing::new([0; X25519_PREKEY_SERIALIZED_BYTES]);
+        serialized[0] = X25519_PREKEY_SERIALIZATION_VERSION;
+        serialized[1..].copy_from_slice(&secret);
+        secret.zeroize();
+        serialized
+    }
+
+    pub fn deserialize(encoded: &[u8]) -> Result<Self, X25519PrekeySerializationError> {
+        if encoded.len() != X25519_PREKEY_SERIALIZED_BYTES {
+            return Err(X25519PrekeySerializationError::InvalidLength);
+        }
+        if encoded[0] != X25519_PREKEY_SERIALIZATION_VERSION {
+            return Err(X25519PrekeySerializationError::UnsupportedVersion(
+                encoded[0],
+            ));
+        }
+        let mut secret = [0; X25519_KEY_BYTES];
+        secret.copy_from_slice(&encoded[1..]);
+        if secret.iter().all(|byte| *byte == 0) {
+            secret.zeroize();
+            return Err(X25519PrekeySerializationError::WeakSecret);
+        }
+        let prekey = Self {
+            secret: StaticSecret::from(secret),
+        };
+        secret.zeroize();
+        Ok(prekey)
     }
 }
 
@@ -55,11 +93,23 @@ pub enum X25519PrekeyError {
     Randomness,
 }
 
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum X25519PrekeySerializationError {
+    #[error("X25519 prekey serialization has an invalid length")]
+    InvalidLength,
+    #[error("unsupported X25519 prekey serialization version: {0}")]
+    UnsupportedVersion(u8),
+    #[error("X25519 prekey serialization contains a weak private key")]
+    WeakSecret,
+}
+
 #[cfg(test)]
 mod tests {
     use x25519_dalek::PublicKey;
 
-    use super::X25519Prekey;
+    use super::{
+        X25519_PREKEY_SERIALIZATION_VERSION, X25519Prekey, X25519PrekeySerializationError,
+    };
 
     #[test]
     fn generates_distinct_prekeys_with_contributory_shared_secrets_and_redacts_secrets() {
@@ -76,5 +126,31 @@ mod tests {
         let output = format!("{first:?}");
         assert!(output.contains("secret: \"REDACTED\""));
         assert!(!output.contains("StaticSecret"));
+    }
+
+    #[test]
+    fn serializes_and_validates_private_prekeys() {
+        let prekey = X25519Prekey::generate().unwrap();
+        let serialized = prekey.serialize();
+        let restored = X25519Prekey::deserialize(serialized.as_ref()).unwrap();
+
+        assert_eq!(restored.public_key(), prekey.public_key());
+        assert_eq!(serialized[0], X25519_PREKEY_SERIALIZATION_VERSION);
+        assert_eq!(
+            X25519Prekey::deserialize(&serialized[..serialized.len() - 1]).unwrap_err(),
+            X25519PrekeySerializationError::InvalidLength
+        );
+        let mut unsupported = *serialized;
+        unsupported[0] = X25519_PREKEY_SERIALIZATION_VERSION + 1;
+        assert_eq!(
+            X25519Prekey::deserialize(&unsupported).unwrap_err(),
+            X25519PrekeySerializationError::UnsupportedVersion(2)
+        );
+        let mut weak = *serialized;
+        weak[1..].fill(0);
+        assert_eq!(
+            X25519Prekey::deserialize(&weak).unwrap_err(),
+            X25519PrekeySerializationError::WeakSecret
+        );
     }
 }
