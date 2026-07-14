@@ -190,6 +190,7 @@ mod tests {
             "mailbox_capability=8301502222222222222222222222222222222258203333333333333333333333333333333333333333333333333333333333333333\n",
             "recipient_capability_direct=8401014b84010444c000020119115c40\n",
             "encrypted_header_direct=8201508401014b84010444c000020119115c40\n",
+            "identity_identifier=fbcc7bd59b35de83c8ea6d3ff094463cda5c962f1e71c9d6cdbef01fc36178ae\n",
         );
         assert!(super::verify_protocol_vectors(candidate).is_ok());
     }

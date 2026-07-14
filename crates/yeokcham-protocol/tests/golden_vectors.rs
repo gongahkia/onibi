@@ -1,8 +1,8 @@
 use yeokcham_protocol::{
     DeliveryProfile, DeliveryProfileKind, DirectProfileConfig, EncryptedHeader,
-    EncryptedMessageEnvelope, ExtensionFrame, LocalMeshProfileConfig, LocalMeshTransportKind,
-    MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
-    MessageContentType, MessagePayload, ProtocolVersion, RecipientCapability,
+    EncryptedMessageEnvelope, ExtensionFrame, IdentityIdentifier, LocalMeshProfileConfig,
+    LocalMeshTransportKind, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
+    MailboxCapability, MessageContentType, MessagePayload, ProtocolVersion, RecipientCapability,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig, VersionNegotiation, VersionRange,
     WireEnvelope, WireLimits,
 };
@@ -99,6 +99,19 @@ fn protocol_v1_vectors_match_public_encoders() {
         EncryptedHeader::new(RecipientCapability::Direct(direct_profile()))
             .encode()
             .unwrap(),
+    );
+    assert_vector!(
+        "identity_identifier",
+        IdentityIdentifier::derive(
+            &yeokcham_core::IdentityPublicKey::from_bytes([
+                0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64,
+                0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68,
+                0xf7, 0x07, 0x51, 0x1a,
+            ])
+            .unwrap(),
+        )
+        .as_bytes()
+        .to_vec(),
     );
 }
 

@@ -831,6 +831,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "minicbor",
+ "sha2",
  "thiserror",
  "yeokcham-core",
  "zeroize",

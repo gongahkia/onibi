@@ -1,6 +1,6 @@
 use std::fmt;
 
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use getrandom::{SysRng, rand_core::TryRng};
 use zeroize::Zeroize;
 
@@ -10,6 +10,17 @@ pub const ED25519_PUBLIC_KEY_BYTES: usize = 32;
 pub struct IdentityPublicKey([u8; ED25519_PUBLIC_KEY_BYTES]);
 
 impl IdentityPublicKey {
+    pub fn from_bytes(
+        bytes: [u8; ED25519_PUBLIC_KEY_BYTES],
+    ) -> Result<Self, IdentityPublicKeyError> {
+        let verifying_key =
+            VerifyingKey::from_bytes(&bytes).map_err(|_| IdentityPublicKeyError::Malformed)?;
+        if verifying_key.is_weak() {
+            return Err(IdentityPublicKeyError::Weak);
+        }
+        Ok(Self(bytes))
+    }
+
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; ED25519_PUBLIC_KEY_BYTES] {
         &self.0
@@ -55,11 +66,19 @@ pub enum IdentityKeyError {
     Randomness,
 }
 
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum IdentityPublicKeyError {
+    #[error("Ed25519 public key encoding is malformed")]
+    Malformed,
+    #[error("Ed25519 public key is weak")]
+    Weak,
+}
+
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signer, Verifier};
 
-    use super::IdentityKeypair;
+    use super::{IdentityKeypair, IdentityPublicKey, IdentityPublicKeyError};
 
     #[test]
     fn generates_verified_distinct_keypairs_and_redacts_secrets() {
@@ -79,5 +98,20 @@ mod tests {
         let output = format!("{first:?}");
         assert!(output.contains("signing_key: \"REDACTED\""));
         assert!(!output.contains("SigningKey"));
+    }
+
+    #[test]
+    fn validates_public_key_encoding_and_strength() {
+        let generated = IdentityKeypair::generate().unwrap();
+        assert_eq!(
+            IdentityPublicKey::from_bytes(*generated.public_key().as_bytes()).unwrap(),
+            generated.public_key()
+        );
+        let mut weak_key = [0; 32];
+        weak_key[0] = 1;
+        assert_eq!(
+            IdentityPublicKey::from_bytes(weak_key).unwrap_err(),
+            IdentityPublicKeyError::Weak
+        );
     }
 }

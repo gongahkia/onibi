@@ -11,6 +11,7 @@ default = []
 
 [dependencies]
 minicbor.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 zeroize.workspace = true
