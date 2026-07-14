@@ -108,7 +108,7 @@ func TestHomeStatusValidatesVersionAndRedactedApprovalMetadata(t *testing.T) {
 		Version:     ProtocolVersion,
 		GeneratedAt: now,
 		Hosts:       []Host{testHost(t)},
-		Sessions:    []HomeSessionStatus{{ID: "session-1", Agent: "claude", State: "awaiting-approval", LastActivity: now, PendingApprovals: 1}},
+		Sessions:    []HomeSessionStatus{{ID: "session-1", Agent: "claude", State: "awaiting-approval", LastActivity: now, PendingApprovals: 1, RecoveryState: SessionRecoveryOrphaned, RecoveryReason: "tmux reconnect timed out", RecoveryUpdatedAt: now}},
 		PendingApprovals: []HomeApprovalStatus{{
 			ID: "approval-1", SessionID: "session-1", Agent: "claude", Tool: "Bash", State: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Minute),
 		}},
@@ -124,6 +124,11 @@ func TestHomeStatusValidatesVersionAndRedactedApprovalMetadata(t *testing.T) {
 	status.Sessions[0].PendingApprovals = -1
 	if err := status.Validate(); err == nil {
 		t.Fatal("expected malformed home status error")
+	}
+	status.Sessions[0].PendingApprovals = 1
+	status.Sessions[0].RecoveryState = "unknown"
+	if err := status.Validate(); err == nil {
+		t.Fatal("expected invalid recovery state error")
 	}
 }
 

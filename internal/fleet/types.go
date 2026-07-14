@@ -445,6 +445,26 @@ type Session struct {
 	ApprovalCount int       `json:"approval_count"`
 }
 
+type SessionRecoveryState string
+
+const (
+	SessionRecoveryHealthy      SessionRecoveryState = "healthy"
+	SessionRecoveryReconnecting SessionRecoveryState = "reconnecting"
+	SessionRecoveryRecovering   SessionRecoveryState = "recovering"
+	SessionRecoveryOrphaned     SessionRecoveryState = "orphaned"
+	SessionRecoveryFailed       SessionRecoveryState = "failed"
+	SessionRecoveryTerminated   SessionRecoveryState = "terminated"
+)
+
+func (s SessionRecoveryState) Valid() bool {
+	switch s {
+	case SessionRecoveryHealthy, SessionRecoveryReconnecting, SessionRecoveryRecovering, SessionRecoveryOrphaned, SessionRecoveryFailed, SessionRecoveryTerminated:
+		return true
+	default:
+		return false
+	}
+}
+
 type Approval struct {
 	ID        string    `json:"id"`
 	HostID    string    `json:"host_id"`

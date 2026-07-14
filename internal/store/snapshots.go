@@ -93,7 +93,7 @@ func (d *DB) SnapshotsList(ctx context.Context) ([]SnapshotEntry, error) {
 func (d *DB) SessionByID(ctx context.Context, id string) (SessionEntry, bool, error) {
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT id, name, agent, COALESCE(cwd, ''), COALESCE(cmd, ''), transport, COALESCE(tmux_target, ''),
-		        started_at, COALESCE(last_activity, started_at), ended_at
+		        started_at, COALESCE(last_activity, started_at), COALESCE(recovery_state, 'healthy'), COALESCE(recovery_reason, ''), COALESCE(recovery_updated_at, 0), ended_at
 		   FROM sessions WHERE id = ? LIMIT 1`, id)
 	if err != nil {
 		return SessionEntry{}, false, err

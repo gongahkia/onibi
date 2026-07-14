@@ -64,7 +64,7 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "fleet status unavailable", http.StatusInternalServerError)
 			return
 		}
-		status.Sessions = append(status.Sessions, fleet.HomeSessionStatus{
+		homeSession := fleet.HomeSessionStatus{
 			ID:               session.ID,
 			Agent:            session.Agent,
 			State:            string(session.State),
@@ -72,7 +72,18 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 			PendingApprovals: session.PendingApprovalsCount,
 			Remote:           session.Remote,
 			PeerName:         session.PeerName,
-		})
+		}
+		if session.RecoveryState != "" {
+			recoveryUpdatedAt, ok := parseWebTime(session.RecoveryUpdatedAt)
+			if !ok {
+				http.Error(w, "fleet status unavailable", http.StatusInternalServerError)
+				return
+			}
+			homeSession.RecoveryState = session.RecoveryState
+			homeSession.RecoveryReason = session.RecoveryReason
+			homeSession.RecoveryUpdatedAt = recoveryUpdatedAt
+		}
+		status.Sessions = append(status.Sessions, homeSession)
 	}
 	for _, approval := range pending {
 		status.PendingApprovals = append(status.PendingApprovals, fleet.HomeApprovalStatus{

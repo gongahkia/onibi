@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/timeline"
 )
 
@@ -15,18 +16,21 @@ type SessionListOptions struct {
 }
 
 type SessionSummary struct {
-	ID                    string  `json:"id"`
-	Agent                 string  `json:"agent"`
-	CWD                   string  `json:"cwd"`
-	StartedAt             string  `json:"started_at"`
-	LastActivity          string  `json:"last_activity"`
-	PendingApprovalsCount int     `json:"pending_approvals_count"`
-	TokensUsed            int64   `json:"tokens_used"`
-	CostUSD               float64 `json:"cost_usd"`
-	RoleRequired          string  `json:"role_required"`
-	Remote                bool    `json:"remote,omitempty"`
-	PeerName              string  `json:"peer_name,omitempty"`
-	RemoteURL             string  `json:"remote_url,omitempty"`
+	ID                    string                     `json:"id"`
+	Agent                 string                     `json:"agent"`
+	CWD                   string                     `json:"cwd"`
+	StartedAt             string                     `json:"started_at"`
+	LastActivity          string                     `json:"last_activity"`
+	PendingApprovalsCount int                        `json:"pending_approvals_count"`
+	RecoveryState         fleet.SessionRecoveryState `json:"recovery_state,omitempty"`
+	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
+	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
+	TokensUsed            int64                      `json:"tokens_used"`
+	CostUSD               float64                    `json:"cost_usd"`
+	RoleRequired          string                     `json:"role_required"`
+	Remote                bool                       `json:"remote,omitempty"`
+	PeerName              string                     `json:"peer_name,omitempty"`
+	RemoteURL             string                     `json:"remote_url,omitempty"`
 }
 
 type SessionState string
@@ -47,16 +51,19 @@ type SessionsStatusResponse struct {
 }
 
 type SessionStatus struct {
-	ID                    string       `json:"id"`
-	Agent                 string       `json:"agent"`
-	CWD                   string       `json:"cwd,omitempty"`
-	State                 SessionState `json:"state"`
-	LastActivity          string       `json:"last_activity"`
-	PendingApprovalsCount int          `json:"pending_approvals_count"`
-	RoleRequired          string       `json:"role_required"`
-	Remote                bool         `json:"remote,omitempty"`
-	PeerName              string       `json:"peer_name,omitempty"`
-	RemoteURL             string       `json:"remote_url,omitempty"`
+	ID                    string                     `json:"id"`
+	Agent                 string                     `json:"agent"`
+	CWD                   string                     `json:"cwd,omitempty"`
+	State                 SessionState               `json:"state"`
+	LastActivity          string                     `json:"last_activity"`
+	PendingApprovalsCount int                        `json:"pending_approvals_count"`
+	RecoveryState         fleet.SessionRecoveryState `json:"recovery_state,omitempty"`
+	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
+	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
+	RoleRequired          string                     `json:"role_required"`
+	Remote                bool                       `json:"remote,omitempty"`
+	PeerName              string                     `json:"peer_name,omitempty"`
+	RemoteURL             string                     `json:"remote_url,omitempty"`
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +157,9 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 			State:                 state,
 			LastActivity:          row.LastActivity,
 			PendingApprovalsCount: row.PendingApprovalsCount,
+			RecoveryState:         row.RecoveryState,
+			RecoveryReason:        row.RecoveryReason,
+			RecoveryUpdatedAt:     row.RecoveryUpdatedAt,
 			RoleRequired:          row.RoleRequired,
 			Remote:                row.Remote,
 			PeerName:              row.PeerName,

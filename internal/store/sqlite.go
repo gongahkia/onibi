@@ -198,6 +198,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   tmux_target   TEXT,
   started_at    INTEGER NOT NULL,
   last_activity INTEGER,
+  recovery_state TEXT NOT NULL DEFAULT 'healthy',
+  recovery_reason TEXT NOT NULL DEFAULT '',
+  recovery_updated_at INTEGER NOT NULL DEFAULT 0,
   ended_at      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
@@ -343,6 +346,15 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "sessions", "last_activity", "INTEGER"); err != nil {
 		return err
 	}
+	if err := d.ensureColumn(ctx, "sessions", "recovery_state", "TEXT NOT NULL DEFAULT 'healthy'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "sessions", "recovery_reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumn(ctx, "sessions", "recovery_updated_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := d.ensureColumn(ctx, "web_sessions", "key_verifier_enc", "BLOB"); err != nil {
 		return err
 	}
@@ -373,7 +385,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumn(ctx, "pairing_tokens", "use_count", "INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0)"); err != nil {
 		return err
 	}
-	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11), (12), (13)")
+	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1), (7), (8), (9), (10), (11), (12), (13), (14)")
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}

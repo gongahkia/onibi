@@ -103,6 +103,8 @@ type Daemon struct {
 	started               time.Time
 	tailnetStatus         func(context.Context) ([]byte, error)
 	tailnetHealth         func(context.Context, string) (bool, error)
+	tmuxCaptureInterval   time.Duration
+	tmuxRecoveryTimeout   time.Duration
 
 	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
 	SkipRestore  bool

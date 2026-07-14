@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/budget"
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -46,10 +47,10 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 		t.Fatalf("rows = %#v", rows)
 	}
 	first := rows[0]
-	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.TokensUsed != 15 || first.RoleRequired != "owner" {
+	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.RecoveryState != fleet.SessionRecoveryHealthy || first.TokensUsed != 15 || first.RoleRequired != "owner" {
 		t.Fatalf("first = %#v", first)
 	}
-	if first.StartedAt == "" || first.LastActivity == "" {
+	if first.StartedAt == "" || first.LastActivity == "" || first.RecoveryUpdatedAt == "" {
 		t.Fatalf("missing times: %#v", first)
 	}
 }

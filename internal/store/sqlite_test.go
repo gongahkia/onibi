@@ -199,8 +199,8 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 13`).Scan(&version); err != nil {
-		t.Fatalf("schema version 13 missing: %v", err)
+	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 14`).Scan(&version); err != nil {
+		t.Fatalf("schema version 14 missing: %v", err)
 	}
 }
 

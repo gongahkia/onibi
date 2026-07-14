@@ -38,7 +38,7 @@ func TestFleetSchemaMigrationAndPersistenceConformance(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.SQL().QueryRowContext(ctx, `SELECT version FROM schema_version WHERE version = 13`).Scan(&version); err != nil {
+	if err := db.SQL().QueryRowContext(ctx, `SELECT version FROM schema_version WHERE version = 14`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	ownerID, err := db.FleetOwnerID(ctx)

@@ -16,13 +16,16 @@ type HomeStatus struct {
 }
 
 type HomeSessionStatus struct {
-	ID               string    `json:"id"`
-	Agent            string    `json:"agent"`
-	State            string    `json:"state"`
-	LastActivity     time.Time `json:"last_activity"`
-	PendingApprovals int       `json:"pending_approvals"`
-	Remote           bool      `json:"remote,omitempty"`
-	PeerName         string    `json:"peer_name,omitempty"`
+	ID                string               `json:"id"`
+	Agent             string               `json:"agent"`
+	State             string               `json:"state"`
+	LastActivity      time.Time            `json:"last_activity"`
+	PendingApprovals  int                  `json:"pending_approvals"`
+	RecoveryState     SessionRecoveryState `json:"recovery_state,omitempty"`
+	RecoveryReason    string               `json:"recovery_reason,omitempty"`
+	RecoveryUpdatedAt time.Time            `json:"recovery_updated_at,omitempty"`
+	Remote            bool                 `json:"remote,omitempty"`
+	PeerName          string               `json:"peer_name,omitempty"`
 }
 
 type HomeApprovalStatus struct {
@@ -57,6 +60,13 @@ func (s HomeStatus) Validate() error {
 	for _, session := range s.Sessions {
 		if !validID(session.ID) || strings.TrimSpace(session.Agent) == "" || !validHomeSessionState(session.State) || session.LastActivity.IsZero() || session.PendingApprovals < 0 {
 			return errors.New("invalid fleet home session")
+		}
+		if session.RecoveryState == "" {
+			if strings.TrimSpace(session.RecoveryReason) != "" || !session.RecoveryUpdatedAt.IsZero() {
+				return errors.New("invalid fleet home session recovery")
+			}
+		} else if !session.RecoveryState.Valid() || session.RecoveryUpdatedAt.IsZero() || len(session.RecoveryReason) > 512 || (session.RecoveryState == SessionRecoveryHealthy && strings.TrimSpace(session.RecoveryReason) != "") || (session.RecoveryState != SessionRecoveryHealthy && strings.TrimSpace(session.RecoveryReason) == "") {
+			return errors.New("invalid fleet home session recovery")
 		}
 		if sessions[session.ID] {
 			return fmt.Errorf("duplicate fleet home session %q", session.ID)

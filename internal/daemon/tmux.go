@@ -9,12 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
 var newTmuxController = tmux.New
+
+const (
+	managedSessionCaptureInterval = 2 * time.Second
+	managedSessionRecoveryTimeout = 30 * time.Second
+)
 
 func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session, error) {
 	target = strings.TrimSpace(target)
@@ -160,22 +166,41 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 	ctrl := newTmuxController()
 	var restored, stale int
 	for _, row := range rows {
+		if _, err := d.Registry.Get(row.ID); err == nil {
+			continue
+		}
 		if row.Transport == "tmux" && strings.TrimSpace(row.TmuxTarget) != "" {
+			d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryRecovering, "daemon restart")
 			if err := d.restoreTmuxSession(ctx, ctrl, row); err != nil {
-				_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
-				d.audit(ctx, "session.stale", row.ID, "", 0, "missing tmux target "+row.TmuxTarget+": "+err.Error())
+				d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryOrphaned, "tmux target unavailable: "+err.Error())
+				d.audit(ctx, "session.orphaned", row.ID, "", 0, "missing tmux target "+row.TmuxTarget+": "+err.Error())
 				stale++
 				continue
 			}
+			d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryHealthy, "")
 			restored++
 			continue
 		}
-		_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
-		d.audit(ctx, "session.stale", row.ID, "", 0, "stale daemon restart transport="+row.Transport)
+		d.transitionSessionRecovery(ctx, row.ID, fleet.SessionRecoveryFailed, "unsupported restart transport="+row.Transport)
+		d.audit(ctx, "session.failed", row.ID, "", 0, "unrecoverable daemon restart transport="+row.Transport)
 		stale++
 	}
 	if restored > 0 || stale > 0 {
 		d.audit(ctx, "session.reconcile", "", "", 0, fmt.Sprintf("restored=%d stale=%d", restored, stale))
+	}
+}
+
+func (d *Daemon) transitionSessionRecovery(ctx context.Context, id string, state fleet.SessionRecoveryState, reason string) {
+	if d == nil || d.DB == nil {
+		return
+	}
+	changed, err := d.DB.SessionTransitionRecovery(ctx, id, state, reason, time.Now().UTC())
+	if err != nil {
+		d.Log.Warn("persist session recovery", "session", id, "state", state, "err", err)
+		return
+	}
+	if changed {
+		d.audit(ctx, "session.recovery", id, "", 0, "state="+string(state)+" reason="+reason)
 	}
 }
 
@@ -414,8 +439,17 @@ func (d *Daemon) persistTmuxSessionStart(ctx context.Context, s *Session) {
 }
 
 func (d *Daemon) captureTmuxLoop(ctx context.Context, ctrl *tmux.Controller, s *Session) {
-	t := time.NewTicker(2 * time.Second)
+	interval := d.tmuxCaptureInterval
+	if interval <= 0 {
+		interval = managedSessionCaptureInterval
+	}
+	timeout := d.tmuxRecoveryTimeout
+	if timeout <= 0 {
+		timeout = managedSessionRecoveryTimeout
+	}
+	t := time.NewTicker(interval)
 	defer t.Stop()
+	var recoveryDeadline time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -426,8 +460,21 @@ func (d *Daemon) captureTmuxLoop(ctx context.Context, ctrl *tmux.Controller, s *
 			}
 			out, err := ctrl.Capture(ctx, s.TmuxTarget, 50)
 			if err != nil {
-				d.markSessionEnded(ctx, s)
-				return
+				now := time.Now().UTC()
+				if recoveryDeadline.IsZero() {
+					recoveryDeadline = now.Add(timeout)
+					d.transitionSessionRecovery(ctx, s.ID, fleet.SessionRecoveryReconnecting, "tmux capture disconnected: "+err.Error())
+				}
+				if !recoveryDeadline.After(now) {
+					d.transitionSessionRecovery(ctx, s.ID, fleet.SessionRecoveryOrphaned, "tmux reconnect timed out: "+err.Error())
+					d.audit(ctx, "session.orphaned", s.ID, "", 0, "tmux reconnect timeout")
+					return
+				}
+				continue
+			}
+			if !recoveryDeadline.IsZero() {
+				d.transitionSessionRecovery(ctx, s.ID, fleet.SessionRecoveryHealthy, "")
+				recoveryDeadline = time.Time{}
 			}
 			s.Buf.Reset()
 			_, _ = s.Buf.Write([]byte(out))

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -27,6 +28,10 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 		if err != nil {
 			return nil, err
 		}
+		recoveryUpdatedAt := row.RecoveryUpdatedAt
+		if recoveryUpdatedAt.IsZero() {
+			recoveryUpdatedAt = row.StartedAt
+		}
 		out = append(out, web.SessionSummary{
 			ID:                    row.ID,
 			Agent:                 row.Agent,
@@ -34,6 +39,9 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 			StartedAt:             formatWebSessionTime(row.StartedAt),
 			LastActivity:          formatWebSessionTime(row.LastActivity),
 			PendingApprovalsCount: pending[row.ID],
+			RecoveryState:         row.RecoveryState,
+			RecoveryReason:        row.RecoveryReason,
+			RecoveryUpdatedAt:     formatWebSessionTime(recoveryUpdatedAt),
 			TokensUsed:            cost.TotalTokens,
 			CostUSD:               cost.TotalUSD,
 			RoleRequired:          "owner",
@@ -58,15 +66,17 @@ func (d *Daemon) webSessionRows(ctx context.Context) ([]store.SessionEntry, erro
 	rows := make([]store.SessionEntry, 0, len(live))
 	for _, s := range live {
 		rows = append(rows, store.SessionEntry{
-			ID:           s.ID,
-			Name:         s.Name,
-			Agent:        s.Agent,
-			CWD:          s.CWD,
-			Command:      s.Cmd,
-			Transport:    s.Transport,
-			TmuxTarget:   s.TmuxTarget,
-			StartedAt:    s.StartedAt(),
-			LastActivity: s.LastActivityAt(),
+			ID:                s.ID,
+			Name:              s.Name,
+			Agent:             s.Agent,
+			CWD:               s.CWD,
+			Command:           s.Cmd,
+			Transport:         s.Transport,
+			TmuxTarget:        s.TmuxTarget,
+			StartedAt:         s.StartedAt(),
+			LastActivity:      s.LastActivityAt(),
+			RecoveryState:     fleet.SessionRecoveryHealthy,
+			RecoveryUpdatedAt: s.StartedAt(),
 		})
 	}
 	return rows, nil
