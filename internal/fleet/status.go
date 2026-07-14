@@ -27,6 +27,7 @@ type HomeSessionStatus struct {
 	RecoveryUpdatedAt time.Time            `json:"recovery_updated_at,omitempty"`
 	Remote            bool                 `json:"remote,omitempty"`
 	PeerName          string               `json:"peer_name,omitempty"`
+	RemoteURL         string               `json:"remote_url,omitempty"`
 }
 
 type HomeApprovalStatus struct {

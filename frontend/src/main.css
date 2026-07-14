@@ -285,6 +285,42 @@
   gap: 8px;
 }
 
+.fleet-home-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.fleet-home-section {
+  display: grid;
+  gap: 6px;
+}
+
+.fleet-home-section h2 {
+  margin: 0;
+  color: var(--muted-fg);
+  font: 700 11px var(--mono-font);
+  text-transform: uppercase;
+}
+
+.fleet-home-summary,
+.fleet-home-row {
+  min-height: 42px;
+  border: 1px solid var(--button-border);
+  border-radius: 3px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  padding: 8px;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.fleet-home-summary:focus-visible,
+.fleet-home-row:focus-visible,
+.fleet-home-summary:active,
+.fleet-home-row:active {
+  border-color: var(--button-active-border);
+}
+
 .session-list-row {
   display: grid;
   gap: 5px;

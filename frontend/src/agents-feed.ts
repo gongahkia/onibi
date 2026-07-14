@@ -6,6 +6,7 @@ export type SessionRecoveryState =
 
 export type SessionStatus = {
   id: string;
+  host_id?: string;
   agent: string;
   cwd?: string;
   state: SessionState;

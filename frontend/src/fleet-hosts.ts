@@ -27,6 +27,7 @@ export type FleetSession = {
   recovery_reason?: string;
   recovery_updated_at?: string;
   remote?: boolean;
+  remote_url?: string;
 };
 
 export type FleetApproval = {
@@ -68,7 +69,15 @@ export class FleetHostsPanel {
   }
 
   open(): void {
-    this.selectedID = "";
+    this.openFor("");
+  }
+
+  openHost(id: string): void {
+    this.openFor(id);
+  }
+
+  private openFor(id: string): void {
+    this.selectedID = id;
     this.status = "";
     this.modal?.remove();
     this.modal = document.createElement("div");

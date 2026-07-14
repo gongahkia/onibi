@@ -74,6 +74,7 @@ func (s *Server) handleFleetStatus(w http.ResponseWriter, r *http.Request) {
 			PendingApprovals: session.PendingApprovalsCount,
 			Remote:           session.Remote,
 			PeerName:         session.PeerName,
+			RemoteURL:        session.RemoteURL,
 		}
 		if session.RecoveryState != "" {
 			recoveryUpdatedAt, ok := parseWebTime(session.RecoveryUpdatedAt)

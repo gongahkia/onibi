@@ -35,6 +35,7 @@ import { AgentsFeed } from "./agents-feed";
 import { PairedHostsPanel } from "./paired-hosts-panel";
 import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
+import { FleetHomeView } from "./fleet-home";
 
 type SessionInfo = {
   session_id: string;
@@ -82,6 +83,7 @@ let agentsFeed: AgentsFeed | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
 let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
+let fleetHome: FleetHomeView | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
@@ -127,6 +129,7 @@ events.addEventListener("event", (event) => {
     anomalies.handleEnvelope(envelope);
   }
   sessionList?.handleEnvelope(envelope);
+  fleetHome?.handleEnvelope(envelope);
   approvalInbox?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
   agentsFeed?.handleEnvelope(envelope);
@@ -240,17 +243,23 @@ async function showSessionsHome(): Promise<void> {
   const hostControls = document.createElement("div");
   hostControls.className = "session-list-header-controls";
   hostControls.append(pairedHosts.element, fleetHosts.element, approvalInbox.element);
-  const list = new SessionsListView(
+  const home = new FleetHomeView(
     sessionListRoot,
     getJSON,
-    navigateToSession,
-    postJSON,
-    showToast,
+    (session) => {
+      if (session.remote_url !== undefined && session.remote_url !== "") {
+        window.location.href = session.remote_url;
+        return;
+      }
+      navigateToSession(session.id);
+    },
+    (hostID) => fleetHosts?.openHost(hostID),
+    () => approvalInbox?.open(),
     hostControls
   );
-  sessionList = list;
+  fleetHome = home;
   await connectSessionListEvents();
-  await list.load();
+  await home.load();
   refreshPushOnOpen();
   splash.hidden = true;
   startFirstRunTour();
