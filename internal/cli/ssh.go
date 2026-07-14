@@ -59,6 +59,9 @@ type sshBootstrapResult struct {
 }
 
 var readSSHKey = readSSHPrivateKey
+var newFleetHTTPClient = func() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
 var connectSSHClient = func(target sshTarget, key []byte, _ *cobra.Command) (sshRemoteClient, error) {
 	client, err := sshtransport.Connect(target.Host, target.User, key)
 	if err != nil {
@@ -318,7 +321,7 @@ func fleetPOST(ctx context.Context, endpoint, session, csrf string, in, out any)
 		req.AddCookie(&http.Cookie{Name: web.OwnerCookieName, Value: session})
 		req.Header.Set("X-Onibi-CSRF", csrf)
 	}
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := newFleetHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
