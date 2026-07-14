@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use crate::{Error, Result, Secret};
 
 pub const MAX_FIXTURE_BYTES: usize = 1_048_576;
 
@@ -17,6 +17,10 @@ pub fn bytes(seed: u64, length: usize) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+pub fn secret(seed: u64, length: usize) -> Result<Secret<Vec<u8>>> {
+    Ok(Secret::new(bytes(seed, length)?))
+}
+
 fn next_word(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut value = *state;
@@ -27,7 +31,7 @@ fn next_word(state: &mut u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_FIXTURE_BYTES, bytes};
+    use super::{MAX_FIXTURE_BYTES, bytes, secret};
     use crate::Error;
 
     #[test]
@@ -48,6 +52,24 @@ mod tests {
     fn rejects_oversized_fixtures() {
         assert!(matches!(
             bytes(0, MAX_FIXTURE_BYTES + 1),
+            Err(Error::ResourceLimit(_))
+        ));
+    }
+
+    #[test]
+    fn isolates_test_secrets_by_seed() {
+        let mut first = secret(1, 32).expect("test secret must be generated");
+        let mut second = secret(2, 32).expect("test secret must be generated");
+        let mut repeat = secret(1, 32).expect("test secret must be generated");
+
+        assert_ne!(first.expose_mut(), second.expose_mut());
+        assert_eq!(first.expose_mut(), repeat.expose_mut());
+    }
+
+    #[test]
+    fn rejects_oversized_test_secrets() {
+        assert!(matches!(
+            secret(0, MAX_FIXTURE_BYTES + 1),
             Err(Error::ResourceLimit(_))
         ));
     }
