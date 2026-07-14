@@ -45,6 +45,11 @@ impl SignedPrekey {
         }
     }
 
+    #[must_use]
+    pub const fn prekey(&self) -> &X25519Prekey {
+        &self.prekey
+    }
+
     fn with_generation(
         identity: &IdentityKeypair,
         generation: u64,

@@ -4,6 +4,8 @@ use getrandom::{SysRng, rand_core::TryRng};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::{X25519KeyAgreementError, x25519_identity::shared_secret};
+
 pub const X25519_KEY_BYTES: usize = 32;
 pub const X25519_PREKEY_SERIALIZATION_VERSION: u8 = 1;
 pub const X25519_PREKEY_SERIALIZED_BYTES: usize = 1 + X25519_KEY_BYTES;
@@ -51,6 +53,13 @@ impl X25519Prekey {
     #[must_use]
     pub fn public_key(&self) -> X25519PrekeyPublicKey {
         X25519PrekeyPublicKey(PublicKey::from(&self.secret).to_bytes())
+    }
+
+    pub fn shared_secret(
+        &self,
+        peer: &[u8; X25519_KEY_BYTES],
+    ) -> Result<Zeroizing<[u8; X25519_KEY_BYTES]>, X25519KeyAgreementError> {
+        shared_secret(&self.secret, peer)
     }
 
     #[must_use]

@@ -13,6 +13,7 @@ default = []
 argon2.workspace = true
 chacha20poly1305.workspace = true
 getrandom.workspace = true
+hkdf.workspace = true
 minicbor.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

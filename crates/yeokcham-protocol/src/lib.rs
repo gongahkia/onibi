@@ -24,6 +24,7 @@ mod signing;
 mod tor_maildrop_profile;
 mod version;
 mod wire;
+mod x3dh;
 
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
@@ -93,3 +94,9 @@ pub use tor_maildrop_profile::{
 };
 pub use version::{ProtocolVersion, VersionRange};
 pub use wire::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
+pub use x3dh::{
+    MAX_X3DH_INITIAL_MESSAGE_BYTES, MAX_X3DH_PREKEY_BUNDLE_BYTES,
+    X3DH_INITIAL_MESSAGE_SCHEMA_VERSION, X3DH_PREKEY_BUNDLE_SCHEMA_VERSION, X3DH_ROOT_KEY_BYTES,
+    X3dhError, X3dhInitialMessage, X3dhPrekeyBundle, X3dhSession,
+    X25519_IDENTITY_BINDING_SCHEMA_VERSION, X25519IdentityBinding, initiate_x3dh, respond_x3dh,
+};

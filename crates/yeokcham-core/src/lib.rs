@@ -15,6 +15,7 @@ mod relay_identity;
 mod secret;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixture;
+mod x25519_identity;
 
 pub use error::{Error, Result};
 pub use identity::{
@@ -48,3 +49,8 @@ pub use relay_identity::{
     RelaySigningKeypair,
 };
 pub use secret::Secret;
+pub use x25519_identity::{
+    X25519_IDENTITY_SERIALIZATION_VERSION, X25519_IDENTITY_SERIALIZED_BYTES,
+    X25519IdentityKeyError, X25519IdentityKeypair, X25519IdentityPublicKey,
+    X25519IdentityPublicKeyError, X25519IdentitySerializationError, X25519KeyAgreementError,
+};
