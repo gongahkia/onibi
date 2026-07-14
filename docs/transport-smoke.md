@@ -49,6 +49,13 @@ ONIBI_LIVE_TAILSCALE=1 go test ./internal/web/transport -run LiveTailscale
 - Remove the selected interface address, confirm health reports the stale endpoint, restore or select another routable interface, then reconnect and pair again.
 - Confirm fleet enrollment requires owner proof; WireGuard reachability is not authorization.
 
+## ZeroTier
+
+- Join the Mac and phone to the same ZeroTier network, then run `onibi up --transport=zerotier`.
+- Confirm the QR points to the selected ZeroTier address and pairs only from the authorized network.
+- Remove or change the selected network address, confirm health reports the stale endpoint, restore or select another routable network, then reconnect and pair again.
+- Confirm fleet enrollment requires owner proof; ZeroTier reachability is not authorization.
+
 ## Telegram
 
 ```bash

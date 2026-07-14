@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -104,6 +105,74 @@ func TestResolveZerotierStartsProvider(t *testing.T) {
 	if got := pt.URLs("tok"); len(got) != 1 || got[0] != "https://10.147.20.4:8443/pair/tok" {
 		t.Fatalf("urls = %#v", got)
 	}
+}
+
+func TestZeroTierLifecycleDetectsNetworkChangeAndRecovers(t *testing.T) {
+	runner := &zeroTierStateRunner{networks: `[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}]`}
+	zt := &ZeroTier{
+		Bin:            "zerotier-cli",
+		runner:         runner,
+		lookPath:       func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
+		interfaceAddrs: func(string) ([]net.Addr, error) { return nil, errors.New("unused") },
+	}
+	session := NewLifecycle(ResolverOptions{Mode: string(ModeZeroTier), Port: 8443, Providers: ProviderFactory{ZeroTier: func() Provider { return zt }}})
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy {
+		t.Fatalf("health=%#v err=%v", report, err)
+	}
+	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://10.147.20.4:8443/pair/pair-token" {
+		t.Fatalf("urls=%#v err=%v", urls, err)
+	}
+	candidate, err := session.Enrollment()
+	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" {
+		t.Fatalf("candidate=%#v err=%v", candidate, err)
+	}
+	runner.SetNetworks(`[{"id":"8056c2e21c000002","name":"prod","status":"OK","portDeviceName":"ztprod","assignedAddresses":["fd00:147::4/64"]}]`)
+	if _, err := session.Health(t.Context()); err == nil {
+		t.Fatal("expected network health failure")
+	}
+	if _, err := session.Reconnect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := session.Health(t.Context()); err != nil || !report.Healthy || len(report.Targets) != 1 || report.Targets[0] != "https://[fd00:147::4]:8443" {
+		t.Fatalf("recovered health=%#v err=%v", report, err)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if zt.NetworkID() != "" || zt.InterfaceName() != "" {
+		t.Fatalf("network=%q interface=%q", zt.NetworkID(), zt.InterfaceName())
+	}
+	diagnostics := session.Diagnostics()
+	if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+		t.Fatalf("diagnostics=%#v", diagnostics)
+	}
+}
+
+type zeroTierStateRunner struct {
+	mu       sync.Mutex
+	networks string
+}
+
+func (r *zeroTierStateRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	switch strings.Join(args, " ") {
+	case "info":
+		return []byte("200 info deadbeef 1.14.2 ONLINE\n"), nil
+	case "listnetworks -j":
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return []byte(r.networks), nil
+	default:
+		return nil, errors.New("unexpected zerotier command")
+	}
+}
+
+func (r *zeroTierStateRunner) SetNetworks(networks string) {
+	r.mu.Lock()
+	r.networks = networks
+	r.mu.Unlock()
 }
 
 func testZeroTier(networks string, addrs map[string][]net.Addr) *ZeroTier {

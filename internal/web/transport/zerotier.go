@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -26,6 +27,7 @@ type ZeroTier struct {
 	runner         commandRunner
 	lookPath       func(string) (string, error)
 	interfaceAddrs func(string) ([]net.Addr, error)
+	mu             sync.Mutex
 	port           int
 	host           string
 	network        string
@@ -59,8 +61,20 @@ func zeroTierBin() string {
 }
 
 func (z *ZeroTier) Check(ctx context.Context) error {
-	_, _, _, err := z.resolveHost(ctx)
-	return err
+	host, network, iface, err := z.resolveHost(ctx)
+	if err != nil {
+		return err
+	}
+	z.mu.Lock()
+	activePort := z.port
+	activeHost := z.host
+	activeNetwork := z.network
+	activeIface := z.iface
+	z.mu.Unlock()
+	if activePort > 0 && (host != activeHost || network != activeNetwork || iface != activeIface) {
+		return Diagnostic(DiagActivationLag, zerotierProvider, "active ZeroTier endpoint changed", nil)
+	}
+	return nil
 }
 
 func (z *ZeroTier) Enable(ctx context.Context, localPort int) error {
@@ -71,15 +85,20 @@ func (z *ZeroTier) Enable(ctx context.Context, localPort int) error {
 	if err != nil {
 		return err
 	}
+	z.mu.Lock()
 	z.port = localPort
 	z.host = host
 	z.network = network
 	z.iface = iface
+	z.mu.Unlock()
 	return nil
 }
 
 func (z *ZeroTier) URL(ctx context.Context) (string, error) {
+	z.mu.Lock()
 	host := strings.TrimSpace(z.host)
+	port := z.port
+	z.mu.Unlock()
 	if host == "" {
 		var network, iface string
 		var err error
@@ -87,11 +106,13 @@ func (z *ZeroTier) URL(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		z.mu.Lock()
 		z.host = host
 		z.network = network
 		z.iface = iface
+		port = z.port
+		z.mu.Unlock()
 	}
-	port := z.port
 	if port <= 0 || port > 65535 {
 		return "", errors.New("zerotier local port not set")
 	}
@@ -99,6 +120,12 @@ func (z *ZeroTier) URL(ctx context.Context) (string, error) {
 }
 
 func (z *ZeroTier) Disable(context.Context) error {
+	z.mu.Lock()
+	z.port = 0
+	z.host = ""
+	z.network = ""
+	z.iface = ""
+	z.mu.Unlock()
 	return nil
 }
 
@@ -107,17 +134,23 @@ func (z *ZeroTier) BindHost(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	z.mu.Lock()
 	z.host = host
 	z.network = network
 	z.iface = iface
+	z.mu.Unlock()
 	return host, nil
 }
 
 func (z *ZeroTier) NetworkID() string {
+	z.mu.Lock()
+	defer z.mu.Unlock()
 	return strings.TrimSpace(z.network)
 }
 
 func (z *ZeroTier) InterfaceName() string {
+	z.mu.Lock()
+	defer z.mu.Unlock()
 	return strings.TrimSpace(z.iface)
 }
 

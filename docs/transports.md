@@ -149,6 +149,7 @@ Security model:
 
 - ZeroTier carries packets between the laptop and phone; Onibi does not manage network authorization.
 - Onibi auth is unchanged: single-use pair token first, then owner cookie on every protected page and WebSocket upgrade.
+- Fleet enrollment treats the ZeroTier URL as a mesh endpoint and still requires owner proof; network reachability is not authorization.
 - The local HTTPS certificate must include the ZeroTier IP. This is automatic when the network is joined before `onibi up` starts.
 
 Operational notes:
@@ -156,6 +157,7 @@ Operational notes:
 - Join the laptop and phone to the same ZeroTier network first; see [`zerotier-setup.md`](./zerotier-setup.md).
 - `onibi doctor --transport=zerotier` verifies `zerotier-one` is online, checks network membership, and confirms the selected network has a routable IP.
 - If the phone cannot open the QR URL, verify the phone is authorized in the ZeroTier network and can reach the laptop's ZeroTier IP with another HTTPS service before debugging Onibi.
+- If the selected network, interface, or address changes, health fails rather than retaining a stale QR URL; reconnect resolves a fresh endpoint.
 
 ## Telegram
 
