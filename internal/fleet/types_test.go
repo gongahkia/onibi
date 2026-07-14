@@ -46,6 +46,28 @@ func TestHostRejectsInvalidEndpointAndRevocationState(t *testing.T) {
 	}
 }
 
+func TestEndpointRejectsUnsafeAdapterTargets(t *testing.T) {
+	for _, endpoint := range []Endpoint{
+		{Kind: EndpointMesh, URL: "https://localhost"},
+		{Kind: EndpointRelay, URL: "https://192.168.1.2"},
+		{Kind: EndpointRelay, URL: "https://100.64.0.2"},
+		{Kind: EndpointSSH, URL: "onibi@host.example.test:not-a-port"},
+	} {
+		if err := endpoint.Validate(); err == nil {
+			t.Fatalf("expected invalid endpoint: %#v", endpoint)
+		}
+	}
+	for _, endpoint := range []Endpoint{
+		{Kind: EndpointMesh, URL: "https://100.64.0.2"},
+		{Kind: EndpointRelay, URL: "https://relay.example.test"},
+		{Kind: EndpointSSH, URL: "onibi@[2001:db8::1]:2222"},
+	} {
+		if err := endpoint.Validate(); err != nil {
+			t.Fatalf("endpoint %#v: %v", endpoint, err)
+		}
+	}
+}
+
 func TestEnvelopeRejectsIncompatibleAndMalformedInputs(t *testing.T) {
 	env := Envelope{Version: ProtocolVersion, Type: MessageHeartbeat, RequestID: "req-123", SentAt: time.Now(), Body: []byte(`{}`)}
 	if err := env.Validate(); err != nil {

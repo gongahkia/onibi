@@ -70,6 +70,19 @@ func TestFleetHostRejectsTamperedRecord(t *testing.T) {
 	}
 }
 
+func TestFleetHostRejectsUnsafeEnrollmentEndpoint(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	host := testFleetHost()
+	host.Endpoint = fleet.Endpoint{Kind: fleet.EndpointRelay, URL: "https://127.0.0.1"}
+	if err := db.FleetHostUpsert(context.Background(), host); err == nil {
+		t.Fatal("expected unsafe fleet enrollment endpoint error")
+	}
+}
+
 func TestFleetHostHeartbeatIsMonotonic(t *testing.T) {
 	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
 	if err != nil {

@@ -5,8 +5,10 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -232,19 +234,111 @@ func EnrollmentSigningPayload(challenge EnrollmentChallenge, host Host) []byte {
 
 func (e Endpoint) Validate() error {
 	switch e.Kind {
-	case EndpointMesh, EndpointRelay:
-		u, err := url.Parse(e.URL)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	case EndpointMesh:
+		if err := validateHTTPSEndpoint(e.URL, false); err != nil {
+			return fmt.Errorf("invalid %s endpoint", e.Kind)
+		}
+	case EndpointRelay:
+		if err := validateHTTPSEndpoint(e.URL, true); err != nil {
 			return fmt.Errorf("invalid %s endpoint", e.Kind)
 		}
 	case EndpointSSH:
-		if strings.TrimSpace(e.URL) == "" || strings.ContainsAny(e.URL, "\r\n") {
+		if err := validateSSHEndpoint(e.URL); err != nil {
 			return errors.New("invalid ssh endpoint")
 		}
 	default:
 		return fmt.Errorf("unsupported endpoint kind %q", e.Kind)
 	}
 	return nil
+}
+
+func validateHTTPSEndpoint(raw string, requirePublicHost bool) error {
+	if raw != strings.TrimSpace(raw) || len(raw) == 0 || len(raw) > 2048 {
+		return errors.New("invalid endpoint URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("invalid endpoint URL")
+	}
+	if port := u.Port(); port != "" {
+		v, err := strconv.Atoi(port)
+		if err != nil || v < 1 || v > 65535 {
+			return errors.New("invalid endpoint port")
+		}
+	}
+	host := strings.ToLower(u.Hostname())
+	if !validEndpointHost(host, requirePublicHost) {
+		return errors.New("invalid endpoint host")
+	}
+	return nil
+}
+
+func validEndpointHost(host string, requirePublic bool) bool {
+	if host == "" || strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".local") {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return false
+		}
+		return !requirePublic || (!ip.IsPrivate() && !isCarrierGradeNAT(ip))
+	}
+	if len(host) > 253 || (requirePublic && !strings.Contains(host, ".")) {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isCarrierGradeNAT(ip net.IP) bool {
+	v4 := ip.To4()
+	return v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 64
+}
+
+func validateSSHEndpoint(raw string) error {
+	if raw != strings.TrimSpace(raw) || len(raw) == 0 || len(raw) > 512 || strings.ContainsAny(raw, "\r\n\t /?#!") || strings.Count(raw, "@") != 1 {
+		return errors.New("invalid ssh endpoint")
+	}
+	user, target, _ := strings.Cut(raw, "@")
+	if !validSSHUser(user) {
+		return errors.New("invalid ssh user")
+	}
+	host := target
+	if parsedHost, port, err := net.SplitHostPort(target); err == nil {
+		host = parsedHost
+		v, err := strconv.Atoi(port)
+		if err != nil || v < 1 || v > 65535 {
+			return errors.New("invalid ssh port")
+		}
+	} else if strings.Contains(target, ":") || strings.ContainsAny(target, "[]") {
+		return errors.New("invalid ssh host")
+	}
+	if !validEndpointHost(strings.ToLower(host), false) {
+		return errors.New("invalid ssh host")
+	}
+	return nil
+}
+
+func validSSHUser(user string) bool {
+	if len(user) == 0 || len(user) > 64 {
+		return false
+	}
+	for _, r := range user {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type Host struct {
