@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -136,6 +137,36 @@ func TestCloudflareNamedEnableWithKeychainAPIToken(t *testing.T) {
 	}
 }
 
+func TestCloudflareNamedReconnectRefreshesAPITunnelToken(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": "cf-tunnel-token-" + strconv.Itoa(requests)})
+	}))
+	t.Cleanup(srv.Close)
+	runner := &rotatingProcessRunner{processes: []*fakeProcess{newFakeProcess("INF Registered tunnel connection connIndex=0"), newFakeProcess("INF Registered tunnel connection connIndex=1")}}
+	provider := &CloudflareNamed{Bin: "cloudflared", Tunnel: "named", TunnelID: "tunnel-id", Hostname: "app.example.com", AccountID: "account-1", APIToken: "cf-api-token", APIBaseURL: srv.URL, HTTPClient: srv.Client(), processes: runner}
+	session := NewLifecycle(ResolverOptions{Mode: string(ModeCloudflareNamed), Port: 8443, Providers: ProviderFactory{CloudflareNamed: func() Provider { return provider }}})
+	if _, err := session.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Reconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("token requests=%d", requests)
+	}
+	if got := runner.envCalls; len(got) != 2 || got[0].env[0] != "TUNNEL_TOKEN=cf-tunnel-token-1" || got[1].env[0] != "TUNNEL_TOKEN=cf-tunnel-token-2" {
+		t.Fatalf("token env calls=%#v", got)
+	}
+	if _, err := session.Health(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCloudflareNamedAPITokenRequiresAccountID(t *testing.T) {
 	cf := &CloudflareNamed{Bin: "cloudflared", Tunnel: "named", TunnelID: "tunnel-id", Hostname: "app.example.com", APIToken: "cf-api-token-1234567890"}
 	err := cf.Check(context.Background())
@@ -169,6 +200,25 @@ type fakeProcessRunner struct {
 	proc     *fakeProcess
 	calls    [][]string
 	envCalls []envProcessCall
+}
+
+type rotatingProcessRunner struct {
+	processes []*fakeProcess
+	envCalls  []envProcessCall
+}
+
+func (r *rotatingProcessRunner) Start(context.Context, string, ...string) (managedProcess, error) {
+	return nil, errors.New("unexpected non-token start")
+}
+
+func (r *rotatingProcessRunner) StartEnv(_ context.Context, env []string, name string, args ...string) (managedProcess, error) {
+	if len(r.processes) == 0 {
+		return nil, errors.New("missing rotating process")
+	}
+	p := r.processes[0]
+	r.processes = r.processes[1:]
+	r.envCalls = append(r.envCalls, envProcessCall{env: append([]string(nil), env...), call: append([]string{name}, args...)})
+	return p, nil
 }
 
 func (r *fakeProcessRunner) Start(_ context.Context, name string, args ...string) (managedProcess, error) {

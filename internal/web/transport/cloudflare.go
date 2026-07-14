@@ -169,8 +169,16 @@ func (c *CloudflareNamed) Check(ctx context.Context) error {
 		return err
 	}
 	if c.usesTokenAuth() {
-		_, err := c.resolveTunnelToken(ctx)
-		return err
+		if strings.TrimSpace(c.TunnelToken) != "" {
+			return nil
+		}
+		if strings.TrimSpace(c.AccountID) == "" {
+			return Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "ONIBI_CLOUDFLARE_ACCOUNT_ID required for keychain API token auth", nil)
+		}
+		if strings.TrimSpace(c.TunnelID) == "" && strings.TrimSpace(c.Tunnel) == "" {
+			return Diagnostic(DiagAuthMissing, cloudflareNamedProvider, CloudflareTunnelIDEnv+" required for keychain API token auth", nil)
+		}
+		return nil
 	}
 	runner := c.runner
 	if runner == nil {
@@ -257,30 +265,22 @@ func (c *CloudflareNamed) usesTokenAuth() bool {
 }
 
 func (c *CloudflareNamed) resolveTunnelToken(ctx context.Context) (string, error) {
-	if token := strings.TrimSpace(c.TunnelToken); token != "" {
-		return token, nil
-	}
 	apiToken := strings.TrimSpace(c.APIToken)
-	if apiToken == "" {
-		return "", nil
+	if apiToken != "" {
+		accountID := strings.TrimSpace(c.AccountID)
+		if accountID == "" {
+			return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "ONIBI_CLOUDFLARE_ACCOUNT_ID required for keychain API token auth", nil)
+		}
+		tunnelID := strings.TrimSpace(c.TunnelID)
+		if tunnelID == "" {
+			tunnelID = strings.TrimSpace(c.Tunnel)
+		}
+		if tunnelID == "" {
+			return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, CloudflareTunnelIDEnv+" required for keychain API token auth", nil)
+		}
+		return fetchCloudflareTunnelToken(ctx, c.httpClient(), c.apiBaseURL(), accountID, tunnelID, apiToken)
 	}
-	accountID := strings.TrimSpace(c.AccountID)
-	if accountID == "" {
-		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, "ONIBI_CLOUDFLARE_ACCOUNT_ID required for keychain API token auth", nil)
-	}
-	tunnelID := strings.TrimSpace(c.TunnelID)
-	if tunnelID == "" {
-		tunnelID = strings.TrimSpace(c.Tunnel)
-	}
-	if tunnelID == "" {
-		return "", Diagnostic(DiagAuthMissing, cloudflareNamedProvider, CloudflareTunnelIDEnv+" required for keychain API token auth", nil)
-	}
-	token, err := fetchCloudflareTunnelToken(ctx, c.httpClient(), c.apiBaseURL(), accountID, tunnelID, apiToken)
-	if err != nil {
-		return "", err
-	}
-	c.TunnelToken = token
-	return token, nil
+	return strings.TrimSpace(c.TunnelToken), nil
 }
 
 func (c *CloudflareNamed) httpClient() *http.Client {
