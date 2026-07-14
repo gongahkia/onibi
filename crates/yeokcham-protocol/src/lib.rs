@@ -3,6 +3,7 @@
 mod delivery_profile;
 mod domain;
 mod encrypted_message;
+mod extension_frame;
 mod mailbox_capability;
 mod message_payload;
 mod signing;
@@ -16,6 +17,7 @@ pub use domain::CryptoDomain;
 pub use encrypted_message::{
     EncryptedMessageEnvelope, EncryptedMessageError, MAX_ENCRYPTED_HEADER_BYTES,
 };
+pub use extension_frame::{ExtensionFrame, ExtensionFrameError, MAX_EXTENSION_DATA_BYTES};
 pub use mailbox_capability::{
     MAILBOX_CAPABILITY_SCHEMA_VERSION, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
     MailboxCapability, MailboxCapabilityError,
