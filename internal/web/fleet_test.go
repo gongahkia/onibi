@@ -206,3 +206,191 @@ func TestFleetHeartbeatRequiresValidMonotonicHostProof(t *testing.T) {
 		t.Fatalf("bad heartbeat = %d body=%s", badW.Code, badW.Body.String())
 	}
 }
+
+func TestFleetKeyRotationRequiresDualProofAndInvalidatesOldIdentity(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host, currentPrivate, cookie, sessionID := testFleetRotationHost(t, srv)
+	newPublic, newPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := requestFleetKeyRotationChallenge(t, srv, cookie, sessionID, fleet.KeyRotationRequest{
+		Version:           fleet.ProtocolVersion,
+		HostID:            host.ID,
+		NewIdentityPublic: base64.RawURLEncoding.EncodeToString(newPublic),
+	})
+	if err := challenge.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	payload := fleet.KeyRotationSigningPayload(challenge)
+	proof := fleet.KeyRotationProof{
+		Version:          fleet.ProtocolVersion,
+		ChallengeID:      challenge.ID,
+		Nonce:            challenge.Nonce,
+		CurrentSignature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(currentPrivate, payload)),
+		NewSignature:     base64.RawURLEncoding.EncodeToString(ed25519.Sign(newPrivate, payload)),
+	}
+	badProof := proof
+	badProof.NewSignature = "bad"
+	badBody, _ := json.Marshal(badProof)
+	badReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/proof", strings.NewReader(string(badBody)))
+	badW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(badW, badReq)
+	if badW.Code != http.StatusUnauthorized {
+		t.Fatalf("single-key rotation proof = %d", badW.Code)
+	}
+	proofBody, _ := json.Marshal(proof)
+	proofReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/proof", strings.NewReader(string(proofBody)))
+	proofW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(proofW, proofReq)
+	if proofW.Code != http.StatusOK {
+		t.Fatalf("rotation proof = %d body=%s", proofW.Code, proofW.Body.String())
+	}
+	var rotated fleetKeyRotationProofResponse
+	if err := json.NewDecoder(proofW.Body).Decode(&rotated); err != nil {
+		t.Fatal(err)
+	}
+	if rotated.Host.IdentityPublic != challenge.NewIdentityPublic || rotated.HubProof == "" {
+		t.Fatalf("rotation response = %#v", rotated)
+	}
+	hubPublic, err := decodeEd25519Public(challenge.HubPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubProof, err := base64.RawURLEncoding.DecodeString(rotated.HubProof)
+	if err != nil || !ed25519.Verify(hubPublic, payload, hubProof) {
+		t.Fatalf("hub rotation proof valid=%v err=%v", err == nil && ed25519.Verify(hubPublic, payload, hubProof), err)
+	}
+	replayReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/proof", strings.NewReader(string(proofBody)))
+	replayW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(replayW, replayReq)
+	if replayW.Code != http.StatusNotFound {
+		t.Fatalf("replayed rotation proof = %d", replayW.Code)
+	}
+	oldHeartbeat := fleet.Heartbeat{Version: fleet.ProtocolVersion, HostID: host.ID, SentAt: time.Now().UTC(), BinaryVersion: "v1.1.0", Capabilities: []string{"session.read"}}
+	oldHeartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(currentPrivate, fleet.HeartbeatSigningPayload(oldHeartbeat)))
+	oldBody, _ := json.Marshal(oldHeartbeat)
+	oldReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(oldBody)))
+	oldW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(oldW, oldReq)
+	if oldW.Code != http.StatusUnauthorized {
+		t.Fatalf("old identity heartbeat = %d", oldW.Code)
+	}
+	newHeartbeat := oldHeartbeat
+	newHeartbeat.SentAt = time.Now().UTC().Add(time.Second)
+	newHeartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(newPrivate, fleet.HeartbeatSigningPayload(newHeartbeat)))
+	newBody, _ := json.Marshal(newHeartbeat)
+	newReq := httptest.NewRequest(http.MethodPost, "/fleet/heartbeat", strings.NewReader(string(newBody)))
+	newW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(newW, newReq)
+	if newW.Code != http.StatusOK {
+		t.Fatalf("new identity heartbeat = %d body=%s", newW.Code, newW.Body.String())
+	}
+}
+
+func TestFleetKeyRotationRejectsIncompatibleStaleAndRevokedRequests(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	host, currentPrivate, cookie, sessionID := testFleetRotationHost(t, srv)
+	newPublic, newPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidBody, _ := json.Marshal(fleet.KeyRotationRequest{Version: fleet.ProtocolVersion + 1, HostID: host.ID, NewIdentityPublic: base64.RawURLEncoding.EncodeToString(newPublic)})
+	invalidReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/challenge", strings.NewReader(string(invalidBody)))
+	invalidReq.AddCookie(cookie)
+	addCSRF(invalidReq, sessionID)
+	invalidW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(invalidW, invalidReq)
+	if invalidW.Code != http.StatusBadRequest {
+		t.Fatalf("incompatible rotation request = %d", invalidW.Code)
+	}
+	challenge := requestFleetKeyRotationChallenge(t, srv, cookie, sessionID, fleet.KeyRotationRequest{Version: fleet.ProtocolVersion, HostID: host.ID, NewIdentityPublic: base64.RawURLEncoding.EncodeToString(newPublic)})
+	if _, err := srv.db.SQL().Exec(`UPDATE fleet_key_rotation_challenges SET expires_at = 0 WHERE id = ?`, challenge.ID); err != nil {
+		t.Fatal(err)
+	}
+	payload := fleet.KeyRotationSigningPayload(challenge)
+	staleProof, _ := json.Marshal(fleet.KeyRotationProof{
+		Version:          fleet.ProtocolVersion,
+		ChallengeID:      challenge.ID,
+		Nonce:            challenge.Nonce,
+		CurrentSignature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(currentPrivate, payload)),
+		NewSignature:     base64.RawURLEncoding.EncodeToString(ed25519.Sign(newPrivate, payload)),
+	})
+	staleReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/proof", strings.NewReader(string(staleProof)))
+	staleW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(staleW, staleReq)
+	if staleW.Code != http.StatusNotFound {
+		t.Fatalf("stale rotation proof = %d", staleW.Code)
+	}
+	host.State = fleet.HostStateRevoked
+	now := time.Now().UTC()
+	host.RevokedAt = &now
+	if err := srv.db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	revokedBody, _ := json.Marshal(fleet.KeyRotationRequest{Version: fleet.ProtocolVersion, HostID: host.ID, NewIdentityPublic: base64.RawURLEncoding.EncodeToString(newPublic)})
+	revokedReq := httptest.NewRequest(http.MethodPost, "/fleet/rotate/challenge", strings.NewReader(string(revokedBody)))
+	revokedReq.AddCookie(cookie)
+	addCSRF(revokedReq, sessionID)
+	revokedW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(revokedW, revokedReq)
+	if revokedW.Code != http.StatusConflict {
+		t.Fatalf("revoked rotation request = %d", revokedW.Code)
+	}
+}
+
+func testFleetRotationHost(t *testing.T, srv *Server) (fleet.Host, ed25519.PrivateKey, *http.Cookie, string) {
+	t.Helper()
+	ownerID, err := srv.db.FleetOwnerID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := fleet.Host{
+		ID:              "host-rotation",
+		OwnerID:         ownerID,
+		DisplayName:     "Mac Studio",
+		IdentityPublic:  base64.RawURLEncoding.EncodeToString(public),
+		Endpoint:        fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://studio.tailnet.ts.net"},
+		ProtocolVersion: fleet.ProtocolVersion,
+		BinaryVersion:   "v1.0.0",
+		State:           fleet.HostStateActive,
+		RegisteredAt:    time.Now().UTC().Add(-time.Minute),
+		LastSeenAt:      time.Now().UTC().Add(-time.Minute),
+	}
+	if err := srv.db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	sessionID, err := srv.CreateOwnerSession(context.Background(), rr, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return host, private, rr.Result().Cookies()[0], sessionID
+}
+
+func requestFleetKeyRotationChallenge(t *testing.T, srv *Server, cookie *http.Cookie, sessionID string, payload fleet.KeyRotationRequest) fleet.KeyRotationChallenge {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/fleet/rotate/challenge", strings.NewReader(string(body)))
+	req.AddCookie(cookie)
+	addCSRF(req, sessionID)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("key rotation challenge = %d body=%s", w.Code, w.Body.String())
+	}
+	var challenge fleet.KeyRotationChallenge
+	if err := json.NewDecoder(w.Body).Decode(&challenge); err != nil {
+		t.Fatal(err)
+	}
+	return challenge
+}

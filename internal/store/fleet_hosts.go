@@ -75,6 +75,72 @@ func (d *DB) FleetHostList(ctx context.Context) ([]fleet.Host, error) {
 	return out, rows.Err()
 }
 
+func (d *DB) FleetHostRotateIdentity(ctx context.Context, hostID, currentIdentityPublic, newIdentityPublic string) (fleet.Host, bool, error) {
+	if strings.TrimSpace(hostID) == "" || strings.TrimSpace(currentIdentityPublic) == "" || strings.TrimSpace(newIdentityPublic) == "" || currentIdentityPublic == newIdentityPublic {
+		return fleet.Host{}, false, errors.New("invalid fleet host identity rotation")
+	}
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fleet.Host{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var sealed []byte
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT data_enc, state FROM fleet_hosts WHERE id = ?`, hostID).Scan(&sealed, &state); errors.Is(err, sql.ErrNoRows) {
+		return fleet.Host{}, false, nil
+	} else if err != nil {
+		return fleet.Host{}, false, err
+	}
+	if state != string(fleet.HostStateActive) {
+		return fleet.Host{}, false, nil
+	}
+	payload, err := d.openFleetHost(ctx, hostID, sealed)
+	if err != nil {
+		return fleet.Host{}, false, err
+	}
+	var host fleet.Host
+	if err := json.Unmarshal(payload, &host); err != nil {
+		return fleet.Host{}, false, err
+	}
+	host = host.Normalized()
+	if err := host.Validate(); err != nil {
+		return fleet.Host{}, false, err
+	}
+	if host.ID != hostID {
+		return fleet.Host{}, false, errors.New("fleet host record id mismatch")
+	}
+	if host.IdentityPublic != strings.TrimSpace(currentIdentityPublic) {
+		return fleet.Host{}, false, nil
+	}
+	host.IdentityPublic = strings.TrimSpace(newIdentityPublic)
+	if err := host.Validate(); err != nil {
+		return fleet.Host{}, false, err
+	}
+	updatedPayload, err := json.Marshal(host)
+	if err != nil {
+		return fleet.Host{}, false, err
+	}
+	updatedSealed, err := d.sealFleetHost(ctx, host.ID, updatedPayload)
+	if err != nil {
+		return fleet.Host{}, false, err
+	}
+	result, err := tx.ExecContext(ctx,
+		`UPDATE fleet_hosts SET data_enc = ?, updated_at = ? WHERE id = ? AND state = ? AND data_enc = ?`,
+		updatedSealed, time.Now().UTC().Unix(), host.ID, string(fleet.HostStateActive), sealed,
+	)
+	if err != nil {
+		return fleet.Host{}, false, err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil || updated != 1 {
+		return fleet.Host{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return fleet.Host{}, false, err
+	}
+	return host, true, nil
+}
+
 // FleetHostRecordHeartbeat atomically applies a strictly newer heartbeat to
 // an active host. false means the host is missing, inactive, or stale input
 // replayed an already recorded timestamp.

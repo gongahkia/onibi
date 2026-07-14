@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,11 @@ type fleetEnrollmentChallengeRequest struct {
 }
 
 type fleetEnrollmentProofResponse struct {
+	Host     fleet.Host `json:"host"`
+	HubProof string     `json:"hub_proof"`
+}
+
+type fleetKeyRotationProofResponse struct {
 	Host     fleet.Host `json:"host"`
 	HubProof string     `json:"hub_proof"`
 }
@@ -191,6 +197,164 @@ func (s *Server) handleFleetEnrollmentProof(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(fleetEnrollmentProofResponse{Host: host, HubProof: base64.RawURLEncoding.EncodeToString(hubProof)})
 }
 
+func (s *Server) handleFleetKeyRotationChallenge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.db == nil {
+		http.Error(w, "fleet unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
+	if !ok {
+		return
+	}
+	if !s.requireCSRF(w, r, ownerSessionID) {
+		return
+	}
+	var req fleet.KeyRotationRequest
+	if !s.readJSONBodyLimit(w, r, ownerSessionID, &req, 64<<10) {
+		return
+	}
+	if err := req.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ownerID, err := s.db.FleetOwnerID(r.Context())
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	host, found, err := s.db.FleetHostGet(r.Context(), req.HostID)
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !found || host.OwnerID != ownerID {
+		http.Error(w, "unknown host", http.StatusNotFound)
+		return
+	}
+	if host.State != fleet.HostStateActive {
+		http.Error(w, "host is not active", http.StatusConflict)
+		return
+	}
+	newIdentityPublic := strings.TrimSpace(req.NewIdentityPublic)
+	if _, err := decodeEd25519Public(newIdentityPublic); err != nil || newIdentityPublic == host.IdentityPublic {
+		http.Error(w, "invalid new host identity", http.StatusBadRequest)
+		return
+	}
+	privateKey, err := s.fleetHubKey(r.Context())
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	challengeID, err := newFleetKeyRotationID()
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	nonce, err := newFleetNonce()
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	challenge := fleet.KeyRotationChallenge{
+		Version:               fleet.ProtocolVersion,
+		ID:                    challengeID,
+		OwnerID:               ownerID,
+		HostID:                host.ID,
+		CurrentIdentityPublic: host.IdentityPublic,
+		NewIdentityPublic:     newIdentityPublic,
+		Nonce:                 nonce,
+		HubPublic:             base64.RawURLEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)),
+		ExpiresAt:             time.Now().UTC().Add(fleet.EnrollmentTTL).Truncate(time.Second),
+	}
+	if err := s.db.FleetKeyRotationIssue(r.Context(), challenge); err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(challenge)
+}
+
+func (s *Server) handleFleetKeyRotationProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.db == nil {
+		http.Error(w, "fleet unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var proof fleet.KeyRotationProof
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&proof); err != nil || proof.Validate() != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	challenge, ok, err := s.db.FleetKeyRotationGet(r.Context(), proof.ChallengeID)
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "key rotation unavailable", http.StatusNotFound)
+		return
+	}
+	if len(proof.Nonce) != len(challenge.Nonce) || subtle.ConstantTimeCompare([]byte(proof.Nonce), []byte(challenge.Nonce)) != 1 {
+		http.Error(w, "invalid key rotation proof", http.StatusUnauthorized)
+		return
+	}
+	currentPublic, err := decodeEd25519Public(challenge.CurrentIdentityPublic)
+	if err != nil {
+		http.Error(w, "invalid current host identity", http.StatusInternalServerError)
+		return
+	}
+	newPublic, err := decodeEd25519Public(challenge.NewIdentityPublic)
+	if err != nil {
+		http.Error(w, "invalid new host identity", http.StatusInternalServerError)
+		return
+	}
+	currentSignature, err := base64.RawURLEncoding.DecodeString(proof.CurrentSignature)
+	if err != nil || !ed25519.Verify(currentPublic, fleet.KeyRotationSigningPayload(challenge), currentSignature) {
+		http.Error(w, "invalid key rotation proof", http.StatusUnauthorized)
+		return
+	}
+	newSignature, err := base64.RawURLEncoding.DecodeString(proof.NewSignature)
+	if err != nil || !ed25519.Verify(newPublic, fleet.KeyRotationSigningPayload(challenge), newSignature) {
+		http.Error(w, "invalid key rotation proof", http.StatusUnauthorized)
+		return
+	}
+	consumed, err := s.db.FleetKeyRotationConsume(r.Context(), proof.ChallengeID, proof.Nonce)
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !consumed {
+		http.Error(w, "key rotation unavailable", http.StatusConflict)
+		return
+	}
+	host, rotated, err := s.db.FleetHostRotateIdentity(r.Context(), challenge.HostID, challenge.CurrentIdentityPublic, challenge.NewIdentityPublic)
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !rotated {
+		http.Error(w, "key rotation unavailable", http.StatusConflict)
+		return
+	}
+	privateKey, err := s.fleetHubKey(r.Context())
+	if err != nil {
+		http.Error(w, "fleet unavailable", http.StatusInternalServerError)
+		return
+	}
+	hubProof := ed25519.Sign(privateKey, fleet.KeyRotationSigningPayload(challenge))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(fleetKeyRotationProofResponse{Host: host, HubProof: base64.RawURLEncoding.EncodeToString(hubProof)})
+}
+
 func (s *Server) handleFleetHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -294,6 +458,14 @@ func newFleetEnrollmentID() (string, error) {
 		return "", err
 	}
 	return "enroll-" + hex.EncodeToString(b), nil
+}
+
+func newFleetKeyRotationID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "rotate-" + hex.EncodeToString(b), nil
 }
 
 func newFleetNonce() (string, error) {

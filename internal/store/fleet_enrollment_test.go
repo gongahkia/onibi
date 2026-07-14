@@ -73,3 +73,55 @@ func TestFleetEnrollmentConsumesNonceOnlyOnce(t *testing.T) {
 		t.Fatalf("replay consume ok=%v err=%v", ok, err)
 	}
 }
+
+func TestFleetKeyRotationConsumesNonceOnlyOnceConcurrently(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	challenge := fleet.KeyRotationChallenge{
+		Version:               fleet.ProtocolVersion,
+		ID:                    "rotate-123",
+		OwnerID:               "owner-local",
+		HostID:                "host-macbook",
+		CurrentIdentityPublic: "current-public-key",
+		NewIdentityPublic:     "new-public-key",
+		Nonce:                 "nonce",
+		HubPublic:             "hub-public",
+		ExpiresAt:             time.Now().Add(time.Minute),
+	}
+	if err := db.FleetKeyRotationIssue(context.Background(), challenge); err != nil {
+		t.Fatal(err)
+	}
+	const consumers = 12
+	results := make(chan bool, consumers)
+	errs := make(chan error, consumers)
+	var wg sync.WaitGroup
+	for range consumers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := db.FleetKeyRotationConsume(context.Background(), challenge.ID, challenge.Nonce)
+			results <- ok
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	successes := 0
+	for ok := range results {
+		if ok {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful key rotation consumes = %d", successes)
+	}
+}

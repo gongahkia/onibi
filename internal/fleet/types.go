@@ -18,12 +18,14 @@ const EnrollmentTTL = 10 * time.Minute
 type MessageType string
 
 const (
-	MessageEnrollmentChallenge MessageType = "enrollment.challenge"
-	MessageEnrollmentProof     MessageType = "enrollment.proof"
-	MessageHeartbeat           MessageType = "host.heartbeat"
-	MessageFleetSnapshot       MessageType = "fleet.snapshot"
-	MessageControl             MessageType = "fleet.control"
-	MessageRevoke              MessageType = "host.revoke"
+	MessageEnrollmentChallenge  MessageType = "enrollment.challenge"
+	MessageEnrollmentProof      MessageType = "enrollment.proof"
+	MessageKeyRotationChallenge MessageType = "identity.rotate.challenge"
+	MessageKeyRotationProof     MessageType = "identity.rotate.proof"
+	MessageHeartbeat            MessageType = "host.heartbeat"
+	MessageFleetSnapshot        MessageType = "fleet.snapshot"
+	MessageControl              MessageType = "fleet.control"
+	MessageRevoke               MessageType = "host.revoke"
 )
 
 type Envelope struct {
@@ -99,6 +101,75 @@ type EnrollmentProof struct {
 	ChallengeID string `json:"challenge_id"`
 	Nonce       string `json:"nonce"`
 	Signature   string `json:"signature"`
+}
+
+type KeyRotationRequest struct {
+	Version           uint16 `json:"version"`
+	HostID            string `json:"host_id"`
+	NewIdentityPublic string `json:"new_identity_public"`
+}
+
+func (r KeyRotationRequest) Validate() error {
+	if r.Version != ProtocolVersion {
+		return fmt.Errorf("fleet key rotation version %d is incompatible with %d", r.Version, ProtocolVersion)
+	}
+	if !validID(r.HostID) || !validIdentityPublic(r.NewIdentityPublic) {
+		return errors.New("invalid fleet key rotation request")
+	}
+	return nil
+}
+
+type KeyRotationChallenge struct {
+	Version               uint16    `json:"version"`
+	ID                    string    `json:"id"`
+	OwnerID               string    `json:"owner_id"`
+	HostID                string    `json:"host_id"`
+	CurrentIdentityPublic string    `json:"current_identity_public"`
+	NewIdentityPublic     string    `json:"new_identity_public"`
+	Nonce                 string    `json:"nonce"`
+	HubPublic             string    `json:"hub_public"`
+	ExpiresAt             time.Time `json:"expires_at"`
+}
+
+func (c KeyRotationChallenge) Validate() error {
+	if c.Version != ProtocolVersion {
+		return fmt.Errorf("fleet key rotation version %d is incompatible with %d", c.Version, ProtocolVersion)
+	}
+	if !validID(c.ID) || !validID(c.OwnerID) || !validID(c.HostID) || !validIdentityPublic(c.CurrentIdentityPublic) || !validIdentityPublic(c.NewIdentityPublic) || strings.TrimSpace(c.Nonce) == "" || strings.TrimSpace(c.HubPublic) == "" || c.ExpiresAt.IsZero() || c.CurrentIdentityPublic == c.NewIdentityPublic {
+		return errors.New("invalid fleet key rotation challenge")
+	}
+	return nil
+}
+
+type KeyRotationProof struct {
+	Version          uint16 `json:"version"`
+	ChallengeID      string `json:"challenge_id"`
+	Nonce            string `json:"nonce"`
+	CurrentSignature string `json:"current_signature"`
+	NewSignature     string `json:"new_signature"`
+}
+
+func (p KeyRotationProof) Validate() error {
+	if p.Version != ProtocolVersion {
+		return fmt.Errorf("fleet key rotation version %d is incompatible with %d", p.Version, ProtocolVersion)
+	}
+	if !validID(p.ChallengeID) || strings.TrimSpace(p.Nonce) == "" || strings.TrimSpace(p.CurrentSignature) == "" || strings.TrimSpace(p.NewSignature) == "" {
+		return errors.New("invalid fleet key rotation proof")
+	}
+	return nil
+}
+
+func KeyRotationSigningPayload(challenge KeyRotationChallenge) []byte {
+	return []byte(strings.Join([]string{
+		"onibi-fleet-key-rotation-v1",
+		challenge.ID,
+		challenge.Nonce,
+		challenge.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		challenge.OwnerID,
+		challenge.HostID,
+		challenge.CurrentIdentityPublic,
+		challenge.NewIdentityPublic,
+	}, "\n"))
 }
 
 type Heartbeat struct {
@@ -316,11 +387,16 @@ func (s Snapshot) Validate() error {
 
 func validMessageType(v MessageType) bool {
 	switch v {
-	case MessageEnrollmentChallenge, MessageEnrollmentProof, MessageHeartbeat, MessageFleetSnapshot, MessageControl, MessageRevoke:
+	case MessageEnrollmentChallenge, MessageEnrollmentProof, MessageKeyRotationChallenge, MessageKeyRotationProof, MessageHeartbeat, MessageFleetSnapshot, MessageControl, MessageRevoke:
 		return true
 	default:
 		return false
 	}
+}
+
+func validIdentityPublic(v string) bool {
+	v = strings.TrimSpace(v)
+	return v != "" && len(v) <= 4096
 }
 
 func validHostState(v HostState) bool {

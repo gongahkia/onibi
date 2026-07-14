@@ -89,3 +89,31 @@ func TestFleetHostHeartbeatIsMonotonic(t *testing.T) {
 		t.Fatalf("replayed heartbeat applied=%v err=%v", applied, err)
 	}
 }
+
+func TestFleetHostRotateIdentityRequiresCurrentActiveIdentity(t *testing.T) {
+	db, err := OpenEphemeral(t.TempDir() + "/fleet.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	host := testFleetHost()
+	if err := db.FleetHostUpsert(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	rotated, ok, err := db.FleetHostRotateIdentity(context.Background(), host.ID, host.IdentityPublic, "rotated-public-key")
+	if err != nil || !ok || rotated.IdentityPublic != "rotated-public-key" {
+		t.Fatalf("rotated=%#v ok=%v err=%v", rotated, ok, err)
+	}
+	if _, ok, err := db.FleetHostRotateIdentity(context.Background(), host.ID, host.IdentityPublic, "second-public-key"); err != nil || ok {
+		t.Fatalf("stale rotation ok=%v err=%v", ok, err)
+	}
+	rotated.State = fleet.HostStateRevoked
+	now := time.Now().UTC()
+	rotated.RevokedAt = &now
+	if err := db.FleetHostUpsert(context.Background(), rotated); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := db.FleetHostRotateIdentity(context.Background(), host.ID, rotated.IdentityPublic, "third-public-key"); err != nil || ok {
+		t.Fatalf("revoked rotation ok=%v err=%v", ok, err)
+	}
+}

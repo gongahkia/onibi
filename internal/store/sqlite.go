@@ -307,6 +307,16 @@ CREATE TABLE IF NOT EXISTS fleet_enrollment_challenges (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_fleet_enrollment_expires ON fleet_enrollment_challenges(expires_at, consumed_at);
+
+CREATE TABLE IF NOT EXISTS fleet_key_rotation_challenges (
+  id          TEXT PRIMARY KEY,
+  challenge_enc BLOB NOT NULL,
+  nonce_hash  BLOB NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fleet_key_rotation_expires ON fleet_key_rotation_challenges(expires_at, consumed_at);
 `
 
 func (d *DB) migrate() error {

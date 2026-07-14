@@ -104,3 +104,32 @@ func TestHeartbeatSigningPayloadNormalizesCapabilities(t *testing.T) {
 		t.Fatalf("payload = %q", payload)
 	}
 }
+
+func TestKeyRotationProtocolValidationAndBinding(t *testing.T) {
+	challenge := KeyRotationChallenge{
+		Version:               ProtocolVersion,
+		ID:                    "rotate-123",
+		OwnerID:               "owner-local",
+		HostID:                "host-macbook",
+		CurrentIdentityPublic: "current-public-key",
+		NewIdentityPublic:     "new-public-key",
+		Nonce:                 "nonce",
+		HubPublic:             "hub-public",
+		ExpiresAt:             time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC),
+	}
+	if err := challenge.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	payload := string(KeyRotationSigningPayload(challenge))
+	for _, want := range []string{challenge.ID, challenge.OwnerID, challenge.HostID, challenge.CurrentIdentityPublic, challenge.NewIdentityPublic, challenge.Nonce} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("key rotation payload missing %q: %q", want, payload)
+		}
+	}
+	if err := (KeyRotationProof{Version: ProtocolVersion, ChallengeID: challenge.ID, Nonce: challenge.Nonce, CurrentSignature: "current", NewSignature: "new"}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (KeyRotationRequest{Version: ProtocolVersion + 1, HostID: challenge.HostID, NewIdentityPublic: challenge.NewIdentityPublic}).Validate(); err == nil {
+		t.Fatal("expected incompatible key rotation request error")
+	}
+}
