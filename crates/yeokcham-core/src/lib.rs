@@ -3,6 +3,8 @@
 mod error;
 mod identity;
 mod keystore;
+#[cfg(any(target_os = "linux", test))]
+mod keystore_linux;
 #[cfg(target_os = "macos")]
 mod keystore_macos;
 #[cfg(any(target_os = "windows", test))]
@@ -21,6 +23,8 @@ pub use keystore::{
     KeystoreEntryName, KeystoreEntryNameError, KeystoreSecret, KeystoreSecretError,
     MAX_KEYSTORE_ENTRY_NAME_BYTES, MAX_KEYSTORE_SECRET_BYTES, OsKeystore,
 };
+#[cfg(target_os = "linux")]
+pub use keystore_linux::{LINUX_SECRET_SERVICE, LinuxKeystore, LinuxKeystoreError};
 #[cfg(target_os = "macos")]
 pub use keystore_macos::{MACOS_KEYCHAIN_SERVICE, MacOsKeystore, MacOsKeystoreError};
 #[cfg(target_os = "windows")]

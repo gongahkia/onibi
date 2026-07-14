@@ -25,6 +25,10 @@ security-framework-sys.workspace = true
 keyring-core.workspace = true
 windows-native-keyring-store.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring-core.workspace = true
+zbus-secret-service-keyring-store.workspace = true
+
 [dev-dependencies]
 tracing-subscriber.workspace = true
 
