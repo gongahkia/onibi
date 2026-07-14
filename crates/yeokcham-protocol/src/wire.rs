@@ -1,9 +1,10 @@
-use minicbor::{Decoder, Encoder};
+use minicbor::{Decoder, Encoder, data::Type};
 use yeokcham_core::Error;
 
 use crate::ProtocolVersion;
 
 pub const MAX_FRAME_BYTES: usize = 1_048_576;
+const MAX_DECODER_DEPTH: usize = 1;
 const ENVELOPE_FIELDS: u64 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +67,8 @@ pub enum WireError {
     FrameTooLarge,
     #[error("payload exceeds configured limit")]
     PayloadTooLarge,
+    #[error("CBOR nesting exceeds the envelope depth limit")]
+    NestingTooDeep,
     #[error("envelope must be a three-element definite-length CBOR array")]
     InvalidEnvelopeShape,
     #[error("invalid envelope kind: {0}")]
@@ -110,14 +113,17 @@ impl WireEnvelope {
         if decoder.array().map_err(|_| WireError::Decode)? != Some(ENVELOPE_FIELDS) {
             return Err(WireError::InvalidEnvelopeShape);
         }
+        reject_nested_value(&decoder, MAX_DECODER_DEPTH + 1)?;
         let version = ProtocolVersion::new(decoder.u16().map_err(|_| WireError::Decode)?).map_err(
             |error| match error {
                 Error::UnsupportedVersion(version) => WireError::UnsupportedVersion(version),
                 _ => WireError::Decode,
             },
         )?;
+        reject_nested_value(&decoder, MAX_DECODER_DEPTH + 1)?;
         let kind = EnvelopeKind::try_from(decoder.u8().map_err(|_| WireError::Decode)?)?;
-        let payload = decoder.bytes().map_err(|_| WireError::Decode)?.to_vec();
+        reject_nested_value(&decoder, MAX_DECODER_DEPTH + 1)?;
+        let payload = decoder.bytes().map_err(|_| WireError::Decode)?;
         if payload.len() > limits.maximum_payload_bytes {
             return Err(WireError::PayloadTooLarge);
         }
@@ -127,9 +133,21 @@ impl WireEnvelope {
         Ok(Self {
             version,
             kind,
-            payload,
+            payload: payload.to_vec(),
         })
     }
+}
+
+fn reject_nested_value(decoder: &Decoder<'_>, depth: usize) -> Result<(), WireError> {
+    if depth > MAX_DECODER_DEPTH
+        && matches!(
+            decoder.datatype().map_err(|_| WireError::Decode)?,
+            Type::Array | Type::ArrayIndef | Type::Map | Type::MapIndef | Type::Tag
+        )
+    {
+        return Err(WireError::NestingTooDeep);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -180,6 +198,20 @@ mod tests {
         assert_eq!(
             envelope().encode(limits).unwrap_err(),
             WireError::PayloadTooLarge
+        );
+        let encoded = envelope().encode(WireLimits::REFERENCE).unwrap();
+        assert_eq!(
+            WireEnvelope::decode(&encoded, limits).unwrap_err(),
+            WireError::PayloadTooLarge
+        );
+    }
+
+    #[test]
+    fn rejects_nested_values_without_recursion() {
+        let nested_version = [0x83, 0x81, 0x01, 0x02, 0x40];
+        assert_eq!(
+            WireEnvelope::decode(&nested_version, WireLimits::REFERENCE).unwrap_err(),
+            WireError::NestingTooDeep
         );
     }
 }
