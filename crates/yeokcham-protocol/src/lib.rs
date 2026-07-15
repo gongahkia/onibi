@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod attachment_chunk;
+mod attachment_download;
 mod attachment_key;
 mod attachment_upload;
 mod contact_invitation;
@@ -41,6 +42,10 @@ pub use attachment_chunk::{
     ATTACHMENT_CHUNK_TAG_BYTES, AttachmentChunkError, AttachmentChunkHash,
     ENCRYPTED_ATTACHMENT_CHUNK_BYTES, ENCRYPTED_ATTACHMENT_CHUNK_SCHEMA_VERSION,
     EncryptedAttachmentChunk, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES,
+};
+pub use attachment_download::{
+    ATTACHMENT_DOWNLOAD_JOURNAL_SCHEMA_VERSION, AttachmentDownloadError, AttachmentDownloadJournal,
+    MAX_ATTACHMENT_DOWNLOAD_JOURNAL_BYTES,
 };
 pub use attachment_key::{
     ATTACHMENT_IDENTIFIER_BYTES, ATTACHMENT_KEY_BYTES, AttachmentChunkKey, AttachmentIdentifier,
