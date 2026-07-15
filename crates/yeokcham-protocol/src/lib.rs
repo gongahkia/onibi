@@ -2,6 +2,7 @@
 
 mod attachment_chunk;
 mod attachment_key;
+mod attachment_upload;
 mod contact_invitation;
 mod delivery_acknowledgement;
 mod delivery_profile;
@@ -44,6 +45,10 @@ pub use attachment_chunk::{
 pub use attachment_key::{
     ATTACHMENT_IDENTIFIER_BYTES, ATTACHMENT_KEY_BYTES, AttachmentChunkKey, AttachmentIdentifier,
     AttachmentKey, AttachmentKeyError,
+};
+pub use attachment_upload::{
+    ATTACHMENT_UPLOAD_JOURNAL_SCHEMA_VERSION, AttachmentUploadError, AttachmentUploadJournal,
+    MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES,
 };
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
