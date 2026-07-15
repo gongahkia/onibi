@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod contact_invitation;
+mod delivery_acknowledgement;
 mod delivery_profile;
 mod direct_peer_auth;
 mod direct_profile;
@@ -35,6 +36,9 @@ mod x3dh;
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
     ContactInvitation, ContactInvitationError,
+};
+pub use delivery_acknowledgement::{
+    DELIVERY_ACKNOWLEDGEMENT_SCHEMA_VERSION, DeliveryAcknowledgement, DeliveryAcknowledgementError,
 };
 pub use delivery_profile::{
     DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
