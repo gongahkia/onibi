@@ -20,6 +20,10 @@ func TestExtensionSourceMatchesPiContracts(t *testing.T) {
 		`Object.assign(event.input, nextInput); // Pi does no post-mutation validation; validate before mutation`,
 		`function parseUpdatedInput(value: string)`,
 		`Array.isArray(parsed)`,
+		`Invalid Onibi approval response`,
+		`Invalid Onibi edited input`,
+		`pi.on("session_start", async (event: any) => emit("agent_message", event))`,
+		`pi.on("agent_end", async (event: any) => emit("agent_done", event))`,
 		`pi.on("session_shutdown", async (event: any) => emit("session_exited", event))`,
 		`const ONIBI_INTEGRATION_VERSION = "` + common.IntegrationVersion + `"`,
 	} {
@@ -29,21 +33,48 @@ func TestExtensionSourceMatchesPiContracts(t *testing.T) {
 	}
 }
 
+func TestAdapterPiEditReplacesToolInput(t *testing.T) {
+	node := denytest.Node(t)
+	tsc := denytest.TSC(t)
+	dir := t.TempDir()
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nprintf '%s\\n' '{\"decision\":\"edited\",\"updated_input\":\"{\\\"content\\\":\\\"safe\\\"}\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), piExtensionTypes)
+	denytest.RunNodeScript(t, node, dir, `import plugin from "./out/onibi.js";
+const handlers = new Map();
+plugin({ on(name, handler) { handlers.set(name, handler); } });
+const event = { sessionId: "s1", cwd: process.cwd(), toolName: "writeFile", input: { content: "unsafe" } };
+const result = await handlers.get("tool_call")(event);
+if (result?.block === true || event.input.content !== "safe") throw new Error(JSON.stringify({ result, input: event.input }));
+`)
+}
+
+func TestAdapterPiInvalidApprovalResponseBlocksTool(t *testing.T) {
+	node := denytest.Node(t)
+	tsc := denytest.TSC(t)
+	dir := t.TempDir()
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nprintf 'not-json\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), piExtensionTypes)
+	denytest.RunNodeScript(t, node, dir, `import plugin from "./out/onibi.js";
+const handlers = new Map();
+plugin({ on(name, handler) { handlers.set(name, handler); } });
+const result = await handlers.get("tool_call")({ sessionId: "s1", cwd: process.cwd(), toolName: "writeFile", input: { content: "unsafe" } });
+if (result?.block !== true) throw new Error(JSON.stringify(result));
+`)
+}
+
 func TestAdapterPiDenyBlocksTool(t *testing.T) {
 	node := denytest.Node(t)
 	tsc := denytest.TSC(t)
 	dir := t.TempDir()
 	notify := denytest.DenyNotify(t)
 	target := denytest.Target(t, Agent)
-	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), `declare module "@earendil-works/pi-coding-agent" {
-  export interface ExtensionAPI {
-    on(name: string, handler: (event: any, ctx?: any) => any): void;
-  }
-}
-declare module "node:child_process" {
-  export function spawnSync(command: string, args?: readonly string[], options?: any): { status: number | null; stdout?: string };
-}
-`)
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), piExtensionTypes)
 	denytest.RunNodeScript(t, node, dir, `import fs from "node:fs/promises";
 import plugin from "./out/onibi.js";
 const target = process.argv[2];
@@ -54,6 +85,16 @@ if (result?.block !== true) await fs.writeFile(target, "created\n");
 `, target)
 	denytest.AssertNotCreated(t, target)
 }
+
+const piExtensionTypes = `declare module "@earendil-works/pi-coding-agent" {
+  export interface ExtensionAPI {
+    on(name: string, handler: (event: any, ctx?: any) => any): void;
+  }
+}
+declare module "node:child_process" {
+  export function spawnSync(command: string, args?: readonly string[], options?: any): { status: number | null; stdout?: string };
+}
+`
 
 func TestExtensionPathScopes(t *testing.T) {
 	home := t.TempDir()
@@ -110,15 +151,7 @@ func TestGeneratedExtensionTypeChecksWithFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	types := filepath.Join(dir, "types.d.ts")
-	if err := os.WriteFile(types, []byte(`declare module "@earendil-works/pi-coding-agent" {
-  export interface ExtensionAPI {
-    on(name: string, handler: (event: any, ctx?: any) => any): void;
-  }
-}
-declare module "node:child_process" {
-  export function spawnSync(command: string, args?: readonly string[], options?: any): { status: number | null; stdout?: string };
-}
-`), 0o600); err != nil {
+	if err := os.WriteFile(types, []byte(piExtensionTypes), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := exec.Command(tsc, "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--skipLibCheck", src, types).CombinedOutput()

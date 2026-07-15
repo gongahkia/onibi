@@ -256,8 +256,8 @@ func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict
 	if st == "" {
 		return DecisionResult{}, fmt.Errorf("invalid verdict %q", verdict)
 	}
-	if verdict == VerdictEdit && !json.Valid([]byte(editedJSON)) {
-		return DecisionResult{}, fmt.Errorf("edited approval input must be valid JSON")
+	if verdict == VerdictEdit && !jsonObject(editedJSON) {
+		return DecisionResult{}, fmt.Errorf("edited approval input must be a JSON object")
 	}
 	now := time.Now()
 	a, err := q.Get(ctx, id)
@@ -275,6 +275,11 @@ func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict
 		return res, ErrExpired
 	}
 	return q.finish(ctx, a, verdict, editedJSON, reason, decidedBy, now)
+}
+
+func jsonObject(raw string) bool {
+	var value map[string]json.RawMessage
+	return json.Unmarshal([]byte(raw), &value) == nil && value != nil
 }
 
 func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) (DecisionResult, error) {

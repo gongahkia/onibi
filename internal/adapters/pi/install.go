@@ -206,11 +206,21 @@ async function approval(event: any) {
   };
   const r = await runOnibi(["--agent", ONIBI_AGENT, "--format", "pi", "--type", "approval_request", "--wait", "--response", "onibi-json"], payload);
   if (!r.stdout.trim()) return undefined;
-  const decision = JSON.parse(r.stdout);
+  let decision: any;
+  try {
+    decision = JSON.parse(r.stdout);
+  } catch {
+    return { block: true, reason: "Invalid Onibi approval response" };
+  }
   if (decision.decision === "deny" || decision.decision === "expired") return { block: true, reason: decision.reason || "Denied by Onibi" };
-  if (decision.decision === "edited" && decision.updated_input && event?.input && typeof event.input === "object") {
-    const nextInput = parseUpdatedInput(decision.updated_input);
-    Object.assign(event.input, nextInput); // Pi does no post-mutation validation; validate before mutation
+  if (decision.decision === "edited") {
+    if (!decision.updated_input || !event?.input || typeof event.input !== "object") return { block: true, reason: "Invalid Onibi edited input" };
+    try {
+      const nextInput = parseUpdatedInput(decision.updated_input);
+      Object.assign(event.input, nextInput); // Pi does no post-mutation validation; validate before mutation
+    } catch {
+      return { block: true, reason: "Invalid Onibi edited input" };
+    }
   }
   return undefined;
 }

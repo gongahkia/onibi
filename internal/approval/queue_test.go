@@ -81,6 +81,25 @@ func TestDecideEditedCarriesPayload(t *testing.T) {
 	}
 }
 
+func TestDecideEditedRejectsNonObjectPayload(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	for _, edited := range []string{"", "null", "[]", `"text"`, "1", "true", "{"} {
+		t.Run(edited, func(t *testing.T) {
+			id, _, err := q.Request(t.Context(), "s", "pi", "write", `{}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := q.Decide(t.Context(), id, VerdictEdit, edited, "", 1); err == nil {
+				t.Fatalf("accepted %q", edited)
+			}
+			a, err := q.Get(t.Context(), id)
+			if err != nil || a.State != StatePending {
+				t.Fatalf("approval=%+v err=%v", a, err)
+			}
+		})
+	}
+}
+
 func TestDecideOnlyOnceWins(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()

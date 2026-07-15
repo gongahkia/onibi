@@ -2,7 +2,6 @@ package approval
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -36,7 +35,7 @@ func FuzzDecide(f *testing.F) {
 
 		verdict := fuzzVerdict(op)
 		edited := fuzzEdited(verdict, edit)
-		if verdict == VerdictEdit && !json.Valid([]byte(edited)) {
+		if verdict == VerdictEdit && !jsonObject(edited) {
 			if err := q.Decide(ctx, id, VerdictEdit, edited, "", 1); err == nil {
 				t.Fatal("invalid edit JSON was accepted")
 			}

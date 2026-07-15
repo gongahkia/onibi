@@ -33,6 +33,8 @@ Pending approval rows survive daemon restart for inspection and audit, but a par
 - Codex: run `codex`, review hooks, and trust matching commands.
 - Pi: run `/reload`.
 
+Pi reload and session replacement emit `session_shutdown` before a fresh extension instance receives `session_start`; Onibi maps those events to session exit and activity. Pi executes edited tool input without re-validating it, so Onibi accepts edited approval input only when it is a JSON object. An invalid Pi approval response or edited input blocks the tool.
+
 ## Audit
 
 Approval decisions are audit rows containing a payload SHA-256 and compact decision metadata. Raw tool payloads, including replacement input, must not be written to audit detail. The queue is idempotent: only its first pending-to-terminal decision wins.
