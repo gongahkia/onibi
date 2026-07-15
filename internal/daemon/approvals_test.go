@@ -332,6 +332,56 @@ func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestNormalizesV1ModelBeforePolicies(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	if err := d.Registry.Add(NewSession("s1", "claude", "claude", nil, 0)); err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	result := make(chan approvalResult, 1)
+	go func() {
+		resp, err := d.handleApprovalRequest(t.Context(), intake.Event{
+			Type:    intake.TypeApprovalRequest,
+			Session: "s1",
+			Managed: true,
+			Approval: &approval.Request{
+				Version:   approval.ApprovalSchemaV1,
+				SessionID: "forged-session",
+				Agent:     "pi",
+				Tool:      "Bash",
+				Input:     []byte(`{"z":1,"command":"rm -rf /tmp/x"}`),
+				Details:   approval.Details{Command: "forged"},
+				Risk:      approval.Risk{Level: approval.RiskLow},
+			},
+		})
+		result <- approvalResult{resp: resp, err: err}
+	}()
+	requested := readTrustApprovalEvent(t, events)
+	req, err := approval.RequestForApproval(requested.Approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.SessionID != "s1" || req.Agent != "claude" || string(req.Input) != `{"command":"rm -rf /tmp/x","z":1}` || req.Details.Command != "rm -rf /tmp/x" || req.Risk.Level != approval.RiskHigh {
+		t.Fatalf("normalized request = %#v", req)
+	}
+	if err := d.Queue.Decide(t.Context(), requested.Approval.ID, approval.VerdictDeny, "", "no", 1); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil || got.resp.Decision != string(approval.VerdictDeny) {
+			t.Fatalf("result = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval did not return")
+	}
+}
+
 func TestResponseForDecisionDenyUsesProviderVerdict(t *testing.T) {
 	resp := responseForDecision(approval.Decision{Verdict: approval.VerdictDeny, Reason: "owner denied"}, intake.Event{})
 	if resp.Decision != string(approval.VerdictDeny) || resp.Reason != "owner denied" {

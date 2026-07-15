@@ -331,7 +331,8 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 			_ = b.client.AnswerCallbackQuery(ctx, q.ID, err.Error())
 			return
 		}
-		if approval.ClassifyRisk(a.Tool, a.InputJSON).Level == "high" {
+		model, err := approval.RequestForApproval(*a)
+		if err != nil || model.Risk.Level == approval.RiskHigh {
 			b.send(ctx, chatID, "High-risk approval. Tap confirm to approve "+a.ID+".", &telegram.InlineKeyboardMarkup{
 				InlineKeyboard: [][]telegram.InlineKeyboardButton{{{Text: "Confirm approve", CallbackData: "cf:" + a.ID}, {Text: "Deny", CallbackData: "dn:" + a.ID}}},
 			})
@@ -433,16 +434,19 @@ func formatApproval(a *approval.Approval) string {
 }
 
 func formatApprovalWithPolicy(a *approval.Approval, policy ProviderOutputPolicy) string {
-	details := approval.ExtractDetails(a.Tool, a.InputJSON)
+	model, err := approval.PayloadForApproval(*a)
+	if err != nil {
+		return "Approval " + a.ID + " has an invalid payload. Deny it or inspect local logs."
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Approval %s\nagent=%s tool=%s session=%s\nrisk=%s\n", a.ID, a.Agent, a.Tool, a.SessionID, approval.ClassifyRisk(a.Tool, a.InputJSON).Level)
-	if details.Command != "" {
-		fmt.Fprintf(&b, "\ncommand:\n%s\n", policy.redact(details.Command))
+	fmt.Fprintf(&b, "Approval %s\nagent=%s tool=%s session=%s\nrisk=%s\n", model.ID, model.Agent, model.Tool, model.SessionID, model.Risk.Level)
+	if model.Details.Command != "" {
+		fmt.Fprintf(&b, "\ncommand:\n%s\n", policy.redact(model.Details.Command))
 	}
-	if details.FilePath != "" {
-		fmt.Fprintf(&b, "\nfile:\n%s\n", policy.redact(details.FilePath))
+	if model.Details.FilePath != "" {
+		fmt.Fprintf(&b, "\nfile:\n%s\n", policy.redact(model.Details.FilePath))
 	}
-	body := policy.redact(a.InputJSON)
+	body := policy.redact(model.ScrubbedInput)
 	if len(body) > 1800 {
 		body = body[:1800] + "\n..."
 	}

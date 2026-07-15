@@ -114,12 +114,19 @@ func (s *Server) handleApprovalGet(w http.ResponseWriter, r *http.Request, start
 		writeApprovalError(w, err)
 		return
 	}
+	model, err := approvals.PayloadForApproval(*a)
+	if err != nil {
+		s.log.Warn("web approval status invalid payload", "request_id", requestID(r), "approval_id", id, "err", err)
+		http.Error(w, "invalid approval payload", http.StatusInternalServerError)
+		return
+	}
 	payload := map[string]any{
-		"id":         a.ID,
-		"session_id": a.SessionID,
-		"agent":      a.Agent,
-		"tool":       a.Tool,
-		"state":      a.State,
+		"id":         model.ID,
+		"session_id": model.SessionID,
+		"agent":      model.Agent,
+		"tool":       model.Tool,
+		"state":      model.State,
+		"approval":   model,
 		"expires_at": a.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	}
 	if a.Reason != "" {
@@ -128,8 +135,8 @@ func (s *Server) handleApprovalGet(w http.ResponseWriter, r *http.Request, start
 	if !a.DecidedAt.IsZero() {
 		payload["decided_at"] = a.DecidedAt.Unix()
 	}
-	if details := approvals.ExtractDetails(a.Tool, a.InputJSON); details.FilePath != "" {
-		payload["file_path"] = details.FilePath
+	if model.Details.FilePath != "" {
+		payload["file_path"] = model.Details.FilePath
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)

@@ -363,18 +363,21 @@ func writeEventEnvelope(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, 
 
 func approvalEventPayload(ev approval.Event) map[string]any {
 	a := ev.Approval
+	model, err := approval.PayloadForApproval(a)
+	if err != nil {
+		return map[string]any{"id": a.ID, "session_id": a.SessionID, "state": a.State, "error": "invalid approval payload"}
+	}
 	switch ev.Type {
 	case approval.EventRequested:
-		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
-		details := approval.ExtractDetails(a.Tool, a.InputJSON)
 		payload := map[string]any{
 			"id":             a.ID,
 			"session_id":     a.SessionID,
 			"agent":          a.Agent,
 			"tool":           a.Tool,
-			"scrubbed_input": approval.Scrub(a.InputJSON),
-			"risk_level":     risk.Level,
-			"risk_reasons":   risk.Reasons,
+			"scrubbed_input": model.ScrubbedInput,
+			"risk_level":     model.Risk.Level,
+			"risk_reasons":   model.Risk.Reasons,
+			"approval":       model,
 			"expires_at":     a.ExpiresAt.UTC().Format(time.RFC3339Nano),
 		}
 		if a.UnifiedDiff != "" {
@@ -392,8 +395,8 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 				"message":          a.BudgetWarn.Message,
 			}
 		}
-		if details.FilePath != "" {
-			payload["file_path"] = details.FilePath
+		if model.Details.FilePath != "" {
+			payload["file_path"] = model.Details.FilePath
 		}
 		return payload
 	case approval.EventExpired:

@@ -163,6 +163,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/workspaces.md`](./docs/workspaces.md): team-shareable workspace defaults and private binding workflow.
 - [`docs/trust-policies.md`](./docs/trust-policies.md): auto-approval trust policy examples and threat model.
 - [`docs/adapter-contract.md`](./docs/adapter-contract.md): v1-certified Claude, Codex, and Pi adapter capabilities and limits.
+- [`docs/adapter-contract.md#approval-payload-v1`](./docs/adapter-contract.md#approval-payload-v1): provider-neutral approval payload and redaction boundary.
 - [`docs/anomaly-detection.md`](./docs/anomaly-detection.md): anomaly rules, examples, and current custom-rule limits.
 - [`docs/pricing.md`](./docs/pricing.md): budget pricing table and update notes.
 - [`docs/roadmap.md`](./docs/roadmap.md): v0.3 to v1.0 milestone framing.

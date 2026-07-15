@@ -67,6 +67,16 @@ func TestScrubJSONFields(t *testing.T) {
 	}
 }
 
+func TestScrubCLISecretFlags(t *testing.T) {
+	out := Scrub(`deploy --token raw-sensitive-value --api-key=another-secret`)
+	if strings.Contains(out, "raw-sensitive-value") || strings.Contains(out, "another-secret") {
+		t.Fatalf("CLI secret leaked: %s", out)
+	}
+	if !strings.Contains(out, "--token "+placeholder) || !strings.Contains(out, "--api-key="+placeholder) {
+		t.Fatalf("CLI flag context missing: %s", out)
+	}
+}
+
 func TestScrubLeavesNonSecrets(t *testing.T) {
 	plain := `rm -rf /tmp/data && echo done`
 	if Scrub(plain) != plain {

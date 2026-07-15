@@ -42,7 +42,12 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		d.auditIgnoredHook(ctx, "approval.ignored", ev, reason)
 		return intake.Response{Decision: "cancelled", Reason: "unmanaged or unknown Onibi session"}, nil
 	}
-	ev.Session = s.ID
+	var req approval.Request
+	ev, req, err := normalizeApprovalEvent(s, ev)
+	if err != nil {
+		d.audit(ctx, "approval.invalid", s.ID, ev.InputJSON, 0, "invalid v1 approval payload")
+		return intake.Response{Decision: "cancelled", Reason: "invalid approval payload"}, nil
+	}
 	d.appendEventOutput(s, ev)
 	hit := d.detectApprovalAnomaly(ctx, s, ev)
 	budgetWarn := d.budgetWarningForApproval(ctx, s, ev)
@@ -55,7 +60,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		d.publishToast(budgetWarn.Message)
 	}
 	unifiedDiff := approvalUnifiedDiff(ev)
-	approvalID, ch, err := d.Queue.RequestWithBudgetWarning(ctx, ev.Session, ev.Agent, ev.Tool, ev.InputJSON, unifiedDiff, budgetWarn)
+	approvalID, ch, err := d.Queue.RequestModel(ctx, req, unifiedDiff, budgetWarn)
 	if err != nil {
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}
@@ -78,6 +83,39 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		_ = d.Queue.Cancel(context.Background(), approvalID, "daemon shutdown")
 		return intake.Response{Decision: "cancelled", Reason: "daemon shutdown"}, nil
 	}
+}
+
+func normalizeApprovalEvent(s *Session, ev intake.Event) (intake.Event, approval.Request, error) {
+	req := approval.Request{SessionID: s.ID, Agent: ev.Agent, Tool: ev.Tool, Input: json.RawMessage(ev.InputJSON)}
+	if ev.Approval != nil {
+		req = *ev.Approval
+		if strings.TrimSpace(req.Tool) == "" {
+			req.Tool = ev.Tool
+		}
+		if len(req.Input) == 0 {
+			req.Input = json.RawMessage(ev.InputJSON)
+		}
+	}
+	req.SessionID = s.ID
+	if strings.TrimSpace(s.Agent) != "" {
+		req.Agent = s.Agent
+	} else if strings.TrimSpace(req.Agent) == "" {
+		req.Agent = ev.Agent
+	}
+	normalized, err := approval.NormalizeRequest(req)
+	if err != nil {
+		return ev, approval.Request{}, err
+	}
+	ev.Session = normalized.SessionID
+	ev.Agent = normalized.Agent
+	ev.Tool = normalized.Tool
+	ev.InputJSON = string(normalized.Input)
+	ev.ToolTarget = normalized.Details.Target
+	ev.Command = normalized.Details.Command
+	ev.FilePath = normalized.Details.FilePath
+	ev.Risk = normalized.Risk.Level
+	ev.Approval = &normalized
+	return ev, normalized, nil
 }
 
 func (d *Daemon) detectApprovalAnomaly(ctx context.Context, s *Session, ev intake.Event) *approvalAnomaly {
@@ -260,7 +298,8 @@ func isHighRiskApproval(a *approval.Approval) bool {
 	if a == nil {
 		return false
 	}
-	return approval.ClassifyRisk(a.Tool, a.InputJSON).Level == "high"
+	req, err := approval.RequestForApproval(*a)
+	return err == nil && req.Risk.Level == approval.RiskHigh
 }
 
 func approvalUnifiedDiff(ev intake.Event) string {

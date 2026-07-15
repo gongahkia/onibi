@@ -8,9 +8,9 @@ import (
 )
 
 type Details struct {
-	Target   string
-	Command  string
-	FilePath string
+	Target   string `json:"target,omitempty"`
+	Command  string `json:"command,omitempty"`
+	FilePath string `json:"file_path,omitempty"`
 }
 
 func ExtractDetails(tool, inputJSON string) Details {

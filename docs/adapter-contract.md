@@ -23,6 +23,12 @@ The hooks intentionally allow if the daemon is unavailable or the local request 
 
 Codex additionally requires its user to review and trust the current non-managed hook definitions before they run. Its capability report sets `review_required: true`; Onibi can verify its hook file and recorded hash, but cannot verify Codex's persisted trust decision. Until Codex trusts the current definitions, Codex approval enforcement is unavailable.
 
+## Approval payload v1
+
+Certified adapters submit `onibi.approval.v1` over the local intake socket. The model contains `session_id`, `agent`, `tool`, and a JSON-object `input`. Onibi rejects unsupported schema versions and non-object inputs, canonicalizes the input, then derives `details` and `risk` itself. Provider-supplied risk, target, command, and path values are not trusted by policies or the fleet UI.
+
+Web approval responses expose a nested `approval` object with the version, scrubbed input, derived details, and derived risk. They do not expose the raw input. Legacy top-level fields remain for existing cockpit clients.
+
 ## Lifecycle and recovery
 
 Every certified adapter reports session start, activity, approval requests, and turn completion. Claude and Pi also report session exit; Codex currently reports no session-exit event and exposes `session_exit: false`.

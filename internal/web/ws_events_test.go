@@ -46,6 +46,17 @@ func TestWSEventsStreamsApprovalRequestAndDecision(t *testing.T) {
 	if got := requested["scrubbed_input"].(string); strings.Contains(got, "ghp_") || !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("scrubbed_input = %q", got)
 	}
+	model, ok := requested["approval"].(map[string]any)
+	if !ok || model["version"] != approval.ApprovalSchemaV1 {
+		t.Fatalf("approval model = %#v", requested["approval"])
+	}
+	if _, ok := model["input"]; ok {
+		t.Fatalf("approval model leaked raw input: %#v", model)
+	}
+	risk, ok := model["risk"].(map[string]any)
+	if !ok || risk["level"] != "high" {
+		t.Fatalf("approval risk = %#v", model["risk"])
+	}
 
 	if err := q.Decide(context.Background(), id, approval.VerdictDeny, "", "no", 1); err != nil {
 		t.Fatal(err)

@@ -267,17 +267,19 @@ func (s *Server) listPendingApprovals(ctx context.Context, _ listPendingApproval
 	}
 	out := make([]pendingApprovalRow, 0, len(pending))
 	for _, a := range pending {
-		risk := approval.ClassifyRisk(a.Tool, a.InputJSON)
-		scrubbed := approval.Scrub(a.InputJSON)
+		model, err := approval.PayloadForApproval(*a)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, pendingApprovalRow{
-			ID:            a.ID,
-			SessionID:     a.SessionID,
-			Tool:          a.Tool,
-			ArgsScrubbed:  scrubbed,
-			RiskLevel:     risk.Level,
-			Agent:         a.Agent,
-			ScrubbedInput: scrubbed,
-			RiskReasons:   risk.Reasons,
+			ID:            model.ID,
+			SessionID:     model.SessionID,
+			Tool:          model.Tool,
+			ArgsScrubbed:  model.ScrubbedInput,
+			RiskLevel:     model.Risk.Level,
+			Agent:         model.Agent,
+			ScrubbedInput: model.ScrubbedInput,
+			RiskReasons:   model.Risk.Reasons,
 			ExpiresAt:     formatSessionTime(a.ExpiresAt),
 		})
 	}
@@ -301,7 +303,11 @@ func (s *Server) decideApproval(ctx context.Context, in decideApprovalInput) (de
 	if err != nil {
 		return decideApprovalOutput{}, err
 	}
-	if approval.ClassifyRisk(a.Tool, a.InputJSON).Level == approval.RiskHigh && (verdict == approval.VerdictApprove || verdict == approval.VerdictEdit) {
+	model, err := approval.RequestForApproval(*a)
+	if err != nil {
+		return decideApprovalOutput{}, err
+	}
+	if model.Risk.Level == approval.RiskHigh && (verdict == approval.VerdictApprove || verdict == approval.VerdictEdit) {
 		return decideApprovalOutput{}, errors.New("high-risk approval requires human decision in the web cockpit")
 	}
 	edited := strings.TrimSpace(in.EditedArgs)

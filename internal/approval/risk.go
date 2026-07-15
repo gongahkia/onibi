@@ -17,8 +17,8 @@ const (
 )
 
 type Risk struct {
-	Level   RiskLevel
-	Reasons []string
+	Level   RiskLevel `json:"level"`
+	Reasons []string  `json:"reasons,omitempty"`
 }
 
 type RiskEvent struct {

@@ -85,14 +85,14 @@ type Decision struct {
 }
 
 type BudgetWarning struct {
-	Scope           string
-	CurrentTokens   int64
-	PredictedTokens int64
-	ProjectedTokens int64
-	LimitTokens     int64
-	RemainingTokens int64
-	OnOverrun       string
-	Message         string
+	Scope           string `json:"scope"`
+	CurrentTokens   int64  `json:"current_tokens"`
+	PredictedTokens int64  `json:"predicted_tokens"`
+	ProjectedTokens int64  `json:"projected_tokens"`
+	LimitTokens     int64  `json:"limit_tokens"`
+	RemainingTokens int64  `json:"remaining_tokens"`
+	OnOverrun       string `json:"on_overrun"`
+	Message         string `json:"message"`
 }
 
 const (

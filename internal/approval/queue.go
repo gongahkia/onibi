@@ -110,18 +110,30 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	if len(unifiedDiff) > 0 {
 		diff = unifiedDiff[0]
 	}
-	return q.request(ctx, sessionID, agent, tool, inputJSON, diff, nil, true)
+	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, diff, nil)
 }
 
 func (q *Queue) RequestWithBudgetWarning(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, warn *BudgetWarning) (string, <-chan Decision, error) {
-	return q.request(ctx, sessionID, agent, tool, inputJSON, unifiedDiff, warn, true)
+	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, unifiedDiff, warn)
 }
 
 func (q *Queue) RequestSilent(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
-	return q.request(ctx, sessionID, agent, tool, inputJSON, "", nil, false)
+	req, err := NormalizeRequest(Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)})
+	if err != nil {
+		return "", nil, err
+	}
+	return q.request(ctx, req, "", nil, false)
 }
 
-func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, warn *BudgetWarning, publish bool) (string, <-chan Decision, error) {
+func (q *Queue) RequestModel(ctx context.Context, req Request, unifiedDiff string, warn *BudgetWarning) (string, <-chan Decision, error) {
+	req, err := NormalizeRequest(req)
+	if err != nil {
+		return "", nil, err
+	}
+	return q.request(ctx, req, unifiedDiff, warn, true)
+}
+
+func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, warn *BudgetWarning, publish bool) (string, <-chan Decision, error) {
 	id, err := newID()
 	if err != nil {
 		return "", nil, err
@@ -132,7 +144,7 @@ func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, 
 	_, err = q.db.SQL().ExecContext(ctx,
 		`INSERT INTO approvals(id, session_id, agent, tool, input_json, state, created_at, expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, sessionID, agent, tool, inputJSON, StatePending, now.Unix(), exp.Unix())
+		id, req.SessionID, req.Agent, req.Tool, string(req.Input), StatePending, now.Unix(), exp.Unix())
 	if err != nil {
 		return "", nil, fmt.Errorf("insert approval: %w", err)
 	}
@@ -146,10 +158,10 @@ func (q *Queue) request(ctx context.Context, sessionID, agent, tool, inputJSON, 
 			Type: EventRequested,
 			Approval: Approval{
 				ID:          id,
-				SessionID:   sessionID,
-				Agent:       agent,
-				Tool:        tool,
-				InputJSON:   inputJSON,
+				SessionID:   req.SessionID,
+				Agent:       req.Agent,
+				Tool:        req.Tool,
+				InputJSON:   string(req.Input),
 				UnifiedDiff: unifiedDiff,
 				BudgetWarn:  cloneBudgetWarning(warn),
 				State:       StatePending,

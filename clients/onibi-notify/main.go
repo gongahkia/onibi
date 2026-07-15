@@ -147,25 +147,27 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 		format = agent
 	}
 
+	req, err := normalizedApprovalRequest(firstNonEmpty(sessionID, parsed.SessionID), agent, parsed)
+	if err != nil {
+		os.Exit(0)
+	}
 	ev := intake.Event{
 		Type:              intake.TypeApprovalRequest,
-		Session:           firstNonEmpty(sessionID, parsed.SessionID),
+		Session:           req.SessionID,
 		Managed:           strings.TrimSpace(sessionID) != "",
-		Agent:             agent,
+		Agent:             req.Agent,
 		PID:               os.Getppid(),
 		CWD:               parsed.CWD,
 		EventName:         parsed.EventName,
 		ProviderSessionID: parsed.ProviderSessionID,
-		Tool:              parsed.Tool,
-		ToolTarget:        parsed.ToolTarget,
-		Command:           parsed.Command,
-		FilePath:          parsed.FilePath,
-		Risk:              parsed.Risk,
-		InputJSON:         parsed.InputJSON,
+		Tool:              req.Tool,
+		ToolTarget:        req.Details.Target,
+		Command:           req.Details.Command,
+		FilePath:          req.Details.FilePath,
+		Risk:              req.Risk.Level,
+		InputJSON:         string(req.Input),
 		RawJSON:           string(raw),
-	}
-	if ev.InputJSON == "" {
-		ev.InputJSON = "{}"
+		Approval:          &req,
 	}
 
 	resp, err := waitForApproval(sock, ev)
@@ -177,6 +179,15 @@ func runWait(sock, typ, agent, format, response, sessionID string) {
 	}
 
 	writeWaitResponse(format, response, resp)
+}
+
+func normalizedApprovalRequest(sessionID, agent string, p hookPayload) (approval.Request, error) {
+	return approval.NormalizeRequest(approval.Request{
+		SessionID: sessionID,
+		Agent:     agent,
+		Tool:      p.Tool,
+		Input:     json.RawMessage(p.InputJSON),
+	})
 }
 
 func waitForApproval(sock string, ev intake.Event) (intake.Response, error) {

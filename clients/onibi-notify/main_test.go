@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/intake"
 )
 
@@ -50,6 +51,17 @@ func TestParseHookPayloadProviderTargets(t *testing.T) {
 		if !strings.Contains(p.ToolTarget, c.want) {
 			t.Fatalf("%s target = %q want %q", c.name, p.ToolTarget, c.want)
 		}
+	}
+}
+
+func TestNormalizedApprovalRequestUsesV1Model(t *testing.T) {
+	p := parseHookPayload([]byte(`{"toolName":"Bash","toolArgs":{"z":1,"command":"rm -rf /tmp/x"}}`))
+	req, err := normalizedApprovalRequest("s1", "codex", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Version != approval.ApprovalSchemaV1 || string(req.Input) != `{"command":"rm -rf /tmp/x","z":1}` || req.Risk.Level != approval.RiskHigh {
+		t.Fatalf("request = %#v", req)
 	}
 }
 

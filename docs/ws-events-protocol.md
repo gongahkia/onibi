@@ -28,6 +28,9 @@ Payload:
 - `risk_level`: `low`, `medium`, or `high` from `approval.ClassifyRisk`.
 - `risk_reasons`: risk classifier reasons.
 - `expires_at`: RFC3339Nano UTC expiry.
+- `approval`: the provider-neutral `onibi.approval.v1` model. It contains
+  `version`, `id`, `session_id`, `agent`, `tool`, `state`, `scrubbed_input`,
+  derived `details`, and derived `risk`; raw adapter input is never included.
 
 `approval.decided`
 

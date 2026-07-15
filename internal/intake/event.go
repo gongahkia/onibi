@@ -1,5 +1,7 @@
 package intake
 
+import "github.com/gongahkia/onibi/internal/approval"
+
 // Event types emitted by hooks and consumed by the daemon.
 const (
 	TypeAgentDone       = "agent_done"       // turn complete, no input awaited
@@ -51,16 +53,17 @@ type Event struct {
 	Name   string   `json:"name,omitempty"`   // session_new: optional label
 	Args   []string `json:"args,omitempty"`   // session_new: command args
 
-	// approval_request (Phase 3 — schema reserved now)
-	ApprovalID string `json:"approval_id,omitempty"`
-	Tool       string `json:"tool,omitempty"`
-	ToolTarget string `json:"tool_target,omitempty"`
-	Command    string `json:"command,omitempty"`
-	FilePath   string `json:"file_path,omitempty"`
-	Risk       string `json:"risk,omitempty"`
-	ExpiresAt  int64  `json:"expires_at,omitempty"`
-	InputJSON  string `json:"input_json,omitempty"`
-	RawJSON    string `json:"raw_json,omitempty"` // raw provider hook payload
+	// approval_request legacy fields; new adapters send Approval.
+	ApprovalID string            `json:"approval_id,omitempty"`
+	Tool       string            `json:"tool,omitempty"`
+	ToolTarget string            `json:"tool_target,omitempty"`
+	Command    string            `json:"command,omitempty"`
+	FilePath   string            `json:"file_path,omitempty"`
+	Risk       string            `json:"risk,omitempty"`
+	ExpiresAt  int64             `json:"expires_at,omitempty"`
+	InputJSON  string            `json:"input_json,omitempty"`
+	RawJSON    string            `json:"raw_json,omitempty"` // raw provider hook payload
+	Approval   *approval.Request `json:"approval,omitempty"` // validated provider-neutral v1 model
 
 	// trust RPC
 	TrustAction string `json:"trust_action,omitempty"`

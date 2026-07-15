@@ -35,6 +35,8 @@ var redactRules = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)"(password|passwd|secret|token|api_key|apikey)"\s*:\s*"[^"]{4,}"`),
 }
 
+var redactCLISecret = regexp.MustCompile(`(?i)(--(?:password|passwd|secret|token|api[_-]?key)(?:=|\s+))(?:"[^"]+"|'[^']+'|\S+)`)
+
 // Scrub returns a copy of s with matches of any redactRules replaced by
 // the placeholder. The semantic of the replacement depends on the rule —
 // for assignment-style matches we keep the key half intact.
@@ -53,6 +55,7 @@ func Scrub(s string) string {
 	out = redactRules[7].ReplaceAllStringFunc(out, func(m string) string {
 		return jsonKey(m) + `: "` + placeholder + `"`
 	})
+	out = redactCLISecret.ReplaceAllString(out, "${1}"+placeholder)
 	return out
 }
 
