@@ -637,6 +637,57 @@ impl RelayDatabase {
         })
     }
 
+    pub fn garbage_collect_expired_attachment_chunks(
+        &mut self,
+        now: u64,
+    ) -> Result<RelayAttachmentGarbageCollection, RelayDatabaseError> {
+        let now = database_timestamp(now)?;
+        let transaction = self.connection.transaction()?;
+        let reclaimed_bytes = transaction.query_row(
+            "SELECT COALESCE(SUM(length(encoded_chunk)), 0) FROM relay_attachment_chunks
+             WHERE expires_at <= ?1",
+            [now],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let removed_chunks = transaction.execute(
+            "DELETE FROM relay_attachment_chunks WHERE expires_at <= ?1",
+            [now],
+        )?;
+        let usage = {
+            let mut statement = transaction.prepare(
+                "SELECT mailbox_id,
+                     COALESCE((SELECT SUM(length(ciphertext)) FROM relay_envelopes
+                               WHERE relay_envelopes.mailbox_id = relay_mailboxes.mailbox_id), 0)
+                     + COALESCE((SELECT SUM(length(encoded_chunk)) FROM relay_attachment_chunks
+                                 WHERE relay_attachment_chunks.mailbox_id = relay_mailboxes.mailbox_id), 0)
+                 FROM relay_mailboxes",
+            )?;
+            statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        for (mailbox_id, used_bytes) in usage {
+            let mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES] = mailbox_id
+                .try_into()
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+            let used_bytes =
+                u64::try_from(used_bytes).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+            transaction.execute(
+                "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+                params![used_bytes.to_be_bytes().as_slice(), mailbox_id.as_slice()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(RelayAttachmentGarbageCollection {
+            removed_chunks: u64::try_from(removed_chunks)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+            reclaimed_bytes: u64::try_from(reclaimed_bytes)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+        })
+    }
+
     pub fn register_mailbox(
         &mut self,
         capability: &MailboxCapability,
@@ -1055,6 +1106,24 @@ pub struct RelayGarbageCollection {
     reclaimed_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayAttachmentGarbageCollection {
+    removed_chunks: u64,
+    reclaimed_bytes: u64,
+}
+
+impl RelayAttachmentGarbageCollection {
+    #[must_use]
+    pub const fn removed_chunks(self) -> u64 {
+        self.removed_chunks
+    }
+
+    #[must_use]
+    pub const fn reclaimed_bytes(self) -> u64 {
+        self.reclaimed_bytes
+    }
+}
+
 impl RelayGarbageCollection {
     #[must_use]
     pub const fn removed_mailboxes(self) -> u64 {
@@ -1460,9 +1529,9 @@ mod tests {
         MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
         ProjectTestRelay, ProjectTestRelayError, RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION,
-        RateLimitedRelay, RelayDatabase, RelayDatabaseError, RelayGarbageCollection,
-        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayIngressError,
-        RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
+        RateLimitedRelay, RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
+        RelayGarbageCollection, RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity,
+        RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
         RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
         SelfHostedRelayConfig, SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
     };
@@ -2226,6 +2295,73 @@ mod tests {
                 .retrieve_attachment_chunk(&capability, identifier, 0, 110)
                 .unwrap(),
             chunk
+        );
+    }
+
+    #[test]
+    fn garbage_collects_expired_attachment_chunks_and_releases_quota() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let expired = attachment_chunk(identifier, 0);
+        let active = attachment_chunk(identifier, 1);
+        let expired_bytes = u64::try_from(expired.encode().unwrap().len()).unwrap();
+        let active_bytes = u64::try_from(active.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(
+                &capability,
+                MailboxQuota::new(expired_bytes + active_bytes).unwrap(),
+                100,
+            )
+            .unwrap();
+        database
+            .store_attachment_chunk(&capability, &expired, 100, retention)
+            .unwrap();
+        database
+            .store_attachment_chunk(&capability, &active, 105, retention)
+            .unwrap();
+
+        assert_eq!(
+            database
+                .garbage_collect_expired_attachment_chunks(110)
+                .unwrap(),
+            RelayAttachmentGarbageCollection {
+                removed_chunks: 1,
+                reclaimed_bytes: expired_bytes,
+            }
+        );
+        assert!(matches!(
+            database.retrieve_attachment_chunk(&capability, identifier, 0, 110),
+            Err(RelayDatabaseError::UnknownAttachmentChunk)
+        ));
+        assert_eq!(
+            database
+                .retrieve_attachment_chunk(&capability, identifier, 1, 110)
+                .unwrap(),
+            active
+        );
+        let used_bytes: Vec<u8> = database
+            .connection
+            .query_row(
+                "SELECT used_bytes FROM relay_mailboxes WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            u64::from_be_bytes(used_bytes.try_into().unwrap()),
+            active_bytes
+        );
+        assert_eq!(
+            database
+                .garbage_collect_expired_attachment_chunks(110)
+                .unwrap(),
+            RelayAttachmentGarbageCollection {
+                removed_chunks: 0,
+                reclaimed_bytes: 0,
+            }
         );
     }
 
