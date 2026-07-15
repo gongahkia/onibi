@@ -35,6 +35,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo test -p yeokcham-daemon --test tor_maildrop_topology --locked
 
+  end-to-end:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - run: cargo test -p yeokcham-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
+
   audit:
     runs-on: ubuntu-latest
     steps:

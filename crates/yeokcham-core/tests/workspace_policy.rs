@@ -77,6 +77,17 @@ fn ci_exercises_the_tor_maildrop_topology() {
 }
 
 #[test]
+fn ci_runs_end_to_end_tests_on_every_supported_platform() {
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("  end-to-end:\n    strategy:"));
+    assert!(workflow.contains("os: [macos-latest, ubuntu-latest, windows-latest]"));
+    assert!(workflow.contains(
+        "cargo test -p yeokcham-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked"
+    ));
+}
+
+#[test]
 fn pins_and_audits_cryptographic_dependencies() {
     let manifest = fs::read_to_string(workspace_file("Cargo.toml"))
         .expect("workspace must include Cargo.toml");
