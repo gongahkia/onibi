@@ -395,6 +395,71 @@ impl RelayDatabase {
         Ok(())
     }
 
+    pub fn garbage_collect_expired_mailboxes(
+        &mut self,
+        now: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<RelayGarbageCollection, RelayDatabaseError> {
+        let now = database_timestamp(now)?;
+        let transaction = self.connection.transaction()?;
+        let reclaimed_bytes = transaction.query_row(
+            "SELECT COALESCE(SUM(length(ciphertext)), 0) FROM relay_envelopes
+             WHERE expires_at <= ?1",
+            [now],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let removed_envelopes =
+            transaction.execute("DELETE FROM relay_envelopes WHERE expires_at <= ?1", [now])?;
+        let usage = {
+            let mut statement = transaction.prepare(
+                "SELECT mailbox_id, COALESCE(SUM(length(ciphertext)), 0)
+                 FROM relay_mailboxes
+                 LEFT JOIN relay_envelopes USING(mailbox_id)
+                 GROUP BY mailbox_id",
+            )?;
+            statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        for (mailbox_id, used_bytes) in usage {
+            let mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES] = mailbox_id
+                .try_into()
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+            let used_bytes =
+                u64::try_from(used_bytes).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+            transaction.execute(
+                "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+                params![used_bytes.to_be_bytes().as_slice(), mailbox_id.as_slice()],
+            )?;
+        }
+        let removed_mailboxes = now
+            .checked_sub(i64::from(retention.ttl_seconds()))
+            .map(|created_at_cutoff| {
+                transaction.execute(
+                    "DELETE FROM relay_mailboxes
+                     WHERE created_at <= ?1
+                     AND NOT EXISTS(
+                         SELECT 1 FROM relay_envelopes
+                         WHERE relay_envelopes.mailbox_id = relay_mailboxes.mailbox_id
+                     )",
+                    [created_at_cutoff],
+                )
+            })
+            .transpose()?
+            .unwrap_or_default();
+        transaction.commit()?;
+        Ok(RelayGarbageCollection {
+            removed_mailboxes: u64::try_from(removed_mailboxes)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+            removed_envelopes: u64::try_from(removed_envelopes)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+            reclaimed_bytes: u64::try_from(reclaimed_bytes)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+        })
+    }
+
     pub fn register_mailbox(
         &mut self,
         capability: &MailboxCapability,
@@ -676,6 +741,30 @@ pub enum RelayDatabaseError {
     UnknownEnvelope,
     #[error("relay storage receipt could not be issued")]
     Receipt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayGarbageCollection {
+    removed_mailboxes: u64,
+    removed_envelopes: u64,
+    reclaimed_bytes: u64,
+}
+
+impl RelayGarbageCollection {
+    #[must_use]
+    pub const fn removed_mailboxes(self) -> u64 {
+        self.removed_mailboxes
+    }
+
+    #[must_use]
+    pub const fn removed_envelopes(self) -> u64 {
+        self.removed_envelopes
+    }
+
+    #[must_use]
+    pub const fn reclaimed_bytes(self) -> u64 {
+        self.reclaimed_bytes
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1047,10 +1136,10 @@ mod tests {
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
         ProjectTestRelay, ProjectTestRelayError, RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION,
-        RelayDatabase, RelayDatabaseError, RelayHealthEndpoint, RelayHealthEndpointError,
-        RelayIdentity, RelayMetricsEmitter, RelayOperationalMetrics, RelayRetentionPolicy,
-        RelayRetentionPolicyError, SelfHostedRelayConfig, SelfHostedRelayConfigError,
-        SyntheticRelayTrafficProof,
+        RelayDatabase, RelayDatabaseError, RelayGarbageCollection, RelayHealthEndpoint,
+        RelayHealthEndpointError, RelayIdentity, RelayMetricsEmitter, RelayOperationalMetrics,
+        RelayRetentionPolicy, RelayRetentionPolicyError, SelfHostedRelayConfig,
+        SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1060,9 +1149,13 @@ mod tests {
     };
 
     fn capability() -> MailboxCapability {
+        capability_with(0x11, 0x22)
+    }
+
+    fn capability_with(mailbox_byte: u8, token_byte: u8) -> MailboxCapability {
         MailboxCapability::new(
-            [0x11; MAILBOX_IDENTIFIER_BYTES],
-            [0x22; MAILBOX_CAPABILITY_TOKEN_BYTES],
+            [mailbox_byte; MAILBOX_IDENTIFIER_BYTES],
+            [token_byte; MAILBOX_CAPABILITY_TOKEN_BYTES],
         )
         .unwrap()
     }
@@ -1624,6 +1717,65 @@ mod tests {
             .acknowledge_envelope(acknowledgement, &capability, 0)
             .unwrap();
         assert!(format!("{insertion:?}").contains("REDACTED"));
+    }
+
+    #[test]
+    fn garbage_collects_expired_mailboxes_and_repairs_retained_usage() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let expired = capability_with(0x33, 0x44);
+        let active = capability_with(0x55, 0x66);
+        let recently_registered = capability_with(0x77, 0x88);
+        let quota = MailboxQuota::new(1024).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database.register_mailbox(&expired, quota, 100).unwrap();
+        database.register_mailbox(&active, quota, 100).unwrap();
+        database
+            .register_mailbox(&recently_registered, quota, 101)
+            .unwrap();
+        database
+            .insert_envelope(&expired, &envelope(), 100, retention)
+            .unwrap();
+        database
+            .insert_envelope(&active, &envelope(), 105, retention)
+            .unwrap();
+
+        assert_eq!(
+            database
+                .garbage_collect_expired_mailboxes(110, retention)
+                .unwrap(),
+            RelayGarbageCollection {
+                removed_mailboxes: 1,
+                removed_envelopes: 1,
+                reclaimed_bytes: 6,
+            }
+        );
+        assert!(matches!(
+            database.retrieve_envelopes(&expired, None, 110, 1),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        assert_eq!(
+            database
+                .retrieve_envelopes(&active, None, 110, 1)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            database
+                .retrieve_envelopes(&recently_registered, None, 110, 1)
+                .unwrap()
+                .is_empty()
+        );
+        let active_usage = database
+            .connection
+            .query_row(
+                "SELECT used_bytes FROM relay_mailboxes WHERE mailbox_id = ?1",
+                [active.mailbox_id().as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .unwrap();
+        assert_eq!(u64::from_be_bytes(active_usage.try_into().unwrap()), 6);
     }
 
     #[test]
