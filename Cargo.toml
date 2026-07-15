@@ -31,6 +31,7 @@ minicbor = { version = "2.2.2", features = ["std"] }
 mdns-sd = { version = "0.20.1", default-features = false }
 natpmp = "0.5.0"
 quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+proptest = "1.11.0"
 rusqlite = { version = "0.37.0", default-features = false, features = ["bundled"] }
 sha2 = { version = "0.11.0", default-features = false }
 stunclient = "0.4.2"

@@ -493,8 +493,13 @@ fn decode_retired_remote_ratchets(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use proptest::prelude::*;
+
     use super::{DoubleRatchetError, DoubleRatchetState, MAX_SKIPPED_MESSAGE_KEYS};
     use yeokcham_core::X25519Prekey;
+
     #[test]
     fn advances_and_round_trips_durable_ratchet_state() {
         let peer = X25519Prekey::generate().unwrap();
@@ -561,5 +566,38 @@ mod tests {
             state.receive_key(first_public, 0, 0).unwrap_err(),
             DoubleRatchetError::ReplayedMessage
         );
+    }
+
+    proptest! {
+        #[test]
+        fn accepts_each_bounded_message_once_across_persistence(
+            message_numbers in proptest::collection::vec(0_u16..64, 1..=64),
+        ) {
+            let peer = X25519Prekey::generate().unwrap();
+            let peer_public = peer.public_key();
+            let mut state = DoubleRatchetState::initialize([5; 32], peer_public).unwrap();
+            state.ratchet_receive(peer_public).unwrap();
+            let mut received = BTreeSet::new();
+
+            for message_number in message_numbers {
+                let message_number = u32::from(message_number);
+                let result = state.receive_key(peer_public, 0, message_number);
+                if received.insert(message_number) {
+                    prop_assert!(result.is_ok());
+                } else {
+                    prop_assert_eq!(result.unwrap_err(), DoubleRatchetError::ReplayedMessage);
+                }
+            }
+
+            let encoded = state.encode().unwrap();
+            let mut restored = DoubleRatchetState::decode(&encoded).unwrap();
+            prop_assert_eq!(&*restored.encode().unwrap(), &*encoded);
+            for message_number in received {
+                prop_assert!(matches!(
+                    restored.receive_key(peer_public, 0, message_number),
+                    Err(DoubleRatchetError::ReplayedMessage)
+                ));
+            }
+        }
     }
 }
