@@ -14,6 +14,7 @@ mod local_transport_reconnect;
 mod mdns;
 mod nat_pmp;
 mod outbox_store;
+mod proximity_contact_invitation;
 mod ratchet_store;
 mod relay_tls;
 mod replication_scheduler;
@@ -67,6 +68,9 @@ pub use outbox_store::{
     DeliveryState, DeliveryStatus, MAX_DELIVERY_STATE_HISTORY, MAX_MESSAGE_EXPIRY_SECONDS,
     MAX_OUTBOX_MESSAGES, MIN_MESSAGE_EXPIRY_SECONDS, MessageExpiry, MessageExpiryError,
     OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox, SenderOutboxError,
+};
+pub use proximity_contact_invitation::{
+    ProximityContactInvitationExchange, ProximityContactInvitationExchangeError,
 };
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};

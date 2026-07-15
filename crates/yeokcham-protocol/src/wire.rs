@@ -15,6 +15,7 @@ pub enum EnvelopeKind {
     VersionNegotiation = 1,
     EncryptedMessage = 2,
     DeliveryAcknowledgement = 3,
+    ContactInvitation = 4,
 }
 
 impl TryFrom<u8> for EnvelopeKind {
@@ -25,6 +26,7 @@ impl TryFrom<u8> for EnvelopeKind {
             1 => Ok(Self::VersionNegotiation),
             2 => Ok(Self::EncryptedMessage),
             3 => Ok(Self::DeliveryAcknowledgement),
+            4 => Ok(Self::ContactInvitation),
             _ => Err(WireError::InvalidKind(value)),
         }
     }
