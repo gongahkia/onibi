@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -16,6 +16,61 @@ pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECOND
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const RELAY_SCHEMA_VERSION: u32 = 2;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelfHostedRelayConfig {
+    listen_address: std::net::SocketAddr,
+    database_path: PathBuf,
+    mailbox_quota: MailboxQuota,
+    retention: RelayRetentionPolicy,
+}
+
+impl SelfHostedRelayConfig {
+    pub fn new(
+        listen_address: std::net::SocketAddr,
+        database_path: PathBuf,
+        mailbox_quota: MailboxQuota,
+        retention: RelayRetentionPolicy,
+    ) -> Result<Self, SelfHostedRelayConfigError> {
+        if listen_address.port() == 0 {
+            return Err(SelfHostedRelayConfigError::ZeroListenPort);
+        }
+        if !database_path.is_absolute() || database_path.parent().is_none() {
+            return Err(SelfHostedRelayConfigError::InvalidDatabasePath);
+        }
+        Ok(Self {
+            listen_address,
+            database_path,
+            mailbox_quota,
+            retention,
+        })
+    }
+
+    #[must_use]
+    pub const fn listen_address(&self) -> std::net::SocketAddr {
+        self.listen_address
+    }
+    #[must_use]
+    pub fn database_path(&self) -> &Path {
+        &self.database_path
+    }
+    #[must_use]
+    pub const fn mailbox_quota(&self) -> MailboxQuota {
+        self.mailbox_quota
+    }
+    #[must_use]
+    pub const fn retention(&self) -> RelayRetentionPolicy {
+        self.retention
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SelfHostedRelayConfigError {
+    #[error("self-hosted relay listen port must be nonzero")]
+    ZeroListenPort,
+    #[error("self-hosted relay database path must be absolute")]
+    InvalidDatabasePath,
+}
 
 pub struct RelayIdentity {
     signing_keypair: RelaySigningKeypair,
@@ -626,7 +681,8 @@ mod tests {
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
         RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError, RelayIdentity,
-        RelayRetentionPolicy, RelayRetentionPolicyError,
+        RelayRetentionPolicy, RelayRetentionPolicyError, SelfHostedRelayConfig,
+        SelfHostedRelayConfigError,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1022,6 +1078,47 @@ mod tests {
         assert_eq!(
             first.signing_keypair().public_key(),
             second.signing_keypair().public_key()
+        );
+    }
+
+    #[test]
+    fn validates_self_hosted_relay_configuration() {
+        let quota = MailboxQuota::new(1024).unwrap();
+        let retention = RelayRetentionPolicy::new(60).unwrap();
+        let config = SelfHostedRelayConfig::new(
+            "127.0.0.1:9443".parse().unwrap(),
+            "/var/lib/yeokcham/relay.sqlite".into(),
+            quota,
+            retention,
+        )
+        .unwrap();
+
+        assert_eq!(config.listen_address(), "127.0.0.1:9443".parse().unwrap());
+        assert_eq!(
+            config.database_path(),
+            std::path::Path::new("/var/lib/yeokcham/relay.sqlite")
+        );
+        assert_eq!(config.mailbox_quota(), quota);
+        assert_eq!(config.retention(), retention);
+        assert_eq!(
+            SelfHostedRelayConfig::new(
+                "127.0.0.1:0".parse().unwrap(),
+                "/var/lib/yeokcham/relay.sqlite".into(),
+                quota,
+                retention,
+            )
+            .unwrap_err(),
+            SelfHostedRelayConfigError::ZeroListenPort
+        );
+        assert_eq!(
+            SelfHostedRelayConfig::new(
+                "127.0.0.1:9443".parse().unwrap(),
+                "relay.sqlite".into(),
+                quota,
+                retention,
+            )
+            .unwrap_err(),
+            SelfHostedRelayConfigError::InvalidDatabasePath
         );
     }
 
