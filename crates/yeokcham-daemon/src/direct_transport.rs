@@ -536,6 +536,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn times_out_when_the_direct_endpoint_drops_packets() {
+        let black_hole = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let profile = DirectProfileConfig::new(black_hole.local_addr().unwrap()).unwrap();
+        let client = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), None).unwrap();
+        let result = client
+            .connect_with_attempts(
+                profile,
+                client_config(server_config().1),
+                "localhost",
+                DirectConnectionAttempts::new(1, Duration::from_millis(100)).unwrap(),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(DirectTransportError::ConnectionAttemptTimedOut)
+        ));
+        client.shutdown();
+        client.wait_idle().await;
+    }
+
+    #[tokio::test]
+    async fn rejects_an_untrusted_direct_tls_peer() {
+        let (server_tls_config, _) = server_config();
+        let server =
+            DirectTransport::bind("127.0.0.1:0".parse().unwrap(), Some(server_tls_config)).unwrap();
+        let client = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), None).unwrap();
+        let profile = DirectProfileConfig::new(server.local_address().unwrap()).unwrap();
+        let (server_result, result) = tokio::join!(
+            server.accept(),
+            client.connect_with_attempts(
+                profile,
+                client_config(server_config().1),
+                "localhost",
+                DirectConnectionAttempts::new(1, Duration::from_secs(1)).unwrap(),
+            )
+        );
+        assert!(matches!(result, Err(DirectTransportError::Handshake(_))));
+        assert!(matches!(
+            server_result,
+            Err(DirectTransportError::Handshake(_))
+        ));
+        client.shutdown();
+        server.shutdown();
+        client.wait_idle().await;
+        server.wait_idle().await;
+    }
+
+    #[tokio::test]
     async fn authenticates_peers_and_multiplexes_frames() {
         let (server_tls_config, certificate) = server_config();
         let server =
