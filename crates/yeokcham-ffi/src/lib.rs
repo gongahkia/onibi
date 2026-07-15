@@ -1,4 +1,7 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+
+#[allow(unsafe_code)]
+mod c_abi;
 
 pub const YEOKCHAM_ABI_VERSION_MAJOR: u32 = 1;
 pub const YEOKCHAM_ABI_VERSION_MINOR: u32 = 0;
@@ -19,11 +22,14 @@ pub enum YeokchamStatus {
     State = 4,
 }
 
+pub use c_abi::{MAX_C_ABI_HANDLES, yeokcham_handle_create, yeokcham_handle_release};
+
 #[cfg(test)]
 mod tests {
     use super::{
-        YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YeokchamStatus,
+        MAX_C_ABI_HANDLES, YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR,
+        YEOKCHAM_ABI_VERSION_MINOR, YeokchamStatus, yeokcham_handle_create,
+        yeokcham_handle_release,
     };
 
     const HEADER: &str = include_str!("../include/yeokcham.h");
@@ -61,5 +67,23 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_UNSUPPORTED_VERSION INT32_C(2)"));
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_RESOURCE_LIMIT INT32_C(3)"));
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_STATE INT32_C(4)"));
+        assert!(HEADER.contains("yeokcham_handle_t *yeokcham_handle_create(void);"));
+        assert!(HEADER.contains("yeokcham_handle_release(yeokcham_handle_t *handle);"));
+    }
+
+    #[test]
+    fn created_handles_release_once_and_reject_invalid_inputs() {
+        let handle = yeokcham_handle_create();
+        assert!(!handle.is_null());
+        assert_eq!(
+            yeokcham_handle_release(std::ptr::null_mut()),
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+        assert_eq!(
+            yeokcham_handle_release(handle),
+            YeokchamStatus::InvalidInput
+        );
+        assert!(MAX_C_ABI_HANDLES > 0);
     }
 }
