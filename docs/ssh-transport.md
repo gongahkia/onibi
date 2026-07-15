@@ -141,4 +141,10 @@ Memory tips:
 - Measure after the phone has disconnected and the service is idle.
 - Use `onibi ssh teardown ...` before reprovisioning or switching artifacts.
 
-Current local size check: `scripts/ssh-smoke.sh --size-only` builds the tagged remote SSH binary and gates it under the 14 MiB ceiling. RSS validation still requires a real SSH target via `scripts/ssh-smoke.sh --target user@example.internal`; target mode also sends SIGINT and fails if new `onibi-*` tmux sessions remain.
+Current local size check: `scripts/ssh-smoke.sh --size-only` builds the tagged remote SSH binary and gates it under the 14 MiB ceiling. RSS validation still requires a real SSH target; target mode sends SIGINT and fails if new `onibi-*` tmux sessions remain.
+
+```bash
+scripts/ssh-smoke.sh --target user@example.internal --ssh-config ~/.ssh/config
+```
+
+Use `--ssh-config` (or `ONIBI_SSH_CONFIG`) when the target needs a non-default port, identity, or known-host policy; the file is applied to both `ssh` and `scp`.
