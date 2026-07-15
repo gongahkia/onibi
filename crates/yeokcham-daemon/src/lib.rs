@@ -18,6 +18,7 @@ mod state_store;
 mod stun;
 mod tor_socks;
 mod upnp;
+mod wifi_direct_transport;
 mod wifi_hotspot_transport;
 
 use yeokcham_core::{Error, Result};
@@ -66,6 +67,7 @@ pub use state_store::{
 pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
 pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
+pub use wifi_direct_transport::WifiDirectTransport;
 pub use wifi_hotspot_transport::WifiHotspotTransport;
 
 #[derive(Debug)]
