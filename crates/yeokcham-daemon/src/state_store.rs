@@ -394,6 +394,45 @@ mod tests {
     }
 
     #[test]
+    fn recovers_after_an_injected_sqlite_state_write_fault() {
+        let path = database_path();
+        let mut keystore = MemoryKeystore::default();
+        let original = StateDocument::new(b"original state".to_vec()).unwrap();
+        let replacement = StateDocument::new(b"replacement state".to_vec()).unwrap();
+        let mut store = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        store.replace(&original).unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_sealed_state_update
+                 BEFORE UPDATE ON sealed_state
+                 BEGIN SELECT RAISE(ABORT, 'injected state write fault'); END;",
+            )
+            .unwrap();
+
+        assert!(matches!(
+            store.replace(&replacement),
+            Err(StateStoreError::Sqlite(_))
+        ));
+        assert_eq!(
+            store.load().unwrap().unwrap().as_bytes(),
+            original.as_bytes()
+        );
+
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_sealed_state_update;")
+            .unwrap();
+        store.replace(&replacement).unwrap();
+        assert_eq!(
+            store.load().unwrap().unwrap().as_bytes(),
+            replacement.as_bytes()
+        );
+        drop(store);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn rejects_invalid_document_sizes() {
         assert_eq!(
             StateDocument::new(Vec::new()).unwrap_err(),

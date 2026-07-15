@@ -1905,6 +1905,54 @@ mod tests {
     }
 
     #[test]
+    fn recovers_after_an_injected_sqlite_envelope_write_fault() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(envelope_bytes).unwrap(), 100)
+            .unwrap();
+        database
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_relay_usage_update
+                 BEFORE UPDATE OF used_bytes ON relay_mailboxes
+                 BEGIN SELECT RAISE(ABORT, 'injected relay write fault'); END;",
+            )
+            .unwrap();
+
+        assert!(matches!(
+            database.insert_envelope(&capability, &envelope, 100, retention),
+            Err(RelayDatabaseError::Sqlite(_))
+        ));
+        let (envelopes, used_bytes): (u64, Vec<u8>) = database
+            .connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM relay_envelopes), used_bytes
+                 FROM relay_mailboxes WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(envelopes, 0);
+        assert_eq!(u64::from_be_bytes(used_bytes.try_into().unwrap()), 0);
+
+        database
+            .connection
+            .execute_batch("DROP TRIGGER reject_relay_usage_update;")
+            .unwrap();
+        assert_eq!(
+            database
+                .insert_envelope(&capability, &envelope, 100, retention)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn rejects_unauthorized_or_over_quota_insertions_without_writing() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
