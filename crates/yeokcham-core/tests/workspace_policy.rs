@@ -63,7 +63,41 @@ fn ci_audits_dependencies_on_every_change_and_weekly() {
     assert!(workflow.contains("cron: \"17 3 * * 1\""));
     assert!(workflow.contains("  audit:\n    runs-on: ubuntu-latest"));
     assert!(workflow.contains("cargo install cargo-audit --version 0.22.2 --locked"));
-    assert!(workflow.contains("cargo audit --deny warnings"));
+    assert!(workflow.contains("cargo audit --deny warnings --ignore RUSTSEC-2024-0436"));
+}
+
+#[test]
+fn pins_and_audits_cryptographic_dependencies() {
+    let manifest = fs::read_to_string(workspace_file("Cargo.toml"))
+        .expect("workspace must include Cargo.toml");
+    for dependency in [
+        "argon2 = { version = \"=0.5.3\"",
+        "chacha20poly1305 = { version = \"=0.11.0\"",
+        "ed25519-dalek = { version = \"=3.0.0\"",
+        "getrandom = { version = \"=0.4.3\"",
+        "hkdf = { version = \"=0.13.0\"",
+        "sha2 = { version = \"=0.11.0\"",
+        "subtle = \"=2.6.1\"",
+        "x25519-dalek = { version = \"=3.0.0\"",
+        "zeroize = { version = \"=1.9.0\"",
+    ] {
+        assert!(
+            manifest.contains(dependency),
+            "cryptographic dependency must be exact-pinned: {dependency}"
+        );
+    }
+
+    let policy = fs::read_to_string(workspace_file("deny.toml"))
+        .expect("workspace must include dependency policy");
+    assert!(policy.contains("[advisories]"));
+    assert!(policy.contains("RUSTSEC-2024-0436"));
+    assert!(policy.contains("unknown-registry = \"deny\""));
+    assert!(policy.contains("unknown-git = \"deny\""));
+
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("  dependency-policy:\n    runs-on: ubuntu-latest"));
+    assert!(workflow.contains("command-arguments: advisories sources"));
 }
 
 #[test]

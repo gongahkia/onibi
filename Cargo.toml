@@ -17,14 +17,14 @@ license = "Apache-2.0"
 repository = "https://github.com/gongahkia/yeokcham"
 
 [workspace.dependencies]
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
-chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+argon2 = { version = "=0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
 clap = { version = "4.5.51", features = ["derive"] }
 criterion = { version = "0.8.2", default-features = false }
-ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "rand_core", "zeroize"] }
+ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["fast", "rand_core", "zeroize"] }
 fs2 = "0.4.3"
-getrandom = { version = "0.4.3", features = ["sys_rng"] }
-hkdf = { version = "0.13.0", default-features = false }
+getrandom = { version = "=0.4.3", features = ["sys_rng"] }
+hkdf = { version = "=0.13.0", default-features = false }
 igd-next = { version = "0.17.1", default-features = false, features = ["aio_tokio"] }
 keyring-core = "1.0.0"
 minicbor = { version = "2.2.2", features = ["std"] }
@@ -33,9 +33,9 @@ natpmp = "0.5.0"
 quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 proptest = "1.11.0"
 rusqlite = { version = "0.37.0", default-features = false, features = ["bundled"] }
-sha2 = { version = "0.11.0", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
 stunclient = "0.4.2"
-subtle = "2.6.1"
+subtle = "=2.6.1"
 tokio-socks = "0.5.3"
 security-framework = { version = "3.7.0", default-features = false }
 security-framework-sys = { version = "2.17.0", default-features = false }
@@ -44,9 +44,9 @@ tokio = { version = "1.48.0", features = ["io-util", "macros", "net", "rt-multi-
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
 windows-native-keyring-store = { version = "1.1.0", default-features = false }
-x25519-dalek = { version = "3.0.0", default-features = false, features = ["static_secrets", "zeroize"] }
+x25519-dalek = { version = "=3.0.0", default-features = false, features = ["static_secrets", "zeroize"] }
 zbus-secret-service-keyring-store = { version = "1.0.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
-zeroize = { version = "1.8.2", features = ["derive"] }
+zeroize = { version = "=1.9.0", features = ["derive"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

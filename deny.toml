@@ -1,3 +1,10 @@
+[advisories]
+ignore = ["RUSTSEC-2024-0436"] # paste is only transitive through NAT-PMP and has no safe upgrade
+
 [licenses]
 confidence-threshold = 0.8
 allow = ["Apache-2.0", "BSD-3-Clause", "BlueOak-1.0.0", "MIT", "Unicode-3.0"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
