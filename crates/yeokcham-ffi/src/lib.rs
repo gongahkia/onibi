@@ -22,14 +22,22 @@ pub enum YeokchamStatus {
     State = 4,
 }
 
-pub use c_abi::{MAX_C_ABI_HANDLES, yeokcham_handle_create, yeokcham_handle_release};
+pub use c_abi::{
+    MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YeokchamCompletionCallback,
+    yeokcham_handle_complete_async, yeokcham_handle_create, yeokcham_handle_release,
+};
 
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_C_ABI_HANDLES, YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR,
-        YEOKCHAM_ABI_VERSION_MINOR, YeokchamStatus, yeokcham_handle_create,
-        yeokcham_handle_release,
+        MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_VERSION,
+        YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR, YeokchamStatus,
+        yeokcham_handle_complete_async, yeokcham_handle_create, yeokcham_handle_release,
+    };
+    use std::{
+        ffi::c_void,
+        sync::{Mutex, OnceLock, mpsc},
+        time::Duration,
     };
 
     const HEADER: &str = include_str!("../include/yeokcham.h");
@@ -69,6 +77,8 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_STATE INT32_C(4)"));
         assert!(HEADER.contains("yeokcham_handle_t *yeokcham_handle_create(void);"));
         assert!(HEADER.contains("yeokcham_handle_release(yeokcham_handle_t *handle);"));
+        assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
+        assert!(HEADER.contains("yeokcham_handle_complete_async("));
     }
 
     #[test]
@@ -85,5 +95,64 @@ mod tests {
             YeokchamStatus::InvalidInput
         );
         assert!(MAX_C_ABI_HANDLES > 0);
+    }
+
+    static CALLBACK_TEST_LOCK: Mutex<()> = Mutex::new(());
+    static COMPLETION_SENDER: OnceLock<Mutex<Option<mpsc::Sender<(i32, usize)>>>> = OnceLock::new();
+
+    extern "C" fn record_completion(status: i32, context: *mut c_void) {
+        let sender = COMPLETION_SENDER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
+        sender
+            .as_ref()
+            .unwrap()
+            .send((status, context.addr()))
+            .unwrap();
+    }
+
+    #[test]
+    fn active_handles_complete_asynchronously_once() {
+        let _guard = CALLBACK_TEST_LOCK.lock().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        *COMPLETION_SENDER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap() = Some(sender);
+        let handle = yeokcham_handle_create();
+        assert_eq!(
+            yeokcham_handle_complete_async(
+                handle,
+                Some(record_completion),
+                std::ptr::without_provenance_mut(42),
+            ),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(1)),
+            Ok((YeokchamStatus::Ok as i32, 42))
+        );
+        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+        *COMPLETION_SENDER.get().unwrap().lock().unwrap() = None;
+        assert!(MAX_C_ABI_PENDING_COMPLETIONS > 0);
+    }
+
+    #[test]
+    fn asynchronous_completion_rejects_invalid_handles_and_callbacks() {
+        let handle = yeokcham_handle_create();
+        assert_eq!(
+            yeokcham_handle_complete_async(handle, None, std::ptr::null_mut()),
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            yeokcham_handle_complete_async(
+                std::ptr::null(),
+                Some(record_completion),
+                std::ptr::null_mut()
+            ),
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
     }
 }

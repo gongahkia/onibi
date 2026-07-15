@@ -10,6 +10,7 @@
 typedef struct yeokcham_handle yeokcham_handle_t; // library-owned opaque handle; release with yeokcham_handle_release
 
 typedef int32_t yeokcham_status_t;
+typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
 
 #define YEOKCHAM_STATUS_OK INT32_C(0)
 #define YEOKCHAM_STATUS_INVALID_INPUT INT32_C(1)
@@ -19,5 +20,10 @@ typedef int32_t yeokcham_status_t;
 
 yeokcham_handle_t *yeokcham_handle_create(void); // null when handle capacity is exhausted
 yeokcham_status_t yeokcham_handle_release(yeokcham_handle_t *handle); // invalid input unless handle is active
+yeokcham_status_t yeokcham_handle_complete_async(
+    const yeokcham_handle_t *handle,
+    yeokcham_completion_callback_t callback,
+    void *context
+); // callback receives the completion status
 
 #endif
