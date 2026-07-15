@@ -16,6 +16,7 @@ default = []
 [dependencies]
 clap.workspace = true
 sha2.workspace = true
+yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 
 [lints]

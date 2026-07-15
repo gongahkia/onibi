@@ -3,6 +3,17 @@
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::PathBuf};
+use yeokcham_core::{
+    IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
+};
+use yeokcham_protocol::IdentityIdentifier;
+
+#[cfg(target_os = "linux")]
+use yeokcham_core::LinuxKeystore;
+#[cfg(target_os = "macos")]
+use yeokcham_core::MacOsKeystore;
+#[cfg(target_os = "windows")]
+use yeokcham_core::WindowsKeystore;
 
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
@@ -17,6 +28,10 @@ struct Arguments {
 #[derive(Subcommand)]
 enum Command {
     Version,
+    Identity {
+        #[command(subcommand)]
+        command: IdentityCommand,
+    },
     ReleaseMetadata {
         #[arg(long)]
         source_revision: String,
@@ -33,6 +48,18 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum IdentityCommand {
+    Create {
+        #[arg(long, default_value = "identity_primary")]
+        name: String,
+    },
+    Show {
+        #[arg(long, default_value = "identity_primary")]
+        name: String,
+    },
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -40,6 +67,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             "protocol {}",
             yeokcham_protocol::ProtocolVersion::INITIAL.get()
         ),
+        Command::Identity { command } => {
+            let name = match &command {
+                IdentityCommand::Create { name } | IdentityCommand::Show { name } => name.clone(),
+            };
+            let entry = KeystoreEntryName::new(name)?;
+            let public_key = match command {
+                IdentityCommand::Create { .. } => create_system_identity(&entry)?,
+                IdentityCommand::Show { .. } => load_system_identity(&entry)?,
+            };
+            print!("{}", identity_record(&public_key));
+        }
         Command::ReleaseMetadata {
             source_revision,
             source_date_epoch,
@@ -93,11 +131,84 @@ fn release_metadata(
 }
 
 fn sha256_hex(input: &[u8]) -> String {
-    let mut hexadecimal = String::with_capacity(64);
-    for byte in Sha256::digest(input) {
+    hexadecimal(&Sha256::digest(input))
+}
+
+fn hexadecimal(input: &[u8]) -> String {
+    let mut hexadecimal = String::with_capacity(input.len() * 2);
+    for byte in input {
         write!(&mut hexadecimal, "{byte:02x}").expect("writing to String cannot fail");
     }
     hexadecimal
+}
+
+fn identity_record(public_key: &IdentityPublicKey) -> String {
+    format!(
+        "public_key={}\nidentity_identifier={}\n",
+        hexadecimal(public_key.as_bytes()),
+        hexadecimal(IdentityIdentifier::derive(public_key).as_bytes()),
+    )
+}
+
+fn create_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return create_identity(&mut keystore, entry);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return create_identity(&mut keystore, entry);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return create_identity(&mut keystore, entry);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn load_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        let keystore = LinuxKeystore::new()?;
+        return load_identity(&keystore, entry);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let keystore = MacOsKeystore::new();
+        return load_identity(&keystore, entry);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let keystore = WindowsKeystore::new()?;
+        return load_identity(&keystore, entry);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn create_identity<K: OsKeystore>(
+    keystore: &mut K,
+    entry: &KeystoreEntryName,
+) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    if keystore.load(entry)?.is_some() {
+        return Err("identity already exists".into());
+    }
+    let identity = IdentityKeypair::generate()?;
+    let secret = KeystoreSecret::new(identity.serialize().to_vec())?;
+    keystore.store(entry, &secret)?;
+    Ok(identity.public_key())
+}
+
+fn load_identity<K: OsKeystore>(
+    keystore: &K,
+    entry: &KeystoreEntryName,
+) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    let secret = keystore.load(entry)?.ok_or("identity does not exist")?;
+    Ok(IdentityKeypair::deserialize(secret.as_bytes())?.public_key())
 }
 
 fn is_canonical_revision(revision: &str) -> bool {
@@ -151,9 +262,46 @@ fn is_canonical_hex(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::release_metadata;
+    use std::convert::Infallible;
+
+    use clap::Parser;
+
+    use super::{
+        Arguments, Command, IdentityCommand, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
+        OsKeystore, create_identity, identity_record, load_identity, release_metadata,
+    };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[derive(Default)]
+    struct InMemoryKeystore {
+        secret: Option<KeystoreSecret>,
+    }
+
+    impl OsKeystore for InMemoryKeystore {
+        type Error = Infallible;
+
+        fn load(&self, _: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
+            Ok(self
+                .secret
+                .as_ref()
+                .map(|secret| KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap()))
+        }
+
+        fn store(
+            &mut self,
+            _: &KeystoreEntryName,
+            secret: &KeystoreSecret,
+        ) -> Result<(), Self::Error> {
+            self.secret = Some(KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap());
+            Ok(())
+        }
+
+        fn delete(&mut self, _: &KeystoreEntryName) -> Result<(), Self::Error> {
+            self.secret = None;
+            Ok(())
+        }
+    }
 
     #[test]
     fn metadata_is_canonical_and_deterministic() {
@@ -204,5 +352,58 @@ mod tests {
             super::verify_protocol_vectors("version_offer=83010103\nversion_offer=83010103\n")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn identity_commands_store_only_redacted_key_material_and_public_records() {
+        let entry = KeystoreEntryName::new("identity_primary".to_owned()).unwrap();
+        let mut keystore = InMemoryKeystore::default();
+        let created = create_identity(&mut keystore, &entry).unwrap();
+        let loaded = load_identity(&keystore, &entry).unwrap();
+        let record = identity_record(&created);
+        assert_eq!(created, loaded);
+        assert!(record.starts_with("public_key="));
+        assert!(record.contains("\nidentity_identifier="));
+        assert!(!record.contains("signing_key"));
+        assert!(create_identity(&mut keystore, &entry).is_err());
+    }
+
+    #[test]
+    fn identity_record_is_canonical_for_a_valid_public_key() {
+        let public_key = IdentityPublicKey::from_bytes([
+            0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64,
+            0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68,
+            0xf7, 0x07, 0x51, 0x1a,
+        ])
+        .unwrap();
+        assert_eq!(
+            identity_record(&public_key),
+            "public_key=d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nidentity_identifier=fbcc7bd59b35de83c8ea6d3ff094463cda5c962f1e71c9d6cdbef01fc36178ae\n"
+        );
+    }
+
+    #[test]
+    fn parses_identity_create_and_show_commands() {
+        let create = Arguments::try_parse_from(["yeokcham", "identity", "create"]).unwrap();
+        assert!(matches!(
+            create.command,
+            Command::Identity {
+                command: IdentityCommand::Create { name }
+            } if name == "identity_primary"
+        ));
+        let show = Arguments::try_parse_from([
+            "yeokcham",
+            "identity",
+            "show",
+            "--name",
+            "identity_secondary",
+        ])
+        .unwrap();
+        assert!(matches!(
+            show.command,
+            Command::Identity {
+                command: IdentityCommand::Show { name }
+            } if name == "identity_secondary"
+        ));
     }
 }
