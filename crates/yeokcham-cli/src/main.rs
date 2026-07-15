@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod release_manifest;
+
 use clap::{Args, Parser, Subcommand};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -27,6 +29,8 @@ use yeokcham_protocol::{
     MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
+
+use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
 
 #[cfg(target_os = "linux")]
 use yeokcham_core::LinuxKeystore;
@@ -74,6 +78,10 @@ enum Command {
         command: AttachmentCommand,
     },
     Tui(TuiCommand),
+    ReleaseManifest {
+        #[command(subcommand)]
+        command: ReleaseManifestCommand,
+    },
     ReleaseMetadata {
         #[arg(long)]
         source_revision: String,
@@ -172,6 +180,30 @@ struct TuiCommand {
     snapshot: bool,
 }
 
+#[derive(Subcommand)]
+enum ReleaseManifestCommand {
+    Sign {
+        #[arg(long)]
+        source_revision: String,
+        #[arg(long)]
+        source_date_epoch: u64,
+        #[arg(long, default_value = "release_signing")]
+        signing_key_name: String,
+        #[arg(long, required = true, num_args = 1..)]
+        artifact: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    Verify {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        artifact_directory: PathBuf,
+        #[arg(long)]
+        trusted_public_key: String,
+    },
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -247,6 +279,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
         },
         Command::Tui(command) => tui(&command.state_directory, command.snapshot)?,
+        Command::ReleaseManifest { command } => release_manifest(command)?,
         Command::ReleaseMetadata {
             source_revision,
             source_date_epoch,
@@ -258,19 +291,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
             fs::write(output, metadata)?;
         }
-        Command::ProtocolVectors { verify } => {
-            if let Some(input) = verify {
-                if fs::metadata(&input)?.len() > MAX_PROTOCOL_VECTOR_BYTES {
-                    return Err("protocol vector file exceeds maximum size".into());
-                }
-                let candidate = fs::read_to_string(input)?;
-                verify_protocol_vectors(&candidate).map_err(|error| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, error)
-                })?;
-            } else {
-                print!("{PROTOCOL_V1_VECTORS}");
-            }
+        Command::ProtocolVectors { verify } => protocol_vectors(verify)?,
+    }
+    Ok(())
+}
+
+fn protocol_vectors(verify: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
+    if let Some(input) = verify {
+        if fs::metadata(&input)?.len() > MAX_PROTOCOL_VECTOR_BYTES {
+            return Err("protocol vector file exceeds maximum size".into());
         }
+        let candidate = fs::read_to_string(input)?;
+        verify_protocol_vectors(&candidate)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    } else {
+        print!("{PROTOCOL_V1_VECTORS}");
     }
     Ok(())
 }
@@ -296,6 +331,97 @@ fn release_metadata(
         source_revision,
         source_date_epoch,
         sha256_hex(lockfile),
+    ))
+}
+
+fn release_manifest(command: ReleaseManifestCommand) -> Result<(), Box<dyn Error>> {
+    match command {
+        ReleaseManifestCommand::Sign {
+            source_revision,
+            source_date_epoch,
+            signing_key_name,
+            artifact,
+            output,
+        } => print!(
+            "{}",
+            sign_system_release_manifest(
+                &source_revision,
+                source_date_epoch,
+                &signing_key_name,
+                &artifact,
+                &output,
+            )?
+        ),
+        ReleaseManifestCommand::Verify {
+            manifest,
+            artifact_directory,
+            trusted_public_key,
+        } => print!(
+            "{}",
+            verify_release_manifest(&manifest, &artifact_directory, &trusted_public_key)?
+        ),
+    }
+    Ok(())
+}
+
+fn sign_system_release_manifest(
+    source_revision: &str,
+    source_date_epoch: u64,
+    signing_key_name: &str,
+    artifact_paths: &[PathBuf],
+    output: &Path,
+) -> Result<String, Box<dyn Error>> {
+    let entry = KeystoreEntryName::new(signing_key_name.to_owned())?;
+    let signing_key = load_system_identity(&entry)?;
+    sign_release_manifest(
+        &signing_key,
+        source_revision,
+        source_date_epoch,
+        artifact_paths,
+        output,
+    )
+}
+
+fn sign_release_manifest(
+    signing_key: &IdentityKeypair,
+    source_revision: &str,
+    source_date_epoch: u64,
+    artifact_paths: &[PathBuf],
+    output: &Path,
+) -> Result<String, Box<dyn Error>> {
+    let artifacts = artifact_paths
+        .iter()
+        .map(|path| ReleaseArtifact::from_path(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let manifest = SignedReleaseArtifactManifest::sign(
+        source_revision,
+        source_date_epoch,
+        artifacts,
+        signing_key,
+    )?;
+    let encoded = manifest.encode()?;
+    write_new_file(output, &encoded)?;
+    Ok(format!(
+        "signing_public_key={}\nmanifest_sha256={}\n",
+        hexadecimal(manifest.signing_public_key().as_bytes()),
+        sha256_hex(&encoded)
+    ))
+}
+
+fn verify_release_manifest(
+    manifest_path: &Path,
+    artifact_directory: &Path,
+    trusted_public_key: &str,
+) -> Result<String, Box<dyn Error>> {
+    let manifest = SignedReleaseArtifactManifest::load(manifest_path)?;
+    let trusted_public_key = decode_identity_public_key(trusted_public_key)?;
+    manifest.verify(&trusted_public_key)?;
+    manifest.verify_artifacts(artifact_directory)?;
+    Ok(format!(
+        "verified_artifacts={}\nsource_revision={}\nsource_date_epoch={}\n",
+        manifest.artifacts().len(),
+        manifest.source_revision(),
+        manifest.source_date_epoch()
     ))
 }
 
@@ -875,12 +1001,12 @@ mod tests {
         ContactInvitation, ContactInvitationCommand, EncryptedMessageEnvelope, INBOX_DATABASE_FILE,
         IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
         MessageCommand, MessageExpiry, OUTBOX_DATABASE_FILE, OsKeystore,
-        RecipientInboxDeduplication, RelayProfileCommand, SenderOutbox, TorMaildropProfileConfig,
-        TuiCommand, contact_invitation_record, create_identity, dashboard_from_stores,
-        decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
+        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
+        TorMaildropProfileConfig, TuiCommand, contact_invitation_record, create_identity,
+        dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
         inspect_contact_invitation, inspect_relay_profile, load_identity,
         queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
-        render_dashboard, validate_state_directory,
+        render_dashboard, sign_release_manifest, validate_state_directory, verify_release_manifest,
     };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
@@ -1281,6 +1407,75 @@ mod tests {
                 state_directory,
                 snapshot: true
             }) if state_directory.as_path() == Path::new("/state")
+        ));
+    }
+
+    #[test]
+    fn release_manifest_sign_and_verify_pin_the_signing_key() {
+        let directory = std::env::temp_dir().join(format!(
+            "yeokcham-release-command-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let artifact = directory.join("yeokcham");
+        let manifest = directory.join("release-manifest.cbor");
+        fs::write(&artifact, b"release artifact").unwrap();
+        let signer = IdentityKeypair::generate().unwrap();
+
+        let record = sign_release_manifest(&signer, REVISION, 123, &[artifact], &manifest).unwrap();
+        assert!(record.contains("signing_public_key="));
+        let verified = verify_release_manifest(
+            &manifest,
+            &directory,
+            &hexadecimal(signer.public_key().as_bytes()),
+        )
+        .unwrap();
+        assert_eq!(
+            verified,
+            format!("verified_artifacts=1\nsource_revision={REVISION}\nsource_date_epoch=123\n")
+        );
+        assert!(
+            verify_release_manifest(
+                &manifest,
+                &directory,
+                &hexadecimal(IdentityKeypair::generate().unwrap().public_key().as_bytes())
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn parses_release_manifest_sign_command() {
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "release-manifest",
+            "sign",
+            "--source-revision",
+            REVISION,
+            "--source-date-epoch",
+            "123",
+            "--artifact",
+            "yeokcham",
+            "--output",
+            "release-manifest.cbor",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::ReleaseManifest {
+                command: ReleaseManifestCommand::Sign {
+                    source_revision,
+                    source_date_epoch: 123,
+                    signing_key_name,
+                    artifact,
+                    output,
+                },
+            } if source_revision == REVISION
+                && signing_key_name == "release_signing"
+                && artifact == [PathBuf::from("yeokcham")]
+                && output == PathBuf::from("release-manifest.cbor")
         ));
     }
 
