@@ -7,6 +7,7 @@ idle_seconds="${ONIBI_SSH_IDLE_SECONDS:-5}"
 sigint_timeout_seconds="${ONIBI_SSH_SIGINT_TIMEOUT_SECONDS:-5}"
 target="${ONIBI_SSH_TARGET:-}"
 binary="${ONIBI_SSH_BINARY:-}"
+ssh_config="${ONIBI_SSH_CONFIG:-}"
 remote_dir="${ONIBI_SSH_REMOTE_DIR:-/tmp/onibi-ssh-smoke.$$}"
 build_tags="${ONIBI_SSH_BUILD_TAGS:-onibi_remote}"
 gcflags="${ONIBI_SSH_GCFLAGS:-all=-l}"
@@ -15,7 +16,7 @@ keep_remote=false
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/ssh-smoke.sh [--size-only] [--binary <path>] [--target user@host] [--remote-dir <path>] [--keep-remote]
+usage: scripts/ssh-smoke.sh [--size-only] [--binary <path>] [--target user@host] [--ssh-config <path>] [--remote-dir <path>] [--keep-remote]
 
 Gates:
   linux/arm64 stripped onibi binary <= ONIBI_SSH_MAX_BINARY_BYTES (default 14680064, 14 MiB)
@@ -25,6 +26,7 @@ Gates:
 Environment:
   ONIBI_SSH_TARGET=user@host
   ONIBI_SSH_BINARY=/path/to/linux-arm64/onibi
+  ONIBI_SSH_CONFIG=/path/to/ssh_config
   ONIBI_SSH_BUILD_TAGS=onibi_remote
   ONIBI_SSH_GCFLAGS=all=-l
   ONIBI_SSH_IDLE_SECONDS=5
@@ -37,6 +39,7 @@ while (($#)); do
     --size-only) size_only=true; shift ;;
     --binary) binary="${2:-}"; shift 2 ;;
     --target) target="${2:-}"; shift 2 ;;
+    --ssh-config) ssh_config="${2:-}"; shift 2 ;;
     --remote-dir) remote_dir="${2:-}"; shift 2 ;;
     --keep-remote) keep_remote=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -71,16 +74,27 @@ if [[ -z "$target" ]]; then
   echo "missing --target or ONIBI_SSH_TARGET for RSS gate; use --size-only for local size gate" >&2
   exit 2
 fi
+if [[ -n "$ssh_config" && ! -f "$ssh_config" ]]; then
+  echo "ssh config not found: $ssh_config" >&2
+  exit 2
+fi
 
-ssh "$target" 'sh -s' -- "$remote_dir" <<'REMOTE'
+ssh_cmd=(ssh)
+scp_cmd=(scp)
+if [[ -n "$ssh_config" ]]; then
+  ssh_cmd+=(-F "$ssh_config")
+  scp_cmd+=(-F "$ssh_config")
+fi
+
+"${ssh_cmd[@]}" "$target" 'sh -s' -- "$remote_dir" <<'REMOTE'
 set -eu
 rm -rf "$1"
 mkdir -p "$1"
 REMOTE
-scp "$binary" "$target:$remote_dir/onibi" >/dev/null
+"${scp_cmd[@]}" "$binary" "$target:$remote_dir/onibi" >/dev/null
 cleanup_remote() {
   if ! "$keep_remote"; then
-    ssh "$target" 'sh -s' -- "$remote_dir" >/dev/null 2>&1 <<'REMOTE' || true
+    "${ssh_cmd[@]}" "$target" 'sh -s' -- "$remote_dir" >/dev/null 2>&1 <<'REMOTE' || true
 set -eu
 rm -rf "$1"
 REMOTE
@@ -88,7 +102,7 @@ REMOTE
 }
 trap 'rm -rf "$tmp"; cleanup_remote' EXIT
 
-ssh "$target" 'sh -s' -- "$remote_dir" "$max_rss_kib" "$idle_seconds" "$sigint_timeout_seconds" <<'REMOTE'
+"${ssh_cmd[@]}" "$target" 'sh -s' -- "$remote_dir" "$max_rss_kib" "$idle_seconds" "$sigint_timeout_seconds" <<'REMOTE'
 set -eu
 dir="$1"
 max_rss="$2"
