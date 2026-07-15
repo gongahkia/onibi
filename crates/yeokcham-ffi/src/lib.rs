@@ -38,7 +38,8 @@ mod tests {
     };
     use std::{
         ffi::c_void,
-        sync::{Mutex, OnceLock, mpsc},
+        sync::{Arc, Barrier, Mutex, OnceLock, mpsc},
+        thread,
         time::Duration,
     };
 
@@ -168,5 +169,58 @@ mod tests {
         assert_eq!(yeokcham_abi_negotiate(0), 0);
         assert_eq!(yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION + 1), 0);
         assert_eq!(yeokcham_abi_negotiate(u32::MAX), 0);
+    }
+
+    extern "C" fn noop_completion(_: i32, _: *mut c_void) {}
+
+    #[test]
+    fn concurrent_handle_lifecycle_accepts_each_handle_once() {
+        const WORKERS: usize = 32;
+        let start = Arc::new(Barrier::new(WORKERS));
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                let start = Arc::clone(&start);
+                thread::spawn(move || {
+                    start.wait();
+                    let handle = yeokcham_handle_create();
+                    !handle.is_null()
+                        && yeokcham_handle_release(handle) == YeokchamStatus::Ok
+                        && yeokcham_handle_release(handle) == YeokchamStatus::InvalidInput
+                })
+            })
+            .collect();
+        assert!(workers.into_iter().all(|worker| worker.join().unwrap()));
+    }
+
+    #[test]
+    fn concurrent_submission_and_release_return_only_defined_statuses() {
+        let handle = yeokcham_handle_create();
+        let handle_address = handle.addr();
+        let start = Arc::new(Barrier::new(2));
+        let release_start = Arc::clone(&start);
+        let release = thread::spawn(move || {
+            release_start.wait();
+            yeokcham_handle_release(std::ptr::without_provenance_mut(handle_address))
+        });
+        start.wait();
+        let completion = yeokcham_handle_complete_async(
+            std::ptr::without_provenance(handle_address),
+            Some(noop_completion),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(release.join().unwrap(), YeokchamStatus::Ok);
+        assert!(matches!(
+            completion,
+            YeokchamStatus::Ok | YeokchamStatus::InvalidInput
+        ));
+    }
+
+    #[test]
+    fn thread_safety_contract_covers_callbacks_and_handle_lifecycle() {
+        const THREAD_SAFETY: &str = include_str!("../README.md");
+        assert!(THREAD_SAFETY.contains("## Thread safety"));
+        assert!(THREAD_SAFETY.contains("may be called concurrently"));
+        assert!(THREAD_SAFETY.contains("library-created background thread"));
+        assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
     }
 }
