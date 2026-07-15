@@ -4,20 +4,24 @@ use minicbor::{Decoder, Encoder};
 use yeokcham_core::{IdentityPublicKey, OsKeystore};
 use yeokcham_protocol::{
     DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
-    MessageIdentifier, MessageIdentifierError,
+    MAX_RELAY_INVITATION_TTL_SECONDS, MessageIdentifier, MessageIdentifierError,
 };
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 3;
+pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 4;
 pub const MAX_OUTBOX_MESSAGES: usize = 256;
 pub const MAX_DELIVERY_STATE_HISTORY: usize = 1024;
+pub const MIN_MESSAGE_EXPIRY_SECONDS: u32 = 1;
+pub const MAX_MESSAGE_EXPIRY_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 const OUTBOX_FIELDS: u64 = 3;
 const OUTBOX_FIELDS_PREVIOUS: u64 = 2;
 const OUTBOX_STATE_SCHEMA_VERSION_V1: u8 = 1;
 const OUTBOX_STATE_SCHEMA_VERSION_V2: u8 = 2;
+const OUTBOX_STATE_SCHEMA_VERSION_V3: u8 = 3;
 const OUTBOX_MESSAGE_FIELDS_V1: u64 = 2;
-const OUTBOX_MESSAGE_FIELDS: u64 = 3;
+const OUTBOX_MESSAGE_FIELDS_V2_V3: u64 = 3;
+const OUTBOX_MESSAGE_FIELDS: u64 = 5;
 const DELIVERY_STATUS_FIELDS: u64 = 2;
 const DELIVERED_STATE: u8 = 1;
 const EXPIRED_STATE: u8 = 2;
@@ -28,6 +32,63 @@ pub struct OutboxMessage {
     identifier: MessageIdentifier,
     recipient: IdentityPublicKey,
     envelope: EncryptedMessageEnvelope,
+    expiry: MessageExpiry,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessageExpiry {
+    created_at: u64,
+    ttl_seconds: u32,
+}
+
+impl MessageExpiry {
+    pub fn new(created_at: u64, ttl_seconds: u32) -> Result<Self, MessageExpiryError> {
+        if !(MIN_MESSAGE_EXPIRY_SECONDS..=MAX_MESSAGE_EXPIRY_SECONDS).contains(&ttl_seconds) {
+            return Err(MessageExpiryError::InvalidTtl);
+        }
+        created_at
+            .checked_add(u64::from(ttl_seconds))
+            .ok_or(MessageExpiryError::TimestampOverflow)?;
+        Ok(Self {
+            created_at,
+            ttl_seconds,
+        })
+    }
+
+    #[must_use]
+    pub const fn created_at(self) -> u64 {
+        self.created_at
+    }
+
+    #[must_use]
+    pub const fn ttl_seconds(self) -> u32 {
+        self.ttl_seconds
+    }
+
+    #[must_use]
+    pub const fn expires_at(self) -> u64 {
+        self.created_at + self.ttl_seconds as u64
+    }
+
+    #[must_use]
+    pub const fn is_expired(self, now: u64) -> bool {
+        now >= self.expires_at()
+    }
+
+    const fn legacy_expired() -> Self {
+        Self {
+            created_at: 0,
+            ttl_seconds: MIN_MESSAGE_EXPIRY_SECONDS,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum MessageExpiryError {
+    #[error("message expiry TTL is outside the supported bounds")]
+    InvalidTtl,
+    #[error("message expiry timestamp overflowed")]
+    TimestampOverflow,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,6 +130,11 @@ impl OutboxMessage {
     #[must_use]
     pub const fn envelope(&self) -> &EncryptedMessageEnvelope {
         &self.envelope
+    }
+
+    #[must_use]
+    pub const fn expiry(&self) -> MessageExpiry {
+        self.expiry
     }
 }
 
@@ -140,6 +206,7 @@ impl SenderOutbox {
         &mut self,
         recipient: IdentityPublicKey,
         envelope: EncryptedMessageEnvelope,
+        expiry: MessageExpiry,
     ) -> Result<(), SenderOutboxError> {
         if self.messages.len() >= MAX_OUTBOX_MESSAGES {
             return Err(SenderOutboxError::QueueFull);
@@ -149,6 +216,7 @@ impl SenderOutbox {
             identifier,
             recipient,
             envelope,
+            expiry,
         });
         if let Err(error) = self.persist() {
             self.messages.pop();
@@ -192,6 +260,36 @@ impl SenderOutbox {
         self.finalize(index, DeliveryState::Expired)
     }
 
+    pub fn expire_due_deliveries(
+        &mut self,
+        now: u64,
+    ) -> Result<Vec<OutboxMessage>, SenderOutboxError> {
+        let prior_messages = self.messages.clone();
+        let prior_statuses = self.statuses.clone();
+        let mut expired = Vec::new();
+        for message in std::mem::take(&mut self.messages) {
+            if message.expiry.is_expired(now) {
+                push_delivery_status(
+                    &mut self.statuses,
+                    message.identifier,
+                    DeliveryState::Expired,
+                );
+                expired.push(message);
+            } else {
+                self.messages.push(message);
+            }
+        }
+        if expired.is_empty() {
+            return Ok(expired);
+        }
+        if let Err(error) = self.persist() {
+            self.messages = prior_messages;
+            self.statuses = prior_statuses;
+            return Err(error);
+        }
+        Ok(expired)
+    }
+
     fn persist(&mut self) -> Result<(), SenderOutboxError> {
         let document = StateDocument::new(encode_outbox(&self.messages, &self.statuses)?)
             .map_err(SenderOutboxError::InvalidDocument)?;
@@ -206,13 +304,7 @@ impl SenderOutbox {
     ) -> Result<OutboxMessage, SenderOutboxError> {
         let message = self.messages.remove(index);
         let prior_statuses = self.statuses.clone();
-        self.statuses.push(DeliveryStatus {
-            identifier: message.identifier,
-            state,
-        });
-        if self.statuses.len() > MAX_DELIVERY_STATE_HISTORY {
-            self.statuses.remove(0);
-        }
+        push_delivery_status(&mut self.statuses, message.identifier, state);
         if let Err(error) = self.persist() {
             self.messages.insert(index, message);
             self.statuses = prior_statuses;
@@ -232,6 +324,8 @@ pub enum SenderOutboxError {
     EmptyQueue,
     #[error("sender outbox message identifier is invalid")]
     Identifier(#[source] MessageIdentifierError),
+    #[error("message expiry is invalid")]
+    Expiry(#[source] MessageExpiryError),
     #[error("delivery acknowledgement verification failed")]
     Acknowledgement(#[source] DeliveryAcknowledgementError),
     #[error("message identifier references no queued message")]
@@ -320,6 +414,11 @@ fn encode_outbox(
             .map_err(|_| SenderOutboxError::Encode)?
             .bytes(&envelope)
             .map_err(|_| SenderOutboxError::Encode)?;
+        encoder
+            .u64(message.expiry.created_at())
+            .map_err(|_| SenderOutboxError::Encode)?
+            .u32(message.expiry.ttl_seconds())
+            .map_err(|_| SenderOutboxError::Encode)?;
     }
     encoder
         .array(u64::try_from(statuses.len()).map_err(|_| SenderOutboxError::Encode)?)
@@ -346,12 +445,15 @@ fn decode_outbox(
     }
     let version = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
     if version != OUTBOX_STATE_SCHEMA_VERSION
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V3
         && version != OUTBOX_STATE_SCHEMA_VERSION_V2
         && version != OUTBOX_STATE_SCHEMA_VERSION_V1
     {
         return Err(SenderOutboxError::UnsupportedSchemaVersion(version));
     }
-    if (version == OUTBOX_STATE_SCHEMA_VERSION) != (fields == Some(OUTBOX_FIELDS)) {
+    if (version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V3)
+        != (fields == Some(OUTBOX_FIELDS))
+    {
         return Err(SenderOutboxError::InvalidShape);
     }
     let count = decoder
@@ -364,10 +466,12 @@ fn decode_outbox(
     }
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
-        let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION
+        let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION {
+            OUTBOX_MESSAGE_FIELDS
+        } else if version == OUTBOX_STATE_SCHEMA_VERSION_V3
             || version == OUTBOX_STATE_SCHEMA_VERSION_V2
         {
-            OUTBOX_MESSAGE_FIELDS
+            OUTBOX_MESSAGE_FIELDS_V2_V3
         } else {
             OUTBOX_MESSAGE_FIELDS_V1
         };
@@ -375,6 +479,7 @@ fn decode_outbox(
             return Err(SenderOutboxError::InvalidShape);
         }
         let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION
+            || version == OUTBOX_STATE_SCHEMA_VERSION_V3
             || version == OUTBOX_STATE_SCHEMA_VERSION_V2
         {
             let identifier = decoder
@@ -398,24 +503,51 @@ fn decode_outbox(
             decoder.bytes().map_err(SenderOutboxError::InvalidState)?,
         )
         .map_err(|_| SenderOutboxError::InvalidEnvelope)?;
+        let expiry = if version == OUTBOX_STATE_SCHEMA_VERSION {
+            MessageExpiry::new(
+                decoder.u64().map_err(SenderOutboxError::InvalidState)?,
+                decoder.u32().map_err(SenderOutboxError::InvalidState)?,
+            )
+            .map_err(SenderOutboxError::Expiry)?
+        } else {
+            MessageExpiry::legacy_expired()
+        };
         messages.push(OutboxMessage {
             identifier,
             recipient,
             envelope,
+            expiry,
         });
     }
-    let statuses = if version == OUTBOX_STATE_SCHEMA_VERSION {
-        decode_delivery_statuses(&mut decoder, &messages)?
-    } else {
-        Vec::new()
-    };
+    let mut statuses =
+        if version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V3 {
+            decode_delivery_statuses(&mut decoder, &messages)?
+        } else {
+            Vec::new()
+        };
     if decoder.position() != encoded.len() {
         return Err(SenderOutboxError::TrailingBytes);
     }
     if version == OUTBOX_STATE_SCHEMA_VERSION && encode_outbox(&messages, &statuses)? != encoded {
         return Err(SenderOutboxError::NonCanonicalEncoding);
     }
+    if version != OUTBOX_STATE_SCHEMA_VERSION {
+        for message in messages.drain(..) {
+            push_delivery_status(&mut statuses, message.identifier, DeliveryState::Expired);
+        }
+    }
     Ok((messages, statuses, version != OUTBOX_STATE_SCHEMA_VERSION))
+}
+
+fn push_delivery_status(
+    statuses: &mut Vec<DeliveryStatus>,
+    identifier: MessageIdentifier,
+    state: DeliveryState,
+) {
+    statuses.push(DeliveryStatus { identifier, state });
+    if statuses.len() > MAX_DELIVERY_STATE_HISTORY {
+        statuses.remove(0);
+    }
 }
 
 fn decode_delivery_statuses(
@@ -502,9 +634,13 @@ mod tests {
     use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
     use yeokcham_protocol::{
         DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
+        MessageIdentifier,
     };
 
-    use super::{DeliveryState, SenderOutbox, SenderOutboxError};
+    use super::{
+        DeliveryState, MAX_MESSAGE_EXPIRY_SECONDS, MessageExpiry, MessageExpiryError, SenderOutbox,
+        SenderOutboxError,
+    };
     use crate::{EncryptedStateStore, StateDocument};
 
     #[derive(Default)]
@@ -543,6 +679,75 @@ mod tests {
         ))
     }
 
+    fn expiry() -> MessageExpiry {
+        MessageExpiry::new(100, 60).unwrap()
+    }
+
+    #[test]
+    fn enforces_bounded_sender_selected_message_expiry() {
+        let expiry = MessageExpiry::new(100, 60).unwrap();
+        assert_eq!(expiry.expires_at(), 160);
+        assert!(!expiry.is_expired(159));
+        assert!(expiry.is_expired(160));
+        assert!(matches!(
+            MessageExpiry::new(100, 0),
+            Err(MessageExpiryError::InvalidTtl)
+        ));
+        assert!(matches!(
+            MessageExpiry::new(100, MAX_MESSAGE_EXPIRY_SECONDS + 1),
+            Err(MessageExpiryError::InvalidTtl)
+        ));
+        assert!(matches!(
+            MessageExpiry::new(u64::MAX, 1),
+            Err(MessageExpiryError::TimestampOverflow)
+        ));
+    }
+
+    #[test]
+    fn persists_sender_selected_message_expiry() {
+        let path = path("message-expiry");
+        let mut keystore = MemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let expiry = MessageExpiry::new(100, 60).unwrap();
+        let identifier = {
+            let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+            outbox
+                .enqueue(
+                    recipient,
+                    EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                    expiry,
+                )
+                .unwrap();
+            let message = outbox.next().unwrap();
+            assert_eq!(message.expiry(), expiry);
+            message.identifier()
+        };
+
+        let mut restored = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert_eq!(restored.next().unwrap().expiry(), expiry);
+        assert_eq!(
+            restored.delivery_state(identifier),
+            Some(DeliveryState::Unknown)
+        );
+        assert!(restored.expire_due_deliveries(159).unwrap().is_empty());
+        assert_eq!(
+            restored.expire_due_deliveries(160).unwrap()[0].identifier(),
+            identifier
+        );
+        assert_eq!(
+            restored.delivery_state(identifier),
+            Some(DeliveryState::Expired)
+        );
+        drop(restored);
+        assert_eq!(
+            SenderOutbox::open(&path, &mut keystore)
+                .unwrap()
+                .delivery_state(identifier),
+            Some(DeliveryState::Expired)
+        );
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn persists_sender_outbox_in_fifo_order() {
         let path = path("persistence");
@@ -553,8 +758,12 @@ mod tests {
         let second = EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4, 0xe5]).unwrap();
         let (first_identifier, second_identifier) = {
             let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
-            outbox.enqueue(first_recipient, first.clone()).unwrap();
-            outbox.enqueue(second_recipient, second.clone()).unwrap();
+            outbox
+                .enqueue(first_recipient, first.clone(), expiry())
+                .unwrap();
+            outbox
+                .enqueue(second_recipient, second.clone(), expiry())
+                .unwrap();
             assert_eq!(outbox.next().unwrap().envelope(), &first);
             assert!(format!("{:?}", outbox.next().unwrap()).contains("REDACTED"));
             (
@@ -623,12 +832,14 @@ mod tests {
             .enqueue(
                 first_recipient.public_key(),
                 EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                expiry(),
             )
             .unwrap();
         outbox
             .enqueue(
                 second_recipient.public_key(),
                 EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap(),
+                expiry(),
             )
             .unwrap();
         let second_identifier = outbox.messages()[1].identifier();
@@ -679,12 +890,14 @@ mod tests {
                 .enqueue(
                     delivered_recipient.public_key(),
                     EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                    expiry(),
                 )
                 .unwrap();
             outbox
                 .enqueue(
                     expired_recipient.public_key(),
                     EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap(),
+                    expiry(),
                 )
                 .unwrap();
             let delivered_identifier = outbox.messages()[0].identifier();
@@ -756,7 +969,48 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_outbox_messages_to_persistent_identifiers() {
+    fn rejects_invalid_persisted_message_expiry() {
+        let path = path("invalid-message-expiry");
+        let mut keystore = MemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+        let mut encoder = Encoder::new(Vec::new());
+        encoder
+            .array(3)
+            .unwrap()
+            .u8(4)
+            .unwrap()
+            .array(1)
+            .unwrap()
+            .array(5)
+            .unwrap()
+            .bytes(&[1; 16])
+            .unwrap()
+            .bytes(recipient.as_bytes())
+            .unwrap()
+            .bytes(&envelope.encode().unwrap())
+            .unwrap()
+            .u64(100)
+            .unwrap()
+            .u32(0)
+            .unwrap()
+            .array(0)
+            .unwrap();
+        let mut state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        state
+            .replace(&StateDocument::new(encoder.into_writer()).unwrap())
+            .unwrap();
+        drop(state);
+
+        assert!(matches!(
+            SenderOutbox::open(&path, &mut keystore),
+            Err(SenderOutboxError::Expiry(MessageExpiryError::InvalidTtl))
+        ));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn expires_v1_outbox_messages_without_sender_selected_expiry() {
         let path = path("v1-migration");
         let mut keystore = MemoryKeystore::default();
         let recipient = IdentityKeypair::generate().unwrap().public_key();
@@ -782,16 +1036,23 @@ mod tests {
         drop(state);
 
         let migrated = SenderOutbox::open(&path, &mut keystore).unwrap();
-        let identifier = migrated.next().unwrap().identifier();
-        assert_eq!(migrated.next().unwrap().recipient(), &recipient);
+        assert!(migrated.messages().is_empty());
+        let identifier = migrated.delivery_statuses()[0].identifier();
+        assert_eq!(
+            migrated.delivery_state(identifier),
+            Some(DeliveryState::Expired)
+        );
         drop(migrated);
         let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
-        assert_eq!(restored.next().unwrap().identifier(), identifier);
+        assert_eq!(
+            restored.delivery_state(identifier),
+            Some(DeliveryState::Expired)
+        );
         fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn migrates_v2_outbox_messages_to_delivery_states() {
+    fn expires_v2_outbox_messages_without_sender_selected_expiry() {
         let path = path("v2-migration");
         let mut keystore = MemoryKeystore::default();
         let recipient = IdentityKeypair::generate().unwrap().public_key();
@@ -820,19 +1081,83 @@ mod tests {
         drop(state);
 
         let migrated = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert!(migrated.messages().is_empty());
         assert_eq!(
-            migrated.next().unwrap().identifier().as_bytes(),
-            &identifier
-        );
-        assert_eq!(
-            migrated.delivery_state(migrated.next().unwrap().identifier()),
-            Some(DeliveryState::Unknown)
+            migrated.delivery_state(
+                MessageIdentifier::from_bytes(identifier).expect("nonzero identifier")
+            ),
+            Some(DeliveryState::Expired)
         );
         drop(migrated);
         let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
         assert_eq!(
-            restored.next().unwrap().identifier().as_bytes(),
-            &identifier
+            restored.delivery_state(
+                MessageIdentifier::from_bytes(identifier).expect("nonzero identifier")
+            ),
+            Some(DeliveryState::Expired)
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn preserves_v3_terminal_states_and_expires_legacy_pending_messages() {
+        let path = path("v3-migration");
+        let mut keystore = MemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+        let delivered_identifier = [1; 16];
+        let pending_identifier = [2; 16];
+        let mut encoder = Encoder::new(Vec::new());
+        encoder
+            .array(3)
+            .unwrap()
+            .u8(3)
+            .unwrap()
+            .array(1)
+            .unwrap()
+            .array(3)
+            .unwrap()
+            .bytes(&pending_identifier)
+            .unwrap()
+            .bytes(recipient.as_bytes())
+            .unwrap()
+            .bytes(&envelope.encode().unwrap())
+            .unwrap()
+            .array(1)
+            .unwrap()
+            .array(2)
+            .unwrap()
+            .bytes(&delivered_identifier)
+            .unwrap()
+            .u8(1)
+            .unwrap();
+        let mut state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        state
+            .replace(&StateDocument::new(encoder.into_writer()).unwrap())
+            .unwrap();
+        drop(state);
+
+        let delivered = MessageIdentifier::from_bytes(delivered_identifier).unwrap();
+        let pending = MessageIdentifier::from_bytes(pending_identifier).unwrap();
+        let migrated = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert!(migrated.messages().is_empty());
+        assert_eq!(
+            migrated.delivery_state(delivered),
+            Some(DeliveryState::Delivered)
+        );
+        assert_eq!(
+            migrated.delivery_state(pending),
+            Some(DeliveryState::Expired)
+        );
+        drop(migrated);
+        let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert_eq!(
+            restored.delivery_state(delivered),
+            Some(DeliveryState::Delivered)
+        );
+        assert_eq!(
+            restored.delivery_state(pending),
+            Some(DeliveryState::Expired)
         );
         fs::remove_file(path).unwrap();
     }
