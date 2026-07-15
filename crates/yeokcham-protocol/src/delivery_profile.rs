@@ -1,5 +1,7 @@
 use minicbor::{Decoder, Encoder};
 
+use crate::LocalMeshTransportKind;
+
 pub const DELIVERY_PROFILE_SCHEMA_VERSION: u8 = 1;
 const DELIVERY_PROFILE_FIELDS: u64 = 2;
 
@@ -29,6 +31,23 @@ pub enum DeliveryProfilePrivacyWarning {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DirectProfileSelection {
     _private: (),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalMeshProfileSelection {
+    transport: LocalMeshTransportKind,
+}
+
+impl LocalMeshProfileSelection {
+    #[must_use]
+    pub const fn select(transport: LocalMeshTransportKind) -> Self {
+        Self { transport }
+    }
+
+    #[must_use]
+    pub const fn transport(self) -> LocalMeshTransportKind {
+        self.transport
+    }
 }
 
 impl DirectProfileSelection {
@@ -78,7 +97,7 @@ impl DeliveryProfile {
     }
 
     #[must_use]
-    pub const fn local_mesh() -> Self {
+    pub const fn local_mesh(_selection: LocalMeshProfileSelection) -> Self {
         Self::from_kind(DeliveryProfileKind::LocalMesh)
     }
 
@@ -239,6 +258,7 @@ mod tests {
         DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
         DeliveryProfileError, DeliveryProfileKind, DeliveryProfilePolicyDecision,
         DeliveryProfilePrivacyWarning, DeliveryProfileTransitionError, DirectProfileSelection,
+        LocalMeshProfileSelection, LocalMeshTransportKind,
     };
 
     #[test]
@@ -249,7 +269,12 @@ mod tests {
                 [0x82, 0x01, 0x01],
             ),
             (DeliveryProfile::tor_maildrop(), [0x82, 0x01, 0x02]),
-            (DeliveryProfile::local_mesh(), [0x82, 0x01, 0x03]),
+            (
+                DeliveryProfile::local_mesh(LocalMeshProfileSelection::select(
+                    LocalMeshTransportKind::Lan,
+                )),
+                [0x82, 0x01, 0x03],
+            ),
         ] {
             assert_eq!(profile.encode().unwrap(), encoded);
             assert_eq!(DeliveryProfile::decode(&encoded).unwrap(), profile);
@@ -312,7 +337,9 @@ mod tests {
             DeliveryProfilePolicyDecision::Allow
         );
         assert_eq!(
-            constraints.decide(DeliveryProfile::local_mesh()),
+            constraints.decide(DeliveryProfile::local_mesh(
+                LocalMeshProfileSelection::select(LocalMeshTransportKind::WifiHotspot,)
+            )),
             DeliveryProfilePolicyDecision::Deny(DeliveryProfileConstraintError::Disallowed(
                 DeliveryProfileKind::LocalMesh
             ))
@@ -331,7 +358,15 @@ mod tests {
             "Direct delivery exposes your IP address to the recipient."
         );
         assert_eq!(DeliveryProfile::tor_maildrop().privacy_warning(), None);
-        assert_eq!(DeliveryProfile::local_mesh().privacy_warning(), None);
+        let local_selection = LocalMeshProfileSelection::select(LocalMeshTransportKind::Bluetooth);
+        assert_eq!(
+            local_selection.transport(),
+            LocalMeshTransportKind::Bluetooth
+        );
+        assert_eq!(
+            DeliveryProfile::local_mesh(local_selection).privacy_warning(),
+            None
+        );
     }
 
     #[test]

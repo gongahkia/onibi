@@ -52,7 +52,10 @@ pub enum RelayReplicaSelectionError {
 #[cfg(test)]
 mod tests {
     use super::{MAX_RELAY_REPLICAS, RelayReplicaSelection, RelayReplicaSelectionError};
-    use crate::{DeliveryProfile, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig};
+    use crate::{
+        DeliveryProfile, LocalMeshProfileSelection, LocalMeshTransportKind,
+        TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
+    };
 
     fn replica(byte: u8) -> TorMaildropProfileConfig {
         TorMaildropProfileConfig::new([byte; TOR_ONION_SERVICE_PUBLIC_KEY_BYTES], 4444).unwrap()
@@ -72,8 +75,13 @@ mod tests {
     #[test]
     fn rejects_invalid_or_non_maildrop_replica_selection() {
         assert_eq!(
-            RelayReplicaSelection::for_profile(DeliveryProfile::local_mesh(), vec![replica(0x11)])
-                .unwrap_err(),
+            RelayReplicaSelection::for_profile(
+                DeliveryProfile::local_mesh(LocalMeshProfileSelection::select(
+                    LocalMeshTransportKind::Lan,
+                )),
+                vec![replica(0x11)],
+            )
+            .unwrap_err(),
             RelayReplicaSelectionError::UnsupportedProfile
         );
         assert_eq!(
