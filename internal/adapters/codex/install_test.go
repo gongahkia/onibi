@@ -80,6 +80,47 @@ func TestAdapterCodexDenyBlocksTool(t *testing.T) {
 	denytest.CreateIfAllowed(t, target, res.Code == 0)
 }
 
+func TestCodexContractHooksCoverLifecycleAndApproval(t *testing.T) {
+	db, notify, _ := newTestEnv(t)
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	hooks, err := ExpectedHooks(notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"SessionStart": "agent_message",
+		"PreToolUse":   "approval_request",
+		"PostToolUse":  "agent_message",
+		"Stop":         "agent_done",
+	}
+	if len(hooks) != len(want) {
+		t.Fatalf("hooks=%+v", hooks)
+	}
+	for _, hook := range hooks {
+		typ, ok := want[hook.Event]
+		if !ok || !strings.Contains(hook.Command, "--type "+typ) || hook.StatusMessage != "Waiting for Onibi" {
+			t.Fatalf("hook=%+v", hook)
+		}
+		if hook.Event == "SessionStart" && hook.Matcher != "" {
+			t.Fatalf("session start must include Codex resume events: %+v", hook)
+		}
+		if hook.Event == "PreToolUse" && (!strings.Contains(hook.Command, "--wait --response provider") || hook.Timeout != 360) {
+			t.Fatalf("approval hook=%+v", hook)
+		}
+	}
+	if err := VerifyHash(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTrustInstructionsRequireReview(t *testing.T) {
+	if instructions := strings.Join(TrustInstructions(), "\n"); !strings.Contains(instructions, "Review hooks") || !strings.Contains(instructions, "disables") {
+		t.Fatalf("instructions=%q", instructions)
+	}
+}
+
 func TestInstallRemovesLegacyCodexMetadataAndPreservesUserHooks(t *testing.T) {
 	db, notify, path := newTestEnv(t)
 	legacy := map[string]any{

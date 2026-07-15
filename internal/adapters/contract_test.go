@@ -29,6 +29,9 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 			c.Approval.DaemonUnavailable != DecisionAllow || c.Approval.RequestTimeout != DecisionAllow {
 			t.Fatalf("approval contract=%+v", c.Approval)
 		}
+		if c.Approval.ReviewRequired != (agent == capability.AgentCodex) {
+			t.Fatalf("review requirement contract=%+v", c.Approval)
+		}
 		if !c.Lifecycle.SessionStart || !c.Lifecycle.Activity || !c.Lifecycle.ApprovalRequest || !c.Lifecycle.TurnComplete || c.Recovery.PendingApproval == "" {
 			t.Fatalf("lifecycle/recovery contract=%+v %+v", c.Lifecycle, c.Recovery)
 		}

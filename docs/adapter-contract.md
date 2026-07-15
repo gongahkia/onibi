@@ -21,6 +21,8 @@ All certified hooks deliver requests over the same-UID Unix socket. While that s
 
 The hooks intentionally allow if the daemon is unavailable or the local request times out. This is reported as `daemon_unavailable: "allow"` and `request_timeout: "allow"`; it is not an enforcement guarantee for those paths. `cancelled` also allows, so daemon shutdown does not strand a local agent.
 
+Codex additionally requires its user to review and trust the current non-managed hook definitions before they run. Its capability report sets `review_required: true`; Onibi can verify its hook file and recorded hash, but cannot verify Codex's persisted trust decision. Until Codex trusts the current definitions, Codex approval enforcement is unavailable.
+
 ## Lifecycle and recovery
 
 Every certified adapter reports session start, activity, approval requests, and turn completion. Claude and Pi also report session exit; Codex currently reports no session-exit event and exposes `session_exit: false`.

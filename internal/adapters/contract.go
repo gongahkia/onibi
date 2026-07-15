@@ -37,6 +37,7 @@ type InstallationContract struct {
 type ApprovalContract struct {
 	Delivery          string         `json:"delivery"`
 	BlocksTool        bool           `json:"blocks_tool"`
+	ReviewRequired    bool           `json:"review_required"`
 	Approve           DecisionEffect `json:"approve"`
 	Deny              DecisionEffect `json:"deny"`
 	Edit              DecisionEffect `json:"edit"`
@@ -65,12 +66,12 @@ type AuditContract struct {
 }
 
 var certifiedContracts = map[string]AdapterContract{
-	capability.AgentClaude: certifiedContract(capability.AgentClaude, true, "run claude and inspect /hooks"),
-	capability.AgentCodex:  certifiedContract(capability.AgentCodex, false, "run codex, review hooks, and trust matching commands"),
-	capability.AgentPi:     certifiedContract(capability.AgentPi, true, "run /reload"),
+	capability.AgentClaude: certifiedContract(capability.AgentClaude, true, false, "run claude and inspect /hooks"),
+	capability.AgentCodex:  certifiedContract(capability.AgentCodex, false, true, "run codex, review hooks, and trust matching commands"),
+	capability.AgentPi:     certifiedContract(capability.AgentPi, true, false, "run /reload"),
 }
 
-func certifiedContract(agent string, sessionExit bool, reload string) AdapterContract {
+func certifiedContract(agent string, sessionExit, reviewRequired bool, reload string) AdapterContract {
 	return AdapterContract{
 		Version:   CertifiedContractVersion,
 		Agent:     agent,
@@ -84,6 +85,7 @@ func certifiedContract(agent string, sessionExit bool, reload string) AdapterCon
 		Approval: ApprovalContract{
 			Delivery:          "same_uid_unix_socket",
 			BlocksTool:        true,
+			ReviewRequired:    reviewRequired,
 			Approve:           DecisionAllow,
 			Deny:              DecisionDeny,
 			Edit:              DecisionAllowWithUpdated,

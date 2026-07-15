@@ -18,7 +18,7 @@ import (
 
 func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	row := statusFromInfo(common.Info{Name: "codex"}, false)
-	if !row.Certified || row.Contract == nil || row.Contract.Agent != "codex" || !row.Contract.Approval.BlocksTool {
+	if !row.Certified || row.Contract == nil || row.Contract.Agent != "codex" || !row.Contract.Approval.BlocksTool || !row.Contract.Approval.ReviewRequired {
 		t.Fatalf("certified row=%+v", row)
 	}
 	body, err := json.Marshal(row)
@@ -30,7 +30,8 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	contract, ok := got["contract"].(map[string]any)
-	if !ok || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" {
+	approval, approvalOK := contract["approval"].(map[string]any)
+	if !ok || !approvalOK || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" || approval["review_required"] != true {
 		t.Fatalf("json=%s", body)
 	}
 	deferred := statusFromInfo(common.Info{Name: "opencode"}, false)
