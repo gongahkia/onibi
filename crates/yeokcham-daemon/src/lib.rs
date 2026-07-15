@@ -2,6 +2,7 @@
 
 mod contact_store;
 mod direct_transport;
+mod nat_pmp;
 mod ratchet_store;
 mod state_store;
 mod upnp;
@@ -14,6 +15,9 @@ pub use contact_store::{
     ContactVerificationMethod,
 };
 pub use direct_transport::{DirectConnection, DirectTransport, DirectTransportError};
+pub use nat_pmp::{
+    MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
+};
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
