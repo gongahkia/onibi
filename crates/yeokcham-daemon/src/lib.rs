@@ -19,6 +19,7 @@ pub use contact_store::{
 pub use direct_transport::{
     DirectConnection, DirectConnectionAttempts, DirectTransport, DirectTransportError,
     MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT, MAX_DIRECT_CONNECTION_ATTEMPTS,
+    MAX_DIRECT_RETRY_BACKOFF,
 };
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{

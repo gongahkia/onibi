@@ -10,7 +10,9 @@ const DIRECT_PEER_AUTH_LABEL: &[u8] = b"yeokcham/v1/direct-peer-authentication";
 const DIRECT_PEER_AUTH_BINDING_BYTES: usize = 32;
 pub const MAX_DIRECT_CONNECTION_ATTEMPTS: u8 = 3;
 pub const MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+pub const MAX_DIRECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const DEFAULT_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_DIRECT_RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
 pub struct DirectTransport {
     endpoint: Endpoint,
@@ -24,6 +26,7 @@ pub struct DirectConnection {
 pub struct DirectConnectionAttempts {
     attempts: u8,
     timeout: Duration,
+    retry_backoff: Duration,
 }
 
 impl DirectConnectionAttempts {
@@ -34,7 +37,11 @@ impl DirectConnectionAttempts {
         if timeout.is_zero() || timeout > MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT {
             return Err(DirectTransportError::InvalidConnectionAttemptTimeout);
         }
-        Ok(Self { attempts, timeout })
+        Ok(Self {
+            attempts,
+            timeout,
+            retry_backoff: DEFAULT_DIRECT_RETRY_BACKOFF,
+        })
     }
 
     #[must_use]
@@ -46,6 +53,29 @@ impl DirectConnectionAttempts {
     pub const fn timeout(self) -> Duration {
         self.timeout
     }
+
+    pub fn with_retry_backoff(
+        mut self,
+        retry_backoff: Duration,
+    ) -> Result<Self, DirectTransportError> {
+        if retry_backoff.is_zero() || retry_backoff > MAX_DIRECT_RETRY_BACKOFF {
+            return Err(DirectTransportError::InvalidRetryBackoff);
+        }
+        self.retry_backoff = retry_backoff;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn retry_delay_after(self, completed_attempt: u8) -> Option<Duration> {
+        if completed_attempt == 0 || completed_attempt >= self.attempts {
+            return None;
+        }
+        Some(
+            self.retry_backoff
+                .saturating_mul(1_u32 << u32::from(completed_attempt - 1))
+                .min(MAX_DIRECT_RETRY_BACKOFF),
+        )
+    }
 }
 
 impl Default for DirectConnectionAttempts {
@@ -53,6 +83,7 @@ impl Default for DirectConnectionAttempts {
         Self {
             attempts: 1,
             timeout: DEFAULT_DIRECT_CONNECTION_ATTEMPT_TIMEOUT,
+            retry_backoff: DEFAULT_DIRECT_RETRY_BACKOFF,
         }
     }
 }
@@ -102,7 +133,7 @@ impl DirectTransport {
             return Err(DirectTransportError::EmptyServerName);
         }
         let mut last_error = None;
-        for _ in 0..connection_attempts.attempts() {
+        for attempt in 1..=connection_attempts.attempts() {
             let connecting = self
                 .endpoint
                 .connect_with(client_config.clone(), profile.endpoint(), server_name)
@@ -111,6 +142,9 @@ impl DirectTransport {
                 Ok(Ok(connection)) => return Ok(DirectConnection { connection }),
                 Ok(Err(error)) => last_error = Some(DirectTransportError::Handshake(error)),
                 Err(_) => last_error = Some(DirectTransportError::ConnectionAttemptTimedOut),
+            }
+            if let Some(delay) = connection_attempts.retry_delay_after(attempt) {
+                tokio::time::sleep(delay).await;
             }
         }
         match last_error {
@@ -299,6 +333,8 @@ pub enum DirectTransportError {
         "direct connection attempt timeout must be between 1ns and {MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT:?}"
     )]
     InvalidConnectionAttemptTimeout,
+    #[error("direct retry backoff must be between 1ns and {MAX_DIRECT_RETRY_BACKOFF:?}")]
+    InvalidRetryBackoff,
     #[error("direct QUIC connection attempt timed out")]
     ConnectionAttemptTimedOut,
     #[error("direct QUIC endpoint is shut down")]
@@ -345,6 +381,7 @@ mod tests {
     use super::{
         DirectConnectionAttempts, DirectTransport, DirectTransportError,
         MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT, MAX_DIRECT_CONNECTION_ATTEMPTS,
+        MAX_DIRECT_RETRY_BACKOFF,
     };
 
     fn server_config() -> (
@@ -453,6 +490,25 @@ mod tests {
                 MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT + Duration::from_nanos(1)
             ),
             Err(DirectTransportError::InvalidConnectionAttemptTimeout)
+        ));
+    }
+
+    #[test]
+    fn applies_capped_exponential_retry_backoff() {
+        let attempts = DirectConnectionAttempts::new(3, Duration::from_secs(1))
+            .unwrap()
+            .with_retry_backoff(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(attempts.retry_delay_after(1), Some(Duration::from_secs(1)));
+        assert_eq!(attempts.retry_delay_after(2), Some(Duration::from_secs(2)));
+        assert_eq!(attempts.retry_delay_after(3), None);
+        assert!(matches!(
+            attempts.with_retry_backoff(Duration::ZERO),
+            Err(DirectTransportError::InvalidRetryBackoff)
+        ));
+        assert!(matches!(
+            attempts.with_retry_backoff(MAX_DIRECT_RETRY_BACKOFF + Duration::from_nanos(1)),
+            Err(DirectTransportError::InvalidRetryBackoff)
         ));
     }
 }
