@@ -24,6 +24,7 @@ pub enum CryptoDomain {
     RelayStorageReceiptSignature,
     AttachmentKey,
     AttachmentChunkKey,
+    AttachmentChunkEncryption,
     ProfileBinding,
     ProjectTestRelaySyntheticTraffic,
     RecipientInboxDeduplication,
@@ -53,6 +54,7 @@ impl CryptoDomain {
         Self::RelayStorageReceiptSignature,
         Self::AttachmentKey,
         Self::AttachmentChunkKey,
+        Self::AttachmentChunkEncryption,
         Self::ProfileBinding,
         Self::ProjectTestRelaySyntheticTraffic,
         Self::RecipientInboxDeduplication,
@@ -85,6 +87,7 @@ impl CryptoDomain {
             Self::RelayStorageReceiptSignature => b"yeokcham/v1/relay-storage-receipt-signature",
             Self::AttachmentKey => b"yeokcham/v1/attachment-key",
             Self::AttachmentChunkKey => b"yeokcham/v1/attachment-chunk-key",
+            Self::AttachmentChunkEncryption => b"yeokcham/v1/attachment-chunk-encryption",
             Self::ProfileBinding => b"yeokcham/v1/profile-binding",
             Self::ProjectTestRelaySyntheticTraffic => {
                 b"yeokcham/v1/project-test-relay-synthetic-traffic"

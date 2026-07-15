@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod attachment_chunk;
 mod attachment_key;
 mod contact_invitation;
 mod delivery_acknowledgement;
@@ -34,6 +35,12 @@ mod version;
 mod wire;
 mod x3dh;
 
+pub use attachment_chunk::{
+    ATTACHMENT_CHUNK_BYTES, ATTACHMENT_CHUNK_NONCE_BYTES, ATTACHMENT_CHUNK_TAG_BYTES,
+    AttachmentChunkError, ENCRYPTED_ATTACHMENT_CHUNK_BYTES,
+    ENCRYPTED_ATTACHMENT_CHUNK_SCHEMA_VERSION, EncryptedAttachmentChunk,
+    MAX_ENCODED_ATTACHMENT_CHUNK_BYTES,
+};
 pub use attachment_key::{
     ATTACHMENT_IDENTIFIER_BYTES, ATTACHMENT_KEY_BYTES, AttachmentChunkKey, AttachmentIdentifier,
     AttachmentKey, AttachmentKeyError,
