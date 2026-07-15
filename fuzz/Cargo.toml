@@ -40,5 +40,12 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "attachment_parser"
+path = "fuzz_targets/attachment_parser.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
 members = ["."]
