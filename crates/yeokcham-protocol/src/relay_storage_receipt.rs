@@ -85,6 +85,25 @@ impl RelayStorageReceipt {
             .map_err(|_| RelayStorageReceiptError::InvalidSignature)
     }
 
+    pub fn verify_for(
+        &self,
+        expected_relay: &RelayPublicKey,
+        expected_mailbox_id: &[u8; MAILBOX_IDENTIFIER_BYTES],
+        now: u64,
+    ) -> Result<(), RelayStorageReceiptError> {
+        self.verify()?;
+        if self.relay != *expected_relay {
+            return Err(RelayStorageReceiptError::UnexpectedRelay);
+        }
+        if self.mailbox_id != *expected_mailbox_id {
+            return Err(RelayStorageReceiptError::UnexpectedMailboxIdentifier);
+        }
+        if now >= self.expires_at {
+            return Err(RelayStorageReceiptError::Expired);
+        }
+        Ok(())
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, RelayStorageReceiptError> {
         self.verify()?;
         encode_receipt(
@@ -168,6 +187,12 @@ pub enum RelayStorageReceiptError {
     InvalidTime,
     #[error("relay-storage receipt signature is invalid")]
     InvalidSignature,
+    #[error("relay-storage receipt was issued by an unexpected relay")]
+    UnexpectedRelay,
+    #[error("relay-storage receipt was issued for an unexpected mailbox")]
+    UnexpectedMailboxIdentifier,
+    #[error("relay-storage receipt has expired")]
+    Expired,
     #[error("relay-storage receipt must be a six-element definite-length CBOR array")]
     InvalidShape,
     #[error("CBOR decoding failed")]
@@ -292,6 +317,36 @@ mod tests {
         assert_eq!(
             RelayStorageReceipt::decode(&encoded).unwrap_err(),
             RelayStorageReceiptError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn client_verification_pins_the_relay_mailbox_and_expiry() {
+        let relay = RelaySigningKeypair::generate().unwrap();
+        let other_relay = RelaySigningKeypair::generate().unwrap();
+        let receipt = RelayStorageReceipt::issue(&relay, [0x11; 16], 7, 100, 110).unwrap();
+
+        assert_eq!(
+            receipt.verify_for(&relay.public_key(), &[0x11; 16], 109),
+            Ok(())
+        );
+        assert_eq!(
+            receipt
+                .verify_for(&other_relay.public_key(), &[0x11; 16], 109)
+                .unwrap_err(),
+            RelayStorageReceiptError::UnexpectedRelay
+        );
+        assert_eq!(
+            receipt
+                .verify_for(&relay.public_key(), &[0x22; 16], 109)
+                .unwrap_err(),
+            RelayStorageReceiptError::UnexpectedMailboxIdentifier
+        );
+        assert_eq!(
+            receipt
+                .verify_for(&relay.public_key(), &[0x11; 16], 110)
+                .unwrap_err(),
+            RelayStorageReceiptError::Expired
         );
     }
 }
