@@ -2,16 +2,18 @@ use std::path::Path;
 
 use minicbor::{Decoder, Encoder};
 use yeokcham_core::{IdentityPublicKey, OsKeystore};
-use yeokcham_protocol::{ContactInvitation, QrVerificationPayload};
+use yeokcham_protocol::{ContactInvitation, IdentityRotation, QrVerificationPayload};
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const CONTACT_STATE_SCHEMA_VERSION: u8 = 1;
+pub const CONTACT_STATE_SCHEMA_VERSION: u8 = 2;
+const CONTACT_STATE_SCHEMA_VERSION_V1: u8 = 1;
 const CONTACT_STATE_FIELDS: u64 = 2;
 const CONTACT_FIELDS: u64 = 3;
 const IDENTITY_PUBLIC_KEY_BYTES: usize = 32;
 const PENDING_STATUS: u8 = 1;
 const VERIFIED_STATUS: u8 = 2;
+const REVOKED_STATUS: u8 = 3;
 const NO_VERIFICATION: u8 = 0;
 const QR_VERIFICATION: u8 = 1;
 
@@ -19,6 +21,7 @@ const QR_VERIFICATION: u8 = 1;
 pub enum ContactStatus {
     Pending,
     Verified,
+    Revoked,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,6 +143,63 @@ impl ContactStore {
         Ok(verified)
     }
 
+    pub fn apply_identity_rotation(
+        &mut self,
+        local_identity: &IdentityPublicKey,
+        rotation: &IdentityRotation,
+    ) -> Result<Contact, ContactStoreError> {
+        let previous = *rotation.previous();
+        let replacement = *rotation.replacement();
+        if previous == *local_identity || replacement == *local_identity {
+            return Err(ContactStoreError::SelfContact);
+        }
+        let previous_index = self
+            .contacts
+            .iter()
+            .position(|contact| contact.identity == previous)
+            .ok_or(ContactStoreError::UnknownContact)?;
+        if self.contacts[previous_index].status != ContactStatus::Verified {
+            return Err(ContactStoreError::NotVerified);
+        }
+        if self.contact(&replacement).is_some() {
+            return Err(ContactStoreError::ReplacementAlreadyKnown);
+        }
+        let prior_contacts = self.contacts.clone();
+        self.contacts[previous_index].status = ContactStatus::Revoked;
+        self.contacts[previous_index].verification = None;
+        let replacement_contact = Contact {
+            identity: replacement,
+            status: ContactStatus::Pending,
+            verification: None,
+        };
+        self.contacts.push(replacement_contact);
+        if let Err(error) = self.persist() {
+            self.contacts = prior_contacts;
+            return Err(error);
+        }
+        Ok(replacement_contact)
+    }
+
+    pub fn revoke(&mut self, identity: &IdentityPublicKey) -> Result<Contact, ContactStoreError> {
+        let index = self
+            .contacts
+            .iter()
+            .position(|contact| contact.identity == *identity)
+            .ok_or(ContactStoreError::UnknownContact)?;
+        if self.contacts[index].status == ContactStatus::Revoked {
+            return Err(ContactStoreError::AlreadyRevoked);
+        }
+        let previous = self.contacts[index];
+        self.contacts[index].status = ContactStatus::Revoked;
+        self.contacts[index].verification = None;
+        let revoked = self.contacts[index];
+        if let Err(error) = self.persist() {
+            self.contacts[index] = previous;
+            return Err(error);
+        }
+        Ok(revoked)
+    }
+
     fn persist(&mut self) -> Result<(), ContactStoreError> {
         self.contacts
             .sort_unstable_by_key(|contact| *contact.identity.as_bytes());
@@ -162,6 +222,12 @@ pub enum ContactStoreError {
     UnknownContact,
     #[error("contact is not pending verification")]
     NotPending,
+    #[error("contact is not verified")]
+    NotVerified,
+    #[error("replacement identity is already known")]
+    ReplacementAlreadyKnown,
+    #[error("contact is already revoked")]
+    AlreadyRevoked,
     #[error("contact-state document is invalid")]
     InvalidState(#[source] minicbor::decode::Error),
     #[error("contact-state document violates storage bounds: {0}")]
@@ -213,7 +279,7 @@ fn decode_contacts(encoded: &[u8]) -> Result<Vec<Contact>, ContactStoreError> {
         return Err(ContactStoreError::InvalidShape);
     }
     let version = decoder.u8().map_err(ContactStoreError::InvalidState)?;
-    if version != CONTACT_STATE_SCHEMA_VERSION {
+    if version != CONTACT_STATE_SCHEMA_VERSION && version != CONTACT_STATE_SCHEMA_VERSION_V1 {
         return Err(ContactStoreError::UnsupportedSchemaVersion(version));
     }
     let count = decoder
@@ -228,9 +294,12 @@ fn decode_contacts(encoded: &[u8]) -> Result<Vec<Contact>, ContactStoreError> {
         }
         let identity = decode_identity(decoder.bytes().map_err(ContactStoreError::InvalidState)?)?;
         let status = decode_status(decoder.u8().map_err(ContactStoreError::InvalidState)?)?;
+        if version == CONTACT_STATE_SCHEMA_VERSION_V1 && status == ContactStatus::Revoked {
+            return Err(ContactStoreError::InvalidStatus);
+        }
         let verification =
             decode_verification(decoder.u8().map_err(ContactStoreError::InvalidState)?)?;
-        if matches!(status, ContactStatus::Pending) != verification.is_none() {
+        if matches!(status, ContactStatus::Verified) != verification.is_some() {
             return Err(ContactStoreError::InvalidStatus);
         }
         contacts.push(Contact {
@@ -253,7 +322,7 @@ fn decode_contacts(encoded: &[u8]) -> Result<Vec<Contact>, ContactStoreError> {
     if canonical != contacts {
         return Err(ContactStoreError::NonCanonicalEncoding);
     }
-    if encode_contacts(&contacts)? != encoded {
+    if version == CONTACT_STATE_SCHEMA_VERSION && encode_contacts(&contacts)? != encoded {
         return Err(ContactStoreError::NonCanonicalEncoding);
     }
     Ok(contacts)
@@ -270,6 +339,7 @@ const fn status_value(status: ContactStatus) -> u8 {
     match status {
         ContactStatus::Pending => PENDING_STATUS,
         ContactStatus::Verified => VERIFIED_STATUS,
+        ContactStatus::Revoked => REVOKED_STATUS,
     }
 }
 
@@ -284,6 +354,7 @@ fn decode_status(value: u8) -> Result<ContactStatus, ContactStoreError> {
     match value {
         PENDING_STATUS => Ok(ContactStatus::Pending),
         VERIFIED_STATUS => Ok(ContactStatus::Verified),
+        REVOKED_STATUS => Ok(ContactStatus::Revoked),
         _ => Err(ContactStoreError::InvalidStatus),
     }
 }
@@ -307,9 +378,11 @@ mod tests {
     };
 
     use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
-    use yeokcham_protocol::{ContactInvitation, QrVerificationPayload};
+    use yeokcham_protocol::{ContactInvitation, IdentityRotation, QrVerificationPayload};
 
-    use super::{ContactStatus, ContactStore, ContactStoreError, ContactVerificationMethod};
+    use super::{
+        ContactStatus, ContactStore, ContactStoreError, ContactVerificationMethod, decode_contacts,
+    };
     use crate::{EncryptedStateStore, StateDocument};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -439,6 +512,84 @@ mod tests {
     }
 
     #[test]
+    fn rotates_verified_contacts_to_a_revoked_key_and_pending_replacement() {
+        let path = database_path();
+        let mut keystore = MemoryKeystore::default();
+        let local = IdentityKeypair::generate().unwrap();
+        let remote = IdentityKeypair::generate().unwrap();
+        let replacement = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&remote).unwrap();
+        let payload = QrVerificationPayload::new(local.public_key(), remote.public_key()).unwrap();
+        let rotation = IdentityRotation::create(&remote, replacement.public_key()).unwrap();
+        {
+            let mut store = ContactStore::open(&path, &mut keystore).unwrap();
+            store
+                .import_invitation(&local.public_key(), &invitation)
+                .unwrap();
+            store.verify_qr(&local.public_key(), &payload).unwrap();
+
+            let pending = store
+                .apply_identity_rotation(&local.public_key(), &rotation)
+                .unwrap();
+            assert_eq!(pending.status(), ContactStatus::Pending);
+            assert_eq!(
+                store.contact(&remote.public_key()).unwrap().status(),
+                ContactStatus::Revoked
+            );
+            assert_eq!(
+                store
+                    .contact(&replacement.public_key())
+                    .unwrap()
+                    .verification_method(),
+                None
+            );
+            assert!(matches!(
+                store.apply_identity_rotation(&local.public_key(), &rotation),
+                Err(ContactStoreError::NotVerified)
+            ));
+        }
+        let store = ContactStore::open(&path, &mut keystore).unwrap();
+        assert_eq!(
+            store.contact(&remote.public_key()).unwrap().status(),
+            ContactStatus::Revoked
+        );
+        assert_eq!(
+            store.contact(&replacement.public_key()).unwrap().status(),
+            ContactStatus::Pending
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn revocation_rejects_unknown_or_already_revoked_contacts() {
+        let path = database_path();
+        let mut keystore = MemoryKeystore::default();
+        let local = IdentityKeypair::generate().unwrap();
+        let remote = IdentityKeypair::generate().unwrap();
+        let unknown = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&remote).unwrap();
+        let mut store = ContactStore::open(&path, &mut keystore).unwrap();
+        store
+            .import_invitation(&local.public_key(), &invitation)
+            .unwrap();
+
+        assert_eq!(
+            store.revoke(&remote.public_key()).unwrap().status(),
+            ContactStatus::Revoked
+        );
+        assert!(matches!(
+            store.revoke(&remote.public_key()),
+            Err(ContactStoreError::AlreadyRevoked)
+        ));
+        assert!(matches!(
+            store.revoke(&unknown.public_key()),
+            Err(ContactStoreError::UnknownContact)
+        ));
+        drop(store);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn rejects_malformed_or_noncanonical_sealed_contact_documents() {
         let path = database_path();
         let mut keystore = MemoryKeystore::default();
@@ -452,5 +603,10 @@ mod tests {
             Err(ContactStoreError::TrailingBytes)
         ));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn loads_empty_v1_contact_state_for_migration() {
+        assert!(decode_contacts(&[0x82, 0x01, 0x80]).unwrap().is_empty());
     }
 }

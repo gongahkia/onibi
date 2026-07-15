@@ -11,6 +11,7 @@ mod error_code;
 mod extension_frame;
 mod identity_export;
 mod identity_identifier;
+mod identity_rotation;
 mod local_mesh_profile;
 mod mailbox_capability;
 mod message_payload;
@@ -58,6 +59,9 @@ pub use identity_export::{
     MAX_IDENTITY_EXPORT_PASSPHRASE_BYTES, export_identity, import_identity,
 };
 pub use identity_identifier::{IDENTITY_IDENTIFIER_BYTES, IdentityIdentifier};
+pub use identity_rotation::{
+    IDENTITY_ROTATION_SCHEMA_VERSION, IdentityRotation, IdentityRotationError,
+};
 pub use local_mesh_profile::{
     LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,
     LocalMeshTransportKind,
