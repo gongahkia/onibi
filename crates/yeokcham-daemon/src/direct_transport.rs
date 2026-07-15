@@ -536,7 +536,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connects_only_with_an_explicitly_trusted_server_certificate() {
+    async fn authenticates_peers_and_multiplexes_frames() {
         let (server_tls_config, certificate) = server_config();
         let server =
             DirectTransport::bind("127.0.0.1:0".parse().unwrap(), Some(server_tls_config)).unwrap();
@@ -578,6 +578,28 @@ mod tests {
         );
         assert!(sent.is_ok());
         assert_eq!(received.unwrap(), frame);
+        let second_frame = WireEnvelope {
+            version: ProtocolVersion::INITIAL,
+            kind: EnvelopeKind::EncryptedMessage,
+            payload: vec![4, 5, 6],
+        };
+        let (sent, received) = tokio::join!(
+            async {
+                tokio::try_join!(
+                    connected.send_frame(&frame, WireLimits::REFERENCE),
+                    connected.send_frame(&second_frame, WireLimits::REFERENCE)
+                )
+            },
+            async {
+                let first = accepted.receive_frame(WireLimits::REFERENCE).await?;
+                let second = accepted.receive_frame(WireLimits::REFERENCE).await?;
+                Ok::<_, DirectTransportError>([first, second])
+            }
+        );
+        assert!(sent.is_ok());
+        let received = received.unwrap();
+        assert!(received.contains(&frame));
+        assert!(received.contains(&second_frame));
         assert!(matches!(
             client
                 .connect(profile, client_config(server_config().1), "")
