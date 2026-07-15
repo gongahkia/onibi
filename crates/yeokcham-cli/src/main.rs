@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::PathBu
 use yeokcham_core::{
     IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
 };
-use yeokcham_protocol::IdentityIdentifier;
+use yeokcham_protocol::{CONTACT_INVITATION_BYTES, ContactInvitation, IdentityIdentifier};
 
 #[cfg(target_os = "linux")]
 use yeokcham_core::LinuxKeystore;
@@ -31,6 +31,10 @@ enum Command {
     Identity {
         #[command(subcommand)]
         command: IdentityCommand,
+    },
+    Contact {
+        #[command(subcommand)]
+        command: ContactCommand,
     },
     ReleaseMetadata {
         #[arg(long)]
@@ -60,6 +64,26 @@ enum IdentityCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum ContactCommand {
+    Invitation {
+        #[command(subcommand)]
+        command: ContactInvitationCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContactInvitationCommand {
+    Create {
+        #[arg(long, default_value = "identity_primary")]
+        name: String,
+    },
+    Inspect {
+        #[arg(long)]
+        invitation: String,
+    },
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -74,10 +98,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             let entry = KeystoreEntryName::new(name)?;
             let public_key = match command {
                 IdentityCommand::Create { .. } => create_system_identity(&entry)?,
-                IdentityCommand::Show { .. } => load_system_identity(&entry)?,
+                IdentityCommand::Show { .. } => load_system_identity(&entry)?.public_key(),
             };
             print!("{}", identity_record(&public_key));
         }
+        Command::Contact { command } => match command {
+            ContactCommand::Invitation { command } => match command {
+                ContactInvitationCommand::Create { name } => {
+                    let entry = KeystoreEntryName::new(name)?;
+                    print!(
+                        "{}",
+                        contact_invitation_record(&load_system_identity(&entry)?)?
+                    );
+                }
+                ContactInvitationCommand::Inspect { invitation } => {
+                    print!("{}", inspect_contact_invitation(&invitation)?);
+                }
+            },
+        },
         Command::ReleaseMetadata {
             source_revision,
             source_date_epoch,
@@ -150,6 +188,45 @@ fn identity_record(public_key: &IdentityPublicKey) -> String {
     )
 }
 
+fn contact_invitation_record(identity: &IdentityKeypair) -> Result<String, Box<dyn Error>> {
+    let invitation = ContactInvitation::create(identity)?;
+    Ok(format!(
+        "invitation={}\n",
+        hexadecimal(&invitation.encode()?)
+    ))
+}
+
+fn inspect_contact_invitation(encoded: &str) -> Result<String, Box<dyn Error>> {
+    let mut invitation = vec![0; CONTACT_INVITATION_BYTES];
+    decode_canonical_hex(encoded, &mut invitation)?;
+    let invitation = ContactInvitation::decode(&invitation)?;
+    Ok(format!(
+        "inviter_public_key={}\ninviter_identifier={}\n",
+        hexadecimal(invitation.inviter().as_bytes()),
+        hexadecimal(IdentityIdentifier::derive(invitation.inviter()).as_bytes()),
+    ))
+}
+
+fn decode_canonical_hex(encoded: &str, output: &mut [u8]) -> Result<(), &'static str> {
+    if encoded.len() != output.len() * 2 || !is_canonical_hex(encoded) {
+        return Err("hexadecimal input is not canonical or has an invalid length");
+    }
+    for (byte, pair) in output.iter_mut().zip(encoded.as_bytes().chunks_exact(2)) {
+        let high = hexadecimal_nibble(pair[0]).ok_or("hexadecimal input is invalid")?;
+        let low = hexadecimal_nibble(pair[1]).ok_or("hexadecimal input is invalid")?;
+        *byte = high << 4 | low;
+    }
+    Ok(())
+}
+
+const fn hexadecimal_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
 fn create_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
@@ -170,7 +247,7 @@ fn create_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey
     Err("unsupported operating system keystore".into())
 }
 
-fn load_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey, Box<dyn Error>> {
+fn load_system_identity(entry: &KeystoreEntryName) -> Result<IdentityKeypair, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
         let keystore = LinuxKeystore::new()?;
@@ -206,9 +283,9 @@ fn create_identity<K: OsKeystore>(
 fn load_identity<K: OsKeystore>(
     keystore: &K,
     entry: &KeystoreEntryName,
-) -> Result<IdentityPublicKey, Box<dyn Error>> {
+) -> Result<IdentityKeypair, Box<dyn Error>> {
     let secret = keystore.load(entry)?.ok_or("identity does not exist")?;
-    Ok(IdentityKeypair::deserialize(secret.as_bytes())?.public_key())
+    Ok(IdentityKeypair::deserialize(secret.as_bytes())?)
 }
 
 fn is_canonical_revision(revision: &str) -> bool {
@@ -267,8 +344,10 @@ mod tests {
     use clap::Parser;
 
     use super::{
-        Arguments, Command, IdentityCommand, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
-        OsKeystore, create_identity, identity_record, load_identity, release_metadata,
+        Arguments, Command, ContactCommand, ContactInvitation, ContactInvitationCommand,
+        IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
+        OsKeystore, contact_invitation_record, create_identity, decode_canonical_hex,
+        identity_record, inspect_contact_invitation, load_identity, release_metadata,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -361,7 +440,7 @@ mod tests {
         let created = create_identity(&mut keystore, &entry).unwrap();
         let loaded = load_identity(&keystore, &entry).unwrap();
         let record = identity_record(&created);
-        assert_eq!(created, loaded);
+        assert_eq!(created, loaded.public_key());
         assert!(record.starts_with("public_key="));
         assert!(record.contains("\nidentity_identifier="));
         assert!(!record.contains("signing_key"));
@@ -404,6 +483,57 @@ mod tests {
             Command::Identity {
                 command: IdentityCommand::Show { name }
             } if name == "identity_secondary"
+        ));
+    }
+
+    #[test]
+    fn contact_invitation_commands_emit_and_inspect_canonical_invitations() {
+        let identity = IdentityKeypair::generate().unwrap();
+        let encoded = contact_invitation_record(&identity).unwrap();
+        let invitation = encoded.strip_prefix("invitation=").unwrap().trim_end();
+        let inspected = inspect_contact_invitation(invitation).unwrap();
+        let mut binary = vec![0; invitation.len() / 2];
+        decode_canonical_hex(invitation, &mut binary).unwrap();
+        assert_eq!(
+            ContactInvitation::decode(&binary).unwrap().inviter(),
+            &identity.public_key()
+        );
+        assert!(inspected.starts_with("inviter_public_key="));
+        assert!(inspected.contains("\ninviter_identifier="));
+        assert!(inspect_contact_invitation(&invitation.to_uppercase()).is_err());
+        let mut tampered = invitation.to_owned();
+        tampered.replace_range(0..2, "00");
+        assert!(inspect_contact_invitation(&tampered).is_err());
+    }
+
+    #[test]
+    fn parses_contact_invitation_commands() {
+        let create =
+            Arguments::try_parse_from(["yeokcham", "contact", "invitation", "create"]).unwrap();
+        assert!(matches!(
+            create.command,
+            Command::Contact {
+                command: ContactCommand::Invitation {
+                    command: ContactInvitationCommand::Create { name }
+                }
+            } if name == "identity_primary"
+        ));
+        let inspect = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "invitation",
+            "inspect",
+            "--invitation",
+            "00",
+        ])
+        .unwrap();
+        assert!(matches!(
+            inspect.command,
+            Command::Contact {
+                command: ContactCommand::Invitation {
+                    command: ContactInvitationCommand::Inspect { invitation }
+                }
+            } if invitation == "00"
         ));
     }
 }
