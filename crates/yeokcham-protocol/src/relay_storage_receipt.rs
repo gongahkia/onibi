@@ -349,4 +349,43 @@ mod tests {
             RelayStorageReceiptError::Expired
         );
     }
+
+    #[test]
+    fn receipts_expire_and_fail_closed_after_relay_key_rotation() {
+        let previous_relay = RelaySigningKeypair::generate().unwrap();
+        let replacement_relay = RelaySigningKeypair::generate().unwrap();
+        let mailbox_id = [0x55; 16];
+        let previous_receipt =
+            RelayStorageReceipt::issue(&previous_relay, mailbox_id, 7, 100, 110).unwrap();
+
+        assert_eq!(
+            previous_receipt.verify_for(&previous_relay.public_key(), &mailbox_id, 109),
+            Ok(())
+        );
+        assert_eq!(
+            previous_receipt
+                .verify_for(&previous_relay.public_key(), &mailbox_id, 110)
+                .unwrap_err(),
+            RelayStorageReceiptError::Expired
+        );
+        assert_eq!(
+            previous_receipt
+                .verify_for(&replacement_relay.public_key(), &mailbox_id, 109)
+                .unwrap_err(),
+            RelayStorageReceiptError::UnexpectedRelay
+        );
+
+        let replacement_receipt =
+            RelayStorageReceipt::issue(&replacement_relay, mailbox_id, 8, 110, 120).unwrap();
+        assert_eq!(
+            replacement_receipt.verify_for(&replacement_relay.public_key(), &mailbox_id, 119),
+            Ok(())
+        );
+        assert_eq!(
+            replacement_receipt
+                .verify_for(&previous_relay.public_key(), &mailbox_id, 119)
+                .unwrap_err(),
+            RelayStorageReceiptError::UnexpectedRelay
+        );
+    }
 }
