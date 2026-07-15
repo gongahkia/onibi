@@ -4,6 +4,7 @@ mod contact_store;
 mod direct_transport;
 mod mdns;
 mod nat_pmp;
+mod outbox_store;
 mod ratchet_store;
 mod relay_tls;
 mod replication_scheduler;
@@ -27,6 +28,10 @@ pub use direct_transport::{
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
+};
+pub use outbox_store::{
+    MAX_OUTBOX_MESSAGES, OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox,
+    SenderOutboxError,
 };
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
