@@ -12,15 +12,16 @@ use yeokcham_core::{
     RelaySigningKeypair, Result,
 };
 use yeokcham_protocol::{
-    CryptoDomain, EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES,
-    MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability, RelayStorageReceipt,
+    AttachmentIdentifier, CryptoDomain, EncryptedAttachmentChunk, EncryptedMessageEnvelope,
+    MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
+    RelayStorageReceipt,
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW: u16 = 1024;
 pub const MAX_RELAY_INGRESS_WINDOW_SECONDS: u32 = 3600;
-pub const RELAY_SCHEMA_VERSION: u32 = 2;
+pub const RELAY_SCHEMA_VERSION: u32 = 3;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
@@ -551,7 +552,8 @@ impl RelayDatabase {
         let registered_mailboxes = count_rows(&self.connection, "relay_mailboxes")?;
         let stored_envelopes = count_rows(&self.connection, "relay_envelopes")?;
         let stored_bytes = self.connection.query_row(
-            "SELECT COALESCE(SUM(length(ciphertext)), 0) FROM relay_envelopes",
+            "SELECT COALESCE((SELECT SUM(length(ciphertext)) FROM relay_envelopes), 0)
+             + COALESCE((SELECT SUM(length(encoded_chunk)) FROM relay_attachment_chunks), 0)",
             [],
             |row| row.get::<_, i64>(0),
         )?;
@@ -581,10 +583,12 @@ impl RelayDatabase {
             transaction.execute("DELETE FROM relay_envelopes WHERE expires_at <= ?1", [now])?;
         let usage = {
             let mut statement = transaction.prepare(
-                "SELECT mailbox_id, COALESCE(SUM(length(ciphertext)), 0)
-                 FROM relay_mailboxes
-                 LEFT JOIN relay_envelopes USING(mailbox_id)
-                 GROUP BY mailbox_id",
+                "SELECT mailbox_id,
+                     COALESCE((SELECT SUM(length(ciphertext)) FROM relay_envelopes
+                               WHERE relay_envelopes.mailbox_id = relay_mailboxes.mailbox_id), 0)
+                     + COALESCE((SELECT SUM(length(encoded_chunk)) FROM relay_attachment_chunks
+                                 WHERE relay_attachment_chunks.mailbox_id = relay_mailboxes.mailbox_id), 0)
+                 FROM relay_mailboxes",
             )?;
             statement
                 .query_map([], |row| {
@@ -612,6 +616,10 @@ impl RelayDatabase {
                      AND NOT EXISTS(
                          SELECT 1 FROM relay_envelopes
                          WHERE relay_envelopes.mailbox_id = relay_mailboxes.mailbox_id
+                     )
+                     AND NOT EXISTS(
+                         SELECT 1 FROM relay_attachment_chunks
+                         WHERE relay_attachment_chunks.mailbox_id = relay_mailboxes.mailbox_id
                      )",
                     [created_at_cutoff],
                 )
@@ -751,6 +759,128 @@ impl RelayDatabase {
             expires_at,
         )
         .map_err(|_| RelayDatabaseError::Receipt)
+    }
+
+    pub fn store_attachment_chunk(
+        &mut self,
+        capability: &MailboxCapability,
+        chunk: &EncryptedAttachmentChunk,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<bool, RelayDatabaseError> {
+        let encoded_chunk = chunk
+            .encode()
+            .map_err(|_| RelayDatabaseError::InvalidAttachmentChunk)?;
+        let bytes =
+            u64::try_from(encoded_chunk.len()).map_err(|_| RelayDatabaseError::QuotaExceeded)?;
+        let expires_at = retention
+            .expires_at(received_at)
+            .map_err(|_| RelayDatabaseError::TimestampOutOfRange)?;
+        let received_at = database_timestamp(received_at)?;
+        let expires_at = database_timestamp(expires_at)?;
+        let capability_digest = capability_digest(capability)?;
+        let transaction = self.connection.transaction()?;
+        let (quota_bytes, used_bytes): (Vec<u8>, Vec<u8>) = transaction
+            .query_row(
+                "SELECT quota_bytes, used_bytes FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::InvalidCapability)?;
+        let existing: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT encoded_chunk FROM relay_attachment_chunks
+                 WHERE mailbox_id = ?1 AND attachment_id = ?2 AND chunk_index = ?3",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    chunk.identifier().as_bytes().as_slice(),
+                    i64::from(chunk.index()),
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(existing) = existing {
+            if existing == encoded_chunk {
+                transaction.commit()?;
+                return Ok(false);
+            }
+            return Err(RelayDatabaseError::AttachmentChunkConflict);
+        }
+        let quota = MailboxQuota::new(parse_u64(&quota_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        let mut tracker = MailboxQuotaTracker::new(quota);
+        tracker
+            .reserve(parse_u64(&used_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        tracker
+            .reserve(bytes)
+            .map_err(|_| RelayDatabaseError::QuotaExceeded)?;
+        transaction.execute(
+            "INSERT INTO relay_attachment_chunks(
+                 mailbox_id, attachment_id, chunk_index, encoded_chunk, received_at, expires_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                capability.mailbox_id().as_slice(),
+                chunk.identifier().as_bytes().as_slice(),
+                i64::from(chunk.index()),
+                encoded_chunk,
+                received_at,
+                expires_at,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+            params![
+                tracker.used_bytes().to_be_bytes().as_slice(),
+                capability.mailbox_id().as_slice(),
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    pub fn retrieve_attachment_chunk(
+        &self,
+        capability: &MailboxCapability,
+        identifier: AttachmentIdentifier,
+        index: u32,
+        now: u64,
+    ) -> Result<EncryptedAttachmentChunk, RelayDatabaseError> {
+        let capability_digest = capability_digest(capability)?;
+        let now = database_timestamp(now)?;
+        if !self.is_registered_capability(capability, &capability_digest)? {
+            return Err(RelayDatabaseError::InvalidCapability);
+        }
+        let encoded_chunk: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT relay_attachment_chunks.encoded_chunk FROM relay_attachment_chunks
+                 JOIN relay_mailboxes USING(mailbox_id)
+                 WHERE relay_attachment_chunks.mailbox_id = ?1
+                   AND relay_mailboxes.capability_digest = ?2
+                   AND attachment_id = ?3 AND chunk_index = ?4 AND expires_at > ?5",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                    identifier.as_bytes().as_slice(),
+                    i64::from(index),
+                    now,
+                ],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::UnknownAttachmentChunk)?;
+        let chunk = EncryptedAttachmentChunk::decode(&encoded_chunk)
+            .map_err(|_| RelayDatabaseError::InvalidAttachmentChunk)?;
+        if chunk.identifier() != identifier || chunk.index() != index {
+            return Err(RelayDatabaseError::InvalidAttachmentChunk);
+        }
+        Ok(chunk)
     }
 
     pub fn retrieve_envelopes(
@@ -898,6 +1028,12 @@ pub enum RelayDatabaseError {
     InvalidMailboxRecord,
     #[error("encrypted relay envelope is invalid")]
     InvalidEnvelope,
+    #[error("encrypted relay attachment chunk is invalid")]
+    InvalidAttachmentChunk,
+    #[error("relay attachment chunk conflicts with an existing chunk")]
+    AttachmentChunkConflict,
+    #[error("relay attachment chunk is unknown")]
+    UnknownAttachmentChunk,
     #[error("mailbox quota exceeded")]
     QuotaExceeded,
     #[error("relay timestamp is out of range")]
@@ -1014,6 +1150,24 @@ fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseErro
         transaction.execute(
             "INSERT INTO relay_schema_migrations(version) VALUES (2)",
             [],
+        )?;
+        transaction.commit()?;
+    }
+    if current_version < 3 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "CREATE TABLE relay_attachment_chunks(
+             mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+             attachment_id BLOB NOT NULL CHECK(length(attachment_id) = 16),
+             chunk_index INTEGER NOT NULL CHECK(chunk_index >= 0),
+             encoded_chunk BLOB NOT NULL CHECK(length(encoded_chunk) > 0),
+             received_at INTEGER NOT NULL CHECK(received_at >= 0),
+             expires_at INTEGER NOT NULL CHECK(expires_at > received_at),
+             PRIMARY KEY(mailbox_id, attachment_id, chunk_index),
+             FOREIGN KEY(mailbox_id) REFERENCES relay_mailboxes(mailbox_id) ON DELETE CASCADE
+         ) STRICT;
+         CREATE INDEX relay_attachment_chunks_expiration ON relay_attachment_chunks(expires_at);
+         INSERT INTO relay_schema_migrations(version) VALUES (3);",
         )?;
         transaction.commit()?;
     }
@@ -1315,6 +1469,7 @@ mod tests {
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
     use yeokcham_protocol::{
+        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, EncryptedAttachmentChunk,
         EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
         MailboxCapability,
     };
@@ -1333,6 +1488,20 @@ mod tests {
 
     fn envelope() -> EncryptedMessageEnvelope {
         EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2, 0xc3]).unwrap()
+    }
+
+    fn attachment_chunk(identifier: AttachmentIdentifier, index: u32) -> EncryptedAttachmentChunk {
+        let key = AttachmentKey::derive(&[0x44; 32], identifier)
+            .unwrap()
+            .derive_chunk_key(index)
+            .unwrap();
+        EncryptedAttachmentChunk::encrypt(
+            identifier,
+            index,
+            &key,
+            &vec![u8::try_from(index).unwrap(); ATTACHMENT_CHUNK_BYTES],
+        )
+        .unwrap()
     }
 
     #[derive(Default)]
@@ -1557,6 +1726,83 @@ mod tests {
             })
             .unwrap();
         assert_eq!(envelope_count, 1);
+    }
+
+    #[test]
+    fn accounts_attachment_chunks_against_mailbox_quota_without_mutating_on_rejection() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let first = attachment_chunk(identifier, 0);
+        let first_bytes = u64::try_from(first.encode().unwrap().len()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(first_bytes).unwrap(), 100)
+            .unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+
+        assert!(
+            database
+                .store_attachment_chunk(&capability, &first, 100, retention)
+                .unwrap()
+        );
+        assert_eq!(
+            database
+                .retrieve_attachment_chunk(&capability, identifier, 0, 109)
+                .unwrap(),
+            first
+        );
+        let unauthorized = capability_with(0x11, 0x33);
+        assert!(matches!(
+            database.retrieve_attachment_chunk(&unauthorized, identifier, 0, 109),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        assert!(matches!(
+            database.store_attachment_chunk(
+                &unauthorized,
+                &attachment_chunk(identifier, 1),
+                100,
+                retention,
+            ),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        assert!(
+            !database
+                .store_attachment_chunk(&capability, &first, 100, retention)
+                .unwrap()
+        );
+        assert!(matches!(
+            database.store_attachment_chunk(
+                &capability,
+                &attachment_chunk(identifier, 0),
+                100,
+                retention,
+            ),
+            Err(RelayDatabaseError::AttachmentChunkConflict)
+        ));
+        assert!(matches!(
+            database.store_attachment_chunk(
+                &capability,
+                &attachment_chunk(identifier, 1),
+                100,
+                retention,
+            ),
+            Err(RelayDatabaseError::QuotaExceeded)
+        ));
+        let (stored_chunks, used_bytes): (u64, Vec<u8>) = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*), used_bytes FROM relay_attachment_chunks
+                 JOIN relay_mailboxes USING(mailbox_id)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored_chunks, 1);
+        assert_eq!(
+            u64::from_be_bytes(used_bytes.try_into().unwrap()),
+            first_bytes
+        );
     }
 
     #[test]
@@ -1950,6 +2196,40 @@ mod tests {
     }
 
     #[test]
+    fn retains_mailboxes_with_unexpired_attachment_chunks() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let chunk = attachment_chunk(identifier, 0);
+        let chunk_bytes = u64::try_from(chunk.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(chunk_bytes).unwrap(), 100)
+            .unwrap();
+        database
+            .store_attachment_chunk(&capability, &chunk, 105, retention)
+            .unwrap();
+
+        assert_eq!(
+            database
+                .garbage_collect_expired_mailboxes(110, retention)
+                .unwrap(),
+            RelayGarbageCollection {
+                removed_mailboxes: 0,
+                removed_envelopes: 0,
+                reclaimed_bytes: 0,
+            }
+        );
+        assert_eq!(
+            database
+                .retrieve_attachment_chunk(&capability, identifier, 0, 110)
+                .unwrap(),
+            chunk
+        );
+    }
+
+    #[test]
     fn rate_limits_relay_ingress_per_registered_capability() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
@@ -2094,12 +2374,14 @@ mod tests {
             .connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
-                 WHERE type = 'table' AND name IN ('relay_mailboxes', 'relay_envelopes')",
+                 WHERE type = 'table' AND name IN (
+                     'relay_mailboxes', 'relay_envelopes', 'relay_attachment_chunks'
+                 )",
                 [],
                 |row| row.get::<_, u8>(0),
             )
             .unwrap();
-        assert_eq!(table_count, 2);
+        assert_eq!(table_count, 3);
     }
 
     #[test]
@@ -2143,13 +2425,13 @@ mod tests {
                 "CREATE TABLE relay_schema_migrations(
                      version INTEGER PRIMARY KEY CHECK(version > 0)
                  ) STRICT;
-                 INSERT INTO relay_schema_migrations(version) VALUES (3);",
+                 INSERT INTO relay_schema_migrations(version) VALUES (4);",
             )
             .unwrap();
 
         assert!(matches!(
             RelayDatabase::from_connection(connection),
-            Err(RelayDatabaseError::UnsupportedSchemaVersion(3))
+            Err(RelayDatabaseError::UnsupportedSchemaVersion(4))
         ));
     }
 }
