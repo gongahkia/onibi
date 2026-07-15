@@ -55,6 +55,68 @@ func TestNtfySignedActionApprovesOnce(t *testing.T) {
 	}
 }
 
+func TestProviderActionRoutesRequireExperimentalProfile(t *testing.T) {
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	q := approval.New(db, time.Minute)
+	signer, err := NewActionSigner([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ntfyID, _, err := q.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotifyID, _, err := q.Request(t.Context(), "s2", "claude", "Bash", `{"command":"pwd"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ntfyURL, err := signer.SignedApprovalURL("https://onibi.example", ntfyID, approval.VerdictApprove, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotifyURL, err := signer.SignedGotifyApprovalPageURL("https://onibi.example", gotifyID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer})
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPost, strings.TrimPrefix(ntfyURL, "https://onibi.example"), nil),
+		httptest.NewRequest(http.MethodGet, strings.TrimPrefix(gotifyURL, "https://onibi.example"), nil),
+	} {
+		w := httptest.NewRecorder()
+		disabled.Handler().ServeHTTP(w, request)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("disabled provider action status = %d body = %q", w.Code, w.Body.String())
+		}
+	}
+	for _, id := range []string{ntfyID, gotifyID} {
+		got, err := q.Get(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != approval.StatePending {
+			t.Fatalf("disabled provider action changed %s to %s", id, got.State)
+		}
+	}
+	enabled := New(Options{DB: db, ApprovalQueue: q, ActionSigner: signer, ExperimentalProviders: true})
+	w := httptest.NewRecorder()
+	enabled.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, strings.TrimPrefix(ntfyURL, "https://onibi.example"), nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("enabled ntfy action status = %d body = %q", w.Code, w.Body.String())
+	}
+	got, err := q.Get(t.Context(), ntfyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != approval.StateApproved {
+		t.Fatalf("enabled ntfy action state = %s", got.State)
+	}
+}
+
 func TestNtfySignedActionRequiresPost(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
