@@ -2,7 +2,9 @@ use std::net::SocketAddr;
 
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, VarInt};
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
-use yeokcham_protocol::{DIRECT_PEER_PROOF_BYTES, DirectPeerProof, DirectProfileConfig};
+use yeokcham_protocol::{
+    DIRECT_PEER_PROOF_BYTES, DirectPeerProof, DirectProfileConfig, WireEnvelope, WireLimits,
+};
 
 const DIRECT_PEER_AUTH_LABEL: &[u8] = b"yeokcham/v1/direct-peer-authentication";
 const DIRECT_PEER_AUTH_BINDING_BYTES: usize = 32;
@@ -83,6 +85,43 @@ impl DirectConnection {
 
     pub fn close(&self) {
         self.connection.close(VarInt::from_u32(0), b"shutdown");
+    }
+
+    pub async fn send_frame(
+        &self,
+        frame: &WireEnvelope,
+        limits: WireLimits,
+    ) -> Result<(), DirectTransportError> {
+        let encoded = frame
+            .encode(limits)
+            .map_err(DirectTransportError::WireFrame)?;
+        let mut send = self
+            .connection
+            .open_uni()
+            .await
+            .map_err(DirectTransportError::OpenFrameStream)?;
+        send.write_all(&encoded)
+            .await
+            .map_err(DirectTransportError::WriteFrameStream)?;
+        send.finish()
+            .map_err(DirectTransportError::FinishFrameStream)?;
+        Ok(())
+    }
+
+    pub async fn receive_frame(
+        &self,
+        limits: WireLimits,
+    ) -> Result<WireEnvelope, DirectTransportError> {
+        let mut receive = self
+            .connection
+            .accept_uni()
+            .await
+            .map_err(DirectTransportError::OpenFrameStream)?;
+        let encoded = receive
+            .read_to_end(limits.maximum_frame_bytes())
+            .await
+            .map_err(DirectTransportError::ReadFrameStream)?;
+        WireEnvelope::decode(&encoded, limits).map_err(DirectTransportError::WireFrame)
     }
 
     pub async fn authenticate_initiator(
@@ -196,6 +235,16 @@ pub enum DirectTransportError {
     FinishAuthenticationStream(#[source] quinn::ClosedStream),
     #[error("failed to read direct peer-authentication stream: {0}")]
     ReadAuthenticationStream(#[source] quinn::ReadToEndError),
+    #[error("failed to open direct protocol-frame stream: {0}")]
+    OpenFrameStream(#[source] quinn::ConnectionError),
+    #[error("failed to write direct protocol-frame stream: {0}")]
+    WriteFrameStream(#[source] quinn::WriteError),
+    #[error("failed to finish direct protocol-frame stream: {0}")]
+    FinishFrameStream(#[source] quinn::ClosedStream),
+    #[error("failed to read direct protocol-frame stream: {0}")]
+    ReadFrameStream(#[source] quinn::ReadToEndError),
+    #[error("direct protocol frame is invalid: {0}")]
+    WireFrame(#[source] yeokcham_protocol::WireError),
     #[error("failed to derive direct peer-authentication connection binding")]
     ConnectionBinding,
     #[error("direct peer proof is invalid: {0}")]
@@ -213,7 +262,9 @@ mod tests {
     };
     use rcgen::generate_simple_self_signed;
     use yeokcham_core::IdentityKeypair;
-    use yeokcham_protocol::DirectProfileConfig;
+    use yeokcham_protocol::{
+        DirectProfileConfig, EnvelopeKind, ProtocolVersion, WireEnvelope, WireLimits,
+    };
 
     use super::{DirectTransport, DirectTransportError};
 
@@ -265,6 +316,17 @@ mod tests {
         assert_eq!(connected.remote_address(), server.local_address().unwrap());
         assert!(server_authentication.is_ok());
         assert!(client_authentication.is_ok());
+        let frame = WireEnvelope {
+            version: ProtocolVersion::INITIAL,
+            kind: EnvelopeKind::EncryptedMessage,
+            payload: vec![1, 2, 3],
+        };
+        let (sent, received) = tokio::join!(
+            connected.send_frame(&frame, WireLimits::REFERENCE),
+            accepted.receive_frame(WireLimits::REFERENCE)
+        );
+        assert!(sent.is_ok());
+        assert_eq!(received.unwrap(), frame);
         assert!(matches!(
             client
                 .connect(profile, client_config(server_config().1), "")

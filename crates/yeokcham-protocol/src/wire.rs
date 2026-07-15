@@ -61,6 +61,11 @@ impl WireLimits {
             maximum_payload_bytes,
         })
     }
+
+    #[must_use]
+    pub const fn maximum_frame_bytes(self) -> usize {
+        self.maximum_frame_bytes
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
