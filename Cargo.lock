@@ -3279,6 +3279,7 @@ dependencies = [
  "clap",
  "sha2 0.11.0",
  "yeokcham-core",
+ "yeokcham-daemon",
  "yeokcham-protocol",
 ]
 

@@ -2,12 +2,22 @@
 
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt::Write as _,
+    fs,
+    io::Write,
+    path::{Component, Path, PathBuf},
+};
 use yeokcham_core::{
     IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
 };
+use yeokcham_daemon::{DaemonRuntime, MessageExpiry, SenderOutbox};
 use yeokcham_protocol::{
-    CONTACT_INVITATION_BYTES, ContactInvitation, IdentityIdentifier,
+    AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
+    EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
+    MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
 
@@ -20,6 +30,9 @@ use yeokcham_core::WindowsKeystore;
 
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const MAX_RELAY_PROFILE_BYTES: usize = 64;
+const MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES: usize = 1024 * 1024;
+const OUTBOX_DATABASE_FILE: &str = "yeokcham-outbox.sqlite";
+const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
@@ -43,6 +56,14 @@ enum Command {
     RelayProfile {
         #[command(subcommand)]
         command: RelayProfileCommand,
+    },
+    Message {
+        #[command(subcommand)]
+        command: MessageCommand,
+    },
+    Attachment {
+        #[command(subcommand)]
+        command: AttachmentCommand,
     },
     ReleaseMetadata {
         #[arg(long)]
@@ -106,6 +127,34 @@ enum RelayProfileCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum MessageCommand {
+    Send {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        recipient_public_key: String,
+        #[arg(long)]
+        envelope: String,
+        #[arg(long)]
+        created_at: u64,
+        #[arg(long)]
+        ttl_seconds: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum AttachmentCommand {
+    Send {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long, required = true, num_args = 1..)]
+        chunk: Vec<PathBuf>,
+    },
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -151,6 +200,34 @@ fn main() -> Result<(), Box<dyn Error>> {
             RelayProfileCommand::Inspect { profile } => {
                 print!("{}", inspect_relay_profile(&profile)?);
             }
+        },
+        Command::Message { command } => match command {
+            MessageCommand::Send {
+                state_directory,
+                recipient_public_key,
+                envelope,
+                created_at,
+                ttl_seconds,
+            } => print!(
+                "{}",
+                queue_system_message(
+                    &state_directory,
+                    &recipient_public_key,
+                    &envelope,
+                    created_at,
+                    ttl_seconds,
+                )?
+            ),
+        },
+        Command::Attachment { command } => match command {
+            AttachmentCommand::Send {
+                state_directory,
+                manifest,
+                chunk,
+            } => print!(
+                "{}",
+                queue_system_attachment(&state_directory, &manifest, &chunk)?
+            ),
         },
         Command::ReleaseMetadata {
             source_revision,
@@ -290,6 +367,171 @@ fn decode_bounded_canonical_hex(
     Ok(output)
 }
 
+fn decode_identity_public_key(encoded: &str) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    let mut public_key = [0; 32];
+    decode_canonical_hex(encoded, &mut public_key)?;
+    Ok(IdentityPublicKey::from_bytes(public_key)?)
+}
+
+fn decode_envelope(encoded: &str) -> Result<EncryptedMessageEnvelope, Box<dyn Error>> {
+    let encoded = decode_bounded_canonical_hex(encoded, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES)?;
+    let envelope = EncryptedMessageEnvelope::decode(&encoded)?;
+    if envelope.encode()? != encoded {
+        return Err("encrypted message envelope is not canonically encoded".into());
+    }
+    Ok(envelope)
+}
+
+fn queue_system_message(
+    state_directory: &Path,
+    recipient_public_key: &str,
+    envelope: &str,
+    created_at: u64,
+    ttl_seconds: u32,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let recipient = decode_identity_public_key(recipient_public_key)?;
+    let envelope = decode_envelope(envelope)?;
+    let expiry = MessageExpiry::new(created_at, ttl_seconds)?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return queue_message(&mut keystore, state_directory, recipient, envelope, expiry);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return queue_message(&mut keystore, state_directory, recipient, envelope, expiry);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return queue_message(&mut keystore, state_directory, recipient, envelope, expiry);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn queue_message<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+    recipient: IdentityPublicKey,
+    envelope: EncryptedMessageEnvelope,
+    expiry: MessageExpiry,
+) -> Result<String, Box<dyn Error>> {
+    let mut outbox = SenderOutbox::open(&state_directory.join(OUTBOX_DATABASE_FILE), keystore)?;
+    outbox.enqueue(recipient, envelope, expiry)?;
+    let identifier = outbox
+        .messages()
+        .last()
+        .ok_or("enqueued message is missing")?
+        .identifier();
+    Ok(format!(
+        "message_identifier={}\n",
+        hexadecimal(identifier.as_bytes())
+    ))
+}
+
+fn validate_state_directory(state_directory: &Path) -> Result<(), &'static str> {
+    if state_directory.as_os_str().is_empty()
+        || !state_directory.is_absolute()
+        || state_directory
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("state directory must be absolute and must not contain parent traversal");
+    }
+    Ok(())
+}
+
+fn queue_system_attachment(
+    state_directory: &Path,
+    manifest_path: &Path,
+    chunk_paths: &[PathBuf],
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    queue_attachment_submission(state_directory, manifest_path, chunk_paths)
+}
+
+fn queue_attachment_submission(
+    state_directory: &Path,
+    manifest_path: &Path,
+    chunk_paths: &[PathBuf],
+) -> Result<String, Box<dyn Error>> {
+    let manifest_bytes = read_bounded_file(manifest_path, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES)?;
+    let manifest = EncryptedAttachmentManifest::decode(&manifest_bytes)?;
+    if manifest.encode()? != manifest_bytes {
+        return Err("encrypted attachment manifest is not canonically encoded".into());
+    }
+    let mut chunk_bytes = Vec::with_capacity(chunk_paths.len());
+    let mut chunks = Vec::with_capacity(chunk_paths.len());
+    for path in chunk_paths {
+        let encoded = read_bounded_file(path, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES)?;
+        let chunk = EncryptedAttachmentChunk::decode(&encoded)?;
+        if chunk.encode()? != encoded {
+            return Err("encrypted attachment chunk is not canonically encoded".into());
+        }
+        chunk_bytes.push(encoded);
+        chunks.push(chunk);
+    }
+    let journal = AttachmentUploadJournal::new(&chunks)?;
+    if journal.identifier() != manifest.identifier() {
+        return Err("attachment manifest and chunks use different identifiers".into());
+    }
+    let identifier = hexadecimal(manifest.identifier().as_bytes());
+    let root = state_directory.join(ATTACHMENT_UPLOAD_DIRECTORY);
+    fs::create_dir_all(&root)?;
+    let destination = root.join(&identifier);
+    if destination.exists() {
+        return Err("attachment submission already exists".into());
+    }
+    let staging = root.join(format!("{identifier}.pending"));
+    fs::create_dir(&staging)?;
+    let persisted = (|| -> Result<(), Box<dyn Error>> {
+        write_new_file(&staging.join("manifest.cbor"), &manifest_bytes)?;
+        write_new_file(&staging.join("journal.cbor"), &journal.encode()?)?;
+        for (index, encoded) in chunk_bytes.iter().enumerate() {
+            write_new_file(&staging.join(format!("chunk-{index}.cbor")), encoded)?;
+        }
+        fs::rename(&staging, &destination)?;
+        Ok(())
+    })();
+    if let Err(error) = persisted {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    Ok(format!(
+        "attachment_identifier={identifier}\nchunk_count={}\n",
+        chunks.len()
+    ))
+}
+
+fn read_bounded_file(path: &Path, maximum_bytes: usize) -> Result<Vec<u8>, Box<dyn Error>> {
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() || metadata.len() > u64::try_from(maximum_bytes)? {
+        return Err("attachment artifact has an invalid size or is not a file".into());
+    }
+    let content = fs::read(path)?;
+    if content.len() > maximum_bytes {
+        return Err("attachment artifact exceeds its configured limit".into());
+    }
+    Ok(content)
+}
+
+fn write_new_file(path: &Path, content: &[u8]) -> Result<(), Box<dyn Error>> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    file.write_all(content)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 const fn hexadecimal_nibble(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -410,19 +652,32 @@ fn is_canonical_hex(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
+    use std::{
+        convert::Infallible,
+        fs,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     use clap::Parser;
 
     use super::{
-        Arguments, Command, ContactCommand, ContactInvitation, ContactInvitationCommand,
-        IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
-        OsKeystore, RelayProfileCommand, TorMaildropProfileConfig, contact_invitation_record,
-        create_identity, decode_canonical_hex, identity_record, inspect_contact_invitation,
-        inspect_relay_profile, load_identity, relay_profile_record, release_metadata,
+        ATTACHMENT_UPLOAD_DIRECTORY, Arguments, AttachmentCommand, Command, ContactCommand,
+        ContactInvitation, ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand,
+        IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, MessageCommand,
+        MessageExpiry, OsKeystore, RelayProfileCommand, TorMaildropProfileConfig,
+        contact_invitation_record, create_identity, decode_canonical_hex, decode_envelope,
+        hexadecimal, identity_record, inspect_contact_invitation, inspect_relay_profile,
+        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
+        release_metadata, validate_state_directory,
+    };
+    use yeokcham_protocol::{
+        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
+        EncryptedAttachmentChunk,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    static NEXT_TEST_STATE_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
     #[derive(Default)]
     struct InMemoryKeystore {
@@ -669,6 +924,143 @@ mod tests {
             Command::RelayProfile {
                 command: RelayProfileCommand::Inspect { profile }
             } if profile == "8301"
+        ));
+    }
+
+    #[test]
+    fn message_send_queue_persists_a_canonical_encrypted_envelope() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-message-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let recipient = IdentityPublicKey::from_bytes([0x11; 32]).unwrap();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+        let output = queue_message(
+            &mut InMemoryKeystore::default(),
+            &state_directory,
+            recipient,
+            envelope,
+            MessageExpiry::new(100, 60).unwrap(),
+        )
+        .unwrap();
+        assert!(output.starts_with("message_identifier="));
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn message_submission_rejects_noncanonical_envelopes_and_unsafe_state_paths() {
+        assert!(decode_envelope("8241a141b2").is_ok());
+        assert!(decode_envelope("8241A141b2").is_err());
+        assert!(decode_envelope("820141a141b2").is_err());
+        assert!(validate_state_directory(Path::new("relative-state")).is_err());
+        assert!(validate_state_directory(Path::new("/state/../other")).is_err());
+    }
+
+    #[test]
+    fn parses_message_send_command() {
+        let recipient_public_key = "11".repeat(32);
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "message",
+            "send",
+            "--state-directory",
+            "/state",
+            "--recipient-public-key",
+            &recipient_public_key,
+            "--envelope",
+            "8241a141b2",
+            "--created-at",
+            "100",
+            "--ttl-seconds",
+            "60",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::Message {
+                command: MessageCommand::Send {
+                    created_at: 100,
+                    ttl_seconds: 60,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn attachment_send_queue_persists_validated_encrypted_artifacts() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-attachment-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
+        let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
+        let chunk = EncryptedAttachmentChunk::encrypt(
+            identifier,
+            0,
+            &key.derive_chunk_key(0).unwrap(),
+            &vec![0xA5; ATTACHMENT_CHUNK_BYTES],
+        )
+        .unwrap();
+        let manifest = AttachmentManifest::new(
+            identifier,
+            ATTACHMENT_CHUNK_BYTES as u64,
+            vec![chunk.hash().unwrap()],
+        )
+        .unwrap()
+        .encrypt(&key)
+        .unwrap();
+        let manifest_path = state_directory.join("input-manifest.cbor");
+        let chunk_path = state_directory.join("input-chunk.cbor");
+        fs::write(&manifest_path, manifest.encode().unwrap()).unwrap();
+        fs::write(&chunk_path, chunk.encode().unwrap()).unwrap();
+        let output = queue_attachment_submission(
+            &state_directory,
+            &manifest_path,
+            std::slice::from_ref(&chunk_path),
+        )
+        .unwrap();
+        assert!(output.starts_with("attachment_identifier="));
+        let submission = state_directory
+            .join(ATTACHMENT_UPLOAD_DIRECTORY)
+            .join(hexadecimal(identifier.as_bytes()));
+        assert!(submission.join("manifest.cbor").is_file());
+        assert!(submission.join("journal.cbor").is_file());
+        assert!(submission.join("chunk-0.cbor").is_file());
+        assert!(
+            queue_attachment_submission(
+                &state_directory,
+                &manifest_path,
+                std::slice::from_ref(&chunk_path),
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn parses_attachment_send_command() {
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "attachment",
+            "send",
+            "--state-directory",
+            "/state",
+            "--manifest",
+            "manifest.cbor",
+            "--chunk",
+            "chunk-0.cbor",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::Attachment {
+                command: AttachmentCommand::Send { chunk, .. }
+            } if chunk == [PathBuf::from("chunk-0.cbor")]
         ));
     }
 }
