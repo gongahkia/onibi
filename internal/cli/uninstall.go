@@ -217,11 +217,21 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 
 	if all {
 		for _, name := range adapters.Names() {
+			a, ok := adapters.Get(name)
+			if !ok {
+				return adapters.Unsupported(name)
+			}
+			if !a.Status(ctx, db).Installed {
+				continue
+			}
 			if err := uninstallAgentHook(ctx, cmd, db, name); err != nil {
 				return err
 			}
 		}
 		for _, name := range adapters.ShellNames() {
+			if !adapters.ShellStatus(ctx, db, name).Installed {
+				continue
+			}
 			if err := adapters.UninstallShell(ctx, db, name); err != nil {
 				return err
 			}

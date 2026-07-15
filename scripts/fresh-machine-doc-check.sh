@@ -116,14 +116,15 @@ for os in macos ubuntu; do
   require_text "onibi install-hooks --dry-run 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-hooks-dry-run.txt\"" "$doc"
   require_text "onibi doctor --mode preflight --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-doctor-preflight.txt\"" "$doc"
   require_text "onibi up --transport=lan --log-file \"\$ONIBI_SMOKE_DIR/${os}-up.log\" 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-up.txt\"" "$doc"
-  require_text "onibi doctor --release --after-upgrade --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-doctor-after-upgrade.txt\"" "$doc"
   require_text "onibi uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall-dry-run.txt\"" "$doc"
   require_text "onibi uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall.txt\"" "$doc"
 done
 
 require_text "brew install gongahkia/onibi/onibi 2>&1 | tee \"\$ONIBI_SMOKE_DIR/macos-install.txt\"" "$doc"
 require_text "curl -fsSL https://get.onibi.sh | sh 2>&1 | tee \"\$ONIBI_SMOKE_DIR/ubuntu-install.txt\"" "$doc"
-require_text "sudo apt install -y ca-certificates curl gnupg tar" "$doc"
+require_text "onibi doctor --release --after-upgrade --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/macos-doctor-after-upgrade.txt\"" "$doc"
+require_text "onibi doctor --after-upgrade --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/ubuntu-doctor-after-upgrade.txt\"" "$doc"
+require_text "sudo apt install -y ca-certificates curl gnupg tar tmux" "$doc"
 
 if ((require_artifacts)); then
   if grep -Fq "Current verification status: real macOS and Ubuntu VM output/screenshots are not" "$doc" || grep -Fq "captured in this repo yet" "$doc"; then

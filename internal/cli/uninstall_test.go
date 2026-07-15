@@ -69,6 +69,13 @@ func TestUninstallNonInteractiveRequiresYes(t *testing.T) {
 	}
 }
 
+func TestUninstallAllHooksIsNoopOnFreshHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if _, _, err := executeRootAllowError(t, "uninstall", "--yes", "--hooks", "--all-hooks", "--color", "never"); err != nil {
+		t.Fatalf("uninstall fresh hooks: %v", err)
+	}
+}
+
 func TestUninstallInteractiveCancel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	oldInput := inputIsTerminal

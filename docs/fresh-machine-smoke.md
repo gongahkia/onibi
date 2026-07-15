@@ -25,7 +25,7 @@ Reference docs checked:
 | `docs/assets/fresh-machine/ubuntu-install.png` | terminal after install |
 | `docs/assets/fresh-machine/ubuntu-doctor-preflight.png` | `onibi doctor --mode preflight --offline` |
 | `docs/assets/fresh-machine/ubuntu-up.png` | `onibi up` printing pair URL/QR |
-| `docs/assets/fresh-machine/ubuntu-doctor-after-upgrade.png` | `onibi doctor --release --after-upgrade --offline` |
+| `docs/assets/fresh-machine/ubuntu-doctor-after-upgrade.png` | `onibi doctor --after-upgrade --offline` |
 | `docs/assets/fresh-machine/ubuntu-uninstall.png` | uninstall plan + final command |
 
 Do not replace this table with prose. The release note needs one file per state.
@@ -185,7 +185,7 @@ Install prerequisites:
 
 ```bash
 sudo apt update
-sudo apt install -y ca-certificates curl gnupg tar
+sudo apt install -y ca-certificates curl gnupg tar tmux
 ```
 
 Install from the rendered release installer after `get.onibi.sh` is published:
@@ -271,7 +271,7 @@ Stop with `Ctrl-C` after pairing and a simple terminal command.
 ### Doctor After Upgrade
 
 ```bash
-onibi doctor --release --after-upgrade --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-doctor-after-upgrade.txt"
+onibi doctor --after-upgrade --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-doctor-after-upgrade.txt"
 ```
 
 Expected:
@@ -319,5 +319,5 @@ Do not close the tracking issue until all are true:
 
 - macOS transcript files exist under the run directory and screenshots are added.
 - Ubuntu transcript files exist under the run directory and screenshots are added.
-- `onibi doctor --release --after-upgrade --offline` output is captured for both.
+- macOS captures `onibi doctor --release --after-upgrade --offline`; Ubuntu captures `onibi doctor --after-upgrade --offline` because Linux is beta-only.
 - The uninstall step proves no Onibi binary, service, hook, or state remains.
