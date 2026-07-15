@@ -104,6 +104,18 @@ impl DeliveryProfile {
         self.kind.privacy_warning()
     }
 
+    pub fn validate_automatic_replacement(
+        self,
+        replacement: Self,
+    ) -> Result<(), DeliveryProfileTransitionError> {
+        if self.kind == DeliveryProfileKind::Direct
+            && replacement.kind == DeliveryProfileKind::TorMaildrop
+        {
+            return Err(DeliveryProfileTransitionError::DirectToTorRequiresExplicitSelection);
+        }
+        Ok(())
+    }
+
     pub fn encode(self) -> Result<Vec<u8>, DeliveryProfileError> {
         let mut encoder = Encoder::new(Vec::new());
         encoder
@@ -192,6 +204,12 @@ pub enum DeliveryProfilePolicyDecision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum DeliveryProfileTransitionError {
+    #[error("replacing direct delivery with Tor maildrop requires explicit profile selection")]
+    DirectToTorRequiresExplicitSelection,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DeliveryProfileConstraintError {
     #[error("at least one delivery profile must be allowed")]
     NoAllowedProfiles,
@@ -220,7 +238,7 @@ mod tests {
     use super::{
         DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
         DeliveryProfileError, DeliveryProfileKind, DeliveryProfilePolicyDecision,
-        DeliveryProfilePrivacyWarning, DirectProfileSelection,
+        DeliveryProfilePrivacyWarning, DeliveryProfileTransitionError, DirectProfileSelection,
     };
 
     #[test]
@@ -314,5 +332,23 @@ mod tests {
         );
         assert_eq!(DeliveryProfile::tor_maildrop().privacy_warning(), None);
         assert_eq!(DeliveryProfile::local_mesh().privacy_warning(), None);
+    }
+
+    #[test]
+    fn rejects_silent_direct_to_tor_replacement() {
+        let direct = DeliveryProfile::direct(DirectProfileSelection::acknowledge_ip_disclosure());
+        assert_eq!(
+            direct
+                .validate_automatic_replacement(DeliveryProfile::tor_maildrop())
+                .unwrap_err(),
+            DeliveryProfileTransitionError::DirectToTorRequiresExplicitSelection
+        );
+        assert!(
+            DeliveryProfile::tor_maildrop()
+                .validate_automatic_replacement(DeliveryProfile::direct(
+                    DirectProfileSelection::acknowledge_ip_disclosure()
+                ))
+                .is_ok()
+        );
     }
 }
