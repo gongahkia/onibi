@@ -166,7 +166,9 @@ fn reject_nested_value(decoder: &Decoder<'_>, depth: usize) -> Result<(), WireEr
 
 #[cfg(test)]
 mod tests {
-    use super::{EnvelopeKind, MIN_FRAME_BYTES, WireEnvelope, WireError, WireLimits};
+    use super::{
+        EnvelopeKind, MAX_FRAME_BYTES, MIN_FRAME_BYTES, WireEnvelope, WireError, WireLimits,
+    };
     use crate::ProtocolVersion;
 
     fn envelope() -> WireEnvelope {
@@ -235,6 +237,23 @@ mod tests {
         );
         assert_eq!(
             WireEnvelope::decode(&[0; 65], WireLimits::new(64, 0).unwrap()).unwrap_err(),
+            WireError::FrameTooLarge
+        );
+    }
+
+    #[test]
+    fn reference_limits_reject_oversized_frames_and_payloads() {
+        let oversized_payload = WireEnvelope {
+            version: ProtocolVersion::INITIAL,
+            kind: EnvelopeKind::EncryptedMessage,
+            payload: vec![0xa5; MAX_FRAME_BYTES],
+        };
+        assert_eq!(
+            oversized_payload.encode(WireLimits::REFERENCE).unwrap_err(),
+            WireError::PayloadTooLarge
+        );
+        assert_eq!(
+            WireEnvelope::decode(&vec![0; MAX_FRAME_BYTES + 1], WireLimits::REFERENCE).unwrap_err(),
             WireError::FrameTooLarge
         );
     }
