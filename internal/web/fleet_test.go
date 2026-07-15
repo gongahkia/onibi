@@ -121,6 +121,67 @@ func TestFleetEnrollmentRequiresOwnerCSRFAndVerifiesHostProof(t *testing.T) {
 	}
 }
 
+func TestFleetEnrollmentSupportsIndependentHosts(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	owner := httptest.NewRecorder()
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), owner, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerCookie := owner.Result().Cookies()[0]
+	for _, tc := range []struct {
+		id       string
+		display  string
+		endpoint fleet.Endpoint
+	}{
+		{id: "host-macbook", display: "MacBook Pro", endpoint: fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://macbook.tailnet.ts.net"}},
+		{id: "host-studio", display: "Mac Studio", endpoint: fleet.Endpoint{Kind: fleet.EndpointRelay, URL: "https://studio.example.test"}},
+	} {
+		public, private, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := fleet.Host{ID: tc.id, DisplayName: tc.display, IdentityPublic: base64.RawURLEncoding.EncodeToString(public), Endpoint: tc.endpoint, ProtocolVersion: fleet.ProtocolVersion, BinaryVersion: "v1.0.0", Capabilities: []string{"session.read"}}
+		body, err := json.Marshal(fleetEnrollmentChallengeRequest{Host: host})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/fleet/enroll/challenge", strings.NewReader(string(body)))
+		request.AddCookie(ownerCookie)
+		addCSRF(request, ownerSessionID)
+		response := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("host %s challenge = %d body=%s", host.ID, response.Code, response.Body.String())
+		}
+		var challenge fleet.EnrollmentChallenge
+		if err := json.NewDecoder(response.Body).Decode(&challenge); err != nil {
+			t.Fatal(err)
+		}
+		host.OwnerID, host.State, host.RegisteredAt = challenge.OwnerID, fleet.HostStatePending, host.RegisteredAt.UTC()
+		proof := fleet.EnrollmentProof{Version: fleet.ProtocolVersion, ChallengeID: challenge.ID, Nonce: challenge.Nonce, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, fleet.EnrollmentSigningPayload(challenge, host)))}
+		proofBody, err := json.Marshal(proof)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proofRequest := httptest.NewRequest(http.MethodPost, "/fleet/enroll/proof", strings.NewReader(string(proofBody)))
+		proofResponse := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(proofResponse, proofRequest)
+		if proofResponse.Code != http.StatusOK {
+			t.Fatalf("host %s proof = %d body=%s", host.ID, proofResponse.Code, proofResponse.Body.String())
+		}
+	}
+	ownerID, err := srv.db.FleetOwnerID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := srv.db.FleetHostList(context.Background())
+	if err != nil || len(hosts) != 2 || hosts[0].OwnerID != ownerID || hosts[1].OwnerID != ownerID {
+		t.Fatalf("hosts=%#v err=%v", hosts, err)
+	}
+}
+
 func TestFleetEnrollmentRejectsInvalidProofWithoutConsumingChallenge(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

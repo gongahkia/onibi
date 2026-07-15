@@ -58,6 +58,8 @@ jobs:
           cache: true
       - name: run macOS release gate
         run: scripts/macos-release-gate.sh "$RUNNER_TEMP/onibi-macos-release"
+      - name: run macOS scenario gate
+        run: scripts/macos-scenario-gate.sh "$RUNNER_TEMP/onibi-macos-release/scenarios"
       - name: upload macOS release evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -28,6 +28,7 @@ if [ ! -f "$binary" ]; then
 fi
 
 if [ "$(basename "$binary")" = "onibi" ]; then
+  "$script_dir/macos-scenario-gate.sh" "${ONIBI_MACOS_SCENARIO_GATE_DIR:-artifacts/macos-scenario-gate-$tag}"
   "$script_dir/upgrade-recovery-gate.sh" "${ONIBI_UPGRADE_GATE_DIR:-artifacts/upgrade-recovery-gate-$tag}"
   "$script_dir/security-regression-gate.sh" "${ONIBI_SECURITY_GATE_DIR:-artifacts/security-regression-gate-$tag}"
 fi
