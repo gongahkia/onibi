@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod contact_store;
+mod daemon_config;
 mod delivery_scheduler;
 mod direct_transport;
 mod inbox_deduplication;
@@ -22,6 +23,9 @@ use yeokcham_protocol::ProtocolVersion;
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
+};
+pub use daemon_config::{
+    DAEMON_CONFIG_SCHEMA_VERSION, DaemonConfig, DaemonConfigError, MAX_DAEMON_CONFIG_BYTES,
 };
 pub use delivery_scheduler::{
     BackgroundDeliveryScheduler, DeliverySchedulerCycle, DeliverySchedulerError,
