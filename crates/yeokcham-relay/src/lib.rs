@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,8 @@ use yeokcham_protocol::{
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
+pub const MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW: u16 = 1024;
+pub const MAX_RELAY_INGRESS_WINDOW_SECONDS: u32 = 3600;
 pub const RELAY_SCHEMA_VERSION: u32 = 2;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
@@ -261,6 +264,152 @@ pub enum ProjectTestRelayError {
     Database(#[source] RelayDatabaseError),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayIngressRateLimit {
+    max_requests: u16,
+    window_seconds: u32,
+}
+
+impl RelayIngressRateLimit {
+    pub fn new(max_requests: u16, window_seconds: u32) -> Result<Self, RelayIngressRateLimitError> {
+        if max_requests == 0 || max_requests > MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW {
+            return Err(RelayIngressRateLimitError::InvalidMaxRequests);
+        }
+        if window_seconds == 0 || window_seconds > MAX_RELAY_INGRESS_WINDOW_SECONDS {
+            return Err(RelayIngressRateLimitError::InvalidWindow);
+        }
+        Ok(Self {
+            max_requests,
+            window_seconds,
+        })
+    }
+
+    #[must_use]
+    pub const fn max_requests(self) -> u16 {
+        self.max_requests
+    }
+
+    #[must_use]
+    pub const fn window_seconds(self) -> u32 {
+        self.window_seconds
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayIngressRateLimitError {
+    #[error("relay ingress maximum request count is invalid")]
+    InvalidMaxRequests,
+    #[error("relay ingress rate-limit window is invalid")]
+    InvalidWindow,
+}
+
+struct CapabilityIngressWindow {
+    requests: VecDeque<u64>,
+    last_seen: u64,
+}
+
+pub struct RelayIngressRateLimiter {
+    limit: RelayIngressRateLimit,
+    windows: HashMap<[u8; 32], CapabilityIngressWindow>,
+    latest_timestamp: Option<u64>,
+}
+
+impl RelayIngressRateLimiter {
+    #[must_use]
+    pub fn new(limit: RelayIngressRateLimit) -> Self {
+        Self {
+            limit,
+            windows: HashMap::new(),
+            latest_timestamp: None,
+        }
+    }
+
+    fn admit(&mut self, capability_digest: [u8; 32], now: u64) -> Result<(), RelayIngressError> {
+        if self.latest_timestamp.is_some_and(|latest| now < latest) {
+            return Err(RelayIngressError::TimestampRegression);
+        }
+        let window_seconds = u64::from(self.limit.window_seconds);
+        self.windows
+            .retain(|_, window| now.saturating_sub(window.last_seen) < window_seconds);
+        let window =
+            self.windows
+                .entry(capability_digest)
+                .or_insert_with(|| CapabilityIngressWindow {
+                    requests: VecDeque::new(),
+                    last_seen: now,
+                });
+        while window
+            .requests
+            .front()
+            .is_some_and(|request| now.saturating_sub(*request) >= window_seconds)
+        {
+            window.requests.pop_front();
+        }
+        if window.requests.len() >= usize::from(self.limit.max_requests) {
+            return Err(RelayIngressError::RateLimited);
+        }
+        window.requests.push_back(now);
+        window.last_seen = now;
+        self.latest_timestamp = Some(now);
+        Ok(())
+    }
+}
+
+pub struct RateLimitedRelay {
+    database: RelayDatabase,
+    limiter: RelayIngressRateLimiter,
+}
+
+impl RateLimitedRelay {
+    #[must_use]
+    pub fn new(database: RelayDatabase, limit: RelayIngressRateLimit) -> Self {
+        Self {
+            database,
+            limiter: RelayIngressRateLimiter::new(limit),
+        }
+    }
+
+    pub fn insert_envelope(
+        &mut self,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<u64, RelayIngressError> {
+        database_timestamp(received_at).map_err(RelayIngressError::Database)?;
+        let capability_digest =
+            capability_digest(capability).map_err(RelayIngressError::Database)?;
+        if !self
+            .database
+            .is_registered_capability(capability, &capability_digest)
+            .map_err(RelayIngressError::Database)?
+        {
+            return Err(RelayIngressError::InvalidCapability);
+        }
+        self.limiter.admit(capability_digest, received_at)?;
+        self.database
+            .insert_envelope(capability, envelope, received_at, retention)
+            .map_err(RelayIngressError::Database)
+    }
+
+    #[must_use]
+    pub fn into_database(self) -> RelayDatabase {
+        self.database
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RelayIngressError {
+    #[error("relay ingress capability is invalid")]
+    InvalidCapability,
+    #[error("relay ingress rate limit is exceeded")]
+    RateLimited,
+    #[error("relay ingress timestamp moved backwards")]
+    TimestampRegression,
+    #[error("relay ingress database operation failed")]
+    Database(#[source] RelayDatabaseError),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelfHostedRelayConfig {
     listen_address: std::net::SocketAddr,
@@ -373,6 +522,26 @@ impl RelayDatabase {
 
     pub fn schema_version(&self) -> Result<u32, RelayDatabaseError> {
         read_schema_version(&self.connection)
+    }
+
+    fn is_registered_capability(
+        &self,
+        capability: &MailboxCapability,
+        capability_digest: &[u8; 32],
+    ) -> Result<bool, RelayDatabaseError> {
+        self.connection
+            .query_row(
+                "SELECT EXISTS(
+                 SELECT 1 FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2
+             )",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                ],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
     }
 
     pub fn emit_operational_metrics<E: RelayMetricsEmitter>(
@@ -1133,13 +1302,15 @@ mod tests {
     use std::convert::Infallible;
 
     use super::{
-        MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
+        MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW,
+        MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
         ProjectTestRelay, ProjectTestRelayError, RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION,
-        RelayDatabase, RelayDatabaseError, RelayGarbageCollection, RelayHealthEndpoint,
-        RelayHealthEndpointError, RelayIdentity, RelayMetricsEmitter, RelayOperationalMetrics,
-        RelayRetentionPolicy, RelayRetentionPolicyError, SelfHostedRelayConfig,
-        SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
+        RateLimitedRelay, RelayDatabase, RelayDatabaseError, RelayGarbageCollection,
+        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayIngressError,
+        RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
+        RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
+        SelfHostedRelayConfig, SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1776,6 +1947,81 @@ mod tests {
             )
             .unwrap();
         assert_eq!(u64::from_be_bytes(active_usage.try_into().unwrap()), 6);
+    }
+
+    #[test]
+    fn rate_limits_relay_ingress_per_registered_capability() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let first_capability = capability_with(0x99, 0xaa);
+        let second_capability = capability_with(0xbb, 0xcc);
+        let quota = MailboxQuota::new(1024).unwrap();
+        database
+            .register_mailbox(&first_capability, quota, 0)
+            .unwrap();
+        database
+            .register_mailbox(&second_capability, quota, 0)
+            .unwrap();
+        let mut relay = RateLimitedRelay::new(database, RelayIngressRateLimit::new(2, 10).unwrap());
+        let retention = RelayRetentionPolicy::new(60).unwrap();
+        let unregistered_capability = capability_with(0xdd, 0xee);
+
+        assert!(matches!(
+            relay.insert_envelope(&unregistered_capability, &envelope(), 100, retention),
+            Err(RelayIngressError::InvalidCapability)
+        ));
+
+        relay
+            .insert_envelope(&first_capability, &envelope(), 100, retention)
+            .unwrap();
+        relay
+            .insert_envelope(&first_capability, &envelope(), 101, retention)
+            .unwrap();
+        assert!(matches!(
+            relay.insert_envelope(&first_capability, &envelope(), 109, retention),
+            Err(RelayIngressError::RateLimited)
+        ));
+        relay
+            .insert_envelope(&second_capability, &envelope(), 109, retention)
+            .unwrap();
+        relay
+            .insert_envelope(&first_capability, &envelope(), 110, retention)
+            .unwrap();
+        assert!(matches!(
+            relay.insert_envelope(&second_capability, &envelope(), 108, retention),
+            Err(RelayIngressError::TimestampRegression)
+        ));
+        let database = relay.into_database();
+        assert_eq!(
+            database
+                .retrieve_envelopes(&first_capability, None, 110, 10)
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            database
+                .retrieve_envelopes(&second_capability, None, 110, 10)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            RelayIngressRateLimit::new(0, 10),
+            Err(RelayIngressRateLimitError::InvalidMaxRequests)
+        );
+        assert_eq!(
+            RelayIngressRateLimit::new(MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW + 1, 10),
+            Err(RelayIngressRateLimitError::InvalidMaxRequests)
+        );
+        assert_eq!(
+            RelayIngressRateLimit::new(1, 0),
+            Err(RelayIngressRateLimitError::InvalidWindow)
+        );
+        assert_eq!(
+            RelayIngressRateLimit::new(1, MAX_RELAY_INGRESS_WINDOW_SECONDS + 1),
+            Err(RelayIngressRateLimitError::InvalidWindow)
+        );
     }
 
     #[test]
