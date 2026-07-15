@@ -115,6 +115,9 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 		return ProjectConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.Transports.Default = strings.ToLower(strings.TrimSpace(cfg.Transports.Default))
+	if err := validateProjectPaths(path, &cfg); err != nil {
+		return ProjectConfig{}, err
+	}
 	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
 		return ProjectConfig{}, err
 	}
@@ -131,6 +134,9 @@ func SaveProjectConfig(path string, cfg ProjectConfig) error {
 	}
 	if err := validateName(cfg.Name); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
+	}
+	if err := validateProjectPaths(path, &cfg); err != nil {
+		return err
 	}
 	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
 		return err
@@ -169,9 +175,44 @@ func validateProjectTransports(path string, transports *ProjectTransports) error
 	return nil
 }
 
+func validateProjectPaths(path string, cfg *ProjectConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	return validateProjectRelativePath(path, "trust.policy_file", cfg.Trust.PolicyFile)
+}
+
+func validateProjectRelativePath(configPath, key, value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if filepath.IsAbs(value) {
+		return fmt.Errorf("%s: %s must be a relative path", configPath, key)
+	}
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf("%s: resolve workspace root: %w", configPath, err)
+	}
+	workspaceDir := filepath.Dir(absConfigPath)
+	workspaceRoot := workspaceDir
+	if filepath.Base(workspaceDir) == ".onibi" {
+		workspaceRoot = filepath.Dir(workspaceDir)
+	}
+	resolved := filepath.Clean(filepath.Join(workspaceDir, value))
+	rel, err := filepath.Rel(workspaceRoot, resolved)
+	if err != nil {
+		return fmt.Errorf("%s: %s resolve: %w", configPath, key, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%s: %s must stay inside workspace root", configPath, key)
+	}
+	return nil
+}
+
 func validateTransportMode(mode string) error {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "lan", "tailscale", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto":
+	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email", "auto":
 		return nil
 	default:
 		return fmt.Errorf("unknown transport %q", mode)
