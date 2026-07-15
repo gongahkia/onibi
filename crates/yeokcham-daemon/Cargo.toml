@@ -29,7 +29,12 @@ yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 rcgen = "0.14.7"
+
+[[bench]]
+name = "local_transport"
+harness = false
 
 [lints]
 workspace = true
