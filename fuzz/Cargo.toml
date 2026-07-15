@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+yeokcham-ffi = { path = "../crates/yeokcham-ffi" }
 yeokcham-protocol = { path = "../crates/yeokcham-protocol" }
 yeokcham-relay = { path = "../crates/yeokcham-relay" }
 
@@ -43,6 +44,13 @@ bench = false
 [[bin]]
 name = "attachment_parser"
 path = "fuzz_targets/attachment_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_invalid_handle"
+path = "fuzz_targets/ffi_invalid_handle.rs"
 test = false
 doc = false
 bench = false

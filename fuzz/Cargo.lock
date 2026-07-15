@@ -1547,10 +1547,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "yeokcham-ffi"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "yeokcham-protocol",
+ "zeroize",
+]
+
+[[package]]
 name = "yeokcham-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "yeokcham-ffi",
  "yeokcham-protocol",
  "yeokcham-relay",
 ]
