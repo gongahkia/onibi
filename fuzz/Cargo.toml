@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 yeokcham-protocol = { path = "../crates/yeokcham-protocol" }
+yeokcham-relay = { path = "../crates/yeokcham-relay" }
 
 [[bin]]
 name = "deterministic_cbor"
@@ -28,6 +29,13 @@ bench = false
 [[bin]]
 name = "delivery_profile"
 path = "fuzz_targets/delivery_profile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "relay_ingress"
+path = "fuzz_targets/relay_ingress.rs"
 test = false
 doc = false
 bench = false
