@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod contact_store;
+mod direct_transport;
 mod ratchet_store;
 mod state_store;
 
@@ -11,6 +12,7 @@ pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
 };
+pub use direct_transport::{DirectConnection, DirectTransport, DirectTransportError};
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,

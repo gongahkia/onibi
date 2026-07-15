@@ -13,11 +13,16 @@ default = []
 chacha20poly1305.workspace = true
 getrandom.workspace = true
 minicbor.workspace = true
+quinn.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true
+
+[dev-dependencies]
+rcgen = "0.14.7"
 
 [lints]
 workspace = true
