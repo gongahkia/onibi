@@ -1,11 +1,100 @@
 #![forbid(unsafe_code)]
 
+use std::path::Path;
+
+use rusqlite::Connection;
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::{
     MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
+pub const RELAY_SCHEMA_VERSION: u32 = 1;
+
+pub struct RelayDatabase {
+    connection: Connection,
+}
+
+impl RelayDatabase {
+    pub fn open(path: &Path) -> Result<Self, RelayDatabaseError> {
+        Self::from_connection(Connection::open(path)?)
+    }
+
+    pub fn schema_version(&self) -> Result<u32, RelayDatabaseError> {
+        read_schema_version(&self.connection)
+    }
+
+    fn from_connection(mut connection: Connection) -> Result<Self, RelayDatabaseError> {
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "FULL")?;
+        apply_migrations(&mut connection)?;
+        Ok(Self { connection })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RelayDatabaseError {
+    #[error("SQLite relay-database operation failed")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("relay database schema version {0} is unsupported")]
+    UnsupportedSchemaVersion(u32),
+}
+
+fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseError> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS relay_schema_migrations(
+             version INTEGER PRIMARY KEY CHECK(version > 0)
+         ) STRICT;",
+    )?;
+    let current_version = read_schema_version(connection)?;
+    if current_version > RELAY_SCHEMA_VERSION {
+        return Err(RelayDatabaseError::UnsupportedSchemaVersion(
+            current_version,
+        ));
+    }
+    if current_version == RELAY_SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE relay_mailboxes(
+             mailbox_id BLOB PRIMARY KEY NOT NULL CHECK(length(mailbox_id) = 16),
+             capability_token BLOB NOT NULL CHECK(length(capability_token) = 32),
+             quota_bytes BLOB NOT NULL CHECK(length(quota_bytes) = 8),
+             used_bytes BLOB NOT NULL CHECK(length(used_bytes) = 8),
+             created_at INTEGER NOT NULL CHECK(created_at >= 0)
+         ) STRICT;
+         CREATE TABLE relay_envelopes(
+             mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+             sequence INTEGER NOT NULL CHECK(sequence >= 0),
+             ciphertext BLOB NOT NULL CHECK(length(ciphertext) > 0),
+             received_at INTEGER NOT NULL CHECK(received_at >= 0),
+             expires_at INTEGER NOT NULL CHECK(expires_at > received_at),
+             PRIMARY KEY(mailbox_id, sequence),
+             FOREIGN KEY(mailbox_id) REFERENCES relay_mailboxes(mailbox_id) ON DELETE CASCADE
+         ) STRICT;
+         CREATE INDEX relay_envelopes_expiration ON relay_envelopes(expires_at);
+         CREATE INDEX relay_envelopes_retrieval ON relay_envelopes(mailbox_id, sequence);",
+    )?;
+    transaction.execute(
+        "INSERT INTO relay_schema_migrations(version) VALUES (?1)",
+        [RELAY_SCHEMA_VERSION],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn read_schema_version(connection: &Connection) -> Result<u32, RelayDatabaseError> {
+    Ok(connection
+        .query_row(
+            "SELECT MAX(version) FROM relay_schema_migrations",
+            [],
+            |row| row.get::<_, Option<u32>>(0),
+        )?
+        .unwrap_or_default())
+}
 
 pub struct MailboxIngress {
     capability: MailboxCapability,
@@ -158,8 +247,10 @@ pub enum RelayRetentionPolicyError {
 mod tests {
     use super::{
         MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress, MailboxIngressError, MailboxQuota,
-        MailboxQuotaError, MailboxQuotaTracker, RelayRetentionPolicy, RelayRetentionPolicyError,
+        MailboxQuotaError, MailboxQuotaTracker, RELAY_SCHEMA_VERSION, RelayDatabase,
+        RelayDatabaseError, RelayRetentionPolicy, RelayRetentionPolicyError,
     };
+    use rusqlite::Connection;
     use yeokcham_protocol::{
         MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
     };
@@ -257,5 +348,48 @@ mod tests {
             RelayRetentionPolicy::new(1).unwrap().expires_at(u64::MAX),
             Err(RelayRetentionPolicyError::TimestampOverflow)
         );
+    }
+
+    #[test]
+    fn migrates_an_empty_relay_database_to_the_current_schema() {
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+
+        assert_eq!(database.schema_version().unwrap(), RELAY_SCHEMA_VERSION);
+        let schema_version = database
+            .connection
+            .query_row("SELECT version FROM relay_schema_migrations", [], |row| {
+                row.get::<_, u32>(0)
+            })
+            .unwrap();
+        assert_eq!(schema_version, RELAY_SCHEMA_VERSION);
+        let table_count = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN ('relay_mailboxes', 'relay_envelopes')",
+                [],
+                |row| row.get::<_, u8>(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 2);
+    }
+
+    #[test]
+    fn rejects_databases_from_newer_schema_versions() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE relay_schema_migrations(
+                     version INTEGER PRIMARY KEY CHECK(version > 0)
+                 ) STRICT;
+                 INSERT INTO relay_schema_migrations(version) VALUES (2);",
+            )
+            .unwrap();
+
+        assert!(matches!(
+            RelayDatabase::from_connection(connection),
+            Err(RelayDatabaseError::UnsupportedSchemaVersion(2))
+        ));
     }
 }

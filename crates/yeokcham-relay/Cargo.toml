@@ -10,9 +10,10 @@ repository.workspace = true
 default = []
 
 [dependencies]
+rusqlite.workspace = true
+thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
-thiserror.workspace = true
 
 [lints]
 workspace = true
