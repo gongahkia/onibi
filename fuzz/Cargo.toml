@@ -25,5 +25,12 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "delivery_profile"
+path = "fuzz_targets/delivery_profile.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
 members = ["."]
