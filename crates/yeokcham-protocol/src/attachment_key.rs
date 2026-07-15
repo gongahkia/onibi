@@ -75,6 +75,10 @@ impl AttachmentKey {
             .map_err(|_| AttachmentKeyError::KeyDerivation)?;
         Ok(AttachmentChunkKey(key))
     }
+
+    pub(crate) fn as_bytes(&self) -> &[u8; ATTACHMENT_KEY_BYTES] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for AttachmentKey {

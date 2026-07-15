@@ -3,6 +3,7 @@
 mod attachment_chunk;
 mod attachment_download;
 mod attachment_key;
+mod attachment_manifest;
 mod attachment_upload;
 mod contact_invitation;
 mod delivery_acknowledgement;
@@ -50,6 +51,12 @@ pub use attachment_download::{
 pub use attachment_key::{
     ATTACHMENT_IDENTIFIER_BYTES, ATTACHMENT_KEY_BYTES, AttachmentChunkKey, AttachmentIdentifier,
     AttachmentKey, AttachmentKeyError,
+};
+pub use attachment_manifest::{
+    ATTACHMENT_MANIFEST_NONCE_BYTES, ATTACHMENT_MANIFEST_SCHEMA_VERSION,
+    ATTACHMENT_MANIFEST_TAG_BYTES, AttachmentManifest, AttachmentManifestError,
+    ENCRYPTED_ATTACHMENT_MANIFEST_SCHEMA_VERSION, EncryptedAttachmentManifest,
+    MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
 };
 pub use attachment_upload::{
     ATTACHMENT_UPLOAD_JOURNAL_SCHEMA_VERSION, AttachmentUploadError, AttachmentUploadJournal,
