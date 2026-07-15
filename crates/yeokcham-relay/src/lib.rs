@@ -5,7 +5,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use yeokcham_core::{
     ED25519_SIGNATURE_BYTES, Error, KeystoreEntryName, KeystoreSecret, OsKeystore, RelayPublicKey,
@@ -21,7 +21,7 @@ pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECOND
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW: u16 = 1024;
 pub const MAX_RELAY_INGRESS_WINDOW_SECONDS: u32 = 3600;
-pub const RELAY_SCHEMA_VERSION: u32 = 3;
+pub const RELAY_SCHEMA_VERSION: u32 = 4;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
@@ -221,7 +221,7 @@ impl ProjectTestRelay {
     }
 
     pub fn retrieve_envelopes(
-        &self,
+        &mut self,
         proof: SyntheticRelayTrafficProof,
         capability: &MailboxCapability,
         after_sequence: Option<u64>,
@@ -896,7 +896,7 @@ impl RelayDatabase {
     }
 
     pub fn retrieve_attachment_chunk(
-        &self,
+        &mut self,
         capability: &MailboxCapability,
         identifier: AttachmentIdentifier,
         index: u32,
@@ -907,10 +907,13 @@ impl RelayDatabase {
         if !self.is_registered_capability(capability, &capability_digest)? {
             return Err(RelayDatabaseError::InvalidCapability);
         }
-        let encoded_chunk: Vec<u8> = self
+        let (encoded_chunk, received_at, expires_at): (Vec<u8>, i64, i64) = self
             .connection
             .query_row(
-                "SELECT relay_attachment_chunks.encoded_chunk FROM relay_attachment_chunks
+                "SELECT relay_attachment_chunks.encoded_chunk,
+                        relay_attachment_chunks.received_at,
+                        relay_attachment_chunks.expires_at
+                 FROM relay_attachment_chunks
                  JOIN relay_mailboxes USING(mailbox_id)
                  WHERE relay_attachment_chunks.mailbox_id = ?1
                    AND relay_mailboxes.capability_digest = ?2
@@ -922,20 +925,29 @@ impl RelayDatabase {
                     i64::from(index),
                     now,
                 ],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?
             .ok_or(RelayDatabaseError::UnknownAttachmentChunk)?;
-        let chunk = EncryptedAttachmentChunk::decode(&encoded_chunk)
-            .map_err(|_| RelayDatabaseError::InvalidAttachmentChunk)?;
-        if chunk.identifier() != identifier || chunk.index() != index {
-            return Err(RelayDatabaseError::InvalidAttachmentChunk);
+        match EncryptedAttachmentChunk::decode(&encoded_chunk) {
+            Ok(chunk) if chunk.identifier() == identifier && chunk.index() == index => Ok(chunk),
+            _ => {
+                self.quarantine_attachment_chunk(
+                    *capability.mailbox_id(),
+                    identifier,
+                    index,
+                    &encoded_chunk,
+                    received_at,
+                    expires_at,
+                    now,
+                )?;
+                Err(RelayDatabaseError::CorruptBlobQuarantined)
+            }
         }
-        Ok(chunk)
     }
 
     pub fn retrieve_envelopes(
-        &self,
+        &mut self,
         capability: &MailboxCapability,
         after_sequence: Option<u64>,
         now: u64,
@@ -964,41 +976,146 @@ impl RelayDatabase {
         if !registered {
             return Err(RelayDatabaseError::InvalidCapability);
         }
-        let mut statement = self.connection.prepare(
-            "SELECT sequence, ciphertext, received_at, expires_at FROM relay_envelopes
-             WHERE mailbox_id = ?1 AND sequence > ?2 AND expires_at > ?3
-             ORDER BY sequence ASC LIMIT ?4",
-        )?;
-        let rows = statement.query_map(
+        let rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT sequence, ciphertext, received_at, expires_at FROM relay_envelopes
+                 WHERE mailbox_id = ?1 AND sequence > ?2 AND expires_at > ?3
+                 ORDER BY sequence ASC LIMIT ?4",
+            )?;
+            statement
+                .query_map(
+                    params![
+                        capability.mailbox_id().as_slice(),
+                        after_sequence,
+                        now,
+                        i64::from(limit),
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, Vec<u8>>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let mut envelopes = Vec::with_capacity(rows.len());
+        for (sequence, ciphertext, received_at, expires_at) in rows {
+            let envelope = EncryptedMessageEnvelope::decode(&ciphertext);
+            let invalid =
+                sequence < 0 || received_at < 0 || expires_at <= received_at || envelope.is_err();
+            if invalid {
+                self.quarantine_envelope(
+                    *capability.mailbox_id(),
+                    sequence,
+                    &ciphertext,
+                    received_at,
+                    expires_at,
+                    now,
+                )?;
+                return Err(RelayDatabaseError::CorruptBlobQuarantined);
+            }
+            envelopes.push(RelayEnvelope {
+                sequence: sequence as u64,
+                envelope: match envelope {
+                    Ok(envelope) => envelope,
+                    Err(_) => return Err(RelayDatabaseError::CorruptBlobQuarantined),
+                },
+                received_at: received_at as u64,
+                expires_at: expires_at as u64,
+            });
+        }
+        Ok(envelopes)
+    }
+
+    fn quarantine_envelope(
+        &mut self,
+        mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES],
+        sequence: i64,
+        ciphertext: &[u8],
+        received_at: i64,
+        expires_at: i64,
+        quarantined_at: i64,
+    ) -> Result<(), RelayDatabaseError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO relay_quarantined_envelopes(
+                 mailbox_id, sequence, ciphertext, received_at, expires_at, quarantined_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(mailbox_id, sequence) DO NOTHING",
             params![
-                capability.mailbox_id().as_slice(),
-                after_sequence,
-                now,
-                i64::from(limit),
+                mailbox_id.as_slice(),
+                sequence,
+                ciphertext,
+                received_at,
+                expires_at,
+                quarantined_at,
             ],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                ))
-            },
         )?;
-        rows.map(|row| {
-            let (sequence, ciphertext, received_at, expires_at) = row?;
-            Ok(RelayEnvelope {
-                sequence: u64::try_from(sequence)
-                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
-                envelope: EncryptedMessageEnvelope::decode(&ciphertext)
-                    .map_err(|_| RelayDatabaseError::InvalidEnvelope)?,
-                received_at: u64::try_from(received_at)
-                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
-                expires_at: u64::try_from(expires_at)
-                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
-            })
-        })
-        .collect()
+        if transaction.execute(
+            "DELETE FROM relay_envelopes WHERE mailbox_id = ?1 AND sequence = ?2",
+            params![mailbox_id.as_slice(), sequence],
+        )? != 1
+        {
+            return Err(RelayDatabaseError::InvalidMailboxRecord);
+        }
+        let used_bytes = active_mailbox_usage(&transaction, mailbox_id)?;
+        transaction.execute(
+            "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+            params![used_bytes.to_be_bytes().as_slice(), mailbox_id.as_slice()],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn quarantine_attachment_chunk(
+        &mut self,
+        mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES],
+        identifier: AttachmentIdentifier,
+        index: u32,
+        encoded_chunk: &[u8],
+        received_at: i64,
+        expires_at: i64,
+        quarantined_at: i64,
+    ) -> Result<(), RelayDatabaseError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO relay_quarantined_attachment_chunks(
+                 mailbox_id, attachment_id, chunk_index, encoded_chunk,
+                 received_at, expires_at, quarantined_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(mailbox_id, attachment_id, chunk_index) DO NOTHING",
+            params![
+                mailbox_id.as_slice(),
+                identifier.as_bytes().as_slice(),
+                i64::from(index),
+                encoded_chunk,
+                received_at,
+                expires_at,
+                quarantined_at,
+            ],
+        )?;
+        if transaction.execute(
+            "DELETE FROM relay_attachment_chunks
+             WHERE mailbox_id = ?1 AND attachment_id = ?2 AND chunk_index = ?3",
+            params![
+                mailbox_id.as_slice(),
+                identifier.as_bytes().as_slice(),
+                i64::from(index),
+            ],
+        )? != 1
+        {
+            return Err(RelayDatabaseError::InvalidMailboxRecord);
+        }
+        let used_bytes = active_mailbox_usage(&transaction, mailbox_id)?;
+        transaction.execute(
+            "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+            params![used_bytes.to_be_bytes().as_slice(), mailbox_id.as_slice()],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn acknowledge_envelope(
@@ -1081,6 +1198,8 @@ pub enum RelayDatabaseError {
     InvalidEnvelope,
     #[error("encrypted relay attachment chunk is invalid")]
     InvalidAttachmentChunk,
+    #[error("corrupted relay blob was quarantined")]
+    CorruptBlobQuarantined,
     #[error("relay attachment chunk conflicts with an existing chunk")]
     AttachmentChunkConflict,
     #[error("relay attachment chunk is unknown")]
@@ -1240,6 +1359,32 @@ fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseErro
         )?;
         transaction.commit()?;
     }
+    if current_version < 4 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "CREATE TABLE relay_quarantined_envelopes(
+             mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+             sequence INTEGER NOT NULL,
+             ciphertext BLOB NOT NULL CHECK(length(ciphertext) > 0),
+             received_at INTEGER NOT NULL,
+             expires_at INTEGER NOT NULL,
+             quarantined_at INTEGER NOT NULL CHECK(quarantined_at >= 0),
+             PRIMARY KEY(mailbox_id, sequence)
+         ) STRICT;
+         CREATE TABLE relay_quarantined_attachment_chunks(
+             mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+             attachment_id BLOB NOT NULL CHECK(length(attachment_id) = 16),
+             chunk_index INTEGER NOT NULL CHECK(chunk_index >= 0),
+             encoded_chunk BLOB NOT NULL CHECK(length(encoded_chunk) > 0),
+             received_at INTEGER NOT NULL,
+             expires_at INTEGER NOT NULL,
+             quarantined_at INTEGER NOT NULL CHECK(quarantined_at >= 0),
+             PRIMARY KEY(mailbox_id, attachment_id, chunk_index)
+         ) STRICT;
+         INSERT INTO relay_schema_migrations(version) VALUES (4);",
+        )?;
+        transaction.commit()?;
+    }
     Ok(())
 }
 
@@ -1261,6 +1406,21 @@ fn count_rows(connection: &Connection, table: &str) -> Result<u64, RelayDatabase
     };
     let count = connection.query_row(query, [], |row| row.get::<_, i64>(0))?;
     u64::try_from(count).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)
+}
+
+fn active_mailbox_usage(
+    transaction: &Transaction<'_>,
+    mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES],
+) -> Result<u64, RelayDatabaseError> {
+    let used_bytes = transaction.query_row(
+        "SELECT COALESCE((SELECT SUM(length(ciphertext)) FROM relay_envelopes
+                           WHERE mailbox_id = ?1), 0)
+         + COALESCE((SELECT SUM(length(encoded_chunk)) FROM relay_attachment_chunks
+                     WHERE mailbox_id = ?1), 0)",
+        [mailbox_id.as_slice()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(used_bytes).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)
 }
 
 fn mailbox_registration_input(
@@ -1915,6 +2075,96 @@ mod tests {
     }
 
     #[test]
+    fn quarantines_corrupted_envelopes_and_attachment_chunks() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let chunk = attachment_chunk(identifier, 0);
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        let chunk_bytes = u64::try_from(chunk.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(
+                &capability,
+                MailboxQuota::new(envelope_bytes + chunk_bytes).unwrap(),
+                100,
+            )
+            .unwrap();
+        database
+            .insert_envelope(&capability, &envelope, 100, retention)
+            .unwrap();
+        database
+            .store_attachment_chunk(&capability, &chunk, 100, retention)
+            .unwrap();
+        database
+            .connection
+            .execute("UPDATE relay_envelopes SET ciphertext = x'80'", [])
+            .unwrap();
+
+        assert!(matches!(
+            database.retrieve_envelopes(&capability, None, 101, 1),
+            Err(RelayDatabaseError::CorruptBlobQuarantined)
+        ));
+        let quarantined_envelope: Vec<u8> = database
+            .connection
+            .query_row(
+                "SELECT ciphertext FROM relay_quarantined_envelopes",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(quarantined_envelope, vec![0x80]);
+        database
+            .connection
+            .execute(
+                "UPDATE relay_attachment_chunks SET encoded_chunk = x'80'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.retrieve_attachment_chunk(&capability, identifier, 0, 101),
+            Err(RelayDatabaseError::CorruptBlobQuarantined)
+        ));
+        let (active_envelopes, active_chunks, quarantined_envelopes, quarantined_chunks): (
+            u64,
+            u64,
+            u64,
+            u64,
+        ) = database
+            .connection
+            .query_row(
+                "SELECT
+                     (SELECT COUNT(*) FROM relay_envelopes),
+                     (SELECT COUNT(*) FROM relay_attachment_chunks),
+                     (SELECT COUNT(*) FROM relay_quarantined_envelopes),
+                     (SELECT COUNT(*) FROM relay_quarantined_attachment_chunks)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                active_envelopes,
+                active_chunks,
+                quarantined_envelopes,
+                quarantined_chunks
+            ),
+            (0, 0, 1, 1)
+        );
+        let used_bytes: Vec<u8> = database
+            .connection
+            .query_row(
+                "SELECT used_bytes FROM relay_mailboxes WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(u64::from_be_bytes(used_bytes.try_into().unwrap()), 0);
+    }
+
+    #[test]
     fn retrieves_unexpired_envelopes_in_sequence_order() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
@@ -1958,7 +2208,7 @@ mod tests {
 
     #[test]
     fn rejects_unauthorized_or_unbounded_envelope_retrieval() {
-        let database =
+        let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
         let unauthorized = MailboxCapability::new(
             [0x11; MAILBOX_IDENTIFIER_BYTES],
@@ -2447,7 +2697,7 @@ mod tests {
             relay.insert_envelope(&second_capability, &envelope(), 108, retention),
             Err(RelayIngressError::TimestampRegression)
         ));
-        let database = relay.into_database();
+        let mut database = relay.into_database();
         assert_eq!(
             database
                 .retrieve_envelopes(&first_capability, None, 110, 10)
@@ -2551,13 +2801,14 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
                  WHERE type = 'table' AND name IN (
-                     'relay_mailboxes', 'relay_envelopes', 'relay_attachment_chunks'
+                     'relay_mailboxes', 'relay_envelopes', 'relay_attachment_chunks',
+                     'relay_quarantined_envelopes', 'relay_quarantined_attachment_chunks'
                  )",
                 [],
                 |row| row.get::<_, u8>(0),
             )
             .unwrap();
-        assert_eq!(table_count, 3);
+        assert_eq!(table_count, 5);
     }
 
     #[test]
@@ -2601,13 +2852,13 @@ mod tests {
                 "CREATE TABLE relay_schema_migrations(
                      version INTEGER PRIMARY KEY CHECK(version > 0)
                  ) STRICT;
-                 INSERT INTO relay_schema_migrations(version) VALUES (4);",
+                 INSERT INTO relay_schema_migrations(version) VALUES (5);",
             )
             .unwrap();
 
         assert!(matches!(
             RelayDatabase::from_connection(connection),
-            Err(RelayDatabaseError::UnsupportedSchemaVersion(4))
+            Err(RelayDatabaseError::UnsupportedSchemaVersion(5))
         ));
     }
 }
