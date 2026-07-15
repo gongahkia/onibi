@@ -4,10 +4,10 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
-use yeokcham_core::{Error, Result};
+use yeokcham_core::{Error, RelaySigningKeypair, Result};
 use yeokcham_protocol::{
     EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS,
-    MailboxCapability,
+    MailboxCapability, RelayStorageReceipt,
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
@@ -127,6 +127,28 @@ impl RelayDatabase {
         )?;
         transaction.commit()?;
         u64::try_from(sequence).map_err(|_| RelayDatabaseError::SequenceExhausted)
+    }
+
+    pub fn insert_envelope_with_receipt(
+        &mut self,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+        relay: &RelaySigningKeypair,
+    ) -> Result<RelayStorageReceipt, RelayDatabaseError> {
+        let expires_at = retention
+            .expires_at(received_at)
+            .map_err(|_| RelayDatabaseError::TimestampOutOfRange)?;
+        let sequence = self.insert_envelope(capability, envelope, received_at, retention)?;
+        RelayStorageReceipt::issue(
+            relay,
+            *capability.mailbox_id(),
+            sequence,
+            received_at,
+            expires_at,
+        )
+        .map_err(|_| RelayDatabaseError::Receipt)
     }
 
     pub fn retrieve_envelopes(
@@ -284,6 +306,8 @@ pub enum RelayDatabaseError {
     InvalidRetrievalLimit,
     #[error("mailbox envelope is unknown")]
     UnknownEnvelope,
+    #[error("relay storage receipt could not be issued")]
+    Receipt,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -554,6 +578,7 @@ mod tests {
         RelayRetentionPolicyError,
     };
     use rusqlite::Connection;
+    use yeokcham_core::RelaySigningKeypair;
     use yeokcham_protocol::{
         EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
         MailboxCapability,
@@ -879,6 +904,34 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn issues_a_receipt_for_the_durably_stored_envelope() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(100).unwrap(), 100)
+            .unwrap();
+        let relay = RelaySigningKeypair::generate().unwrap();
+
+        let receipt = database
+            .insert_envelope_with_receipt(
+                &capability,
+                &envelope,
+                100,
+                RelayRetentionPolicy::new(10).unwrap(),
+                &relay,
+            )
+            .unwrap();
+
+        assert_eq!(receipt.relay(), &relay.public_key());
+        assert_eq!(receipt.mailbox_id(), capability.mailbox_id());
+        assert_eq!(receipt.sequence(), 0);
+        assert_eq!((receipt.received_at(), receipt.expires_at()), (100, 110));
+        receipt.verify().unwrap();
     }
 
     #[test]
