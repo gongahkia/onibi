@@ -1,7 +1,7 @@
 use std::{fmt::Debug, future::Future};
 
 use tokio::sync::{Mutex, mpsc};
-use yeokcham_daemon::LocalTransport;
+use yeokcham_daemon::{BluetoothTransport, LocalTransport};
 use yeokcham_protocol::{
     EnvelopeKind, LocalMeshTransportKind, ProtocolVersion, WireEnvelope, WireLimits,
 };
@@ -18,6 +18,23 @@ pub struct InMemoryTransport {
     incoming: Mutex<mpsc::Receiver<Vec<u8>>>,
     kind: LocalMeshTransportKind,
     outgoing: mpsc::Sender<Vec<u8>>,
+}
+
+pub struct InMemoryBluetoothTransport(InMemoryTransport);
+
+impl InMemoryBluetoothTransport {
+    pub fn pair() -> (Self, Self) {
+        let (first, second) = InMemoryTransport::pair(LocalMeshTransportKind::Bluetooth);
+        (Self(first), Self(second))
+    }
+
+    pub async fn inject(&self, encoded: Vec<u8>) -> Result<(), InMemoryTransportError> {
+        self.0.inject(encoded).await
+    }
+
+    pub async fn pending_frames(&self) -> usize {
+        self.0.pending_frames().await
+    }
 }
 
 impl InMemoryTransport {
@@ -89,6 +106,31 @@ impl LocalTransport for InMemoryTransport {
         }
     }
 }
+
+impl LocalTransport for InMemoryBluetoothTransport {
+    type Error = InMemoryTransportError;
+
+    fn transport_kind(&self) -> LocalMeshTransportKind {
+        self.0.transport_kind()
+    }
+
+    fn send_frame(
+        &self,
+        frame: &WireEnvelope,
+        limits: WireLimits,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.0.send_frame(frame, limits)
+    }
+
+    fn receive_frame(
+        &self,
+        limits: WireLimits,
+    ) -> impl Future<Output = Result<WireEnvelope, Self::Error>> + Send {
+        self.0.receive_frame(limits)
+    }
+}
+
+impl BluetoothTransport for InMemoryBluetoothTransport {}
 
 pub async fn assert_transport_conformance<T>(sender: &T, receiver: &T, kind: LocalMeshTransportKind)
 where

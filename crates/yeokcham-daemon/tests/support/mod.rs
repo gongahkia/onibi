@@ -3,5 +3,6 @@ mod local_transport;
 
 #[allow(unused_imports)]
 pub use local_transport::{
-    InMemoryTransport, InMemoryTransportError, assert_transport_conformance,
+    InMemoryBluetoothTransport, InMemoryTransport, InMemoryTransportError,
+    assert_transport_conformance,
 };
