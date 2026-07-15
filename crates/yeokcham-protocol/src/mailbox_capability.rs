@@ -133,6 +133,8 @@ fn validate_parts(
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::{
         MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
         MailboxCapabilityError,
@@ -225,5 +227,30 @@ mod tests {
 
         assert!(!capability.authorizes(&other_mailbox));
         assert!(!capability.authorizes(&other_token));
+    }
+
+    proptest! {
+        #[test]
+        fn authorization_requires_exact_valid_capability_parts(
+            mailbox_id in any::<[u8; MAILBOX_IDENTIFIER_BYTES]>(),
+            token in any::<[u8; MAILBOX_CAPABILITY_TOKEN_BYTES]>(),
+            presented_mailbox_id in any::<[u8; MAILBOX_IDENTIFIER_BYTES]>(),
+            presented_token in any::<[u8; MAILBOX_CAPABILITY_TOKEN_BYTES]>(),
+        ) {
+            prop_assume!(mailbox_id.iter().any(|byte| *byte != 0));
+            prop_assume!(token.iter().any(|byte| *byte != 0));
+            prop_assume!(presented_mailbox_id.iter().any(|byte| *byte != 0));
+            prop_assume!(presented_token.iter().any(|byte| *byte != 0));
+
+            let capability = MailboxCapability::new(mailbox_id, token).unwrap();
+            let presented = MailboxCapability::new(presented_mailbox_id, presented_token).unwrap();
+            prop_assert_eq!(
+                capability.authorizes(&presented),
+                mailbox_id == presented_mailbox_id && token == presented_token
+            );
+
+            let decoded = MailboxCapability::decode(&capability.encode().unwrap()).unwrap();
+            prop_assert!(capability.authorizes(&decoded));
+        }
     }
 }
