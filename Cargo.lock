@@ -3330,6 +3330,7 @@ dependencies = [
  "hkdf 0.13.0",
  "minicbor",
  "sha2 0.11.0",
+ "subtle",
  "thiserror 2.0.18",
  "yeokcham-core",
  "zeroize",
@@ -3339,7 +3340,9 @@ dependencies = [
 name = "yeokcham-relay"
 version = "0.1.0"
 dependencies = [
+ "thiserror 2.0.18",
  "yeokcham-core",
+ "yeokcham-protocol",
 ]
 
 [[package]]

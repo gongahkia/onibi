@@ -1,6 +1,7 @@
 use std::fmt;
 
 use minicbor::{Decoder, Encoder};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub const MAILBOX_CAPABILITY_SCHEMA_VERSION: u8 = 1;
@@ -25,6 +26,13 @@ impl MailboxCapability {
     #[must_use]
     pub const fn mailbox_id(&self) -> &[u8; MAILBOX_IDENTIFIER_BYTES] {
         &self.mailbox_id
+    }
+
+    #[must_use]
+    pub fn authorizes(&self, presented: &Self) -> bool {
+        bool::from(
+            self.mailbox_id.ct_eq(&presented.mailbox_id) & self.token.ct_eq(&presented.token),
+        )
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, MailboxCapabilityError> {
@@ -150,6 +158,7 @@ mod tests {
         let decoded = MailboxCapability::decode(&expected).unwrap();
         assert_eq!(decoded.mailbox_id(), &[0x11; MAILBOX_IDENTIFIER_BYTES]);
         assert_eq!(decoded.encode().unwrap(), expected);
+        assert!(capability.authorizes(&decoded));
         let output = format!("{decoded:?}");
         assert!(output.contains("token: REDACTED"));
         assert!(!output.contains("34"));
@@ -198,5 +207,23 @@ mod tests {
             MailboxCapability::decode(&encoded).unwrap_err(),
             MailboxCapabilityError::TrailingBytes
         );
+    }
+
+    #[test]
+    fn rejects_other_capabilities_without_exposing_the_token() {
+        let capability = capability();
+        let other_mailbox = MailboxCapability::new(
+            [0x33; MAILBOX_IDENTIFIER_BYTES],
+            [0x22; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap();
+        let other_token = MailboxCapability::new(
+            [0x11; MAILBOX_IDENTIFIER_BYTES],
+            [0x33; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap();
+
+        assert!(!capability.authorizes(&other_mailbox));
+        assert!(!capability.authorizes(&other_token));
     }
 }

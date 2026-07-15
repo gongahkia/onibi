@@ -11,6 +11,8 @@ default = []
 
 [dependencies]
 yeokcham-core = { path = "../yeokcham-core" }
+yeokcham-protocol = { path = "../yeokcham-protocol" }
+thiserror.workspace = true
 
 [lints]
 workspace = true
