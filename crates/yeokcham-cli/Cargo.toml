@@ -15,6 +15,7 @@ default = []
 
 [dependencies]
 clap.workspace = true
+crossterm.workspace = true
 sha2.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon = { path = "../yeokcham-daemon" }

@@ -47,8 +47,8 @@ pub use direct_transport::{
     MAX_DIRECT_CONNECTION_ATTEMPTS, MAX_DIRECT_CONNECTION_WINDOW_BYTES, MAX_DIRECT_RETRY_BACKOFF,
 };
 pub use inbox_deduplication::{
-    INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, MAX_INBOX_DEDUPLICATION_ENTRIES,
-    RecipientInboxDeduplication, RecipientInboxDeduplicationError,
+    INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, InboxMessage,
+    MAX_INBOX_DEDUPLICATION_ENTRIES, RecipientInboxDeduplication, RecipientInboxDeduplicationError,
 };
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};

@@ -1,15 +1,17 @@
 use std::path::Path;
 
-use minicbor::{Decoder, Encoder};
+use minicbor::{Decoder, Encoder, data::Type};
 use sha2::{Digest, Sha256};
 use yeokcham_core::OsKeystore;
 use yeokcham_protocol::{CryptoDomain, EncryptedMessageEnvelope};
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const INBOX_DEDUPLICATION_SCHEMA_VERSION: u8 = 1;
+pub const INBOX_DEDUPLICATION_SCHEMA_VERSION: u8 = 2;
 pub const MAX_INBOX_DEDUPLICATION_ENTRIES: usize = 65_536;
+const INBOX_DEDUPLICATION_SCHEMA_VERSION_V1: u8 = 1;
 const INBOX_DEDUPLICATION_FIELDS: u64 = 2;
+const INBOX_ENTRY_FIELDS: u64 = 3;
 const ENVELOPE_FINGERPRINT_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,9 +20,39 @@ pub enum InboxDeduplicationResult {
     Duplicate,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InboxMessage {
+    received_at: u64,
+    encrypted_header_bytes: usize,
+    ciphertext_bytes: usize,
+}
+
+impl InboxMessage {
+    #[must_use]
+    pub const fn received_at(self) -> u64 {
+        self.received_at
+    }
+
+    #[must_use]
+    pub const fn encrypted_header_bytes(self) -> usize {
+        self.encrypted_header_bytes
+    }
+
+    #[must_use]
+    pub const fn ciphertext_bytes(self) -> usize {
+        self.ciphertext_bytes
+    }
+}
+
+struct InboxEntry {
+    fingerprint: [u8; ENVELOPE_FINGERPRINT_BYTES],
+    received_at: Option<u64>,
+    envelope: Option<EncryptedMessageEnvelope>,
+}
+
 pub struct RecipientInboxDeduplication {
     state: EncryptedStateStore,
-    fingerprints: Vec<[u8; ENVELOPE_FINGERPRINT_BYTES]>,
+    entries: Vec<InboxEntry>,
 }
 
 impl RecipientInboxDeduplication {
@@ -29,40 +61,63 @@ impl RecipientInboxDeduplication {
         keystore: &mut K,
     ) -> Result<Self, RecipientInboxDeduplicationError> {
         let state = EncryptedStateStore::open(path, keystore)?;
-        let fingerprints = match state.load()? {
-            Some(document) => decode_fingerprints(document.as_bytes())?,
-            None => Vec::new(),
+        let (entries, needs_migration) = match state.load()? {
+            Some(document) => decode_entries(document.as_bytes())?,
+            None => (Vec::new(), false),
         };
-        Ok(Self {
-            state,
-            fingerprints,
-        })
+        let mut inbox = Self { state, entries };
+        if needs_migration {
+            inbox.persist()?;
+        }
+        Ok(inbox)
     }
 
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.fingerprints.len()
+        self.entries.len()
     }
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.fingerprints.is_empty()
+        self.entries.is_empty()
+    }
+
+    pub fn messages(&self) -> impl Iterator<Item = InboxMessage> + '_ {
+        self.entries.iter().filter_map(metadata)
     }
 
     pub fn record(
         &mut self,
         envelope: &EncryptedMessageEnvelope,
     ) -> Result<InboxDeduplicationResult, RecipientInboxDeduplicationError> {
+        self.record_at(envelope, 0)
+    }
+
+    pub fn record_at(
+        &mut self,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+    ) -> Result<InboxDeduplicationResult, RecipientInboxDeduplicationError> {
         let fingerprint = fingerprint(envelope)?;
-        match self.fingerprints.binary_search(&fingerprint) {
+        match self
+            .entries
+            .binary_search_by_key(&fingerprint, |entry| entry.fingerprint)
+        {
             Ok(_) => Ok(InboxDeduplicationResult::Duplicate),
             Err(index) => {
-                if self.fingerprints.len() >= MAX_INBOX_DEDUPLICATION_ENTRIES {
+                if self.entries.len() >= MAX_INBOX_DEDUPLICATION_ENTRIES {
                     return Err(RecipientInboxDeduplicationError::CapacityExceeded);
                 }
-                self.fingerprints.insert(index, fingerprint);
+                self.entries.insert(
+                    index,
+                    InboxEntry {
+                        fingerprint,
+                        received_at: Some(received_at),
+                        envelope: Some(envelope.clone()),
+                    },
+                );
                 if let Err(error) = self.persist() {
-                    self.fingerprints.remove(index);
+                    self.entries.remove(index);
                     return Err(error);
                 }
                 Ok(InboxDeduplicationResult::Accepted)
@@ -71,7 +126,7 @@ impl RecipientInboxDeduplication {
     }
 
     fn persist(&mut self) -> Result<(), RecipientInboxDeduplicationError> {
-        let document = StateDocument::new(encode_fingerprints(&self.fingerprints)?)
+        let document = StateDocument::new(encode_entries(&self.entries)?)
             .map_err(RecipientInboxDeduplicationError::InvalidDocument)?;
         self.state.replace(&document)?;
         Ok(())
@@ -100,12 +155,22 @@ pub enum RecipientInboxDeduplicationError {
     TooManyEntries,
     #[error("recipient inbox deduplication state document has an invalid fingerprint")]
     InvalidFingerprint,
-    #[error("recipient inbox deduplication state document has duplicate fingerprints")]
+    #[error("recipient inbox deduplication state document has an invalid message")]
+    InvalidMessage,
+    #[error("recipient inbox deduplication state document contains duplicate fingerprints")]
     DuplicateFingerprint,
     #[error("recipient inbox deduplication state document has trailing bytes")]
     TrailingBytes,
     #[error("recipient inbox deduplication state document is not canonical")]
     NonCanonicalEncoding,
+}
+
+fn metadata(entry: &InboxEntry) -> Option<InboxMessage> {
+    Some(InboxMessage {
+        received_at: entry.received_at?,
+        encrypted_header_bytes: entry.envelope.as_ref()?.encrypted_header().len(),
+        ciphertext_bytes: entry.envelope.as_ref()?.ciphertext().len(),
+    })
 }
 
 fn fingerprint(
@@ -120,37 +185,49 @@ fn fingerprint(
     Ok(hasher.finalize().into())
 }
 
-fn encode_fingerprints(
-    fingerprints: &[[u8; ENVELOPE_FINGERPRINT_BYTES]],
-) -> Result<Vec<u8>, RecipientInboxDeduplicationError> {
-    if fingerprints.len() > MAX_INBOX_DEDUPLICATION_ENTRIES {
-        return Err(RecipientInboxDeduplicationError::TooManyEntries);
-    }
-    if fingerprints.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(RecipientInboxDeduplicationError::NonCanonicalEncoding);
-    }
+fn encode_entries(entries: &[InboxEntry]) -> Result<Vec<u8>, RecipientInboxDeduplicationError> {
+    validate_entries(entries)?;
     let mut encoder = Encoder::new(Vec::new());
     encoder
         .array(INBOX_DEDUPLICATION_FIELDS)
         .map_err(|_| RecipientInboxDeduplicationError::Encode)?
         .u8(INBOX_DEDUPLICATION_SCHEMA_VERSION)
         .map_err(|_| RecipientInboxDeduplicationError::Encode)?
-        .array(
-            u64::try_from(fingerprints.len())
-                .map_err(|_| RecipientInboxDeduplicationError::Encode)?,
-        )
+        .array(u64::try_from(entries.len()).map_err(|_| RecipientInboxDeduplicationError::Encode)?)
         .map_err(|_| RecipientInboxDeduplicationError::Encode)?;
-    for fingerprint in fingerprints {
+    for entry in entries {
         encoder
-            .bytes(fingerprint)
+            .array(INBOX_ENTRY_FIELDS)
+            .map_err(|_| RecipientInboxDeduplicationError::Encode)?
+            .bytes(&entry.fingerprint)
             .map_err(|_| RecipientInboxDeduplicationError::Encode)?;
+        match entry.received_at {
+            Some(received_at) => encoder
+                .u64(received_at)
+                .map_err(|_| RecipientInboxDeduplicationError::Encode)?,
+            None => encoder
+                .null()
+                .map_err(|_| RecipientInboxDeduplicationError::Encode)?,
+        };
+        match &entry.envelope {
+            Some(envelope) => encoder
+                .bytes(
+                    &envelope
+                        .encode()
+                        .map_err(|_| RecipientInboxDeduplicationError::InvalidEnvelope)?,
+                )
+                .map_err(|_| RecipientInboxDeduplicationError::Encode)?,
+            None => encoder
+                .null()
+                .map_err(|_| RecipientInboxDeduplicationError::Encode)?,
+        };
     }
     Ok(encoder.into_writer())
 }
 
-fn decode_fingerprints(
+fn decode_entries(
     encoded: &[u8],
-) -> Result<Vec<[u8; ENVELOPE_FINGERPRINT_BYTES]>, RecipientInboxDeduplicationError> {
+) -> Result<(Vec<InboxEntry>, bool), RecipientInboxDeduplicationError> {
     let mut decoder = Decoder::new(encoded);
     if decoder
         .array()
@@ -162,11 +239,28 @@ fn decode_fingerprints(
     let version = decoder
         .u8()
         .map_err(RecipientInboxDeduplicationError::InvalidState)?;
-    if version != INBOX_DEDUPLICATION_SCHEMA_VERSION {
-        return Err(RecipientInboxDeduplicationError::UnsupportedSchemaVersion(
-            version,
-        ));
+    let (entries, needs_migration) = match version {
+        INBOX_DEDUPLICATION_SCHEMA_VERSION_V1 => (decode_v1_entries(&mut decoder)?, true),
+        INBOX_DEDUPLICATION_SCHEMA_VERSION => (decode_v2_entries(&mut decoder)?, false),
+        _ => {
+            return Err(RecipientInboxDeduplicationError::UnsupportedSchemaVersion(
+                version,
+            ));
+        }
+    };
+    if decoder.position() != encoded.len() {
+        return Err(RecipientInboxDeduplicationError::TrailingBytes);
     }
+    validate_entries(&entries)?;
+    if !needs_migration && encode_entries(&entries)? != encoded {
+        return Err(RecipientInboxDeduplicationError::NonCanonicalEncoding);
+    }
+    Ok((entries, needs_migration))
+}
+
+fn decode_v1_entries(
+    decoder: &mut Decoder<'_>,
+) -> Result<Vec<InboxEntry>, RecipientInboxDeduplicationError> {
     let count = decoder
         .array()
         .map_err(RecipientInboxDeduplicationError::InvalidState)?
@@ -176,30 +270,125 @@ fn decode_fingerprints(
     if count > MAX_INBOX_DEDUPLICATION_ENTRIES {
         return Err(RecipientInboxDeduplicationError::TooManyEntries);
     }
-    let mut fingerprints = Vec::with_capacity(count);
+    let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
+        entries.push(InboxEntry {
+            fingerprint: decoder
+                .bytes()
+                .map_err(RecipientInboxDeduplicationError::InvalidState)?
+                .try_into()
+                .map_err(|_| RecipientInboxDeduplicationError::InvalidFingerprint)?,
+            received_at: None,
+            envelope: None,
+        });
+    }
+    Ok(entries)
+}
+
+fn decode_v2_entries(
+    decoder: &mut Decoder<'_>,
+) -> Result<Vec<InboxEntry>, RecipientInboxDeduplicationError> {
+    let count = decoder
+        .array()
+        .map_err(RecipientInboxDeduplicationError::InvalidState)?
+        .ok_or(RecipientInboxDeduplicationError::InvalidShape)?;
+    let count =
+        usize::try_from(count).map_err(|_| RecipientInboxDeduplicationError::TooManyEntries)?;
+    if count > MAX_INBOX_DEDUPLICATION_ENTRIES {
+        return Err(RecipientInboxDeduplicationError::TooManyEntries);
+    }
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        if decoder
+            .array()
+            .map_err(RecipientInboxDeduplicationError::InvalidState)?
+            != Some(INBOX_ENTRY_FIELDS)
+        {
+            return Err(RecipientInboxDeduplicationError::InvalidShape);
+        }
         let fingerprint = decoder
             .bytes()
             .map_err(RecipientInboxDeduplicationError::InvalidState)?
             .try_into()
             .map_err(|_| RecipientInboxDeduplicationError::InvalidFingerprint)?;
-        fingerprints.push(fingerprint);
+        let received_at = decode_received_at(decoder)?;
+        let envelope = decode_envelope(decoder)?;
+        if received_at.is_some() != envelope.is_some() {
+            return Err(RecipientInboxDeduplicationError::InvalidMessage);
+        }
+        entries.push(InboxEntry {
+            fingerprint,
+            received_at,
+            envelope,
+        });
     }
-    if decoder.position() != encoded.len() {
-        return Err(RecipientInboxDeduplicationError::TrailingBytes);
+    Ok(entries)
+}
+
+fn decode_received_at(
+    decoder: &mut Decoder<'_>,
+) -> Result<Option<u64>, RecipientInboxDeduplicationError> {
+    match decoder
+        .datatype()
+        .map_err(RecipientInboxDeduplicationError::InvalidState)?
+    {
+        Type::Null => {
+            decoder
+                .null()
+                .map_err(RecipientInboxDeduplicationError::InvalidState)?;
+            Ok(None)
+        }
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 => decoder
+            .u64()
+            .map(Some)
+            .map_err(RecipientInboxDeduplicationError::InvalidState),
+        _ => Err(RecipientInboxDeduplicationError::InvalidMessage),
     }
-    for pair in fingerprints.windows(2) {
-        if pair[0] == pair[1] {
+}
+
+fn decode_envelope(
+    decoder: &mut Decoder<'_>,
+) -> Result<Option<EncryptedMessageEnvelope>, RecipientInboxDeduplicationError> {
+    match decoder
+        .datatype()
+        .map_err(RecipientInboxDeduplicationError::InvalidState)?
+    {
+        Type::Null => {
+            decoder
+                .null()
+                .map_err(RecipientInboxDeduplicationError::InvalidState)?;
+            Ok(None)
+        }
+        Type::Bytes => EncryptedMessageEnvelope::decode(
+            decoder
+                .bytes()
+                .map_err(RecipientInboxDeduplicationError::InvalidState)?,
+        )
+        .map(Some)
+        .map_err(|_| RecipientInboxDeduplicationError::InvalidEnvelope),
+        _ => Err(RecipientInboxDeduplicationError::InvalidMessage),
+    }
+}
+
+fn validate_entries(entries: &[InboxEntry]) -> Result<(), RecipientInboxDeduplicationError> {
+    if entries.len() > MAX_INBOX_DEDUPLICATION_ENTRIES {
+        return Err(RecipientInboxDeduplicationError::TooManyEntries);
+    }
+    for pair in entries.windows(2) {
+        if pair[0].fingerprint == pair[1].fingerprint {
             return Err(RecipientInboxDeduplicationError::DuplicateFingerprint);
         }
-        if pair[0] > pair[1] {
+        if pair[0].fingerprint > pair[1].fingerprint {
             return Err(RecipientInboxDeduplicationError::NonCanonicalEncoding);
         }
     }
-    if encode_fingerprints(&fingerprints)? != encoded {
-        return Err(RecipientInboxDeduplicationError::NonCanonicalEncoding);
+    if entries
+        .iter()
+        .any(|entry| entry.received_at.is_some() != entry.envelope.is_some())
+    {
+        return Err(RecipientInboxDeduplicationError::InvalidMessage);
     }
-    Ok(fingerprints)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -210,7 +399,8 @@ mod tests {
     use yeokcham_protocol::EncryptedMessageEnvelope;
 
     use super::{
-        InboxDeduplicationResult, RecipientInboxDeduplication, RecipientInboxDeduplicationError,
+        InboxDeduplicationResult, InboxEntry, InboxMessage, RecipientInboxDeduplication,
+        RecipientInboxDeduplicationError, encode_entries,
     };
     use crate::{EncryptedStateStore, StateDocument};
 
@@ -251,38 +441,79 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_envelopes_across_restarts() {
+    fn deduplicates_and_retains_safe_message_metadata_across_restarts() {
         let path = path("persistence");
         let mut keystore = MemoryKeystore::default();
         let first = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
-        let second = EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap();
+        let second = EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4, 0xe5]).unwrap();
         {
             let mut inbox = RecipientInboxDeduplication::open(&path, &mut keystore).unwrap();
-            assert!(matches!(
-                inbox.record(&first),
-                Ok(InboxDeduplicationResult::Accepted)
-            ));
-            assert!(matches!(
-                inbox.record(&first),
-                Ok(InboxDeduplicationResult::Duplicate)
-            ));
-            assert!(matches!(
-                inbox.record(&second),
-                Ok(InboxDeduplicationResult::Accepted)
-            ));
+            assert_eq!(
+                inbox.record_at(&first, 100).unwrap(),
+                InboxDeduplicationResult::Accepted
+            );
+            assert_eq!(
+                inbox.record_at(&first, 101).unwrap(),
+                InboxDeduplicationResult::Duplicate
+            );
+            assert_eq!(
+                inbox.record_at(&second, 102).unwrap(),
+                InboxDeduplicationResult::Accepted
+            );
             assert_eq!(inbox.len(), 2);
+            let mut messages: Vec<_> = inbox.messages().collect();
+            messages.sort_unstable_by_key(|message| message.received_at());
+            assert_eq!(
+                messages,
+                vec![
+                    InboxMessage {
+                        received_at: 100,
+                        encrypted_header_bytes: 1,
+                        ciphertext_bytes: 1,
+                    },
+                    InboxMessage {
+                        received_at: 102,
+                        encrypted_header_bytes: 1,
+                        ciphertext_bytes: 2,
+                    },
+                ]
+            );
         }
         let mut restored = RecipientInboxDeduplication::open(&path, &mut keystore).unwrap();
-        assert!(matches!(
-            restored.record(&first),
-            Ok(InboxDeduplicationResult::Duplicate)
-        ));
-        assert!(matches!(
-            restored.record(&second),
-            Ok(InboxDeduplicationResult::Duplicate)
-        ));
-        assert_eq!(restored.len(), 2);
+        assert_eq!(
+            restored.record(&first).unwrap(),
+            InboxDeduplicationResult::Duplicate
+        );
+        assert_eq!(
+            restored.record(&second).unwrap(),
+            InboxDeduplicationResult::Duplicate
+        );
+        assert_eq!(restored.messages().count(), 2);
         drop(restored);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn migrates_legacy_fingerprints_without_losing_deduplication() {
+        let path = path("migration");
+        let mut keystore = MemoryKeystore::default();
+        let fingerprint = [0x11; 32];
+        let legacy = vec![0x82, 0x01, 0x81, 0x58, 0x20]
+            .into_iter()
+            .chain(fingerprint)
+            .collect();
+        let mut state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        state.replace(&StateDocument::new(legacy).unwrap()).unwrap();
+        drop(state);
+
+        let inbox = RecipientInboxDeduplication::open(&path, &mut keystore).unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert!(inbox.messages().next().is_none());
+        drop(inbox);
+        let state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        let migrated = state.load().unwrap().unwrap();
+        assert_eq!(migrated.as_bytes()[1], 2);
+        drop(state);
         fs::remove_file(path).unwrap();
     }
 
@@ -301,5 +532,18 @@ mod tests {
             Err(RecipientInboxDeduplicationError::InvalidFingerprint)
         ));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_message_metadata_without_an_envelope() {
+        let entry = InboxEntry {
+            fingerprint: [0x11; 32],
+            received_at: Some(100),
+            envelope: None,
+        };
+        assert!(matches!(
+            encode_entries(&[entry]),
+            Err(RecipientInboxDeduplicationError::InvalidMessage)
+        ));
     }
 }

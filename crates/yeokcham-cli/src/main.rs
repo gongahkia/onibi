@@ -1,19 +1,26 @@
 #![forbid(unsafe_code)]
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+use crossterm::{
+    cursor::{Hide, MoveTo, Show},
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute, queue,
+    style::Print,
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     error::Error,
     fmt::Write as _,
     fs,
-    io::Write,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
 };
 use yeokcham_core::{
     IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
 };
-use yeokcham_daemon::{DaemonRuntime, MessageExpiry, SenderOutbox};
+use yeokcham_daemon::{DaemonRuntime, MessageExpiry, RecipientInboxDeduplication, SenderOutbox};
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
     EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
@@ -31,6 +38,7 @@ use yeokcham_core::WindowsKeystore;
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const MAX_RELAY_PROFILE_BYTES: usize = 64;
 const MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES: usize = 1024 * 1024;
+const INBOX_DATABASE_FILE: &str = "yeokcham-inbox.sqlite";
 const OUTBOX_DATABASE_FILE: &str = "yeokcham-outbox.sqlite";
 const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
@@ -65,6 +73,7 @@ enum Command {
         #[command(subcommand)]
         command: AttachmentCommand,
     },
+    Tui(TuiCommand),
     ReleaseMetadata {
         #[arg(long)]
         source_revision: String,
@@ -155,6 +164,14 @@ enum AttachmentCommand {
     },
 }
 
+#[derive(Args)]
+struct TuiCommand {
+    #[arg(long)]
+    state_directory: PathBuf,
+    #[arg(long)]
+    snapshot: bool,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -229,6 +246,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 queue_system_attachment(&state_directory, &manifest, &chunk)?
             ),
         },
+        Command::Tui(command) => tui(&command.state_directory, command.snapshot)?,
         Command::ReleaseMetadata {
             source_revision,
             source_date_epoch,
@@ -432,6 +450,196 @@ fn queue_message<K: OsKeystore>(
         "message_identifier={}\n",
         hexadecimal(identifier.as_bytes())
     ))
+}
+
+struct Dashboard {
+    inbox: Vec<String>,
+    outbox: Vec<String>,
+    delivery_state: Vec<String>,
+}
+
+impl Dashboard {
+    fn snapshot(&self) -> String {
+        let mut output = String::new();
+        append_dashboard_section(&mut output, "Inbox", &self.inbox);
+        append_dashboard_section(&mut output, "Outbox", &self.outbox);
+        append_dashboard_section(&mut output, "Delivery state", &self.delivery_state);
+        output
+    }
+}
+
+fn append_dashboard_section(output: &mut String, title: &str, lines: &[String]) {
+    let _ = writeln!(output, "{title}:");
+    for line in lines {
+        let _ = writeln!(output, "  {line}");
+    }
+}
+
+fn load_system_dashboard(state_directory: &Path) -> Result<Dashboard, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return load_dashboard(&mut keystore, state_directory);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return load_dashboard(&mut keystore, state_directory);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return load_dashboard(&mut keystore, state_directory);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
+    let dashboard = load_system_dashboard(state_directory)?;
+    if snapshot {
+        print!("{}", dashboard.snapshot());
+    } else {
+        run_dashboard(&dashboard)?;
+    }
+    Ok(())
+}
+
+fn load_dashboard<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+) -> Result<Dashboard, Box<dyn Error>> {
+    let inbox_path = state_directory.join(INBOX_DATABASE_FILE);
+    let outbox_path = state_directory.join(OUTBOX_DATABASE_FILE);
+    let inbox = state_file_exists(&inbox_path)?
+        .then(|| RecipientInboxDeduplication::open(&inbox_path, keystore))
+        .transpose()?;
+    let outbox = state_file_exists(&outbox_path)?
+        .then(|| SenderOutbox::open(&outbox_path, keystore))
+        .transpose()?;
+    Ok(dashboard_from_stores(inbox.as_ref(), outbox.as_ref()))
+}
+
+fn state_file_exists(path: &Path) -> Result<bool, Box<dyn Error>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(_) => Err("state database path must be a regular file".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn dashboard_from_stores(
+    inbox: Option<&RecipientInboxDeduplication>,
+    outbox: Option<&SenderOutbox>,
+) -> Dashboard {
+    let inbox = inbox.map_or_else(
+        || vec!["no inbox state".to_owned()],
+        |inbox| {
+            let mut messages: Vec<_> = inbox.messages().collect();
+            messages.sort_unstable_by_key(|message| message.received_at());
+            let mut lines = vec![format!(
+                "deduplication_entries={} retained_messages={}",
+                inbox.len(),
+                messages.len()
+            )];
+            if messages.is_empty() {
+                lines.push("no retained message metadata".to_owned());
+            } else {
+                for (index, message) in messages.iter().enumerate() {
+                    lines.push(format!(
+                        "message={} received_at={} encrypted_header_bytes={} ciphertext_bytes={}",
+                        index + 1,
+                        message.received_at(),
+                        message.encrypted_header_bytes(),
+                        message.ciphertext_bytes()
+                    ));
+                }
+            }
+            lines
+        },
+    );
+    let outbox_lines = match outbox {
+        Some(outbox) if !outbox.messages().is_empty() => outbox
+            .messages()
+            .iter()
+            .map(|message| {
+                format!(
+                    "message={} recipient={} expires_at={} encrypted_header_bytes={} ciphertext_bytes={}",
+                    hexadecimal(message.identifier().as_bytes()),
+                    hexadecimal(IdentityIdentifier::derive(message.recipient()).as_bytes()),
+                    message.expiry().expires_at(),
+                    message.envelope().encrypted_header().len(),
+                    message.envelope().ciphertext().len()
+                )
+            })
+            .collect(),
+        Some(_) => vec!["no queued messages".to_owned()],
+        None => vec!["no outbox state".to_owned()],
+    };
+    let delivery_state = match outbox {
+        Some(outbox) if !outbox.delivery_statuses().is_empty() => outbox
+            .delivery_statuses()
+            .iter()
+            .map(|status| {
+                format!(
+                    "message={} state={:?}",
+                    hexadecimal(status.identifier().as_bytes()),
+                    status.state()
+                )
+            })
+            .collect(),
+        Some(_) => vec!["no finalized deliveries".to_owned()],
+        None => vec!["no outbox state".to_owned()],
+    };
+    Dashboard {
+        inbox,
+        outbox: outbox_lines,
+        delivery_state,
+    }
+}
+
+struct TerminalRestoreGuard;
+
+impl Drop for TerminalRestoreGuard {
+    fn drop(&mut self) {
+        let _ = terminal::disable_raw_mode();
+        let _ = execute!(io::stdout(), Show, LeaveAlternateScreen);
+    }
+}
+
+fn run_dashboard(dashboard: &Dashboard) -> std::io::Result<()> {
+    let _restore = TerminalRestoreGuard;
+    terminal::enable_raw_mode()?;
+    let mut output = io::stdout();
+    execute!(output, EnterAlternateScreen, Hide)?;
+    dashboard_event_loop(&mut output, dashboard)
+}
+
+fn dashboard_event_loop(output: &mut impl Write, dashboard: &Dashboard) -> std::io::Result<()> {
+    loop {
+        render_dashboard(output, dashboard)?;
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+            && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
+        {
+            return Ok(());
+        }
+    }
+}
+
+fn render_dashboard(output: &mut impl Write, dashboard: &Dashboard) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print(dashboard.snapshot()),
+        Print("Press q or Esc to exit.\n")
+    )?;
+    output.flush()
 }
 
 fn validate_state_directory(state_directory: &Path) -> Result<(), &'static str> {
@@ -653,6 +861,7 @@ fn is_canonical_hex(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         convert::Infallible,
         fs,
         path::{Path, PathBuf},
@@ -663,17 +872,19 @@ mod tests {
 
     use super::{
         ATTACHMENT_UPLOAD_DIRECTORY, Arguments, AttachmentCommand, Command, ContactCommand,
-        ContactInvitation, ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand,
-        IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, MessageCommand,
-        MessageExpiry, OsKeystore, RelayProfileCommand, TorMaildropProfileConfig,
-        contact_invitation_record, create_identity, decode_canonical_hex, decode_envelope,
-        hexadecimal, identity_record, inspect_contact_invitation, inspect_relay_profile,
-        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
-        release_metadata, validate_state_directory,
+        ContactInvitation, ContactInvitationCommand, EncryptedMessageEnvelope, INBOX_DATABASE_FILE,
+        IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
+        MessageCommand, MessageExpiry, OUTBOX_DATABASE_FILE, OsKeystore,
+        RecipientInboxDeduplication, RelayProfileCommand, SenderOutbox, TorMaildropProfileConfig,
+        TuiCommand, contact_invitation_record, create_identity, dashboard_from_stores,
+        decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
+        inspect_contact_invitation, inspect_relay_profile, load_identity,
+        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
+        render_dashboard, validate_state_directory,
     };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
-        EncryptedAttachmentChunk,
+        DeliveryAcknowledgement, EncryptedAttachmentChunk,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -681,30 +892,31 @@ mod tests {
 
     #[derive(Default)]
     struct InMemoryKeystore {
-        secret: Option<KeystoreSecret>,
+        secrets: BTreeMap<String, Vec<u8>>,
     }
 
     impl OsKeystore for InMemoryKeystore {
         type Error = Infallible;
 
-        fn load(&self, _: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
+        fn load(&self, entry: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
             Ok(self
-                .secret
-                .as_ref()
-                .map(|secret| KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap()))
+                .secrets
+                .get(entry.as_str())
+                .map(|secret| KeystoreSecret::new(secret.clone()).unwrap()))
         }
 
         fn store(
             &mut self,
-            _: &KeystoreEntryName,
+            entry: &KeystoreEntryName,
             secret: &KeystoreSecret,
         ) -> Result<(), Self::Error> {
-            self.secret = Some(KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap());
+            self.secrets
+                .insert(entry.as_str().to_owned(), secret.as_bytes().to_vec());
             Ok(())
         }
 
-        fn delete(&mut self, _: &KeystoreEntryName) -> Result<(), Self::Error> {
-            self.secret = None;
+        fn delete(&mut self, entry: &KeystoreEntryName) -> Result<(), Self::Error> {
+            self.secrets.remove(entry.as_str());
             Ok(())
         }
     }
@@ -986,6 +1198,89 @@ mod tests {
                     ..
                 }
             }
+        ));
+    }
+
+    #[test]
+    fn dashboard_snapshot_and_widgets_show_redacted_inbox_outbox_and_delivery_state() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-dashboard-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let mut keystore = InMemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap();
+        let delivered =
+            EncryptedMessageEnvelope::new(vec![0xa1], b"do-not-display-this-ciphertext".to_vec())
+                .unwrap();
+        let queued = EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap();
+        let mut outbox =
+            SenderOutbox::open(&state_directory.join(OUTBOX_DATABASE_FILE), &mut keystore).unwrap();
+        outbox
+            .enqueue(
+                recipient.public_key(),
+                delivered.clone(),
+                MessageExpiry::new(100, 60).unwrap(),
+            )
+            .unwrap();
+        let delivered_identifier = outbox.next().unwrap().identifier();
+        outbox
+            .acknowledge_delivery(
+                &DeliveryAcknowledgement::create(&recipient, delivered_identifier, 101).unwrap(),
+            )
+            .unwrap();
+        outbox
+            .enqueue(
+                recipient.public_key(),
+                queued,
+                MessageExpiry::new(102, 60).unwrap(),
+            )
+            .unwrap();
+        let mut inbox = RecipientInboxDeduplication::open(
+            &state_directory.join(INBOX_DATABASE_FILE),
+            &mut keystore,
+        )
+        .unwrap();
+        inbox.record_at(&delivered, 101).unwrap();
+
+        let dashboard = dashboard_from_stores(Some(&inbox), Some(&outbox));
+        let snapshot = dashboard.snapshot();
+        assert!(snapshot.contains("Inbox:\n"));
+        assert!(snapshot.contains("Outbox:\n"));
+        assert!(snapshot.contains("Delivery state:\n"));
+        assert!(snapshot.contains("received_at=101"));
+        assert!(snapshot.contains("state=Delivered"));
+        assert!(snapshot.contains("expires_at=162"));
+        assert!(!snapshot.contains("do-not-display-this-ciphertext"));
+        let mut rendered = Vec::new();
+        render_dashboard(&mut rendered, &dashboard).unwrap();
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("Inbox"));
+        assert!(rendered.contains("Outbox"));
+        assert!(rendered.contains("Delivery state"));
+
+        drop(inbox);
+        drop(outbox);
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn parses_tui_snapshot_command() {
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "tui",
+            "--state-directory",
+            "/state",
+            "--snapshot",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::Tui(TuiCommand {
+                state_directory,
+                snapshot: true
+            }) if state_directory.as_path() == Path::new("/state")
         ));
     }
 
