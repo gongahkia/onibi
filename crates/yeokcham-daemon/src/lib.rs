@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod contact_store;
+mod delivery_scheduler;
 mod direct_transport;
 mod inbox_deduplication;
 mod mdns;
@@ -20,6 +21,11 @@ use yeokcham_protocol::ProtocolVersion;
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
+};
+pub use delivery_scheduler::{
+    BackgroundDeliveryScheduler, DeliverySchedulerCycle, DeliverySchedulerError,
+    DeliverySchedulerOutcome, DeliveryTransport, MAX_DELIVERY_SCHEDULE_INTERVAL,
+    MIN_DELIVERY_SCHEDULE_INTERVAL,
 };
 pub use direct_transport::{
     DirectConnection, DirectConnectionAttempts, DirectConnectionLimits, DirectTransport,
