@@ -8,7 +8,7 @@ As of 2026-07-16, milestones #9-13 and #21 do not have GitHub due dates set. Exp
 |---|---|---|---|
 | v0.3.0 | Web cockpit pre-release: tag, fresh Homebrew install, real-iPhone smoke closure, signed and notarized Darwin builds. | TBD | [milestone #9](https://github.com/gongahkia/onibi/milestone/9) |
 | v0.4.0 | Depth: Ghostty parity, MCP, Cloudflare E2E, SSH, positioning docs, and core hardening. | TBD | [milestone #10](https://github.com/gongahkia/onibi/milestone/10) |
-| v0.5.0 | Full provider parity across Telegram, Matrix, Slack, Discord, Zulip, IRC, Signal, Pushover, ntfy, Gotify, APNs, SMS, and email, plus PWA polish and coverage uplift. | TBD | [milestone #11](https://github.com/gongahkia/onibi/milestone/11) |
+| v0.5.0 | Historical proposal: provider work moved to deferred, capability-specific milestones; PWA polish and coverage uplift remain separately scoped. | TBD | [legacy milestone #11](https://github.com/gongahkia/onibi/milestone/11) |
 | v0.6.0 | Competitive parity: multi-session dashboard, diff viewer, image paste, WireGuard, ZeroTier, and new providers. | TBD | [milestone #12](https://github.com/gongahkia/onibi/milestone/12) |
 | v1.0 | Launch-ready: SLSA v3 provenance, reproducible builds, full test/security matrix, and HN launch materials. | TBD | [milestone #13](https://github.com/gongahkia/onibi/milestone/13) |
 | Post-v1.1 | Deferred provider capabilities: notification, inbound text, approvals, E2EE, lifecycle, audit, and device verification. | TBD | [milestone #21](https://github.com/gongahkia/onibi/milestone/21) |

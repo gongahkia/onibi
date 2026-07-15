@@ -74,6 +74,7 @@ export ONIBI_APNS_ENV=development
 Run:
 
 ```bash
+onibi config set experimental.providers true
 onibi up --transport=apns
 ```
 

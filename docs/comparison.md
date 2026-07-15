@@ -2,6 +2,8 @@
 
 These notes are positioning docs, not attack pages. Use them to pick the simpler tool for the job.
 
+Provider status: the paired web cockpit is the v1 control surface. Chat and notify bridges mentioned below require `experimental.providers=true`, remain capability-specific, and are not default-provider or blanket-parity claims; see [Provider Capability Contract](SPEC-providers.md).
+
 ## Quick Matrix
 
 | tool | license | install path | host-local | phone UX | multi-agent support | tool approval enforcement | chat control surface | self-hostable | subscription |
@@ -27,13 +29,13 @@ These notes are positioning docs, not attack pages. Use them to pick the simpler
 - Pick ttyd when you want a simple self-hosted web terminal for one command.
 - Pick tmate when you want tmux-style SSH pair programming, especially with an existing tmux workflow.
 - Pick Upterm when you want SSH-based terminal sharing, CI/debug access, or a self-hostable relay.
-- Pick Onibi when you want one local, multi-agent, approval-enforcing phone/browser/chat cockpit around a hosted tmux-backed session.
+- Pick Onibi when you want one local, multi-agent, approval-enforcing phone/browser cockpit around a hosted tmux-backed session, with optional experimental provider bridges.
 
 ## Onibi vs Herdr
 
 Herdr is a strong neighboring design, not a straw man. Herdr's own positioning is terminal-native agent multiplexing: persistent real panes, detach/reattach, remote SSH attach, agent state, and a CLI/socket API agents can drive. Its docs describe agents staying in real terminal panes with shells, logs, prompts, and running processes intact, plus blocked/working/done/idle rollups across panes, tabs, and workspaces. `herdr-remote` adds a separate phone/menu-bar/Telegram surface with a web app, one-tap approvals, status views, a phone terminal view, special mobile keys, and Cloudflare quick-tunnel setup.
 
-That means the honest comparison is not "Onibi has terminals and Herdr does not." Both care about live terminal state. The difference is the center of gravity: Herdr starts as an agent-aware terminal multiplexer and can be extended outward; Onibi starts as a local web/chat cockpit that owns pairing, HTTPS/WebSocket, mobile UI, provider bridges, and approval routing around tmux-backed sessions.
+That means the honest comparison is not "Onibi has terminals and Herdr does not." Both care about live terminal state. The difference is the center of gravity: Herdr starts as an agent-aware terminal multiplexer and can be extended outward; Onibi starts as a local web cockpit that owns pairing, HTTPS/WebSocket, mobile UI, optional experimental provider bridges, and approval routing around tmux-backed sessions.
 
 Side-by-side:
 
@@ -45,7 +47,7 @@ Side-by-side:
 | agent state | first-class blocked/working/done/idle rollups | session list, timeline, approvals, anomaly/push events |
 | direct terminal | terminal/SSH/direct attach; herdr-remote phone terminal view | `/ws/pty` live terminal with typing, soft keys, resize, replay |
 | approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, runtime trust, hook enforcement |
-| chat control | Telegram approval/notification surface in herdr-remote | Telegram/Slack/Matrix/Discord/Zulip/IRC/Signal text I/O plus approvals where supported |
+| chat control | Telegram approval/notification surface in herdr-remote | explicitly enabled experimental Telegram/Slack/Matrix/Discord/Zulip/IRC/Signal text I/O plus capability-specific approvals |
 | extension model | CLI/socket API, integrations, plugins | adapters, intake socket, provider bridges, web event stream |
 
 Four differentiators:
@@ -53,7 +55,7 @@ Four differentiators:
 1. **Session hosting.** Herdr also hosts persistent PTY panes, but users adopt Herdr as the multiplexer and add `herdr-remote` when they want phone/browser access. Onibi bundles the session host and phone cockpit in one daemon flow: `onibi up` creates or attaches the managed session, serves the cockpit, and owns pairing/auth.
 2. **Real live terminal.** Herdr has real terminal panes and direct attach; current `herdr-remote` docs also show a phone terminal view. Onibi's distinction is that the live browser terminal is the default product surface, with xterm.js, mobile soft keys, resize/replay behavior, file/timeline panels, and handoff controls built around one session id.
 3. **Hook-based enforcement.** Herdr integrations primarily report session identity, lifecycle state, or both; its remote surface exposes approval actions for blocked agents. Onibi's approval path is the enforcement boundary: provider hooks send blocking requests to the Onibi queue, and deny/edit decisions feed back through the hook contract before tool execution continues.
-4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. Onibi's chat providers are broader control surfaces: Telegram, Matrix, Slack, Discord, Zulip, IRC, and Signal can send text into the hosted session, while notify-only providers stay approval/alert-only.
+4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. When explicitly enabled, Onibi's experimental chat bridges can route provider text into the hosted session; notify-only providers stay approval/alert-only, and each capability has separate evidence requirements.
 
 When to pick Herdr over Onibi: choose Herdr if you already want a terminal-native multiplexer for many agent panes and mainly need state rollups, direct terminal attach, SSH workflows, or a phone notification/approval add-on. Choose Onibi if you want a self-contained mobile/browser cockpit, chat text input, transport choice, and an owner approval queue around a hosted session rather than a terminal multiplexer as the primary UI.
 
@@ -81,8 +83,8 @@ Core differences:
 | account model | Codex access in a ChatGPT account/workspace | local daemon; no ChatGPT subscription required for Onibi itself |
 | agent scope | Codex | multi-agent plus arbitrary shell/TUI sessions |
 | host model | Codex App host or SSH host reached through Codex | Onibi-managed tmux-backed local session |
-| mobile surface | ChatGPT mobile / Codex App remote control | PWA/browser cockpit plus chat/notify bridges |
-| relay model | OpenAI secure relay for authorized devices | LAN/hotspot/Tailscale/Cloudflare/ngrok/chat transports; Cloudflare path has documented app-layer E2E |
+| mobile surface | ChatGPT mobile / Codex App remote control | PWA/browser cockpit plus optional experimental chat/notify bridges |
+| relay model | OpenAI secure relay for authorized devices | LAN/hotspot/Tailscale/Cloudflare/ngrok plus optional experimental provider transports; Cloudflare path has documented app-layer E2E |
 | controls | prompts, approvals, outputs, diffs, terminal output, screenshots | terminal I/O, approvals, files, snapshots, timeline, handoff, sharing, push |
 
 Honest tradeoff: pick Codex Remote when the work is already Codex-first and you want the lowest-friction, first-party ChatGPT mobile integration. It should win on account integration, Codex-specific continuity, and official support. Pick Onibi when the durable object is a local terminal session and you need one cockpit across multiple agents, non-OpenAI tools, local-first hosting, open transport docs, and chat-control fallbacks.
@@ -99,7 +101,7 @@ Claude Code Remote Control is Anthropic's first-party way to continue a local Cl
 
 That makes CCRC the obvious fit for Claude-only users who already live in Claude Code and want the official phone/browser path. It supports CLI and VS Code entry points, QR/session URL handoff, mobile push notifications, server mode, and Claude app/web access. Current Anthropic docs describe it as a research preview, list Pro, Max, Team, and Enterprise in the requirements, and say API keys are not supported. Team and Enterprise owners may also need to enable Remote Control before users can connect.
 
-Onibi overlaps on the local-session claim but keeps the host independent of one vendor's remote surface. It runs the session under Onibi's tmux-backed host, exposes a live xterm.js cockpit, and uses hook-level approval enforcement for supported agents. Claude Code is one supported adapter, not the whole product. The same Onibi daemon can host Codex, OpenCode, Goose, Gemini, Copilot CLI, Amp, Pi, and plain shell/TUI sessions, then route control through the browser cockpit or Telegram, Slack, Matrix, Discord, Zulip, IRC, Signal, and notify-only providers.
+Onibi overlaps on the local-session claim but keeps the host independent of one vendor's remote surface. It runs the session under Onibi's tmux-backed host, exposes a live xterm.js cockpit, and uses hook-level approval enforcement for supported agents. Claude Code is one supported adapter, not the whole product. The same Onibi daemon can host Codex, OpenCode, Goose, Gemini, Copilot CLI, Amp, Pi, and plain shell/TUI sessions, then route control through the browser cockpit or explicitly enabled experimental provider bridges.
 
 Core differences:
 
@@ -107,7 +109,7 @@ Core differences:
 |---|---|---|
 | account model | claude.ai subscription; API keys unsupported for Remote Control | local OSS daemon; no paid Onibi tier |
 | agent scope | Claude Code | multi-agent plus arbitrary shell/TUI sessions |
-| remote surface | claude.ai/code and Claude mobile app | paired PWA/browser cockpit plus chat/notify bridges |
+| remote surface | claude.ai/code and Claude mobile app | paired PWA/browser cockpit plus optional experimental chat/notify bridges |
 | session host | existing Claude Code process | Onibi-managed tmux-backed process |
 | transport | outbound HTTPS through Anthropic | LAN/hotspot/Tailscale/Cloudflare/ngrok/chat transports |
 | enforcement | Claude Code permission flow | adapter hooks plus owner approval queue and runtime trust controls |
@@ -151,9 +153,9 @@ Sources checked:
 
 Moshi is a native mobile terminal for SSH/Mosh and AI-agent workflows. Its site emphasizes phone-first terminal ergonomics, tmux integration, image paste, diff viewing, voice-to-terminal, Mosh/ET resilience, lock-screen and Watch surfaces, file browsing, and SSH keys in Keychain. The pricing page says the app is free to start and that Pro unlocks features such as Mosh, multiplexer pairing, and image paste.
 
-That makes Moshi the stronger fit when the user wants a polished native terminal app and is comfortable reaching hosts over SSH/Mosh. Onibi is a daemon plus web/chat cockpit: it creates the session, owns pairing/auth, exposes approvals, routes chat text, and can serve read-only viewers without requiring a native app install.
+That makes Moshi the stronger fit when the user wants a polished native terminal app and is comfortable reaching hosts over SSH/Mosh. Onibi is a daemon plus web cockpit with optional experimental provider bridges: it creates the session, owns pairing/auth, exposes approvals, and can serve read-only viewers without requiring a native app install.
 
-Honest tradeoff: pick Moshi for native mobile terminal quality, Mosh resilience, and mobile OS integrations. Pick Onibi when the core need is multi-agent approval enforcement, owner-gated web pairing, chat/notify providers, and a local daemon that hosts the terminal session itself.
+Honest tradeoff: pick Moshi for native mobile terminal quality, Mosh resilience, and mobile OS integrations. Pick Onibi when the core need is multi-agent approval enforcement, owner-gated web pairing, optional experimental provider bridges, and a local daemon that hosts the terminal session itself.
 
 Sources checked:
 
@@ -177,7 +179,7 @@ Sources checked:
 
 ttyd is a self-hosted web terminal for running a command over a browser. Its README lists a broad install surface, read-only-by-default browser terminals, optional writable clients, SSL, basic auth, file transfer support, Sixel output, and custom command execution.
 
-That makes ttyd the simpler fit when the job is "put this command in a browser" and the operator owns the surrounding auth/reverse proxy story. Onibi adds the product layer ttyd intentionally does not have: pairing tokens, owner/viewer roles, managed tmux sessions, approvals, handoff, chat/notify providers, and session metadata.
+That makes ttyd the simpler fit when the job is "put this command in a browser" and the operator owns the surrounding auth/reverse proxy story. Onibi adds the product layer ttyd intentionally does not have: pairing tokens, owner/viewer roles, managed tmux sessions, approvals, handoff, optional experimental provider bridges, and session metadata.
 
 Honest tradeoff: pick ttyd for a small self-hosted browser terminal. Pick Onibi when the user experience is a coding-agent cockpit rather than a generic terminal iframe.
 
@@ -189,7 +191,7 @@ Sources checked:
 
 tmate is a tmux fork for instant terminal pairing. Its README describes it as an instant pairing solution and says tmate is BSD-licensed. The natural workflow is SSH/tmux-style collaboration rather than a phone-specific approval cockpit.
 
-That makes tmate a good fit for pair programming and direct terminal sharing with users who already understand tmux/SSH. Onibi keeps tmux under the hood but adds mobile browser controls, web pairing, owner/viewer roles, approval cards, chat providers, snapshots, and local daemon state.
+That makes tmate a good fit for pair programming and direct terminal sharing with users who already understand tmux/SSH. Onibi keeps tmux under the hood but adds mobile browser controls, web pairing, owner/viewer roles, approval cards, optional experimental chat bridges, snapshots, and local daemon state.
 
 Honest tradeoff: pick tmate for direct tmux-style pair access. Pick Onibi when viewers should be read-only, approvals need enforcement, or the phone cockpit should be the primary surface.
 

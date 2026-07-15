@@ -6,7 +6,7 @@ Onibi v3 groups connection options by control surface:
 - Chat: natural text control.
 - Notify-only: approvals and alerts without terminal input.
 
-The supported transports are:
+V1 web transports are:
 
 - `lan` (default): QR points at the Mac's LAN or hotspot address.
 - `tailscale`: QR points at the device's public Tailscale Funnel URL.
@@ -16,6 +16,9 @@ The supported transports are:
 - `cloudflare-quick`: QR points at a temporary `trycloudflare.com` URL.
 - `cloudflare-named`: QR points at a configured Cloudflare Tunnel hostname.
 - `ngrok`: QR points at an ngrok public HTTPS URL.
+
+Deferred experimental provider transports are:
+
 - `telegram`: Bot API chat control for natural text input/output and approvals.
 - `matrix`: Matrix room control with `/sync` polling and room-power validation.
 - `slack`: Slack Socket Mode workspace control.
@@ -28,8 +31,15 @@ The supported transports are:
 - `apns`: direct Apple Push Notification service alerts using a user-provided APNs key and native app device token.
 - `sms`: Twilio SMS alerts with signed approval links.
 - `email`: SMTP alerts with signed approval links through a user-provided MTA.
+- `signal`: local `signal-cli` JSON-RPC chat control.
 
-Signal support uses a local `signal-cli` JSON-RPC daemon and is selectable with `onibi up --transport=signal`. It still needs live verification with a linked Signal number before it should be treated as production-ready.
+Before selecting any provider transport, explicitly enable its experimental profile once:
+
+```bash
+onibi config set experimental.providers true
+```
+
+The opt-in permits only the selected provider transport; it does not make a provider the v1 default or bypass Cockpit pairing. Provider capability and live-evidence status is in [`SPEC-providers.md`](./SPEC-providers.md). Signal support uses a local `signal-cli` JSON-RPC daemon and still needs live verification with a linked Signal number before it should be treated as production-ready.
 
 `auto` tries `tailscale` first and falls back to `lan` when Tailscale is unavailable. It does not select third-party relays.
 Run `onibi up` from a terminal to choose category first, provider second, or pass `--transport=<mode>` for scripts.

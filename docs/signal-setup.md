@@ -87,6 +87,7 @@ ONIBI_SIGNAL_OWNER=+15557654321
 Start Onibi:
 
 ```bash
+onibi config set experimental.providers true
 onibi up --transport=signal
 ```
 

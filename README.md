@@ -61,8 +61,8 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
-- Chat text control: Telegram, Matrix, Slack, Discord, Zulip, IRC, and Signal can route terminal text; approvals support provider-native actions where available.
-- Notify-only approvals: Pushover, ntfy, Gotify, APNs, SMS, and email publish approval alerts without terminal text input.
+- Experimental chat text control: after `experimental.providers=true`, Telegram, Matrix, Slack, Discord, Zulip, IRC, and Signal can route terminal text; approvals support provider-native actions where available.
+- Experimental notify-only approvals: Pushover, ntfy, Gotify, APNs, SMS, and email publish approval alerts without terminal text input after the same explicit opt-in.
 - [`docs/comparison.md`](./docs/comparison.md) covers tradeoffs against remote-agent and terminal-sharing tools.
 
 ## Roadmap

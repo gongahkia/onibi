@@ -114,7 +114,7 @@ PTY hosting is useful when you switch tools; it is extra machinery if you do
 not.
 
 Pick Moshi over Onibi when you want a purpose-built phone terminal and do not
-need Onibi's approval model, local CA pairing flow, chat/notify transports,
+need Onibi's approval model, local CA pairing flow, optional experimental chat/notify transports,
 viewer sharing, file panel, or Mac/phone session handoff.
 
 ## When To Pick Onibi
