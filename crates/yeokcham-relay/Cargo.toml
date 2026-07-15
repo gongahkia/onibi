@@ -11,6 +11,7 @@ default = []
 
 [dependencies]
 rusqlite.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }

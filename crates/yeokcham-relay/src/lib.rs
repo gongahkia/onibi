@@ -2,14 +2,16 @@
 
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, params};
+use sha2::{Digest, Sha256};
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::{
-    MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
+    EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS,
+    MailboxCapability,
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
-pub const RELAY_SCHEMA_VERSION: u32 = 1;
+pub const RELAY_SCHEMA_VERSION: u32 = 2;
 
 pub struct RelayDatabase {
     connection: Connection,
@@ -22,6 +24,108 @@ impl RelayDatabase {
 
     pub fn schema_version(&self) -> Result<u32, RelayDatabaseError> {
         read_schema_version(&self.connection)
+    }
+
+    pub fn register_mailbox(
+        &mut self,
+        capability: &MailboxCapability,
+        quota: MailboxQuota,
+        created_at: u64,
+    ) -> Result<(), RelayDatabaseError> {
+        let created_at = database_timestamp(created_at)?;
+        let capability_digest = capability_digest(capability)?;
+        let inserted = self.connection.execute(
+            "INSERT INTO relay_mailboxes(
+                 mailbox_id, capability_digest, quota_bytes, used_bytes, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(mailbox_id) DO NOTHING",
+            params![
+                capability.mailbox_id().as_slice(),
+                capability_digest.as_slice(),
+                quota.bytes().to_be_bytes().as_slice(),
+                [0_u8; 8].as_slice(),
+                created_at,
+            ],
+        )?;
+        if inserted == 0 {
+            return Err(RelayDatabaseError::MailboxAlreadyRegistered);
+        }
+        Ok(())
+    }
+
+    pub fn insert_envelope(
+        &mut self,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<u64, RelayDatabaseError> {
+        let ciphertext = envelope
+            .encode()
+            .map_err(|_| RelayDatabaseError::InvalidEnvelope)?;
+        let bytes =
+            u64::try_from(ciphertext.len()).map_err(|_| RelayDatabaseError::QuotaExceeded)?;
+        let expires_at = retention
+            .expires_at(received_at)
+            .map_err(|_| RelayDatabaseError::TimestampOutOfRange)?;
+        let received_at = database_timestamp(received_at)?;
+        let expires_at = database_timestamp(expires_at)?;
+        let capability_digest = capability_digest(capability)?;
+        let transaction = self.connection.transaction()?;
+        let (quota_bytes, used_bytes): (Vec<u8>, Vec<u8>) = transaction
+            .query_row(
+                "SELECT quota_bytes, used_bytes FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::InvalidCapability)?;
+        let quota = MailboxQuota::new(parse_u64(&quota_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        let mut tracker = MailboxQuotaTracker::new(quota);
+        tracker
+            .reserve(parse_u64(&used_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        tracker
+            .reserve(bytes)
+            .map_err(|_| RelayDatabaseError::QuotaExceeded)?;
+        let sequence = transaction
+            .query_row(
+                "SELECT MAX(sequence) FROM relay_envelopes WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(|sequence| {
+                sequence
+                    .checked_add(1)
+                    .ok_or(RelayDatabaseError::SequenceExhausted)
+            })
+            .transpose()?
+            .unwrap_or(0);
+        transaction.execute(
+            "INSERT INTO relay_envelopes(mailbox_id, sequence, ciphertext, received_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                capability.mailbox_id().as_slice(),
+                sequence,
+                ciphertext,
+                received_at,
+                expires_at,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+            params![
+                tracker.used_bytes().to_be_bytes().as_slice(),
+                capability.mailbox_id().as_slice(),
+            ],
+        )?;
+        transaction.commit()?;
+        u64::try_from(sequence).map_err(|_| RelayDatabaseError::SequenceExhausted)
     }
 
     fn from_connection(mut connection: Connection) -> Result<Self, RelayDatabaseError> {
@@ -39,6 +143,20 @@ pub enum RelayDatabaseError {
     Sqlite(#[from] rusqlite::Error),
     #[error("relay database schema version {0} is unsupported")]
     UnsupportedSchemaVersion(u32),
+    #[error("mailbox is already registered")]
+    MailboxAlreadyRegistered,
+    #[error("mailbox capability is invalid")]
+    InvalidCapability,
+    #[error("mailbox record is invalid")]
+    InvalidMailboxRecord,
+    #[error("encrypted relay envelope is invalid")]
+    InvalidEnvelope,
+    #[error("mailbox quota exceeded")]
+    QuotaExceeded,
+    #[error("relay timestamp is out of range")]
+    TimestampOutOfRange,
+    #[error("mailbox envelope sequence is exhausted")]
+    SequenceExhausted,
 }
 
 fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseError> {
@@ -53,13 +171,10 @@ fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseErro
             current_version,
         ));
     }
-    if current_version == RELAY_SCHEMA_VERSION {
-        return Ok(());
-    }
-
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(
-        "CREATE TABLE relay_mailboxes(
+    if current_version < 1 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "CREATE TABLE relay_mailboxes(
              mailbox_id BLOB PRIMARY KEY NOT NULL CHECK(length(mailbox_id) = 16),
              capability_token BLOB NOT NULL CHECK(length(capability_token) = 32),
              quota_bytes BLOB NOT NULL CHECK(length(quota_bytes) = 8),
@@ -77,12 +192,24 @@ fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseErro
          ) STRICT;
          CREATE INDEX relay_envelopes_expiration ON relay_envelopes(expires_at);
          CREATE INDEX relay_envelopes_retrieval ON relay_envelopes(mailbox_id, sequence);",
-    )?;
-    transaction.execute(
-        "INSERT INTO relay_schema_migrations(version) VALUES (?1)",
-        [RELAY_SCHEMA_VERSION],
-    )?;
-    transaction.commit()?;
+        )?;
+        transaction.execute(
+            "INSERT INTO relay_schema_migrations(version) VALUES (1)",
+            [],
+        )?;
+        transaction.commit()?;
+    }
+    if current_version < 2 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "ALTER TABLE relay_mailboxes RENAME COLUMN capability_token TO capability_digest;",
+        )?;
+        transaction.execute(
+            "INSERT INTO relay_schema_migrations(version) VALUES (2)",
+            [],
+        )?;
+        transaction.commit()?;
+    }
     Ok(())
 }
 
@@ -94,6 +221,24 @@ fn read_schema_version(connection: &Connection) -> Result<u32, RelayDatabaseErro
             |row| row.get::<_, Option<u32>>(0),
         )?
         .unwrap_or_default())
+}
+
+fn capability_digest(capability: &MailboxCapability) -> Result<[u8; 32], RelayDatabaseError> {
+    let encoded = capability
+        .encode()
+        .map_err(|_| RelayDatabaseError::InvalidCapability)?;
+    Ok(Sha256::digest(encoded).into())
+}
+
+fn parse_u64(value: &[u8]) -> Result<u64, RelayDatabaseError> {
+    value
+        .try_into()
+        .map(u64::from_be_bytes)
+        .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)
+}
+
+fn database_timestamp(value: u64) -> Result<i64, RelayDatabaseError> {
+    i64::try_from(value).map_err(|_| RelayDatabaseError::TimestampOutOfRange)
 }
 
 pub struct MailboxIngress {
@@ -252,7 +397,8 @@ mod tests {
     };
     use rusqlite::Connection;
     use yeokcham_protocol::{
-        MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
+        EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
+        MailboxCapability,
     };
 
     fn capability() -> MailboxCapability {
@@ -261,6 +407,10 @@ mod tests {
             [0x22; MAILBOX_CAPABILITY_TOKEN_BYTES],
         )
         .unwrap()
+    }
+
+    fn envelope() -> EncryptedMessageEnvelope {
+        EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2, 0xc3]).unwrap()
     }
 
     #[test]
@@ -351,6 +501,106 @@ mod tests {
     }
 
     #[test]
+    fn inserts_envelopes_and_usage_in_one_durable_transaction() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(envelope_bytes).unwrap(), 100)
+            .unwrap();
+
+        assert_eq!(
+            database
+                .insert_envelope(
+                    &capability,
+                    &envelope,
+                    100,
+                    RelayRetentionPolicy::new(10).unwrap(),
+                )
+                .unwrap(),
+            0
+        );
+        let stored = database
+            .connection
+            .query_row(
+                "SELECT ciphertext, used_bytes, received_at, expires_at FROM relay_envelopes
+                 JOIN relay_mailboxes USING(mailbox_id)",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(stored.0, envelope.encode().unwrap());
+        assert_eq!(
+            u64::from_be_bytes(stored.1.try_into().unwrap()),
+            envelope_bytes
+        );
+        assert_eq!((stored.2, stored.3), (100, 110));
+    }
+
+    #[test]
+    fn rejects_unauthorized_or_over_quota_insertions_without_writing() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(envelope_bytes).unwrap(), 100)
+            .unwrap();
+        let unauthorized = MailboxCapability::new(
+            [0x11; MAILBOX_IDENTIFIER_BYTES],
+            [0x33; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap();
+
+        assert!(matches!(
+            database.insert_envelope(
+                &unauthorized,
+                &envelope,
+                100,
+                RelayRetentionPolicy::new(10).unwrap(),
+            ),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        assert_eq!(
+            database
+                .insert_envelope(
+                    &capability,
+                    &envelope,
+                    100,
+                    RelayRetentionPolicy::new(10).unwrap(),
+                )
+                .unwrap(),
+            0
+        );
+        assert!(matches!(
+            database.insert_envelope(
+                &capability,
+                &envelope,
+                100,
+                RelayRetentionPolicy::new(10).unwrap(),
+            ),
+            Err(RelayDatabaseError::QuotaExceeded)
+        ));
+        let envelope_count = database
+            .connection
+            .query_row("SELECT COUNT(*) FROM relay_envelopes", [], |row| {
+                row.get::<_, u8>(0)
+            })
+            .unwrap();
+        assert_eq!(envelope_count, 1);
+    }
+
+    #[test]
     fn migrates_an_empty_relay_database_to_the_current_schema() {
         let database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
@@ -358,9 +608,11 @@ mod tests {
         assert_eq!(database.schema_version().unwrap(), RELAY_SCHEMA_VERSION);
         let schema_version = database
             .connection
-            .query_row("SELECT version FROM relay_schema_migrations", [], |row| {
-                row.get::<_, u32>(0)
-            })
+            .query_row(
+                "SELECT MAX(version) FROM relay_schema_migrations",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
             .unwrap();
         assert_eq!(schema_version, RELAY_SCHEMA_VERSION);
         let table_count = database
@@ -376,6 +628,39 @@ mod tests {
     }
 
     #[test]
+    fn migrates_v1_capability_tokens_to_digests() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE relay_schema_migrations(
+                     version INTEGER PRIMARY KEY CHECK(version > 0)
+                 ) STRICT;
+                 INSERT INTO relay_schema_migrations(version) VALUES (1);
+                 CREATE TABLE relay_mailboxes(
+                     mailbox_id BLOB PRIMARY KEY NOT NULL CHECK(length(mailbox_id) = 16),
+                     capability_token BLOB NOT NULL CHECK(length(capability_token) = 32),
+                     quota_bytes BLOB NOT NULL CHECK(length(quota_bytes) = 8),
+                     used_bytes BLOB NOT NULL CHECK(length(used_bytes) = 8),
+                     created_at INTEGER NOT NULL CHECK(created_at >= 0)
+                 ) STRICT;",
+            )
+            .unwrap();
+
+        let database = RelayDatabase::from_connection(connection).unwrap();
+        assert_eq!(database.schema_version().unwrap(), RELAY_SCHEMA_VERSION);
+        let digest_column = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('relay_mailboxes')
+                 WHERE name = 'capability_digest'",
+                [],
+                |row| row.get::<_, u8>(0),
+            )
+            .unwrap();
+        assert_eq!(digest_column, 1);
+    }
+
+    #[test]
     fn rejects_databases_from_newer_schema_versions() {
         let connection = Connection::open_in_memory().unwrap();
         connection
@@ -383,13 +668,13 @@ mod tests {
                 "CREATE TABLE relay_schema_migrations(
                      version INTEGER PRIMARY KEY CHECK(version > 0)
                  ) STRICT;
-                 INSERT INTO relay_schema_migrations(version) VALUES (2);",
+                 INSERT INTO relay_schema_migrations(version) VALUES (3);",
             )
             .unwrap();
 
         assert!(matches!(
             RelayDatabase::from_connection(connection),
-            Err(RelayDatabaseError::UnsupportedSchemaVersion(2))
+            Err(RelayDatabaseError::UnsupportedSchemaVersion(3))
         ));
     }
 }
