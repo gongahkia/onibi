@@ -1,16 +1,18 @@
 #![forbid(unsafe_code)]
 
+use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use yeokcham_core::{
-    Error, KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair, Result,
+    ED25519_SIGNATURE_BYTES, Error, KeystoreEntryName, KeystoreSecret, OsKeystore, RelayPublicKey,
+    RelaySigningKeypair, Result,
 };
 use yeokcham_protocol::{
-    EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS,
-    MailboxCapability, RelayStorageReceipt,
+    CryptoDomain, EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES,
+    MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability, RelayStorageReceipt,
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
@@ -94,6 +96,169 @@ pub enum RelayHealthEndpointError {
     UnknownPath,
     #[error("relay health check failed")]
     Unhealthy,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct SyntheticRelayTrafficProof([u8; ED25519_SIGNATURE_BYTES]);
+
+impl SyntheticRelayTrafficProof {
+    pub fn for_mailbox_registration(
+        authority: &RelaySigningKeypair,
+        capability: &MailboxCapability,
+        quota: MailboxQuota,
+        created_at: u64,
+    ) -> Result<Self, ProjectTestRelayError> {
+        Ok(Self(authority.sign(&mailbox_registration_input(
+            capability, quota, created_at,
+        )?)))
+    }
+
+    pub fn for_envelope_insertion(
+        authority: &RelaySigningKeypair,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<Self, ProjectTestRelayError> {
+        Ok(Self(authority.sign(&envelope_insertion_input(
+            capability,
+            envelope,
+            received_at,
+            retention,
+        )?)))
+    }
+
+    pub fn for_envelope_retrieval(
+        authority: &RelaySigningKeypair,
+        capability: &MailboxCapability,
+        after_sequence: Option<u64>,
+        now: u64,
+        limit: u16,
+    ) -> Result<Self, ProjectTestRelayError> {
+        Ok(Self(authority.sign(&envelope_retrieval_input(
+            capability,
+            after_sequence,
+            now,
+            limit,
+        )?)))
+    }
+
+    pub fn for_envelope_acknowledgement(
+        authority: &RelaySigningKeypair,
+        capability: &MailboxCapability,
+        sequence: u64,
+    ) -> Result<Self, ProjectTestRelayError> {
+        Ok(Self(authority.sign(&envelope_acknowledgement_input(
+            capability, sequence,
+        )?)))
+    }
+
+    fn verify(self, authority: &RelayPublicKey, input: &[u8]) -> Result<(), ProjectTestRelayError> {
+        authority
+            .verify(input, &self.0)
+            .map_err(|_| ProjectTestRelayError::InvalidSyntheticTraffic)
+    }
+}
+
+impl fmt::Debug for SyntheticRelayTrafficProof {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("SyntheticRelayTrafficProof")
+            .field(&"REDACTED")
+            .finish()
+    }
+}
+
+pub struct ProjectTestRelay {
+    database: RelayDatabase,
+    synthetic_traffic_authority: RelayPublicKey,
+}
+
+impl ProjectTestRelay {
+    #[must_use]
+    pub const fn new(database: RelayDatabase, synthetic_traffic_authority: RelayPublicKey) -> Self {
+        Self {
+            database,
+            synthetic_traffic_authority,
+        }
+    }
+
+    pub fn register_mailbox(
+        &mut self,
+        proof: SyntheticRelayTrafficProof,
+        capability: &MailboxCapability,
+        quota: MailboxQuota,
+        created_at: u64,
+    ) -> Result<(), ProjectTestRelayError> {
+        proof.verify(
+            &self.synthetic_traffic_authority,
+            &mailbox_registration_input(capability, quota, created_at)?,
+        )?;
+        self.database
+            .register_mailbox(capability, quota, created_at)
+            .map_err(ProjectTestRelayError::Database)
+    }
+
+    pub fn insert_envelope(
+        &mut self,
+        proof: SyntheticRelayTrafficProof,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+    ) -> Result<u64, ProjectTestRelayError> {
+        proof.verify(
+            &self.synthetic_traffic_authority,
+            &envelope_insertion_input(capability, envelope, received_at, retention)?,
+        )?;
+        self.database
+            .insert_envelope(capability, envelope, received_at, retention)
+            .map_err(ProjectTestRelayError::Database)
+    }
+
+    pub fn retrieve_envelopes(
+        &self,
+        proof: SyntheticRelayTrafficProof,
+        capability: &MailboxCapability,
+        after_sequence: Option<u64>,
+        now: u64,
+        limit: u16,
+    ) -> Result<Vec<RelayEnvelope>, ProjectTestRelayError> {
+        proof.verify(
+            &self.synthetic_traffic_authority,
+            &envelope_retrieval_input(capability, after_sequence, now, limit)?,
+        )?;
+        self.database
+            .retrieve_envelopes(capability, after_sequence, now, limit)
+            .map_err(ProjectTestRelayError::Database)
+    }
+
+    pub fn acknowledge_envelope(
+        &mut self,
+        proof: SyntheticRelayTrafficProof,
+        capability: &MailboxCapability,
+        sequence: u64,
+    ) -> Result<(), ProjectTestRelayError> {
+        proof.verify(
+            &self.synthetic_traffic_authority,
+            &envelope_acknowledgement_input(capability, sequence)?,
+        )?;
+        self.database
+            .acknowledge_envelope(capability, sequence)
+            .map_err(ProjectTestRelayError::Database)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectTestRelayError {
+    #[error("synthetic relay traffic proof is invalid")]
+    InvalidSyntheticTraffic,
+    #[error("synthetic relay traffic has an invalid mailbox capability")]
+    InvalidCapability,
+    #[error("synthetic relay traffic has an invalid encrypted envelope")]
+    InvalidEnvelope,
+    #[error("project test relay database operation failed")]
+    Database(#[source] RelayDatabaseError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -617,6 +782,98 @@ fn count_rows(connection: &Connection, table: &str) -> Result<u64, RelayDatabase
     u64::try_from(count).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)
 }
 
+fn mailbox_registration_input(
+    capability: &MailboxCapability,
+    quota: MailboxQuota,
+    created_at: u64,
+) -> Result<[u8; 32], ProjectTestRelayError> {
+    let capability = capability
+        .encode()
+        .map_err(|_| ProjectTestRelayError::InvalidCapability)?;
+    synthetic_traffic_input(
+        1,
+        &[
+            &capability,
+            &quota.bytes().to_be_bytes(),
+            &created_at.to_be_bytes(),
+        ],
+    )
+}
+
+fn envelope_insertion_input(
+    capability: &MailboxCapability,
+    envelope: &EncryptedMessageEnvelope,
+    received_at: u64,
+    retention: RelayRetentionPolicy,
+) -> Result<[u8; 32], ProjectTestRelayError> {
+    let capability = capability
+        .encode()
+        .map_err(|_| ProjectTestRelayError::InvalidCapability)?;
+    let envelope = envelope
+        .encode()
+        .map_err(|_| ProjectTestRelayError::InvalidEnvelope)?;
+    synthetic_traffic_input(
+        2,
+        &[
+            &capability,
+            &envelope,
+            &received_at.to_be_bytes(),
+            &retention.ttl_seconds().to_be_bytes(),
+        ],
+    )
+}
+
+fn envelope_retrieval_input(
+    capability: &MailboxCapability,
+    after_sequence: Option<u64>,
+    now: u64,
+    limit: u16,
+) -> Result<[u8; 32], ProjectTestRelayError> {
+    let capability = capability
+        .encode()
+        .map_err(|_| ProjectTestRelayError::InvalidCapability)?;
+    let mut after_sequence_field = [0; 9];
+    if let Some(after_sequence) = after_sequence {
+        after_sequence_field[0] = 1;
+        after_sequence_field[1..].copy_from_slice(&after_sequence.to_be_bytes());
+    }
+    synthetic_traffic_input(
+        3,
+        &[
+            &capability,
+            &after_sequence_field,
+            &now.to_be_bytes(),
+            &limit.to_be_bytes(),
+        ],
+    )
+}
+
+fn envelope_acknowledgement_input(
+    capability: &MailboxCapability,
+    sequence: u64,
+) -> Result<[u8; 32], ProjectTestRelayError> {
+    let capability = capability
+        .encode()
+        .map_err(|_| ProjectTestRelayError::InvalidCapability)?;
+    synthetic_traffic_input(4, &[&capability, &sequence.to_be_bytes()])
+}
+
+fn synthetic_traffic_input(
+    operation: u8,
+    fields: &[&[u8]],
+) -> Result<[u8; 32], ProjectTestRelayError> {
+    let mut hasher = Sha256::new();
+    hasher.update(CryptoDomain::ProjectTestRelaySyntheticTraffic.context());
+    hasher.update([operation]);
+    for field in fields {
+        let length = u64::try_from(field.len())
+            .map_err(|_| ProjectTestRelayError::InvalidSyntheticTraffic)?;
+        hasher.update(length.to_be_bytes());
+        hasher.update(field);
+    }
+    Ok(hasher.finalize().into())
+}
+
 fn capability_digest(capability: &MailboxCapability) -> Result<[u8; 32], RelayDatabaseError> {
     let encoded = capability
         .encode()
@@ -789,10 +1046,11 @@ mod tests {
     use super::{
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
-        RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError,
-        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayMetricsEmitter,
-        RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
-        SelfHostedRelayConfig, SelfHostedRelayConfigError,
+        ProjectTestRelay, ProjectTestRelayError, RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION,
+        RelayDatabase, RelayDatabaseError, RelayHealthEndpoint, RelayHealthEndpointError,
+        RelayIdentity, RelayMetricsEmitter, RelayOperationalMetrics, RelayRetentionPolicy,
+        RelayRetentionPolicyError, SelfHostedRelayConfig, SelfHostedRelayConfigError,
+        SyntheticRelayTrafficProof,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1286,6 +1544,86 @@ mod tests {
                 stored_bytes: 6,
             }]
         );
+    }
+
+    #[test]
+    fn project_test_relay_admits_only_authorized_synthetic_traffic() {
+        let authority = RelaySigningKeypair::generate().unwrap();
+        let unrelated_authority = RelaySigningKeypair::generate().unwrap();
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let mut relay = ProjectTestRelay::new(database, authority.public_key());
+        let capability = capability();
+        let quota = MailboxQuota::new(1024).unwrap();
+        let registration =
+            SyntheticRelayTrafficProof::for_mailbox_registration(&authority, &capability, quota, 1)
+                .unwrap();
+
+        relay
+            .register_mailbox(registration, &capability, quota, 1)
+            .unwrap();
+        let invalid_registration = SyntheticRelayTrafficProof::for_mailbox_registration(
+            &unrelated_authority,
+            &capability,
+            quota,
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            relay.register_mailbox(invalid_registration, &capability, quota, 1),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+
+        let envelope = envelope();
+        let insertion = SyntheticRelayTrafficProof::for_envelope_insertion(
+            &authority,
+            &capability,
+            &envelope,
+            2,
+            RelayRetentionPolicy::new(60).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            relay
+                .insert_envelope(
+                    insertion,
+                    &capability,
+                    &envelope,
+                    2,
+                    RelayRetentionPolicy::new(60).unwrap(),
+                )
+                .unwrap(),
+            0
+        );
+        let tampered = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2, 0xc4]).unwrap();
+        assert!(matches!(
+            relay.insert_envelope(
+                insertion,
+                &capability,
+                &tampered,
+                2,
+                RelayRetentionPolicy::new(60).unwrap(),
+            ),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+
+        let retrieval =
+            SyntheticRelayTrafficProof::for_envelope_retrieval(&authority, &capability, None, 3, 1)
+                .unwrap();
+        assert_eq!(
+            relay
+                .retrieve_envelopes(retrieval, &capability, None, 3, 1)
+                .unwrap()
+                .len(),
+            1
+        );
+        let acknowledgement =
+            SyntheticRelayTrafficProof::for_envelope_acknowledgement(&authority, &capability, 0)
+                .unwrap();
+        relay
+            .acknowledge_envelope(acknowledgement, &capability, 0)
+            .unwrap();
+        assert!(format!("{insertion:?}").contains("REDACTED"));
     }
 
     #[test]

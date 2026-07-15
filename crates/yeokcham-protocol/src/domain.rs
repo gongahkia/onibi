@@ -25,6 +25,7 @@ pub enum CryptoDomain {
     AttachmentKey,
     AttachmentChunkKey,
     ProfileBinding,
+    ProjectTestRelaySyntheticTraffic,
 }
 
 impl CryptoDomain {
@@ -52,6 +53,7 @@ impl CryptoDomain {
         Self::AttachmentKey,
         Self::AttachmentChunkKey,
         Self::ProfileBinding,
+        Self::ProjectTestRelaySyntheticTraffic,
     ];
 
     #[must_use]
@@ -82,6 +84,9 @@ impl CryptoDomain {
             Self::AttachmentKey => b"yeokcham/v1/attachment-key",
             Self::AttachmentChunkKey => b"yeokcham/v1/attachment-chunk-key",
             Self::ProfileBinding => b"yeokcham/v1/profile-binding",
+            Self::ProjectTestRelaySyntheticTraffic => {
+                b"yeokcham/v1/project-test-relay-synthetic-traffic"
+            }
         };
         debug_assert!(context.starts_with(PREFIX));
         context
