@@ -2,6 +2,7 @@
 
 mod contact_store;
 mod direct_transport;
+mod inbox_deduplication;
 mod mdns;
 mod nat_pmp;
 mod outbox_store;
@@ -24,6 +25,10 @@ pub use direct_transport::{
     DirectConnection, DirectConnectionAttempts, DirectConnectionLimits, DirectTransport,
     DirectTransportError, MAX_DIRECT_CONCURRENT_STREAMS, MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT,
     MAX_DIRECT_CONNECTION_ATTEMPTS, MAX_DIRECT_CONNECTION_WINDOW_BYTES, MAX_DIRECT_RETRY_BACKOFF,
+};
+pub use inbox_deduplication::{
+    INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, MAX_INBOX_DEDUPLICATION_ENTRIES,
+    RecipientInboxDeduplication, RecipientInboxDeduplicationError,
 };
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{

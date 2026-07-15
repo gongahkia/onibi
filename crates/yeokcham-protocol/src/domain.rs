@@ -26,6 +26,7 @@ pub enum CryptoDomain {
     AttachmentChunkKey,
     ProfileBinding,
     ProjectTestRelaySyntheticTraffic,
+    RecipientInboxDeduplication,
 }
 
 impl CryptoDomain {
@@ -54,6 +55,7 @@ impl CryptoDomain {
         Self::AttachmentChunkKey,
         Self::ProfileBinding,
         Self::ProjectTestRelaySyntheticTraffic,
+        Self::RecipientInboxDeduplication,
     ];
 
     #[must_use]
@@ -87,6 +89,7 @@ impl CryptoDomain {
             Self::ProjectTestRelaySyntheticTraffic => {
                 b"yeokcham/v1/project-test-relay-synthetic-traffic"
             }
+            Self::RecipientInboxDeduplication => b"yeokcham/v1/recipient-inbox-deduplication",
         };
         debug_assert!(context.starts_with(PREFIX));
         context
