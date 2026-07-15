@@ -25,6 +25,7 @@ pub enum CryptoDomain {
     AttachmentKey,
     AttachmentChunkKey,
     AttachmentChunkEncryption,
+    AttachmentChunkHash,
     ProfileBinding,
     ProjectTestRelaySyntheticTraffic,
     RecipientInboxDeduplication,
@@ -55,6 +56,7 @@ impl CryptoDomain {
         Self::AttachmentKey,
         Self::AttachmentChunkKey,
         Self::AttachmentChunkEncryption,
+        Self::AttachmentChunkHash,
         Self::ProfileBinding,
         Self::ProjectTestRelaySyntheticTraffic,
         Self::RecipientInboxDeduplication,
@@ -88,6 +90,7 @@ impl CryptoDomain {
             Self::AttachmentKey => b"yeokcham/v1/attachment-key",
             Self::AttachmentChunkKey => b"yeokcham/v1/attachment-chunk-key",
             Self::AttachmentChunkEncryption => b"yeokcham/v1/attachment-chunk-encryption",
+            Self::AttachmentChunkHash => b"yeokcham/v1/attachment-chunk-hash",
             Self::ProfileBinding => b"yeokcham/v1/profile-binding",
             Self::ProjectTestRelaySyntheticTraffic => {
                 b"yeokcham/v1/project-test-relay-synthetic-traffic"

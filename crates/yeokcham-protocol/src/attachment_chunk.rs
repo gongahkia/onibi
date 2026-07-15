@@ -6,6 +6,8 @@ use chacha20poly1305::{
 };
 use getrandom::{SysRng, rand_core::TryRng};
 use minicbor::{Decoder, Encoder};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 use crate::{AttachmentChunkKey, AttachmentIdentifier, CryptoDomain};
@@ -19,6 +21,28 @@ pub const ENCRYPTED_ATTACHMENT_CHUNK_BYTES: usize =
 pub const MAX_ENCODED_ATTACHMENT_CHUNK_BYTES: usize =
     ENCRYPTED_ATTACHMENT_CHUNK_BYTES + ATTACHMENT_CHUNK_NONCE_BYTES + 64;
 const ENCRYPTED_ATTACHMENT_CHUNK_FIELDS: u64 = 5;
+pub const ATTACHMENT_CHUNK_HASH_BYTES: usize = 32;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct AttachmentChunkHash([u8; ATTACHMENT_CHUNK_HASH_BYTES]);
+
+impl AttachmentChunkHash {
+    #[must_use]
+    pub const fn from_bytes(hash: [u8; ATTACHMENT_CHUNK_HASH_BYTES]) -> Self {
+        Self(hash)
+    }
+
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; ATTACHMENT_CHUNK_HASH_BYTES] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for AttachmentChunkHash {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AttachmentChunkHash(REDACTED)")
+    }
+}
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct EncryptedAttachmentChunk {
@@ -130,6 +154,26 @@ impl EncryptedAttachmentChunk {
         Ok(encoded)
     }
 
+    pub fn hash(&self) -> Result<AttachmentChunkHash, AttachmentChunkError> {
+        let encoded = self.encode()?;
+        let mut hasher = Sha256::new();
+        hasher.update(CryptoDomain::AttachmentChunkHash.context());
+        hasher.update(&encoded);
+        let mut hash = [0; ATTACHMENT_CHUNK_HASH_BYTES];
+        hash.copy_from_slice(&hasher.finalize());
+        Ok(AttachmentChunkHash(hash))
+    }
+
+    pub fn validate_hash(
+        &self,
+        expected: &AttachmentChunkHash,
+    ) -> Result<(), AttachmentChunkError> {
+        if self.hash()?.as_bytes().ct_eq(expected.as_bytes()).into() {
+            return Ok(());
+        }
+        Err(AttachmentChunkError::HashMismatch)
+    }
+
     pub fn decode(encoded: &[u8]) -> Result<Self, AttachmentChunkError> {
         if encoded.len() > MAX_ENCODED_ATTACHMENT_CHUNK_BYTES {
             return Err(AttachmentChunkError::EncodedChunkTooLarge);
@@ -220,6 +264,8 @@ pub enum AttachmentChunkError {
     TrailingBytes,
     #[error("attachment chunk is not canonically encoded")]
     NonCanonicalEncoding,
+    #[error("attachment chunk hash does not match the expected value")]
+    HashMismatch,
 }
 
 fn associated_data(identifier: AttachmentIdentifier, index: u32) -> Vec<u8> {
@@ -258,12 +304,18 @@ mod tests {
         assert_eq!(decoded.identifier(), identifier);
         assert_eq!(decoded.index(), 7);
         assert_eq!(&*decoded.decrypt(&key(identifier, 7)).unwrap(), &plaintext);
+        let hash = decoded.hash().unwrap();
+        decoded.validate_hash(&hash).unwrap();
         assert!(matches!(
             decoded.decrypt(&key(identifier, 8)),
             Err(AttachmentChunkError::Authentication)
         ));
         let mut tampered = decoded.clone();
         tampered.index = 8;
+        assert_eq!(
+            tampered.validate_hash(&hash),
+            Err(AttachmentChunkError::HashMismatch)
+        );
         assert!(matches!(
             tampered.decrypt(&key(identifier, 7)),
             Err(AttachmentChunkError::Authentication)
