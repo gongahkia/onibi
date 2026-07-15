@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod attachment_key;
 mod contact_invitation;
 mod delivery_acknowledgement;
 mod delivery_profile;
@@ -33,6 +34,10 @@ mod version;
 mod wire;
 mod x3dh;
 
+pub use attachment_key::{
+    ATTACHMENT_IDENTIFIER_BYTES, ATTACHMENT_KEY_BYTES, AttachmentChunkKey, AttachmentIdentifier,
+    AttachmentKey, AttachmentKeyError,
+};
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
     ContactInvitation, ContactInvitationError,
