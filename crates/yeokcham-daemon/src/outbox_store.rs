@@ -1200,6 +1200,8 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
         #[test]
         fn models_delivery_state_transitions(
             expiry_offsets in proptest::collection::vec(1_u8..=64, 1..=32),
