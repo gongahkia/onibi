@@ -4,6 +4,11 @@ pub const YEOKCHAM_ABI_VERSION_MAJOR: u32 = 1;
 pub const YEOKCHAM_ABI_VERSION_MINOR: u32 = 0;
 pub const YEOKCHAM_ABI_VERSION: u32 = 1;
 
+#[repr(C)]
+pub struct YeokchamHandle {
+    _private: u8,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum YeokchamStatus {
@@ -30,6 +35,13 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MAJOR UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
+        assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
         assert!(HEADER.ends_with("#endif\n"));
+    }
+
+    #[test]
+    fn published_handle_remains_opaque() {
+        assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
+        assert!(!HEADER.contains("struct yeokcham_handle {"));
     }
 }
