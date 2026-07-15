@@ -11,6 +11,30 @@ pub enum DeliveryProfileKind {
     LocalMesh = 3,
 }
 
+impl DeliveryProfileKind {
+    #[must_use]
+    pub const fn privacy_warning(self) -> Option<DeliveryProfilePrivacyWarning> {
+        match self {
+            Self::Direct => Some(DeliveryProfilePrivacyWarning::DirectIpDisclosure),
+            Self::TorMaildrop | Self::LocalMesh => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeliveryProfilePrivacyWarning {
+    DirectIpDisclosure,
+}
+
+impl DeliveryProfilePrivacyWarning {
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::DirectIpDisclosure => "Direct delivery exposes your IP address to the recipient.",
+        }
+    }
+}
+
 impl TryFrom<u8> for DeliveryProfileKind {
     type Error = DeliveryProfileError;
 
@@ -47,6 +71,11 @@ impl DeliveryProfile {
     #[must_use]
     pub const fn kind(self) -> DeliveryProfileKind {
         self.kind
+    }
+
+    #[must_use]
+    pub const fn privacy_warning(self) -> Option<DeliveryProfilePrivacyWarning> {
+        self.kind.privacy_warning()
     }
 
     pub fn encode(self) -> Result<Vec<u8>, DeliveryProfileError> {
@@ -168,6 +197,7 @@ mod tests {
     use super::{
         DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
         DeliveryProfileError, DeliveryProfileKind, DeliveryProfilePolicyDecision,
+        DeliveryProfilePrivacyWarning,
     };
 
     #[test]
@@ -247,6 +277,27 @@ mod tests {
             DeliveryProfilePolicyDecision::Deny(DeliveryProfileConstraintError::Disallowed(
                 DeliveryProfileKind::LocalMesh
             ))
+        );
+    }
+
+    #[test]
+    fn exposes_direct_ip_disclosure_warning() {
+        let direct = DeliveryProfile::new(DeliveryProfileKind::Direct);
+        assert_eq!(
+            direct.privacy_warning(),
+            Some(DeliveryProfilePrivacyWarning::DirectIpDisclosure)
+        );
+        assert_eq!(
+            direct.privacy_warning().unwrap().message(),
+            "Direct delivery exposes your IP address to the recipient."
+        );
+        assert_eq!(
+            DeliveryProfile::new(DeliveryProfileKind::TorMaildrop).privacy_warning(),
+            None
+        );
+        assert_eq!(
+            DeliveryProfile::new(DeliveryProfileKind::LocalMesh).privacy_warning(),
+            None
         );
     }
 }

@@ -36,7 +36,7 @@ pub use contact_invitation::{
 pub use delivery_profile::{
     DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
     DeliveryProfileConstraints, DeliveryProfileError, DeliveryProfileKind,
-    DeliveryProfilePolicyDecision,
+    DeliveryProfilePolicyDecision, DeliveryProfilePrivacyWarning,
 };
 pub use direct_peer_auth::{
     DIRECT_PEER_PROOF_BYTES, DIRECT_PEER_PROOF_SCHEMA_VERSION, DirectPeerProof,
