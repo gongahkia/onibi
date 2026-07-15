@@ -21,7 +21,10 @@ pub enum YeokchamStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::{YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR};
+    use super::{
+        YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
+        YeokchamStatus,
+    };
 
     const HEADER: &str = include_str!("../include/yeokcham.h");
 
@@ -43,5 +46,20 @@ mod tests {
     fn published_handle_remains_opaque() {
         assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
         assert!(!HEADER.contains("struct yeokcham_handle {"));
+    }
+
+    #[test]
+    fn published_status_codes_match_rust() {
+        assert_eq!(YeokchamStatus::Ok as i32, 0);
+        assert_eq!(YeokchamStatus::InvalidInput as i32, 1);
+        assert_eq!(YeokchamStatus::UnsupportedVersion as i32, 2);
+        assert_eq!(YeokchamStatus::ResourceLimit as i32, 3);
+        assert_eq!(YeokchamStatus::State as i32, 4);
+        assert!(HEADER.contains("typedef int32_t yeokcham_status_t;"));
+        assert!(HEADER.contains("#define YEOKCHAM_STATUS_OK INT32_C(0)"));
+        assert!(HEADER.contains("#define YEOKCHAM_STATUS_INVALID_INPUT INT32_C(1)"));
+        assert!(HEADER.contains("#define YEOKCHAM_STATUS_UNSUPPORTED_VERSION INT32_C(2)"));
+        assert!(HEADER.contains("#define YEOKCHAM_STATUS_RESOURCE_LIMIT INT32_C(3)"));
+        assert!(HEADER.contains("#define YEOKCHAM_STATUS_STATE INT32_C(4)"));
     }
 }

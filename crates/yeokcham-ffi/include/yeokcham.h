@@ -9,4 +9,12 @@
 
 typedef struct yeokcham_handle yeokcham_handle_t; // library-owned opaque handle
 
+typedef int32_t yeokcham_status_t;
+
+#define YEOKCHAM_STATUS_OK INT32_C(0)
+#define YEOKCHAM_STATUS_INVALID_INPUT INT32_C(1)
+#define YEOKCHAM_STATUS_UNSUPPORTED_VERSION INT32_C(2)
+#define YEOKCHAM_STATUS_RESOURCE_LIMIT INT32_C(3)
+#define YEOKCHAM_STATUS_STATE INT32_C(4)
+
 #endif
