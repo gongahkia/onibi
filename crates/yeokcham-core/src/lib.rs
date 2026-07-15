@@ -45,7 +45,8 @@ pub use prekey::{
     X25519PrekeySerializationError,
 };
 pub use relay_identity::{
-    RelayIdentityKeyError, RelayPublicKey, RelayPublicKeyError, RelaySignatureError,
+    RELAY_IDENTITY_SERIALIZATION_VERSION, RELAY_IDENTITY_SERIALIZED_BYTES, RelayIdentityKeyError,
+    RelayIdentitySerializationError, RelayPublicKey, RelayPublicKeyError, RelaySignatureError,
     RelaySigningKeypair,
 };
 pub use secret::Secret;

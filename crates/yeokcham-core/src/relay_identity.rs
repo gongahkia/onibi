@@ -2,9 +2,12 @@ use std::fmt;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use getrandom::{SysRng, rand_core::TryRng};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{ED25519_PUBLIC_KEY_BYTES, ED25519_SIGNATURE_BYTES};
+
+pub const RELAY_IDENTITY_SERIALIZATION_VERSION: u8 = 1;
+pub const RELAY_IDENTITY_SERIALIZED_BYTES: usize = 1 + (2 * ED25519_PUBLIC_KEY_BYTES);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RelayPublicKey([u8; ED25519_PUBLIC_KEY_BYTES]);
@@ -63,6 +66,36 @@ impl RelaySigningKeypair {
     pub fn sign(&self, message: &[u8]) -> [u8; ED25519_SIGNATURE_BYTES] {
         self.signing_key.sign(message).to_bytes()
     }
+
+    #[must_use]
+    pub fn serialize(&self) -> Zeroizing<[u8; RELAY_IDENTITY_SERIALIZED_BYTES]> {
+        let mut secret_key = self.signing_key.to_bytes();
+        let mut serialized = Zeroizing::new([0; RELAY_IDENTITY_SERIALIZED_BYTES]);
+        serialized[0] = RELAY_IDENTITY_SERIALIZATION_VERSION;
+        serialized[1..=ED25519_PUBLIC_KEY_BYTES].copy_from_slice(&secret_key);
+        serialized[1 + ED25519_PUBLIC_KEY_BYTES..].copy_from_slice(self.public_key().as_bytes());
+        secret_key.zeroize();
+        serialized
+    }
+
+    pub fn deserialize(encoded: &[u8]) -> Result<Self, RelayIdentitySerializationError> {
+        if encoded.len() != RELAY_IDENTITY_SERIALIZED_BYTES {
+            return Err(RelayIdentitySerializationError::InvalidLength);
+        }
+        if encoded[0] != RELAY_IDENTITY_SERIALIZATION_VERSION {
+            return Err(RelayIdentitySerializationError::UnsupportedVersion(
+                encoded[0],
+            ));
+        }
+        let mut secret_key = [0; ED25519_PUBLIC_KEY_BYTES];
+        secret_key.copy_from_slice(&encoded[1..=ED25519_PUBLIC_KEY_BYTES]);
+        let signing_key = SigningKey::from_bytes(&secret_key);
+        secret_key.zeroize();
+        if signing_key.verifying_key().as_bytes() != &encoded[1 + ED25519_PUBLIC_KEY_BYTES..] {
+            return Err(RelayIdentitySerializationError::PublicKeyMismatch);
+        }
+        Ok(Self { signing_key })
+    }
 }
 
 impl fmt::Debug for RelaySigningKeypair {
@@ -82,6 +115,16 @@ pub enum RelayIdentityKeyError {
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayIdentitySerializationError {
+    #[error("relay identity serialization has an invalid length")]
+    InvalidLength,
+    #[error("unsupported relay identity serialization version: {0}")]
+    UnsupportedVersion(u8),
+    #[error("relay identity serialization public key does not match its private seed")]
+    PublicKeyMismatch,
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum RelayPublicKeyError {
     #[error("relay Ed25519 public key encoding is malformed")]
     Malformed,
@@ -97,7 +140,10 @@ pub enum RelaySignatureError {
 
 #[cfg(test)]
 mod tests {
-    use super::{RelayPublicKey, RelayPublicKeyError, RelaySignatureError, RelaySigningKeypair};
+    use super::{
+        RelayIdentitySerializationError, RelayPublicKey, RelayPublicKeyError, RelaySignatureError,
+        RelaySigningKeypair,
+    };
 
     #[test]
     fn generates_distinct_redacted_relay_signing_identities() {
@@ -126,6 +172,19 @@ mod tests {
         assert_eq!(
             relay.public_key().verify(b"relay invitation", &signature),
             Err(RelaySignatureError::Invalid)
+        );
+    }
+
+    #[test]
+    fn serializes_and_validates_relay_signing_keys() {
+        let relay = RelaySigningKeypair::generate().unwrap();
+        let serialized = relay.serialize();
+        let restored = RelaySigningKeypair::deserialize(&*serialized).unwrap();
+
+        assert_eq!(restored.public_key(), relay.public_key());
+        assert_eq!(
+            RelaySigningKeypair::deserialize(&serialized[..serialized.len() - 1]).unwrap_err(),
+            RelayIdentitySerializationError::InvalidLength
         );
     }
 }

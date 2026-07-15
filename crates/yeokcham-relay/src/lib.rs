@@ -4,7 +4,9 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
-use yeokcham_core::{Error, RelaySigningKeypair, Result};
+use yeokcham_core::{
+    Error, KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair, Result,
+};
 use yeokcham_protocol::{
     EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS,
     MailboxCapability, RelayStorageReceipt,
@@ -13,6 +15,53 @@ use yeokcham_protocol::{
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const RELAY_SCHEMA_VERSION: u32 = 2;
+const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
+
+pub struct RelayIdentity {
+    signing_keypair: RelaySigningKeypair,
+}
+
+impl RelayIdentity {
+    pub fn load_or_generate<K: OsKeystore>(keystore: &mut K) -> Result<Self, RelayIdentityError> {
+        let entry = KeystoreEntryName::new(RELAY_IDENTITY_KEY_ENTRY.to_owned())
+            .map_err(|_| RelayIdentityError::InvalidKeyEntry)?;
+        let signing_keypair = match keystore
+            .load(&entry)
+            .map_err(|_| RelayIdentityError::Keystore)?
+        {
+            Some(secret) => RelaySigningKeypair::deserialize(secret.as_bytes())
+                .map_err(|_| RelayIdentityError::InvalidStoredKey)?,
+            None => {
+                let signing_keypair =
+                    RelaySigningKeypair::generate().map_err(|_| RelayIdentityError::Randomness)?;
+                let secret = KeystoreSecret::new(signing_keypair.serialize().to_vec())
+                    .map_err(|_| RelayIdentityError::InvalidStoredKey)?;
+                keystore
+                    .store(&entry, &secret)
+                    .map_err(|_| RelayIdentityError::Keystore)?;
+                signing_keypair
+            }
+        };
+        Ok(Self { signing_keypair })
+    }
+
+    #[must_use]
+    pub const fn signing_keypair(&self) -> &RelaySigningKeypair {
+        &self.signing_keypair
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayIdentityError {
+    #[error("relay identity key entry is invalid")]
+    InvalidKeyEntry,
+    #[error("relay identity keystore operation failed")]
+    Keystore,
+    #[error("relay identity could not be generated")]
+    Randomness,
+    #[error("stored relay identity is invalid")]
+    InvalidStoredKey,
+}
 
 pub struct RelayDatabase {
     connection: Connection,
@@ -571,14 +620,16 @@ pub enum RelayRetentionPolicyError {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
     use super::{
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
-        RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError, RelayRetentionPolicy,
-        RelayRetentionPolicyError,
+        RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError, RelayIdentity,
+        RelayRetentionPolicy, RelayRetentionPolicyError,
     };
     use rusqlite::Connection;
-    use yeokcham_core::RelaySigningKeypair;
+    use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
     use yeokcham_protocol::{
         EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
         MailboxCapability,
@@ -594,6 +645,34 @@ mod tests {
 
     fn envelope() -> EncryptedMessageEnvelope {
         EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2, 0xc3]).unwrap()
+    }
+
+    #[derive(Default)]
+    struct MemoryKeystore(Option<KeystoreSecret>);
+
+    impl OsKeystore for MemoryKeystore {
+        type Error = Infallible;
+
+        fn load(&self, _: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
+            Ok(self
+                .0
+                .as_ref()
+                .map(|secret| KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap()))
+        }
+
+        fn store(
+            &mut self,
+            _: &KeystoreEntryName,
+            secret: &KeystoreSecret,
+        ) -> Result<(), Self::Error> {
+            self.0 = Some(KeystoreSecret::new(secret.as_bytes().to_vec()).unwrap());
+            Ok(())
+        }
+
+        fn delete(&mut self, _: &KeystoreEntryName) -> Result<(), Self::Error> {
+            self.0 = None;
+            Ok(())
+        }
     }
 
     #[test]
@@ -932,6 +1011,18 @@ mod tests {
         assert_eq!(receipt.sequence(), 0);
         assert_eq!((receipt.received_at(), receipt.expires_at()), (100, 110));
         receipt.verify().unwrap();
+    }
+
+    #[test]
+    fn persists_and_restores_the_relay_identity() {
+        let mut keystore = MemoryKeystore::default();
+        let first = RelayIdentity::load_or_generate(&mut keystore).unwrap();
+        let second = RelayIdentity::load_or_generate(&mut keystore).unwrap();
+
+        assert_eq!(
+            first.signing_keypair().public_key(),
+            second.signing_keypair().public_key()
+        );
     }
 
     #[test]
