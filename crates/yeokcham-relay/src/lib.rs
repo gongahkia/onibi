@@ -11,6 +11,7 @@ use yeokcham_protocol::{
 };
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
+pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const RELAY_SCHEMA_VERSION: u32 = 2;
 
 pub struct RelayDatabase {
@@ -128,6 +129,73 @@ impl RelayDatabase {
         u64::try_from(sequence).map_err(|_| RelayDatabaseError::SequenceExhausted)
     }
 
+    pub fn retrieve_envelopes(
+        &self,
+        capability: &MailboxCapability,
+        after_sequence: Option<u64>,
+        now: u64,
+        limit: u16,
+    ) -> Result<Vec<RelayEnvelope>, RelayDatabaseError> {
+        if limit == 0 || limit > MAX_MAILBOX_RETRIEVAL_ENVELOPES {
+            return Err(RelayDatabaseError::InvalidRetrievalLimit);
+        }
+        let capability_digest = capability_digest(capability)?;
+        let now = database_timestamp(now)?;
+        let after_sequence = after_sequence
+            .map(database_timestamp)
+            .transpose()?
+            .unwrap_or(-1);
+        let registered = self.connection.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2
+             )",
+            params![
+                capability.mailbox_id().as_slice(),
+                capability_digest.as_slice(),
+            ],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !registered {
+            return Err(RelayDatabaseError::InvalidCapability);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, ciphertext, received_at, expires_at FROM relay_envelopes
+             WHERE mailbox_id = ?1 AND sequence > ?2 AND expires_at > ?3
+             ORDER BY sequence ASC LIMIT ?4",
+        )?;
+        let rows = statement.query_map(
+            params![
+                capability.mailbox_id().as_slice(),
+                after_sequence,
+                now,
+                i64::from(limit),
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        rows.map(|row| {
+            let (sequence, ciphertext, received_at, expires_at) = row?;
+            Ok(RelayEnvelope {
+                sequence: u64::try_from(sequence)
+                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+                envelope: EncryptedMessageEnvelope::decode(&ciphertext)
+                    .map_err(|_| RelayDatabaseError::InvalidEnvelope)?,
+                received_at: u64::try_from(received_at)
+                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+                expires_at: u64::try_from(expires_at)
+                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+            })
+        })
+        .collect()
+    }
+
     fn from_connection(mut connection: Connection) -> Result<Self, RelayDatabaseError> {
         connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
@@ -157,6 +225,38 @@ pub enum RelayDatabaseError {
     TimestampOutOfRange,
     #[error("mailbox envelope sequence is exhausted")]
     SequenceExhausted,
+    #[error("mailbox retrieval limit is invalid")]
+    InvalidRetrievalLimit,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RelayEnvelope {
+    sequence: u64,
+    envelope: EncryptedMessageEnvelope,
+    received_at: u64,
+    expires_at: u64,
+}
+
+impl RelayEnvelope {
+    #[must_use]
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    #[must_use]
+    pub const fn envelope(&self) -> &EncryptedMessageEnvelope {
+        &self.envelope
+    }
+
+    #[must_use]
+    pub const fn received_at(&self) -> u64 {
+        self.received_at
+    }
+
+    #[must_use]
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
 }
 
 fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseError> {
@@ -391,9 +491,10 @@ pub enum RelayRetentionPolicyError {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress, MailboxIngressError, MailboxQuota,
-        MailboxQuotaError, MailboxQuotaTracker, RELAY_SCHEMA_VERSION, RelayDatabase,
-        RelayDatabaseError, RelayRetentionPolicy, RelayRetentionPolicyError,
+        MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
+        MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
+        RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError, RelayRetentionPolicy,
+        RelayRetentionPolicyError,
     };
     use rusqlite::Connection;
     use yeokcham_protocol::{
@@ -598,6 +699,77 @@ mod tests {
             })
             .unwrap();
         assert_eq!(envelope_count, 1);
+    }
+
+    #[test]
+    fn retrieves_unexpired_envelopes_in_sequence_order() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let first = envelope();
+        let second = EncryptedMessageEnvelope::new(vec![0xd4], vec![0xe5]).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(100).unwrap(), 100)
+            .unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .insert_envelope(&capability, &first, 100, retention)
+            .unwrap();
+        database
+            .insert_envelope(&capability, &second, 100, retention)
+            .unwrap();
+
+        let retrieved = database
+            .retrieve_envelopes(&capability, None, 109, 2)
+            .unwrap();
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(retrieved[0].sequence(), 0);
+        assert_eq!(retrieved[0].envelope(), &first);
+        assert_eq!(retrieved[0].received_at(), 100);
+        assert_eq!(retrieved[0].expires_at(), 110);
+        assert_eq!(retrieved[1].sequence(), 1);
+        assert_eq!(retrieved[1].envelope(), &second);
+        assert_eq!(
+            database
+                .retrieve_envelopes(&capability, Some(0), 109, 1)
+                .unwrap(),
+            vec![retrieved[1].clone()]
+        );
+        assert!(
+            database
+                .retrieve_envelopes(&capability, None, 110, 2)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn rejects_unauthorized_or_unbounded_envelope_retrieval() {
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let unauthorized = MailboxCapability::new(
+            [0x11; MAILBOX_IDENTIFIER_BYTES],
+            [0x33; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap();
+
+        assert!(matches!(
+            database.retrieve_envelopes(&unauthorized, None, 100, 1),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        assert!(matches!(
+            database.retrieve_envelopes(&unauthorized, None, 100, 0),
+            Err(RelayDatabaseError::InvalidRetrievalLimit)
+        ));
+        assert!(matches!(
+            database.retrieve_envelopes(
+                &unauthorized,
+                None,
+                100,
+                MAX_MAILBOX_RETRIEVAL_ENVELOPES + 1,
+            ),
+            Err(RelayDatabaseError::InvalidRetrievalLimit)
+        ));
     }
 
     #[test]
