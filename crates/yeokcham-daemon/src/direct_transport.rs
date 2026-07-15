@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, VarInt};
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
@@ -8,6 +8,9 @@ use yeokcham_protocol::{
 
 const DIRECT_PEER_AUTH_LABEL: &[u8] = b"yeokcham/v1/direct-peer-authentication";
 const DIRECT_PEER_AUTH_BINDING_BYTES: usize = 32;
+pub const MAX_DIRECT_CONNECTION_ATTEMPTS: u8 = 3;
+pub const MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct DirectTransport {
     endpoint: Endpoint,
@@ -15,6 +18,43 @@ pub struct DirectTransport {
 
 pub struct DirectConnection {
     connection: Connection,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DirectConnectionAttempts {
+    attempts: u8,
+    timeout: Duration,
+}
+
+impl DirectConnectionAttempts {
+    pub fn new(attempts: u8, timeout: Duration) -> Result<Self, DirectTransportError> {
+        if attempts == 0 || attempts > MAX_DIRECT_CONNECTION_ATTEMPTS {
+            return Err(DirectTransportError::InvalidConnectionAttemptCount);
+        }
+        if timeout.is_zero() || timeout > MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT {
+            return Err(DirectTransportError::InvalidConnectionAttemptTimeout);
+        }
+        Ok(Self { attempts, timeout })
+    }
+
+    #[must_use]
+    pub const fn attempts(self) -> u8 {
+        self.attempts
+    }
+
+    #[must_use]
+    pub const fn timeout(self) -> Duration {
+        self.timeout
+    }
+}
+
+impl Default for DirectConnectionAttempts {
+    fn default() -> Self {
+        Self {
+            attempts: 1,
+            timeout: DEFAULT_DIRECT_CONNECTION_ATTEMPT_TIMEOUT,
+        }
+    }
 }
 
 impl DirectTransport {
@@ -42,15 +82,41 @@ impl DirectTransport {
         client_config: ClientConfig,
         server_name: &str,
     ) -> Result<DirectConnection, DirectTransportError> {
+        self.connect_with_attempts(
+            profile,
+            client_config,
+            server_name,
+            DirectConnectionAttempts::default(),
+        )
+        .await
+    }
+
+    pub async fn connect_with_attempts(
+        &self,
+        profile: DirectProfileConfig,
+        client_config: ClientConfig,
+        server_name: &str,
+        connection_attempts: DirectConnectionAttempts,
+    ) -> Result<DirectConnection, DirectTransportError> {
         if server_name.is_empty() {
             return Err(DirectTransportError::EmptyServerName);
         }
-        let connecting = self
-            .endpoint
-            .connect_with(client_config, profile.endpoint(), server_name)
-            .map_err(DirectTransportError::Connect)?;
-        let connection = connecting.await.map_err(DirectTransportError::Handshake)?;
-        Ok(DirectConnection { connection })
+        let mut last_error = None;
+        for _ in 0..connection_attempts.attempts() {
+            let connecting = self
+                .endpoint
+                .connect_with(client_config.clone(), profile.endpoint(), server_name)
+                .map_err(DirectTransportError::Connect)?;
+            match tokio::time::timeout(connection_attempts.timeout(), connecting).await {
+                Ok(Ok(connection)) => return Ok(DirectConnection { connection }),
+                Ok(Err(error)) => last_error = Some(DirectTransportError::Handshake(error)),
+                Err(_) => last_error = Some(DirectTransportError::ConnectionAttemptTimedOut),
+            }
+        }
+        match last_error {
+            Some(error) => Err(error),
+            None => Err(DirectTransportError::InvalidConnectionAttemptCount),
+        }
     }
 
     pub async fn accept(&self) -> Result<DirectConnection, DirectTransportError> {
@@ -225,6 +291,16 @@ pub enum DirectTransportError {
     Connect(#[source] quinn::ConnectError),
     #[error("direct QUIC TLS handshake failed: {0}")]
     Handshake(#[source] quinn::ConnectionError),
+    #[error(
+        "direct connection attempt count must be between 1 and {MAX_DIRECT_CONNECTION_ATTEMPTS}"
+    )]
+    InvalidConnectionAttemptCount,
+    #[error(
+        "direct connection attempt timeout must be between 1ns and {MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT:?}"
+    )]
+    InvalidConnectionAttemptTimeout,
+    #[error("direct QUIC connection attempt timed out")]
+    ConnectionAttemptTimedOut,
     #[error("direct QUIC endpoint is shut down")]
     Shutdown,
     #[error("failed to open direct peer-authentication stream: {0}")]
@@ -255,7 +331,7 @@ pub enum DirectTransportError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     use quinn::{
         ClientConfig, ServerConfig, rustls::RootCertStore, rustls::pki_types::PrivatePkcs8KeyDer,
@@ -266,7 +342,10 @@ mod tests {
         DirectProfileConfig, EnvelopeKind, ProtocolVersion, WireEnvelope, WireLimits,
     };
 
-    use super::{DirectTransport, DirectTransportError};
+    use super::{
+        DirectConnectionAttempts, DirectTransport, DirectTransportError,
+        MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT, MAX_DIRECT_CONNECTION_ATTEMPTS,
+    };
 
     fn server_config() -> (
         ServerConfig,
@@ -299,7 +378,12 @@ mod tests {
 
         let (accepted, connected) = tokio::join!(
             server.accept(),
-            client.connect(profile, client_config(certificate), "localhost")
+            client.connect_with_attempts(
+                profile,
+                client_config(certificate),
+                "localhost",
+                DirectConnectionAttempts::new(1, Duration::from_secs(1)).unwrap()
+            )
         );
         let accepted = accepted.unwrap();
         let connected = connected.unwrap();
@@ -338,5 +422,37 @@ mod tests {
         server.shutdown();
         client.wait_idle().await;
         server.wait_idle().await;
+    }
+
+    #[test]
+    fn validates_bounded_connection_attempts() {
+        assert_eq!(
+            DirectConnectionAttempts::new(2, Duration::from_secs(1))
+                .unwrap()
+                .attempts(),
+            2
+        );
+        assert!(matches!(
+            DirectConnectionAttempts::new(0, Duration::from_secs(1)),
+            Err(DirectTransportError::InvalidConnectionAttemptCount)
+        ));
+        assert!(matches!(
+            DirectConnectionAttempts::new(
+                MAX_DIRECT_CONNECTION_ATTEMPTS + 1,
+                Duration::from_secs(1)
+            ),
+            Err(DirectTransportError::InvalidConnectionAttemptCount)
+        ));
+        assert!(matches!(
+            DirectConnectionAttempts::new(1, Duration::ZERO),
+            Err(DirectTransportError::InvalidConnectionAttemptTimeout)
+        ));
+        assert!(matches!(
+            DirectConnectionAttempts::new(
+                1,
+                MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT + Duration::from_nanos(1)
+            ),
+            Err(DirectTransportError::InvalidConnectionAttemptTimeout)
+        ));
     }
 }

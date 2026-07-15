@@ -16,7 +16,10 @@ pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
 };
-pub use direct_transport::{DirectConnection, DirectTransport, DirectTransportError};
+pub use direct_transport::{
+    DirectConnection, DirectConnectionAttempts, DirectTransport, DirectTransportError,
+    MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT, MAX_DIRECT_CONNECTION_ATTEMPTS,
+};
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
