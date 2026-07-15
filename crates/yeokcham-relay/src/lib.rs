@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -16,6 +17,56 @@ pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECOND
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const RELAY_SCHEMA_VERSION: u32 = 2;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
+
+pub const RELAY_HEALTH_PATH: &str = "/healthz";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayHealthEndpoint {
+    address: SocketAddr,
+}
+
+impl RelayHealthEndpoint {
+    pub fn new(address: SocketAddr) -> Result<Self, RelayHealthEndpointError> {
+        if address.port() == 0 {
+            return Err(RelayHealthEndpointError::ZeroPort);
+        }
+        if !address.ip().is_loopback() {
+            return Err(RelayHealthEndpointError::NonLoopbackAddress);
+        }
+        Ok(Self { address })
+    }
+
+    #[must_use]
+    pub const fn address(self) -> SocketAddr {
+        self.address
+    }
+
+    pub fn response(
+        &self,
+        path: &str,
+        database: &RelayDatabase,
+    ) -> Result<&'static str, RelayHealthEndpointError> {
+        if path != RELAY_HEALTH_PATH {
+            return Err(RelayHealthEndpointError::UnknownPath);
+        }
+        database
+            .schema_version()
+            .map_err(|_| RelayHealthEndpointError::Unhealthy)?;
+        Ok("ok\n")
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayHealthEndpointError {
+    #[error("relay health endpoint port must be nonzero")]
+    ZeroPort,
+    #[error("relay health endpoint must bind to loopback")]
+    NonLoopbackAddress,
+    #[error("relay health endpoint path is unknown")]
+    UnknownPath,
+    #[error("relay health check failed")]
+    Unhealthy,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelfHostedRelayConfig {
@@ -680,9 +731,9 @@ mod tests {
     use super::{
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
-        RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError, RelayIdentity,
-        RelayRetentionPolicy, RelayRetentionPolicyError, SelfHostedRelayConfig,
-        SelfHostedRelayConfigError,
+        RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError,
+        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayRetentionPolicy,
+        RelayRetentionPolicyError, SelfHostedRelayConfig, SelfHostedRelayConfigError,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1119,6 +1170,23 @@ mod tests {
             )
             .unwrap_err(),
             SelfHostedRelayConfigError::InvalidDatabasePath
+        );
+    }
+
+    #[test]
+    fn exposes_loopback_only_redacted_health_response() {
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let endpoint = RelayHealthEndpoint::new("127.0.0.1:8080".parse().unwrap()).unwrap();
+
+        assert_eq!(endpoint.response(RELAY_HEALTH_PATH, &database), Ok("ok\n"));
+        assert_eq!(
+            endpoint.response("/metrics", &database),
+            Err(RelayHealthEndpointError::UnknownPath)
+        );
+        assert_eq!(
+            RelayHealthEndpoint::new("192.0.2.1:8080".parse().unwrap()),
+            Err(RelayHealthEndpointError::NonLoopbackAddress)
         );
     }
 
