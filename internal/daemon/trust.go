@@ -179,7 +179,7 @@ func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.
 		if verdict == approval.VerdictApprove {
 			return intake.Response{Decision: string(approval.VerdictApprove)}
 		}
-		return intake.Response{Decision: "denied", Reason: reason}
+		return intake.Response{Decision: string(approval.VerdictDeny), Reason: reason}
 	}
 }
 

@@ -317,7 +317,7 @@ func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 		if got.err != nil {
 			t.Fatal(got.err)
 		}
-		if got.resp.Decision != string(approval.VerdictApprove) && got.resp.Decision != "denied" {
+		if got.resp.Decision != string(approval.VerdictApprove) && got.resp.Decision != string(approval.VerdictDeny) {
 			t.Fatalf("response = %#v", got.resp)
 		}
 	case <-time.After(time.Second):
@@ -329,6 +329,13 @@ func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 	}
 	if a.State != approval.StateApproved && a.State != approval.StateDenied {
 		t.Fatalf("approval state = %s", a.State)
+	}
+}
+
+func TestResponseForDecisionDenyUsesProviderVerdict(t *testing.T) {
+	resp := responseForDecision(approval.Decision{Verdict: approval.VerdictDeny, Reason: "owner denied"}, intake.Event{})
+	if resp.Decision != string(approval.VerdictDeny) || resp.Reason != "owner denied" {
+		t.Fatalf("response=%#v", resp)
 	}
 }
 

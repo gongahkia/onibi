@@ -24,20 +24,22 @@ import (
 )
 
 type adapterStatus struct {
-	Name             string `json:"name"`
-	Support          string `json:"support"`
-	Detected         bool   `json:"detected"`
-	Installed        bool   `json:"installed"`
-	Managed          bool   `json:"managed"`
-	HashRecorded     bool   `json:"hash_recorded"`
-	Tampered         bool   `json:"tampered"`
-	Adoptable        bool   `json:"adoptable"`
-	InstalledVersion string `json:"installed_version,omitempty"`
-	BundledVersion   string `json:"bundled_version"`
-	Outdated         bool   `json:"outdated"`
-	Path             string `json:"path,omitempty"`
-	Message          string `json:"message,omitempty"`
-	Next             string `json:"next,omitempty"`
+	Name             string                    `json:"name"`
+	Support          string                    `json:"support"`
+	Certified        bool                      `json:"certified"`
+	Contract         *adapters.AdapterContract `json:"contract,omitempty"`
+	Detected         bool                      `json:"detected"`
+	Installed        bool                      `json:"installed"`
+	Managed          bool                      `json:"managed"`
+	HashRecorded     bool                      `json:"hash_recorded"`
+	Tampered         bool                      `json:"tampered"`
+	Adoptable        bool                      `json:"adoptable"`
+	InstalledVersion string                    `json:"installed_version,omitempty"`
+	BundledVersion   string                    `json:"bundled_version"`
+	Outdated         bool                      `json:"outdated"`
+	Path             string                    `json:"path,omitempty"`
+	Message          string                    `json:"message,omitempty"`
+	Next             string                    `json:"next,omitempty"`
 }
 
 func runAdapters(cmd *cobra.Command, _ []string) error {
@@ -66,7 +68,7 @@ func runAdapters(cmd *cobra.Command, _ []string) error {
 		return enc.Encode(rows)
 	}
 	style := styleFor(cmd)
-	table := [][]string{tableHeader(style, "NAME", "SUPPORT", "DETECTED", "INSTALLED", "VERSION", "PATH", "STATUS")}
+	table := [][]string{tableHeader(style, "NAME", "SUPPORT", "V1", "DETECTED", "INSTALLED", "VERSION", "PATH", "STATUS")}
 	for _, r := range rows {
 		ver := r.InstalledVersion
 		if ver == "" {
@@ -78,6 +80,7 @@ func runAdapters(cmd *cobra.Command, _ []string) error {
 		table = append(table, []string{
 			r.Name,
 			r.Support,
+			style.bool(r.Certified),
 			style.bool(r.Detected),
 			style.installed(r.Installed),
 			ver,
@@ -274,7 +277,7 @@ func statusFromInfo(info common.Info, detected bool) adapterStatus {
 	if info.InstalledVersion != nil {
 		installed = *info.InstalledVersion
 	}
-	return adapterStatus{
+	row := adapterStatus{
 		Name:             info.Name,
 		Support:          info.Support,
 		Detected:         detected,
@@ -290,6 +293,11 @@ func statusFromInfo(info common.Info, detected bool) adapterStatus {
 		Message:          info.Message,
 		Next:             info.Next,
 	}
+	if contract, ok := adapters.ContractFor(info.Name); ok {
+		row.Certified = true
+		row.Contract = &contract
+	}
+	return row
 }
 
 func agentDetected(name string) bool {

@@ -248,7 +248,7 @@ func responseForDecision(dec approval.Decision, ev intake.Event) intake.Response
 	case approval.VerdictEdit:
 		return intake.Response{Decision: string(approval.VerdictEdit), UpdatedInput: string(dec.UpdatedInput)}
 	case approval.VerdictDeny:
-		return intake.Response{Decision: "denied", Reason: dec.Reason}
+		return intake.Response{Decision: string(approval.VerdictDeny), Reason: dec.Reason}
 	case approval.VerdictExpire:
 		return intake.Response{Decision: "expired", Reason: dec.Reason}
 	default:

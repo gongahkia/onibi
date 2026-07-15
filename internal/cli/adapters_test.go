@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,7 +13,31 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/adapters/common"
 )
+
+func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
+	row := statusFromInfo(common.Info{Name: "codex"}, false)
+	if !row.Certified || row.Contract == nil || row.Contract.Agent != "codex" || !row.Contract.Approval.BlocksTool {
+		t.Fatalf("certified row=%+v", row)
+	}
+	body, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	contract, ok := got["contract"].(map[string]any)
+	if !ok || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" {
+		t.Fatalf("json=%s", body)
+	}
+	deferred := statusFromInfo(common.Info{Name: "opencode"}, false)
+	if deferred.Certified || deferred.Contract != nil {
+		t.Fatalf("deferred row=%+v", deferred)
+	}
+}
 
 func TestAdaptersAddLocalManifestCopiesAndRegisters(t *testing.T) {
 	dir := t.TempDir()
