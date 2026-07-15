@@ -2025,6 +2025,57 @@ mod tests {
     }
 
     #[test]
+    fn abuse_rejections_leave_victim_mailbox_quota_intact() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability_with(0x23, 0x45);
+        let unauthorized = capability_with(0x23, 0x67);
+        let envelope = envelope();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(envelope_bytes).unwrap(), 0)
+            .unwrap();
+        let mut relay = RateLimitedRelay::new(database, RelayIngressRateLimit::new(1, 60).unwrap());
+        let retention = RelayRetentionPolicy::new(120).unwrap();
+
+        relay
+            .insert_envelope(&capability, &envelope, 100, retention)
+            .unwrap();
+        for received_at in 101..105 {
+            assert!(matches!(
+                relay.insert_envelope(&capability, &envelope, received_at, retention),
+                Err(RelayIngressError::RateLimited)
+            ));
+        }
+        assert!(matches!(
+            relay.insert_envelope(&unauthorized, &envelope, 105, retention),
+            Err(RelayIngressError::InvalidCapability)
+        ));
+        assert!(matches!(
+            relay.insert_envelope(&capability, &envelope, 160, retention),
+            Err(RelayIngressError::Database(
+                RelayDatabaseError::QuotaExceeded
+            ))
+        ));
+        let database = relay.into_database();
+        let (envelope_count, used_bytes): (u64, Vec<u8>) = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*), used_bytes FROM relay_envelopes
+                 JOIN relay_mailboxes USING(mailbox_id)
+                 WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(envelope_count, 1);
+        assert_eq!(
+            u64::from_be_bytes(used_bytes.try_into().unwrap()),
+            envelope_bytes
+        );
+    }
+
+    #[test]
     fn migrates_an_empty_relay_database_to_the_current_schema() {
         let database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
