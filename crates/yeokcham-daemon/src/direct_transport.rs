@@ -14,6 +14,8 @@ const DIRECT_PEER_AUTH_BINDING_BYTES: usize = 32;
 pub const MAX_DIRECT_CONNECTION_ATTEMPTS: u8 = 3;
 pub const MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MAX_DIRECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
+pub const MAX_DIRECT_CONCURRENT_STREAMS: u32 = 32;
+pub const MAX_DIRECT_CONNECTION_WINDOW_BYTES: u32 = 4 * 1024 * 1024;
 const DEFAULT_DIRECT_CONNECTION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_DIRECT_RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
@@ -23,6 +25,53 @@ pub struct DirectTransport {
 
 pub struct DirectConnection {
     connection: Connection,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DirectConnectionLimits {
+    max_uni_streams: u32,
+    max_bi_streams: u32,
+    receive_window_bytes: u32,
+    send_window_bytes: u32,
+}
+
+impl DirectConnectionLimits {
+    pub fn new(
+        max_uni_streams: u32,
+        max_bi_streams: u32,
+        receive_window_bytes: u32,
+        send_window_bytes: u32,
+    ) -> Result<Self, DirectTransportError> {
+        if max_uni_streams > MAX_DIRECT_CONCURRENT_STREAMS
+            || max_bi_streams > MAX_DIRECT_CONCURRENT_STREAMS
+        {
+            return Err(DirectTransportError::InvalidConcurrentStreamLimit);
+        }
+        if receive_window_bytes == 0
+            || receive_window_bytes > MAX_DIRECT_CONNECTION_WINDOW_BYTES
+            || send_window_bytes == 0
+            || send_window_bytes > MAX_DIRECT_CONNECTION_WINDOW_BYTES
+        {
+            return Err(DirectTransportError::InvalidConnectionWindow);
+        }
+        Ok(Self {
+            max_uni_streams,
+            max_bi_streams,
+            receive_window_bytes,
+            send_window_bytes,
+        })
+    }
+}
+
+impl Default for DirectConnectionLimits {
+    fn default() -> Self {
+        Self {
+            max_uni_streams: 8,
+            max_bi_streams: 4,
+            receive_window_bytes: 1024 * 1024,
+            send_window_bytes: 1024 * 1024,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -148,7 +197,7 @@ impl DirectTransport {
                 .connect_with(client_config.clone(), profile.endpoint(), server_name)
                 .map_err(DirectTransportError::Connect)?;
             match tokio::time::timeout(connection_attempts.timeout(), connecting).await {
-                Ok(Ok(connection)) => return Ok(DirectConnection { connection }),
+                Ok(Ok(connection)) => return Ok(DirectConnection::new(connection)),
                 Ok(Err(error)) => last_error = Some(DirectTransportError::Handshake(error)),
                 Err(_) => last_error = Some(DirectTransportError::ConnectionAttemptTimedOut),
             }
@@ -180,7 +229,7 @@ impl DirectTransport {
             .await
             .ok_or(DirectTransportError::Shutdown)?;
         let connection = incoming.await.map_err(DirectTransportError::Handshake)?;
-        Ok(DirectConnection { connection })
+        Ok(DirectConnection::new(connection))
     }
 
     pub fn shutdown(&self) {
@@ -193,6 +242,22 @@ impl DirectTransport {
 }
 
 impl DirectConnection {
+    fn new(connection: Connection) -> Self {
+        let this = Self { connection };
+        this.apply_limits(DirectConnectionLimits::default());
+        this
+    }
+
+    pub fn apply_limits(&self, limits: DirectConnectionLimits) {
+        self.connection
+            .set_max_concurrent_uni_streams(VarInt::from_u32(limits.max_uni_streams));
+        self.connection
+            .set_max_concurrent_bi_streams(VarInt::from_u32(limits.max_bi_streams));
+        self.connection
+            .set_receive_window(VarInt::from_u32(limits.receive_window_bytes));
+        self.connection
+            .set_send_window(u64::from(limits.send_window_bytes));
+    }
     #[must_use]
     pub const fn connection(&self) -> &Connection {
         &self.connection
@@ -357,6 +422,12 @@ pub enum DirectTransportError {
     InvalidConnectionAttemptTimeout,
     #[error("direct retry backoff must be between 1ns and {MAX_DIRECT_RETRY_BACKOFF:?}")]
     InvalidRetryBackoff,
+    #[error("direct concurrent stream limits must not exceed {MAX_DIRECT_CONCURRENT_STREAMS}")]
+    InvalidConcurrentStreamLimit,
+    #[error(
+        "direct connection windows must be between 1 and {MAX_DIRECT_CONNECTION_WINDOW_BYTES} bytes"
+    )]
+    InvalidConnectionWindow,
     #[error("direct QUIC connection attempt timed out")]
     ConnectionAttemptTimedOut,
     #[error("direct QUIC endpoint is shut down")]
@@ -401,8 +472,9 @@ mod tests {
     };
 
     use super::{
-        DirectConnectionAttempts, DirectTransport, DirectTransportError,
-        MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT, MAX_DIRECT_CONNECTION_ATTEMPTS,
+        DirectConnectionAttempts, DirectConnectionLimits, DirectTransport, DirectTransportError,
+        MAX_DIRECT_CONCURRENT_STREAMS, MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT,
+        MAX_DIRECT_CONNECTION_ATTEMPTS, MAX_DIRECT_CONNECTION_WINDOW_BYTES,
         MAX_DIRECT_RETRY_BACKOFF,
     };
 
@@ -567,6 +639,23 @@ mod tests {
         assert!(matches!(
             attempts.with_retry_backoff(MAX_DIRECT_RETRY_BACKOFF + Duration::from_nanos(1)),
             Err(DirectTransportError::InvalidRetryBackoff)
+        ));
+    }
+
+    #[test]
+    fn validates_connection_resource_limits() {
+        assert!(DirectConnectionLimits::new(8, 4, 1024, 1024).is_ok());
+        assert!(matches!(
+            DirectConnectionLimits::new(MAX_DIRECT_CONCURRENT_STREAMS + 1, 4, 1024, 1024),
+            Err(DirectTransportError::InvalidConcurrentStreamLimit)
+        ));
+        assert!(matches!(
+            DirectConnectionLimits::new(8, 4, 0, 1024),
+            Err(DirectTransportError::InvalidConnectionWindow)
+        ));
+        assert!(matches!(
+            DirectConnectionLimits::new(8, 4, MAX_DIRECT_CONNECTION_WINDOW_BYTES + 1, 1024),
+            Err(DirectTransportError::InvalidConnectionWindow)
         ));
     }
 }
