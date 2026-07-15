@@ -6,7 +6,10 @@ use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::PathBu
 use yeokcham_core::{
     IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
 };
-use yeokcham_protocol::{CONTACT_INVITATION_BYTES, ContactInvitation, IdentityIdentifier};
+use yeokcham_protocol::{
+    CONTACT_INVITATION_BYTES, ContactInvitation, IdentityIdentifier,
+    TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
+};
 
 #[cfg(target_os = "linux")]
 use yeokcham_core::LinuxKeystore;
@@ -16,6 +19,7 @@ use yeokcham_core::MacOsKeystore;
 use yeokcham_core::WindowsKeystore;
 
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
+const MAX_RELAY_PROFILE_BYTES: usize = 64;
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
@@ -35,6 +39,10 @@ enum Command {
     Contact {
         #[command(subcommand)]
         command: ContactCommand,
+    },
+    RelayProfile {
+        #[command(subcommand)]
+        command: RelayProfileCommand,
     },
     ReleaseMetadata {
         #[arg(long)]
@@ -84,6 +92,20 @@ enum ContactInvitationCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum RelayProfileCommand {
+    Create {
+        #[arg(long)]
+        onion_service_public_key: String,
+        #[arg(long)]
+        virtual_port: u16,
+    },
+    Inspect {
+        #[arg(long)]
+        profile: String,
+    },
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse();
     match arguments.command {
@@ -115,6 +137,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print!("{}", inspect_contact_invitation(&invitation)?);
                 }
             },
+        },
+        Command::RelayProfile { command } => match command {
+            RelayProfileCommand::Create {
+                onion_service_public_key,
+                virtual_port,
+            } => {
+                print!(
+                    "{}",
+                    relay_profile_record(&onion_service_public_key, virtual_port)?
+                );
+            }
+            RelayProfileCommand::Inspect { profile } => {
+                print!("{}", inspect_relay_profile(&profile)?);
+            }
         },
         Command::ReleaseMetadata {
             source_revision,
@@ -207,6 +243,29 @@ fn inspect_contact_invitation(encoded: &str) -> Result<String, Box<dyn Error>> {
     ))
 }
 
+fn relay_profile_record(
+    onion_service_public_key_hex: &str,
+    virtual_port: u16,
+) -> Result<String, Box<dyn Error>> {
+    let mut onion_service_public_key = [0; TOR_ONION_SERVICE_PUBLIC_KEY_BYTES];
+    decode_canonical_hex(onion_service_public_key_hex, &mut onion_service_public_key)?;
+    let profile = TorMaildropProfileConfig::new(onion_service_public_key, virtual_port)?;
+    Ok(format!("profile={}\n", hexadecimal(&profile.encode()?)))
+}
+
+fn inspect_relay_profile(encoded: &str) -> Result<String, Box<dyn Error>> {
+    let encoded = decode_bounded_canonical_hex(encoded, MAX_RELAY_PROFILE_BYTES)?;
+    let profile = TorMaildropProfileConfig::decode(&encoded)?;
+    if profile.encode()? != encoded {
+        return Err("relay profile is not canonically encoded".into());
+    }
+    Ok(format!(
+        "onion_service_public_key={}\nvirtual_port={}\n",
+        hexadecimal(&profile.onion_service_public_key()),
+        profile.virtual_port(),
+    ))
+}
+
 fn decode_canonical_hex(encoded: &str, output: &mut [u8]) -> Result<(), &'static str> {
     if encoded.len() != output.len() * 2 || !is_canonical_hex(encoded) {
         return Err("hexadecimal input is not canonical or has an invalid length");
@@ -217,6 +276,18 @@ fn decode_canonical_hex(encoded: &str, output: &mut [u8]) -> Result<(), &'static
         *byte = high << 4 | low;
     }
     Ok(())
+}
+
+fn decode_bounded_canonical_hex(
+    encoded: &str,
+    maximum_bytes: usize,
+) -> Result<Vec<u8>, &'static str> {
+    if encoded.is_empty() || encoded.len() % 2 != 0 || encoded.len() / 2 > maximum_bytes {
+        return Err("hexadecimal input has an invalid length");
+    }
+    let mut output = vec![0; encoded.len() / 2];
+    decode_canonical_hex(encoded, &mut output)?;
+    Ok(output)
 }
 
 const fn hexadecimal_nibble(byte: u8) -> Option<u8> {
@@ -346,8 +417,9 @@ mod tests {
     use super::{
         Arguments, Command, ContactCommand, ContactInvitation, ContactInvitationCommand,
         IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
-        OsKeystore, contact_invitation_record, create_identity, decode_canonical_hex,
-        identity_record, inspect_contact_invitation, load_identity, release_metadata,
+        OsKeystore, RelayProfileCommand, TorMaildropProfileConfig, contact_invitation_record,
+        create_identity, decode_canonical_hex, identity_record, inspect_contact_invitation,
+        inspect_relay_profile, load_identity, relay_profile_record, release_metadata,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -534,6 +606,69 @@ mod tests {
                     command: ContactInvitationCommand::Inspect { invitation }
                 }
             } if invitation == "00"
+        ));
+    }
+
+    #[test]
+    fn relay_profile_commands_emit_and_inspect_canonical_profiles() {
+        let onion_service_public_key = "11".repeat(32);
+        let encoded = relay_profile_record(&onion_service_public_key, 4444).unwrap();
+        let profile = encoded.strip_prefix("profile=").unwrap().trim_end();
+        assert_eq!(
+            inspect_relay_profile(profile).unwrap(),
+            format!("onion_service_public_key={onion_service_public_key}\nvirtual_port=4444\n")
+        );
+        let mut binary = Vec::new();
+        binary.resize(profile.len() / 2, 0);
+        decode_canonical_hex(profile, &mut binary).unwrap();
+        assert_eq!(
+            TorMaildropProfileConfig::decode(&binary)
+                .unwrap()
+                .virtual_port(),
+            4444
+        );
+        assert!(inspect_relay_profile(&profile.to_uppercase()).is_err());
+        assert!(inspect_relay_profile(&format!("{profile}00")).is_err());
+        assert!(inspect_relay_profile(&format!("9803{}", &profile[2..])).is_err());
+        assert!(relay_profile_record(&"00".repeat(32), 4444).is_err());
+        assert!(relay_profile_record(&onion_service_public_key, 0).is_err());
+    }
+
+    #[test]
+    fn parses_relay_profile_commands() {
+        let onion_service_public_key = "11".repeat(32);
+        let create = Arguments::try_parse_from([
+            "yeokcham",
+            "relay-profile",
+            "create",
+            "--onion-service-public-key",
+            &onion_service_public_key,
+            "--virtual-port",
+            "4444",
+        ])
+        .unwrap();
+        assert!(matches!(
+            create.command,
+            Command::RelayProfile {
+                command: RelayProfileCommand::Create {
+                    virtual_port: 4444,
+                    ..
+                }
+            }
+        ));
+        let inspect = Arguments::try_parse_from([
+            "yeokcham",
+            "relay-profile",
+            "inspect",
+            "--profile",
+            "8301",
+        ])
+        .unwrap();
+        assert!(matches!(
+            inspect.command,
+            Command::RelayProfile {
+                command: RelayProfileCommand::Inspect { profile }
+            } if profile == "8301"
         ));
     }
 }
