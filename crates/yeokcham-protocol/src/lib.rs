@@ -55,6 +55,7 @@ pub use attachment_key::{
 pub use attachment_manifest::{
     ATTACHMENT_MANIFEST_NONCE_BYTES, ATTACHMENT_MANIFEST_SCHEMA_VERSION,
     ATTACHMENT_MANIFEST_TAG_BYTES, AttachmentManifest, AttachmentManifestError,
+    AttachmentSizeLimit, AttachmentSizeLimitError, DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES,
     ENCRYPTED_ATTACHMENT_MANIFEST_SCHEMA_VERSION, EncryptedAttachmentManifest,
     MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
 };

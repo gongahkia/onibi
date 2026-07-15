@@ -16,6 +16,7 @@ pub const ENCRYPTED_ATTACHMENT_MANIFEST_SCHEMA_VERSION: u8 = 1;
 pub const ATTACHMENT_MANIFEST_NONCE_BYTES: usize = 24;
 pub const ATTACHMENT_MANIFEST_TAG_BYTES: usize = 16;
 pub const MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES: u64 = 100 * 1024 * 1024;
 const MANIFEST_FIELDS: u64 = 3;
 const ENCRYPTED_MANIFEST_FIELDS: u64 = 4;
 const MAX_MANIFEST_CHUNKS: usize =
@@ -28,15 +29,72 @@ pub struct AttachmentManifest {
     chunk_hashes: Vec<AttachmentChunkHash>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AttachmentSizeLimit {
+    maximum_bytes: u64,
+}
+
+impl AttachmentSizeLimit {
+    pub fn new(maximum_bytes: u64) -> Result<Self, AttachmentSizeLimitError> {
+        if maximum_bytes == 0 {
+            return Err(AttachmentSizeLimitError::ZeroMaximum);
+        }
+        Ok(Self { maximum_bytes })
+    }
+
+    #[must_use]
+    pub const fn maximum_bytes(&self) -> u64 {
+        self.maximum_bytes
+    }
+
+    fn validate(&self, plaintext_length: u64) -> Result<(), AttachmentManifestError> {
+        if plaintext_length > self.maximum_bytes {
+            return Err(AttachmentManifestError::AttachmentLimitExceeded {
+                maximum_bytes: self.maximum_bytes,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Default for AttachmentSizeLimit {
+    fn default() -> Self {
+        Self {
+            maximum_bytes: DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AttachmentSizeLimitError {
+    #[error("attachment size limit must be greater than zero")]
+    ZeroMaximum,
+}
+
 impl AttachmentManifest {
     pub fn new(
         identifier: AttachmentIdentifier,
         plaintext_length: u64,
         chunk_hashes: Vec<AttachmentChunkHash>,
     ) -> Result<Self, AttachmentManifestError> {
+        Self::new_with_limit(
+            identifier,
+            plaintext_length,
+            chunk_hashes,
+            AttachmentSizeLimit::default(),
+        )
+    }
+
+    pub fn new_with_limit(
+        identifier: AttachmentIdentifier,
+        plaintext_length: u64,
+        chunk_hashes: Vec<AttachmentChunkHash>,
+        limit: AttachmentSizeLimit,
+    ) -> Result<Self, AttachmentManifestError> {
         if chunk_hashes.len() > MAX_MANIFEST_CHUNKS {
             return Err(AttachmentManifestError::TooManyChunks);
         }
+        limit.validate(plaintext_length)?;
         validate_plaintext_length(plaintext_length, chunk_hashes.len())?;
         Ok(Self {
             identifier,
@@ -122,6 +180,7 @@ impl AttachmentManifest {
     fn decode_plaintext(
         identifier: AttachmentIdentifier,
         encoded: &[u8],
+        limit: AttachmentSizeLimit,
     ) -> Result<Self, AttachmentManifestError> {
         if encoded.len() > MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES {
             return Err(AttachmentManifestError::ManifestTooLarge);
@@ -139,6 +198,7 @@ impl AttachmentManifest {
             return Err(AttachmentManifestError::UnsupportedSchemaVersion(version));
         }
         let plaintext_length = decoder.u64().map_err(|_| AttachmentManifestError::Decode)?;
+        limit.validate(plaintext_length)?;
         let count = decoder
             .array()
             .map_err(|_| AttachmentManifestError::Decode)?
@@ -160,7 +220,7 @@ impl AttachmentManifest {
         if decoder.position() != encoded.len() {
             return Err(AttachmentManifestError::TrailingBytes);
         }
-        let manifest = Self::new(identifier, plaintext_length, chunk_hashes)?;
+        let manifest = Self::new_with_limit(identifier, plaintext_length, chunk_hashes, limit)?;
         if manifest.encode_plaintext()? != encoded {
             return Err(AttachmentManifestError::NonCanonicalEncoding);
         }
@@ -196,6 +256,14 @@ impl EncryptedAttachmentManifest {
         &self,
         key: &AttachmentKey,
     ) -> Result<AttachmentManifest, AttachmentManifestError> {
+        self.decrypt_with_limit(key, AttachmentSizeLimit::default())
+    }
+
+    pub fn decrypt_with_limit(
+        &self,
+        key: &AttachmentKey,
+        limit: AttachmentSizeLimit,
+    ) -> Result<AttachmentManifest, AttachmentManifestError> {
         if self.ciphertext.len() < ATTACHMENT_MANIFEST_TAG_BYTES {
             return Err(AttachmentManifestError::InvalidCiphertextLength);
         }
@@ -212,7 +280,7 @@ impl EncryptedAttachmentManifest {
                 },
             )
             .map_err(|_| AttachmentManifestError::Authentication)?;
-        AttachmentManifest::decode_plaintext(self.identifier, &plaintext)
+        AttachmentManifest::decode_plaintext(self.identifier, &plaintext, limit)
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, AttachmentManifestError> {
@@ -309,6 +377,8 @@ pub enum AttachmentManifestError {
     TooManyChunks,
     #[error("attachment manifest plaintext length does not match its fixed-size chunks")]
     InvalidPlaintextLength,
+    #[error("attachment manifest exceeds its {maximum_bytes}-byte size limit")]
+    AttachmentLimitExceeded { maximum_bytes: u64 },
     #[error("operating-system random source failed")]
     Randomness,
     #[error("attachment manifest encryption failed")]
@@ -372,7 +442,10 @@ fn associated_data(identifier: AttachmentIdentifier) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AttachmentManifest, AttachmentManifestError, EncryptedAttachmentManifest};
+    use super::{
+        AttachmentManifest, AttachmentManifestError, AttachmentSizeLimit, AttachmentSizeLimitError,
+        DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES, EncryptedAttachmentManifest,
+    };
     use crate::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, EncryptedAttachmentChunk,
     };
@@ -430,5 +503,36 @@ mod tests {
             encrypted.decrypt(&key),
             Err(AttachmentManifestError::Authentication)
         );
+    }
+
+    #[test]
+    fn enforces_a_configurable_reference_attachment_cap() {
+        let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
+        let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
+        let chunk_count =
+            (DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES as usize / ATTACHMENT_CHUNK_BYTES) + 1;
+        let hashes = vec![crate::AttachmentChunkHash::from_bytes([0x44; 32]); chunk_count];
+        let length = DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES + 1;
+        assert_eq!(
+            AttachmentManifest::new(identifier, length, hashes.clone()),
+            Err(AttachmentManifestError::AttachmentLimitExceeded {
+                maximum_bytes: DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES
+            })
+        );
+        assert_eq!(
+            AttachmentSizeLimit::new(0),
+            Err(AttachmentSizeLimitError::ZeroMaximum)
+        );
+        let limit = AttachmentSizeLimit::new(length).unwrap();
+        let manifest =
+            AttachmentManifest::new_with_limit(identifier, length, hashes, limit).unwrap();
+        let encrypted = manifest.encrypt(&key).unwrap();
+        assert_eq!(
+            encrypted.decrypt(&key),
+            Err(AttachmentManifestError::AttachmentLimitExceeded {
+                maximum_bytes: DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES
+            })
+        );
+        assert_eq!(encrypted.decrypt_with_limit(&key, limit).unwrap(), manifest);
     }
 }
