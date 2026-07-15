@@ -196,6 +196,61 @@ impl RelayDatabase {
         .collect()
     }
 
+    pub fn acknowledge_envelope(
+        &mut self,
+        capability: &MailboxCapability,
+        sequence: u64,
+    ) -> Result<(), RelayDatabaseError> {
+        let capability_digest = capability_digest(capability)?;
+        let sequence = database_timestamp(sequence)?;
+        let transaction = self.connection.transaction()?;
+        let (quota_bytes, used_bytes): (Vec<u8>, Vec<u8>) = transaction
+            .query_row(
+                "SELECT quota_bytes, used_bytes FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::InvalidCapability)?;
+        let ciphertext: Vec<u8> = transaction
+            .query_row(
+                "SELECT ciphertext FROM relay_envelopes WHERE mailbox_id = ?1 AND sequence = ?2",
+                params![capability.mailbox_id().as_slice(), sequence],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::UnknownEnvelope)?;
+        let quota = MailboxQuota::new(parse_u64(&quota_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        let mut tracker = MailboxQuotaTracker::new(quota);
+        tracker
+            .reserve(parse_u64(&used_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        tracker
+            .release(
+                u64::try_from(ciphertext.len())
+                    .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+            )
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        transaction.execute(
+            "DELETE FROM relay_envelopes WHERE mailbox_id = ?1 AND sequence = ?2",
+            params![capability.mailbox_id().as_slice(), sequence],
+        )?;
+        transaction.execute(
+            "UPDATE relay_mailboxes SET used_bytes = ?1 WHERE mailbox_id = ?2",
+            params![
+                tracker.used_bytes().to_be_bytes().as_slice(),
+                capability.mailbox_id().as_slice(),
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     fn from_connection(mut connection: Connection) -> Result<Self, RelayDatabaseError> {
         connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
@@ -227,6 +282,8 @@ pub enum RelayDatabaseError {
     SequenceExhausted,
     #[error("mailbox retrieval limit is invalid")]
     InvalidRetrievalLimit,
+    #[error("mailbox envelope is unknown")]
+    UnknownEnvelope,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -770,6 +827,58 @@ mod tests {
             ),
             Err(RelayDatabaseError::InvalidRetrievalLimit)
         ));
+    }
+
+    #[test]
+    fn acknowledges_one_envelope_and_releases_its_quota() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let envelope = envelope();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(envelope_bytes).unwrap(), 100)
+            .unwrap();
+        database
+            .insert_envelope(
+                &capability,
+                &envelope,
+                100,
+                RelayRetentionPolicy::new(10).unwrap(),
+            )
+            .unwrap();
+        let unauthorized = MailboxCapability::new(
+            [0x11; MAILBOX_IDENTIFIER_BYTES],
+            [0x33; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap();
+
+        assert!(matches!(
+            database.acknowledge_envelope(&unauthorized, 0),
+            Err(RelayDatabaseError::InvalidCapability)
+        ));
+        database.acknowledge_envelope(&capability, 0).unwrap();
+        assert!(
+            database
+                .retrieve_envelopes(&capability, None, 100, 1)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(matches!(
+            database.acknowledge_envelope(&capability, 0),
+            Err(RelayDatabaseError::UnknownEnvelope)
+        ));
+        assert_eq!(
+            database
+                .insert_envelope(
+                    &capability,
+                    &envelope,
+                    100,
+                    RelayRetentionPolicy::new(10).unwrap(),
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
