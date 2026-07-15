@@ -157,4 +157,13 @@ mod tests {
         );
         assert_eq!(byte, 0xA5);
     }
+
+    unsafe extern "C" {
+        fn yeokcham_c_consumer_conformance() -> i32;
+    }
+
+    #[test]
+    fn c_consumer_conformance_passes() {
+        assert_eq!(unsafe { yeokcham_c_consumer_conformance() }, 0);
+    }
 }

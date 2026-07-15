@@ -16,6 +16,9 @@ default = []
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true
 
+[build-dependencies]
+cc = "1.2.67"
+
 [lints.rust]
 unsafe_code = "deny"
 unused_must_use = "deny"
