@@ -7,6 +7,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 binary="$1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "${ONIBI_RELEASE_SNAPSHOT:-false}" = "true" ]; then
   exit 0
@@ -26,4 +27,7 @@ if [ ! -f "$binary" ]; then
   exit 1
 fi
 
+if [ "$(basename "$binary")" = "onibi" ]; then
+  "$script_dir/upgrade-recovery-gate.sh" "${ONIBI_UPGRADE_GATE_DIR:-artifacts/upgrade-recovery-gate-$tag}"
+fi
 echo "release e2e gate: Cloudflare relay E2E is mandatory; passed $binary for $tag"

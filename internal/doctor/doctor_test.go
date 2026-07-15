@@ -84,6 +84,31 @@ func TestDoctorPassesDecryptableStoreKey(t *testing.T) {
 	}
 }
 
+func TestDoctorAfterUpgradeReportsDurableStateRecovery(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	key, err := secrets.GetOrCreateStoreKey(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DBFile, store.WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	report := Run(context.Background(), Options{Paths: paths, AfterUpgrade: true})
+	if check := checkNamed(t, report, "after-upgrade durable state"); check.Status != Pass {
+		t.Fatalf("after-upgrade durable state = %#v", check)
+	}
+}
+
+func TestDoctorAfterUpgradeFailsWhenDurableStateCannotRecover(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	report := Run(context.Background(), Options{Paths: paths, AfterUpgrade: true})
+	if check := checkNamed(t, report, "after-upgrade durable state"); check.Status != Fail {
+		t.Fatalf("after-upgrade durable state = %#v", check)
+	}
+}
+
 func TestDoctorPushPassesWithMatchingVAPIDState(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	key, err := secrets.GetOrCreateStoreKey(context.Background())

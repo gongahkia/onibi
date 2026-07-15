@@ -1074,6 +1074,13 @@ func (r *runner) checkHooks() {
 
 func (r *runner) checkAfterUpgradeHooks() {
 	r.add("after-upgrade hooks", Pass, "no legacy transport checks")
+	for _, check := range r.checks {
+		if (check.Name == "store key" || check.Name == "sqlite db") && check.Status == Fail {
+			r.add("after-upgrade durable state", Fail, "encrypted store recovery failed; restore state before continuing")
+			return
+		}
+	}
+	r.add("after-upgrade durable state", Pass, "encrypted store key and SQLite state recovered")
 }
 
 func codeFor(name string) string {
