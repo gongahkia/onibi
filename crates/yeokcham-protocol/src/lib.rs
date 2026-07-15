@@ -15,6 +15,7 @@ mod identity_identifier;
 mod identity_rotation;
 mod local_mesh_profile;
 mod mailbox_capability;
+mod message_identifier;
 mod message_payload;
 mod negotiation;
 mod prekey_bundle;
@@ -78,6 +79,7 @@ pub use mailbox_capability::{
     MAILBOX_CAPABILITY_SCHEMA_VERSION, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
     MailboxCapability, MailboxCapabilityError,
 };
+pub use message_identifier::{MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, MessageIdentifierError};
 pub use message_payload::{
     MAX_MESSAGE_PAYLOAD_BYTES, MessageContentType, MessagePayload, MessagePayloadError,
 };
