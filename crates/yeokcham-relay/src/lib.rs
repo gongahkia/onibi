@@ -2476,7 +2476,7 @@ mod tests {
     fn emits_only_aggregate_relay_operational_metrics() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
-        let capability = capability();
+        let capability = capability_with(0x11, 0xa5);
         database
             .register_mailbox(&capability, MailboxQuota::new(1024).unwrap(), 1)
             .unwrap();
@@ -2491,6 +2491,9 @@ mod tests {
         let mut emitter = MetricsEmitter::default();
 
         database.emit_operational_metrics(&mut emitter).unwrap();
+
+        let output = format!("{:?}", emitter.0[0]);
+        assert!(!output.contains("165"));
 
         assert_eq!(
             emitter.0,

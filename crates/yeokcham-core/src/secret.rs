@@ -71,15 +71,23 @@ mod tests {
             .with_writer(writer.clone())
             .finish();
         let dispatch = Dispatch::new(subscriber);
+        let mut binary_credential = Secret::new(vec![0xA5; 32]);
+        let binary_marker = format!("{:?}", binary_credential.expose_mut());
 
         tracing::dispatcher::with_default(&dispatch, || {
             let credential = Secret::new(String::from("not-for-logs"));
-            tracing::info!(credential = credential.redacted(), "stored");
+            tracing::info!(
+                credential = credential.redacted(),
+                binary_credential = binary_credential.redacted(),
+                "stored"
+            );
         });
 
         let output = String::from_utf8(writer.0.lock().expect("test log buffer lock").clone())
             .expect("test log output must be utf-8");
         assert!(output.contains("credential=Secret(REDACTED)"));
+        assert!(output.contains("binary_credential=Secret(REDACTED)"));
         assert!(!output.contains("not-for-logs"));
+        assert!(!output.contains(&binary_marker));
     }
 }
