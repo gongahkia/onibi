@@ -6,9 +6,11 @@ use std::{
 
 use crate::YEOKCHAM_ABI_VERSION;
 use crate::{YeokchamHandle, YeokchamStatus};
+use zeroize::Zeroize;
 
 pub const MAX_C_ABI_HANDLES: usize = 1024;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
+pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 
 static ACTIVE_HANDLES: OnceLock<Mutex<BTreeSet<usize>>> = OnceLock::new();
 static NEXT_HANDLE_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
@@ -21,6 +23,22 @@ pub extern "C" fn yeokcham_abi_negotiate(requested_version: u32) -> u32 {
     (requested_version == YEOKCHAM_ABI_VERSION)
         .then_some(YEOKCHAM_ABI_VERSION)
         .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn yeokcham_secret_buffer_zeroize(
+    buffer: *mut u8,
+    length: usize,
+) -> YeokchamStatus {
+    if buffer.is_null() || length == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    if length > MAX_C_ABI_SECRET_BUFFER_BYTES {
+        return YeokchamStatus::ResourceLimit;
+    }
+    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer, length) };
+    buffer.zeroize();
+    YeokchamStatus::Ok
 }
 
 #[unsafe(no_mangle)]
@@ -106,4 +124,37 @@ fn is_active_handle(handle: *const YeokchamHandle) -> Result<bool, YeokchamStatu
     }
     let handles = active_handles().lock().map_err(|_| YeokchamStatus::State)?;
     Ok(handles.contains(&identifier))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_C_ABI_SECRET_BUFFER_BYTES, YeokchamStatus, yeokcham_secret_buffer_zeroize};
+
+    #[test]
+    fn zeroizes_bounded_caller_owned_secret_buffers() {
+        let mut secret = [0xA5; 32];
+        assert_eq!(
+            unsafe { yeokcham_secret_buffer_zeroize(secret.as_mut_ptr(), secret.len()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(secret, [0; 32]);
+    }
+
+    #[test]
+    fn zeroization_rejects_invalid_and_oversized_buffers() {
+        let mut byte = 0xA5;
+        assert_eq!(
+            unsafe { yeokcham_secret_buffer_zeroize(std::ptr::null_mut(), 1) },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            unsafe { yeokcham_secret_buffer_zeroize(&mut byte, 0) },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            unsafe { yeokcham_secret_buffer_zeroize(&mut byte, MAX_C_ABI_SECRET_BUFFER_BYTES + 1) },
+            YeokchamStatus::ResourceLimit
+        );
+        assert_eq!(byte, 0xA5);
+    }
 }

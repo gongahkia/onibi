@@ -3328,6 +3328,7 @@ name = "yeokcham-ffi"
 version = "0.1.0"
 dependencies = [
  "yeokcham-protocol",
+ "zeroize",
 ]
 
 [[package]]

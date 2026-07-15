@@ -2,6 +2,7 @@
 #define YEOKCHAM_V1_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define YEOKCHAM_ABI_VERSION_MAJOR UINT32_C(1)
 #define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)
@@ -26,5 +27,6 @@ yeokcham_status_t yeokcham_handle_complete_async(
     void *context
 ); // callback receives the completion status
 uint32_t yeokcham_abi_negotiate(uint32_t requested_version); // zero when unsupported
+yeokcham_status_t yeokcham_secret_buffer_zeroize(uint8_t *buffer, size_t length); // caller-owned writable bytes only
 
 #endif

@@ -23,9 +23,9 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YeokchamCompletionCallback,
-    yeokcham_abi_negotiate, yeokcham_handle_complete_async, yeokcham_handle_create,
-    yeokcham_handle_release,
+    MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_handle_complete_async,
+    yeokcham_handle_create, yeokcham_handle_release, yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -83,6 +83,8 @@ mod tests {
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_handle_complete_async("));
         assert!(HEADER.contains("uint32_t yeokcham_abi_negotiate(uint32_t requested_version);"));
+        assert!(HEADER.contains("#include <stddef.h>"));
+        assert!(HEADER.contains("yeokcham_secret_buffer_zeroize(uint8_t *buffer, size_t length);"));
     }
 
     #[test]
