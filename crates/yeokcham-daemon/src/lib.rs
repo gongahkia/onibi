@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod bluetooth_transport;
 mod contact_store;
 mod daemon_config;
 mod delivery_scheduler;
@@ -24,6 +25,7 @@ mod wifi_hotspot_transport;
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
 
+pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
