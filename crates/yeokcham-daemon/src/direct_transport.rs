@@ -460,12 +460,20 @@ pub enum DirectTransportError {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::UdpSocket, sync::Arc, time::Duration};
+    use std::{
+        net::UdpSocket,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
 
     use quinn::{
         ClientConfig, ServerConfig, rustls::RootCertStore, rustls::pki_types::PrivatePkcs8KeyDer,
     };
     use rcgen::generate_simple_self_signed;
+    use tokio::sync::oneshot;
     use yeokcham_core::IdentityKeypair;
     use yeokcham_protocol::{
         DirectProfileConfig, EnvelopeKind, ProtocolVersion, WireEnvelope, WireLimits,
@@ -554,6 +562,82 @@ mod tests {
         ));
         client.shutdown();
         client.wait_idle().await;
+    }
+
+    #[tokio::test]
+    async fn reconnects_after_a_partitioned_initial_attempt() {
+        let (server_tls_config, certificate) = server_config();
+        let server =
+            DirectTransport::bind("127.0.0.1:0".parse().unwrap(), Some(server_tls_config)).unwrap();
+        let proxy = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let profile = DirectProfileConfig::new(proxy.local_addr().unwrap()).unwrap();
+        let partitioned = Arc::new(AtomicBool::new(true));
+        let (first_packet_tx, mut first_packet_rx) = oneshot::channel();
+        let relay_partitioned = Arc::clone(&partitioned);
+        let server_address = server.local_address().unwrap();
+        let relay_task = tokio::spawn(async move {
+            let mut buffer = [0_u8; 65_535];
+            let mut client_address = None;
+            let mut first_packet_tx = Some(first_packet_tx);
+            loop {
+                let (size, source) = proxy.recv_from(&mut buffer).await.unwrap();
+                if source == server_address {
+                    if let Some(client_address) = client_address {
+                        proxy
+                            .send_to(&buffer[..size], client_address)
+                            .await
+                            .unwrap();
+                    }
+                    continue;
+                }
+                client_address = Some(source);
+                if let Some(first_packet_tx) = first_packet_tx.take() {
+                    let _ = first_packet_tx.send(());
+                }
+                if !relay_partitioned.load(Ordering::Acquire) {
+                    proxy
+                        .send_to(&buffer[..size], server_address)
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let client = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), None).unwrap();
+        let attempts = DirectConnectionAttempts::new(2, Duration::from_millis(200))
+            .unwrap()
+            .with_retry_backoff(Duration::from_millis(200))
+            .unwrap();
+        let mut reconnect =
+            Box::pin(client.reconnect(profile, client_config(certificate), "localhost", attempts));
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::select! {
+                _ = &mut reconnect => panic!("partitioned attempt completed"),
+                received = &mut first_packet_rx => assert!(received.is_ok()),
+            }
+        })
+        .await
+        .unwrap();
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                partitioned.store(false, Ordering::Release);
+            }
+            _ = &mut reconnect => panic!("partitioned attempt completed"),
+        }
+        let (accepted, reconnected) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(server.accept(), &mut reconnect)
+        })
+        .await
+        .unwrap();
+        assert!(accepted.is_ok());
+        assert!(reconnected.is_ok());
+        reconnected.unwrap().close();
+        relay_task.abort();
+        let _ = relay_task.await;
+        client.shutdown();
+        server.shutdown();
+        client.wait_idle().await;
+        server.wait_idle().await;
     }
 
     #[tokio::test]
