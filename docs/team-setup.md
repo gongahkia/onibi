@@ -1,5 +1,7 @@
 # Team Setup
 
+Shared-fleet multi-owner authority is not implemented. Current sharing is read-only viewer access; the deferred experimental design is in [SPEC-multi-owner.md](SPEC-multi-owner.md).
+
 This walkthrough covers one owner sharing one live session with one read-only viewer. Use it for short reviews, debugging, or demos where the teammate should watch the terminal without steering it.
 
 For the underlying models, see [Workspaces](workspaces.md) and [Viewer Sharing](sharing.md).
