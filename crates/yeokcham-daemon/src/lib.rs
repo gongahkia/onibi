@@ -5,6 +5,7 @@ mod direct_transport;
 mod mdns;
 mod nat_pmp;
 mod ratchet_store;
+mod relay_tls;
 mod state_store;
 mod stun;
 mod tor_socks;
@@ -27,6 +28,7 @@ pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
 };
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
+pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
 pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
     StateStoreError,

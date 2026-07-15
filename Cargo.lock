@@ -3302,6 +3302,7 @@ dependencies = [
  "quinn",
  "rcgen",
  "rusqlite",
+ "sha2 0.11.0",
  "stunclient",
  "thiserror 2.0.18",
  "tokio",
