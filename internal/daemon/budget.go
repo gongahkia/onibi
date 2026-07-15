@@ -34,7 +34,26 @@ func (d *Daemon) updateClaudeCost(ctx context.Context, s *Session, ev intake.Eve
 	if !ok {
 		return
 	}
-	d.publishClaudeCost(ctx, s, ev, cost)
+	d.publishBudgetCost(ctx, s, ev, cost)
+}
+
+func (d *Daemon) updatePiCost(ctx context.Context, s *Session, ev intake.Event) {
+	if d == nil || d.PiBudget == nil || s == nil || !isPiAgent(ev.Agent, s.Agent) {
+		return
+	}
+	cost, ok, err := d.PiBudget.Update(piCostRef(s, ev))
+	if err != nil {
+		d.logPiCostError(s, ev, err)
+		return
+	}
+	if ok {
+		d.publishBudgetCost(ctx, s, ev, cost)
+	}
+}
+
+func (d *Daemon) updateBudgetCost(ctx context.Context, s *Session, ev intake.Event) {
+	d.updateClaudeCost(ctx, s, ev)
+	d.updatePiCost(ctx, s, ev)
 }
 
 func (d *Daemon) updateClaudeCostSnapshot(ctx context.Context, s *Session, ev intake.Event) (budget.CostEvent, bool, error) {
@@ -51,7 +70,7 @@ func (d *Daemon) currentClaudeCostSnapshot(ctx context.Context, s *Session, ev i
 			d.logClaudeCostError(s, ev, err)
 		}
 	} else if ok {
-		d.publishClaudeCost(ctx, s, ev, cost)
+		d.publishBudgetCost(ctx, s, ev, cost)
 		return cost, true
 	}
 	if d == nil || d.Budget == nil || s == nil || !isClaudeAgent(ev.Agent, s.Agent) {
@@ -67,7 +86,37 @@ func (d *Daemon) currentClaudeCostSnapshot(ctx context.Context, s *Session, ev i
 	return cost, ok
 }
 
-func (d *Daemon) publishClaudeCost(ctx context.Context, s *Session, ev intake.Event, cost budget.CostEvent) {
+func (d *Daemon) currentPiCostSnapshot(ctx context.Context, s *Session, ev intake.Event) (budget.CostEvent, bool) {
+	if d == nil || d.PiBudget == nil || s == nil || !isPiAgent(ev.Agent, s.Agent) {
+		return budget.CostEvent{}, false
+	}
+	cost, ok, err := d.PiBudget.Update(piCostRef(s, ev))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			d.logPiCostError(s, ev, err)
+		}
+	} else if ok {
+		d.publishBudgetCost(ctx, s, ev, cost)
+		return cost, true
+	}
+	cost, ok, err = d.PiBudget.Current(piCostRef(s, ev))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			d.logPiCostError(s, ev, err)
+		}
+		return budget.CostEvent{}, false
+	}
+	return cost, ok
+}
+
+func (d *Daemon) currentBudgetCostSnapshot(ctx context.Context, s *Session, ev intake.Event) (budget.CostEvent, bool) {
+	if isPiAgent(ev.Agent, s.Agent) {
+		return d.currentPiCostSnapshot(ctx, s, ev)
+	}
+	return d.currentClaudeCostSnapshot(ctx, s, ev)
+}
+
+func (d *Daemon) publishBudgetCost(ctx context.Context, s *Session, ev intake.Event, cost budget.CostEvent) {
 	d.Events.Publish(web.Event{Type: "cost.updated", Payload: cost})
 	d.audit(ctx, "cost.update", s.ID, "", 0, "model="+cost.Model)
 	daily := d.recordBudgetCost(cost)
@@ -110,7 +159,7 @@ func (d *Daemon) budgetWarningForApproval(ctx context.Context, s *Session, ev in
 	if !ok {
 		return nil
 	}
-	cost, costOK := d.currentClaudeCostSnapshot(ctx, s, ev)
+	cost, costOK := d.currentBudgetCostSnapshot(ctx, s, ev)
 	current := int64(0)
 	if costOK {
 		current = cost.TotalInputTokens + cost.TotalOutputTokens
@@ -429,6 +478,12 @@ func claudeCostRef(s *Session, ev intake.Event) budget.SessionRef {
 	}
 }
 
+func piCostRef(s *Session, ev intake.Event) budget.SessionRef {
+	ref := claudeCostRef(s, ev)
+	ref.Agent = "pi"
+	return ref
+}
+
 func (d *Daemon) logClaudeCostError(s *Session, ev intake.Event, err error) {
 	if d == nil || err == nil {
 		return
@@ -448,6 +503,29 @@ func (d *Daemon) logClaudeCostError(s *Session, ev intake.Event, err error) {
 	d.Log.Warn("claude cost parse failed", slog.String("session", sessionID), slog.String("provider_session", ev.ProviderSessionID), slog.Any("err", err))
 }
 
+func (d *Daemon) logPiCostError(s *Session, ev intake.Event, err error) {
+	if d == nil || err == nil {
+		return
+	}
+	cwd := strings.TrimSpace(ev.CWD)
+	if cwd == "" && s != nil {
+		cwd = s.CWD
+	}
+	sessionID := strings.TrimSpace(ev.Session)
+	if sessionID == "" && s != nil {
+		sessionID = s.ID
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		d.Log.Debug("Pi cost transcript not found", slog.String("session", sessionID), slog.String("provider_session", ev.ProviderSessionID), slog.String("cwd", cwd))
+		return
+	}
+	d.Log.Warn("Pi cost parse failed", slog.String("session", sessionID), slog.String("provider_session", ev.ProviderSessionID), slog.Any("err", err))
+}
+
 func isClaudeAgent(eventAgent, sessionAgent string) bool {
 	return strings.EqualFold(strings.TrimSpace(eventAgent), "claude") || strings.EqualFold(strings.TrimSpace(sessionAgent), "claude")
+}
+
+func isPiAgent(eventAgent, sessionAgent string) bool {
+	return strings.EqualFold(strings.TrimSpace(eventAgent), "pi") || strings.EqualFold(strings.TrimSpace(sessionAgent), "pi")
 }

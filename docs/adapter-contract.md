@@ -26,11 +26,11 @@ Codex additionally requires its user to review and trust the current non-managed
 ## Budget capability
 
 The contract reports `budget.token_telemetry`, `budget.session_enforcement`,
-and `budget.global_enforcement`. Claude has all three through its transcript
-usage source. Codex and Pi have `global_enforcement: true`, but their contract
-reports `interactive token telemetry unavailable`; Onibi does not represent
-their local session token caps as enforced. A fleet-wide global overrun still
-delivers an acknowledged interrupt or kill control to their hosted sessions.
+and `budget.global_enforcement`. Claude and Pi have all three through their
+transcript usage sources. Codex has `global_enforcement: true`, but reports
+`interactive token telemetry unavailable`; Onibi does not represent its local
+session token cap as enforced. A fleet-wide global overrun still delivers an
+acknowledged interrupt or kill control to its hosted sessions.
 
 ## Approval payload v1
 

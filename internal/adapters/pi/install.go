@@ -191,17 +191,26 @@ async function runOnibi(args: string[], payload: any) {
   return { code: r.status ?? 0, stdout: r.stdout ?? "" };
 }
 
-async function emit(type: string, event: any) {
-  await runOnibi(["--agent", ONIBI_AGENT, "--format", "pi", "--type", type], event).catch(() => {});
+function withSession(event: any, ctx: any) {
+  const payload = event && typeof event === "object" ? { ...event } : {};
+  const providerSessionID = ctx?.sessionManager?.getSessionId?.();
+  if (typeof providerSessionID === "string" && providerSessionID) payload.provider_session_id = providerSessionID;
+  if (!payload.cwd && !payload.directory && ctx?.cwd) payload.cwd = ctx.cwd;
+  return payload;
 }
 
-async function approval(event: any) {
+async function emit(type: string, event: any, ctx: any) {
+  await runOnibi(["--agent", ONIBI_AGENT, "--format", "pi", "--type", type], withSession(event, ctx)).catch(() => {});
+}
+
+async function approval(event: any, ctx: any) {
   const payload = {
     hook_event_name: "tool_call",
     session_id: event?.sessionId ?? event?.session_id ?? event?.session?.id,
     cwd: event?.cwd ?? event?.directory,
     tool_name: event?.toolName ?? event?.tool_name ?? event?.tool ?? "tool_call",
     tool_input: event?.input ?? event?.args ?? {},
+    provider_session_id: ctx?.sessionManager?.getSessionId?.(),
     raw: event
   };
   const r = await runOnibi(["--agent", ONIBI_AGENT, "--format", "pi", "--type", "approval_request", "--wait", "--response", "onibi-json"], payload);
@@ -232,16 +241,16 @@ function parseUpdatedInput(value: string) {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (event: any) => emit("agent_message", event));
-  pi.on("agent_start", async (event: any) => emit("agent_message", event));
-  pi.on("input", async (event: any) => emit("agent_message", event));
-  pi.on("tool_call", async (event: any) => {
-    await emit("agent_message", event);
-    return await approval(event);
+  pi.on("session_start", async (event: any, ctx: any) => emit("agent_message", event, ctx));
+  pi.on("agent_start", async (event: any, ctx: any) => emit("agent_message", event, ctx));
+  pi.on("input", async (event: any, ctx: any) => emit("agent_message", event, ctx));
+  pi.on("tool_call", async (event: any, ctx: any) => {
+    await emit("agent_message", event, ctx);
+    return await approval(event, ctx);
   });
-  pi.on("tool_result", async (event: any) => emit("agent_message", event));
-  pi.on("agent_end", async (event: any) => emit("agent_done", event));
-  pi.on("session_shutdown", async (event: any) => emit("session_exited", event));
+  pi.on("tool_result", async (event: any, ctx: any) => emit("agent_message", event, ctx));
+  pi.on("agent_end", async (event: any, ctx: any) => emit("agent_done", event, ctx));
+  pi.on("session_shutdown", async (event: any, ctx: any) => emit("session_exited", event, ctx));
 }
 `, common.IntegrationVersion, notifyBin)
 }

@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 func TestExtensionSourceMatchesPiContracts(t *testing.T) {
 	src := extensionSource("/tmp/onibi-notify")
 	for _, want := range []string{
-		`pi.on("tool_call", async (event: any) => {`,
+		`pi.on("tool_call", async (event: any, ctx: any) => {`,
 		`return { block: true, reason: decision.reason || "Denied by Onibi" }`,
 		`const nextInput = parseUpdatedInput(decision.updated_input)`,
 		`Object.assign(event.input, nextInput); // Pi does no post-mutation validation; validate before mutation`,
@@ -22,14 +23,45 @@ func TestExtensionSourceMatchesPiContracts(t *testing.T) {
 		`Array.isArray(parsed)`,
 		`Invalid Onibi approval response`,
 		`Invalid Onibi edited input`,
-		`pi.on("session_start", async (event: any) => emit("agent_message", event))`,
-		`pi.on("agent_end", async (event: any) => emit("agent_done", event))`,
-		`pi.on("session_shutdown", async (event: any) => emit("session_exited", event))`,
+		`const providerSessionID = ctx?.sessionManager?.getSessionId?.()`,
+		`provider_session_id: ctx?.sessionManager?.getSessionId?.()`,
+		`pi.on("session_start", async (event: any, ctx: any) => emit("agent_message", event, ctx))`,
+		`pi.on("agent_end", async (event: any, ctx: any) => emit("agent_done", event, ctx))`,
+		`pi.on("session_shutdown", async (event: any, ctx: any) => emit("session_exited", event, ctx))`,
 		`const ONIBI_INTEGRATION_VERSION = "` + common.IntegrationVersion + `"`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("extension source missing %q", want)
 		}
+	}
+}
+
+func TestExtensionEmitsNativePiSessionID(t *testing.T) {
+	node := denytest.Node(t)
+	tsc := denytest.TSC(t)
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "payload.json")
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\ncat > \"$ONIBI_CAPTURE\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ONIBI_CAPTURE", capture)
+	denytest.CompileTSModule(t, tsc, dir, "onibi.ts", extensionSource(notify), piExtensionTypes)
+	denytest.RunNodeScript(t, node, dir, `import plugin from "./out/onibi.js";
+const handlers = new Map();
+plugin({ on(name, handler) { handlers.set(name, handler); } });
+await handlers.get("agent_end")({}, { cwd: "/tmp/repo", sessionManager: { getSessionId: () => "pi-native-session" } });
+`)
+	body, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["provider_session_id"] != "pi-native-session" || payload["cwd"] != "/tmp/repo" {
+		t.Fatalf("payload=%#v", payload)
 	}
 }
 

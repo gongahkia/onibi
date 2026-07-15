@@ -281,7 +281,7 @@ func parseHookPayload(raw []byte) hookPayload {
 	}
 	p.EventName = getString(m, "hook_event_name", "hookEventName", "eventName", "event")
 	p.SessionID = getString(m, "session_id", "sessionId", "sessionID")
-	p.ProviderSessionID = firstNonEmpty(p.SessionID, nestedString(m, "session", "id"))
+	p.ProviderSessionID = firstNonEmpty(getString(m, "provider_session_id", "providerSessionId"), p.SessionID, nestedString(m, "session", "id"))
 	p.CWD = firstNonEmpty(getString(m, "cwd", "directory"), nestedString(m, "project", "root"))
 	p.Tool = getString(m, "tool_name", "toolName", "tool", "name")
 	input := firstValue(m, "tool_input", "toolInput", "toolArgs", "input", "args")

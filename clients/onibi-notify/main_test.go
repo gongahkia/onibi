@@ -32,6 +32,11 @@ func TestParseHookPayloadSnakeAndCamel(t *testing.T) {
 	if p.SessionID != "s2" || p.Tool != "run" || !strings.Contains(p.InputJSON, `"x":1`) {
 		t.Fatalf("bad camel payload: %+v", p)
 	}
+
+	p = parseHookPayload([]byte(`{"sessionId":"event-session","provider_session_id":"pi-session","toolName":"run"}`))
+	if p.ProviderSessionID != "pi-session" {
+		t.Fatalf("provider session = %q", p.ProviderSessionID)
+	}
 }
 
 func TestParseHookPayloadProviderTargets(t *testing.T) {

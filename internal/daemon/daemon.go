@@ -48,6 +48,7 @@ type Daemon struct {
 	Events     *web.EventBus
 	Trust      *trust.Watcher
 	Budget     *budget.ClaudeParser
+	PiBudget   *budget.PiParser
 	Recorder   *web.Recorder
 	BufferSize int
 
@@ -154,6 +155,7 @@ type Options struct {
 	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 	FleetLink               *FleetLink
 	Budget                  *budget.ClaudeParser
+	PiBudget                *budget.PiParser
 	Recorder                *web.Recorder
 	TailnetStatus           func(context.Context) ([]byte, error)
 	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
@@ -280,6 +282,10 @@ func New(opts Options) *Daemon {
 	if budgetParser == nil {
 		budgetParser = budget.NewClaudeParser("")
 	}
+	piBudgetParser := opts.PiBudget
+	if piBudgetParser == nil {
+		piBudgetParser = budget.NewPiParser("")
+	}
 	recorder := opts.Recorder
 	if recorder == nil && strings.TrimSpace(opts.Paths.StateDir) != "" {
 		recorder = web.NewRecorder(filepath.Join(opts.Paths.StateDir, "recordings"))
@@ -305,6 +311,7 @@ func New(opts Options) *Daemon {
 		budgetOverruns:          map[string]bool{},
 		anomalyHistory:          map[string][]anomaly.Action{},
 		Budget:                  budgetParser,
+		PiBudget:                piBudgetParser,
 		Recorder:                recorder,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
@@ -777,7 +784,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateClaudeCost(ctx, s, ev)
+		d.updateBudgetCost(ctx, s, ev)
 		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
 	case intake.TypeAgentMessage:
 		s, reason := d.sessionForEvent(ev)
@@ -786,7 +793,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateClaudeCost(ctx, s, ev)
+		d.updateBudgetCost(ctx, s, ev)
 		return nil
 	case intake.TypeCmdDone:
 		return d.notifyCmdDone(ctx, ev)
@@ -816,7 +823,7 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateClaudeCost(ctx, s, ev)
+		d.updateBudgetCost(ctx, s, ev)
 		d.markSessionEnded(ctx, s)
 		return nil
 	default:

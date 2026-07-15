@@ -122,7 +122,7 @@ func certifiedContract(agent string, sessionExit, reviewRequired bool, reload st
 }
 
 func budgetContract(agent string) BudgetContract {
-	if agent == capability.AgentClaude {
+	if agent == capability.AgentClaude || agent == capability.AgentPi {
 		return BudgetContract{TokenTelemetry: true, SessionEnforcement: true, GlobalEnforcement: true}
 	}
 	return BudgetContract{GlobalEnforcement: true, NonEnforcingReason: "interactive token telemetry unavailable"}

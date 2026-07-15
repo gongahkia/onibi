@@ -222,6 +222,39 @@ func TestBudgetOverrunKillsSession(t *testing.T) {
 	}
 }
 
+func TestPiBudgetOverrunInterruptsSession(t *testing.T) {
+	db := openDaemonTestDB(t)
+	base := t.TempDir()
+	root := t.TempDir()
+	writeBudgetPolicy(t, root, "[session]\nmax_tokens = 10\n")
+	providerSessionID := "a6d1f8f3-75d4-4b2f-93d2-1ed8ddda89f8"
+	writePiUsage(t, base, providerSessionID, "openai/gpt-5", 8, 5)
+	var writes [][]byte
+	host := pty.NewVirtualHost(func(p []byte) (int, error) {
+		writes = append(writes, append([]byte(nil), p...))
+		return len(p), nil
+	}, nil, nil)
+	d := New(Options{DB: db, PiBudget: budget.NewPiParser(base)})
+	s := NewSession("s1", "pi", "pi", host, 0)
+	s.CWD = root
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.handleEvent(t.Context(), intake.Event{Type: intake.TypeAgentDone, Session: "s1", Managed: true, Agent: "pi", CWD: root, ProviderSessionID: providerSessionID}); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 1 || string(writes[0]) != string([]byte{3}) {
+		t.Fatalf("writes = %#v", writes)
+	}
+	view, err := d.BudgetView(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Sessions) != 1 || view.Sessions[0].Agent != "pi" || view.Sessions[0].TotalTokens != 13 {
+		t.Fatalf("view = %#v", view)
+	}
+}
+
 func TestFleetBudgetReportIncludesOnlyCertifiedAgentsAndMeasurementState(t *testing.T) {
 	d := New(Options{DB: openDaemonTestDB(t)})
 	root := t.TempDir()
@@ -234,14 +267,15 @@ func TestFleetBudgetReportIncludesOnlyCertifiedAgentsAndMeasurementState(t *test
 		}
 	}
 	day := time.Now().UTC().Format("2006-01-02")
-	d.budgetDaily[day] = 15
+	d.budgetDaily[day] = 20
 	d.budgetCosts["session-claude"] = budget.CostEvent{SessionID: "session-claude", TotalInputTokens: 8, TotalOutputTokens: 7}
+	d.budgetCosts["session-pi"] = budget.CostEvent{SessionID: "session-pi", TotalInputTokens: 3, TotalOutputTokens: 2}
 	report := d.FleetBudgetReport()
-	if report.Date != day || report.DailyTokens != 15 || report.GlobalLimit != 20 || report.OnOverrun != "kill" || len(report.Sessions) != 3 {
+	if report.Date != day || report.DailyTokens != 20 || report.GlobalLimit != 20 || report.OnOverrun != "kill" || len(report.Sessions) != 3 {
 		t.Fatalf("report=%#v", report)
 	}
 	for _, session := range report.Sessions {
-		if session.Limit != 10 || session.OnOverrun != "kill" || (session.Agent == "claude" && (!session.Measured || session.Tokens != 15)) || (session.Agent != "claude" && (session.Measured || session.Tokens != 0)) {
+		if session.Limit != 10 || session.OnOverrun != "kill" || (session.Agent == "claude" && (!session.Measured || session.Tokens != 15)) || (session.Agent == "pi" && (!session.Measured || session.Tokens != 5)) || (session.Agent == "codex" && (session.Measured || session.Tokens != 0)) {
 			t.Fatalf("session=%#v", session)
 		}
 	}
@@ -285,6 +319,18 @@ func writeClaudeUsage(t *testing.T, base, cwd, providerSession, model string, in
 		t.Fatal(err)
 	}
 	body := fmt.Sprintf(`{"message":{"model":%q,"usage":{"input_tokens":%d,"output_tokens":%d}}}`+"\n", model, input, output)
+	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePiUsage(t *testing.T, base, providerSession, model string, input, output int64) {
+	t.Helper()
+	transcript := filepath.Join(base, "--tmp-repo--", "2026-07-15T00-00-00-000Z_"+providerSession+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"type":"session","version":3,"id":%q}`+"\n"+`{"type":"message","message":{"role":"assistant","model":%q,"usage":{"input":%d,"output":%d}}}`+"\n", providerSession, model, input, output)
 	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

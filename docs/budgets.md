@@ -8,10 +8,10 @@ Policy file path:
 <project>/.onibi/budget.toml
 ```
 
-The current usage source is Claude Code JSONL transcripts only. Codex and Pi
-are certified for fleet-wide action delivery but report
-`interactive token telemetry unavailable` in their adapter contracts, so their
-session token limits are not evaluated locally. Other agents are out of scope.
+Claude Code and Pi session JSONL transcripts provide measured local usage.
+Codex is certified for fleet-wide action delivery but reports `interactive token
+telemetry unavailable`, so its session token limit is not evaluated locally.
+Other agents are out of scope.
 
 ## Policy Model
 
@@ -103,7 +103,11 @@ Cost estimates use the Claude prices listed in `docs/pricing.md`. They do not mo
 
 ## Runtime Behavior
 
-Onibi updates budget usage when a Claude Code turn completes and the hook reports a provider session id. The daemon reads the matching Claude JSONL transcript, records the incremental token usage, and updates the daily aggregate.
+Onibi updates budget usage when a Claude Code or Pi turn completes and the hook
+reports a provider session id. The daemon reads the matching JSONL transcript,
+records only incremental input/output token counts and model metadata, then
+updates the daily aggregate. It never stores transcript content in budget or
+fleet reports.
 
 Approval prompts also check budget state before auto-approve rules. If the next approved tool call is likely to cross a budget limit, Onibi forces the approval card to stay manual.
 
@@ -114,8 +118,8 @@ fleet heartbeat. The hub stores it encrypted with the host record, totals all
 active-host snapshots, and applies the lowest positive global limit reported by
 the fleet. A same-day host report cannot lower its already recorded token total.
 When that aggregate is over limit, it sends persisted `interrupt` or
-`kill` controls to every active certified session, including Codex and Pi
-sessions whose local token telemetry is unavailable.
+`kill` controls to every active certified session, including Codex sessions
+whose local token telemetry is unavailable.
 
 Remote control results are persisted as `succeeded`, `failed`, or `timed_out`
 and audited without a tool payload. A disconnected host keeps a pending control
@@ -125,10 +129,13 @@ acknowledgement path.
 
 ## Caveats
 
-- Claude Code JSONL is the only measured budget source today.
-- Codex and Pi global-overrun controls are enforced, but their local session
-  limits are explicitly non-enforcing until reliable interactive token telemetry
-  is available.
+- Claude Code and Pi JSONL are measured budget sources. Pi uses the session id
+  from the managed extension and searches the Pi session directory from
+  `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR`, `sessionDir` settings,
+  or its default path.
+- Codex global-overrun controls are enforced, but its local session limit is
+  explicitly non-enforcing until reliable interactive token telemetry is
+  available.
 - Costs are estimates based on the model id in the transcript.
 - Daily reset is UTC.
 - Existing sessions without a `.onibi/budget.toml` use no token limit and default overrun action `interrupt`.
