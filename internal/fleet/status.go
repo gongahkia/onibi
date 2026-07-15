@@ -100,7 +100,7 @@ func (s HomeStatus) Validate() error {
 
 func validHomeSessionState(state string) bool {
 	switch state {
-	case "idle", "working", "awaiting-approval", "blocked":
+	case "idle", "working", "awaiting-approval", "blocked", "recovering", "failed":
 		return true
 	default:
 		return false

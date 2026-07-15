@@ -99,7 +99,7 @@ test("fleet home prioritizes approvals, host attention, and live session state",
     ts: "2026-07-14T01:00:00Z",
     payload: {
       generated_at: "2026-07-14T01:00:00Z",
-      counts: { idle: 0, working: 1, "awaiting-approval": 0, blocked: 0 },
+      counts: { idle: 0, working: 1, "awaiting-approval": 0, blocked: 0, recovering: 0, failed: 0 },
       sessions: [
         {
           id: "session-2",

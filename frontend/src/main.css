@@ -261,6 +261,14 @@
   background: #f0b429;
 }
 
+.agent-dot.state-recovering {
+  background: #d29922;
+}
+
+.agent-dot.state-failed {
+  background: #f85149;
+}
+
 .agent-dot.state-blocked {
   background: #da3633;
 }
@@ -315,7 +323,9 @@
 }
 
 .agents-feed-row.state-awaiting-approval,
-.agents-feed-row.state-blocked {
+.agents-feed-row.state-blocked,
+.agents-feed-row.state-recovering,
+.agents-feed-row.state-failed {
   border-color: var(--button-active-border);
 }
 

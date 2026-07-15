@@ -41,6 +41,8 @@ const (
 	SessionStateWorking          SessionState = "working"
 	SessionStateAwaitingApproval SessionState = "awaiting-approval"
 	SessionStateBlocked          SessionState = "blocked"
+	SessionStateRecovering       SessionState = "recovering"
+	SessionStateFailed           SessionState = "failed"
 
 	sessionWorkingWindow = 3 * time.Second
 )
@@ -147,6 +149,8 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 			SessionStateWorking:          0,
 			SessionStateAwaitingApproval: 0,
 			SessionStateBlocked:          0,
+			SessionStateRecovering:       0,
+			SessionStateFailed:           0,
 		},
 	}
 	for _, row := range rows {
@@ -195,6 +199,12 @@ func (s *Server) latestTimelineBySession(ctx context.Context) (map[string]*timel
 }
 
 func deriveSessionState(row SessionSummary, latest *timeline.TimelineEvent, now time.Time) SessionState {
+	switch row.RecoveryState {
+	case fleet.SessionRecoveryFailed, fleet.SessionRecoveryOrphaned, fleet.SessionRecoveryTerminated:
+		return SessionStateFailed
+	case fleet.SessionRecoveryReconnecting, fleet.SessionRecoveryRecovering:
+		return SessionStateRecovering
+	}
 	if row.PendingApprovalsCount > 0 {
 		return SessionStateAwaitingApproval
 	}

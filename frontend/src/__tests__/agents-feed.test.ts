@@ -78,7 +78,9 @@ function statusPayload(): SessionsStatusPayload {
       idle: 1,
       working: 1,
       "awaiting-approval": 1,
-      blocked: 0
+      blocked: 0,
+      recovering: 0,
+      failed: 0
     },
     sessions: [
       session("s1", "claude", "awaiting-approval", "2026-07-08T00:01:00Z", 1),
@@ -95,7 +97,9 @@ function emptyPayload(): SessionsStatusPayload {
       idle: 0,
       working: 0,
       "awaiting-approval": 0,
-      blocked: 0
+      blocked: 0,
+      recovering: 0,
+      failed: 0
     },
     sessions: []
   };

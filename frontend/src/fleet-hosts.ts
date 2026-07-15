@@ -20,7 +20,7 @@ export type FleetSession = {
   id: string;
   host_id?: string;
   agent: string;
-  state: "idle" | "working" | "awaiting-approval" | "blocked";
+  state: "idle" | "working" | "awaiting-approval" | "blocked" | "recovering" | "failed";
   last_activity: string;
   pending_approvals: number;
   recovery_state?: FleetRecoveryState;

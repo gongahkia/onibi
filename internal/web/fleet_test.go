@@ -311,7 +311,7 @@ func TestFleetStatusAggregatesOwnerHomeReadModel(t *testing.T) {
 	if err := status.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Hosts) != 1 || status.Hosts[0].ID != host.ID || len(status.Sessions) != 1 || status.Sessions[0].HostID != host.ID || status.Sessions[0].RemoteURL != "https://work.tail.ts.net/" || status.Sessions[0].State != string(SessionStateAwaitingApproval) || status.Sessions[0].RecoveryState != fleet.SessionRecoveryOrphaned || status.Sessions[0].RecoveryReason != "tmux reconnect timed out" || len(status.PendingApprovals) != 1 || status.PendingApprovals[0].ID != approvalID || status.PendingApprovals[0].HostID != host.ID {
+	if len(status.Hosts) != 1 || status.Hosts[0].ID != host.ID || len(status.Sessions) != 1 || status.Sessions[0].HostID != host.ID || status.Sessions[0].RemoteURL != "https://work.tail.ts.net/" || status.Sessions[0].State != string(SessionStateFailed) || status.Sessions[0].RecoveryState != fleet.SessionRecoveryOrphaned || status.Sessions[0].RecoveryReason != "tmux reconnect timed out" || len(status.PendingApprovals) != 1 || status.PendingApprovals[0].ID != approvalID || status.PendingApprovals[0].HostID != host.ID {
 		t.Fatalf("fleet status = %#v", status)
 	}
 	var wg sync.WaitGroup

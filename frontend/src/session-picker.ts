@@ -104,7 +104,7 @@ function sorted(sessions: SessionStatus[]): SessionStatus[] {
 }
 
 function stateRank(state: SessionStatus["state"]): number {
-  return ["awaiting-approval", "blocked", "working", "idle"].indexOf(state);
+  return ["failed", "recovering", "awaiting-approval", "blocked", "working", "idle"].indexOf(state);
 }
 
 function recent(session: SessionStatus): number {

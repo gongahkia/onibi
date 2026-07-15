@@ -41,7 +41,7 @@ test("session picker renders loading, failure, and prioritized sessions", async 
 function status(): SessionsStatusPayload {
   return {
     generated_at: "2026-07-14T01:00:00Z",
-    counts: { idle: 1, working: 1, "awaiting-approval": 1, blocked: 0 },
+    counts: { idle: 1, working: 1, "awaiting-approval": 1, blocked: 0, recovering: 0, failed: 0 },
     sessions: [
       session("idle", "shell", "idle", "2026-07-14T01:00:00Z"),
       session("working", "codex", "working", "2026-07-14T00:59:00Z"),

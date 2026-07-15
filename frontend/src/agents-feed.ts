@@ -1,6 +1,6 @@
 import type { EventEnvelope } from "./events";
 
-export type SessionState = "idle" | "working" | "awaiting-approval" | "blocked";
+export type SessionState = "idle" | "working" | "awaiting-approval" | "blocked" | "recovering" | "failed";
 export type SessionRecoveryState =
   "healthy" | "reconnecting" | "recovering" | "orphaned" | "failed" | "terminated";
 
@@ -29,7 +29,7 @@ export type SessionsStatusPayload = {
 
 type FetchJSON = <T>(path: string) => Promise<T>;
 
-const stateOrder: SessionState[] = ["awaiting-approval", "blocked", "working", "idle"];
+const stateOrder: SessionState[] = ["failed", "recovering", "awaiting-approval", "blocked", "working", "idle"];
 const refreshEvents = new Set([
   "session.started",
   "session.ended",
@@ -194,7 +194,9 @@ function emptyPayload(): SessionsStatusPayload {
       idle: 0,
       working: 0,
       "awaiting-approval": 0,
-      blocked: 0
+      blocked: 0,
+      recovering: 0,
+      failed: 0
     }
   };
 }
