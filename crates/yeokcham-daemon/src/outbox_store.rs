@@ -2,7 +2,10 @@ use std::{fmt, path::Path};
 
 use minicbor::{Decoder, Encoder};
 use yeokcham_core::{IdentityPublicKey, OsKeystore};
-use yeokcham_protocol::{EncryptedMessageEnvelope, MessageIdentifier, MessageIdentifierError};
+use yeokcham_protocol::{
+    DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
+    MessageIdentifier, MessageIdentifierError,
+};
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
@@ -113,6 +116,27 @@ impl SenderOutbox {
         Ok(message)
     }
 
+    pub fn acknowledge_delivery(
+        &mut self,
+        acknowledgement: &DeliveryAcknowledgement,
+    ) -> Result<OutboxMessage, SenderOutboxError> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.identifier == acknowledgement.message_identifier())
+            .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
+        let message = self.messages[index].clone();
+        acknowledgement
+            .verify_for(&message.recipient, message.identifier)
+            .map_err(SenderOutboxError::Acknowledgement)?;
+        self.messages.remove(index);
+        if let Err(error) = self.persist() {
+            self.messages.insert(index, message);
+            return Err(error);
+        }
+        Ok(message)
+    }
+
     fn persist(&mut self) -> Result<(), SenderOutboxError> {
         let document = StateDocument::new(encode_messages(&self.messages)?)
             .map_err(SenderOutboxError::InvalidDocument)?;
@@ -131,6 +155,10 @@ pub enum SenderOutboxError {
     EmptyQueue,
     #[error("sender outbox message identifier is invalid")]
     Identifier(#[source] MessageIdentifierError),
+    #[error("delivery acknowledgement verification failed")]
+    Acknowledgement(#[source] DeliveryAcknowledgementError),
+    #[error("delivery acknowledgement references no queued message")]
+    UnknownMessageIdentifier,
     #[error("sender outbox state document is invalid")]
     InvalidState(#[source] minicbor::decode::Error),
     #[error("sender outbox state document violates storage bounds: {0}")]
@@ -278,7 +306,9 @@ mod tests {
 
     use minicbor::Encoder;
     use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
-    use yeokcham_protocol::EncryptedMessageEnvelope;
+    use yeokcham_protocol::{
+        DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
+    };
 
     use super::{SenderOutbox, SenderOutboxError};
     use crate::{EncryptedStateStore, StateDocument};
@@ -384,6 +414,58 @@ mod tests {
             SenderOutbox::open(&path, &mut keystore),
             Err(SenderOutboxError::TrailingBytes)
         ));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn verifies_delivery_acknowledgements_before_removing_queued_messages() {
+        let path = path("delivery-acknowledgement");
+        let mut keystore = MemoryKeystore::default();
+        let first_recipient = IdentityKeypair::generate().unwrap();
+        let second_recipient = IdentityKeypair::generate().unwrap();
+        let unrelated_recipient = IdentityKeypair::generate().unwrap();
+        let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+        outbox
+            .enqueue(
+                first_recipient.public_key(),
+                EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+            )
+            .unwrap();
+        outbox
+            .enqueue(
+                second_recipient.public_key(),
+                EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap(),
+            )
+            .unwrap();
+        let second_identifier = outbox.messages()[1].identifier();
+        let invalid =
+            DeliveryAcknowledgement::create(&unrelated_recipient, second_identifier, 100).unwrap();
+
+        assert!(matches!(
+            outbox.acknowledge_delivery(&invalid),
+            Err(SenderOutboxError::Acknowledgement(
+                DeliveryAcknowledgementError::UnexpectedRecipient
+            ))
+        ));
+        let valid =
+            DeliveryAcknowledgement::create(&second_recipient, second_identifier, 100).unwrap();
+        assert_eq!(
+            outbox.acknowledge_delivery(&valid).unwrap().identifier(),
+            second_identifier
+        );
+        assert_eq!(outbox.messages().len(), 1);
+        assert_eq!(
+            outbox.next().unwrap().recipient(),
+            &first_recipient.public_key()
+        );
+        drop(outbox);
+        assert_eq!(
+            SenderOutbox::open(&path, &mut keystore)
+                .unwrap()
+                .messages()
+                .len(),
+            1
+        );
         fs::remove_file(path).unwrap();
     }
 
