@@ -39,11 +39,6 @@ const steps: TourStep[] = [
     targets: [".approval-trust-link", "#approval-overlay"]
   },
   {
-    title: "Files panel",
-    body: "FILES opens the session file browser and editor.",
-    targets: ['[data-tour="files"]', "#files"]
-  },
-  {
     title: "Done",
     body: "Tour complete.",
     targets: ["#toolbar", "#softkeys", "#term"]

@@ -752,6 +752,21 @@
   overscroll-behavior: contain;
 }
 
+.session-tools-form {
+  width: min(100%, 320px);
+}
+
+.session-tools-list {
+  display: grid;
+  gap: 6px;
+}
+
+.session-tools-action {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+}
+
 .share-header,
 .share-controls,
 .share-url-row,

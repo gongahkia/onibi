@@ -239,7 +239,9 @@ function conditionRank(condition: FleetCondition): number {
 }
 
 function sessionRank(session: FleetSession): number {
-  return ["failed", "recovering", "awaiting-approval", "blocked", "working", "idle"].indexOf(session.state);
+  return ["failed", "recovering", "awaiting-approval", "blocked", "working", "idle"].indexOf(
+    session.state
+  );
 }
 
 function sectionTitle(title: string): HTMLElement {

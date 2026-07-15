@@ -39,6 +39,7 @@ import { FleetHomeView } from "./fleet-home";
 import { SessionPickerPanel } from "./session-picker";
 import { TerminalStatus } from "./terminal-status";
 import { InterventionPanel } from "./intervention-panel";
+import { SessionToolsPanel } from "./session-tools";
 
 type SessionInfo = {
   session_id: string;
@@ -227,17 +228,14 @@ async function boot(): Promise<void> {
           }
         );
     agentsFeed = viewerMode ? undefined : new AgentsFeed(getJSON, navigateToSession);
-    installControls(
-      toolbar,
-      info,
-      agentsFeed,
-      snapshots,
-      timeline,
-      recordings,
-      filesPanel,
-      sharePanel,
-      interventionPanel
-    );
+    const tools = new SessionToolsPanel(document.body, [
+      { label: "Timeline", action: () => timeline?.toggle() },
+      { label: "Snapshots", action: () => snapshots?.toggle() },
+      { label: "Recordings", action: () => recordings?.toggle() },
+      { label: "Files", action: () => filesPanel.toggle() },
+      ...(sharePanel === undefined ? [] : [{ label: "Share", action: () => sharePanel.open() }])
+    ]);
+    installControls(toolbar, agentsFeed, tools, interventionPanel);
     void agentsFeed?.load();
     new SoftKeyBar({
       root: softkeys,
@@ -368,21 +366,13 @@ function eventsURL(token: string): string {
 
 function installControls(
   root: HTMLElement,
-  info: SessionInfo,
   agents: AgentsFeed | undefined,
-  snapshotsPanel: SnapshotsPanel,
-  timelinePanel: TimelinePanel,
-  recordingsPanel: RecordingPlayerPanel,
-  filesPanel: FilesPanel,
-  share: SharePanel | undefined,
+  tools: SessionToolsPanel,
   intervention: InterventionPanel | undefined
 ): void {
   const controls: HTMLElement[] = [
     terminalStatus.element,
-    controlButton("TL", () => timelinePanel.toggle()),
-    controlButton("SNAP", () => snapshotsPanel.toggle()),
-    controlButton("REC", () => recordingsPanel.toggle()),
-    controlButton("FILES", () => filesPanel.toggle(), "files"),
+    tools.element,
     controlButton("PUSH", () => enablePush())
   ];
   if (agents !== undefined) {
@@ -390,9 +380,6 @@ function installControls(
   }
   if (intervention !== undefined) {
     controls.unshift(intervention.element);
-  }
-  if (info.role !== "viewer") {
-    controls.push(controlButton("SHARE", () => share?.open()));
   }
   root.replaceChildren(...controls);
   // A phone-width toolbar has more controls than can fit. Always begin at the
