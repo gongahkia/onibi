@@ -14,6 +14,7 @@ chacha20poly1305.workspace = true
 getrandom.workspace = true
 igd-next.workspace = true
 minicbor.workspace = true
+mdns-sd.workspace = true
 natpmp.workspace = true
 quinn.workspace = true
 rusqlite.workspace = true

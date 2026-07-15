@@ -2,6 +2,7 @@
 
 mod contact_store;
 mod direct_transport;
+mod mdns;
 mod nat_pmp;
 mod ratchet_store;
 mod state_store;
@@ -16,6 +17,7 @@ pub use contact_store::{
     ContactVerificationMethod,
 };
 pub use direct_transport::{DirectConnection, DirectTransport, DirectTransportError};
+pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
 };
