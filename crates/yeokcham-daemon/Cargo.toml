@@ -21,6 +21,7 @@ rusqlite.workspace = true
 stunclient.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-socks.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true

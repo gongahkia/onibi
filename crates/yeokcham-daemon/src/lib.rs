@@ -7,6 +7,7 @@ mod nat_pmp;
 mod ratchet_store;
 mod state_store;
 mod stun;
+mod tor_socks;
 mod upnp;
 
 use yeokcham_core::{Error, Result};
@@ -31,6 +32,7 @@ pub use state_store::{
     StateStoreError,
 };
 pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
+pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 
 #[derive(Debug)]
