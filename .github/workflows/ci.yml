@@ -46,6 +46,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo test -p yeokcham-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
 
+  reproducible-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-a cargo build --release -p yeokcham-cli --locked
+          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-b cargo build --release -p yeokcham-cli --locked
+          cmp target/repro-a/release/yeokcham target/repro-b/release/yeokcham
+          target/repro-a/release/yeokcham release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-a/release-metadata.json
+          target/repro-b/release/yeokcham release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-b/release-metadata.json
+          cmp target/repro-a/release-metadata.json target/repro-b/release-metadata.json
+
   audit:
     runs-on: ubuntu-latest
     steps:

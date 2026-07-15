@@ -88,6 +88,23 @@ fn ci_runs_end_to_end_tests_on_every_supported_platform() {
 }
 
 #[test]
+fn ci_verifies_reproducible_release_artifacts() {
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("  reproducible-release:\n    runs-on: ubuntu-latest"));
+    assert!(workflow.contains("CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-a cargo build --release -p yeokcham-cli --locked"));
+    assert!(workflow.contains("CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-b cargo build --release -p yeokcham-cli --locked"));
+    assert!(
+        workflow.contains("cmp target/repro-a/release/yeokcham target/repro-b/release/yeokcham")
+    );
+    assert!(
+        workflow.contains(
+            "cmp target/repro-a/release-metadata.json target/repro-b/release-metadata.json"
+        )
+    );
+}
+
+#[test]
 fn pins_and_audits_cryptographic_dependencies() {
     let manifest = fs::read_to_string(workspace_file("Cargo.toml"))
         .expect("workspace must include Cargo.toml");
