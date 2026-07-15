@@ -41,7 +41,8 @@ pub use direct_profile::{
 };
 pub use domain::CryptoDomain;
 pub use double_ratchet::{
-    DOUBLE_RATCHET_STATE_SCHEMA_VERSION, DoubleRatchetError, DoubleRatchetState, RATCHET_KEY_BYTES,
+    DOUBLE_RATCHET_STATE_SCHEMA_VERSION, DoubleRatchetError, DoubleRatchetState,
+    MAX_RETIRED_RATCHET_KEYS, MAX_SKIPPED_MESSAGE_KEYS, RATCHET_KEY_BYTES,
 };
 pub use encrypted_header::{
     ENCRYPTED_HEADER_SCHEMA_VERSION, EncryptedHeader, EncryptedHeaderError,
