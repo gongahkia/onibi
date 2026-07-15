@@ -1,4 +1,5 @@
 use minicbor::{Decoder, Encoder};
+use yeokcham_core::IdentityPublicKey;
 
 pub const TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION: u8 = 1;
 pub const TOR_ONION_SERVICE_PUBLIC_KEY_BYTES: usize = 32;
@@ -18,6 +19,8 @@ impl TorMaildropProfileConfig {
         if virtual_port == 0 {
             return Err(TorMaildropProfileConfigError::ZeroVirtualPort);
         }
+        IdentityPublicKey::from_bytes(onion_service_public_key)
+            .map_err(|_| TorMaildropProfileConfigError::InvalidOnionServicePublicKey)?;
         Ok(Self {
             onion_service_public_key,
             virtual_port,
@@ -89,6 +92,8 @@ pub enum TorMaildropProfileConfigError {
     UnsupportedSchemaVersion(u8),
     #[error("onion-service public key has an invalid length")]
     InvalidOnionServicePublicKeyLength,
+    #[error("onion-service public key is malformed or weak")]
+    InvalidOnionServicePublicKey,
     #[error("Tor virtual port must be nonzero")]
     ZeroVirtualPort,
     #[error(
@@ -135,6 +140,11 @@ mod tests {
             TorMaildropProfileConfig::new([0x11; TOR_ONION_SERVICE_PUBLIC_KEY_BYTES], 0)
                 .unwrap_err(),
             TorMaildropProfileConfigError::ZeroVirtualPort
+        );
+        assert_eq!(
+            TorMaildropProfileConfig::new([0; TOR_ONION_SERVICE_PUBLIC_KEY_BYTES], 443)
+                .unwrap_err(),
+            TorMaildropProfileConfigError::InvalidOnionServicePublicKey
         );
     }
 
