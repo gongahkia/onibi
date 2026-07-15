@@ -1,7 +1,11 @@
 #![forbid(unsafe_code)]
 
 use yeokcham_core::{Error, Result};
-use yeokcham_protocol::{MAILBOX_IDENTIFIER_BYTES, MailboxCapability};
+use yeokcham_protocol::{
+    MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
+};
+
+pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 
 pub struct MailboxIngress {
     capability: MailboxCapability,
@@ -113,10 +117,48 @@ pub enum MailboxQuotaError {
     ReleaseExceedsUsage,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayRetentionPolicy {
+    ttl_seconds: u32,
+}
+
+impl RelayRetentionPolicy {
+    pub fn new(ttl_seconds: u32) -> Result<Self, RelayRetentionPolicyError> {
+        if ttl_seconds == 0 || ttl_seconds > MAX_RELAY_RETENTION_TTL_SECONDS {
+            return Err(RelayRetentionPolicyError::InvalidTtl);
+        }
+        Ok(Self { ttl_seconds })
+    }
+
+    #[must_use]
+    pub const fn ttl_seconds(self) -> u32 {
+        self.ttl_seconds
+    }
+
+    pub fn expires_at(self, received_at: u64) -> Result<u64, RelayRetentionPolicyError> {
+        received_at
+            .checked_add(u64::from(self.ttl_seconds))
+            .ok_or(RelayRetentionPolicyError::TimestampOverflow)
+    }
+
+    pub fn is_expired(self, received_at: u64, now: u64) -> Result<bool, RelayRetentionPolicyError> {
+        Ok(now >= self.expires_at(received_at)?)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayRetentionPolicyError {
+    #[error("relay retention TTL is invalid")]
+    InvalidTtl,
+    #[error("relay retention timestamp overflowed")]
+    TimestampOverflow,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MailboxIngress, MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
+        MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress, MailboxIngressError, MailboxQuota,
+        MailboxQuotaError, MailboxQuotaTracker, RelayRetentionPolicy, RelayRetentionPolicyError,
     };
     use yeokcham_protocol::{
         MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
@@ -189,6 +231,31 @@ mod tests {
         assert_eq!(
             tracker.release(1),
             Err(MailboxQuotaError::ReleaseExceedsUsage)
+        );
+    }
+
+    #[test]
+    fn enforces_retention_ttl_at_the_expiration_boundary() {
+        let policy = RelayRetentionPolicy::new(10).unwrap();
+
+        assert_eq!(policy.expires_at(100), Ok(110));
+        assert_eq!(policy.is_expired(100, 109), Ok(false));
+        assert_eq!(policy.is_expired(100, 110), Ok(true));
+    }
+
+    #[test]
+    fn rejects_invalid_or_overflowing_retention_policy_values() {
+        assert_eq!(
+            RelayRetentionPolicy::new(0),
+            Err(RelayRetentionPolicyError::InvalidTtl)
+        );
+        assert_eq!(
+            RelayRetentionPolicy::new(MAX_RELAY_RETENTION_TTL_SECONDS + 1),
+            Err(RelayRetentionPolicyError::InvalidTtl)
+        );
+        assert_eq!(
+            RelayRetentionPolicy::new(1).unwrap().expires_at(u64::MAX),
+            Err(RelayRetentionPolicyError::TimestampOverflow)
         );
     }
 }
