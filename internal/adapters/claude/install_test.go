@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
@@ -103,6 +104,41 @@ func TestHookCommandsQuoteNotifyPath(t *testing.T) {
 	}
 	if !contains(cmd, common.VersionEnv+"=\""+common.IntegrationVersion+"\"") {
 		t.Fatalf("cmd missing version env = %q", cmd)
+	}
+}
+
+func TestClaudeContractHooksCoverLifecycleAndApproval(t *testing.T) {
+	db, notify, _ := newTestEnv(t)
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	hooks, err := ExpectedHooks(notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"SessionStart":       "agent_message",
+		"UserPromptSubmit":   "agent_message",
+		"PreToolUse":         "approval_request",
+		"PostToolUse":        "agent_message",
+		"PostToolUseFailure": "agent_message",
+		"Stop":               "agent_done",
+		"SessionEnd":         "session_exited",
+	}
+	if len(hooks) != len(want) {
+		t.Fatalf("hooks=%+v", hooks)
+	}
+	for _, hook := range hooks {
+		typ, ok := want[hook.Event]
+		if !ok || !strings.Contains(hook.Command, "--type "+typ) {
+			t.Fatalf("hook=%+v", hook)
+		}
+		if hook.Event == "PreToolUse" && (!strings.Contains(hook.Command, "--wait --response provider") || hook.Timeout != 360) {
+			t.Fatalf("approval hook=%+v", hook)
+		}
+	}
+	if err := VerifyHash(context.Background(), db); err != nil {
+		t.Fatal(err)
 	}
 }
 

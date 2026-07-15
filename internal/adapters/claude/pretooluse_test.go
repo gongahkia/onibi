@@ -61,6 +61,20 @@ func TestPreToolUseDeniedOutput(t *testing.T) {
 	}
 }
 
+func TestPreToolUseExpiredOutputDenies(t *testing.T) {
+	res := PreToolUseResponse(intake.Response{Decision: "expired"})
+	if res.ExitCode != 2 || !strings.Contains(res.Stdout, `"permissionDecision":"deny"`) || !strings.Contains(res.Stderr, "approval expired") {
+		t.Fatalf("result=%+v", res)
+	}
+}
+
+func TestPreToolUseCancelledOutputAllows(t *testing.T) {
+	res := PreToolUseResponse(intake.Response{Decision: "cancelled"})
+	if res.ExitCode != 0 || res.Stdout != "" || res.Stderr != "" {
+		t.Fatalf("result=%+v", res)
+	}
+}
+
 func TestAdapterClaudeDenyBlocksTool(t *testing.T) {
 	notify := denytest.DenyNotify(t)
 	target := denytest.Target(t, Agent)

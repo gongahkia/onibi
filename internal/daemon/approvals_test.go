@@ -339,6 +339,57 @@ func TestResponseForDecisionDenyUsesProviderVerdict(t *testing.T) {
 	}
 }
 
+func TestClaudeApprovalDenyIsEnforcingAndAudited(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db})
+	if err := d.Registry.Add(NewSession("s1", "claude", "claude", nil, 0)); err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe, err := d.Queue.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	result := make(chan approvalResult, 1)
+	payload := `{"command":"deploy --token raw-sensitive-value"}`
+	go func() {
+		resp, err := d.handleApprovalRequest(t.Context(), intake.Event{
+			Type:      intake.TypeApprovalRequest,
+			Session:   "s1",
+			Managed:   true,
+			Agent:     "claude",
+			Tool:      "Bash",
+			InputJSON: payload,
+		})
+		result <- approvalResult{resp: resp, err: err}
+	}()
+	requested := readTrustApprovalEvent(t, events)
+	if err := d.Queue.Decide(t.Context(), requested.Approval.ID, approval.VerdictDeny, "", "owner denied", 9); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil || got.resp.Decision != string(approval.VerdictDeny) || got.resp.Reason != "owner denied" {
+			t.Fatalf("result=%+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval did not return")
+	}
+	rows, err := db.AuditAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Action == "approval.decided" {
+			if row.PayloadHash == "" || strings.Contains(row.Detail, "raw-sensitive-value") {
+				t.Fatalf("audit=%+v", row)
+			}
+			return
+		}
+	}
+	t.Fatalf("approval decision audit missing: %+v", rows)
+}
+
 func TestApprovalRequestCancelsOnDaemonShutdown(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})
