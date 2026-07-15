@@ -2,16 +2,32 @@ use std::collections::VecDeque;
 
 use yeokcham_protocol::{RelayReplicaSelection, TorMaildropProfileConfig};
 
+pub const MAX_REPLICA_WRITE_ATTEMPTS: u8 = 3;
+
+#[derive(Clone, Copy)]
+struct ReplicaTask {
+    replica: TorMaildropProfileConfig,
+    attempts: u8,
+}
+
 pub struct MaildropReplicationScheduler {
-    pending: VecDeque<TorMaildropProfileConfig>,
-    in_flight: Option<TorMaildropProfileConfig>,
+    pending: VecDeque<ReplicaTask>,
+    in_flight: Option<ReplicaTask>,
 }
 
 impl MaildropReplicationScheduler {
     #[must_use]
     pub fn new(selection: RelayReplicaSelection) -> Self {
         Self {
-            pending: selection.replicas().iter().copied().collect(),
+            pending: selection
+                .replicas()
+                .iter()
+                .copied()
+                .map(|replica| ReplicaTask {
+                    replica,
+                    attempts: 0,
+                })
+                .collect(),
             in_flight: None,
         }
     }
@@ -22,19 +38,40 @@ impl MaildropReplicationScheduler {
         if self.in_flight.is_some() {
             return Err(MaildropReplicationError::WriteInFlight);
         }
-        let replica = self.pending.pop_front();
-        self.in_flight = replica;
-        Ok(replica)
+        let mut task = self.pending.pop_front();
+        if let Some(task) = &mut task {
+            task.attempts += 1;
+        }
+        self.in_flight = task;
+        Ok(task.map(|task| task.replica))
     }
 
     pub fn complete(
         &mut self,
         replica: TorMaildropProfileConfig,
     ) -> Result<(), MaildropReplicationError> {
-        if self.in_flight != Some(replica) {
+        if self.in_flight.map(|task| task.replica) != Some(replica) {
             return Err(MaildropReplicationError::UnexpectedReplica);
         }
         self.in_flight = None;
+        Ok(())
+    }
+
+    pub fn fail(
+        &mut self,
+        replica: TorMaildropProfileConfig,
+    ) -> Result<(), MaildropReplicationError> {
+        let task = self
+            .in_flight
+            .ok_or(MaildropReplicationError::UnexpectedReplica)?;
+        if task.replica != replica {
+            return Err(MaildropReplicationError::UnexpectedReplica);
+        }
+        self.in_flight = None;
+        if task.attempts >= MAX_REPLICA_WRITE_ATTEMPTS {
+            return Err(MaildropReplicationError::AttemptsExhausted);
+        }
+        self.pending.push_front(task);
         Ok(())
     }
 
@@ -50,11 +87,15 @@ pub enum MaildropReplicationError {
     WriteInFlight,
     #[error("maildrop replica completion did not match the active write")]
     UnexpectedReplica,
+    #[error("maildrop replica write attempts are exhausted")]
+    AttemptsExhausted,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MaildropReplicationError, MaildropReplicationScheduler};
+    use super::{
+        MAX_REPLICA_WRITE_ATTEMPTS, MaildropReplicationError, MaildropReplicationScheduler,
+    };
     use yeokcham_protocol::{
         DeliveryProfile, RelayReplicaSelection, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
         TorMaildropProfileConfig,
@@ -88,6 +129,26 @@ mod tests {
         assert_eq!(scheduler.next_replica(), Ok(Some(second)));
         scheduler.complete(second).unwrap();
         assert_eq!(scheduler.next_replica(), Ok(None));
+        assert!(scheduler.is_complete());
+    }
+
+    #[test]
+    fn retries_only_the_failed_replica_up_to_the_attempt_limit() {
+        let first = replica(0x11);
+        let selection =
+            RelayReplicaSelection::for_profile(DeliveryProfile::tor_maildrop(), vec![first])
+                .unwrap();
+        let mut scheduler = MaildropReplicationScheduler::new(selection);
+
+        for _ in 1..MAX_REPLICA_WRITE_ATTEMPTS {
+            assert_eq!(scheduler.next_replica(), Ok(Some(first)));
+            scheduler.fail(first).unwrap();
+        }
+        assert_eq!(scheduler.next_replica(), Ok(Some(first)));
+        assert_eq!(
+            scheduler.fail(first),
+            Err(MaildropReplicationError::AttemptsExhausted)
+        );
         assert!(scheduler.is_complete());
     }
 }
