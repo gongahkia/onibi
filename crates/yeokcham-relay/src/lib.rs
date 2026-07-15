@@ -1875,6 +1875,46 @@ mod tests {
     }
 
     #[test]
+    fn retries_identical_attachment_chunks_without_charging_or_extending_retention() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let chunk = attachment_chunk(identifier, 0);
+        let chunk_bytes = u64::try_from(chunk.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(chunk_bytes).unwrap(), 100)
+            .unwrap();
+        assert!(
+            database
+                .store_attachment_chunk(&capability, &chunk, 100, retention)
+                .unwrap()
+        );
+        assert!(
+            !database
+                .store_attachment_chunk(&capability, &chunk, 109, retention)
+                .unwrap()
+        );
+        assert!(matches!(
+            database.retrieve_attachment_chunk(&capability, identifier, 0, 110),
+            Err(RelayDatabaseError::UnknownAttachmentChunk)
+        ));
+        let used_bytes: Vec<u8> = database
+            .connection
+            .query_row(
+                "SELECT used_bytes FROM relay_mailboxes WHERE mailbox_id = ?1",
+                [capability.mailbox_id().as_slice()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            u64::from_be_bytes(used_bytes.try_into().unwrap()),
+            chunk_bytes
+        );
+    }
+
+    #[test]
     fn retrieves_unexpired_envelopes_in_sequence_order() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
