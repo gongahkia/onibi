@@ -1,11 +1,29 @@
-# Onibi Provider Parity Contract
+# Onibi Provider Capability Contract
 
-Status: contract for E1-E12 provider parity work.
+Status: post-v1.1 deferred capability map. Provider transports are not v1-default or normal-use certified; their runtime paths require `experimental.providers=true`.
 
-This spec defines the target `chatout.Provider` shape for chat and notify
-providers. Existing providers do not all satisfy the full contract today. The
-matrix below is the baseline; E1-E7 and future provider issues close gaps
-against this document.
+This spec defines independent evidence bars for chat and notify providers. It
+does not define blanket provider parity: a provider advances only the
+capabilities it explicitly implements, tests, and receives review for. Existing
+local implementations remain experimental until their capability evidence is
+accepted.
+
+## Capability milestones
+
+| Capability | Scope | Required evidence before experimental promotion |
+| --- | --- | --- |
+| notification delivery | send bounded approval and alert notifications, plus receipts where the provider exposes them | fake-client send and error tests, rate-limit handling, and a provider-specific live delivery result |
+| inbound text | normalize inbound text into a scoped Onibi request | verified sender binding, non-owner rejection, replay handling, and a live inbound result |
+| approvals | deliver approval requests and accept approve, deny, or explicitly supported edit decisions | binding to one approval/session, idempotence, callback/command forgery tests, and a live decision result |
+| E2EE | protect provider-side room or message content where the provider supports it | documented trust and key-storage model, encrypted fixture tests, device-verification evidence, and a live encrypted-room result |
+| lifecycle | connect, close, cursor recovery, retry, and reconnect behavior | cancellation, backoff, reconnect, and cursor/replay tests plus a live restart/reconnect result |
+| audit | write minimal, privacy-preserving interaction records | audit shape, redaction, and failure-path tests; no raw terminal, approval, secret, or provider payload storage |
+| device verification | bind a remote provider identity or device to the personal owner boundary | enrollment, changed-device, revocation, and impersonation tests plus a provider-specific live verification result |
+
+Every future provider issue must name the capability rows it advances and the
+corresponding local and live evidence. A result for one row neither implies nor
+promotes any other row. Existing E1-E11 provider issues are integration and
+live-evidence work, not blanket provider-promotion claims.
 
 ## Provider Interface
 
@@ -136,10 +154,12 @@ Action names use `provider.event` shape:
 and retry/rate-limit state when relevant. Raw provider payloads, access tokens,
 room secrets, and full terminal text must not be written to `detail`.
 
-## Capability Matrix
+## Local implementation inventory
 
-Legend: `yes` means shipped enough for normal use; `partial` means present but
-below the target contract; `no` means not implemented today.
+Legend: `yes` indicates local implementation and fake-test evidence; `partial`
+indicates a local path below the corresponding capability bar; `no` indicates
+no local path. None of these states authorizes default enablement or replaces
+provider-specific live evidence and review.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -222,9 +242,10 @@ SMS and email are notify-only failover transports. They send signed approval
 URLs through Twilio SMS or a user-provided SMTP relay and require an externally
 reachable Onibi action base URL for tap-through decisions.
 
-## Conformance Expectations
+## Capability-specific conformance
 
-Provider implementations must pass shared conformance tests for:
+Provider implementations must pass shared conformance tests for every
+capability they claim:
 
 - name and capability reporting
 - approval request send
@@ -237,3 +258,5 @@ Provider implementations must pass shared conformance tests for:
 
 Provider-specific live tests remain opt-in because they require external
 secrets. Shared unit tests must use fake clients and must not call remote APIs.
+No capability is promoted from an experimental profile without its local tests,
+provider-specific live result, and explicit product/security review.
