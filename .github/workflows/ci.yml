@@ -28,6 +28,13 @@ jobs:
       - run: cargo test --workspace --no-default-features --locked
       - run: cargo test --workspace --all-features --locked
 
+  tor-maildrop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - run: cargo test -p yeokcham-daemon --test tor_maildrop_topology --locked
+
   audit:
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +52,7 @@ jobs:
           components: miri
       - run: cargo +nightly miri setup
       - run: cargo +nightly miri test -p yeokcham-core --lib
-      - run: cargo +nightly miri test -p yeokcham-core --features test-fixtures --lib test_fixture::tests::
+      - run: "cargo +nightly miri test -p yeokcham-core --features test-fixtures --lib test_fixture::tests::"
 
   dependency-policy:
     runs-on: ubuntu-latest

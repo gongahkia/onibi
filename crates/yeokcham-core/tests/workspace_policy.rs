@@ -67,6 +67,16 @@ fn ci_audits_dependencies_on_every_change_and_weekly() {
 }
 
 #[test]
+fn ci_exercises_the_tor_maildrop_topology() {
+    let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("workspace must include CI workflow");
+    assert!(workflow.contains("  tor-maildrop:\n    runs-on: ubuntu-latest"));
+    assert!(
+        workflow.contains("cargo test -p yeokcham-daemon --test tor_maildrop_topology --locked")
+    );
+}
+
+#[test]
 fn pins_and_audits_cryptographic_dependencies() {
     let manifest = fs::read_to_string(workspace_file("Cargo.toml"))
         .expect("workspace must include Cargo.toml");
