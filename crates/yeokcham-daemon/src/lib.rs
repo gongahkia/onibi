@@ -5,6 +5,7 @@ mod daemon_config;
 mod delivery_scheduler;
 mod direct_transport;
 mod inbox_deduplication;
+mod lan_transport;
 mod lifecycle;
 mod local_transport;
 mod mdns;
@@ -42,6 +43,7 @@ pub use inbox_deduplication::{
     INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, MAX_INBOX_DEDUPLICATION_ENTRIES,
     RecipientInboxDeduplication, RecipientInboxDeduplicationError,
 };
+pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
 pub use local_transport::LocalTransport;
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
