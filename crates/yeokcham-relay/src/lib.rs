@@ -21,6 +21,34 @@ const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayOperationalMetrics {
+    registered_mailboxes: u64,
+    stored_envelopes: u64,
+    stored_bytes: u64,
+}
+
+impl RelayOperationalMetrics {
+    #[must_use]
+    pub const fn registered_mailboxes(self) -> u64 {
+        self.registered_mailboxes
+    }
+
+    #[must_use]
+    pub const fn stored_envelopes(self) -> u64 {
+        self.stored_envelopes
+    }
+
+    #[must_use]
+    pub const fn stored_bytes(self) -> u64 {
+        self.stored_bytes
+    }
+}
+
+pub trait RelayMetricsEmitter {
+    fn emit(&mut self, metrics: RelayOperationalMetrics);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RelayHealthEndpoint {
     address: SocketAddr,
 }
@@ -180,6 +208,26 @@ impl RelayDatabase {
 
     pub fn schema_version(&self) -> Result<u32, RelayDatabaseError> {
         read_schema_version(&self.connection)
+    }
+
+    pub fn emit_operational_metrics<E: RelayMetricsEmitter>(
+        &self,
+        emitter: &mut E,
+    ) -> Result<(), RelayDatabaseError> {
+        let registered_mailboxes = count_rows(&self.connection, "relay_mailboxes")?;
+        let stored_envelopes = count_rows(&self.connection, "relay_envelopes")?;
+        let stored_bytes = self.connection.query_row(
+            "SELECT COALESCE(SUM(length(ciphertext)), 0) FROM relay_envelopes",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        emitter.emit(RelayOperationalMetrics {
+            registered_mailboxes,
+            stored_envelopes,
+            stored_bytes: u64::try_from(stored_bytes)
+                .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
+        });
+        Ok(())
     }
 
     pub fn register_mailbox(
@@ -559,6 +607,16 @@ fn read_schema_version(connection: &Connection) -> Result<u32, RelayDatabaseErro
         .unwrap_or_default())
 }
 
+fn count_rows(connection: &Connection, table: &str) -> Result<u64, RelayDatabaseError> {
+    let query = match table {
+        "relay_mailboxes" => "SELECT COUNT(*) FROM relay_mailboxes",
+        "relay_envelopes" => "SELECT COUNT(*) FROM relay_envelopes",
+        _ => return Err(RelayDatabaseError::InvalidMailboxRecord),
+    };
+    let count = connection.query_row(query, [], |row| row.get::<_, i64>(0))?;
+    u64::try_from(count).map_err(|_| RelayDatabaseError::InvalidMailboxRecord)
+}
+
 fn capability_digest(capability: &MailboxCapability) -> Result<[u8; 32], RelayDatabaseError> {
     let encoded = capability
         .encode()
@@ -732,8 +790,9 @@ mod tests {
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
         MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
         RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION, RelayDatabase, RelayDatabaseError,
-        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayRetentionPolicy,
-        RelayRetentionPolicyError, SelfHostedRelayConfig, SelfHostedRelayConfigError,
+        RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity, RelayMetricsEmitter,
+        RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
+        SelfHostedRelayConfig, SelfHostedRelayConfigError,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -752,6 +811,15 @@ mod tests {
 
     fn envelope() -> EncryptedMessageEnvelope {
         EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2, 0xc3]).unwrap()
+    }
+
+    #[derive(Default)]
+    struct MetricsEmitter(Vec<RelayOperationalMetrics>);
+
+    impl RelayMetricsEmitter for MetricsEmitter {
+        fn emit(&mut self, metrics: RelayOperationalMetrics) {
+            self.0.push(metrics);
+        }
     }
 
     #[derive(Default)]
@@ -1187,6 +1255,36 @@ mod tests {
         assert_eq!(
             RelayHealthEndpoint::new("192.0.2.1:8080".parse().unwrap()),
             Err(RelayHealthEndpointError::NonLoopbackAddress)
+        );
+    }
+
+    #[test]
+    fn emits_only_aggregate_relay_operational_metrics() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(1024).unwrap(), 1)
+            .unwrap();
+        database
+            .insert_envelope(
+                &capability,
+                &envelope(),
+                2,
+                RelayRetentionPolicy::new(60).unwrap(),
+            )
+            .unwrap();
+        let mut emitter = MetricsEmitter::default();
+
+        database.emit_operational_metrics(&mut emitter).unwrap();
+
+        assert_eq!(
+            emitter.0,
+            vec![RelayOperationalMetrics {
+                registered_mailboxes: 1,
+                stored_envelopes: 1,
+                stored_bytes: 6,
+            }]
         );
     }
 
