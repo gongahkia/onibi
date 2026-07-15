@@ -107,6 +107,7 @@ pub use identity_rotation::{
 };
 pub use local_mesh_profile::{
     LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,
+    LocalMeshProfileConstraintError, LocalMeshProfileConstraints, LocalMeshProfilePolicyDecision,
     LocalMeshTransportKind,
 };
 pub use mailbox_capability::{

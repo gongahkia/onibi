@@ -83,6 +83,74 @@ impl LocalMeshProfileConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalMeshProfileConstraints {
+    bluetooth_allowed: bool,
+    lan_allowed: bool,
+    wifi_direct_allowed: bool,
+    wifi_hotspot_allowed: bool,
+}
+
+impl LocalMeshProfileConstraints {
+    pub fn new(
+        lan_allowed: bool,
+        wifi_hotspot_allowed: bool,
+        wifi_direct_allowed: bool,
+        bluetooth_allowed: bool,
+    ) -> Result<Self, LocalMeshProfileConstraintError> {
+        if !lan_allowed && !wifi_hotspot_allowed && !wifi_direct_allowed && !bluetooth_allowed {
+            return Err(LocalMeshProfileConstraintError::NoAllowedTransports);
+        }
+        Ok(Self {
+            bluetooth_allowed,
+            lan_allowed,
+            wifi_direct_allowed,
+            wifi_hotspot_allowed,
+        })
+    }
+
+    #[must_use]
+    pub const fn decide(self, profile: LocalMeshProfileConfig) -> LocalMeshProfilePolicyDecision {
+        let allowed = match profile.transport() {
+            LocalMeshTransportKind::Lan => self.lan_allowed,
+            LocalMeshTransportKind::WifiHotspot => self.wifi_hotspot_allowed,
+            LocalMeshTransportKind::WifiDirect => self.wifi_direct_allowed,
+            LocalMeshTransportKind::Bluetooth => self.bluetooth_allowed,
+        };
+        if allowed {
+            LocalMeshProfilePolicyDecision::Allow
+        } else {
+            LocalMeshProfilePolicyDecision::Deny(
+                LocalMeshProfileConstraintError::DisallowedTransport(profile.transport()),
+            )
+        }
+    }
+
+    pub fn validate(
+        self,
+        profile: LocalMeshProfileConfig,
+    ) -> Result<(), LocalMeshProfileConstraintError> {
+        match self.decide(profile) {
+            LocalMeshProfilePolicyDecision::Allow => Ok(()),
+            LocalMeshProfilePolicyDecision::Deny(error) => Err(error),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalMeshProfilePolicyDecision {
+    Allow,
+    Deny(LocalMeshProfileConstraintError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum LocalMeshProfileConstraintError {
+    #[error("at least one local-mesh transport must be allowed")]
+    NoAllowedTransports,
+    #[error("local-mesh transport is disallowed: {0:?}")]
+    DisallowedTransport(LocalMeshTransportKind),
+}
+
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum LocalMeshProfileConfigError {
     #[error("unsupported local-mesh-profile configuration schema version: {0}")]
@@ -103,7 +171,8 @@ pub enum LocalMeshProfileConfigError {
 mod tests {
     use super::{
         LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig,
-        LocalMeshProfileConfigError, LocalMeshTransportKind,
+        LocalMeshProfileConfigError, LocalMeshProfileConstraintError, LocalMeshProfileConstraints,
+        LocalMeshProfilePolicyDecision, LocalMeshTransportKind,
     };
 
     #[test]
@@ -140,6 +209,38 @@ mod tests {
         assert_eq!(
             LocalMeshProfileConfig::decode(&[0x82, 0x01, 0x01, 0]).unwrap_err(),
             LocalMeshProfileConfigError::TrailingBytes
+        );
+    }
+
+    #[test]
+    fn validates_transport_specific_policy() {
+        let constraints = LocalMeshProfileConstraints::new(false, true, false, false).unwrap();
+        assert!(
+            constraints
+                .validate(LocalMeshProfileConfig::new(
+                    LocalMeshTransportKind::WifiHotspot
+                ))
+                .is_ok()
+        );
+        assert_eq!(
+            constraints
+                .validate(LocalMeshProfileConfig::new(LocalMeshTransportKind::Lan))
+                .unwrap_err(),
+            LocalMeshProfileConstraintError::DisallowedTransport(LocalMeshTransportKind::Lan)
+        );
+        assert_eq!(
+            constraints.decide(LocalMeshProfileConfig::new(
+                LocalMeshTransportKind::Bluetooth
+            )),
+            LocalMeshProfilePolicyDecision::Deny(
+                LocalMeshProfileConstraintError::DisallowedTransport(
+                    LocalMeshTransportKind::Bluetooth
+                )
+            )
+        );
+        assert_eq!(
+            LocalMeshProfileConstraints::new(false, false, false, false).unwrap_err(),
+            LocalMeshProfileConstraintError::NoAllowedTransports
         );
     }
 }
