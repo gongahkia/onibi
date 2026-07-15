@@ -12,6 +12,7 @@ default = []
 [dependencies]
 chacha20poly1305.workspace = true
 getrandom.workspace = true
+igd-next.workspace = true
 minicbor.workspace = true
 quinn.workspace = true
 rusqlite.workspace = true

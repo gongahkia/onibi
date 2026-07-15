@@ -4,6 +4,7 @@ mod contact_store;
 mod direct_transport;
 mod ratchet_store;
 mod state_store;
+mod upnp;
 
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
@@ -18,6 +19,7 @@ pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
     StateStoreError,
 };
+pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 
 #[derive(Debug)]
 pub struct Daemon {
