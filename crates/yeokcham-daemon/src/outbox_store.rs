@@ -631,6 +631,8 @@ mod tests {
     use std::{collections::BTreeMap, convert::Infallible, fs, path::PathBuf};
 
     use minicbor::Encoder;
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseResult;
     use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
     use yeokcham_protocol::{
         DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
@@ -681,6 +683,41 @@ mod tests {
 
     fn expiry() -> MessageExpiry {
         MessageExpiry::new(100, 60).unwrap()
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum DeliveryAction {
+        AcknowledgeNext,
+        ExpireAt(u8),
+    }
+
+    fn delivery_action() -> impl Strategy<Value = DeliveryAction> {
+        prop_oneof![
+            Just(DeliveryAction::AcknowledgeNext),
+            (100_u8..=164).prop_map(DeliveryAction::ExpireAt),
+        ]
+    }
+
+    fn assert_delivery_model(
+        outbox: &SenderOutbox,
+        identifiers: &[MessageIdentifier],
+        states: &[DeliveryState],
+        pending: &[usize],
+    ) -> TestCaseResult {
+        for (index, identifier) in identifiers.iter().enumerate() {
+            prop_assert_eq!(outbox.delivery_state(*identifier), Some(states[index]));
+        }
+        let actual = outbox
+            .messages()
+            .iter()
+            .map(|message| message.identifier())
+            .collect::<Vec<_>>();
+        let expected = pending
+            .iter()
+            .map(|index| identifiers[*index])
+            .collect::<Vec<_>>();
+        prop_assert_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
@@ -1160,5 +1197,83 @@ mod tests {
             Some(DeliveryState::Expired)
         );
         fs::remove_file(path).unwrap();
+    }
+
+    proptest! {
+        #[test]
+        fn models_delivery_state_transitions(
+            expiry_offsets in proptest::collection::vec(1_u8..=64, 1..=32),
+            actions in proptest::collection::vec(delivery_action(), 1..=128),
+        ) {
+            let path = path("delivery-state-model");
+            let mut keystore = MemoryKeystore::default();
+            let recipient = IdentityKeypair::generate().unwrap().public_key();
+            let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+            let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+            let mut identifiers = Vec::new();
+            for expiry_offset in &expiry_offsets {
+                outbox
+                    .enqueue(
+                        recipient,
+                        envelope.clone(),
+                        MessageExpiry::new(100, u32::from(*expiry_offset)).unwrap(),
+                    )
+                    .unwrap();
+                identifiers.push(outbox.messages().last().unwrap().identifier());
+            }
+            let mut states = vec![DeliveryState::Unknown; identifiers.len()];
+            let mut pending = (0..identifiers.len()).collect::<Vec<_>>();
+
+            for action in actions {
+                match action {
+                    DeliveryAction::AcknowledgeNext => {
+                        if let Some(index) = pending.first().copied() {
+                            prop_assert_eq!(
+                                outbox.acknowledge_next().unwrap().identifier(),
+                                identifiers[index]
+                            );
+                            pending.remove(0);
+                            states[index] = DeliveryState::Delivered;
+                        } else {
+                            prop_assert!(matches!(
+                                outbox.acknowledge_next(),
+                                Err(SenderOutboxError::EmptyQueue)
+                            ));
+                        }
+                    }
+                    DeliveryAction::ExpireAt(now) => {
+                        let expiring = pending
+                            .iter()
+                            .copied()
+                            .filter(|index| u64::from(now) >= 100 + u64::from(expiry_offsets[*index]))
+                            .collect::<Vec<_>>();
+                        let expired = outbox
+                            .expire_due_deliveries(u64::from(now))
+                            .unwrap()
+                            .into_iter()
+                            .map(|message| message.identifier())
+                            .collect::<Vec<_>>();
+                        prop_assert_eq!(
+                            expired,
+                            expiring
+                                .iter()
+                                .map(|index| identifiers[*index])
+                                .collect::<Vec<_>>()
+                        );
+                        for index in &expiring {
+                            states[*index] = DeliveryState::Expired;
+                        }
+                        pending.retain(|index| !expiring.contains(index));
+                    }
+                }
+                assert_delivery_model(&outbox, &identifiers, &states, &pending)?;
+            }
+
+            drop(outbox);
+            let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
+            assert_delivery_model(&restored, &identifiers, &states, &pending)?;
+            drop(restored);
+            fs::remove_file(path).unwrap();
+        }
     }
 }

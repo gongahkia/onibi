@@ -3389,6 +3389,7 @@ dependencies = [
  "mdns-sd",
  "minicbor",
  "natpmp",
+ "proptest",
  "quinn",
  "rcgen",
  "rusqlite",
