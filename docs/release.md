@@ -24,14 +24,15 @@ make build
 ./bin/onibi doctor --release --offline
 scripts/macos-release-gate.sh
 make upgrade-recovery-gate
+make security-regression-gate
 goreleaser release --snapshot --clean
 scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
-The macOS and upgrade-recovery gates are release-blocking. The upgrade-recovery
-gate writes `metadata.json`, `test.log`, and `summary.json` to
-`artifacts/upgrade-recovery-gate` for CI upload. Linux is beta-only; run
+The macOS, upgrade-recovery, and security-regression gates are release-blocking.
+The latter two write `metadata.json`, `test.log`, and `summary.json` under
+`artifacts/` for CI upload. Linux is beta-only; run
 [`linux-beta.md`](./linux-beta.md) separately and do not substitute Linux
 evidence for the macOS gate. The real-machine install walkthrough is
 [`fresh-machine-smoke.md`](./fresh-machine-smoke.md). Run it on a stock macOS

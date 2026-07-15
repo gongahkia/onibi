@@ -80,18 +80,24 @@ jobs:
       - name: run staticcheck
         run: staticcheck $(scripts/go-packages.sh)
 
-  fuzz:
-    name: fuzz approval queue
+  security-regression:
+    name: security regression
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
           cache: true
-      - name: fuzz Decide
-        run: go test -fuzz=FuzzDecide -fuzztime=30s ./internal/approval
+      - name: run security regression gate
+        run: scripts/security-regression-gate.sh "$RUNNER_TEMP/onibi-security-regression"
+      - name: upload security regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-regression-evidence
+          path: ${{ runner.temp }}/onibi-security-regression
+          if-no-files-found: error
 
   frontend:
     name: frontend smoke
