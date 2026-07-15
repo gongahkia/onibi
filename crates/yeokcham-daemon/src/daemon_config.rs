@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 pub const DAEMON_CONFIG_SCHEMA_VERSION: u8 = 1;
@@ -65,6 +65,19 @@ impl DaemonConfig {
     #[must_use]
     pub fn state_directory(&self) -> &Path {
         &self.state_directory
+    }
+
+    pub fn validate_for_startup(&self) -> Result<(), DaemonConfigError> {
+        if self.state_directory.as_os_str().is_empty()
+            || !self.state_directory.is_absolute()
+            || self
+                .state_directory
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err(DaemonConfigError::InvalidStateDirectory);
+        }
+        Ok(())
     }
 }
 
@@ -199,5 +212,19 @@ state_directory = "C:\\state"
             Err(DaemonConfigError::TooLarge)
         ));
         assert_eq!(DAEMON_CONFIG_SCHEMA_VERSION, 1);
+    }
+
+    #[test]
+    fn startup_validation_rejects_unsafe_state_directories() {
+        for state_directory in ["", "state", "../state", "/state/../other"] {
+            let config = DaemonConfig::parse(&format!(
+                "config_version = 1\nstate_directory = \"{state_directory}\"\n"
+            ))
+            .unwrap();
+            assert!(matches!(
+                config.validate_for_startup(),
+                Err(DaemonConfigError::InvalidStateDirectory)
+            ));
+        }
     }
 }

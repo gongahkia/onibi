@@ -7,7 +7,7 @@ use std::{
 use fs2::FileExt;
 use yeokcham_protocol::ProtocolVersion;
 
-use crate::Daemon;
+use crate::{Daemon, DaemonConfig, DaemonConfigError};
 
 pub const DAEMON_LOCK_FILE: &str = "yeokcham-daemon.lock";
 
@@ -18,6 +18,16 @@ pub struct DaemonRuntime {
 }
 
 impl DaemonRuntime {
+    pub fn start_from_config(
+        version: ProtocolVersion,
+        config: &DaemonConfig,
+    ) -> Result<Self, DaemonLifecycleError> {
+        config
+            .validate_for_startup()
+            .map_err(DaemonLifecycleError::InvalidConfiguration)?;
+        Self::start(version, config.state_directory())
+    }
+
     pub fn start(
         version: ProtocolVersion,
         state_directory: impl AsRef<Path>,
@@ -79,6 +89,8 @@ impl Drop for DaemonRuntime {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonLifecycleError {
+    #[error("daemon configuration is invalid for startup")]
+    InvalidConfiguration(#[source] DaemonConfigError),
     #[error("daemon state directory must not be empty")]
     EmptyStateDirectory,
     #[error("daemon protocol version is unsupported")]
@@ -99,11 +111,12 @@ pub enum DaemonLifecycleError {
 mod tests {
     use std::{
         fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::atomic::{AtomicU64, Ordering},
     };
 
     use super::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
+    use crate::{DaemonConfig, DaemonConfigError};
     use yeokcham_protocol::ProtocolVersion;
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -116,10 +129,24 @@ mod tests {
         ))
     }
 
+    fn config_for(state_directory: &Path) -> DaemonConfig {
+        let state_directory = state_directory
+            .to_str()
+            .expect("temporary state directory must be valid UTF-8")
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        DaemonConfig::parse(&format!(
+            "config_version = 1\nstate_directory = \"{state_directory}\"\n"
+        ))
+        .unwrap()
+    }
+
     #[test]
     fn startup_shutdown_and_drop_manage_the_exclusive_lock() {
         let state_directory = state_directory();
-        let mut first = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let config = config_for(&state_directory);
+        let mut first =
+            DaemonRuntime::start_from_config(ProtocolVersion::INITIAL, &config).unwrap();
         assert_eq!(first.daemon().protocol_version(), ProtocolVersion::INITIAL);
         assert_eq!(first.lock_path(), state_directory.join(DAEMON_LOCK_FILE));
         assert!(first.is_running());
@@ -149,5 +176,24 @@ mod tests {
             DaemonRuntime::start(ProtocolVersion::INITIAL, ""),
             Err(DaemonLifecycleError::EmptyStateDirectory)
         ));
+    }
+
+    #[test]
+    fn startup_from_config_validates_before_creating_state() {
+        let state_directory = format!(
+            "yeokcham-daemon-relative-state-{}",
+            NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed)
+        );
+        let config = DaemonConfig::parse(&format!(
+            "config_version = 1\nstate_directory = \"{state_directory}\"\n"
+        ))
+        .unwrap();
+        assert!(matches!(
+            DaemonRuntime::start_from_config(ProtocolVersion::INITIAL, &config),
+            Err(DaemonLifecycleError::InvalidConfiguration(
+                DaemonConfigError::InvalidStateDirectory
+            ))
+        ));
+        assert!(!PathBuf::from(state_directory).exists());
     }
 }
