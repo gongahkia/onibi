@@ -741,6 +741,15 @@ mod tests {
     }
 
     #[test]
+    fn sender_selected_expiry_tolerates_a_clock_behind_creation() {
+        let expiry = MessageExpiry::new(100, 60).unwrap();
+        for now in [0, 99, 100, 159] {
+            assert!(!expiry.is_expired(now));
+        }
+        assert!(expiry.is_expired(160));
+    }
+
+    #[test]
     fn persists_sender_selected_message_expiry() {
         let path = path("message-expiry");
         let mut keystore = MemoryKeystore::default();

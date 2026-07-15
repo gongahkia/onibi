@@ -351,6 +351,26 @@ mod tests {
     }
 
     #[test]
+    fn receipt_verification_tolerates_a_clock_behind_relay_time() {
+        let relay = RelaySigningKeypair::generate().unwrap();
+        let mailbox_id = [0x11; 16];
+        let receipt = RelayStorageReceipt::issue(&relay, mailbox_id, 7, 100, 110).unwrap();
+
+        for now in [0, 99, 100, 109] {
+            assert_eq!(
+                receipt.verify_for(&relay.public_key(), &mailbox_id, now),
+                Ok(())
+            );
+        }
+        assert_eq!(
+            receipt
+                .verify_for(&relay.public_key(), &mailbox_id, 110)
+                .unwrap_err(),
+            RelayStorageReceiptError::Expired
+        );
+    }
+
+    #[test]
     fn receipts_expire_and_fail_closed_after_relay_key_rotation() {
         let previous_relay = RelaySigningKeypair::generate().unwrap();
         let replacement_relay = RelaySigningKeypair::generate().unwrap();
