@@ -3,6 +3,7 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    - go run ./scripts/remote-static-archive
 
 builds:
   - id: onibi

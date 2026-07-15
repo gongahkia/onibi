@@ -98,6 +98,9 @@ func TestCSRFAllMutatingEndpointsRejectMissing(t *testing.T) {
 		{http.MethodPost, "/fleet/revoke", `{"version":1,"host_id":"host-1"}`},
 		{http.MethodPut, "/files/content?session=s1&path=x", `{"content":"x"}`},
 	} {
+		if tc.path == "/push/subscribe" && csrfPushUnavailable {
+			continue
+		}
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.AddCookie(rr.Result().Cookies()[0])
 		w := httptest.NewRecorder()

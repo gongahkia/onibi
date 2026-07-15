@@ -2,7 +2,12 @@
 
 package static
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 //go:embed dist/** fonts/**
-var FS embed.FS
+var embedded embed.FS
+
+var FS fs.FS = embedded

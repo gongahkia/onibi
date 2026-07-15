@@ -291,7 +291,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		writeRootForbidden(w, err)
 		return
 	}
-	index, err := webstatic.FS.ReadFile("dist/index.html")
+	index, err := fs.ReadFile(webstatic.FS, "dist/index.html")
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte("<!doctype html><title>Onibi</title><body>Onibi web cockpit paired.</body>"))
@@ -380,7 +380,7 @@ func (s *Server) handleStaticFile(path, contentType string) http.HandlerFunc {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		body, err := webstatic.FS.ReadFile(path)
+		body, err := fs.ReadFile(webstatic.FS, path)
 		if err != nil {
 			http.NotFound(w, r)
 			return

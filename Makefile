@@ -1,4 +1,4 @@
-.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check fresh-machine-doc-check linux-beta-smoke macos-release-gate macos-scenario-gate fleet-budget-smoke upgrade-recovery-gate security-regression-gate release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance install-pages
+.PHONY: build frontend-install frontend-build frontend-size-check remote-static-archive install test vet staticcheck tidy run clean gen-readme gen-readme-check fresh-machine-doc-check linux-beta-smoke macos-release-gate macos-scenario-gate fleet-budget-smoke upgrade-recovery-gate security-regression-gate release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance install-pages
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -23,6 +23,10 @@ frontend-install:
 
 frontend-build: frontend-install
 	npm --prefix frontend run build
+	$(MAKE) remote-static-archive
+
+remote-static-archive:
+	go run ./scripts/remote-static-archive
 
 frontend-size-check: frontend-build
 	@bytes=$$(node -e 'const fs=require("fs"),zlib=require("zlib"),path=require("path");const root="internal/web/static/dist";const manifest=JSON.parse(fs.readFileSync(path.join(root,".vite/manifest.json"),"utf8"));const seen=new Set();function add(key){const entry=manifest[key];if(!entry)return;if(entry.file&&entry.file.endsWith(".js"))seen.add(entry.file);for(const imp of entry.imports||[])add(imp)}for(const [key,entry] of Object.entries(manifest))if(entry.isEntry)add(key);let bytes=0;for(const file of seen)bytes+=zlib.gzipSync(fs.readFileSync(path.join(root,file))).length;process.stdout.write(String(bytes))'); \
