@@ -5,6 +5,7 @@ mod direct_transport;
 mod nat_pmp;
 mod ratchet_store;
 mod state_store;
+mod stun;
 mod upnp;
 
 use yeokcham_core::{Error, Result};
@@ -23,6 +24,7 @@ pub use state_store::{
     EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
     StateStoreError,
 };
+pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 
 #[derive(Debug)]

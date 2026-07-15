@@ -17,6 +17,7 @@ minicbor.workspace = true
 natpmp.workspace = true
 quinn.workspace = true
 rusqlite.workspace = true
+stunclient.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
