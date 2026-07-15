@@ -2634,6 +2634,77 @@ mod tests {
     }
 
     #[test]
+    fn project_test_relay_binds_synthetic_proofs_to_operations_and_inputs() {
+        let authority = RelaySigningKeypair::generate().unwrap();
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let mut relay = ProjectTestRelay::new(database, authority.public_key());
+        let capability = capability_with(0x11, 0xa5);
+        let substituted_capability = capability_with(0x22, 0xb6);
+        let quota = MailboxQuota::new(1024).unwrap();
+        let retention = RelayRetentionPolicy::new(60).unwrap();
+        let registration =
+            SyntheticRelayTrafficProof::for_mailbox_registration(&authority, &capability, quota, 1)
+                .unwrap();
+
+        assert!(matches!(
+            relay.register_mailbox(registration, &substituted_capability, quota, 1),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+        relay
+            .register_mailbox(registration, &capability, quota, 1)
+            .unwrap();
+        assert!(matches!(
+            relay.retrieve_envelopes(registration, &capability, None, 2, 1),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+
+        let envelope = envelope();
+        let insertion = SyntheticRelayTrafficProof::for_envelope_insertion(
+            &authority,
+            &capability,
+            &envelope,
+            2,
+            retention,
+        )
+        .unwrap();
+        assert!(matches!(
+            relay.insert_envelope(insertion, &capability, &envelope, 3, retention),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+        assert!(matches!(
+            relay.insert_envelope(
+                insertion,
+                &capability,
+                &envelope,
+                2,
+                RelayRetentionPolicy::new(61).unwrap(),
+            ),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+
+        let retrieval =
+            SyntheticRelayTrafficProof::for_envelope_retrieval(&authority, &capability, None, 3, 1)
+                .unwrap();
+        assert!(matches!(
+            relay.retrieve_envelopes(retrieval, &capability, Some(0), 3, 1),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+        assert!(matches!(
+            relay.retrieve_envelopes(retrieval, &capability, None, 3, 2),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+
+        let acknowledgement =
+            SyntheticRelayTrafficProof::for_envelope_acknowledgement(&authority, &capability, 0)
+                .unwrap();
+        assert!(matches!(
+            relay.acknowledge_envelope(acknowledgement, &capability, 1),
+            Err(ProjectTestRelayError::InvalidSyntheticTraffic)
+        ));
+    }
+
+    #[test]
     fn garbage_collects_expired_mailboxes_and_repairs_retained_usage() {
         let mut database =
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
