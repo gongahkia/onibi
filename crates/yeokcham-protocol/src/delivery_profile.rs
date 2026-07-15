@@ -26,6 +26,18 @@ pub enum DeliveryProfilePrivacyWarning {
     DirectIpDisclosure,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DirectProfileSelection {
+    _private: (),
+}
+
+impl DirectProfileSelection {
+    #[must_use]
+    pub const fn acknowledge_ip_disclosure() -> Self {
+        Self { _private: () }
+    }
+}
+
 impl DeliveryProfilePrivacyWarning {
     #[must_use]
     pub const fn message(self) -> &'static str {
@@ -56,7 +68,21 @@ pub struct DeliveryProfile {
 
 impl DeliveryProfile {
     #[must_use]
-    pub const fn new(kind: DeliveryProfileKind) -> Self {
+    pub const fn direct(_selection: DirectProfileSelection) -> Self {
+        Self::from_kind(DeliveryProfileKind::Direct)
+    }
+
+    #[must_use]
+    pub const fn tor_maildrop() -> Self {
+        Self::from_kind(DeliveryProfileKind::TorMaildrop)
+    }
+
+    #[must_use]
+    pub const fn local_mesh() -> Self {
+        Self::from_kind(DeliveryProfileKind::LocalMesh)
+    }
+
+    const fn from_kind(kind: DeliveryProfileKind) -> Self {
         Self {
             schema_version: DELIVERY_PROFILE_SCHEMA_VERSION,
             kind,
@@ -108,10 +134,7 @@ impl DeliveryProfile {
         if decoder.position() != encoded.len() {
             return Err(DeliveryProfileError::TrailingBytes);
         }
-        Ok(Self {
-            schema_version,
-            kind,
-        })
+        Ok(Self::from_kind(kind))
     }
 }
 
@@ -197,24 +220,18 @@ mod tests {
     use super::{
         DeliveryProfile, DeliveryProfileConstraintError, DeliveryProfileConstraints,
         DeliveryProfileError, DeliveryProfileKind, DeliveryProfilePolicyDecision,
-        DeliveryProfilePrivacyWarning,
+        DeliveryProfilePrivacyWarning, DirectProfileSelection,
     };
 
     #[test]
     fn canonical_profiles_round_trip() {
         for (profile, encoded) in [
             (
-                DeliveryProfile::new(DeliveryProfileKind::Direct),
+                DeliveryProfile::direct(DirectProfileSelection::acknowledge_ip_disclosure()),
                 [0x82, 0x01, 0x01],
             ),
-            (
-                DeliveryProfile::new(DeliveryProfileKind::TorMaildrop),
-                [0x82, 0x01, 0x02],
-            ),
-            (
-                DeliveryProfile::new(DeliveryProfileKind::LocalMesh),
-                [0x82, 0x01, 0x03],
-            ),
+            (DeliveryProfile::tor_maildrop(), [0x82, 0x01, 0x02]),
+            (DeliveryProfile::local_mesh(), [0x82, 0x01, 0x03]),
         ] {
             assert_eq!(profile.encode().unwrap(), encoded);
             assert_eq!(DeliveryProfile::decode(&encoded).unwrap(), profile);
@@ -250,12 +267,14 @@ mod tests {
         let constraints = DeliveryProfileConstraints::new(false, true, false).unwrap();
         assert!(
             constraints
-                .validate(DeliveryProfile::new(DeliveryProfileKind::TorMaildrop))
+                .validate(DeliveryProfile::tor_maildrop())
                 .is_ok()
         );
         assert_eq!(
             constraints
-                .validate(DeliveryProfile::new(DeliveryProfileKind::Direct))
+                .validate(DeliveryProfile::direct(
+                    DirectProfileSelection::acknowledge_ip_disclosure()
+                ))
                 .unwrap_err(),
             DeliveryProfileConstraintError::Disallowed(DeliveryProfileKind::Direct)
         );
@@ -269,11 +288,13 @@ mod tests {
     fn decides_profile_policy_without_boolean_fallback() {
         let constraints = DeliveryProfileConstraints::new(true, false, false).unwrap();
         assert_eq!(
-            constraints.decide(DeliveryProfile::new(DeliveryProfileKind::Direct)),
+            constraints.decide(DeliveryProfile::direct(
+                DirectProfileSelection::acknowledge_ip_disclosure()
+            )),
             DeliveryProfilePolicyDecision::Allow
         );
         assert_eq!(
-            constraints.decide(DeliveryProfile::new(DeliveryProfileKind::LocalMesh)),
+            constraints.decide(DeliveryProfile::local_mesh()),
             DeliveryProfilePolicyDecision::Deny(DeliveryProfileConstraintError::Disallowed(
                 DeliveryProfileKind::LocalMesh
             ))
@@ -282,7 +303,7 @@ mod tests {
 
     #[test]
     fn exposes_direct_ip_disclosure_warning() {
-        let direct = DeliveryProfile::new(DeliveryProfileKind::Direct);
+        let direct = DeliveryProfile::direct(DirectProfileSelection::acknowledge_ip_disclosure());
         assert_eq!(
             direct.privacy_warning(),
             Some(DeliveryProfilePrivacyWarning::DirectIpDisclosure)
@@ -291,13 +312,7 @@ mod tests {
             direct.privacy_warning().unwrap().message(),
             "Direct delivery exposes your IP address to the recipient."
         );
-        assert_eq!(
-            DeliveryProfile::new(DeliveryProfileKind::TorMaildrop).privacy_warning(),
-            None
-        );
-        assert_eq!(
-            DeliveryProfile::new(DeliveryProfileKind::LocalMesh).privacy_warning(),
-            None
-        );
+        assert_eq!(DeliveryProfile::tor_maildrop().privacy_warning(), None);
+        assert_eq!(DeliveryProfile::local_mesh().privacy_warning(), None);
     }
 }

@@ -1,5 +1,5 @@
 use yeokcham_protocol::{
-    DeliveryProfile, DeliveryProfileKind, DirectProfileConfig, EncryptedHeader,
+    DeliveryProfile, DirectProfileConfig, DirectProfileSelection, EncryptedHeader,
     EncryptedMessageEnvelope, ExtensionFrame, IdentityIdentifier, LocalMeshProfileConfig,
     LocalMeshTransportKind, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
     MailboxCapability, MessageContentType, MessagePayload, ProtocolVersion, QrVerificationPayload,
@@ -72,7 +72,7 @@ fn protocol_v1_vectors_match_public_encoders() {
     );
     assert_vector!(
         "delivery_profile_direct",
-        DeliveryProfile::new(DeliveryProfileKind::Direct)
+        DeliveryProfile::direct(DirectProfileSelection::acknowledge_ip_disclosure())
             .encode()
             .unwrap(),
     );
