@@ -15,6 +15,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/budget"
+	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -216,6 +217,47 @@ func (d *Daemon) currentBudgetDailyTokens(ts time.Time) int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.budgetDaily[key]
+}
+
+func (d *Daemon) FleetBudgetReport() fleet.BudgetReport {
+	if d == nil {
+		return fleet.BudgetReport{}
+	}
+	now := time.Now().UTC()
+	day := now.Format("2006-01-02")
+	d.mu.Lock()
+	daily := d.budgetDaily[day]
+	costs := make(map[string]budget.CostEvent, len(d.budgetCosts))
+	for id, cost := range d.budgetCosts {
+		costs[id] = cost
+	}
+	d.mu.Unlock()
+	report := fleet.BudgetReport{Date: day, DailyTokens: daily, OnOverrun: string(budget.OverrunInterrupt)}
+	for _, s := range d.Registry.List() {
+		agent := strings.ToLower(strings.TrimSpace(s.Agent))
+		if agent != "claude" && agent != "codex" && agent != "pi" {
+			continue
+		}
+		policy, err := policyForBudgetSession(s.CWD)
+		if err != nil {
+			continue
+		}
+		action := policy.Session.OnOverrun
+		if action == "" {
+			action = budget.OverrunInterrupt
+		}
+		cost, measured := costs[s.ID]
+		session := fleet.BudgetSession{SessionID: s.ID, Agent: agent, Limit: policy.Session.MaxTokens, OnOverrun: string(action), Measured: measured}
+		if measured {
+			session.Tokens = cost.TotalInputTokens + cost.TotalOutputTokens
+		}
+		report.Sessions = append(report.Sessions, session)
+		if policy.Global.MaxTokensPerDay > 0 && (report.GlobalLimit == 0 || policy.Global.MaxTokensPerDay < report.GlobalLimit) {
+			report.GlobalLimit = policy.Global.MaxTokensPerDay
+			report.OnOverrun = string(action)
+		}
+	}
+	return report.Normalized()
 }
 
 func (d *Daemon) markBudgetOverrun(key string) bool {

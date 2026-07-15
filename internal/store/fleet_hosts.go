@@ -183,6 +183,11 @@ func (d *DB) FleetHostRecordHeartbeat(ctx context.Context, heartbeat fleet.Heart
 	host.LastSeenAt = heartbeat.SentAt.UTC()
 	host.BinaryVersion = strings.TrimSpace(heartbeat.BinaryVersion)
 	host.Capabilities = normalizedFleetCapabilities(heartbeat.Capabilities)
+	previousBudget := host.Budget
+	host.Budget = heartbeat.Budget.Normalized()
+	if previousBudget.Date != "" && previousBudget.Date == host.Budget.Date && host.Budget.DailyTokens < previousBudget.DailyTokens {
+		host.Budget.DailyTokens = previousBudget.DailyTokens
+	}
 	host.State = fleet.HostStateActive
 	if err := host.Validate(); err != nil {
 		return fleet.Host{}, false, err

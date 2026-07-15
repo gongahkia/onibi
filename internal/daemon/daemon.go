@@ -362,6 +362,7 @@ func New(opts Options) *Daemon {
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
 	if d.FleetLink != nil {
 		d.FleetLink.SetControlResultHandler(d.handleFleetControl)
+		d.FleetLink.SetBudgetReportProvider(d.FleetBudgetReport)
 	}
 
 	// intake server: fire-and-forget + approval RPC

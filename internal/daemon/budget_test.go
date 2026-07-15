@@ -222,6 +222,31 @@ func TestBudgetOverrunKillsSession(t *testing.T) {
 	}
 }
 
+func TestFleetBudgetReportIncludesOnlyCertifiedAgentsAndMeasurementState(t *testing.T) {
+	d := New(Options{DB: openDaemonTestDB(t)})
+	root := t.TempDir()
+	writeBudgetPolicy(t, root, "[global]\nmax_tokens_per_day = 20\n[session]\nmax_tokens = 10\non_overrun = \"kill\"\n")
+	for _, agent := range []string{"claude", "codex", "pi", "shell"} {
+		s := NewSession("session-"+agent, agent, agent, nil, 0)
+		s.CWD = root
+		if err := d.Registry.Add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	d.budgetDaily[day] = 15
+	d.budgetCosts["session-claude"] = budget.CostEvent{SessionID: "session-claude", TotalInputTokens: 8, TotalOutputTokens: 7}
+	report := d.FleetBudgetReport()
+	if report.Date != day || report.DailyTokens != 15 || report.GlobalLimit != 20 || report.OnOverrun != "kill" || len(report.Sessions) != 3 {
+		t.Fatalf("report=%#v", report)
+	}
+	for _, session := range report.Sessions {
+		if session.Limit != 10 || session.OnOverrun != "kill" || (session.Agent == "claude" && (!session.Measured || session.Tokens != 15)) || (session.Agent != "claude" && (session.Measured || session.Tokens != 0)) {
+			t.Fatalf("session=%#v", session)
+		}
+	}
+}
+
 func readCostWebEvent(t *testing.T, events <-chan web.Event) web.Event {
 	t.Helper()
 	select {

@@ -8,7 +8,10 @@ Policy file path:
 <project>/.onibi/budget.toml
 ```
 
-The current usage source is Claude Code JSONL transcripts only. Codex, Gemini, Goose, and other agents are TBD until their session logs are parseable enough to provide reliable token usage.
+The current usage source is Claude Code JSONL transcripts only. Codex and Pi
+are certified for fleet-wide action delivery but report
+`interactive token telemetry unavailable` in their adapter contracts, so their
+session token limits are not evaluated locally. Other agents are out of scope.
 
 ## Policy Model
 
@@ -104,9 +107,28 @@ Onibi updates budget usage when a Claude Code turn completes and the hook report
 
 Approval prompts also check budget state before auto-approve rules. If the next approved tool call is likely to cross a budget limit, Onibi forces the approval card to stay manual.
 
+## Enrolled Fleet Hosts
+
+Each enrolled host includes a signed, token-only UTC-day budget snapshot in its
+fleet heartbeat. The hub stores it encrypted with the host record, totals all
+active-host snapshots, and applies the lowest positive global limit reported by
+the fleet. A same-day host report cannot lower its already recorded token total.
+When that aggregate is over limit, it sends persisted `interrupt` or
+`kill` controls to every active certified session, including Codex and Pi
+sessions whose local token telemetry is unavailable.
+
+Remote control results are persisted as `succeeded`, `failed`, or `timed_out`
+and audited without a tool payload. A disconnected host keeps a pending control
+until it reconnects or the command expires. Run `make fleet-budget-smoke` to
+exercise the signed report, cross-host total, control delivery, and result
+acknowledgement path.
+
 ## Caveats
 
-- Claude Code JSONL is the only budget source today.
+- Claude Code JSONL is the only measured budget source today.
+- Codex and Pi global-overrun controls are enforced, but their local session
+  limits are explicitly non-enforcing until reliable interactive token telemetry
+  is available.
 - Costs are estimates based on the model id in the transcript.
 - Daily reset is UTC.
 - Existing sessions without a `.onibi/budget.toml` use no token limit and default overrun action `interrupt`.

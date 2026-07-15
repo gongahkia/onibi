@@ -1,4 +1,4 @@
-.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check fresh-machine-doc-check linux-beta-smoke macos-release-gate macos-scenario-gate upgrade-recovery-gate security-regression-gate release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance install-pages
+.PHONY: build frontend-install frontend-build frontend-size-check install test vet staticcheck tidy run clean gen-readme gen-readme-check fresh-machine-doc-check linux-beta-smoke macos-release-gate macos-scenario-gate fleet-budget-smoke upgrade-recovery-gate security-regression-gate release-e2e-gate release-dry release-smoke reproducible-build bench-tolerance install-pages
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -72,6 +72,9 @@ macos-release-gate:
 
 macos-scenario-gate:
 	scripts/macos-scenario-gate.sh
+
+fleet-budget-smoke:
+	scripts/fleet-budget-smoke.sh
 
 upgrade-recovery-gate:
 	scripts/upgrade-recovery-gate.sh

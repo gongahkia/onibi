@@ -48,6 +48,7 @@ type FleetLinkOptions struct {
 	Dial              FleetLinkDial
 	OnControl         func(context.Context, fleet.Control) error
 	OnControlResult   func(context.Context, fleet.Control) fleet.ControlResult
+	BudgetReport      func() fleet.BudgetReport
 }
 
 type FleetLink struct {
@@ -64,6 +65,7 @@ type FleetLink struct {
 	dial              FleetLinkDial
 	onControl         func(context.Context, fleet.Control) error
 	onControlResult   func(context.Context, fleet.Control) fleet.ControlResult
+	budgetReport      func() fleet.BudgetReport
 }
 
 func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
@@ -113,6 +115,7 @@ func NewFleetLink(opts FleetLinkOptions) (*FleetLink, error) {
 		dial:              dial,
 		onControl:         opts.OnControl,
 		onControlResult:   opts.OnControlResult,
+		budgetReport:      opts.BudgetReport,
 	}, nil
 }
 
@@ -228,6 +231,9 @@ func (l *FleetLink) writeHeartbeat(ctx context.Context, write func(context.Conte
 		BinaryVersion: l.binaryVersion,
 		Capabilities:  append([]string(nil), l.capabilities...),
 	}
+	if l.budgetReport != nil {
+		heartbeat.Budget = l.budgetReport().Normalized()
+	}
 	heartbeat.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(l.privateKey, fleet.HeartbeatSigningPayload(heartbeat)))
 	body, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -299,6 +305,13 @@ func (l *FleetLink) SetControlResultHandler(handler func(context.Context, fleet.
 		return
 	}
 	l.onControlResult = handler
+}
+
+func (l *FleetLink) SetBudgetReportProvider(provider func() fleet.BudgetReport) {
+	if l == nil {
+		return
+	}
+	l.budgetReport = provider
 }
 
 func (l *FleetLink) writeControlResult(ctx context.Context, write func(context.Context, any) error, result fleet.ControlResult) error {
