@@ -175,9 +175,15 @@ Expected: Onibi state, hooks, service files, and binaries are removed.
 
 ## Debian/Ubuntu 24.04
 
-Assumptions: non-root user account. `sudo` is used only for distro packages when
-the base VM lacks required tools. If the VM policy forbids `sudo`, preinstall
-`curl`, `tar`, `gpg`, and `ca-certificates` in the image.
+Assumptions: an x86_64 Ubuntu 24.04 VM and a non-root user account. `sudo` is
+used only for distro packages when the base VM lacks required tools. If the VM
+policy forbids `sudo`, preinstall `curl`, `tar`, `gpg`, `ca-certificates`, and
+`tmux` in the image.
+
+The Linux arm64 artifact is the constrained SSH runtime and supports only
+`onibi up`, `onibi version`, and `onibi fleet`; use
+[`ssh-transport.md`](./ssh-transport.md) and `scripts/ssh-smoke.sh` for that
+target. Do not use it for this full lifecycle runbook.
 
 ### Install
 
@@ -201,7 +207,7 @@ If the installer endpoint is not published, use a release tarball instead:
 ```bash
 tag=vX.Y.Z
 arch="$(uname -m)"
-case "$arch" in x86_64) arch=x86_64 ;; aarch64) arch=arm64 ;; esac
+case "$arch" in x86_64) ;; *) echo "fresh-machine lifecycle smoke requires x86_64, got $arch" >&2; exit 1 ;; esac
 curl -fL -o /tmp/onibi.tgz "https://github.com/gongahkia/onibi/releases/download/$tag/onibi_${tag#v}_linux_${arch}.tar.gz"
 mkdir -p "$HOME/.local/bin"
 tar -xzf /tmp/onibi.tgz -C "$HOME/.local/bin" onibi onibi-notify
