@@ -2,6 +2,7 @@
 
 mod contact_invitation;
 mod delivery_profile;
+mod direct_peer_auth;
 mod direct_profile;
 mod domain;
 mod double_ratchet;
@@ -36,6 +37,10 @@ pub use delivery_profile::{
     DELIVERY_PROFILE_SCHEMA_VERSION, DeliveryProfile, DeliveryProfileConstraintError,
     DeliveryProfileConstraints, DeliveryProfileError, DeliveryProfileKind,
     DeliveryProfilePolicyDecision,
+};
+pub use direct_peer_auth::{
+    DIRECT_PEER_PROOF_BYTES, DIRECT_PEER_PROOF_SCHEMA_VERSION, DirectPeerProof,
+    DirectPeerProofError,
 };
 pub use direct_profile::{
     DIRECT_PROFILE_CONFIG_SCHEMA_VERSION, DirectProfileConfig, DirectProfileConfigError,

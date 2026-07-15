@@ -1,7 +1,11 @@
 use std::net::SocketAddr;
 
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, VarInt};
-use yeokcham_protocol::DirectProfileConfig;
+use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
+use yeokcham_protocol::{DIRECT_PEER_PROOF_BYTES, DirectPeerProof, DirectProfileConfig};
+
+const DIRECT_PEER_AUTH_LABEL: &[u8] = b"yeokcham/v1/direct-peer-authentication";
+const DIRECT_PEER_AUTH_BINDING_BYTES: usize = 32;
 
 pub struct DirectTransport {
     endpoint: Endpoint,
@@ -80,6 +84,94 @@ impl DirectConnection {
     pub fn close(&self) {
         self.connection.close(VarInt::from_u32(0), b"shutdown");
     }
+
+    pub async fn authenticate_initiator(
+        &self,
+        local_identity: &IdentityKeypair,
+        expected_peer: &IdentityPublicKey,
+    ) -> Result<(), DirectTransportError> {
+        let binding = self.connection_binding()?;
+        let proof = DirectPeerProof::create(local_identity, &binding)
+            .map_err(DirectTransportError::InvalidPeerProof)?;
+        let (mut send, mut receive) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(DirectTransportError::OpenAuthenticationStream)?;
+        send.write_all(
+            &proof
+                .encode()
+                .map_err(DirectTransportError::InvalidPeerProof)?,
+        )
+        .await
+        .map_err(DirectTransportError::WriteAuthenticationStream)?;
+        send.finish()
+            .map_err(DirectTransportError::FinishAuthenticationStream)?;
+        self.verify_peer_proof(
+            &receive
+                .read_to_end(DIRECT_PEER_PROOF_BYTES)
+                .await
+                .map_err(DirectTransportError::ReadAuthenticationStream)?,
+            &binding,
+            expected_peer,
+        )
+    }
+
+    pub async fn authenticate_responder(
+        &self,
+        local_identity: &IdentityKeypair,
+        expected_peer: &IdentityPublicKey,
+    ) -> Result<(), DirectTransportError> {
+        let binding = self.connection_binding()?;
+        let (mut send, mut receive) = self
+            .connection
+            .accept_bi()
+            .await
+            .map_err(DirectTransportError::OpenAuthenticationStream)?;
+        let encoded = receive
+            .read_to_end(DIRECT_PEER_PROOF_BYTES)
+            .await
+            .map_err(DirectTransportError::ReadAuthenticationStream)?;
+        self.verify_peer_proof(&encoded, &binding, expected_peer)?;
+        let proof = DirectPeerProof::create(local_identity, &binding)
+            .map_err(DirectTransportError::InvalidPeerProof)?;
+        send.write_all(
+            &proof
+                .encode()
+                .map_err(DirectTransportError::InvalidPeerProof)?,
+        )
+        .await
+        .map_err(DirectTransportError::WriteAuthenticationStream)?;
+        send.finish()
+            .map_err(DirectTransportError::FinishAuthenticationStream)?;
+        Ok(())
+    }
+
+    fn connection_binding(
+        &self,
+    ) -> Result<[u8; DIRECT_PEER_AUTH_BINDING_BYTES], DirectTransportError> {
+        let mut binding = [0; DIRECT_PEER_AUTH_BINDING_BYTES];
+        self.connection
+            .export_keying_material(&mut binding, DIRECT_PEER_AUTH_LABEL, b"")
+            .map_err(|_| DirectTransportError::ConnectionBinding)?;
+        Ok(binding)
+    }
+
+    fn verify_peer_proof(
+        &self,
+        encoded: &[u8],
+        binding: &[u8; DIRECT_PEER_AUTH_BINDING_BYTES],
+        expected_peer: &IdentityPublicKey,
+    ) -> Result<(), DirectTransportError> {
+        let proof =
+            DirectPeerProof::decode(encoded).map_err(DirectTransportError::InvalidPeerProof)?;
+        if proof.identity() != expected_peer {
+            return Err(DirectTransportError::UnexpectedPeerIdentity);
+        }
+        proof
+            .verify(binding)
+            .map_err(DirectTransportError::InvalidPeerProof)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -96,6 +188,20 @@ pub enum DirectTransportError {
     Handshake(#[source] quinn::ConnectionError),
     #[error("direct QUIC endpoint is shut down")]
     Shutdown,
+    #[error("failed to open direct peer-authentication stream: {0}")]
+    OpenAuthenticationStream(#[source] quinn::ConnectionError),
+    #[error("failed to write direct peer-authentication stream: {0}")]
+    WriteAuthenticationStream(#[source] quinn::WriteError),
+    #[error("failed to finish direct peer-authentication stream: {0}")]
+    FinishAuthenticationStream(#[source] quinn::ClosedStream),
+    #[error("failed to read direct peer-authentication stream: {0}")]
+    ReadAuthenticationStream(#[source] quinn::ReadToEndError),
+    #[error("failed to derive direct peer-authentication connection binding")]
+    ConnectionBinding,
+    #[error("direct peer proof is invalid: {0}")]
+    InvalidPeerProof(#[source] yeokcham_protocol::DirectPeerProofError),
+    #[error("direct peer proof does not match the expected identity")]
+    UnexpectedPeerIdentity,
 }
 
 #[cfg(test)]
@@ -106,6 +212,7 @@ mod tests {
         ClientConfig, ServerConfig, rustls::RootCertStore, rustls::pki_types::PrivatePkcs8KeyDer,
     };
     use rcgen::generate_simple_self_signed;
+    use yeokcham_core::IdentityKeypair;
     use yeokcham_protocol::DirectProfileConfig;
 
     use super::{DirectTransport, DirectTransportError};
@@ -145,9 +252,19 @@ mod tests {
         );
         let accepted = accepted.unwrap();
         let connected = connected.unwrap();
+        let server_identity = IdentityKeypair::generate().unwrap();
+        let client_identity = IdentityKeypair::generate().unwrap();
+        let server_public = server_identity.public_key();
+        let client_public = client_identity.public_key();
+        let (server_authentication, client_authentication) = tokio::join!(
+            accepted.authenticate_responder(&server_identity, &client_public),
+            connected.authenticate_initiator(&client_identity, &server_public)
+        );
 
         assert_eq!(accepted.remote_address(), client.local_address().unwrap());
         assert_eq!(connected.remote_address(), server.local_address().unwrap());
+        assert!(server_authentication.is_ok());
+        assert!(client_authentication.is_ok());
         assert!(matches!(
             client
                 .connect(profile, client_config(server_config().1), "")
