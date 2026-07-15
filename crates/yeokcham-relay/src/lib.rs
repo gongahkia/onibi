@@ -1698,9 +1698,10 @@ mod tests {
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
     use yeokcham_protocol::{
-        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, EncryptedAttachmentChunk,
-        EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
-        MailboxCapability,
+        ATTACHMENT_CHUNK_BYTES, AttachmentDownloadJournal, AttachmentIdentifier, AttachmentKey,
+        AttachmentManifest, AttachmentUploadJournal, EncryptedAttachmentChunk,
+        EncryptedAttachmentManifest, EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES,
+        MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
     };
 
     fn capability() -> MailboxCapability {
@@ -2162,6 +2163,92 @@ mod tests {
             )
             .unwrap();
         assert_eq!(u64::from_be_bytes(used_bytes.try_into().unwrap()), 0);
+    }
+
+    #[test]
+    fn delivers_an_encrypted_message_and_attachment_end_to_end() {
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let capability = capability();
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let attachment_key = AttachmentKey::derive(&[0x44; 32], identifier).unwrap();
+        let plaintext = vec![0x5a; ATTACHMENT_CHUNK_BYTES];
+        let chunk = EncryptedAttachmentChunk::encrypt(
+            identifier,
+            0,
+            &attachment_key.derive_chunk_key(0).unwrap(),
+            &plaintext,
+        )
+        .unwrap();
+        let manifest = AttachmentManifest::new(
+            identifier,
+            u64::try_from(plaintext.len()).unwrap(),
+            vec![chunk.hash().unwrap()],
+        )
+        .unwrap();
+        let encrypted_manifest = manifest.encrypt(&attachment_key).unwrap();
+        let envelope =
+            EncryptedMessageEnvelope::new(vec![0xa1], encrypted_manifest.encode().unwrap())
+                .unwrap();
+        let envelope_bytes = u64::try_from(envelope.encode().unwrap().len()).unwrap();
+        let chunk_bytes = u64::try_from(chunk.encode().unwrap().len()).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        database
+            .register_mailbox(
+                &capability,
+                MailboxQuota::new(envelope_bytes + chunk_bytes).unwrap(),
+                100,
+            )
+            .unwrap();
+        let mut upload = AttachmentUploadJournal::new(std::slice::from_ref(&chunk)).unwrap();
+        let sequence = database
+            .insert_envelope(&capability, &envelope, 100, retention)
+            .unwrap();
+        assert!(
+            database
+                .store_attachment_chunk(&capability, &chunk, 100, retention)
+                .unwrap()
+        );
+        assert!(upload.mark_uploaded(&chunk).unwrap());
+        assert!(upload.is_complete());
+
+        let delivered = database
+            .retrieve_envelopes(&capability, None, 101, 1)
+            .unwrap();
+        assert_eq!(delivered.len(), 1);
+        assert_eq!(delivered[0].sequence(), sequence);
+        let received_manifest =
+            EncryptedAttachmentManifest::decode(delivered[0].envelope().ciphertext())
+                .unwrap()
+                .decrypt(&attachment_key)
+                .unwrap();
+        assert_eq!(received_manifest, manifest);
+        let mut download = AttachmentDownloadJournal::new(
+            received_manifest.identifier(),
+            received_manifest.chunk_hashes(),
+        )
+        .unwrap();
+        let received_chunk = database
+            .retrieve_attachment_chunk(&capability, identifier, 0, 101)
+            .unwrap();
+        assert!(download.mark_downloaded(&received_chunk).unwrap());
+        assert!(download.is_complete());
+        assert_eq!(
+            received_chunk
+                .decrypt(&attachment_key.derive_chunk_key(0).unwrap())
+                .unwrap()
+                .as_slice(),
+            plaintext
+        );
+        database
+            .acknowledge_envelope(&capability, sequence)
+            .unwrap();
+        assert!(
+            database
+                .retrieve_envelopes(&capability, None, 101, 1)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
