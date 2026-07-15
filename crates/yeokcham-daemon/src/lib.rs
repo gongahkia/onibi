@@ -9,6 +9,7 @@ mod inbox_deduplication;
 mod lan_transport;
 mod lifecycle;
 mod local_transport;
+mod local_transport_availability;
 mod mdns;
 mod nat_pmp;
 mod outbox_store;
@@ -50,6 +51,9 @@ pub use inbox_deduplication::{
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
 pub use local_transport::LocalTransport;
+pub use local_transport_availability::{
+    LocalTransportAvailability, LocalTransportAvailabilityError,
+};
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
