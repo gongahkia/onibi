@@ -4,6 +4,7 @@ use std::{
     sync::{Mutex, OnceLock, atomic::AtomicUsize, atomic::Ordering},
 };
 
+use crate::YEOKCHAM_ABI_VERSION;
 use crate::{YeokchamHandle, YeokchamStatus};
 
 pub const MAX_C_ABI_HANDLES: usize = 1024;
@@ -14,6 +15,13 @@ static NEXT_HANDLE_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
 
 pub type YeokchamCompletionCallback = extern "C" fn(i32, *mut c_void);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_abi_negotiate(requested_version: u32) -> u32 {
+    (requested_version == YEOKCHAM_ABI_VERSION)
+        .then_some(YEOKCHAM_ABI_VERSION)
+        .unwrap_or(0)
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn yeokcham_handle_create() -> *mut YeokchamHandle {

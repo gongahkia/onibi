@@ -24,7 +24,8 @@ pub enum YeokchamStatus {
 
 pub use c_abi::{
     MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YeokchamCompletionCallback,
-    yeokcham_handle_complete_async, yeokcham_handle_create, yeokcham_handle_release,
+    yeokcham_abi_negotiate, yeokcham_handle_complete_async, yeokcham_handle_create,
+    yeokcham_handle_release,
 };
 
 #[cfg(test)]
@@ -32,7 +33,8 @@ mod tests {
     use super::{
         MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_VERSION,
         YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR, YeokchamStatus,
-        yeokcham_handle_complete_async, yeokcham_handle_create, yeokcham_handle_release,
+        yeokcham_abi_negotiate, yeokcham_handle_complete_async, yeokcham_handle_create,
+        yeokcham_handle_release,
     };
     use std::{
         ffi::c_void,
@@ -79,6 +81,7 @@ mod tests {
         assert!(HEADER.contains("yeokcham_handle_release(yeokcham_handle_t *handle);"));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_handle_complete_async("));
+        assert!(HEADER.contains("uint32_t yeokcham_abi_negotiate(uint32_t requested_version);"));
     }
 
     #[test]
@@ -154,5 +157,16 @@ mod tests {
             YeokchamStatus::InvalidInput
         );
         assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+    }
+
+    #[test]
+    fn version_negotiation_accepts_only_the_published_abi_version() {
+        assert_eq!(
+            yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION),
+            YEOKCHAM_ABI_VERSION
+        );
+        assert_eq!(yeokcham_abi_negotiate(0), 0);
+        assert_eq!(yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION + 1), 0);
+        assert_eq!(yeokcham_abi_negotiate(u32::MAX), 0);
     }
 }

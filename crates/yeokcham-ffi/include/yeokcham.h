@@ -25,5 +25,6 @@ yeokcham_status_t yeokcham_handle_complete_async(
     yeokcham_completion_callback_t callback,
     void *context
 ); // callback receives the completion status
+uint32_t yeokcham_abi_negotiate(uint32_t requested_version); // zero when unsupported
 
 #endif
