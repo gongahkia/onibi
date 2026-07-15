@@ -102,3 +102,103 @@ func TestProjectConfigAcceptsPrivateTailscaleTransport(t *testing.T) {
 		t.Fatalf("default transport = %q", cfg.Transports.Default)
 	}
 }
+
+func TestProjectConfigValidatesInlineTrustAndBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"invalid trust effect": {
+			body: "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"allow\"\nexpires = \"never\"\n[trust.rule.match]\ntool = \"Read\"\n",
+			want: "invalid effect",
+		},
+		"missing trust expiry": {
+			body: "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\n[trust.rule.match]\ntool = \"Read\"\n",
+			want: "expires required",
+		},
+		"empty trust match": {
+			body: "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"never\"\n",
+			want: "match required",
+		},
+		"unknown trust match": {
+			body: "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"never\"\n[trust.rule.match]\nuser = \"alice\"\n",
+			want: "strict mode",
+		},
+		"negative budget": {
+			body: "schema_version = 1\nname = \"alpha\"\n[budget.global]\nmax_tokens_per_day = -1\n",
+			want: "must be >= 0",
+		},
+		"invalid overrun": {
+			body: "schema_version = 1\nname = \"alpha\"\n[budget.session]\non_overrun = \"pause\"\n",
+			want: "must be one of interrupt, kill, warn",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadProjectConfig(path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProjectConfigAcceptsInlineTrustAndBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	body := "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"5m\"\n[trust.rule.match]\ntool = \"Read\"\n[budget.global]\nmax_tokens_per_day = 1000\n[budget.session]\nmax_tokens = 100\non_overrun = \"kill\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Budget.Session.OnOverrun; got != "kill" {
+		t.Fatalf("on_overrun = %q", got)
+	}
+}
+
+func TestProjectConfigValidatesAgentsAndHooks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"unknown default agent": {
+			body: "schema_version = 1\nname = \"alpha\"\ndefault_agent = \"unknown-agent\"\n",
+			want: "default_agent",
+		},
+		"unknown hook agent": {
+			body: "schema_version = 1\nname = \"alpha\"\n[hooks]\nauto_install = [\"unknown-agent\"]\n",
+			want: "hooks.auto_install[0]",
+		},
+		"unknown hook shell": {
+			body: "schema_version = 1\nname = \"alpha\"\n[hooks]\nauto_install = [\"shell:unknown\"]\n",
+			want: "hooks.auto_install[0]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadProjectConfig(path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProjectConfigAcceptsKnownAgentsAndHooks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	body := "schema_version = 1\nname = \"alpha\"\ndefault_agent = \"claude\"\n[hooks]\nauto_install = [\"codex\", \"shell:zsh\"]\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadProjectConfig(path); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gongahkia/onibi/internal/adapters"
+	"github.com/gongahkia/onibi/internal/budget"
+	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -36,7 +39,13 @@ type ProjectTrust struct {
 type ProjectTrustRule struct {
 	Effect  string            `toml:"effect"`
 	Expires string            `toml:"expires,omitempty"`
-	Match   map[string]string `toml:"match,omitempty"`
+	Match   ProjectTrustMatch `toml:"match,omitempty"`
+}
+
+type ProjectTrustMatch struct {
+	Tool  string `toml:"tool,omitempty"`
+	Path  string `toml:"path,omitempty"`
+	Agent string `toml:"agent,omitempty"`
 }
 
 type ProjectBudget struct {
@@ -118,6 +127,12 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 	if err := validateProjectPaths(path, &cfg); err != nil {
 		return ProjectConfig{}, err
 	}
+	if err := validateProjectPolicies(path, &cfg); err != nil {
+		return ProjectConfig{}, err
+	}
+	if err := validateProjectAgents(path, &cfg); err != nil {
+		return ProjectConfig{}, err
+	}
 	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
 		return ProjectConfig{}, err
 	}
@@ -136,6 +151,12 @@ func SaveProjectConfig(path string, cfg ProjectConfig) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	if err := validateProjectPaths(path, &cfg); err != nil {
+		return err
+	}
+	if err := validateProjectPolicies(path, &cfg); err != nil {
+		return err
+	}
+	if err := validateProjectAgents(path, &cfg); err != nil {
 		return err
 	}
 	if err := validateProjectTransports(path, &cfg.Transports); err != nil {
@@ -180,6 +201,80 @@ func validateProjectPaths(path string, cfg *ProjectConfig) error {
 		return nil
 	}
 	return validateProjectRelativePath(path, "trust.policy_file", cfg.Trust.PolicyFile)
+}
+
+func validateProjectPolicies(path string, cfg *ProjectConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	trustPolicy := trust.Policy{Rules: make([]trust.Rule, len(cfg.Trust.Rule))}
+	for i, rule := range cfg.Trust.Rule {
+		trustPolicy.Rules[i] = trust.Rule{
+			Effect:     trust.Effect(rule.Effect),
+			ExpiresRaw: rule.Expires,
+			Match: trust.Match{
+				Tool:  rule.Match.Tool,
+				Path:  rule.Match.Path,
+				Agent: rule.Match.Agent,
+			},
+		}
+	}
+	if err := trustPolicy.Validate(); err != nil {
+		return fmt.Errorf("%s: trust.rule: %w", path, err)
+	}
+	budgetPolicy := budget.DefaultPolicy()
+	budgetPolicy.Global.MaxTokensPerDay = int64(cfg.Budget.Global.MaxTokensPerDay)
+	budgetPolicy.Session.MaxTokens = int64(cfg.Budget.Session.MaxTokens)
+	if cfg.Budget.Session.OnOverrun != "" {
+		budgetPolicy.Session.OnOverrun = budget.OverrunAction(cfg.Budget.Session.OnOverrun)
+	}
+	if err := budgetPolicy.Validate(); err != nil {
+		return fmt.Errorf("%s: budget: %w", path, err)
+	}
+	return nil
+}
+
+func validateProjectAgents(path string, cfg *ProjectConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if err := validateProjectAgent(cfg.DefaultAgent); err != nil {
+		return fmt.Errorf("%s: default_agent: %w", path, err)
+	}
+	for i, target := range cfg.Hooks.AutoInstall {
+		if err := validateProjectHook(target); err != nil {
+			return fmt.Errorf("%s: hooks.auto_install[%d]: %w", path, i, err)
+		}
+	}
+	return nil
+}
+
+func validateProjectAgent(name string) error {
+	if name == "" {
+		return nil
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("invalid agent %q", name)
+	}
+	if _, err := adapters.ManifestFor(name); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateProjectHook(target string) error {
+	if strings.TrimSpace(target) != target || target == "" {
+		return fmt.Errorf("invalid hook %q", target)
+	}
+	if shell, ok := strings.CutPrefix(target, "shell:"); ok {
+		for _, candidate := range adapters.ShellNames() {
+			if shell == candidate {
+				return nil
+			}
+		}
+		return fmt.Errorf("unsupported shell %q", shell)
+	}
+	return validateProjectAgent(target)
 }
 
 func validateProjectRelativePath(configPath, key, value string) error {
