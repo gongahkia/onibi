@@ -11,6 +11,7 @@ default = []
 
 [dependencies]
 chacha20poly1305.workspace = true
+fs2.workspace = true
 getrandom.workspace = true
 igd-next.workspace = true
 minicbor.workspace = true

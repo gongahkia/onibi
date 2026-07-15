@@ -4,6 +4,7 @@ mod contact_store;
 mod delivery_scheduler;
 mod direct_transport;
 mod inbox_deduplication;
+mod lifecycle;
 mod mdns;
 mod nat_pmp;
 mod outbox_store;
@@ -36,6 +37,7 @@ pub use inbox_deduplication::{
     INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, MAX_INBOX_DEDUPLICATION_ENTRIES,
     RecipientInboxDeduplication, RecipientInboxDeduplicationError,
 };
+pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
