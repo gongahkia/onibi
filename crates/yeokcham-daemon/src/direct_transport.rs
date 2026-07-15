@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    time::Duration,
+};
 
 use quinn::{ClientConfig, Connection, Endpoint, ServerConfig, VarInt};
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
@@ -107,6 +110,12 @@ impl DirectTransport {
             .map_err(DirectTransportError::LocalAddress)
     }
 
+    pub fn migrate(&self, socket: UdpSocket) -> Result<(), DirectTransportError> {
+        self.endpoint
+            .rebind(socket)
+            .map_err(DirectTransportError::Migrate)
+    }
+
     pub async fn connect(
         &self,
         profile: DirectProfileConfig,
@@ -151,6 +160,17 @@ impl DirectTransport {
             Some(error) => Err(error),
             None => Err(DirectTransportError::InvalidConnectionAttemptCount),
         }
+    }
+
+    pub async fn reconnect(
+        &self,
+        profile: DirectProfileConfig,
+        client_config: ClientConfig,
+        server_name: &str,
+        connection_attempts: DirectConnectionAttempts,
+    ) -> Result<DirectConnection, DirectTransportError> {
+        self.connect_with_attempts(profile, client_config, server_name, connection_attempts)
+            .await
     }
 
     pub async fn accept(&self) -> Result<DirectConnection, DirectTransportError> {
@@ -319,6 +339,8 @@ pub enum DirectTransportError {
     Bind(#[source] std::io::Error),
     #[error("failed to read direct QUIC endpoint address: {0}")]
     LocalAddress(#[source] std::io::Error),
+    #[error("failed to migrate direct QUIC endpoint socket: {0}")]
+    Migrate(#[source] std::io::Error),
     #[error("direct QUIC server name is empty")]
     EmptyServerName,
     #[error("failed to start direct QUIC connection: {0}")]
@@ -367,7 +389,7 @@ pub enum DirectTransportError {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{net::UdpSocket, sync::Arc, time::Duration};
 
     use quinn::{
         ClientConfig, ServerConfig, rustls::RootCertStore, rustls::pki_types::PrivatePkcs8KeyDer,
@@ -403,6 +425,42 @@ mod tests {
         let mut roots = RootCertStore::empty();
         roots.add(certificate).unwrap();
         ClientConfig::with_root_certificates(Arc::new(roots)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn migrates_to_a_replacement_udp_socket() {
+        let transport = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), None).unwrap();
+        let replacement = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let replacement_address = replacement.local_addr().unwrap();
+        transport.migrate(replacement).unwrap();
+        assert_eq!(transport.local_address().unwrap(), replacement_address);
+        transport.shutdown();
+        transport.wait_idle().await;
+    }
+
+    #[tokio::test]
+    async fn reconnects_with_bounded_attempts() {
+        let (server_tls_config, certificate) = server_config();
+        let server =
+            DirectTransport::bind("127.0.0.1:0".parse().unwrap(), Some(server_tls_config)).unwrap();
+        let client = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), None).unwrap();
+        let profile = DirectProfileConfig::new(server.local_address().unwrap()).unwrap();
+        let (accepted, reconnected) = tokio::join!(
+            server.accept(),
+            client.reconnect(
+                profile,
+                client_config(certificate),
+                "localhost",
+                DirectConnectionAttempts::new(1, Duration::from_secs(1)).unwrap()
+            )
+        );
+        assert!(accepted.is_ok());
+        assert!(reconnected.is_ok());
+        reconnected.unwrap().close();
+        client.shutdown();
+        server.shutdown();
+        client.wait_idle().await;
+        server.wait_idle().await;
     }
 
     #[tokio::test]
