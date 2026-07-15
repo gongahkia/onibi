@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/trust"
@@ -139,25 +141,33 @@ func (d *Daemon) handleTrustApproval(ctx context.Context, s *Session, ev intake.
 	if d == nil || d.Trust == nil || d.Queue == nil || s == nil {
 		return intake.Response{}, false
 	}
+	if _, ok := adapters.ContractFor(ev.Agent); !ok {
+		return intake.Response{}, false
+	}
 	p, ok := d.Trust.Policy(s.CWD)
 	if !ok {
 		return intake.Response{}, false
 	}
-	rule, ok := p.Evaluate(trustRequestForApproval(s, ev))
+	req := trustRequestForApproval(s, ev)
+	evaluation := p.Explain(req)
+	rule, ok := evaluation.Result()
 	if !ok {
 		return intake.Response{}, false
 	}
 	switch rule.Effect {
 	case trust.EffectAutoApprove:
-		return d.finishTrustApproval(ctx, s, ev, rule, approval.VerdictApprove, "auto-approved by trust policy", "trust.auto_approve", "Auto-approved "+ev.Tool+" by trust policy"), true
+		return d.finishTrustApproval(ctx, s, ev, rule, evaluation, approval.VerdictApprove, "auto-approved by trust policy", "trust.auto_approve", "Auto-approved "+ev.Tool+" by trust policy"), true
 	case trust.EffectDeny:
-		return d.finishTrustApproval(ctx, s, ev, rule, approval.VerdictDeny, "denied by trust policy", "trust.deny", "Denied "+ev.Tool+" by trust policy"), true
+		return d.finishTrustApproval(ctx, s, ev, rule, evaluation, approval.VerdictDeny, "denied by trust policy", "trust.deny", "Denied "+ev.Tool+" by trust policy"), true
+	case trust.EffectAlwaysPrompt:
+		d.audit(ctx, "trust.always_prompt", s.ID, ev.InputJSON, 0, trustApprovalAuditDetail(rule, req, "", evaluation))
+		return intake.Response{}, false
 	default:
 		return intake.Response{}, false
 	}
 }
 
-func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.Event, rule trust.Rule, verdict approval.Verdict, reason, action, toast string) intake.Response {
+func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.Event, rule trust.Rule, evaluation trust.Evaluation, verdict approval.Verdict, reason, action, toast string) intake.Response {
 	req := trustRequestForApproval(s, ev)
 	agent := strings.TrimSpace(ev.Agent)
 	if agent == "" && s != nil {
@@ -170,7 +180,7 @@ func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.
 	if err := d.Queue.Decide(ctx, id, verdict, "", reason, 0); err != nil {
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}
 	}
-	d.audit(ctx, action, s.ID, ev.InputJSON, 0, fmt.Sprintf("rule=%s tool=%s path=%s approval=%s", trustRuleAuditID(rule), ev.Tool, req.Path, id))
+	d.audit(ctx, action, s.ID, ev.InputJSON, 0, trustApprovalAuditDetail(rule, req, id, evaluation))
 	d.publishToast(toast)
 	select {
 	case dec := <-ch:
@@ -181,6 +191,18 @@ func (d *Daemon) finishTrustApproval(ctx context.Context, s *Session, ev intake.
 		}
 		return intake.Response{Decision: string(approval.VerdictDeny), Reason: reason}
 	}
+}
+
+func trustApprovalAuditDetail(rule trust.Rule, req trust.Request, approvalID string, evaluation trust.Evaluation) string {
+	trace := make([]string, 0, len(evaluation.Trace))
+	for _, item := range evaluation.Trace {
+		trace = append(trace, item.Rule.ID+":"+item.Outcome)
+	}
+	traceJSON, err := json.Marshal(evaluation.Trace)
+	if err != nil {
+		traceJSON = []byte("[]")
+	}
+	return fmt.Sprintf("rule=%s tool=%s path=%s approval=%s trace=%s trace_json=%s", trustRuleAuditID(rule), req.Tool, req.Path, approvalID, strings.Join(trace, ","), traceJSON)
 }
 
 func trustRuleAuditID(rule trust.Rule) string {

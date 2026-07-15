@@ -116,6 +116,77 @@ func TestWatcherRuntimeRuleWithRawExpiryDecays(t *testing.T) {
 	}
 }
 
+func TestPersistRuntimeRuleReloadsAsOneFileRule(t *testing.T) {
+	root := t.TempDir()
+	w, err := NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.AddRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	rule := RuntimeRule(Match{Tool: "Edit", Path: "src/**", Agent: "pi"}, EffectAutoApprove, 5*time.Minute, time.Now())
+	if err := w.AddRuntimeRule(root, rule); err != nil {
+		t.Fatal(err)
+	}
+	n, err := w.PersistRuntimeRules(root)
+	if err != nil || n != 1 {
+		t.Fatalf("persist n=%d err=%v", n, err)
+	}
+	p, ok := w.Policy(root)
+	if !ok || len(p.Rules) != 1 || p.Rules[0].Runtime || p.Rules[0].ExpiresAt.IsZero() {
+		t.Fatalf("policy = %#v ok=%v", p, ok)
+	}
+	evaluation := p.Explain(Request{Tool: "Edit", Path: "src/main.go", Agent: "pi"})
+	if !evaluation.Matched || evaluation.Rule == nil || evaluation.Rule.ID != "file:1" {
+		t.Fatalf("evaluation = %#v", evaluation)
+	}
+}
+
+func TestWatcherRetainsExpiredFilePositionsInTrace(t *testing.T) {
+	root := t.TempDir()
+	onibiDir := filepath.Join(root, ".onibi")
+	if err := os.Mkdir(onibiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(onibiDir, "trust.toml")
+	if err := os.WriteFile(path, []byte(`[[rule]]
+effect = "deny"
+expires = "1ns"
+[rule.match]
+tool = "Bash"
+
+[[rule]]
+effect = "auto_approve"
+expires = "never"
+[rule.match]
+tool = "Edit"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewWatcher(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.AddRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := w.Policy(root)
+	if !ok || len(p.Rules) != 2 {
+		t.Fatalf("policy = %#v ok=%v", p, ok)
+	}
+	evaluation := p.Explain(Request{Tool: "Edit"})
+	if !evaluation.Matched || evaluation.Rule == nil || evaluation.Rule.ID != "file:2" || len(evaluation.Trace) != 2 || evaluation.Trace[0].Outcome != "expired" {
+		t.Fatalf("evaluation = %#v", evaluation)
+	}
+}
+
 func waitWatchEvent(t *testing.T, events <-chan WatchEvent, want func(WatchEvent) bool) WatchEvent {
 	t.Helper()
 	deadline := time.After(time.Second)

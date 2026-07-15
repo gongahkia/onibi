@@ -12,7 +12,7 @@ Runtime overrides live only in the running daemon. The approval overlay and `oni
 
 ## Rule Model
 
-Rules are evaluated in order. First match wins.
+Rules are evaluated in order. First match wins. Runtime rules precede file rules; newer runtime rules precede older runtime rules. File rule ids are their fixed TOML positions, including expired rules, so a later rule keeps the same id when earlier rules expire.
 
 ```toml
 [[rule]]
@@ -139,6 +139,12 @@ Rule ids:
 
 `onibi trust persist` appends current runtime rules to `.onibi/trust.toml` and converts them into disk rules. Review `onibi trust list` before persisting.
 
+## Evaluation and Recovery
+
+The evaluator returns a structured trace for every considered rule. Each trace item carries the stable rule id, source, effect, match fields, and one outcome: `expired`, `tool_mismatch`, `path_mismatch`, `agent_mismatch`, or `matched`.
+
+File rules with a duration expire relative to the policy file's last modification time. Restarting the daemon does not reset that timer. Persisting a runtime rule preserves its remaining duration. Policy writes use a synced temporary file followed by rename; an invalid reload retains the last valid in-memory policy and emits a reload error.
+
 ## Auditing
 
 Every trust auto-approve writes an audit row with:
@@ -147,6 +153,7 @@ Every trust auto-approve writes an audit row with:
 - rule id, e.g. `rule=file:1` or `rule=runtime:abc123`
 - matched path, e.g. `path=docs/readme.md`
 - approval id
+- `trace_json`: structured rule evaluation trace without raw tool input
 
 Inspect with:
 

@@ -224,7 +224,7 @@ func (w *Watcher) PersistRuntimeRules(root string) (int, error) {
 	persisted := map[string]bool{}
 	for _, rule := range prev.Rules {
 		if rule.Runtime && !rule.expired(now) {
-			runtimeRules = append(runtimeRules, PersistedRule(rule))
+			runtimeRules = append(runtimeRules, PersistedRuleAt(rule, now))
 			persisted[rule.ID] = true
 		}
 	}
@@ -239,6 +239,7 @@ func (w *Watcher) PersistRuntimeRules(root string) (int, error) {
 		}
 		disk = Policy{}
 	}
+	disk = rebaseFileExpiries(removeExpiredFileRules(disk, now), now)
 	disk.Rules = append(disk.Rules, runtimeRules...)
 	if err := Save(path, disk); err != nil {
 		return 0, err
@@ -431,9 +432,37 @@ func pruneExpired(p Policy, now time.Time) Policy {
 	out := p
 	out.Rules = out.Rules[:0]
 	for _, rule := range p.Rules {
-		if !rule.expired(now) {
+		if !rule.Runtime || !rule.expired(now) {
 			out.Rules = append(out.Rules, rule)
 		}
 	}
 	return out
+}
+
+func removeExpiredFileRules(p Policy, now time.Time) Policy {
+	out := p
+	out.Rules = out.Rules[:0]
+	for _, rule := range p.Rules {
+		if !rule.Runtime && rule.expired(now) {
+			continue
+		}
+		out.Rules = append(out.Rules, rule)
+	}
+	return out
+}
+
+func rebaseFileExpiries(p Policy, now time.Time) Policy {
+	for i := range p.Rules {
+		rule := &p.Rules[i]
+		if rule.Runtime || rule.Never || rule.ExpiresAt.IsZero() {
+			continue
+		}
+		remaining := rule.ExpiresAt.Sub(now)
+		if remaining > 0 {
+			rule.ExpiresRaw = remaining.String()
+			rule.Expires = remaining
+		}
+		rule.ExpiresAt = time.Time{}
+	}
+	return p
 }

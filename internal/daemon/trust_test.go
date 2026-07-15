@@ -123,6 +123,57 @@ agent = "claude"
 	if len(audit) != 1 || audit[0].Action != "trust.auto_approve" || !strings.Contains(audit[0].Detail, "rule=file:1") || !strings.Contains(audit[0].Detail, "path=src/main.go") {
 		t.Fatalf("audit = %#v", audit)
 	}
+	if !strings.Contains(audit[0].Detail, "trace=file:1:matched") {
+		t.Fatalf("audit trace = %#v", audit)
+	}
+	if !strings.Contains(audit[0].Detail, `trace_json=[{"rule":{"id":"file:1"`) {
+		t.Fatalf("audit trace JSON = %#v", audit)
+	}
+}
+
+func TestTrustAutoApprovalOnlySupportsCertifiedAdapters(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".onibi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".onibi", "trust.toml"), []byte(`[[rule]]
+effect = "auto_approve"
+expires = "never"
+[rule.match]
+tool = "Edit"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"claude", "codex", "pi", "copilot"} {
+		t.Run(agent, func(t *testing.T) {
+			db := openDaemonTestDB(t)
+			d := New(Options{DB: db})
+			w, err := trust.NewWatcher(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer w.Close()
+			if err := w.AddRoot(root); err != nil {
+				t.Fatal(err)
+			}
+			d.Trust = w
+			s := NewSession("s1", agent, agent, nil, 0)
+			s.CWD = root
+			if err := d.Registry.Add(s); err != nil {
+				t.Fatal(err)
+			}
+			resp, handled := d.handleTrustApproval(t.Context(), s, intake.Event{Session: "s1", Agent: agent, Tool: "Edit", InputJSON: `{"file_path":"src/main.go"}`})
+			if agent == "copilot" {
+				if handled {
+					t.Fatalf("non-certified response = %#v", resp)
+				}
+				return
+			}
+			if !handled || resp.Decision != string(approval.VerdictApprove) {
+				t.Fatalf("certified response = %#v handled=%t", resp, handled)
+			}
+		})
+	}
 }
 
 func TestAddRuntimeTrustRuleAddsEphemeralRule(t *testing.T) {

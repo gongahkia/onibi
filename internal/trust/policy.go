@@ -70,12 +70,33 @@ type RuleView struct {
 	Agent     string `json:"agent,omitempty"`
 }
 
+type RuleTrace struct {
+	Rule    RuleView `json:"rule"`
+	Outcome string   `json:"outcome"`
+}
+
+type Evaluation struct {
+	Matched bool        `json:"matched"`
+	Effect  Effect      `json:"effect,omitempty"`
+	Rule    *RuleView   `json:"rule,omitempty"`
+	Trace   []RuleTrace `json:"trace"`
+	result  Rule
+}
+
 func Load(path string) (Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Policy{}, err
 	}
-	return Parse(data)
+	p, err := Parse(data)
+	if err != nil {
+		return Policy{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return Policy{}, err
+	}
+	return anchorFileExpiries(p, info.ModTime()), nil
 }
 
 func Save(path string, p Policy) error {
@@ -90,7 +111,28 @@ func Save(path string, p Policy) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".trust.toml-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func Parse(data []byte) (Policy, error) {
@@ -123,54 +165,55 @@ func ViewForPolicy(root string, p Policy, now time.Time) RootView {
 	fileN := 0
 	runtimeN := 0
 	for _, rule := range p.Rules {
+		rule = indexedRule(rule, &fileN, &runtimeN)
 		if rule.expired(now) {
 			continue
 		}
-		source := "file"
-		id := ""
-		if rule.Runtime {
-			source = "runtime"
-			runtimeN++
-			id = rule.ID
-			if id == "" {
-				id = fmt.Sprintf("runtime:%d", runtimeN)
-			}
-		} else {
-			fileN++
-			id = fmt.Sprintf("file:%d", fileN)
-		}
-		view.Rules = append(view.Rules, RuleView{
-			ID:        id,
-			Source:    source,
-			Runtime:   rule.Runtime,
-			Effect:    rule.Effect,
-			Expires:   rule.ExpiresRaw,
-			ExpiresAt: expiresAtString(rule),
-			Tool:      rule.Match.Tool,
-			Path:      rule.Match.Path,
-			Agent:     rule.Match.Agent,
-		})
+		view.Rules = append(view.Rules, ruleView(rule))
 	}
 	return view
 }
 
 func (p Policy) Evaluate(req Request) (Rule, bool) {
-	return p.EvaluateAt(req, time.Now())
+	return p.ExplainAt(req, time.Now()).Result()
 }
 
 func (p Policy) EvaluateAt(req Request, now time.Time) (Rule, bool) {
+	return p.ExplainAt(req, now).Result()
+}
+
+func (p Policy) Explain(req Request) Evaluation {
+	return p.ExplainAt(req, time.Now())
+}
+
+func (p Policy) ExplainAt(req Request, now time.Time) Evaluation {
 	fileN := 0
 	runtimeN := 0
+	evaluation := Evaluation{Trace: make([]RuleTrace, 0, len(p.Rules))}
 	for _, rule := range p.Rules {
+		rule = indexedRule(rule, &fileN, &runtimeN)
+		trace := RuleTrace{Rule: ruleView(rule)}
 		if rule.expired(now) {
+			trace.Outcome = "expired"
+			evaluation.Trace = append(evaluation.Trace, trace)
 			continue
 		}
-		rule = indexedRule(rule, &fileN, &runtimeN)
-		if rule.matches(req) {
-			return rule, true
+		trace.Outcome = rule.matchOutcome(req)
+		evaluation.Trace = append(evaluation.Trace, trace)
+		if trace.Outcome == "matched" {
+			view := trace.Rule
+			evaluation.Matched = true
+			evaluation.Effect = rule.Effect
+			evaluation.Rule = &view
+			evaluation.result = rule
+			return evaluation
 		}
 	}
-	return Rule{}, false
+	return evaluation
+}
+
+func (e Evaluation) Result() (Rule, bool) {
+	return e.result, e.Matched
 }
 
 func RuntimeRule(match Match, effect Effect, ttl time.Duration, now time.Time) Rule {
@@ -239,16 +282,20 @@ func (r *Rule) validate(i int) error {
 }
 
 func (r Rule) matches(req Request) bool {
+	return r.matchOutcome(req) == "matched"
+}
+
+func (r Rule) matchOutcome(req Request) string {
 	if r.Match.Tool != "" && !globMatch(r.Match.Tool, req.Tool) {
-		return false
+		return "tool_mismatch"
 	}
 	if r.Match.Path != "" && !globMatch(filepath.ToSlash(r.Match.Path), filepath.ToSlash(req.Path)) {
-		return false
+		return "path_mismatch"
 	}
 	if r.Match.Agent != "" && r.Match.Agent != req.Agent {
-		return false
+		return "agent_mismatch"
 	}
-	return true
+	return "matched"
 }
 
 func (r Rule) expired(now time.Time) bool {
@@ -283,6 +330,17 @@ func PersistedRule(rule Rule) Rule {
 	return rule
 }
 
+func PersistedRuleAt(rule Rule, now time.Time) Rule {
+	if !rule.Never && !rule.ExpiresAt.IsZero() {
+		remaining := rule.ExpiresAt.Sub(now)
+		if remaining > 0 {
+			rule.ExpiresRaw = remaining.String()
+			rule.Expires = remaining
+		}
+	}
+	return PersistedRule(rule)
+}
+
 func indexedRule(rule Rule, fileN, runtimeN *int) Rule {
 	if rule.Runtime {
 		(*runtimeN)++
@@ -296,6 +354,34 @@ func indexedRule(rule Rule, fileN, runtimeN *int) Rule {
 		rule.ID = fmt.Sprintf("file:%d", *fileN)
 	}
 	return rule
+}
+
+func ruleView(rule Rule) RuleView {
+	source := "file"
+	if rule.Runtime {
+		source = "runtime"
+	}
+	return RuleView{
+		ID:        rule.ID,
+		Source:    source,
+		Runtime:   rule.Runtime,
+		Effect:    rule.Effect,
+		Expires:   rule.ExpiresRaw,
+		ExpiresAt: expiresAtString(rule),
+		Tool:      rule.Match.Tool,
+		Path:      rule.Match.Path,
+		Agent:     rule.Match.Agent,
+	}
+}
+
+func anchorFileExpiries(p Policy, anchor time.Time) Policy {
+	for i := range p.Rules {
+		rule := &p.Rules[i]
+		if !rule.Runtime && !rule.Never && rule.Expires > 0 {
+			rule.ExpiresAt = anchor.Add(rule.Expires)
+		}
+	}
+	return p
 }
 
 func globMatch(pattern, value string) bool {
