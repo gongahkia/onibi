@@ -35,8 +35,8 @@ pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
 };
 pub use outbox_store::{
-    MAX_OUTBOX_MESSAGES, OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox,
-    SenderOutboxError,
+    DeliveryState, DeliveryStatus, MAX_DELIVERY_STATE_HISTORY, MAX_OUTBOX_MESSAGES,
+    OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox, SenderOutboxError,
 };
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};

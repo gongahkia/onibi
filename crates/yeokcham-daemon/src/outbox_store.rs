@@ -9,12 +9,18 @@ use yeokcham_protocol::{
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 2;
+pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 3;
 pub const MAX_OUTBOX_MESSAGES: usize = 256;
-const OUTBOX_FIELDS: u64 = 2;
+pub const MAX_DELIVERY_STATE_HISTORY: usize = 1024;
+const OUTBOX_FIELDS: u64 = 3;
+const OUTBOX_FIELDS_PREVIOUS: u64 = 2;
 const OUTBOX_STATE_SCHEMA_VERSION_V1: u8 = 1;
+const OUTBOX_STATE_SCHEMA_VERSION_V2: u8 = 2;
 const OUTBOX_MESSAGE_FIELDS_V1: u64 = 2;
 const OUTBOX_MESSAGE_FIELDS: u64 = 3;
+const DELIVERY_STATUS_FIELDS: u64 = 2;
+const DELIVERED_STATE: u8 = 1;
+const EXPIRED_STATE: u8 = 2;
 const IDENTITY_PUBLIC_KEY_BYTES: usize = 32;
 
 #[derive(Clone, Eq, PartialEq)]
@@ -22,6 +28,31 @@ pub struct OutboxMessage {
     identifier: MessageIdentifier,
     recipient: IdentityPublicKey,
     envelope: EncryptedMessageEnvelope,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeliveryState {
+    Unknown,
+    Delivered,
+    Expired,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeliveryStatus {
+    identifier: MessageIdentifier,
+    state: DeliveryState,
+}
+
+impl DeliveryStatus {
+    #[must_use]
+    pub const fn identifier(self) -> MessageIdentifier {
+        self.identifier
+    }
+
+    #[must_use]
+    pub const fn state(self) -> DeliveryState {
+        self.state
+    }
 }
 
 impl OutboxMessage {
@@ -55,16 +86,21 @@ impl fmt::Debug for OutboxMessage {
 pub struct SenderOutbox {
     state: EncryptedStateStore,
     messages: Vec<OutboxMessage>,
+    statuses: Vec<DeliveryStatus>,
 }
 
 impl SenderOutbox {
     pub fn open<K: OsKeystore>(path: &Path, keystore: &mut K) -> Result<Self, SenderOutboxError> {
         let state = EncryptedStateStore::open(path, keystore)?;
-        let (messages, needs_migration) = match state.load()? {
-            Some(document) => decode_messages(document.as_bytes())?,
-            None => (Vec::new(), false),
+        let (messages, statuses, needs_migration) = match state.load()? {
+            Some(document) => decode_outbox(document.as_bytes())?,
+            None => (Vec::new(), Vec::new(), false),
         };
-        let mut outbox = Self { state, messages };
+        let mut outbox = Self {
+            state,
+            messages,
+            statuses,
+        };
         if needs_migration {
             outbox.persist()?;
         }
@@ -81,6 +117,25 @@ impl SenderOutbox {
         self.messages.first()
     }
 
+    #[must_use]
+    pub fn delivery_state(&self, identifier: MessageIdentifier) -> Option<DeliveryState> {
+        self.messages
+            .iter()
+            .any(|message| message.identifier == identifier)
+            .then_some(DeliveryState::Unknown)
+            .or_else(|| {
+                self.statuses
+                    .iter()
+                    .find(|status| status.identifier == identifier)
+                    .map(|status| status.state)
+            })
+    }
+
+    #[must_use]
+    pub fn delivery_statuses(&self) -> &[DeliveryStatus] {
+        &self.statuses
+    }
+
     pub fn enqueue(
         &mut self,
         recipient: IdentityPublicKey,
@@ -89,7 +144,7 @@ impl SenderOutbox {
         if self.messages.len() >= MAX_OUTBOX_MESSAGES {
             return Err(SenderOutboxError::QueueFull);
         }
-        let identifier = next_identifier(&self.messages)?;
+        let identifier = next_identifier(&self.messages, &self.statuses)?;
         self.messages.push(OutboxMessage {
             identifier,
             recipient,
@@ -103,17 +158,10 @@ impl SenderOutbox {
     }
 
     pub fn acknowledge_next(&mut self) -> Result<OutboxMessage, SenderOutboxError> {
-        let message = self
-            .messages
-            .first()
-            .cloned()
-            .ok_or(SenderOutboxError::EmptyQueue)?;
-        self.messages.remove(0);
-        if let Err(error) = self.persist() {
-            self.messages.insert(0, message);
-            return Err(error);
+        if self.messages.is_empty() {
+            return Err(SenderOutboxError::EmptyQueue);
         }
-        Ok(message)
+        self.finalize(0, DeliveryState::Delivered)
     }
 
     pub fn acknowledge_delivery(
@@ -129,19 +177,48 @@ impl SenderOutbox {
         acknowledgement
             .verify_for(&message.recipient, message.identifier)
             .map_err(SenderOutboxError::Acknowledgement)?;
-        self.messages.remove(index);
-        if let Err(error) = self.persist() {
-            self.messages.insert(index, message);
-            return Err(error);
-        }
-        Ok(message)
+        self.finalize(index, DeliveryState::Delivered)
+    }
+
+    pub fn expire_delivery(
+        &mut self,
+        identifier: MessageIdentifier,
+    ) -> Result<OutboxMessage, SenderOutboxError> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.identifier == identifier)
+            .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
+        self.finalize(index, DeliveryState::Expired)
     }
 
     fn persist(&mut self) -> Result<(), SenderOutboxError> {
-        let document = StateDocument::new(encode_messages(&self.messages)?)
+        let document = StateDocument::new(encode_outbox(&self.messages, &self.statuses)?)
             .map_err(SenderOutboxError::InvalidDocument)?;
         self.state.replace(&document)?;
         Ok(())
+    }
+
+    fn finalize(
+        &mut self,
+        index: usize,
+        state: DeliveryState,
+    ) -> Result<OutboxMessage, SenderOutboxError> {
+        let message = self.messages.remove(index);
+        let prior_statuses = self.statuses.clone();
+        self.statuses.push(DeliveryStatus {
+            identifier: message.identifier,
+            state,
+        });
+        if self.statuses.len() > MAX_DELIVERY_STATE_HISTORY {
+            self.statuses.remove(0);
+        }
+        if let Err(error) = self.persist() {
+            self.messages.insert(index, message);
+            self.statuses = prior_statuses;
+            return Err(error);
+        }
+        Ok(message)
     }
 }
 
@@ -157,7 +234,7 @@ pub enum SenderOutboxError {
     Identifier(#[source] MessageIdentifierError),
     #[error("delivery acknowledgement verification failed")]
     Acknowledgement(#[source] DeliveryAcknowledgementError),
-    #[error("delivery acknowledgement references no queued message")]
+    #[error("message identifier references no queued message")]
     UnknownMessageIdentifier,
     #[error("sender outbox state document is invalid")]
     InvalidState(#[source] minicbor::decode::Error),
@@ -179,20 +256,44 @@ pub enum SenderOutboxError {
     InvalidEnvelope,
     #[error("sender outbox state document has too many messages")]
     TooManyMessages,
+    #[error("sender outbox state document has too many delivery statuses")]
+    TooManyDeliveryStatuses,
+    #[error("sender outbox state document contains an invalid delivery state")]
+    InvalidDeliveryState,
     #[error("sender outbox state document has trailing bytes")]
     TrailingBytes,
     #[error("sender outbox state document is not canonical")]
     NonCanonicalEncoding,
 }
 
-fn encode_messages(messages: &[OutboxMessage]) -> Result<Vec<u8>, SenderOutboxError> {
+fn encode_outbox(
+    messages: &[OutboxMessage],
+    statuses: &[DeliveryStatus],
+) -> Result<Vec<u8>, SenderOutboxError> {
     if messages.len() > MAX_OUTBOX_MESSAGES {
         return Err(SenderOutboxError::TooManyMessages);
+    }
+    if statuses.len() > MAX_DELIVERY_STATE_HISTORY {
+        return Err(SenderOutboxError::TooManyDeliveryStatuses);
     }
     for (index, message) in messages.iter().enumerate() {
         if messages[..index]
             .iter()
             .any(|previous| previous.identifier == message.identifier)
+        {
+            return Err(SenderOutboxError::DuplicateIdentifier);
+        }
+    }
+    for (index, status) in statuses.iter().enumerate() {
+        if status.state == DeliveryState::Unknown {
+            return Err(SenderOutboxError::InvalidDeliveryState);
+        }
+        if messages
+            .iter()
+            .any(|message| message.identifier == status.identifier)
+            || statuses[..index]
+                .iter()
+                .any(|previous| previous.identifier == status.identifier)
         {
             return Err(SenderOutboxError::DuplicateIdentifier);
         }
@@ -220,17 +321,38 @@ fn encode_messages(messages: &[OutboxMessage]) -> Result<Vec<u8>, SenderOutboxEr
             .bytes(&envelope)
             .map_err(|_| SenderOutboxError::Encode)?;
     }
+    encoder
+        .array(u64::try_from(statuses.len()).map_err(|_| SenderOutboxError::Encode)?)
+        .map_err(|_| SenderOutboxError::Encode)?;
+    for status in statuses {
+        encoder
+            .array(DELIVERY_STATUS_FIELDS)
+            .map_err(|_| SenderOutboxError::Encode)?
+            .bytes(status.identifier.as_bytes())
+            .map_err(|_| SenderOutboxError::Encode)?
+            .u8(delivery_state_value(status.state)?)
+            .map_err(|_| SenderOutboxError::Encode)?;
+    }
     Ok(encoder.into_writer())
 }
 
-fn decode_messages(encoded: &[u8]) -> Result<(Vec<OutboxMessage>, bool), SenderOutboxError> {
+fn decode_outbox(
+    encoded: &[u8],
+) -> Result<(Vec<OutboxMessage>, Vec<DeliveryStatus>, bool), SenderOutboxError> {
     let mut decoder = Decoder::new(encoded);
-    if decoder.array().map_err(SenderOutboxError::InvalidState)? != Some(OUTBOX_FIELDS) {
+    let fields = decoder.array().map_err(SenderOutboxError::InvalidState)?;
+    if fields != Some(OUTBOX_FIELDS) && fields != Some(OUTBOX_FIELDS_PREVIOUS) {
         return Err(SenderOutboxError::InvalidShape);
     }
     let version = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
-    if version != OUTBOX_STATE_SCHEMA_VERSION && version != OUTBOX_STATE_SCHEMA_VERSION_V1 {
+    if version != OUTBOX_STATE_SCHEMA_VERSION
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V2
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V1
+    {
         return Err(SenderOutboxError::UnsupportedSchemaVersion(version));
+    }
+    if (version == OUTBOX_STATE_SCHEMA_VERSION) != (fields == Some(OUTBOX_FIELDS)) {
+        return Err(SenderOutboxError::InvalidShape);
     }
     let count = decoder
         .array()
@@ -242,7 +364,9 @@ fn decode_messages(encoded: &[u8]) -> Result<(Vec<OutboxMessage>, bool), SenderO
     }
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
-        let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION
+            || version == OUTBOX_STATE_SCHEMA_VERSION_V2
+        {
             OUTBOX_MESSAGE_FIELDS
         } else {
             OUTBOX_MESSAGE_FIELDS_V1
@@ -250,7 +374,9 @@ fn decode_messages(encoded: &[u8]) -> Result<(Vec<OutboxMessage>, bool), SenderO
         if decoder.array().map_err(SenderOutboxError::InvalidState)? != Some(expected_fields) {
             return Err(SenderOutboxError::InvalidShape);
         }
-        let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION
+            || version == OUTBOX_STATE_SCHEMA_VERSION_V2
+        {
             let identifier = decoder
                 .bytes()
                 .map_err(SenderOutboxError::InvalidState)?
@@ -259,7 +385,7 @@ fn decode_messages(encoded: &[u8]) -> Result<(Vec<OutboxMessage>, bool), SenderO
             MessageIdentifier::from_bytes(identifier)
                 .map_err(|_| SenderOutboxError::InvalidIdentifier)?
         } else {
-            next_identifier(&messages)?
+            next_identifier(&messages, &[])?
         };
         let recipient: [u8; IDENTITY_PUBLIC_KEY_BYTES] = decoder
             .bytes()
@@ -278,21 +404,89 @@ fn decode_messages(encoded: &[u8]) -> Result<(Vec<OutboxMessage>, bool), SenderO
             envelope,
         });
     }
+    let statuses = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        decode_delivery_statuses(&mut decoder, &messages)?
+    } else {
+        Vec::new()
+    };
     if decoder.position() != encoded.len() {
         return Err(SenderOutboxError::TrailingBytes);
     }
-    if version == OUTBOX_STATE_SCHEMA_VERSION && encode_messages(&messages)? != encoded {
+    if version == OUTBOX_STATE_SCHEMA_VERSION && encode_outbox(&messages, &statuses)? != encoded {
         return Err(SenderOutboxError::NonCanonicalEncoding);
     }
-    Ok((messages, version == OUTBOX_STATE_SCHEMA_VERSION_V1))
+    Ok((messages, statuses, version != OUTBOX_STATE_SCHEMA_VERSION))
 }
 
-fn next_identifier(messages: &[OutboxMessage]) -> Result<MessageIdentifier, SenderOutboxError> {
+fn decode_delivery_statuses(
+    decoder: &mut Decoder<'_>,
+    messages: &[OutboxMessage],
+) -> Result<Vec<DeliveryStatus>, SenderOutboxError> {
+    let count = decoder
+        .array()
+        .map_err(SenderOutboxError::InvalidState)?
+        .ok_or(SenderOutboxError::InvalidShape)?;
+    let count = usize::try_from(count).map_err(|_| SenderOutboxError::TooManyDeliveryStatuses)?;
+    if count > MAX_DELIVERY_STATE_HISTORY {
+        return Err(SenderOutboxError::TooManyDeliveryStatuses);
+    }
+    let mut statuses = Vec::with_capacity(count);
+    for _ in 0..count {
+        if decoder.array().map_err(SenderOutboxError::InvalidState)? != Some(DELIVERY_STATUS_FIELDS)
+        {
+            return Err(SenderOutboxError::InvalidShape);
+        }
+        let identifier = MessageIdentifier::from_bytes(
+            decoder
+                .bytes()
+                .map_err(SenderOutboxError::InvalidState)?
+                .try_into()
+                .map_err(|_| SenderOutboxError::InvalidIdentifier)?,
+        )
+        .map_err(|_| SenderOutboxError::InvalidIdentifier)?;
+        if messages
+            .iter()
+            .any(|message| message.identifier == identifier)
+            || statuses
+                .iter()
+                .any(|status: &DeliveryStatus| status.identifier == identifier)
+        {
+            return Err(SenderOutboxError::DuplicateIdentifier);
+        }
+        let state = decode_delivery_state(decoder.u8().map_err(SenderOutboxError::InvalidState)?)?;
+        statuses.push(DeliveryStatus { identifier, state });
+    }
+    Ok(statuses)
+}
+
+fn delivery_state_value(state: DeliveryState) -> Result<u8, SenderOutboxError> {
+    match state {
+        DeliveryState::Unknown => Err(SenderOutboxError::InvalidDeliveryState),
+        DeliveryState::Delivered => Ok(DELIVERED_STATE),
+        DeliveryState::Expired => Ok(EXPIRED_STATE),
+    }
+}
+
+fn decode_delivery_state(value: u8) -> Result<DeliveryState, SenderOutboxError> {
+    match value {
+        DELIVERED_STATE => Ok(DeliveryState::Delivered),
+        EXPIRED_STATE => Ok(DeliveryState::Expired),
+        _ => Err(SenderOutboxError::InvalidDeliveryState),
+    }
+}
+
+fn next_identifier(
+    messages: &[OutboxMessage],
+    statuses: &[DeliveryStatus],
+) -> Result<MessageIdentifier, SenderOutboxError> {
     for _ in 0..=MAX_OUTBOX_MESSAGES {
         let identifier = MessageIdentifier::generate().map_err(SenderOutboxError::Identifier)?;
         if messages
             .iter()
             .all(|message| message.identifier != identifier)
+            && statuses
+                .iter()
+                .all(|status| status.identifier != identifier)
         {
             return Ok(identifier);
         }
@@ -310,7 +504,7 @@ mod tests {
         DeliveryAcknowledgement, DeliveryAcknowledgementError, EncryptedMessageEnvelope,
     };
 
-    use super::{SenderOutbox, SenderOutboxError};
+    use super::{DeliveryState, SenderOutbox, SenderOutboxError};
     use crate::{EncryptedStateStore, StateDocument};
 
     #[derive(Default)]
@@ -455,6 +649,10 @@ mod tests {
         );
         assert_eq!(outbox.messages().len(), 1);
         assert_eq!(
+            outbox.delivery_state(second_identifier),
+            Some(DeliveryState::Delivered)
+        );
+        assert_eq!(
             outbox.next().unwrap().recipient(),
             &first_recipient.public_key()
         );
@@ -466,6 +664,94 @@ mod tests {
                 .len(),
             1
         );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn persists_unknown_delivered_and_expired_delivery_states() {
+        let path = path("delivery-states");
+        let mut keystore = MemoryKeystore::default();
+        let delivered_recipient = IdentityKeypair::generate().unwrap();
+        let expired_recipient = IdentityKeypair::generate().unwrap();
+        let (delivered_identifier, expired_identifier) = {
+            let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+            outbox
+                .enqueue(
+                    delivered_recipient.public_key(),
+                    EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                )
+                .unwrap();
+            outbox
+                .enqueue(
+                    expired_recipient.public_key(),
+                    EncryptedMessageEnvelope::new(vec![0xc3], vec![0xd4]).unwrap(),
+                )
+                .unwrap();
+            let delivered_identifier = outbox.messages()[0].identifier();
+            let expired_identifier = outbox.messages()[1].identifier();
+            assert_eq!(
+                outbox.delivery_state(delivered_identifier),
+                Some(DeliveryState::Unknown)
+            );
+            let acknowledgement =
+                DeliveryAcknowledgement::create(&delivered_recipient, delivered_identifier, 100)
+                    .unwrap();
+            outbox.acknowledge_delivery(&acknowledgement).unwrap();
+            outbox.expire_delivery(expired_identifier).unwrap();
+            assert_eq!(
+                outbox.delivery_state(delivered_identifier),
+                Some(DeliveryState::Delivered)
+            );
+            assert_eq!(
+                outbox.delivery_state(expired_identifier),
+                Some(DeliveryState::Expired)
+            );
+            (delivered_identifier, expired_identifier)
+        };
+
+        let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert_eq!(
+            restored.delivery_state(delivered_identifier),
+            Some(DeliveryState::Delivered)
+        );
+        assert_eq!(
+            restored.delivery_state(expired_identifier),
+            Some(DeliveryState::Expired)
+        );
+        assert_eq!(restored.delivery_statuses().len(), 2);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_persisted_delivery_state() {
+        let path = path("invalid-delivery-state");
+        let mut keystore = MemoryKeystore::default();
+        let mut encoder = Encoder::new(Vec::new());
+        encoder
+            .array(3)
+            .unwrap()
+            .u8(3)
+            .unwrap()
+            .array(0)
+            .unwrap()
+            .array(1)
+            .unwrap()
+            .array(2)
+            .unwrap()
+            .bytes(&[1; 16])
+            .unwrap()
+            .u8(0)
+            .unwrap();
+        let mut state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        state
+            .replace(&StateDocument::new(encoder.into_writer()).unwrap())
+            .unwrap();
+        drop(state);
+
+        assert!(matches!(
+            SenderOutbox::open(&path, &mut keystore),
+            Err(SenderOutboxError::InvalidDeliveryState)
+        ));
         fs::remove_file(path).unwrap();
     }
 
@@ -501,6 +787,53 @@ mod tests {
         drop(migrated);
         let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
         assert_eq!(restored.next().unwrap().identifier(), identifier);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn migrates_v2_outbox_messages_to_delivery_states() {
+        let path = path("v2-migration");
+        let mut keystore = MemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+        let identifier = [1; 16];
+        let mut encoder = Encoder::new(Vec::new());
+        encoder
+            .array(2)
+            .unwrap()
+            .u8(2)
+            .unwrap()
+            .array(1)
+            .unwrap()
+            .array(3)
+            .unwrap()
+            .bytes(&identifier)
+            .unwrap()
+            .bytes(recipient.as_bytes())
+            .unwrap()
+            .bytes(&envelope.encode().unwrap())
+            .unwrap();
+        let mut state = EncryptedStateStore::open(&path, &mut keystore).unwrap();
+        state
+            .replace(&StateDocument::new(encoder.into_writer()).unwrap())
+            .unwrap();
+        drop(state);
+
+        let migrated = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert_eq!(
+            migrated.next().unwrap().identifier().as_bytes(),
+            &identifier
+        );
+        assert_eq!(
+            migrated.delivery_state(migrated.next().unwrap().identifier()),
+            Some(DeliveryState::Unknown)
+        );
+        drop(migrated);
+        let restored = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert_eq!(
+            restored.next().unwrap().identifier().as_bytes(),
+            &identifier
+        );
         fs::remove_file(path).unwrap();
     }
 }
