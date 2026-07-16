@@ -31,6 +31,11 @@ impl OneTimePrekeyPublic {
     }
 
     #[must_use]
+    pub const fn from_public(identifier: OneTimePrekeyId, prekey: X25519PrekeyPublicKey) -> Self {
+        Self { identifier, prekey }
+    }
+
+    #[must_use]
     pub const fn identifier(&self) -> OneTimePrekeyId {
         self.identifier
     }
@@ -41,7 +46,7 @@ impl OneTimePrekeyPublic {
     }
 
     fn from_parts(identifier: OneTimePrekeyId, prekey: X25519PrekeyPublicKey) -> Self {
-        Self { identifier, prekey }
+        Self::from_public(identifier, prekey)
     }
 }
 

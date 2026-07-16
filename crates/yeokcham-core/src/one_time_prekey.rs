@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use crate::{
     KeystoreEntryName, KeystoreEntryNameError, KeystoreSecret, KeystoreSecretError, OsKeystore,
-    X25519Prekey, X25519PrekeySerializationError,
+    X25519Prekey, X25519PrekeyPublicKey, X25519PrekeySerializationError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -81,6 +81,19 @@ where
             .delete(&entry)
             .map_err(OneTimePrekeyStoreError::Keystore)?;
         Ok(prekey)
+    }
+
+    pub fn public(
+        &self,
+        identifier: OneTimePrekeyId,
+    ) -> Result<X25519PrekeyPublicKey, OneTimePrekeyStoreError<K::Error>> {
+        let entry = identifier.entry_name()?;
+        let secret = self
+            .keystore
+            .load(&entry)
+            .map_err(OneTimePrekeyStoreError::Keystore)?
+            .ok_or(OneTimePrekeyStoreError::NotFound)?;
+        Ok(X25519Prekey::deserialize(secret.as_bytes())?.public_key())
     }
 }
 
@@ -198,6 +211,7 @@ mod tests {
         let mut store = OneTimePrekeyStore::new(InMemoryKeystore::default());
 
         store.store(identifier, prekey).unwrap();
+        assert_eq!(store.public(identifier).unwrap(), public_key);
         assert_eq!(store.take(identifier).unwrap().public_key(), public_key);
         assert!(matches!(
             store.take(identifier),

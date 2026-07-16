@@ -17,6 +17,7 @@ mod local_transport_availability;
 mod local_transport_reconnect;
 mod mdns;
 mod nat_pmp;
+mod one_time_prekey_replenisher;
 mod outbox_store;
 mod pending_contact_import;
 mod proximity_contact_invitation;
@@ -42,8 +43,8 @@ pub use client_identity::{
 };
 pub use client_state::{
     ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
-    ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
-    RATCHETS_DATABASE_FILE,
+    ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE,
+    ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
 };
 pub use contact_lifecycle::{ContactLifecycleError, ContactLifecycleService};
 pub use contact_store::{
@@ -81,6 +82,10 @@ pub use local_transport_reconnect::{
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
+};
+pub use one_time_prekey_replenisher::{
+    InventoryError, ONE_TIME_PREKEY_INVENTORY_SCHEMA_VERSION, OneTimePrekeyReplenisher,
+    OneTimePrekeyReplenisherError,
 };
 pub use outbox_store::{
     DeliveryState, DeliveryStatus, MAX_DELIVERY_STATE_HISTORY, MAX_MESSAGE_EXPIRY_SECONDS,

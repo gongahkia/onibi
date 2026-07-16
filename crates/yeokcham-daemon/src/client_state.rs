@@ -1,11 +1,12 @@
 use std::path::{Component, Path, PathBuf};
 
-pub const CLIENT_STATE_DIRECTORY_LAYOUT_VERSION: u8 = 1;
+pub const CLIENT_STATE_DIRECTORY_LAYOUT_VERSION: u8 = 2;
 pub const DAEMON_LOCK_FILE: &str = "yeokcham-daemon.lock";
 pub const OUTBOX_DATABASE_FILE: &str = "yeokcham-outbox.sqlite";
 pub const INBOX_DATABASE_FILE: &str = "yeokcham-inbox.sqlite";
 pub const CONTACTS_DATABASE_FILE: &str = "yeokcham-contacts.sqlite";
 pub const RATCHETS_DATABASE_FILE: &str = "yeokcham-ratchets.sqlite";
+pub const ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE: &str = "yeokcham-one-time-prekeys.sqlite";
 pub const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,6 +68,11 @@ impl ClientStateDirectory {
     }
 
     #[must_use]
+    pub fn one_time_prekey_inventory_path(&self) -> PathBuf {
+        self.root.join(ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE)
+    }
+
+    #[must_use]
     pub fn attachment_uploads_path(&self) -> PathBuf {
         self.root.join(ATTACHMENT_UPLOAD_DIRECTORY)
     }
@@ -91,13 +97,13 @@ mod tests {
     use super::{
         ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
         ClientStateDirectory, ClientStateDirectoryError, DAEMON_LOCK_FILE, INBOX_DATABASE_FILE,
-        OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
+        ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
     };
 
     #[test]
-    fn maps_every_v1_client_state_path_under_the_validated_root() {
+    fn maps_every_v2_client_state_path_under_the_validated_root() {
         let layout = ClientStateDirectory::new("/var/lib/yeokcham/alice").unwrap();
-        assert_eq!(CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, 1);
+        assert_eq!(CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, 2);
         assert_eq!(layout.root(), Path::new("/var/lib/yeokcham/alice"));
         assert_eq!(
             layout.lock_path(),
@@ -118,6 +124,10 @@ mod tests {
         assert_eq!(
             layout.ratchets_path(),
             Path::new("/var/lib/yeokcham/alice").join(RATCHETS_DATABASE_FILE)
+        );
+        assert_eq!(
+            layout.one_time_prekey_inventory_path(),
+            Path::new("/var/lib/yeokcham/alice").join(ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE)
         );
         assert_eq!(
             layout.attachment_uploads_path(),
