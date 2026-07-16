@@ -15,6 +15,7 @@ pub use crate::client_state::DAEMON_LOCK_FILE;
 
 pub struct DaemonRuntime {
     daemon: Daemon,
+    state_directory: ClientStateDirectory,
     lock_path: PathBuf,
     lock: Option<File>,
 }
@@ -56,6 +57,7 @@ impl DaemonRuntime {
                 );
                 Ok(Self {
                     daemon,
+                    state_directory,
                     lock_path,
                     lock: Some(lock),
                 })
@@ -75,6 +77,11 @@ impl DaemonRuntime {
     #[must_use]
     pub fn lock_path(&self) -> &Path {
         &self.lock_path
+    }
+
+    #[must_use]
+    pub const fn state_directory(&self) -> &ClientStateDirectory {
+        &self.state_directory
     }
 
     #[must_use]

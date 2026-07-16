@@ -33,6 +33,8 @@ mod signed_prekey_lifecycle;
 mod state_store;
 mod stun;
 mod tor_socks;
+#[cfg(unix)]
+mod unix_listener;
 mod upnp;
 mod wifi_direct_transport;
 mod wifi_hotspot_transport;
@@ -129,6 +131,8 @@ pub use state_store::{
 };
 pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
 pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
+#[cfg(unix)]
+pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
 pub use wifi_hotspot_transport::WifiHotspotTransport;
