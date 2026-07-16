@@ -9,6 +9,8 @@ mod contact_lifecycle;
 mod contact_store;
 mod daemon_config;
 mod daemon_endpoint;
+#[cfg(unix)]
+mod daemon_server;
 mod delivery_scheduler;
 mod direct_transport;
 mod grpc_service;
@@ -72,6 +74,8 @@ pub use daemon_endpoint::{
     DaemonEndpointConfig, DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES,
     MAX_DAEMON_ENDPOINT_NAME_BYTES,
 };
+#[cfg(unix)]
+pub use daemon_server::{DaemonServer, DaemonServerError};
 pub use delivery_scheduler::{
     BackgroundDeliveryScheduler, DeliverySchedulerCycle, DeliverySchedulerError,
     DeliverySchedulerOutcome, DeliveryTransport, MAX_DELIVERY_SCHEDULE_INTERVAL,
