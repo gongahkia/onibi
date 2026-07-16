@@ -13,6 +13,11 @@ pub struct YeokchamClient {
     _private: u8,
 }
 
+#[repr(C)]
+pub struct YeokchamClientConfigBuilder {
+    _private: u8,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum YeokchamStatus {
@@ -24,9 +29,13 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
-    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_client_complete_async,
-    yeokcham_client_create, yeokcham_client_release, yeokcham_secret_buffer_zeroize,
+    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS,
+    MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamCompletionCallback,
+    yeokcham_abi_negotiate, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
+    yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
+    yeokcham_client_config_builder_set_event_buffer_capacity,
+    yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
+    yeokcham_client_release, yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -59,6 +68,9 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
+        assert!(HEADER.contains(
+            "typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t;"
+        ));
         assert!(HEADER.ends_with("#endif\n"));
     }
 
@@ -85,6 +97,10 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_release(yeokcham_client_t *client);"));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_client_complete_async("));
+        assert!(HEADER.contains("yeokcham_client_config_builder_create(void);"));
+        assert!(HEADER.contains("yeokcham_client_config_builder_set_state_directory("));
+        assert!(HEADER.contains("yeokcham_client_config_builder_set_event_buffer_capacity("));
+        assert!(HEADER.contains("yeokcham_client_config_builder_build("));
         assert!(HEADER.contains("uint32_t yeokcham_abi_negotiate(uint32_t requested_version);"));
         assert!(HEADER.contains("#include <stddef.h>"));
         assert!(HEADER.contains("yeokcham_secret_buffer_zeroize(uint8_t *buffer, size_t length);"));

@@ -2,7 +2,9 @@
 
 int yeokcham_c_consumer_conformance(void) {
     uint8_t secret[] = {0xa5, 0x5a, 0x11};
+    const uint8_t state_directory[] = "/tmp/yeokcham-ffi-c-consumer";
     yeokcham_client_t *client;
+    yeokcham_client_config_builder_t *builder;
 
     if (yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION) != YEOKCHAM_ABI_VERSION) {
         return 1;
@@ -17,20 +19,36 @@ int yeokcham_c_consumer_conformance(void) {
     if (client == NULL) {
         return 4;
     }
-    if (yeokcham_client_complete_async(client, NULL, NULL) != YEOKCHAM_STATUS_INVALID_INPUT) {
+    builder = yeokcham_client_config_builder_create();
+    if (builder == NULL) {
         return 5;
     }
-    if (yeokcham_secret_buffer_zeroize(secret, sizeof(secret)) != YEOKCHAM_STATUS_OK) {
+    if (yeokcham_client_config_builder_set_state_directory(builder, state_directory, sizeof(state_directory) - UINT32_C(1)) != YEOKCHAM_STATUS_OK) {
         return 6;
     }
-    if (secret[0] != 0 || secret[1] != 0 || secret[2] != 0) {
+    if (yeokcham_client_config_builder_set_event_buffer_capacity(builder, UINT32_C(8)) != YEOKCHAM_STATUS_OK) {
         return 7;
     }
-    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_OK) {
+    if (yeokcham_client_config_builder_build(builder, client) != YEOKCHAM_STATUS_OK) {
         return 8;
     }
-    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_INVALID_INPUT) {
+    if (yeokcham_client_config_builder_release(builder) != YEOKCHAM_STATUS_OK) {
         return 9;
+    }
+    if (yeokcham_client_complete_async(client, NULL, NULL) != YEOKCHAM_STATUS_INVALID_INPUT) {
+        return 10;
+    }
+    if (yeokcham_secret_buffer_zeroize(secret, sizeof(secret)) != YEOKCHAM_STATUS_OK) {
+        return 11;
+    }
+    if (secret[0] != 0 || secret[1] != 0 || secret[2] != 0) {
+        return 12;
+    }
+    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_OK) {
+        return 13;
+    }
+    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_INVALID_INPUT) {
+        return 14;
     }
     return 0;
 }

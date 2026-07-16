@@ -10,6 +10,7 @@
 #define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
+typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -22,6 +23,21 @@ typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *c
 
 yeokcham_client_t *yeokcham_client_create(void); // null when client capacity is exhausted
 yeokcham_status_t yeokcham_client_release(yeokcham_client_t *client); // invalid input unless client is active
+yeokcham_client_config_builder_t *yeokcham_client_config_builder_create(void); // null when builder capacity is exhausted
+yeokcham_status_t yeokcham_client_config_builder_release(yeokcham_client_config_builder_t *builder); // invalid input unless builder is active
+yeokcham_status_t yeokcham_client_config_builder_set_state_directory(
+    yeokcham_client_config_builder_t *builder,
+    const uint8_t *state_directory,
+    size_t state_directory_length
+); // state directory bytes must be nonempty UTF-8 without NUL
+yeokcham_status_t yeokcham_client_config_builder_set_event_buffer_capacity(
+    yeokcham_client_config_builder_t *builder,
+    uint32_t event_buffer_capacity
+); // zero is rejected when building
+yeokcham_status_t yeokcham_client_config_builder_build(
+    const yeokcham_client_config_builder_t *builder,
+    const yeokcham_client_t *client
+); // validates and attaches an embedded client configuration
 yeokcham_status_t yeokcham_client_complete_async(
     const yeokcham_client_t *client,
     yeokcham_completion_callback_t callback,
