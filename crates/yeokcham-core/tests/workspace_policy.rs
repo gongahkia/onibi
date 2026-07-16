@@ -56,6 +56,49 @@ fn workspace_features_are_explicitly_opt_in() {
 }
 
 #[test]
+fn api_version_policy_limits_publishable_rust_surface() {
+    let policy = fs::read_to_string(workspace_file("API_COMPATIBILITY.md"))
+        .expect("workspace must document its public API policy");
+    for section in [
+        "## Public interfaces",
+        "## Versioning rules",
+        "## Compatibility checks",
+        "yeokcham-sdk",
+        "YEOKCHAM_ABI_VERSION",
+        "PROTOCOL_COMPATIBILITY.md",
+    ] {
+        assert!(
+            policy.contains(section),
+            "API policy must document {section}"
+        );
+    }
+
+    for package in [
+        "yeokcham-cli",
+        "yeokcham-core",
+        "yeokcham-daemon",
+        "yeokcham-daemon-api",
+        "yeokcham-ffi",
+        "yeokcham-protocol",
+        "yeokcham-relay",
+    ] {
+        let manifest = fs::read_to_string(workspace_file(&format!("crates/{package}/Cargo.toml")))
+            .expect("workspace crate must include Cargo.toml");
+        assert!(
+            manifest.contains("publish = false"),
+            "{package} must remain an internal Rust crate"
+        );
+    }
+
+    let sdk_manifest = fs::read_to_string(workspace_file("crates/yeokcham-sdk/Cargo.toml"))
+        .expect("SDK crate must include Cargo.toml");
+    assert!(
+        !sdk_manifest.contains("publish = false"),
+        "SDK must remain the publishable Rust API"
+    );
+}
+
+#[test]
 fn ci_audits_dependencies_on_every_change_and_weekly() {
     let workflow = fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
         .expect("workspace must include CI workflow");
