@@ -2,7 +2,8 @@ use yeokcham_core::{IdentityPublicKey, OsKeystore};
 use yeokcham_daemon::{
     Contact, ContactLifecycleError, ContactLifecycleService, ContactStatus, ContactStore,
     ContactStoreError, ContactVerificationMethod, PendingContactImportError,
-    PendingContactImportService,
+    PendingContactImportService, QrContactVerificationError, QrContactVerificationService,
+    SafetyNumberVerificationError, SafetyNumberVerificationService,
 };
 
 use crate::{SdkClient, SdkIdentityError, SdkIdentityManager};
@@ -53,6 +54,24 @@ impl<'a> SdkContactManager<'a> {
             .apply_rotation_encoded(encoded)
             .map(SdkContact::from)
             .map_err(|error| map_contact_lifecycle_error(&error))
+    }
+
+    pub fn verify_qr(&mut self, encoded: &[u8]) -> Result<SdkContact, SdkContactError> {
+        QrContactVerificationService::new(&self.local_identity, &mut self.contacts)
+            .verify_encoded(encoded)
+            .map(SdkContact::from)
+            .map_err(|error| map_qr_contact_verification_error(&error))
+    }
+
+    pub fn verify_safety_number(
+        &mut self,
+        remote_identity: &IdentityPublicKey,
+        supplied: &[u8],
+    ) -> Result<SdkContact, SdkContactError> {
+        SafetyNumberVerificationService::new(&self.local_identity, &mut self.contacts)
+            .verify(remote_identity, supplied)
+            .map(SdkContact::from)
+            .map_err(|error| map_safety_number_verification_error(&error))
     }
 
     pub fn revoke(&mut self, identity: &IdentityPublicKey) -> Result<SdkContact, SdkContactError> {
@@ -166,6 +185,22 @@ fn map_contact_lifecycle_error(error: &ContactLifecycleError) -> SdkContactError
     match error {
         ContactLifecycleError::IdentityRotation(_) => SdkContactError::InvalidRotation,
         ContactLifecycleError::ContactStore(error) => map_contact_store_error(error),
+    }
+}
+
+fn map_qr_contact_verification_error(error: &QrContactVerificationError) -> SdkContactError {
+    match error {
+        QrContactVerificationError::Payload(_) => SdkContactError::InvalidVerification,
+        QrContactVerificationError::ContactStore(error) => map_contact_store_error(error),
+    }
+}
+
+fn map_safety_number_verification_error(error: &SafetyNumberVerificationError) -> SdkContactError {
+    match error {
+        SafetyNumberVerificationError::InvalidFingerprintLength => {
+            SdkContactError::InvalidVerification
+        }
+        SafetyNumberVerificationError::ContactStore(error) => map_contact_store_error(error),
     }
 }
 

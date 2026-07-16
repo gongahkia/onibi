@@ -6,7 +6,9 @@ use std::{
 };
 
 use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
-use yeokcham_protocol::{ContactInvitation, IdentityRotation};
+use yeokcham_protocol::{
+    ContactInvitation, IdentityRotation, QrVerificationPayload, SafetyNumberFingerprint,
+};
 use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus, SdkEvent,
@@ -246,6 +248,97 @@ fn contact_manager_fails_closed_before_opening_state_for_missing_identity_or_bad
     );
     assert_eq!(contacts.contacts().count(), 0);
     drop(contacts);
+    client.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn contact_manager_verifies_qr_and_safety_numbers_at_the_public_boundary() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    let local = identities.create_or_load().unwrap().public_key();
+    let mut client = SdkClient::start(&config).unwrap();
+    let qr_remote = IdentityKeypair::generate().unwrap();
+    let safety_remote = IdentityKeypair::generate().unwrap();
+    let qr_invitation = ContactInvitation::create(&qr_remote)
+        .unwrap()
+        .encode()
+        .unwrap();
+    let safety_invitation = ContactInvitation::create(&safety_remote)
+        .unwrap()
+        .encode()
+        .unwrap();
+    let qr_payload = QrVerificationPayload::new(local, qr_remote.public_key())
+        .unwrap()
+        .encode()
+        .unwrap();
+    let safety_number = SafetyNumberFingerprint::derive(&local, &safety_remote.public_key())
+        .unwrap()
+        .as_bytes()
+        .to_owned();
+
+    {
+        let mut contacts = client.contact_manager(&mut identities).unwrap();
+        contacts.import_invitation(&qr_invitation).unwrap();
+        contacts.import_invitation(&safety_invitation).unwrap();
+        let qr = contacts.verify_qr(&qr_payload).unwrap();
+        let safety = contacts
+            .verify_safety_number(&safety_remote.public_key(), &safety_number)
+            .unwrap();
+
+        assert_eq!(qr.status(), SdkContactStatus::Verified);
+        assert_eq!(
+            qr.verification_method(),
+            Some(yeokcham_sdk::SdkContactVerificationMethod::Qr)
+        );
+        assert_eq!(safety.status(), SdkContactStatus::Verified);
+        assert_eq!(
+            safety.verification_method(),
+            Some(yeokcham_sdk::SdkContactVerificationMethod::SafetyNumber)
+        );
+    }
+    client.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn contact_manager_rejects_invalid_verification_without_changing_pending_contact() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let remote = IdentityKeypair::generate().unwrap();
+    let invitation = ContactInvitation::create(&remote)
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    {
+        let mut contacts = client.contact_manager(&mut identities).unwrap();
+        contacts.import_invitation(&invitation).unwrap();
+        assert_eq!(
+            contacts.verify_qr(&[0xa1]).unwrap_err(),
+            SdkContactError::InvalidVerification
+        );
+        assert_eq!(
+            contacts
+                .verify_safety_number(&remote.public_key(), &[0; 31])
+                .unwrap_err(),
+            SdkContactError::InvalidVerification
+        );
+        assert_eq!(
+            contacts
+                .verify_safety_number(&remote.public_key(), &[0; 32])
+                .unwrap_err(),
+            SdkContactError::InvalidVerification
+        );
+        assert_eq!(
+            contacts.contact(&remote.public_key()).unwrap().status(),
+            SdkContactStatus::Pending
+        );
+    }
     client.shutdown().unwrap();
     fs::remove_dir_all(state_directory).unwrap();
 }
