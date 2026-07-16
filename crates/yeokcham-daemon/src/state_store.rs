@@ -11,11 +11,24 @@ use yeokcham_protocol::CryptoDomain;
 use zeroize::Zeroizing;
 
 pub const MAX_STATE_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
-const STATE_FORMAT_VERSION: u8 = 1;
+pub const CURRENT_STATE_FORMAT_VERSION: u8 = 2;
+const STATE_FORMAT_VERSION_V1: u8 = 1;
 const DATABASE_ID_BYTES: usize = 16;
 const DATABASE_KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 24;
 const KEY_ENTRY_PREFIX: &str = "state_db_";
+
+struct StateMigration {
+    from: u8,
+    to: u8,
+    transform: fn(&StateDocument) -> Result<StateDocument, StateDocumentError>,
+}
+
+const STATE_MIGRATIONS: &[StateMigration] = &[StateMigration {
+    from: STATE_FORMAT_VERSION_V1,
+    to: CURRENT_STATE_FORMAT_VERSION,
+    transform: migrate_v1_to_v2,
+}];
 
 #[derive(Eq, PartialEq)]
 pub struct StateDocument(Zeroizing<Vec<u8>>);
@@ -59,10 +72,11 @@ impl EncryptedStateStore {
 
         let metadata = read_metadata(&connection)?;
         let (database_id, key) = match metadata {
-            Some(metadata) => (
-                metadata.database_id,
-                load_key(keystore, &metadata.key_entry)?,
-            ),
+            Some(metadata) => {
+                let key = load_key(keystore, &metadata.key_entry)?;
+                let metadata = migrate_state(&mut connection, metadata, &key)?;
+                (metadata.database_id, key)
+            }
             None => create_metadata(&mut connection, keystore)?,
         };
         Ok(Self {
@@ -73,53 +87,21 @@ impl EncryptedStateStore {
     }
 
     pub fn load(&self) -> Result<Option<StateDocument>, StateStoreError> {
-        let row = self
-            .connection
-            .query_row(
-                "SELECT nonce, ciphertext FROM sealed_state WHERE id = 1",
-                [],
-                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
-            .optional()?;
-        let Some((nonce, ciphertext)) = row else {
-            return Ok(None);
-        };
-        if nonce.len() != NONCE_BYTES || ciphertext.len() < 16 {
-            return Err(StateStoreError::InvalidSealedState);
-        }
-        let cipher = XChaCha20Poly1305::new_from_slice(self.key.as_ref())
-            .map_err(|_| StateStoreError::Encryption)?;
-        let nonce = XNonce::try_from(nonce.as_slice()).map_err(|_| StateStoreError::Encryption)?;
-        let plaintext = cipher
-            .decrypt(
-                &nonce,
-                Payload {
-                    msg: &ciphertext,
-                    aad: &associated_data(&self.database_id),
-                },
-            )
-            .map_err(|_| StateStoreError::Authentication)?;
-        StateDocument::new(plaintext)
-            .map(Some)
-            .map_err(StateStoreError::InvalidDocument)
+        read_sealed_state(
+            &self.connection,
+            &self.key,
+            &self.database_id,
+            CURRENT_STATE_FORMAT_VERSION,
+        )
     }
 
     pub fn replace(&mut self, document: &StateDocument) -> Result<(), StateStoreError> {
-        let mut nonce = [0; NONCE_BYTES];
-        fill_random(&mut nonce)?;
-        let cipher = XChaCha20Poly1305::new_from_slice(self.key.as_ref())
-            .map_err(|_| StateStoreError::Encryption)?;
-        let nonce_value =
-            XNonce::try_from(nonce.as_slice()).map_err(|_| StateStoreError::Encryption)?;
-        let ciphertext = cipher
-            .encrypt(
-                &nonce_value,
-                Payload {
-                    msg: document.as_bytes(),
-                    aad: &associated_data(&self.database_id),
-                },
-            )
-            .map_err(|_| StateStoreError::Encryption)?;
+        let (nonce, ciphertext) = encrypt_state(
+            document,
+            &self.key,
+            &self.database_id,
+            CURRENT_STATE_FORMAT_VERSION,
+        )?;
         let transaction = self.connection.transaction()?;
         transaction.execute(
             "INSERT INTO sealed_state(id, nonce, ciphertext) VALUES (1, ?1, ?2)
@@ -149,6 +131,10 @@ pub enum StateStoreError {
     Keystore,
     #[error("state-store metadata is invalid")]
     InvalidMetadata,
+    #[error("state-store format version {0} is newer than this client")]
+    UnsupportedFormatVersion(u8),
+    #[error("state-store format version {0} has no registered migration")]
+    MissingMigration(u8),
     #[error("state-store key is unavailable")]
     KeyUnavailable,
     #[error("state-store key has an invalid length")]
@@ -164,6 +150,7 @@ pub enum StateStoreError {
 }
 
 struct Metadata {
+    format_version: u8,
     database_id: [u8; DATABASE_ID_BYTES],
     key_entry: KeystoreEntryName,
 }
@@ -202,15 +189,13 @@ fn read_metadata(connection: &Connection) -> Result<Option<Metadata>, StateStore
     let Some((format_version, database_id, key_entry)) = row else {
         return Ok(None);
     };
-    if format_version != STATE_FORMAT_VERSION {
-        return Err(StateStoreError::InvalidMetadata);
-    }
     let database_id: [u8; DATABASE_ID_BYTES] = database_id
         .try_into()
         .map_err(|_| StateStoreError::InvalidMetadata)?;
     let key_entry =
         KeystoreEntryName::new(key_entry).map_err(|_| StateStoreError::InvalidMetadata)?;
     Ok(Some(Metadata {
+        format_version,
         database_id,
         key_entry,
     }))
@@ -234,7 +219,7 @@ fn create_metadata<K: OsKeystore>(
     let transaction = connection.transaction()?;
     transaction.execute(
         "INSERT INTO state_metadata(id, format_version, database_id, key_entry) VALUES (1, ?1, ?2, ?3)",
-        params![STATE_FORMAT_VERSION, database_id.as_slice(), key_entry.as_str()],
+        params![CURRENT_STATE_FORMAT_VERSION, database_id.as_slice(), key_entry.as_str()],
     )?;
     transaction.commit()?;
     Ok((database_id, key))
@@ -255,11 +240,118 @@ fn load_key<K: OsKeystore>(
     Ok(Zeroizing::new(key))
 }
 
-fn associated_data(database_id: &[u8; DATABASE_ID_BYTES]) -> Vec<u8> {
+fn migrate_state(
+    connection: &mut Connection,
+    mut metadata: Metadata,
+    key: &Zeroizing<[u8; DATABASE_KEY_BYTES]>,
+) -> Result<Metadata, StateStoreError> {
+    if metadata.format_version > CURRENT_STATE_FORMAT_VERSION {
+        return Err(StateStoreError::UnsupportedFormatVersion(
+            metadata.format_version,
+        ));
+    }
+    while metadata.format_version != CURRENT_STATE_FORMAT_VERSION {
+        let migration = STATE_MIGRATIONS
+            .iter()
+            .find(|migration| migration.from == metadata.format_version)
+            .ok_or(StateStoreError::MissingMigration(metadata.format_version))?;
+        let migrated = read_sealed_state(
+            connection,
+            key,
+            &metadata.database_id,
+            metadata.format_version,
+        )?
+        .map(|document| (migration.transform)(&document))
+        .transpose()
+        .map_err(StateStoreError::InvalidDocument)?;
+        let encrypted = migrated
+            .as_ref()
+            .map(|document| encrypt_state(document, key, &metadata.database_id, migration.to))
+            .transpose()?;
+        let transaction = connection.transaction()?;
+        if let Some((nonce, ciphertext)) = encrypted {
+            transaction.execute(
+                "UPDATE sealed_state SET nonce = ?1, ciphertext = ?2 WHERE id = 1",
+                params![nonce.as_slice(), ciphertext],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE state_metadata SET format_version = ?1 WHERE id = 1",
+            params![migration.to],
+        )?;
+        transaction.commit()?;
+        metadata.format_version = migration.to;
+    }
+    Ok(metadata)
+}
+
+fn migrate_v1_to_v2(document: &StateDocument) -> Result<StateDocument, StateDocumentError> {
+    StateDocument::new(document.as_bytes().to_vec())
+}
+
+fn read_sealed_state(
+    connection: &Connection,
+    key: &[u8; DATABASE_KEY_BYTES],
+    database_id: &[u8; DATABASE_ID_BYTES],
+    format_version: u8,
+) -> Result<Option<StateDocument>, StateStoreError> {
+    let row = connection
+        .query_row(
+            "SELECT nonce, ciphertext FROM sealed_state WHERE id = 1",
+            [],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+        )
+        .optional()?;
+    let Some((nonce, ciphertext)) = row else {
+        return Ok(None);
+    };
+    if nonce.len() != NONCE_BYTES || ciphertext.len() < 16 {
+        return Err(StateStoreError::InvalidSealedState);
+    }
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| StateStoreError::Encryption)?;
+    let nonce = XNonce::try_from(nonce.as_slice()).map_err(|_| StateStoreError::Encryption)?;
+    let plaintext = cipher
+        .decrypt(
+            &nonce,
+            Payload {
+                msg: &ciphertext,
+                aad: &associated_data(database_id, format_version),
+            },
+        )
+        .map_err(|_| StateStoreError::Authentication)?;
+    StateDocument::new(plaintext)
+        .map(Some)
+        .map_err(StateStoreError::InvalidDocument)
+}
+
+fn encrypt_state(
+    document: &StateDocument,
+    key: &[u8; DATABASE_KEY_BYTES],
+    database_id: &[u8; DATABASE_ID_BYTES],
+    format_version: u8,
+) -> Result<([u8; NONCE_BYTES], Vec<u8>), StateStoreError> {
+    let mut nonce = [0; NONCE_BYTES];
+    fill_random(&mut nonce)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| StateStoreError::Encryption)?;
+    let nonce_value =
+        XNonce::try_from(nonce.as_slice()).map_err(|_| StateStoreError::Encryption)?;
+    let ciphertext = cipher
+        .encrypt(
+            &nonce_value,
+            Payload {
+                msg: document.as_bytes(),
+                aad: &associated_data(database_id, format_version),
+            },
+        )
+        .map_err(|_| StateStoreError::Encryption)?;
+    Ok((nonce, ciphertext))
+}
+
+fn associated_data(database_id: &[u8; DATABASE_ID_BYTES], format_version: u8) -> Vec<u8> {
     let context = CryptoDomain::DurableStateEncryption.context();
     let mut data = Vec::with_capacity(context.len() + 1 + database_id.len());
     data.extend_from_slice(context);
-    data.push(STATE_FORMAT_VERSION);
+    data.push(format_version);
     data.extend_from_slice(database_id);
     data
 }
@@ -292,10 +384,12 @@ mod tests {
     };
 
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
+    use zeroize::Zeroizing;
 
     use super::{
-        EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
-        StateStoreError,
+        CURRENT_STATE_FORMAT_VERSION, DATABASE_ID_BYTES, DATABASE_KEY_BYTES, EncryptedStateStore,
+        MAX_STATE_DOCUMENT_BYTES, STATE_FORMAT_VERSION_V1, StateDocument, StateDocumentError,
+        StateStoreError, encrypt_state, initialize_schema, read_sealed_state,
     };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -335,6 +429,41 @@ mod tests {
             "yeokcham-state-store-{}-{number}.sqlite",
             std::process::id()
         ))
+    }
+
+    fn seed_state(
+        path: &PathBuf,
+        keystore: &mut MemoryKeystore,
+        format_version: u8,
+        document: Option<&StateDocument>,
+    ) -> ([u8; DATABASE_ID_BYTES], Zeroizing<[u8; DATABASE_KEY_BYTES]>) {
+        let connection = rusqlite::Connection::open(path).unwrap();
+        initialize_schema(&connection).unwrap();
+        let database_id = [0x42; DATABASE_ID_BYTES];
+        let key = Zeroizing::new([0xA5; DATABASE_KEY_BYTES]);
+        let key_entry =
+            KeystoreEntryName::new(format!("state_db_{}", super::encode_hex(&database_id)))
+                .unwrap();
+        keystore
+            .store(&key_entry, &KeystoreSecret::new(key.to_vec()).unwrap())
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO state_metadata(id, format_version, database_id, key_entry) VALUES (1, ?1, ?2, ?3)",
+                rusqlite::params![format_version, database_id.as_slice(), key_entry.as_str()],
+            )
+            .unwrap();
+        if let Some(document) = document {
+            let (nonce, ciphertext) =
+                encrypt_state(document, &key, &database_id, format_version).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO sealed_state(id, nonce, ciphertext) VALUES (1, ?1, ?2)",
+                    rusqlite::params![nonce.as_slice(), ciphertext],
+                )
+                .unwrap();
+        }
+        (database_id, key)
     }
 
     #[test]
@@ -390,6 +519,115 @@ mod tests {
             EncryptedStateStore::open(&path, &mut keystore),
             Err(StateStoreError::KeyUnavailable)
         ));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn migrates_legacy_encrypted_state_and_rejects_unknown_format_versions() {
+        let path = database_path();
+        let mut keystore = MemoryKeystore::default();
+        let document = StateDocument::new(b"legacy encrypted state".to_vec()).unwrap();
+        let (database_id, key) = seed_state(
+            &path,
+            &mut keystore,
+            STATE_FORMAT_VERSION_V1,
+            Some(&document),
+        );
+
+        let migrated = EncryptedStateStore::open(&path, &mut keystore)
+            .unwrap()
+            .load()
+            .unwrap()
+            .unwrap();
+        assert_eq!(migrated.as_bytes(), document.as_bytes());
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT format_version FROM state_metadata WHERE id = 1",
+                    [],
+                    |row| { row.get::<_, u8>(0) }
+                )
+                .unwrap(),
+            CURRENT_STATE_FORMAT_VERSION
+        );
+        assert!(matches!(
+            read_sealed_state(&connection, &key, &database_id, STATE_FORMAT_VERSION_V1),
+            Err(StateStoreError::Authentication)
+        ));
+        fs::remove_file(&path).unwrap();
+
+        let unsupported_path = database_path();
+        let (_, _) = seed_state(
+            &unsupported_path,
+            &mut keystore,
+            CURRENT_STATE_FORMAT_VERSION + 1,
+            None,
+        );
+        assert!(matches!(
+            EncryptedStateStore::open(&unsupported_path, &mut keystore),
+            Err(StateStoreError::UnsupportedFormatVersion(version))
+                if version == CURRENT_STATE_FORMAT_VERSION + 1
+        ));
+        fs::remove_file(unsupported_path).unwrap();
+    }
+
+    #[test]
+    fn migration_is_atomic_when_metadata_update_fails() {
+        let path = database_path();
+        let mut keystore = MemoryKeystore::default();
+        let document = StateDocument::new(b"legacy state remains intact".to_vec()).unwrap();
+        let (database_id, key) = seed_state(
+            &path,
+            &mut keystore,
+            STATE_FORMAT_VERSION_V1,
+            Some(&document),
+        );
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_state_metadata_migration
+                 BEFORE UPDATE ON state_metadata
+                 BEGIN SELECT RAISE(ABORT, 'injected migration fault'); END;",
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(matches!(
+            EncryptedStateStore::open(&path, &mut keystore),
+            Err(StateStoreError::Sqlite(_))
+        ));
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT format_version FROM state_metadata WHERE id = 1",
+                    [],
+                    |row| { row.get::<_, u8>(0) }
+                )
+                .unwrap(),
+            STATE_FORMAT_VERSION_V1
+        );
+        assert_eq!(
+            read_sealed_state(&connection, &key, &database_id, STATE_FORMAT_VERSION_V1)
+                .unwrap()
+                .unwrap()
+                .as_bytes(),
+            document.as_bytes()
+        );
+        connection
+            .execute_batch("DROP TRIGGER reject_state_metadata_migration;")
+            .unwrap();
+        drop(connection);
+        assert_eq!(
+            EncryptedStateStore::open(&path, &mut keystore)
+                .unwrap()
+                .load()
+                .unwrap()
+                .unwrap()
+                .as_bytes(),
+            document.as_bytes()
+        );
         fs::remove_file(path).unwrap();
     }
 

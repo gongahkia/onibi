@@ -84,8 +84,8 @@ pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};
 pub use state_store::{
-    EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument, StateDocumentError,
-    StateStoreError,
+    CURRENT_STATE_FORMAT_VERSION, EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument,
+    StateDocumentError, StateStoreError,
 };
 pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
 pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
