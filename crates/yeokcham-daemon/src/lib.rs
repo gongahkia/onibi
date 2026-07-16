@@ -25,6 +25,7 @@ mod ratchet_store;
 mod relay_tls;
 mod replication_scheduler;
 mod safety_number_verification;
+mod signed_prekey_lifecycle;
 mod state_store;
 mod stun;
 mod tor_socks;
@@ -96,6 +97,10 @@ pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};
 pub use safety_number_verification::{
     SafetyNumberVerificationError, SafetyNumberVerificationService,
+};
+pub use signed_prekey_lifecycle::{
+    SIGNED_PREKEY_KEY_ENTRY, SignedPrekeyInitialization, SignedPrekeyLifecycle,
+    SignedPrekeyLifecycleError,
 };
 pub use state_store::{
     CURRENT_STATE_FORMAT_VERSION, EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument,

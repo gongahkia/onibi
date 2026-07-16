@@ -2,7 +2,7 @@ use std::fmt;
 
 use minicbor::Encoder;
 use yeokcham_core::{
-    ED25519_SIGNATURE_BYTES, IdentityKeypair, X25519Prekey, X25519PrekeyError,
+    ED25519_SIGNATURE_BYTES, IdentityKeypair, IdentityPublicKey, X25519Prekey, X25519PrekeyError,
     X25519PrekeyPublicKey,
 };
 
@@ -29,6 +29,21 @@ impl SignedPrekey {
         let replacement = Self::with_generation(identity, generation)?;
         *self = replacement;
         Ok(())
+    }
+
+    pub fn from_parts(
+        identity: &IdentityPublicKey,
+        generation: u64,
+        prekey: X25519Prekey,
+        signature: [u8; ED25519_SIGNATURE_BYTES],
+    ) -> Result<Self, SignedPrekeyValidationError> {
+        SignedPrekeyPublic::from_parts(generation, prekey.public_key(), signature)?
+            .verify(identity)?;
+        Ok(Self {
+            generation,
+            prekey,
+            signature,
+        })
     }
 
     #[must_use]
@@ -186,7 +201,7 @@ mod tests {
         SIGNED_PREKEY_INITIAL_GENERATION, SignedPrekey, SignedPrekeyError,
         SignedPrekeyValidationError, next_generation, signing_input,
     };
-    use yeokcham_core::IdentityKeypair;
+    use yeokcham_core::{IdentityKeypair, X25519Prekey};
 
     #[test]
     fn rotates_domain_separated_signed_prekeys() {
@@ -240,5 +255,30 @@ mod tests {
                 .unwrap_err(),
             SignedPrekeyValidationError::InvalidGeneration
         );
+    }
+
+    #[test]
+    fn restores_only_signed_prekeys_bound_to_the_expected_identity() {
+        let identity = IdentityKeypair::generate().unwrap();
+        let other_identity = IdentityKeypair::generate().unwrap();
+        let signed_prekey = SignedPrekey::generate(&identity).unwrap();
+        let public = signed_prekey.public();
+        let restored = SignedPrekey::from_parts(
+            &identity.public_key(),
+            public.generation(),
+            X25519Prekey::deserialize(signed_prekey.prekey().serialize().as_ref()).unwrap(),
+            *public.signature(),
+        )
+        .unwrap();
+        assert_eq!(restored.public(), public);
+        assert!(matches!(
+            SignedPrekey::from_parts(
+                &other_identity.public_key(),
+                public.generation(),
+                X25519Prekey::deserialize(signed_prekey.prekey().serialize().as_ref()).unwrap(),
+                *public.signature(),
+            ),
+            Err(SignedPrekeyValidationError::InvalidSignature)
+        ));
     }
 }
