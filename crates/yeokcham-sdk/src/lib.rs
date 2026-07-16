@@ -4,6 +4,7 @@ mod capability;
 mod client;
 mod config;
 mod contact;
+mod delivery_profile;
 mod error;
 mod event;
 mod identity;
@@ -20,6 +21,11 @@ pub use config::{
 };
 pub use contact::{
     SdkContact, SdkContactError, SdkContactManager, SdkContactStatus, SdkContactVerificationMethod,
+};
+pub use delivery_profile::{
+    SdkDeliveryProfile, SdkDeliveryProfileKind, SdkDeliveryProfilePolicy,
+    SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement, SdkLocalMeshPolicy,
+    SdkLocalMeshTransportKind,
 };
 pub use error::SdkError;
 pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError};

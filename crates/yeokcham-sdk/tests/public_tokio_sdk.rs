@@ -11,8 +11,10 @@ use yeokcham_protocol::{
 };
 use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
-    SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus, SdkEvent,
-    SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
+    SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
+    SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
+    SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkIdentityError, SdkIdentityInitialization,
+    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -341,6 +343,72 @@ fn contact_manager_rejects_invalid_verification_without_changing_pending_contact
     }
     client.shutdown().unwrap();
     fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn delivery_profile_policy_requires_explicit_privacy_and_transport_selection() {
+    let local_mesh = SdkLocalMeshPolicy::new(&[SdkLocalMeshTransportKind::Lan]).unwrap();
+    let policy = SdkDeliveryProfilePolicy::new(true, false, Some(local_mesh)).unwrap();
+    let direct = policy
+        .select_direct(SdkDirectIpDisclosureAcknowledgement::acknowledge())
+        .unwrap();
+    let local = policy
+        .select_local_mesh(SdkLocalMeshTransportKind::Lan)
+        .unwrap();
+
+    assert_eq!(direct.kind(), SdkDeliveryProfileKind::Direct);
+    assert!(direct.has_direct_ip_disclosure_warning());
+    assert_eq!(local.kind(), SdkDeliveryProfileKind::LocalMesh);
+    assert!(!local.has_direct_ip_disclosure_warning());
+    assert_eq!(
+        policy
+            .select_local_mesh(SdkLocalMeshTransportKind::Bluetooth)
+            .unwrap_err(),
+        SdkDeliveryProfilePolicyError::LocalMeshTransportDisallowed
+    );
+    assert_eq!(
+        policy.select_tor_maildrop().unwrap_err(),
+        SdkDeliveryProfilePolicyError::TorMaildropDisallowed
+    );
+}
+
+#[test]
+fn delivery_profile_policy_rejects_empty_and_silent_profile_fallbacks() {
+    assert_eq!(
+        SdkLocalMeshPolicy::new(&[]).unwrap_err(),
+        SdkDeliveryProfilePolicyError::NoAllowedLocalMeshTransports
+    );
+    assert_eq!(
+        SdkLocalMeshPolicy::new(&[
+            SdkLocalMeshTransportKind::Lan,
+            SdkLocalMeshTransportKind::WifiHotspot,
+            SdkLocalMeshTransportKind::WifiDirect,
+            SdkLocalMeshTransportKind::Bluetooth,
+            SdkLocalMeshTransportKind::Lan,
+        ])
+        .unwrap_err(),
+        SdkDeliveryProfilePolicyError::TooManyLocalMeshTransports
+    );
+    assert_eq!(
+        SdkDeliveryProfilePolicy::new(false, false, None).unwrap_err(),
+        SdkDeliveryProfilePolicyError::NoAllowedProfiles
+    );
+    let policy = SdkDeliveryProfilePolicy::new(true, true, None).unwrap();
+    let direct = policy
+        .select_direct(SdkDirectIpDisclosureAcknowledgement::acknowledge())
+        .unwrap();
+    let tor = policy.select_tor_maildrop().unwrap();
+
+    assert_eq!(
+        direct.validate_automatic_replacement(tor).unwrap_err(),
+        SdkDeliveryProfilePolicyError::DirectToTorRequiresExplicitSelection
+    );
+    assert_eq!(
+        policy
+            .select_local_mesh(SdkLocalMeshTransportKind::Lan)
+            .unwrap_err(),
+        SdkDeliveryProfilePolicyError::LocalMeshDisallowed
+    );
 }
 
 #[tokio::test]
