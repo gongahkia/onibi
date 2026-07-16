@@ -144,18 +144,40 @@ impl SdkClient {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum SdkClientError {
     #[error("SDK configuration is invalid")]
     Configuration(#[from] crate::SdkConfigError),
     #[error("daemon SDK mode is not available yet")]
     DaemonModeUnavailable,
-    #[error("SDK client lifecycle operation failed")]
-    Lifecycle(#[from] DaemonLifecycleError),
+    #[error("another SDK client already owns the state directory")]
+    AlreadyRunning,
+    #[error("SDK client is not running")]
+    NotRunning,
+    #[error("SDK client state operation failed")]
+    State,
+    #[error("SDK engine initialization failed")]
+    Engine,
     #[error("SDK event sequence is exhausted")]
     EventSequenceExhausted,
     #[error("SDK async lifecycle task failed")]
     AsyncTask,
+}
+
+impl From<DaemonLifecycleError> for SdkClientError {
+    fn from(error: DaemonLifecycleError) -> Self {
+        match error {
+            DaemonLifecycleError::AlreadyRunning => Self::AlreadyRunning,
+            DaemonLifecycleError::NotRunning => Self::NotRunning,
+            DaemonLifecycleError::InvalidStateDirectory(_)
+            | DaemonLifecycleError::StateDirectory(_)
+            | DaemonLifecycleError::LockOpen(_)
+            | DaemonLifecycleError::Lock(_) => Self::State,
+            DaemonLifecycleError::InvalidConfiguration(_) | DaemonLifecycleError::Daemon(_) => {
+                Self::Engine
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -191,7 +213,7 @@ mod tests {
         let second_config = embedded_config(state_directory.clone());
         assert!(matches!(
             SdkClient::start(&second_config),
-            Err(SdkClientError::Lifecycle(_))
+            Err(SdkClientError::AlreadyRunning)
         ));
         client.shutdown().unwrap();
         assert!(!client.is_running());

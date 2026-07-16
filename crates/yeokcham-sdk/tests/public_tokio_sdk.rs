@@ -13,10 +13,11 @@ use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
     SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
-    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkEventStreamError,
-    SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager, SdkLocalMeshPolicy,
-    SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError,
-    SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageSendRequest,
+    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent,
+    SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
+    SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError,
+    SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier,
+    SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -99,6 +100,24 @@ fn daemon_mode_fails_closed_before_the_transport_client_exists() {
         Err(SdkClientError::DaemonModeUnavailable)
     ));
     assert!(!state_directory.exists());
+}
+
+#[test]
+fn sdk_client_maps_engine_lifecycle_failures_to_typed_public_errors() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 8).unwrap();
+    let mut first = SdkClient::start(&config).unwrap();
+    let Err(error) = SdkClient::start(&config) else {
+        panic!("second client startup must fail");
+    };
+    assert_eq!(error, SdkClientError::AlreadyRunning);
+    assert_eq!(
+        SdkError::from(error),
+        SdkError::Client(SdkClientError::AlreadyRunning)
+    );
+    first.shutdown().unwrap();
+    assert_eq!(first.shutdown(), Err(SdkClientError::NotRunning));
+    std::fs::remove_dir_all(state_directory).unwrap();
 }
 
 #[test]
