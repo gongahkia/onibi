@@ -1,6 +1,8 @@
 use tokio::sync::broadcast;
 use yeokcham_protocol::MessageIdentifier;
 
+pub const SDK_EVENT_ENVELOPE_VERSION: u32 = 1;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SdkEvent {
     ClientStarted,
@@ -12,16 +14,37 @@ pub enum SdkEvent {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SdkEventEnvelope {
+    version: u32,
     sequence: u64,
     event: SdkEvent,
 }
 
 impl SdkEventEnvelope {
     pub fn new(sequence: u64, event: SdkEvent) -> Result<Self, SdkEventError> {
+        Self::with_version(SDK_EVENT_ENVELOPE_VERSION, sequence, event)
+    }
+
+    pub fn with_version(
+        version: u32,
+        sequence: u64,
+        event: SdkEvent,
+    ) -> Result<Self, SdkEventError> {
+        if version != SDK_EVENT_ENVELOPE_VERSION {
+            return Err(SdkEventError::UnsupportedVersion);
+        }
         if sequence == 0 {
             return Err(SdkEventError::ZeroSequence);
         }
-        Ok(Self { sequence, event })
+        Ok(Self {
+            version,
+            sequence,
+            event,
+        })
+    }
+
+    #[must_use]
+    pub const fn version(self) -> u32 {
+        self.version
     }
 
     #[must_use]
@@ -37,6 +60,8 @@ impl SdkEventEnvelope {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum SdkEventError {
+    #[error("SDK event envelope version is unsupported")]
+    UnsupportedVersion,
     #[error("SDK event sequence must be nonzero")]
     ZeroSequence,
 }
@@ -88,17 +113,30 @@ fn map_receive_error(error: &broadcast::error::RecvError) -> SdkEventStreamError
 mod tests {
     use yeokcham_protocol::MessageIdentifier;
 
-    use super::{SdkEvent, SdkEventEnvelope, SdkEventError};
+    use super::{SDK_EVENT_ENVELOPE_VERSION, SdkEvent, SdkEventEnvelope, SdkEventError};
 
     #[test]
     fn event_envelopes_are_ordered_and_reject_zero_sequences() {
         let identifier = MessageIdentifier::generate().unwrap();
         let event = SdkEventEnvelope::new(1, SdkEvent::MessageQueued(identifier)).unwrap();
+        assert_eq!(event.version(), SDK_EVENT_ENVELOPE_VERSION);
         assert_eq!(event.sequence(), 1);
         assert_eq!(event.event(), SdkEvent::MessageQueued(identifier));
         assert_eq!(
             SdkEventEnvelope::new(0, SdkEvent::ClientStarted),
             Err(SdkEventError::ZeroSequence)
+        );
+        assert_eq!(
+            SdkEventEnvelope::with_version(0, 1, SdkEvent::ClientStarted),
+            Err(SdkEventError::UnsupportedVersion)
+        );
+        assert_eq!(
+            SdkEventEnvelope::with_version(
+                SDK_EVENT_ENVELOPE_VERSION + 1,
+                1,
+                SdkEvent::ClientStarted
+            ),
+            Err(SdkEventError::UnsupportedVersion)
         );
     }
 }
