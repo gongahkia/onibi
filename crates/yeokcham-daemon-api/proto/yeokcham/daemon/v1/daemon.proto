@@ -3,7 +3,16 @@ syntax = "proto3";
 package yeokcham.daemon.v1;
 
 service DaemonService {
+  rpc StartClient(StartClientRequest) returns (StartClientResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+}
+
+message StartClientRequest {}
+
+message StartClientResponse {
+  uint32 api_major = 1;
+  uint32 api_minor = 2;
+  bool running = 3;
 }
 
 message GetStatusRequest {}

@@ -81,7 +81,7 @@ mod tests {
     use tokio::{net::UnixStream, sync::oneshot};
     use tonic::{Code, Request, transport::Endpoint};
     use tower::service_fn;
-    use yeokcham_daemon_api::v1::{GetStatusRequest, daemon_service_client::DaemonServiceClient};
+    use yeokcham_daemon_api::v1::{StartClientRequest, daemon_service_client::DaemonServiceClient};
     use yeokcham_protocol::ProtocolVersion;
 
     use super::DaemonServer;
@@ -118,17 +118,17 @@ mod tests {
             let mut client = DaemonServiceClient::new(channel);
             assert_eq!(
                 client
-                    .get_status(Request::new(GetStatusRequest {}))
+                    .start_client(Request::new(StartClientRequest {}))
                     .await
                     .unwrap_err()
                     .code(),
                 Code::Unauthenticated
             );
-            let mut request = Request::new(GetStatusRequest {});
+            let mut request = Request::new(StartClientRequest {});
             request
                 .metadata_mut()
                 .insert_bin(LOCAL_AUTH_TOKEN_METADATA_KEY, token.metadata_value());
-            let status = client.get_status(request).await.unwrap().into_inner();
+            let status = client.start_client(request).await.unwrap().into_inner();
             shutdown_sender.send(()).unwrap();
             status
         };
