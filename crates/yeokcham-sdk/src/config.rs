@@ -1,4 +1,6 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+
+use yeokcham_daemon::ClientStateDirectory;
 
 pub const MAX_LOCAL_DAEMON_ENDPOINT_BYTES: usize = 512;
 pub const MAX_SDK_EVENT_BUFFER_CAPACITY: usize = 4096;
@@ -42,14 +44,8 @@ impl SdkConfig {
         runtime_mode: RuntimeMode,
         event_buffer_capacity: usize,
     ) -> Result<Self, SdkConfigError> {
-        if state_directory.as_os_str().is_empty()
-            || !state_directory.is_absolute()
-            || state_directory
-                .components()
-                .any(|component| matches!(component, Component::ParentDir))
-        {
-            return Err(SdkConfigError::InvalidStateDirectory);
-        }
+        ClientStateDirectory::new(&state_directory)
+            .map_err(|_| SdkConfigError::InvalidStateDirectory)?;
         if event_buffer_capacity == 0 || event_buffer_capacity > MAX_SDK_EVENT_BUFFER_CAPACITY {
             return Err(SdkConfigError::InvalidEventBufferCapacity);
         }

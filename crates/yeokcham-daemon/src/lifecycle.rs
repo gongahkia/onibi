@@ -7,9 +7,11 @@ use std::{
 use fs2::FileExt;
 use yeokcham_protocol::ProtocolVersion;
 
-use crate::{Daemon, DaemonConfig, DaemonConfigError};
+use crate::{
+    ClientStateDirectory, ClientStateDirectoryError, Daemon, DaemonConfig, DaemonConfigError,
+};
 
-pub const DAEMON_LOCK_FILE: &str = "yeokcham-daemon.lock";
+pub use crate::client_state::DAEMON_LOCK_FILE;
 
 pub struct DaemonRuntime {
     daemon: Daemon,
@@ -33,12 +35,10 @@ impl DaemonRuntime {
         state_directory: impl AsRef<Path>,
     ) -> Result<Self, DaemonLifecycleError> {
         let daemon = Daemon::new(version)?;
-        let state_directory = state_directory.as_ref();
-        if state_directory.as_os_str().is_empty() {
-            return Err(DaemonLifecycleError::EmptyStateDirectory);
-        }
-        fs::create_dir_all(state_directory).map_err(DaemonLifecycleError::StateDirectory)?;
-        let lock_path = state_directory.join(DAEMON_LOCK_FILE);
+        let state_directory = ClientStateDirectory::new(state_directory)
+            .map_err(DaemonLifecycleError::InvalidStateDirectory)?;
+        fs::create_dir_all(state_directory.root()).map_err(DaemonLifecycleError::StateDirectory)?;
+        let lock_path = state_directory.lock_path();
         let lock = OpenOptions::new()
             .create(true)
             .read(true)
@@ -92,8 +92,8 @@ impl Drop for DaemonRuntime {
 pub enum DaemonLifecycleError {
     #[error("daemon configuration is invalid for startup")]
     InvalidConfiguration(#[source] DaemonConfigError),
-    #[error("daemon state directory must not be empty")]
-    EmptyStateDirectory,
+    #[error("daemon state directory is invalid")]
+    InvalidStateDirectory(#[source] ClientStateDirectoryError),
     #[error("daemon protocol version is unsupported")]
     Daemon(#[from] yeokcham_core::Error),
     #[error("daemon state directory operation failed")]
@@ -117,7 +117,7 @@ mod tests {
     };
 
     use super::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
-    use crate::{DaemonConfig, DaemonConfigError};
+    use crate::{ClientStateDirectoryError, DaemonConfig, DaemonConfigError};
     use yeokcham_protocol::ProtocolVersion;
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -175,7 +175,9 @@ mod tests {
     fn rejects_an_empty_state_directory() {
         assert!(matches!(
             DaemonRuntime::start(ProtocolVersion::INITIAL, ""),
-            Err(DaemonLifecycleError::EmptyStateDirectory)
+            Err(DaemonLifecycleError::InvalidStateDirectory(
+                ClientStateDirectoryError::Empty
+            ))
         ));
     }
 

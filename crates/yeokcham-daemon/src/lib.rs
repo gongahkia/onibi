@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod bluetooth_transport;
+mod client_state;
 mod contact_store;
 mod daemon_config;
 mod delivery_scheduler;
@@ -30,6 +31,11 @@ use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
 
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
+pub use client_state::{
+    ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
+    ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
+    RATCHETS_DATABASE_FILE,
+};
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,

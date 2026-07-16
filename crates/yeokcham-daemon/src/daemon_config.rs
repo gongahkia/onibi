@@ -1,7 +1,9 @@
 use std::{
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
+
+use crate::ClientStateDirectory;
 
 pub const DAEMON_CONFIG_SCHEMA_VERSION: u8 = 1;
 pub const MAX_DAEMON_CONFIG_BYTES: usize = 16 * 1024;
@@ -68,16 +70,9 @@ impl DaemonConfig {
     }
 
     pub fn validate_for_startup(&self) -> Result<(), DaemonConfigError> {
-        if self.state_directory.as_os_str().is_empty()
-            || !self.state_directory.is_absolute()
-            || self
-                .state_directory
-                .components()
-                .any(|component| matches!(component, Component::ParentDir))
-        {
-            return Err(DaemonConfigError::InvalidStateDirectory);
-        }
-        Ok(())
+        ClientStateDirectory::new(&self.state_directory)
+            .map(|_| ())
+            .map_err(|_| DaemonConfigError::InvalidStateDirectory)
     }
 }
 

@@ -17,12 +17,14 @@ use std::{
     fmt::Write as _,
     fs,
     io::{self, Write},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 use yeokcham_core::{
     IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
 };
-use yeokcham_daemon::{DaemonRuntime, MessageExpiry, RecipientInboxDeduplication, SenderOutbox};
+use yeokcham_daemon::{
+    ClientStateDirectory, DaemonRuntime, MessageExpiry, RecipientInboxDeduplication, SenderOutbox,
+};
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
     EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
@@ -42,9 +44,6 @@ use yeokcham_core::WindowsKeystore;
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const MAX_RELAY_PROFILE_BYTES: usize = 64;
 const MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES: usize = 1024 * 1024;
-const INBOX_DATABASE_FILE: &str = "yeokcham-inbox.sqlite";
-const OUTBOX_DATABASE_FILE: &str = "yeokcham-outbox.sqlite";
-const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
@@ -565,7 +564,8 @@ fn queue_message<K: OsKeystore>(
     envelope: EncryptedMessageEnvelope,
     expiry: MessageExpiry,
 ) -> Result<String, Box<dyn Error>> {
-    let mut outbox = SenderOutbox::open(&state_directory.join(OUTBOX_DATABASE_FILE), keystore)?;
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let mut outbox = SenderOutbox::open(&layout.outbox_path(), keystore)?;
     outbox.enqueue(recipient, envelope, expiry)?;
     let identifier = outbox
         .messages()
@@ -638,8 +638,9 @@ fn load_dashboard<K: OsKeystore>(
     keystore: &mut K,
     state_directory: &Path,
 ) -> Result<Dashboard, Box<dyn Error>> {
-    let inbox_path = state_directory.join(INBOX_DATABASE_FILE);
-    let outbox_path = state_directory.join(OUTBOX_DATABASE_FILE);
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let inbox_path = layout.inbox_path();
+    let outbox_path = layout.outbox_path();
     let inbox = state_file_exists(&inbox_path)?
         .then(|| RecipientInboxDeduplication::open(&inbox_path, keystore))
         .transpose()?;
@@ -769,15 +770,9 @@ fn render_dashboard(output: &mut impl Write, dashboard: &Dashboard) -> std::io::
 }
 
 fn validate_state_directory(state_directory: &Path) -> Result<(), &'static str> {
-    if state_directory.as_os_str().is_empty()
-        || !state_directory.is_absolute()
-        || state_directory
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err("state directory must be absolute and must not contain parent traversal");
-    }
-    Ok(())
+    ClientStateDirectory::new(state_directory)
+        .map(|_| ())
+        .map_err(|_| "state directory must be an absolute non-root path without parent traversal")
 }
 
 fn queue_system_attachment(
@@ -817,7 +812,7 @@ fn queue_attachment_submission(
         return Err("attachment manifest and chunks use different identifiers".into());
     }
     let identifier = hexadecimal(manifest.identifier().as_bytes());
-    let root = state_directory.join(ATTACHMENT_UPLOAD_DIRECTORY);
+    let root = ClientStateDirectory::new(state_directory)?.attachment_uploads_path();
     fs::create_dir_all(&root)?;
     let destination = root.join(&identifier);
     if destination.exists() {
@@ -997,17 +992,17 @@ mod tests {
     use clap::Parser;
 
     use super::{
-        ATTACHMENT_UPLOAD_DIRECTORY, Arguments, AttachmentCommand, Command, ContactCommand,
-        ContactInvitation, ContactInvitationCommand, EncryptedMessageEnvelope, INBOX_DATABASE_FILE,
-        IdentityCommand, IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
-        MessageCommand, MessageExpiry, OUTBOX_DATABASE_FILE, OsKeystore,
-        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
-        TorMaildropProfileConfig, TuiCommand, contact_invitation_record, create_identity,
-        dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
-        inspect_contact_invitation, inspect_relay_profile, load_identity,
+        Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
+        ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
+        IdentityPublicKey, KeystoreEntryName, KeystoreSecret, MessageCommand, MessageExpiry,
+        OsKeystore, RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand,
+        SenderOutbox, TorMaildropProfileConfig, TuiCommand, contact_invitation_record,
+        create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
+        identity_record, inspect_contact_invitation, inspect_relay_profile, load_identity,
         queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
         render_dashboard, sign_release_manifest, validate_state_directory, verify_release_manifest,
     };
+    use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
         DeliveryAcknowledgement, EncryptedAttachmentChunk,
