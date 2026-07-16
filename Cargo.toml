@@ -8,6 +8,7 @@ members = [
   "crates/yeokcham-cli",
   "crates/yeokcham-daemon-api",
   "crates/yeokcham-sdk",
+  "examples/rust-integrator",
 ]
 resolver = "3"
 

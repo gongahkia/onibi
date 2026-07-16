@@ -3908,6 +3908,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yeokcham-rust-integrator-example"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+ "yeokcham-core",
+ "yeokcham-sdk",
+]
+
+[[package]]
 name = "yeokcham-sdk"
 version = "0.1.0"
 dependencies = [
