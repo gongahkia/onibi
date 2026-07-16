@@ -82,6 +82,9 @@ impl BackgroundDeliveryScheduler {
         };
         let identifier = message.identifier();
         let outcome = match transport.deliver(&message).await {
+            Ok(acknowledgement) if acknowledgement.message_identifier() != identifier => {
+                DeliverySchedulerOutcome::Retrying(identifier)
+            }
             Ok(acknowledgement) => match outbox.acknowledge_delivery(&acknowledgement) {
                 Ok(_) => DeliverySchedulerOutcome::Delivered(identifier),
                 Err(
