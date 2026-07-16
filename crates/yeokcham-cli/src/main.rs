@@ -25,13 +25,14 @@ use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKey
 use yeokcham_daemon::{
     ClientIdentity, ClientStateDirectory, ContactStatus, ContactStore, DaemonRuntime,
     MessageExpiry, PendingContactImportService, QrContactVerificationService,
-    RecipientInboxDeduplication, SenderOutbox,
+    RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
     EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
     MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
-    QR_VERIFICATION_PAYLOAD_BYTES, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
+    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
+    TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
@@ -116,6 +117,14 @@ enum ContactCommand {
         state_directory: PathBuf,
         #[arg(long)]
         payload: String,
+    },
+    VerifySafetyNumber {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        contact_public_key: String,
+        #[arg(long)]
+        safety_number: String,
     },
 }
 
@@ -222,30 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
             print!("{}", identity_record(&public_key));
         }
-        Command::Contact { command } => match command {
-            ContactCommand::Invitation { command } => match command {
-                ContactInvitationCommand::Create => {
-                    print!(
-                        "{}",
-                        contact_invitation_record(load_client_system_identity()?.keypair())?
-                    );
-                }
-                ContactInvitationCommand::Import {
-                    state_directory,
-                    invitation,
-                } => print!(
-                    "{}",
-                    import_system_contact_invitation(&state_directory, &invitation)?
-                ),
-                ContactInvitationCommand::Inspect { invitation } => {
-                    print!("{}", inspect_contact_invitation(&invitation)?);
-                }
-            },
-            ContactCommand::VerifyQr {
-                state_directory,
-                payload,
-            } => print!("{}", verify_system_contact_qr(&state_directory, &payload)?),
-        },
+        Command::Contact { command } => run_contact_command(command)?,
         Command::RelayProfile { command } => match command {
             RelayProfileCommand::Create {
                 onion_service_public_key,
@@ -316,6 +302,44 @@ fn protocol_vectors(verify: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
     } else {
         print!("{PROTOCOL_V1_VECTORS}");
+    }
+    Ok(())
+}
+
+fn run_contact_command(command: ContactCommand) -> Result<(), Box<dyn Error>> {
+    match command {
+        ContactCommand::Invitation { command } => match command {
+            ContactInvitationCommand::Create => print!(
+                "{}",
+                contact_invitation_record(load_client_system_identity()?.keypair())?
+            ),
+            ContactInvitationCommand::Import {
+                state_directory,
+                invitation,
+            } => print!(
+                "{}",
+                import_system_contact_invitation(&state_directory, &invitation)?
+            ),
+            ContactInvitationCommand::Inspect { invitation } => {
+                print!("{}", inspect_contact_invitation(&invitation)?);
+            }
+        },
+        ContactCommand::VerifyQr {
+            state_directory,
+            payload,
+        } => print!("{}", verify_system_contact_qr(&state_directory, &payload)?),
+        ContactCommand::VerifySafetyNumber {
+            state_directory,
+            contact_public_key,
+            safety_number,
+        } => print!(
+            "{}",
+            verify_system_contact_safety_number(
+                &state_directory,
+                &contact_public_key,
+                &safety_number,
+            )?
+        ),
     }
     Ok(())
 }
@@ -565,6 +589,76 @@ fn verify_contact_qr<K: OsKeystore>(
     let mut contacts = ContactStore::open(&contacts_path, keystore)?;
     let contact = QrContactVerificationService::new(local_identity, &mut contacts)
         .verify_encoded(&payload)?;
+    Ok(format!(
+        "contact_public_key={}\nstatus={}\n",
+        hexadecimal(contact.identity().as_bytes()),
+        contact_status_label(contact.status())
+    ))
+}
+
+fn verify_system_contact_safety_number(
+    state_directory: &Path,
+    contact_public_key: &str,
+    safety_number: &str,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let local_identity = load_client_system_identity()?.public_key();
+    let remote_identity = decode_identity_public_key(contact_public_key)?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return verify_contact_safety_number(
+            state_directory,
+            &local_identity,
+            &remote_identity,
+            safety_number,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return verify_contact_safety_number(
+            state_directory,
+            &local_identity,
+            &remote_identity,
+            safety_number,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return verify_contact_safety_number(
+            state_directory,
+            &local_identity,
+            &remote_identity,
+            safety_number,
+            &mut keystore,
+        );
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn verify_contact_safety_number<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    remote_identity: &IdentityPublicKey,
+    encoded: &str,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let mut safety_number = [0; SAFETY_NUMBER_FINGERPRINT_BYTES];
+    decode_canonical_hex(encoded, &mut safety_number)?;
+    let contacts_path = ClientStateDirectory::new(state_directory)?.contacts_path();
+    if let Some(parent) = contacts_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contacts = ContactStore::open(&contacts_path, keystore)?;
+    let contact = SafetyNumberVerificationService::new(local_identity, &mut contacts)
+        .verify(remote_identity, &safety_number)?;
     Ok(format!(
         "contact_public_key={}\nstatus={}\n",
         hexadecimal(contact.identity().as_bytes()),
@@ -1141,13 +1235,14 @@ mod tests {
         import_contact_invitation, inspect_contact_invitation, inspect_relay_profile,
         load_identity, queue_attachment_submission, queue_message, relay_profile_record,
         release_metadata, render_dashboard, sign_release_manifest, validate_state_directory,
-        verify_contact_qr, verify_release_manifest,
+        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
         DeliveryAcknowledgement, EncryptedAttachmentChunk, QrVerificationPayload,
+        SafetyNumberFingerprint,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1403,6 +1498,64 @@ mod tests {
     }
 
     #[test]
+    fn safety_number_verification_promotes_a_pending_contact_once() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-safety-number-verification-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let local_identity = IdentityKeypair::generate().unwrap();
+        let local_public_key = local_identity.public_key();
+        let remote_identity = IdentityKeypair::generate().unwrap();
+        let invitation = hexadecimal(
+            &ContactInvitation::create(&remote_identity)
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let safety_number = hexadecimal(
+            SafetyNumberFingerprint::derive(&local_public_key, &remote_identity.public_key())
+                .unwrap()
+                .as_bytes(),
+        );
+        let mut keystore = InMemoryKeystore::default();
+        import_contact_invitation(
+            &state_directory,
+            &local_public_key,
+            &invitation,
+            &mut keystore,
+        )
+        .unwrap();
+        let output = verify_contact_safety_number(
+            &state_directory,
+            &local_public_key,
+            &remote_identity.public_key(),
+            &safety_number,
+            &mut keystore,
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            format!(
+                "contact_public_key={}\nstatus=verified\n",
+                hexadecimal(remote_identity.public_key().as_bytes())
+            )
+        );
+        assert!(
+            verify_contact_safety_number(
+                &state_directory,
+                &local_public_key,
+                &remote_identity.public_key(),
+                &safety_number,
+                &mut keystore,
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
     fn parses_contact_invitation_commands() {
         let create =
             Arguments::try_parse_from(["yeokcham", "contact", "invitation", "create"]).unwrap();
@@ -1471,6 +1624,31 @@ mod tests {
                     payload
                 }
             } if state_directory.as_path() == Path::new("/state") && payload == "00"
+        ));
+        let safety_number = "11".repeat(32);
+        let verify_safety_number = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "verify-safety-number",
+            "--state-directory",
+            "/state",
+            "--contact-public-key",
+            &safety_number,
+            "--safety-number",
+            &safety_number,
+        ])
+        .unwrap();
+        assert!(matches!(
+            verify_safety_number.command,
+            Command::Contact {
+                command: ContactCommand::VerifySafetyNumber {
+                    state_directory,
+                    contact_public_key,
+                    safety_number: parsed_safety_number
+                }
+            } if state_directory.as_path() == Path::new("/state")
+                && contact_public_key == safety_number
+                && parsed_safety_number == safety_number
         ));
     }
 

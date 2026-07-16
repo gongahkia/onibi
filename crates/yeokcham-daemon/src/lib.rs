@@ -23,6 +23,7 @@ mod qr_contact_verification;
 mod ratchet_store;
 mod relay_tls;
 mod replication_scheduler;
+mod safety_number_verification;
 mod state_store;
 mod stun;
 mod tor_socks;
@@ -91,6 +92,9 @@ pub use qr_contact_verification::{QrContactVerificationError, QrContactVerificat
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};
+pub use safety_number_verification::{
+    SafetyNumberVerificationError, SafetyNumberVerificationService,
+};
 pub use state_store::{
     CURRENT_STATE_FORMAT_VERSION, EncryptedStateStore, MAX_STATE_DOCUMENT_BYTES, StateDocument,
     StateDocumentError, StateStoreError,

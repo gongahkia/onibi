@@ -2,12 +2,16 @@ use std::path::Path;
 
 use minicbor::{Decoder, Encoder};
 use yeokcham_core::{IdentityPublicKey, OsKeystore};
-use yeokcham_protocol::{ContactInvitation, IdentityRotation, QrVerificationPayload};
+use yeokcham_protocol::{
+    ContactInvitation, IdentityRotation, QrVerificationPayload, SAFETY_NUMBER_FINGERPRINT_BYTES,
+    SafetyNumberFingerprint,
+};
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const CONTACT_STATE_SCHEMA_VERSION: u8 = 2;
+pub const CONTACT_STATE_SCHEMA_VERSION: u8 = 3;
 const CONTACT_STATE_SCHEMA_VERSION_V1: u8 = 1;
+const CONTACT_STATE_SCHEMA_VERSION_V2: u8 = 2;
 const CONTACT_STATE_FIELDS: u64 = 2;
 const CONTACT_FIELDS: u64 = 3;
 const IDENTITY_PUBLIC_KEY_BYTES: usize = 32;
@@ -16,6 +20,7 @@ const VERIFIED_STATUS: u8 = 2;
 const REVOKED_STATUS: u8 = 3;
 const NO_VERIFICATION: u8 = 0;
 const QR_VERIFICATION: u8 = 1;
+const SAFETY_NUMBER_VERIFICATION: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContactStatus {
@@ -27,6 +32,7 @@ pub enum ContactStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContactVerificationMethod {
     Qr,
+    SafetyNumber,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,17 +125,42 @@ impl ContactStore {
         } else {
             return Err(ContactStoreError::QrDoesNotContainLocalIdentity);
         };
+        self.verify_pending_contact(*remote_identity, ContactVerificationMethod::Qr)
+    }
+
+    pub fn verify_safety_number(
+        &mut self,
+        local_identity: &IdentityPublicKey,
+        remote_identity: &IdentityPublicKey,
+        supplied: &[u8; SAFETY_NUMBER_FINGERPRINT_BYTES],
+    ) -> Result<Contact, ContactStoreError> {
+        if remote_identity == local_identity {
+            return Err(ContactStoreError::SelfContact);
+        }
+        let expected = SafetyNumberFingerprint::derive(local_identity, remote_identity)
+            .map_err(|_| ContactStoreError::SelfContact)?;
+        if expected.as_bytes() != supplied {
+            return Err(ContactStoreError::SafetyNumberMismatch);
+        }
+        self.verify_pending_contact(*remote_identity, ContactVerificationMethod::SafetyNumber)
+    }
+
+    fn verify_pending_contact(
+        &mut self,
+        remote_identity: IdentityPublicKey,
+        verification: ContactVerificationMethod,
+    ) -> Result<Contact, ContactStoreError> {
         let contact_index = self
             .contacts
             .iter()
-            .position(|contact| contact.identity == *remote_identity)
+            .position(|contact| contact.identity == remote_identity)
             .ok_or(ContactStoreError::UnknownContact)?;
         if self.contacts[contact_index].status != ContactStatus::Pending {
             return Err(ContactStoreError::NotPending);
         }
         let pending = self.contacts[contact_index];
         self.contacts[contact_index].status = ContactStatus::Verified;
-        self.contacts[contact_index].verification = Some(ContactVerificationMethod::Qr);
+        self.contacts[contact_index].verification = Some(verification);
         let verified = self.contacts[contact_index];
         if let Err(error) = self.persist() {
             let stored = self
@@ -228,6 +259,8 @@ pub enum ContactStoreError {
     ReplacementAlreadyKnown,
     #[error("contact is already revoked")]
     AlreadyRevoked,
+    #[error("safety number does not match this contact")]
+    SafetyNumberMismatch,
     #[error("contact-state document is invalid")]
     InvalidState(#[source] minicbor::decode::Error),
     #[error("contact-state document violates storage bounds: {0}")]
@@ -279,7 +312,10 @@ fn decode_contacts(encoded: &[u8]) -> Result<Vec<Contact>, ContactStoreError> {
         return Err(ContactStoreError::InvalidShape);
     }
     let version = decoder.u8().map_err(ContactStoreError::InvalidState)?;
-    if version != CONTACT_STATE_SCHEMA_VERSION && version != CONTACT_STATE_SCHEMA_VERSION_V1 {
+    if version != CONTACT_STATE_SCHEMA_VERSION
+        && version != CONTACT_STATE_SCHEMA_VERSION_V2
+        && version != CONTACT_STATE_SCHEMA_VERSION_V1
+    {
         return Err(ContactStoreError::UnsupportedSchemaVersion(version));
     }
     let count = decoder
@@ -297,8 +333,10 @@ fn decode_contacts(encoded: &[u8]) -> Result<Vec<Contact>, ContactStoreError> {
         if version == CONTACT_STATE_SCHEMA_VERSION_V1 && status == ContactStatus::Revoked {
             return Err(ContactStoreError::InvalidStatus);
         }
-        let verification =
-            decode_verification(decoder.u8().map_err(ContactStoreError::InvalidState)?)?;
+        let verification = decode_verification(
+            version,
+            decoder.u8().map_err(ContactStoreError::InvalidState)?,
+        )?;
         if matches!(status, ContactStatus::Verified) != verification.is_some() {
             return Err(ContactStoreError::InvalidStatus);
         }
@@ -347,6 +385,7 @@ const fn verification_value(verification: Option<ContactVerificationMethod>) -> 
     match verification {
         None => NO_VERIFICATION,
         Some(ContactVerificationMethod::Qr) => QR_VERIFICATION,
+        Some(ContactVerificationMethod::SafetyNumber) => SAFETY_NUMBER_VERIFICATION,
     }
 }
 
@@ -359,10 +398,16 @@ fn decode_status(value: u8) -> Result<ContactStatus, ContactStoreError> {
     }
 }
 
-fn decode_verification(value: u8) -> Result<Option<ContactVerificationMethod>, ContactStoreError> {
+fn decode_verification(
+    schema_version: u8,
+    value: u8,
+) -> Result<Option<ContactVerificationMethod>, ContactStoreError> {
     match value {
         NO_VERIFICATION => Ok(None),
         QR_VERIFICATION => Ok(Some(ContactVerificationMethod::Qr)),
+        SAFETY_NUMBER_VERIFICATION if schema_version == CONTACT_STATE_SCHEMA_VERSION => {
+            Ok(Some(ContactVerificationMethod::SafetyNumber))
+        }
         _ => Err(ContactStoreError::InvalidStatus),
     }
 }
@@ -608,5 +653,31 @@ mod tests {
     #[test]
     fn loads_empty_v1_contact_state_for_migration() {
         assert!(decode_contacts(&[0x82, 0x01, 0x80]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn loads_legacy_qr_state_and_rejects_safety_number_state_with_legacy_schema() {
+        let identity = IdentityKeypair::generate().unwrap().public_key();
+        let qr_contact = super::Contact {
+            identity,
+            status: ContactStatus::Verified,
+            verification: Some(ContactVerificationMethod::Qr),
+        };
+        let mut v2_qr = super::encode_contacts(&[qr_contact]).unwrap();
+        assert_eq!(v2_qr[1], super::CONTACT_STATE_SCHEMA_VERSION);
+        v2_qr[1] = super::CONTACT_STATE_SCHEMA_VERSION_V2;
+        assert_eq!(decode_contacts(&v2_qr).unwrap(), vec![qr_contact]);
+
+        let safety_number_contact = super::Contact {
+            identity,
+            status: ContactStatus::Verified,
+            verification: Some(ContactVerificationMethod::SafetyNumber),
+        };
+        let mut v2_safety_number = super::encode_contacts(&[safety_number_contact]).unwrap();
+        v2_safety_number[1] = super::CONTACT_STATE_SCHEMA_VERSION_V2;
+        assert!(matches!(
+            decode_contacts(&v2_safety_number),
+            Err(ContactStoreError::InvalidStatus)
+        ));
     }
 }
