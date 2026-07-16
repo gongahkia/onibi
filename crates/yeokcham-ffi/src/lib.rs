@@ -9,7 +9,7 @@ pub const YEOKCHAM_ABI_VERSION: u32 = 1;
 pub const YEOKCHAM_ABI_NEGOTIATION_REJECTED: u32 = 0;
 
 #[repr(C)]
-pub struct YeokchamHandle {
+pub struct YeokchamClient {
     _private: u8,
 }
 
@@ -24,18 +24,19 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
-    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_handle_complete_async,
-    yeokcham_handle_create, yeokcham_handle_release, yeokcham_secret_buffer_zeroize,
+    MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_client_complete_async,
+    yeokcham_client_create, yeokcham_client_release, yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
 mod tests {
+    use super::c_abi::CLIENT_TEST_LOCK;
     use super::{
-        MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
+        MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
         YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_handle_complete_async,
-        yeokcham_handle_create, yeokcham_handle_release,
+        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_client_complete_async,
+        yeokcham_client_create, yeokcham_client_release,
     };
     use std::{
         ffi::c_void,
@@ -57,14 +58,14 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
-        assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
+        assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.ends_with("#endif\n"));
     }
 
     #[test]
-    fn published_handle_remains_opaque() {
-        assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
-        assert!(!HEADER.contains("struct yeokcham_handle {"));
+    fn published_client_remains_opaque() {
+        assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
+        assert!(!HEADER.contains("struct yeokcham_client {"));
     }
 
     #[test]
@@ -80,30 +81,44 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_UNSUPPORTED_VERSION INT32_C(2)"));
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_RESOURCE_LIMIT INT32_C(3)"));
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_STATE INT32_C(4)"));
-        assert!(HEADER.contains("yeokcham_handle_t *yeokcham_handle_create(void);"));
-        assert!(HEADER.contains("yeokcham_handle_release(yeokcham_handle_t *handle);"));
+        assert!(HEADER.contains("yeokcham_client_t *yeokcham_client_create(void);"));
+        assert!(HEADER.contains("yeokcham_client_release(yeokcham_client_t *client);"));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
-        assert!(HEADER.contains("yeokcham_handle_complete_async("));
+        assert!(HEADER.contains("yeokcham_client_complete_async("));
         assert!(HEADER.contains("uint32_t yeokcham_abi_negotiate(uint32_t requested_version);"));
         assert!(HEADER.contains("#include <stddef.h>"));
         assert!(HEADER.contains("yeokcham_secret_buffer_zeroize(uint8_t *buffer, size_t length);"));
     }
 
     #[test]
-    fn created_handles_release_once_and_reject_invalid_inputs() {
-        let handle = yeokcham_handle_create();
-        assert!(!handle.is_null());
+    fn created_clients_release_once_and_reject_invalid_inputs() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
+        assert!(!client.is_null());
         assert_eq!(
-            yeokcham_handle_release(std::ptr::null_mut()),
+            yeokcham_client_release(std::ptr::null_mut()),
             YeokchamStatus::InvalidInput
         );
-        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         assert_eq!(
-            yeokcham_handle_release(handle),
+            yeokcham_client_release(client),
             YeokchamStatus::InvalidInput
         );
         const {
-            assert!(MAX_C_ABI_HANDLES > 0);
+            assert!(MAX_C_ABI_CLIENTS > 0);
+        }
+    }
+
+    #[test]
+    fn client_creation_fails_closed_at_capacity() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let clients = (0..MAX_C_ABI_CLIENTS)
+            .map(|_| yeokcham_client_create())
+            .collect::<Vec<_>>();
+        assert!(clients.iter().all(|client| !client.is_null()));
+        assert!(yeokcham_client_create().is_null());
+        for client in clients {
+            assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         }
     }
 
@@ -125,17 +140,18 @@ mod tests {
     }
 
     #[test]
-    fn active_handles_complete_asynchronously_once() {
-        let _guard = CALLBACK_TEST_LOCK.lock().unwrap();
+    fn active_clients_complete_asynchronously_once() {
+        let _client_guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let _callback_guard = CALLBACK_TEST_LOCK.lock().unwrap();
         let (sender, receiver) = mpsc::channel();
         *COMPLETION_SENDER
             .get_or_init(|| Mutex::new(None))
             .lock()
             .unwrap() = Some(sender);
-        let handle = yeokcham_handle_create();
+        let client = yeokcham_client_create();
         assert_eq!(
-            yeokcham_handle_complete_async(
-                handle,
+            yeokcham_client_complete_async(
+                client,
                 Some(record_completion),
                 std::ptr::without_provenance_mut(42),
             ),
@@ -145,7 +161,7 @@ mod tests {
             receiver.recv_timeout(Duration::from_secs(1)),
             Ok((YeokchamStatus::Ok as i32, 42))
         );
-        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         *COMPLETION_SENDER.get().unwrap().lock().unwrap() = None;
         const {
             assert!(MAX_C_ABI_PENDING_COMPLETIONS > 0);
@@ -153,21 +169,22 @@ mod tests {
     }
 
     #[test]
-    fn asynchronous_completion_rejects_invalid_handles_and_callbacks() {
-        let handle = yeokcham_handle_create();
+    fn asynchronous_completion_rejects_invalid_clients_and_callbacks() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
         assert_eq!(
-            yeokcham_handle_complete_async(handle, None, std::ptr::null_mut()),
+            yeokcham_client_complete_async(client, None, std::ptr::null_mut()),
             YeokchamStatus::InvalidInput
         );
         assert_eq!(
-            yeokcham_handle_complete_async(
+            yeokcham_client_complete_async(
                 std::ptr::null(),
                 Some(record_completion),
                 std::ptr::null_mut()
             ),
             YeokchamStatus::InvalidInput
         );
-        assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
     }
 
     #[test]
@@ -202,38 +219,38 @@ mod tests {
     extern "C" fn noop_completion(_: i32, _: *mut c_void) {}
 
     #[test]
-    fn concurrent_handle_lifecycle_accepts_each_handle_once() {
+    fn concurrent_client_lifecycle_accepts_each_client_once() {
         const WORKERS: usize = 32;
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         let start = Arc::new(Barrier::new(WORKERS));
-        assert!(
-            (0..WORKERS)
-                .map(|_| {
-                    let start = Arc::clone(&start);
-                    thread::spawn(move || {
-                        start.wait();
-                        let handle = yeokcham_handle_create();
-                        !handle.is_null()
-                            && yeokcham_handle_release(handle) == YeokchamStatus::Ok
-                            && yeokcham_handle_release(handle) == YeokchamStatus::InvalidInput
-                    })
-                })
-                .all(|worker| worker.join().unwrap())
-        );
+        let mut workers = Vec::with_capacity(WORKERS);
+        for _ in 0..WORKERS {
+            let start = Arc::clone(&start);
+            workers.push(thread::spawn(move || {
+                start.wait();
+                let client = yeokcham_client_create();
+                !client.is_null()
+                    && yeokcham_client_release(client) == YeokchamStatus::Ok
+                    && yeokcham_client_release(client) == YeokchamStatus::InvalidInput
+            }));
+        }
+        assert!(workers.into_iter().all(|worker| worker.join().unwrap()));
     }
 
     #[test]
     fn concurrent_submission_and_release_return_only_defined_statuses() {
-        let handle = yeokcham_handle_create();
-        let handle_address = handle.addr();
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
+        let client_address = client.addr();
         let start = Arc::new(Barrier::new(2));
         let release_start = Arc::clone(&start);
         let release = thread::spawn(move || {
             release_start.wait();
-            yeokcham_handle_release(std::ptr::without_provenance_mut(handle_address))
+            yeokcham_client_release(std::ptr::without_provenance_mut(client_address))
         });
         start.wait();
-        let completion = yeokcham_handle_complete_async(
-            std::ptr::without_provenance(handle_address),
+        let completion = yeokcham_client_complete_async(
+            std::ptr::without_provenance(client_address),
             Some(noop_completion),
             std::ptr::null_mut(),
         );
@@ -245,11 +262,12 @@ mod tests {
     }
 
     #[test]
-    fn thread_safety_contract_covers_callbacks_and_handle_lifecycle() {
+    fn thread_safety_contract_covers_callbacks_and_client_lifecycle() {
         const THREAD_SAFETY: &str = include_str!("../README.md");
         assert!(THREAD_SAFETY.contains("## Thread safety"));
         assert!(THREAD_SAFETY.contains("may be called concurrently"));
         assert!(THREAD_SAFETY.contains("library-created background thread"));
         assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
+        assert!(THREAD_SAFETY.contains("A client remains opaque"));
     }
 }

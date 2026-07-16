@@ -9,7 +9,7 @@
 #define YEOKCHAM_ABI_VERSION UINT32_C(1)
 #define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)
 
-typedef struct yeokcham_handle yeokcham_handle_t; // library-owned opaque handle; release with yeokcham_handle_release
+typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -20,10 +20,10 @@ typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *c
 #define YEOKCHAM_STATUS_RESOURCE_LIMIT INT32_C(3)
 #define YEOKCHAM_STATUS_STATE INT32_C(4)
 
-yeokcham_handle_t *yeokcham_handle_create(void); // null when handle capacity is exhausted
-yeokcham_status_t yeokcham_handle_release(yeokcham_handle_t *handle); // invalid input unless handle is active
-yeokcham_status_t yeokcham_handle_complete_async(
-    const yeokcham_handle_t *handle,
+yeokcham_client_t *yeokcham_client_create(void); // null when client capacity is exhausted
+yeokcham_status_t yeokcham_client_release(yeokcham_client_t *client); // invalid input unless client is active
+yeokcham_status_t yeokcham_client_complete_async(
+    const yeokcham_client_t *client,
     yeokcham_completion_callback_t callback,
     void *context
 ); // callback receives the completion status

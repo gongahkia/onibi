@@ -5,16 +5,19 @@ use std::{
 };
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
-use crate::{YeokchamHandle, YeokchamStatus};
+use crate::{YeokchamClient, YeokchamStatus};
 use zeroize::Zeroize;
 
-pub const MAX_C_ABI_HANDLES: usize = 1024;
+pub const MAX_C_ABI_CLIENTS: usize = 1024;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
 pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 
-static ACTIVE_HANDLES: OnceLock<Mutex<BTreeSet<usize>>> = OnceLock::new();
-static NEXT_HANDLE_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
+static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeSet<usize>>> = OnceLock::new();
+static NEXT_CLIENT_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+pub static CLIENT_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub type YeokchamCompletionCallback = extern "C" fn(i32, *mut c_void);
 
@@ -45,51 +48,51 @@ pub unsafe extern "C" fn yeokcham_secret_buffer_zeroize(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn yeokcham_handle_create() -> *mut YeokchamHandle {
-    let Ok(mut handles) = active_handles().lock() else {
+pub extern "C" fn yeokcham_client_create() -> *mut YeokchamClient {
+    let Ok(mut clients) = active_clients().lock() else {
         return std::ptr::null_mut();
     };
-    if handles.len() >= MAX_C_ABI_HANDLES {
+    if clients.len() >= MAX_C_ABI_CLIENTS {
         return std::ptr::null_mut();
     }
     let Ok(identifier) =
-        NEXT_HANDLE_IDENTIFIER.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
+        NEXT_CLIENT_IDENTIFIER.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
             identifier.checked_add(1)
         })
     else {
         return std::ptr::null_mut();
     };
-    if !handles.insert(identifier) {
+    if !clients.insert(identifier) {
         return std::ptr::null_mut();
     }
     std::ptr::without_provenance_mut(identifier)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn yeokcham_handle_release(handle: *mut YeokchamHandle) -> YeokchamStatus {
-    let identifier = handle.addr();
+pub extern "C" fn yeokcham_client_release(client: *mut YeokchamClient) -> YeokchamStatus {
+    let identifier = client.addr();
     if identifier == 0 {
         return YeokchamStatus::InvalidInput;
     }
-    let Ok(mut handles) = active_handles().lock() else {
+    let Ok(mut clients) = active_clients().lock() else {
         return YeokchamStatus::State;
     };
-    if !handles.remove(&identifier) {
+    if !clients.remove(&identifier) {
         return YeokchamStatus::InvalidInput;
     }
     YeokchamStatus::Ok
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn yeokcham_handle_complete_async(
-    handle: *const YeokchamHandle,
+pub extern "C" fn yeokcham_client_complete_async(
+    client: *const YeokchamClient,
     callback: Option<YeokchamCompletionCallback>,
     context: *mut c_void,
 ) -> YeokchamStatus {
     let Some(callback) = callback else {
         return YeokchamStatus::InvalidInput;
     };
-    match is_active_handle(handle) {
+    match is_active_client(client) {
         Ok(true) => {}
         Ok(false) => return YeokchamStatus::InvalidInput,
         Err(status) => return status,
@@ -116,22 +119,25 @@ pub extern "C" fn yeokcham_handle_complete_async(
     YeokchamStatus::Ok
 }
 
-fn active_handles() -> &'static Mutex<BTreeSet<usize>> {
-    ACTIVE_HANDLES.get_or_init(|| Mutex::new(BTreeSet::new()))
+fn active_clients() -> &'static Mutex<BTreeSet<usize>> {
+    ACTIVE_CLIENTS.get_or_init(|| Mutex::new(BTreeSet::new()))
 }
 
-fn is_active_handle(handle: *const YeokchamHandle) -> Result<bool, YeokchamStatus> {
-    let identifier = handle.addr();
+fn is_active_client(client: *const YeokchamClient) -> Result<bool, YeokchamStatus> {
+    let identifier = client.addr();
     if identifier == 0 {
         return Ok(false);
     }
-    let handles = active_handles().lock().map_err(|_| YeokchamStatus::State)?;
-    Ok(handles.contains(&identifier))
+    let clients = active_clients().lock().map_err(|_| YeokchamStatus::State)?;
+    Ok(clients.contains(&identifier))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_C_ABI_SECRET_BUFFER_BYTES, YeokchamStatus, yeokcham_secret_buffer_zeroize};
+    use super::{
+        CLIENT_TEST_LOCK, MAX_C_ABI_SECRET_BUFFER_BYTES, YeokchamStatus,
+        yeokcham_secret_buffer_zeroize,
+    };
 
     #[test]
     fn zeroizes_bounded_caller_owned_secret_buffers() {
@@ -169,6 +175,7 @@ mod tests {
 
     #[test]
     fn c_consumer_conformance_passes() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         assert_eq!(unsafe { yeokcham_c_consumer_conformance() }, 0);
     }
 }
