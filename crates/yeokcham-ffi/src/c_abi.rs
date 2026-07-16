@@ -351,7 +351,7 @@ fn is_active_client(client: *const YeokchamClient) -> Result<bool, YeokchamStatu
 mod tests {
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
-        YeokchamStatus, yeokcham_client_config_builder_build,
+        YeokchamStatus, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
         yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
@@ -441,6 +441,28 @@ mod tests {
             yeokcham_client_stop(std::ptr::null_mut()),
             YeokchamStatus::InvalidInput
         );
+    }
+
+    extern "C" fn noop_completion(_: i32, _: *mut std::ffi::c_void) {}
+
+    #[test]
+    fn client_operations_reject_null_and_maximum_address_inputs() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        for client in [
+            std::ptr::null_mut(),
+            std::ptr::without_provenance_mut(usize::MAX),
+        ] {
+            assert_eq!(
+                yeokcham_client_release(client),
+                YeokchamStatus::InvalidInput
+            );
+            assert_eq!(yeokcham_client_start(client), YeokchamStatus::InvalidInput);
+            assert_eq!(yeokcham_client_stop(client), YeokchamStatus::InvalidInput);
+            assert_eq!(
+                yeokcham_client_complete_async(client, Some(noop_completion), std::ptr::null_mut()),
+                YeokchamStatus::InvalidInput
+            );
+        }
     }
 
     #[test]

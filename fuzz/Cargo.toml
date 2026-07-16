@@ -49,8 +49,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "ffi_invalid_handle"
-path = "fuzz_targets/ffi_invalid_handle.rs"
+name = "ffi_invalid_client"
+path = "fuzz_targets/ffi_invalid_client.rs"
 test = false
 doc = false
 bench = false
