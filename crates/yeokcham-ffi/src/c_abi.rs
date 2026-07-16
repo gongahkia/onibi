@@ -10,13 +10,14 @@ use std::{
 };
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
-use crate::{YeokchamClient, YeokchamClientConfigBuilder, YeokchamStatus};
+use crate::{YeokchamBuffer, YeokchamClient, YeokchamClientConfigBuilder, YeokchamStatus};
 use yeokcham_sdk::{RuntimeMode, SdkClient, SdkClientError, SdkConfig};
 use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
 pub const MAX_C_ABI_CALLBACK_WORKERS: usize = 4;
+pub const MAX_C_ABI_BUFFERS: usize = 1024;
 pub const MAX_C_ABI_ERROR_DETAIL_BYTES: usize = 64;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
 pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
@@ -37,8 +38,10 @@ struct ClientConfigBuilder {
 static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeMap<usize, ClientHandle>>> = OnceLock::new();
 static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfigBuilder>>> =
     OnceLock::new();
+static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
 static NEXT_CLIENT_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static NEXT_CLIENT_CONFIG_BUILDER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
+static NEXT_BUFFER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
 static CALLBACK_QUEUE: OnceLock<Option<SyncSender<PendingCompletion>>> = OnceLock::new();
 
@@ -207,6 +210,80 @@ pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
         return YeokchamStatus::ResourceLimit;
     }
     unsafe { std::ptr::copy_nonoverlapping(detail.as_ptr(), buffer, detail.len()) };
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_take_last_error_detail(
+    client: *mut YeokchamClient,
+    detail: *mut *mut YeokchamBuffer,
+) -> YeokchamStatus {
+    if detail.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { detail.write(std::ptr::null_mut()) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(last_error_detail) = client.last_error_detail else {
+        return YeokchamStatus::State;
+    };
+    let buffer = match allocate_buffer(last_error_detail) {
+        Ok(buffer) => buffer,
+        Err(status) => return status,
+    };
+    client.last_error_detail = None;
+    unsafe { detail.write(buffer) };
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_buffer_data(buffer: *const YeokchamBuffer) -> *const u8 {
+    let identifier = buffer.addr();
+    if identifier == 0 {
+        return std::ptr::null();
+    }
+    let Ok(buffers) = active_buffers().lock() else {
+        return std::ptr::null();
+    };
+    let Some(buffer) = buffers.get(&identifier) else {
+        return std::ptr::null();
+    };
+    buffer.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_buffer_length(buffer: *const YeokchamBuffer) -> usize {
+    let identifier = buffer.addr();
+    if identifier == 0 {
+        return 0;
+    }
+    let Ok(buffers) = active_buffers().lock() else {
+        return 0;
+    };
+    buffers.get(&identifier).map_or(0, Vec::len)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_buffer_release(buffer: *mut YeokchamBuffer) -> YeokchamStatus {
+    let identifier = buffer.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut buffers) = active_buffers().lock() else {
+        return YeokchamStatus::State;
+    };
+    if buffers.remove(&identifier).is_none() {
+        return YeokchamStatus::InvalidInput;
+    }
     YeokchamStatus::Ok
 }
 
@@ -388,6 +465,29 @@ fn active_client_config_builders() -> &'static Mutex<BTreeMap<usize, ClientConfi
     ACTIVE_CLIENT_CONFIG_BUILDERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn active_buffers() -> &'static Mutex<BTreeMap<usize, Vec<u8>>> {
+    ACTIVE_BUFFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn allocate_buffer(bytes: &[u8]) -> Result<*mut YeokchamBuffer, YeokchamStatus> {
+    let active_buffers = active_buffers();
+    let mut buffers = active_buffers.lock().map_err(|_| YeokchamStatus::State)?;
+    if buffers.len() >= MAX_C_ABI_BUFFERS {
+        return Err(YeokchamStatus::ResourceLimit);
+    }
+    let identifier = NEXT_BUFFER_IDENTIFIER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
+            identifier.checked_add(1)
+        })
+        .map_err(|_| YeokchamStatus::ResourceLimit)?;
+    if buffers.insert(identifier, bytes.to_vec()).is_some() {
+        return Err(YeokchamStatus::ResourceLimit);
+    }
+    let buffer = std::ptr::without_provenance_mut(identifier);
+    drop(buffers);
+    Ok(buffer)
+}
+
 fn callback_queue() -> Option<&'static SyncSender<PendingCompletion>> {
     CALLBACK_QUEUE
         .get_or_init(|| {
@@ -462,16 +562,18 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{
-        CLIENT_TEST_LOCK, MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_ERROR_DETAIL_BYTES,
-        MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+        CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
+        MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
         MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS, SdkClientError, YeokchamStatus,
-        map_sdk_client_error, sdk_client_error_detail, yeokcham_client_complete_async,
+        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
+        yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
         yeokcham_client_create, yeokcham_client_release, yeokcham_client_start,
-        yeokcham_client_stop, yeokcham_secret_buffer_zeroize,
+        yeokcham_client_stop, yeokcham_client_take_last_error_detail,
+        yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -605,6 +707,63 @@ mod tests {
         }
     }
 
+    fn assert_library_buffer_detail_transfer_and_capacity(client: *mut crate::YeokchamClient) {
+        let mut owned_detail = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { yeokcham_client_take_last_error_detail(client, &raw mut owned_detail) },
+            YeokchamStatus::Ok
+        );
+        assert!(!owned_detail.is_null());
+        assert_eq!(
+            yeokcham_buffer_length(owned_detail),
+            b"sdk_already_running".len()
+        );
+        let owned_data = yeokcham_buffer_data(owned_detail);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(owned_data, yeokcham_buffer_length(owned_detail)) },
+            b"sdk_already_running"
+        );
+        let mut detail_length = 0;
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    client,
+                    std::ptr::null_mut(),
+                    0,
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::State
+        );
+        assert_eq!(yeokcham_buffer_release(owned_detail), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_buffer_data(owned_detail), std::ptr::null());
+        assert_eq!(yeokcham_buffer_length(owned_detail), 0);
+        assert_eq!(
+            yeokcham_buffer_release(owned_detail),
+            YeokchamStatus::InvalidInput
+        );
+        let mut buffers = Vec::with_capacity(MAX_C_ABI_BUFFERS);
+        for _ in 0..MAX_C_ABI_BUFFERS {
+            assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
+            let mut buffer = std::ptr::null_mut();
+            assert_eq!(
+                unsafe { yeokcham_client_take_last_error_detail(client, &raw mut buffer) },
+                YeokchamStatus::Ok
+            );
+            buffers.push(buffer);
+        }
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
+        let mut overflow = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { yeokcham_client_take_last_error_detail(client, &raw mut overflow) },
+            YeokchamStatus::ResourceLimit
+        );
+        assert!(overflow.is_null());
+        for buffer in buffers {
+            assert_eq!(yeokcham_buffer_release(buffer), YeokchamStatus::Ok);
+        }
+    }
+
     #[test]
     fn client_start_maps_an_engine_state_directory_conflict_to_state() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
@@ -681,6 +840,7 @@ mod tests {
             YeokchamStatus::Ok
         );
         assert_eq!(&detail[..detail_length], b"sdk_already_running");
+        assert_library_buffer_detail_transfer_and_capacity(second);
         assert_eq!(
             unsafe {
                 yeokcham_client_copy_last_error_detail(

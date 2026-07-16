@@ -9,11 +9,13 @@
 #define YEOKCHAM_ABI_VERSION UINT32_C(1)
 #define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)
 #define YEOKCHAM_MAX_CALLBACK_WORKERS UINT32_C(4)
+#define YEOKCHAM_MAX_BUFFERS UINT32_C(1024)
 #define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)
 #define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
+typedef struct yeokcham_buffer yeokcham_buffer_t; // library-owned opaque bytes; release with yeokcham_buffer_release
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -34,6 +36,13 @@ yeokcham_status_t yeokcham_client_copy_last_error_detail(
     size_t buffer_capacity,
     size_t *detail_length
 ); // caller-owned writable buffer; query length with null buffer and zero capacity
+yeokcham_status_t yeokcham_client_take_last_error_detail(
+    yeokcham_client_t *client,
+    yeokcham_buffer_t **detail
+); // transfers the last detail into a library-owned buffer; null on failure
+const uint8_t *yeokcham_buffer_data(const yeokcham_buffer_t *buffer); // valid until release; caller synchronizes release with use
+size_t yeokcham_buffer_length(const yeokcham_buffer_t *buffer); // zero for invalid buffers
+yeokcham_status_t yeokcham_buffer_release(yeokcham_buffer_t *buffer); // exactly one active release returns ok
 yeokcham_client_config_builder_t *yeokcham_client_config_builder_create(void); // null when builder capacity is exhausted
 yeokcham_status_t yeokcham_client_config_builder_release(yeokcham_client_config_builder_t *builder); // invalid input unless builder is active
 yeokcham_status_t yeokcham_client_config_builder_set_state_directory(

@@ -9,7 +9,7 @@
 ## Thread safety
 
 - Every public C ABI function may be called concurrently.
-- Operations on one client or configuration builder are linearized. A concurrent duplicate lifecycle transition returns `YEOKCHAM_STATUS_STATE`; use-after-release returns `YEOKCHAM_STATUS_INVALID_INPUT`.
+- Operations on one client, configuration builder, or buffer are linearized. A concurrent duplicate lifecycle transition returns `YEOKCHAM_STATUS_STATE`; use-after-release returns `YEOKCHAM_STATUS_INVALID_INPUT`.
 - A client remains opaque. Exactly one `yeokcham_client_release` call accepts an active client; concurrent or later releases return `YEOKCHAM_STATUS_INVALID_INPUT`.
 - `yeokcham_client_complete_async` validates a client only while it is submitted. A caller may release that client after a successful submission.
 - A successful asynchronous submission queues one callback for four library-created background workers. The caller retains its callback context and must keep it valid until the callback runs.
@@ -26,3 +26,8 @@
 - SDK configuration failures map to `YEOKCHAM_STATUS_INVALID_INPUT`; exhausted SDK event sequence space maps to `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
 - SDK mode, lifecycle, state, engine, and async-task failures map to `YEOKCHAM_STATUS_STATE` without exposing raw engine details.
 - `yeokcham_client_copy_last_error_detail` returns a bounded canonical ASCII token for the last SDK error on an active client. The caller owns its buffer; query the required length with a null buffer and zero capacity, then provide at least that capacity. The payload contains no engine strings, paths, or secrets.
+
+## Library-owned buffers
+
+- `yeokcham_client_take_last_error_detail` transfers the redacted detail into an opaque library-owned buffer and writes a null output on failure. Read its bytes and length with `yeokcham_buffer_data` and `yeokcham_buffer_length`, then call `yeokcham_buffer_release` exactly once.
+- At most 1,024 library-owned buffers may be active. A buffer data pointer remains valid only until release. The caller must synchronize pointer use with release; invalid or released buffers return a null data pointer, zero length, or `YEOKCHAM_STATUS_INVALID_INPUT` as applicable.

@@ -18,6 +18,11 @@ pub struct YeokchamClientConfigBuilder {
     _private: u8,
 }
 
+#[repr(C)]
+pub struct YeokchamBuffer {
+    _private: u8,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum YeokchamStatus {
@@ -29,15 +34,16 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS,
-    MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
-    MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamCompletionCallback, yeokcham_abi_negotiate,
+    MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_CLIENT_CONFIG_BUILDERS,
+    MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_PENDING_COMPLETIONS,
+    MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamCompletionCallback,
+    yeokcham_abi_negotiate, yeokcham_buffer_data, yeokcham_buffer_length, yeokcham_buffer_release,
     yeokcham_client_complete_async, yeokcham_client_config_builder_build,
     yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
     yeokcham_client_create, yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
-    yeokcham_secret_buffer_zeroize,
+    yeokcham_client_take_last_error_detail, yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -70,9 +76,11 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_CALLBACK_WORKERS UINT32_C(4)"));
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_BUFFERS UINT32_C(1024)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)"));
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
+        assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(HEADER.contains(
             "typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t;"
         ));
@@ -83,6 +91,8 @@ mod tests {
     fn published_client_remains_opaque() {
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(!HEADER.contains("struct yeokcham_client {"));
+        assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
+        assert!(!HEADER.contains("struct yeokcham_buffer {"));
     }
 
     #[test]
@@ -103,6 +113,10 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_start(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_stop(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
+        assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
+        assert!(HEADER.contains("yeokcham_buffer_data("));
+        assert!(HEADER.contains("yeokcham_buffer_length("));
+        assert!(HEADER.contains("yeokcham_buffer_release("));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_client_complete_async("));
         assert!(HEADER.contains("yeokcham_client_config_builder_create(void);"));
@@ -341,8 +355,9 @@ mod tests {
         assert!(THREAD_SAFETY.contains("## Thread safety"));
         assert!(THREAD_SAFETY.contains("Every public C ABI function may be called concurrently"));
         assert!(
-            THREAD_SAFETY
-                .contains("Operations on one client or configuration builder are linearized")
+            THREAD_SAFETY.contains(
+                "Operations on one client, configuration builder, or buffer are linearized"
+            )
         );
         assert!(THREAD_SAFETY.contains("library-created background workers"));
         assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
