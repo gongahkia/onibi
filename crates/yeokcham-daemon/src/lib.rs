@@ -3,6 +3,7 @@
 mod bluetooth_transport;
 mod client_identity;
 mod client_state;
+mod contact_lifecycle;
 mod contact_store;
 mod daemon_config;
 mod delivery_scheduler;
@@ -43,6 +44,7 @@ pub use client_state::{
     ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
     RATCHETS_DATABASE_FILE,
 };
+pub use contact_lifecycle::{ContactLifecycleError, ContactLifecycleService};
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,

@@ -6,6 +6,7 @@ use yeokcham_core::{
 use crate::CryptoDomain;
 
 pub const IDENTITY_ROTATION_SCHEMA_VERSION: u8 = 1;
+pub const IDENTITY_ROTATION_BYTES: usize = 136;
 const ROTATION_FIELDS: u64 = 4;
 const ROTATION_SIGNING_FIELDS: u64 = 3;
 const ROTATION_SIGNING_INPUT_FIELDS: u64 = 2;
@@ -57,10 +58,17 @@ impl IdentityRotation {
             .map_err(|_| IdentityRotationError::Encode)?
             .bytes(&self.signature)
             .map_err(|_| IdentityRotationError::Encode)?;
-        Ok(encoder.into_writer())
+        let bytes = encoder.into_writer();
+        if bytes.len() != IDENTITY_ROTATION_BYTES {
+            return Err(IdentityRotationError::Encode);
+        }
+        Ok(bytes)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, IdentityRotationError> {
+        if encoded.len() > IDENTITY_ROTATION_BYTES {
+            return Err(IdentityRotationError::PayloadTooLarge);
+        }
         let mut decoder = Decoder::new(encoded);
         if decoder.array().map_err(|_| IdentityRotationError::Decode)? != Some(ROTATION_FIELDS) {
             return Err(IdentityRotationError::InvalidShape);
@@ -113,6 +121,8 @@ pub enum IdentityRotationError {
     InvalidIdentity,
     #[error("identity rotation does not change the identity")]
     UnchangedIdentity,
+    #[error("identity rotation exceeds the configured limit")]
+    PayloadTooLarge,
     #[error("identity rotation signature is invalid")]
     InvalidSignature,
     #[error("identity rotation has trailing bytes")]
@@ -164,7 +174,7 @@ fn signing_input(
 
 #[cfg(test)]
 mod tests {
-    use super::{IdentityRotation, IdentityRotationError};
+    use super::{IDENTITY_ROTATION_BYTES, IdentityRotation, IdentityRotationError};
     use yeokcham_core::IdentityKeypair;
 
     #[test]
@@ -174,6 +184,7 @@ mod tests {
         let rotation = IdentityRotation::create(&previous, replacement.public_key()).unwrap();
         let encoded = rotation.encode().unwrap();
 
+        assert_eq!(encoded.len(), IDENTITY_ROTATION_BYTES);
         assert_eq!(IdentityRotation::decode(&encoded).unwrap(), rotation);
         assert_eq!(rotation.previous(), &previous.public_key());
         assert_eq!(rotation.replacement(), &replacement.public_key());
@@ -195,6 +206,10 @@ mod tests {
         assert_eq!(
             IdentityRotation::create(&previous, previous.public_key()).unwrap_err(),
             IdentityRotationError::UnchangedIdentity
+        );
+        assert_eq!(
+            IdentityRotation::decode(&[0; IDENTITY_ROTATION_BYTES + 1]).unwrap_err(),
+            IdentityRotationError::PayloadTooLarge
         );
     }
 }

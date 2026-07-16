@@ -23,14 +23,14 @@ use std::{
 use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
-    ClientIdentity, ClientStateDirectory, ContactStatus, ContactStore, DaemonRuntime,
-    MessageExpiry, PendingContactImportService, QrContactVerificationService,
+    ClientIdentity, ClientStateDirectory, ContactLifecycleService, ContactStatus, ContactStore,
+    DaemonRuntime, MessageExpiry, PendingContactImportService, QrContactVerificationService,
     RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
-    EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
-    MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
+    EncryptedAttachmentManifest, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
+    IdentityIdentifier, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
     QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
@@ -125,6 +125,18 @@ enum ContactCommand {
         contact_public_key: String,
         #[arg(long)]
         safety_number: String,
+    },
+    Rotate {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        rotation: String,
+    },
+    Revoke {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        contact_public_key: String,
     },
 }
 
@@ -339,6 +351,17 @@ fn run_contact_command(command: ContactCommand) -> Result<(), Box<dyn Error>> {
                 &contact_public_key,
                 &safety_number,
             )?
+        ),
+        ContactCommand::Rotate {
+            state_directory,
+            rotation,
+        } => print!("{}", rotate_system_contact(&state_directory, &rotation)?),
+        ContactCommand::Revoke {
+            state_directory,
+            contact_public_key,
+        } => print!(
+            "{}",
+            revoke_system_contact(&state_directory, &contact_public_key)?
         ),
     }
     Ok(())
@@ -659,6 +682,114 @@ fn verify_contact_safety_number<K: OsKeystore>(
     let mut contacts = ContactStore::open(&contacts_path, keystore)?;
     let contact = SafetyNumberVerificationService::new(local_identity, &mut contacts)
         .verify(remote_identity, &safety_number)?;
+    Ok(format!(
+        "contact_public_key={}\nstatus={}\n",
+        hexadecimal(contact.identity().as_bytes()),
+        contact_status_label(contact.status())
+    ))
+}
+
+fn rotate_system_contact(state_directory: &Path, encoded: &str) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let local_identity = load_client_system_identity()?.public_key();
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return apply_contact_rotation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return apply_contact_rotation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return apply_contact_rotation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn apply_contact_rotation<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    encoded: &str,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let encoded = decode_bounded_canonical_hex(encoded, IDENTITY_ROTATION_BYTES)?;
+    let contacts_path = ClientStateDirectory::new(state_directory)?.contacts_path();
+    if let Some(parent) = contacts_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contacts = ContactStore::open(&contacts_path, keystore)?;
+    let contact = ContactLifecycleService::new(local_identity, &mut contacts)
+        .apply_rotation_encoded(&encoded)?;
+    Ok(format!(
+        "contact_public_key={}\nstatus={}\n",
+        hexadecimal(contact.identity().as_bytes()),
+        contact_status_label(contact.status())
+    ))
+}
+
+fn revoke_system_contact(
+    state_directory: &Path,
+    contact_public_key: &str,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let local_identity = load_client_system_identity()?.public_key();
+    let contact_identity = decode_identity_public_key(contact_public_key)?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return revoke_contact(
+            state_directory,
+            &local_identity,
+            &contact_identity,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return revoke_contact(
+            state_directory,
+            &local_identity,
+            &contact_identity,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return revoke_contact(
+            state_directory,
+            &local_identity,
+            &contact_identity,
+            &mut keystore,
+        );
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn revoke_contact<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    contact_identity: &IdentityPublicKey,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let contacts_path = ClientStateDirectory::new(state_directory)?.contacts_path();
+    if let Some(parent) = contacts_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contacts = ContactStore::open(&contacts_path, keystore)?;
+    let contact =
+        ContactLifecycleService::new(local_identity, &mut contacts).revoke(contact_identity)?;
     Ok(format!(
         "contact_public_key={}\nstatus={}\n",
         hexadecimal(contact.identity().as_bytes()),
@@ -1230,18 +1361,19 @@ mod tests {
         ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
         IdentityPublicKey, KeystoreEntryName, MessageCommand, MessageExpiry, OsKeystore,
         RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
-        TorMaildropProfileConfig, TuiCommand, contact_invitation_record, create_identity,
-        dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
-        import_contact_invitation, inspect_contact_invitation, inspect_relay_profile,
-        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
-        release_metadata, render_dashboard, sign_release_manifest, validate_state_directory,
-        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
+        TorMaildropProfileConfig, TuiCommand, apply_contact_rotation, contact_invitation_record,
+        create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
+        identity_record, import_contact_invitation, inspect_contact_invitation,
+        inspect_relay_profile, load_identity, queue_attachment_submission, queue_message,
+        relay_profile_record, release_metadata, render_dashboard, revoke_contact,
+        sign_release_manifest, validate_state_directory, verify_contact_qr,
+        verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
-        DeliveryAcknowledgement, EncryptedAttachmentChunk, QrVerificationPayload,
+        DeliveryAcknowledgement, EncryptedAttachmentChunk, IdentityRotation, QrVerificationPayload,
         SafetyNumberFingerprint,
     };
 
@@ -1556,6 +1688,89 @@ mod tests {
     }
 
     #[test]
+    fn contact_rotation_and_revocation_update_only_public_contact_lifecycle_state() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-contact-lifecycle-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let local_identity = IdentityKeypair::generate().unwrap();
+        let local_public_key = local_identity.public_key();
+        let remote_identity = IdentityKeypair::generate().unwrap();
+        let replacement_identity = IdentityKeypair::generate().unwrap();
+        let invitation = hexadecimal(
+            &ContactInvitation::create(&remote_identity)
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let verification = hexadecimal(
+            &QrVerificationPayload::new(local_public_key, remote_identity.public_key())
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let rotation = hexadecimal(
+            &IdentityRotation::create(&remote_identity, replacement_identity.public_key())
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let mut keystore = InMemoryKeystore::default();
+        import_contact_invitation(
+            &state_directory,
+            &local_public_key,
+            &invitation,
+            &mut keystore,
+        )
+        .unwrap();
+        verify_contact_qr(
+            &state_directory,
+            &local_public_key,
+            &verification,
+            &mut keystore,
+        )
+        .unwrap();
+        assert_eq!(
+            apply_contact_rotation(
+                &state_directory,
+                &local_public_key,
+                &rotation,
+                &mut keystore
+            )
+            .unwrap(),
+            format!(
+                "contact_public_key={}\nstatus=pending\n",
+                hexadecimal(replacement_identity.public_key().as_bytes())
+            )
+        );
+        assert_eq!(
+            revoke_contact(
+                &state_directory,
+                &local_public_key,
+                &replacement_identity.public_key(),
+                &mut keystore,
+            )
+            .unwrap(),
+            format!(
+                "contact_public_key={}\nstatus=revoked\n",
+                hexadecimal(replacement_identity.public_key().as_bytes())
+            )
+        );
+        assert!(
+            revoke_contact(
+                &state_directory,
+                &local_public_key,
+                &replacement_identity.public_key(),
+                &mut keystore,
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
     fn parses_contact_invitation_commands() {
         let create =
             Arguments::try_parse_from(["yeokcham", "contact", "invitation", "create"]).unwrap();
@@ -1606,6 +1821,10 @@ mod tests {
                 }
             } if state_directory.as_path() == Path::new("/state") && invitation == "00"
         ));
+    }
+
+    #[test]
+    fn parses_contact_verification_commands() {
         let verify = Arguments::try_parse_from([
             "yeokcham",
             "contact",
@@ -1649,6 +1868,48 @@ mod tests {
             } if state_directory.as_path() == Path::new("/state")
                 && contact_public_key == safety_number
                 && parsed_safety_number == safety_number
+        ));
+    }
+
+    #[test]
+    fn parses_contact_lifecycle_commands() {
+        let rotation = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "rotate",
+            "--state-directory",
+            "/state",
+            "--rotation",
+            "00",
+        ])
+        .unwrap();
+        assert!(matches!(
+            rotation.command,
+            Command::Contact {
+                command: ContactCommand::Rotate {
+                    state_directory,
+                    rotation
+                }
+            } if state_directory.as_path() == Path::new("/state") && rotation == "00"
+        ));
+        let revoke = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "revoke",
+            "--state-directory",
+            "/state",
+            "--contact-public-key",
+            "00",
+        ])
+        .unwrap();
+        assert!(matches!(
+            revoke.command,
+            Command::Contact {
+                command: ContactCommand::Revoke {
+                    state_directory,
+                    contact_public_key
+                }
+            } if state_directory.as_path() == Path::new("/state") && contact_public_key == "00"
         ));
     }
 

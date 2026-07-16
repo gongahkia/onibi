@@ -103,7 +103,8 @@ pub use identity_export::{
 };
 pub use identity_identifier::{IDENTITY_IDENTIFIER_BYTES, IdentityIdentifier};
 pub use identity_rotation::{
-    IDENTITY_ROTATION_SCHEMA_VERSION, IdentityRotation, IdentityRotationError,
+    IDENTITY_ROTATION_BYTES, IDENTITY_ROTATION_SCHEMA_VERSION, IdentityRotation,
+    IdentityRotationError,
 };
 pub use local_mesh_profile::{
     LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,
