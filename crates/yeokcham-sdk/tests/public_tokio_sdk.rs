@@ -2,7 +2,10 @@ use std::{
     collections::BTreeMap,
     fs,
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
@@ -13,11 +16,11 @@ use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
     SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
-    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent,
-    SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
-    SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError,
-    SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier,
-    SdkMessageSendRequest,
+    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent, SdkEventEnvelope,
+    SdkEventStream, SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization,
+    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
+    SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError,
+    SdkMessageIdentifier, SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -86,6 +89,44 @@ fn embedded_sdk_lifecycle_is_available_through_the_public_crate() {
     assert_eq!(event.sequence(), 2);
     assert_eq!(event.event(), SdkEvent::ClientStopped);
     assert!(!client.is_running());
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn rust_sdk_concurrency_contract_supports_shared_subscriptions_and_moved_streams() {
+    fn assert_send_and_sync<T: Send + Sync>() {}
+    fn assert_send<T: Send>() {}
+
+    assert_send_and_sync::<SdkConfig>();
+    assert_send_and_sync::<SdkClient>();
+    assert_send_and_sync::<SdkEventEnvelope>();
+    assert_send::<SdkEventStream>();
+
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 8).unwrap();
+    let client = SdkClient::start(&config).unwrap();
+    let stream = client.subscribe();
+    let result = std::thread::spawn(move || {
+        let mut stream = stream;
+        stream.try_next()
+    })
+    .join()
+    .unwrap();
+    assert_eq!(result, Ok(None));
+    let client = Arc::new(client);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            let client = Arc::clone(&client);
+            scope.spawn(move || {
+                let mut events = client.subscribe();
+                assert_eq!(events.try_next(), Ok(None));
+            });
+        }
+    });
+    let Ok(mut client) = Arc::try_unwrap(client) else {
+        panic!("all SDK client references must be released");
+    };
+    client.shutdown().unwrap();
     fs::remove_dir_all(state_directory).unwrap();
 }
 
