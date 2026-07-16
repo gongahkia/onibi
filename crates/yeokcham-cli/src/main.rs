@@ -23,8 +23,8 @@ use std::{
 use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
-    ClientIdentity, ClientStateDirectory, DaemonRuntime, MessageExpiry,
-    RecipientInboxDeduplication, SenderOutbox,
+    ClientIdentity, ClientStateDirectory, ContactStatus, ContactStore, DaemonRuntime,
+    MessageExpiry, PendingContactImportService, RecipientInboxDeduplication, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -115,6 +115,12 @@ enum ContactCommand {
 #[derive(Subcommand)]
 enum ContactInvitationCommand {
     Create,
+    Import {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        invitation: String,
+    },
     Inspect {
         #[arg(long)]
         invitation: String,
@@ -217,6 +223,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         contact_invitation_record(load_client_system_identity()?.keypair())?
                     );
                 }
+                ContactInvitationCommand::Import {
+                    state_directory,
+                    invitation,
+                } => print!(
+                    "{}",
+                    import_system_contact_invitation(&state_directory, &invitation)?
+                ),
                 ContactInvitationCommand::Inspect { invitation } => {
                     print!("{}", inspect_contact_invitation(&invitation)?);
                 }
@@ -448,6 +461,63 @@ fn inspect_contact_invitation(encoded: &str) -> Result<String, Box<dyn Error>> {
         hexadecimal(invitation.inviter().as_bytes()),
         hexadecimal(IdentityIdentifier::derive(invitation.inviter()).as_bytes()),
     ))
+}
+
+fn import_system_contact_invitation(
+    state_directory: &Path,
+    encoded: &str,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let local_identity = load_client_system_identity()?.public_key();
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return import_contact_invitation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return import_contact_invitation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return import_contact_invitation(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn import_contact_invitation<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    encoded: &str,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let mut invitation = vec![0; CONTACT_INVITATION_BYTES];
+    decode_canonical_hex(encoded, &mut invitation)?;
+    let contacts_path = ClientStateDirectory::new(state_directory)?.contacts_path();
+    if let Some(parent) = contacts_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contacts = ContactStore::open(&contacts_path, keystore)?;
+    let contact = PendingContactImportService::new(local_identity, &mut contacts)
+        .import_encoded(&invitation)?;
+    Ok(format!(
+        "contact_public_key={}\nstatus={}\n",
+        hexadecimal(contact.identity().as_bytes()),
+        contact_status_label(contact.status())
+    ))
+}
+
+const fn contact_status_label(status: ContactStatus) -> &'static str {
+    match status {
+        ContactStatus::Pending => "pending",
+        ContactStatus::Verified => "verified",
+        ContactStatus::Revoked => "revoked",
+    }
 }
 
 fn relay_profile_record(
@@ -1008,9 +1078,10 @@ mod tests {
         RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
         TorMaildropProfileConfig, TuiCommand, contact_invitation_record, create_identity,
         dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
-        inspect_contact_invitation, inspect_relay_profile, load_identity,
-        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
-        render_dashboard, sign_release_manifest, validate_state_directory, verify_release_manifest,
+        import_contact_invitation, inspect_contact_invitation, inspect_relay_profile,
+        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
+        release_metadata, render_dashboard, sign_release_manifest, validate_state_directory,
+        verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
@@ -1171,6 +1242,59 @@ mod tests {
     }
 
     #[test]
+    fn contact_invitation_import_persists_only_a_pending_public_contact() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-contact-import-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let local_identity = IdentityKeypair::generate().unwrap();
+        let remote_identity = IdentityKeypair::generate().unwrap();
+        let encoded = hexadecimal(
+            &ContactInvitation::create(&remote_identity)
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let mut keystore = InMemoryKeystore::default();
+        let output = import_contact_invitation(
+            &state_directory,
+            &local_identity.public_key(),
+            &encoded,
+            &mut keystore,
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            format!(
+                "contact_public_key={}\nstatus=pending\n",
+                hexadecimal(remote_identity.public_key().as_bytes())
+            )
+        );
+        assert_eq!(
+            import_contact_invitation(
+                &state_directory,
+                &local_identity.public_key(),
+                &encoded,
+                &mut keystore,
+            )
+            .unwrap(),
+            output
+        );
+        assert!(
+            import_contact_invitation(
+                &state_directory,
+                &local_identity.public_key(),
+                &encoded.to_uppercase(),
+                &mut keystore,
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
     fn parses_contact_invitation_commands() {
         let create =
             Arguments::try_parse_from(["yeokcham", "contact", "invitation", "create"]).unwrap();
@@ -1198,6 +1322,28 @@ mod tests {
                     command: ContactInvitationCommand::Inspect { invitation }
                 }
             } if invitation == "00"
+        ));
+        let import = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "invitation",
+            "import",
+            "--state-directory",
+            "/state",
+            "--invitation",
+            "00",
+        ])
+        .unwrap();
+        assert!(matches!(
+            import.command,
+            Command::Contact {
+                command: ContactCommand::Invitation {
+                    command: ContactInvitationCommand::Import {
+                        state_directory,
+                        invitation
+                    }
+                }
+            } if state_directory.as_path() == Path::new("/state") && invitation == "00"
         ));
     }
 

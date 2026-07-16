@@ -4,7 +4,10 @@ use yeokcham_protocol::{
     WireLimits,
 };
 
-use crate::{Contact, ContactStore, ContactStoreError, LocalTransport};
+use crate::{
+    Contact, ContactStore, ContactStoreError, LocalTransport, PendingContactImportError,
+    PendingContactImportService,
+};
 
 pub struct ProximityContactInvitationExchange;
 
@@ -45,11 +48,16 @@ impl ProximityContactInvitationExchange {
                 ProximityContactInvitationExchangeError::UnexpectedEnvelopeKind(frame.kind),
             );
         }
-        let invitation = ContactInvitation::decode(&frame.payload)
-            .map_err(ProximityContactInvitationExchangeError::Invitation)?;
-        contacts
-            .import_invitation(local_identity, &invitation)
-            .map_err(ProximityContactInvitationExchangeError::ContactStore)
+        PendingContactImportService::new(local_identity, contacts)
+            .import_encoded(&frame.payload)
+            .map_err(|error| match error {
+                PendingContactImportError::Invitation(error) => {
+                    ProximityContactInvitationExchangeError::Invitation(error)
+                }
+                PendingContactImportError::ContactStore(error) => {
+                    ProximityContactInvitationExchangeError::ContactStore(error)
+                }
+            })
     }
 }
 

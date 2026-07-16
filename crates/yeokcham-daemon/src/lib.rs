@@ -17,6 +17,7 @@ mod local_transport_reconnect;
 mod mdns;
 mod nat_pmp;
 mod outbox_store;
+mod pending_contact_import;
 mod proximity_contact_invitation;
 mod ratchet_store;
 mod relay_tls;
@@ -81,6 +82,7 @@ pub use outbox_store::{
     MAX_OUTBOX_MESSAGES, MIN_MESSAGE_EXPIRY_SECONDS, MessageExpiry, MessageExpiryError,
     OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox, SenderOutboxError,
 };
+pub use pending_contact_import::{PendingContactImportError, PendingContactImportService};
 pub use proximity_contact_invitation::{
     ProximityContactInvitationExchange, ProximityContactInvitationExchangeError,
 };
