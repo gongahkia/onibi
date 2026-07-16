@@ -610,11 +610,34 @@ mod tests {
 
     unsafe extern "C" {
         fn yeokcham_c_consumer_conformance() -> i32;
+        fn yeokcham_c_embedded_client_lifecycle(
+            state_directory: *const u8,
+            state_directory_length: usize,
+        ) -> i32;
     }
 
     #[test]
     fn c_consumer_conformance_passes() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         assert_eq!(unsafe { yeokcham_c_consumer_conformance() }, 0);
+    }
+
+    #[test]
+    fn c_consumer_runs_the_embedded_client_lifecycle() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-c-embedded-client-{}",
+            std::process::id()
+        ));
+        let state_directory = state_directory.to_string_lossy().into_owned();
+        let status = unsafe {
+            yeokcham_c_embedded_client_lifecycle(
+                state_directory.as_bytes().as_ptr(),
+                state_directory.len(),
+            )
+        };
+        let cleanup = std::fs::remove_dir_all(state_directory);
+        assert_eq!(status, 0);
+        cleanup.unwrap();
     }
 }
