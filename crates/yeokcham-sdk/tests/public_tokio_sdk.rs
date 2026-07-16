@@ -5,8 +5,8 @@ use std::{
 };
 
 use yeokcham_sdk::{
-    LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientError,
-    SdkConfig, SdkConfigError, SdkEvent,
+    LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
+    SdkClientError, SdkConfig, SdkConfigError, SdkEvent,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -57,6 +57,30 @@ fn rejects_event_capacity_above_the_public_limit() {
             RuntimeMode::Embedded,
             MAX_SDK_EVENT_BUFFER_CAPACITY + 1,
         ),
+        Err(SdkConfigError::InvalidEventBufferCapacity)
+    );
+}
+
+#[test]
+fn typed_builder_requires_explicit_runtime_and_capacity_to_produce_configuration() {
+    let state_directory = state_directory();
+    let config = SdkClientBuilder::new(state_directory.clone())
+        .event_buffer_capacity(1)
+        .embedded()
+        .build()
+        .unwrap();
+    assert_eq!(config.state_directory(), state_directory);
+    assert_eq!(config.runtime_mode(), &RuntimeMode::Embedded);
+    assert_eq!(config.event_buffer_capacity(), 1);
+}
+
+#[test]
+fn typed_builder_preserves_validation_at_the_build_boundary() {
+    assert_eq!(
+        SdkClientBuilder::new(state_directory())
+            .daemon(LocalDaemonEndpoint::new("/tmp/yeokcham.sock".to_owned()).unwrap())
+            .event_buffer_capacity(0)
+            .build(),
         Err(SdkConfigError::InvalidEventBufferCapacity)
     );
 }

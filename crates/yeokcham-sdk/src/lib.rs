@@ -12,8 +12,9 @@ pub use capability::{
 };
 pub use client::{SdkClient, SdkClientError};
 pub use config::{
-    LocalDaemonEndpoint, LocalDaemonEndpointError, MAX_LOCAL_DAEMON_ENDPOINT_BYTES,
-    MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkConfig, SdkConfigError,
+    EventBufferConfigured, EventBufferNotConfigured, LocalDaemonEndpoint, LocalDaemonEndpointError,
+    MAX_LOCAL_DAEMON_ENDPOINT_BYTES, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode,
+    RuntimeModeConfigured, RuntimeModeNotConfigured, SdkClientBuilder, SdkConfig, SdkConfigError,
 };
 pub use error::SdkError;
 pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError};

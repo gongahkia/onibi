@@ -5,6 +5,71 @@ use yeokcham_daemon::ClientStateDirectory;
 pub const MAX_LOCAL_DAEMON_ENDPOINT_BYTES: usize = 512;
 pub const MAX_SDK_EVENT_BUFFER_CAPACITY: usize = 4096;
 
+pub struct RuntimeModeNotConfigured;
+pub struct EventBufferNotConfigured;
+pub struct RuntimeModeConfigured(RuntimeMode);
+pub struct EventBufferConfigured(usize);
+
+pub struct SdkClientBuilder<Runtime = RuntimeModeNotConfigured, Buffer = EventBufferNotConfigured> {
+    state_directory: PathBuf,
+    runtime: Runtime,
+    buffer: Buffer,
+}
+
+impl SdkClientBuilder {
+    #[must_use]
+    pub fn new(state_directory: PathBuf) -> Self {
+        Self {
+            state_directory,
+            runtime: RuntimeModeNotConfigured,
+            buffer: EventBufferNotConfigured,
+        }
+    }
+}
+
+impl<Buffer> SdkClientBuilder<RuntimeModeNotConfigured, Buffer> {
+    #[must_use]
+    pub fn embedded(self) -> SdkClientBuilder<RuntimeModeConfigured, Buffer> {
+        SdkClientBuilder {
+            state_directory: self.state_directory,
+            runtime: RuntimeModeConfigured(RuntimeMode::Embedded),
+            buffer: self.buffer,
+        }
+    }
+
+    #[must_use]
+    pub fn daemon(
+        self,
+        endpoint: LocalDaemonEndpoint,
+    ) -> SdkClientBuilder<RuntimeModeConfigured, Buffer> {
+        SdkClientBuilder {
+            state_directory: self.state_directory,
+            runtime: RuntimeModeConfigured(RuntimeMode::Daemon(endpoint)),
+            buffer: self.buffer,
+        }
+    }
+}
+
+impl<Runtime> SdkClientBuilder<Runtime, EventBufferNotConfigured> {
+    #[must_use]
+    pub fn event_buffer_capacity(
+        self,
+        event_buffer_capacity: usize,
+    ) -> SdkClientBuilder<Runtime, EventBufferConfigured> {
+        SdkClientBuilder {
+            state_directory: self.state_directory,
+            runtime: self.runtime,
+            buffer: EventBufferConfigured(event_buffer_capacity),
+        }
+    }
+}
+
+impl SdkClientBuilder<RuntimeModeConfigured, EventBufferConfigured> {
+    pub fn build(self) -> Result<SdkConfig, SdkConfigError> {
+        SdkConfig::new(self.state_directory, self.runtime.0, self.buffer.0)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeMode {
     Embedded,
