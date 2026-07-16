@@ -14,6 +14,7 @@ mod grpc_service;
 mod inbox_deduplication;
 mod lan_transport;
 mod lifecycle;
+mod local_auth;
 mod local_transport;
 mod local_transport_availability;
 mod local_transport_reconnect;
@@ -80,6 +81,11 @@ pub use inbox_deduplication::{
 };
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
+pub use local_auth::{
+    DaemonLocalAuth, DaemonLocalAuthError, DaemonLocalAuthInterceptor, DaemonLocalAuthToken,
+    LOCAL_AUTH_TOKEN_BYTES, LOCAL_AUTH_TOKEN_METADATA_KEY, LOCAL_AUTH_TOKEN_VERSION,
+    MAX_LOCAL_AUTH_METADATA_BYTES,
+};
 pub use local_transport::LocalTransport;
 pub use local_transport_availability::{
     LocalTransportAvailability, LocalTransportAvailabilityError,

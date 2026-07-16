@@ -3847,6 +3847,7 @@ dependencies = [
  "rusqlite",
  "sha2 0.11.0",
  "stunclient",
+ "subtle",
  "thiserror 2.0.18",
  "tokio",
  "tokio-socks",
