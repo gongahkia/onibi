@@ -19,6 +19,7 @@ mod nat_pmp;
 mod outbox_store;
 mod pending_contact_import;
 mod proximity_contact_invitation;
+mod qr_contact_verification;
 mod ratchet_store;
 mod relay_tls;
 mod replication_scheduler;
@@ -86,6 +87,7 @@ pub use pending_contact_import::{PendingContactImportError, PendingContactImport
 pub use proximity_contact_invitation::{
     ProximityContactInvitationExchange, ProximityContactInvitationExchangeError,
 };
+pub use qr_contact_verification::{QrContactVerificationError, QrContactVerificationService};
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};

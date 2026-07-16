@@ -24,13 +24,14 @@ use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
     ClientIdentity, ClientStateDirectory, ContactStatus, ContactStore, DaemonRuntime,
-    MessageExpiry, PendingContactImportService, RecipientInboxDeduplication, SenderOutbox,
+    MessageExpiry, PendingContactImportService, QrContactVerificationService,
+    RecipientInboxDeduplication, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
     EncryptedAttachmentManifest, EncryptedMessageEnvelope, IdentityIdentifier,
     MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
-    TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
+    QR_VERIFICATION_PAYLOAD_BYTES, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
@@ -109,6 +110,12 @@ enum ContactCommand {
     Invitation {
         #[command(subcommand)]
         command: ContactInvitationCommand,
+    },
+    VerifyQr {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        payload: String,
     },
 }
 
@@ -234,6 +241,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print!("{}", inspect_contact_invitation(&invitation)?);
                 }
             },
+            ContactCommand::VerifyQr {
+                state_directory,
+                payload,
+            } => print!("{}", verify_system_contact_qr(&state_directory, &payload)?),
         },
         Command::RelayProfile { command } => match command {
             RelayProfileCommand::Create {
@@ -505,6 +516,55 @@ fn import_contact_invitation<K: OsKeystore>(
     let mut contacts = ContactStore::open(&contacts_path, keystore)?;
     let contact = PendingContactImportService::new(local_identity, &mut contacts)
         .import_encoded(&invitation)?;
+    Ok(format!(
+        "contact_public_key={}\nstatus={}\n",
+        hexadecimal(contact.identity().as_bytes()),
+        contact_status_label(contact.status())
+    ))
+}
+
+fn verify_system_contact_qr(
+    state_directory: &Path,
+    encoded: &str,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let local_identity = load_client_system_identity()?.public_key();
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return verify_contact_qr(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return verify_contact_qr(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return verify_contact_qr(state_directory, &local_identity, encoded, &mut keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn verify_contact_qr<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    encoded: &str,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let mut payload = vec![0; QR_VERIFICATION_PAYLOAD_BYTES];
+    decode_canonical_hex(encoded, &mut payload)?;
+    let contacts_path = ClientStateDirectory::new(state_directory)?.contacts_path();
+    if let Some(parent) = contacts_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contacts = ContactStore::open(&contacts_path, keystore)?;
+    let contact = QrContactVerificationService::new(local_identity, &mut contacts)
+        .verify_encoded(&payload)?;
     Ok(format!(
         "contact_public_key={}\nstatus={}\n",
         hexadecimal(contact.identity().as_bytes()),
@@ -1081,13 +1141,13 @@ mod tests {
         import_contact_invitation, inspect_contact_invitation, inspect_relay_profile,
         load_identity, queue_attachment_submission, queue_message, relay_profile_record,
         release_metadata, render_dashboard, sign_release_manifest, validate_state_directory,
-        verify_release_manifest,
+        verify_contact_qr, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
-        DeliveryAcknowledgement, EncryptedAttachmentChunk,
+        DeliveryAcknowledgement, EncryptedAttachmentChunk, QrVerificationPayload,
     };
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1295,6 +1355,54 @@ mod tests {
     }
 
     #[test]
+    fn qr_contact_verification_promotes_a_pending_contact_once() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-qr-contact-verification-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let local_identity = IdentityKeypair::generate().unwrap();
+        let local_public_key = local_identity.public_key();
+        let remote_identity = IdentityKeypair::generate().unwrap();
+        let invitation = hexadecimal(
+            &ContactInvitation::create(&remote_identity)
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let payload = hexadecimal(
+            &QrVerificationPayload::new(local_public_key, remote_identity.public_key())
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        let mut keystore = InMemoryKeystore::default();
+        import_contact_invitation(
+            &state_directory,
+            &local_public_key,
+            &invitation,
+            &mut keystore,
+        )
+        .unwrap();
+        let output =
+            verify_contact_qr(&state_directory, &local_public_key, &payload, &mut keystore)
+                .unwrap();
+        assert_eq!(
+            output,
+            format!(
+                "contact_public_key={}\nstatus=verified\n",
+                hexadecimal(remote_identity.public_key().as_bytes())
+            )
+        );
+        assert!(
+            verify_contact_qr(&state_directory, &local_public_key, &payload, &mut keystore,)
+                .is_err()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
     fn parses_contact_invitation_commands() {
         let create =
             Arguments::try_parse_from(["yeokcham", "contact", "invitation", "create"]).unwrap();
@@ -1344,6 +1452,25 @@ mod tests {
                     }
                 }
             } if state_directory.as_path() == Path::new("/state") && invitation == "00"
+        ));
+        let verify = Arguments::try_parse_from([
+            "yeokcham",
+            "contact",
+            "verify-qr",
+            "--state-directory",
+            "/state",
+            "--payload",
+            "00",
+        ])
+        .unwrap();
+        assert!(matches!(
+            verify.command,
+            Command::Contact {
+                command: ContactCommand::VerifyQr {
+                    state_directory,
+                    payload
+                }
+            } if state_directory.as_path() == Path::new("/state") && payload == "00"
         ));
     }
 
