@@ -32,8 +32,9 @@ pub use error::SdkError;
 pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError, SdkEventStream, SdkEventStreamError};
 pub use identity::{SdkIdentity, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager};
 pub use message::{
-    SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry,
-    SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageSendRequest, SdkQueuedMessage,
+    SdkDeliveryStatus, SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError,
+    SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageIdentifierError,
+    SdkMessageSendRequest, SdkQueuedMessage,
 };
 pub use version::{SDK_API_VERSION, SDK_API_VERSION_MAJOR, SDK_API_VERSION_MINOR, SdkApiVersion};
 pub use yeokcham_core::IdentityPublicKey;

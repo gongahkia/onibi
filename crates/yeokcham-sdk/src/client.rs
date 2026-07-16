@@ -1,14 +1,15 @@
-use std::path::PathBuf;
+use std::{fs, io, path::PathBuf};
 
 use tokio::sync::broadcast;
 use yeokcham_core::OsKeystore;
 use yeokcham_daemon::{DaemonLifecycleError, DaemonRuntime, SenderOutbox};
 use yeokcham_protocol::ProtocolVersion;
 
-use crate::message::map_outbox_error;
+use crate::message::{map_delivery_state, map_outbox_error};
 use crate::{
-    RuntimeMode, SdkConfig, SdkContactError, SdkContactManager, SdkEvent, SdkEventEnvelope,
-    SdkEventStream, SdkIdentityManager, SdkMessageError, SdkMessageSendRequest, SdkQueuedMessage,
+    RuntimeMode, SdkConfig, SdkContactError, SdkContactManager, SdkDeliveryStatus, SdkEvent,
+    SdkEventEnvelope, SdkEventStream, SdkIdentityManager, SdkMessageError, SdkMessageIdentifier,
+    SdkMessageSendRequest, SdkQueuedMessage,
 };
 
 pub struct SdkClient {
@@ -90,6 +91,28 @@ impl SdkClient {
         self.emit(SdkEvent::MessageQueued(message.identifier()))
             .map_err(|_| SdkMessageError::EventSequenceExhausted)?;
         Ok(queued)
+    }
+
+    pub fn delivery_status<K: OsKeystore>(
+        &self,
+        identity: &mut SdkIdentityManager<K>,
+        identifier: SdkMessageIdentifier,
+    ) -> Result<Option<SdkDeliveryStatus>, SdkMessageError> {
+        if !self.is_running() {
+            return Err(SdkMessageError::ClientNotRunning);
+        }
+        let _ = identity.load()?;
+        let path = self.outbox_path();
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Ok(_) | Err(_) => return Err(SdkMessageError::State),
+        }
+        let outbox = SenderOutbox::open(&path, identity.keystore_mut())
+            .map_err(|error| map_outbox_error(&error))?;
+        Ok(outbox
+            .delivery_state(identifier.into_inner())
+            .map(map_delivery_state))
     }
 
     pub async fn shutdown_async(mut self) -> Result<(), SdkClientError> {

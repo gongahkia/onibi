@@ -1,7 +1,9 @@
 use std::fmt;
 
 use yeokcham_core::IdentityPublicKey;
-use yeokcham_daemon::{MessageExpiry, MessageExpiryError, OutboxMessage, SenderOutboxError};
+use yeokcham_daemon::{
+    DeliveryState, MessageExpiry, MessageExpiryError, OutboxMessage, SenderOutboxError,
+};
 use yeokcham_protocol::{EncryptedMessageEnvelope, MessageIdentifier};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -144,9 +146,21 @@ impl From<&OutboxMessage> for SdkQueuedMessage {
 pub struct SdkMessageIdentifier(MessageIdentifier);
 
 impl SdkMessageIdentifier {
+    pub fn from_bytes(
+        bytes: [u8; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+    ) -> Result<Self, SdkMessageIdentifierError> {
+        MessageIdentifier::from_bytes(bytes)
+            .map(Self)
+            .map_err(|_| SdkMessageIdentifierError::Invalid)
+    }
+
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES] {
         self.0.as_bytes()
+    }
+
+    pub(crate) const fn into_inner(self) -> MessageIdentifier {
+        self.0
     }
 }
 
@@ -162,6 +176,12 @@ pub enum SdkMessageEnvelopeError {
     InvalidEnvelope,
     #[error("encrypted message envelope is not canonically encoded")]
     NonCanonicalEncoding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SdkMessageIdentifierError {
+    #[error("message identifier is invalid")]
+    Invalid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -184,6 +204,23 @@ pub enum SdkMessageError {
     QueueFull,
     #[error("sender outbox state is unavailable")]
     State,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SdkDeliveryStatus {
+    Queued,
+    Delivered,
+    Expired,
+    Failed,
+}
+
+pub const fn map_delivery_state(state: DeliveryState) -> SdkDeliveryStatus {
+    match state {
+        DeliveryState::Unknown => SdkDeliveryStatus::Queued,
+        DeliveryState::Delivered => SdkDeliveryStatus::Delivered,
+        DeliveryState::Expired => SdkDeliveryStatus::Expired,
+        DeliveryState::Failed => SdkDeliveryStatus::Failed,
+    }
 }
 
 pub fn map_outbox_error(error: &SenderOutboxError) -> SdkMessageError {

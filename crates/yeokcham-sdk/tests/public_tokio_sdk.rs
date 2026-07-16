@@ -13,10 +13,10 @@ use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
     SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
-    SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkEventStreamError, SdkIdentityError,
-    SdkIdentityInitialization, SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
-    SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry,
-    SdkMessageExpiryError, SdkMessageSendRequest,
+    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkEventStreamError,
+    SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager, SdkLocalMeshPolicy,
+    SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError,
+    SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -499,6 +499,42 @@ fn sdk_event_stream_reports_overflow_from_its_configured_bounded_buffer() {
     client.shutdown().unwrap();
 
     assert_eq!(events.try_next(), Err(SdkEventStreamError::Lagged(1)));
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn sdk_delivery_status_reports_absent_and_queued_messages_without_creating_an_empty_outbox() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let unknown = SdkMessageIdentifier::from_bytes([1; 16]).unwrap();
+
+    assert_eq!(
+        client.delivery_status(&mut identities, unknown).unwrap(),
+        None
+    );
+    assert!(!state_directory.join("yeokcham-outbox.sqlite").exists());
+
+    let recipient = IdentityKeypair::generate().unwrap().public_key();
+    let queued = client
+        .send_message(
+            &mut identities,
+            SdkMessageSendRequest::new(
+                recipient,
+                SdkMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                SdkMessageExpiry::new(100, 60).unwrap(),
+            ),
+        )
+        .unwrap();
+    assert_eq!(
+        client
+            .delivery_status(&mut identities, queued.identifier())
+            .unwrap(),
+        Some(SdkDeliveryStatus::Queued)
+    );
+    client.shutdown().unwrap();
     fs::remove_dir_all(state_directory).unwrap();
 }
 
