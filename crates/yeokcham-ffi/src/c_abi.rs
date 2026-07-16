@@ -10,14 +10,18 @@ use std::{
 };
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
-use crate::{YeokchamBuffer, YeokchamClient, YeokchamClientConfigBuilder, YeokchamStatus};
-use yeokcham_sdk::{RuntimeMode, SdkClient, SdkClientError, SdkConfig};
+use crate::{
+    YeokchamBuffer, YeokchamClient, YeokchamClientConfigBuilder, YeokchamEventSubscription,
+    YeokchamStatus,
+};
+use yeokcham_sdk::{RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkEventStream};
 use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
 pub const MAX_C_ABI_CALLBACK_WORKERS: usize = 4;
 pub const MAX_C_ABI_BUFFERS: usize = 1024;
+pub const MAX_C_ABI_EVENT_SUBSCRIPTIONS: usize = 1024;
 pub const MAX_C_ABI_ERROR_DETAIL_BYTES: usize = 64;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
 pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
@@ -39,9 +43,12 @@ static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeMap<usize, ClientHandle>>> = OnceLock
 static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfigBuilder>>> =
     OnceLock::new();
 static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
+static ACTIVE_EVENT_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<usize, SdkEventStream>>> =
+    OnceLock::new();
 static NEXT_CLIENT_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static NEXT_CLIENT_CONFIG_BUILDER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static NEXT_BUFFER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
+static NEXT_EVENT_SUBSCRIPTION_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
 static CALLBACK_QUEUE: OnceLock<Option<SyncSender<PendingCompletion>>> = OnceLock::new();
 
@@ -288,6 +295,63 @@ pub extern "C" fn yeokcham_buffer_release(buffer: *mut YeokchamBuffer) -> Yeokch
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_client_subscribe_events(
+    client: *const YeokchamClient,
+) -> *mut YeokchamEventSubscription {
+    let identifier = client.addr();
+    if identifier == 0 {
+        return std::ptr::null_mut();
+    }
+    let Ok(clients) = active_clients().lock() else {
+        return std::ptr::null_mut();
+    };
+    let Some(client) = clients.get(&identifier) else {
+        return std::ptr::null_mut();
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        return std::ptr::null_mut();
+    };
+    let subscription = runtime.subscribe();
+    let Ok(mut subscriptions) = active_event_subscriptions().lock() else {
+        return std::ptr::null_mut();
+    };
+    if subscriptions.len() >= MAX_C_ABI_EVENT_SUBSCRIPTIONS {
+        return std::ptr::null_mut();
+    }
+    let Ok(subscription_identifier) = NEXT_EVENT_SUBSCRIPTION_IDENTIFIER.fetch_update(
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+        |identifier| identifier.checked_add(1),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    if subscriptions
+        .insert(subscription_identifier, subscription)
+        .is_some()
+    {
+        return std::ptr::null_mut();
+    }
+    std::ptr::without_provenance_mut(subscription_identifier)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_event_subscription_release(
+    subscription: *mut YeokchamEventSubscription,
+) -> YeokchamStatus {
+    let identifier = subscription.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut subscriptions) = active_event_subscriptions().lock() else {
+        return YeokchamStatus::State;
+    };
+    if subscriptions.remove(&identifier).is_none() {
+        return YeokchamStatus::InvalidInput;
+    }
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn yeokcham_client_complete_async(
     client: *const YeokchamClient,
     callback: Option<YeokchamCompletionCallback>,
@@ -469,6 +533,10 @@ fn active_buffers() -> &'static Mutex<BTreeMap<usize, Vec<u8>>> {
     ACTIVE_BUFFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn active_event_subscriptions() -> &'static Mutex<BTreeMap<usize, SdkEventStream>> {
+    ACTIVE_EVENT_SUBSCRIPTIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
 fn allocate_buffer(bytes: &[u8]) -> Result<*mut YeokchamBuffer, YeokchamStatus> {
     let active_buffers = active_buffers();
     let mut buffers = active_buffers.lock().map_err(|_| YeokchamStatus::State)?;
@@ -563,16 +631,17 @@ mod tests {
 
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
-        MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
-        MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS, SdkClientError, YeokchamStatus,
-        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
-        yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
-        yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
-        yeokcham_client_config_builder_release,
+        MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
+        MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
+        SdkClientError, YeokchamStatus, map_sdk_client_error, sdk_client_error_detail,
+        yeokcham_buffer_data, yeokcham_buffer_length, yeokcham_buffer_release,
+        yeokcham_client_complete_async, yeokcham_client_config_builder_build,
+        yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
         yeokcham_client_create, yeokcham_client_release, yeokcham_client_start,
-        yeokcham_client_stop, yeokcham_client_take_last_error_detail,
+        yeokcham_client_stop, yeokcham_client_subscribe_events,
+        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_release,
         yeokcham_secret_buffer_zeroize,
     };
 
@@ -639,8 +708,28 @@ mod tests {
             YeokchamStatus::Ok
         );
         assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        let subscriptions = (0..MAX_C_ABI_EVENT_SUBSCRIPTIONS)
+            .map(|_| yeokcham_client_subscribe_events(client))
+            .collect::<Vec<_>>();
+        assert!(
+            subscriptions
+                .iter()
+                .all(|subscription| !subscription.is_null())
+        );
+        assert!(yeokcham_client_subscribe_events(client).is_null());
+        for subscription in subscriptions {
+            assert_eq!(
+                yeokcham_event_subscription_release(subscription),
+                YeokchamStatus::Ok
+            );
+            assert_eq!(
+                yeokcham_event_subscription_release(subscription),
+                YeokchamStatus::InvalidInput
+            );
+        }
         assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert!(yeokcham_client_subscribe_events(client).is_null());
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::State);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(state_directory).unwrap();

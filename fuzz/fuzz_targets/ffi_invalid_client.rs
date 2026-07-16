@@ -6,7 +6,7 @@ use libfuzzer_sys::fuzz_target;
 use yeokcham_ffi::{
     YeokchamStatus, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
     yeokcham_client_copy_last_error_detail, yeokcham_client_release, yeokcham_client_start,
-    yeokcham_client_stop, yeokcham_client_take_last_error_detail,
+    yeokcham_client_stop, yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
 };
 
 extern "C" fn completion(_: i32, _: *mut c_void) {}
@@ -63,4 +63,5 @@ fuzz_target!(|data: &[u8]| {
         unsafe { yeokcham_client_take_last_error_detail(client, &raw mut buffer) },
         YeokchamStatus::InvalidInput
     );
+    assert!(yeokcham_client_subscribe_events(client).is_null());
 });
