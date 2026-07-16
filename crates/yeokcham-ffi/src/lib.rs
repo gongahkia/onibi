@@ -29,11 +29,11 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES,
-    MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
-    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_client_complete_async,
-    yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
-    yeokcham_client_config_builder_release,
+    MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS,
+    MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+    MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamCompletionCallback, yeokcham_abi_negotiate,
+    yeokcham_client_complete_async, yeokcham_client_config_builder_build,
+    yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
     yeokcham_client_create, yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
@@ -69,7 +69,9 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_CALLBACK_WORKERS UINT32_C(4)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)"));
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)"));
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains(
             "typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t;"
@@ -342,7 +344,7 @@ mod tests {
             THREAD_SAFETY
                 .contains("Operations on one client or configuration builder are linearized")
         );
-        assert!(THREAD_SAFETY.contains("library-created background thread"));
+        assert!(THREAD_SAFETY.contains("library-created background workers"));
         assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
         assert!(THREAD_SAFETY.contains("A client remains opaque"));
         assert!(THREAD_SAFETY.contains("may synchronously call any C ABI function"));

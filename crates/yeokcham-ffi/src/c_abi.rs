@@ -2,7 +2,11 @@ use std::{
     collections::BTreeMap,
     ffi::c_void,
     path::PathBuf,
-    sync::{Mutex, OnceLock, atomic::AtomicUsize, atomic::Ordering},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+        mpsc::{self, SyncSender, TrySendError},
+    },
 };
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
@@ -12,6 +16,7 @@ use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
+pub const MAX_C_ABI_CALLBACK_WORKERS: usize = 4;
 pub const MAX_C_ABI_ERROR_DETAIL_BYTES: usize = 64;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
 pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
@@ -35,11 +40,17 @@ static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfi
 static NEXT_CLIENT_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static NEXT_CLIENT_CONFIG_BUILDER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
+static CALLBACK_QUEUE: OnceLock<Option<SyncSender<PendingCompletion>>> = OnceLock::new();
 
 #[cfg(test)]
 pub static CLIENT_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub type YeokchamCompletionCallback = extern "C" fn(i32, *mut c_void);
+
+struct PendingCompletion {
+    callback: YeokchamCompletionCallback,
+    context: usize,
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn yeokcham_abi_negotiate(requested_version: u32) -> u32 {
@@ -213,26 +224,23 @@ pub extern "C" fn yeokcham_client_complete_async(
         Ok(false) => return YeokchamStatus::InvalidInput,
         Err(status) => return status,
     }
-    let Ok(_) = PENDING_COMPLETIONS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |pending| {
+    let Ok(_) = PENDING_COMPLETIONS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
         (pending < MAX_C_ABI_PENDING_COMPLETIONS).then_some(pending + 1)
     }) else {
         return YeokchamStatus::ResourceLimit;
     };
     let context = context.expose_provenance();
-    if std::thread::Builder::new()
-        .spawn(move || {
-            callback(
-                YeokchamStatus::Ok as i32,
-                std::ptr::with_exposed_provenance_mut(context),
-            );
-            PENDING_COMPLETIONS.fetch_sub(1, Ordering::Relaxed);
-        })
-        .is_err()
-    {
-        PENDING_COMPLETIONS.fetch_sub(1, Ordering::Relaxed);
+    let Some(queue) = callback_queue() else {
+        PENDING_COMPLETIONS.fetch_sub(1, Ordering::AcqRel);
         return YeokchamStatus::ResourceLimit;
+    };
+    match queue.try_send(PendingCompletion { callback, context }) {
+        Ok(()) => YeokchamStatus::Ok,
+        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+            PENDING_COMPLETIONS.fetch_sub(1, Ordering::AcqRel);
+            YeokchamStatus::ResourceLimit
+        }
     }
-    YeokchamStatus::Ok
 }
 
 #[unsafe(no_mangle)]
@@ -380,6 +388,40 @@ fn active_client_config_builders() -> &'static Mutex<BTreeMap<usize, ClientConfi
     ACTIVE_CLIENT_CONFIG_BUILDERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn callback_queue() -> Option<&'static SyncSender<PendingCompletion>> {
+    CALLBACK_QUEUE
+        .get_or_init(|| {
+            let (sender, receiver) = mpsc::sync_channel(MAX_C_ABI_PENDING_COMPLETIONS);
+            let receiver = Arc::new(Mutex::new(receiver));
+            for _ in 0..MAX_C_ABI_CALLBACK_WORKERS {
+                let receiver = Arc::clone(&receiver);
+                if std::thread::Builder::new()
+                    .spawn(move || {
+                        loop {
+                            let completion = match receiver.lock() {
+                                Ok(receiver) => receiver.recv(),
+                                Err(_) => return,
+                            };
+                            let Ok(PendingCompletion { callback, context }) = completion else {
+                                return;
+                            };
+                            callback(
+                                YeokchamStatus::Ok as i32,
+                                std::ptr::with_exposed_provenance_mut(context),
+                            );
+                            PENDING_COMPLETIONS.fetch_sub(1, Ordering::AcqRel);
+                        }
+                    })
+                    .is_err()
+                {
+                    return None;
+                }
+            }
+            Some(sender)
+        })
+        .as_ref()
+}
+
 fn is_active_client(client: *const YeokchamClient) -> Result<bool, YeokchamStatus> {
     let identifier = client.addr();
     if identifier == 0 {
@@ -417,10 +459,13 @@ fn sdk_client_error_detail(error: &SdkClientError) -> &'static [u8] {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::{
-        CLIENT_TEST_LOCK, MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_SECRET_BUFFER_BYTES,
-        MAX_C_ABI_STATE_DIRECTORY_BYTES, SdkClientError, YeokchamStatus, map_sdk_client_error,
-        sdk_client_error_detail, yeokcham_client_complete_async,
+        CLIENT_TEST_LOCK, MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_ERROR_DETAIL_BYTES,
+        MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+        MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS, SdkClientError, YeokchamStatus,
+        map_sdk_client_error, sdk_client_error_detail, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
@@ -673,6 +718,65 @@ mod tests {
                 YeokchamStatus::InvalidInput
             );
         }
+    }
+
+    static CALLBACK_BACKPRESSURE_RELEASED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    static CALLBACK_BACKPRESSURE_STARTED: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn block_completion(_: i32, _: *mut std::ffi::c_void) {
+        CALLBACK_BACKPRESSURE_STARTED.fetch_add(1, Ordering::AcqRel);
+        while !CALLBACK_BACKPRESSURE_RELEASED.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+    }
+
+    fn wait_for_pending_callbacks(expected: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while PENDING_COMPLETIONS.load(Ordering::Acquire) != expected {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn callback_queue_applies_bounded_nonblocking_backpressure() {
+        struct CallbackReleaseGuard;
+
+        impl Drop for CallbackReleaseGuard {
+            fn drop(&mut self) {
+                CALLBACK_BACKPRESSURE_RELEASED.store(true, Ordering::Release);
+            }
+        }
+
+        let _client_guard = CLIENT_TEST_LOCK.lock().unwrap();
+        wait_for_pending_callbacks(0);
+        CALLBACK_BACKPRESSURE_RELEASED.store(false, Ordering::Release);
+        CALLBACK_BACKPRESSURE_STARTED.store(0, Ordering::Release);
+        let _release_guard = CallbackReleaseGuard;
+        let client = yeokcham_client_create();
+        for _ in 0..MAX_C_ABI_PENDING_COMPLETIONS {
+            assert_eq!(
+                yeokcham_client_complete_async(
+                    client,
+                    Some(block_completion),
+                    std::ptr::null_mut()
+                ),
+                YeokchamStatus::Ok
+            );
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while CALLBACK_BACKPRESSURE_STARTED.load(Ordering::Acquire) < MAX_C_ABI_CALLBACK_WORKERS {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            yeokcham_client_complete_async(client, Some(block_completion), std::ptr::null_mut()),
+            YeokchamStatus::ResourceLimit
+        );
+        CALLBACK_BACKPRESSURE_RELEASED.store(true, Ordering::Release);
+        wait_for_pending_callbacks(0);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
     }
 
     #[test]

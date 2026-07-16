@@ -8,7 +8,9 @@
 #define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)
 #define YEOKCHAM_ABI_VERSION UINT32_C(1)
 #define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)
+#define YEOKCHAM_MAX_CALLBACK_WORKERS UINT32_C(4)
 #define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)
+#define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release

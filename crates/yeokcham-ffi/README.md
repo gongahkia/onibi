@@ -12,9 +12,14 @@
 - Operations on one client or configuration builder are linearized. A concurrent duplicate lifecycle transition returns `YEOKCHAM_STATUS_STATE`; use-after-release returns `YEOKCHAM_STATUS_INVALID_INPUT`.
 - A client remains opaque. Exactly one `yeokcham_client_release` call accepts an active client; concurrent or later releases return `YEOKCHAM_STATUS_INVALID_INPUT`.
 - `yeokcham_client_complete_async` validates a client only while it is submitted. A caller may release that client after a successful submission.
-- A successful asynchronous submission schedules one callback on a library-created background thread. The caller retains its callback context and must keep it valid until the callback runs.
+- A successful asynchronous submission queues one callback for four library-created background workers. The caller retains its callback context and must keep it valid until the callback runs.
 - Completion callbacks run without an internal C ABI client-registry lock and may synchronously call any C ABI function, including `yeokcham_client_release` for the submitted client. Callback-context synchronization remains the caller's responsibility.
 - `yeokcham_secret_buffer_zeroize` accepts only caller-owned writable bytes. Its buffer remains the caller's responsibility before and after the call.
+
+## Callback backpressure
+
+- At most 1,024 callbacks may be queued or executing. `yeokcham_client_complete_async` never waits for capacity and returns `YEOKCHAM_STATUS_RESOURCE_LIMIT` when the bound is full.
+- The queue dispatches work to the fixed worker pool; callback execution may overlap and has no ordering guarantee.
 
 ## Engine status mapping
 
