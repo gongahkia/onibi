@@ -444,6 +444,71 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_client_start_linearizes_one_successful_transition() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-client-start-race-{}",
+            std::process::id()
+        ));
+        let state_directory = state_directory.to_string_lossy().into_owned();
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    state_directory.as_bytes().as_ptr(),
+                    state_directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        let client_address = client.addr();
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut workers = Vec::with_capacity(2);
+        for _ in 0..2 {
+            let start = std::sync::Arc::clone(&start);
+            workers.push(std::thread::spawn(move || {
+                start.wait();
+                yeokcham_client_start(std::ptr::without_provenance_mut(client_address))
+            }));
+        }
+        let statuses = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            statuses
+                .iter()
+                .filter(|status| **status == YeokchamStatus::Ok)
+                .count(),
+            1
+        );
+        assert_eq!(
+            statuses
+                .iter()
+                .filter(|status| **status == YeokchamStatus::State)
+                .count(),
+            1
+        );
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
     fn client_configuration_builder_rejects_missing_invalid_and_unbounded_input() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         let client = yeokcham_client_create();

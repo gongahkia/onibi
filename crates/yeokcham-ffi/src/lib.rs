@@ -318,7 +318,11 @@ mod tests {
     fn thread_safety_contract_covers_callbacks_and_client_lifecycle() {
         const THREAD_SAFETY: &str = include_str!("../README.md");
         assert!(THREAD_SAFETY.contains("## Thread safety"));
-        assert!(THREAD_SAFETY.contains("may be called concurrently"));
+        assert!(THREAD_SAFETY.contains("Every public C ABI function may be called concurrently"));
+        assert!(
+            THREAD_SAFETY
+                .contains("Operations on one client or configuration builder are linearized")
+        );
         assert!(THREAD_SAFETY.contains("library-created background thread"));
         assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
         assert!(THREAD_SAFETY.contains("A client remains opaque"));

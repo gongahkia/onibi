@@ -8,7 +8,8 @@
 
 ## Thread safety
 
-- `yeokcham_client_create`, `yeokcham_client_release`, `yeokcham_client_complete_async`, and `yeokcham_abi_negotiate` may be called concurrently.
+- Every public C ABI function may be called concurrently.
+- Operations on one client or configuration builder are linearized. A concurrent duplicate lifecycle transition returns `YEOKCHAM_STATUS_STATE`; use-after-release returns `YEOKCHAM_STATUS_INVALID_INPUT`.
 - A client remains opaque. Exactly one `yeokcham_client_release` call accepts an active client; concurrent or later releases return `YEOKCHAM_STATUS_INVALID_INPUT`.
 - `yeokcham_client_complete_async` validates a client only while it is submitted. A caller may release that client after a successful submission.
 - A successful asynchronous submission schedules one callback on a library-created background thread. The caller retains its callback context and must keep it valid until the callback runs.
