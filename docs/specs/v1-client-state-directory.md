@@ -18,4 +18,6 @@
 
 The layout version is `1`. Each SQLite database and CBOR document validates its own schema version; a layout version does not override those validation boundaries. SQLite WAL and shared-memory sidecars are part of their parent database and must remain alongside it.
 
+`DaemonRuntime` is the exclusive owner of an active client-state root. It holds an exclusive lock on `yeokcham-daemon.lock` from successful startup until `shutdown` or drop. A concurrent startup for the same root fails with `AlreadyRunning`; a new owner may start only after the prior owner releases the lock.
+
 Attachment submissions are staged as `<canonical-lowercase-attachment-id>.pending` under `attachment-uploads/` and renamed atomically only after every file has been written. Consumers must reject non-regular state database paths and noncanonical or mismatched attachment content.

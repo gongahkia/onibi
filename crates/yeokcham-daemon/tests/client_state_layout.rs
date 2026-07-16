@@ -30,6 +30,21 @@ fn daemon_runtime_uses_the_public_layout_lock_path() {
 }
 
 #[test]
+fn public_runtime_rejects_a_second_owner_until_the_first_releases_state() {
+    let root = state_directory();
+    let layout = ClientStateDirectory::new(&root).unwrap();
+    let first = DaemonRuntime::start(ProtocolVersion::INITIAL, layout.root()).unwrap();
+    assert!(matches!(
+        DaemonRuntime::start(ProtocolVersion::INITIAL, layout.root()),
+        Err(DaemonLifecycleError::AlreadyRunning)
+    ));
+    drop(first);
+    let restarted = DaemonRuntime::start(ProtocolVersion::INITIAL, layout.root()).unwrap();
+    drop(restarted);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn public_layout_and_runtime_fail_closed_for_invalid_roots() {
     assert_eq!(
         ClientStateDirectory::new("relative-state"),
