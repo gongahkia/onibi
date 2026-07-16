@@ -9,12 +9,17 @@ use std::{
     },
 };
 
-use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
 use crate::{
-    YeokchamBuffer, YeokchamClient, YeokchamClientConfigBuilder, YeokchamEventSubscription,
+    YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_EVENT_CLIENT_STARTED,
+    YEOKCHAM_EVENT_CLIENT_STOPPED, YEOKCHAM_EVENT_MESSAGE_DELIVERED,
+    YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED, YeokchamBuffer,
+    YeokchamClient, YeokchamClientConfigBuilder, YeokchamEvent, YeokchamEventSubscription,
     YeokchamStatus,
 };
-use yeokcham_sdk::{RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkEventStream};
+use yeokcham_sdk::{
+    RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkEvent, SdkEventEnvelope, SdkEventStream,
+    SdkEventStreamError,
+};
 use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
@@ -45,10 +50,7 @@ static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfi
 static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
 static ACTIVE_EVENT_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<usize, SdkEventStream>>> =
     OnceLock::new();
-static NEXT_CLIENT_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
-static NEXT_CLIENT_CONFIG_BUILDER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
-static NEXT_BUFFER_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
-static NEXT_EVENT_SUBSCRIPTION_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
+static NEXT_HANDLE_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
 static PENDING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
 static CALLBACK_QUEUE: OnceLock<Option<SyncSender<PendingCompletion>>> = OnceLock::new();
 
@@ -96,11 +98,7 @@ pub extern "C" fn yeokcham_client_create() -> *mut YeokchamClient {
     if clients.len() >= MAX_C_ABI_CLIENTS {
         return std::ptr::null_mut();
     }
-    let Ok(identifier) =
-        NEXT_CLIENT_IDENTIFIER.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
-            identifier.checked_add(1)
-        })
-    else {
+    let Some(identifier) = next_handle_identifier() else {
         return std::ptr::null_mut();
     };
     if clients
@@ -318,11 +316,7 @@ pub extern "C" fn yeokcham_client_subscribe_events(
     if subscriptions.len() >= MAX_C_ABI_EVENT_SUBSCRIPTIONS {
         return std::ptr::null_mut();
     }
-    let Ok(subscription_identifier) = NEXT_EVENT_SUBSCRIPTION_IDENTIFIER.fetch_update(
-        Ordering::Relaxed,
-        Ordering::Relaxed,
-        |identifier| identifier.checked_add(1),
-    ) else {
+    let Some(subscription_identifier) = next_handle_identifier() else {
         return std::ptr::null_mut();
     };
     if subscriptions
@@ -349,6 +343,49 @@ pub extern "C" fn yeokcham_event_subscription_release(
         return YeokchamStatus::InvalidInput;
     }
     YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_event_subscription_poll(
+    subscription: *mut YeokchamEventSubscription,
+    event: *mut YeokchamEvent,
+    has_event: *mut u8,
+) -> YeokchamStatus {
+    if event.is_null() || has_event.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe {
+        std::ptr::write_bytes(event.cast::<u8>(), 0, std::mem::size_of::<YeokchamEvent>());
+        has_event.write(0);
+    }
+    let identifier = subscription.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut subscriptions) = active_event_subscriptions().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(subscription) = subscriptions.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    match subscription.try_next() {
+        Ok(None) => YeokchamStatus::Ok,
+        Ok(Some(envelope)) => {
+            let c_event = c_event(envelope);
+            unsafe {
+                std::ptr::addr_of_mut!((*event).version).write(c_event.version);
+                std::ptr::addr_of_mut!((*event).sequence).write(c_event.sequence);
+                std::ptr::addr_of_mut!((*event).kind).write(c_event.kind);
+                std::ptr::addr_of_mut!((*event).message_identifier)
+                    .write(c_event.message_identifier);
+                has_event.write(1);
+            }
+            YeokchamStatus::Ok
+        }
+        Err(SdkEventStreamError::Lagged(_)) => YeokchamStatus::ResourceLimit,
+        Err(SdkEventStreamError::Closed) => YeokchamStatus::State,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -392,11 +429,7 @@ pub extern "C" fn yeokcham_client_config_builder_create() -> *mut YeokchamClient
     if builders.len() >= MAX_C_ABI_CLIENT_CONFIG_BUILDERS {
         return std::ptr::null_mut();
     }
-    let Ok(identifier) = NEXT_CLIENT_CONFIG_BUILDER_IDENTIFIER.fetch_update(
-        Ordering::Relaxed,
-        Ordering::Relaxed,
-        |identifier| identifier.checked_add(1),
-    ) else {
+    let Some(identifier) = next_handle_identifier() else {
         return std::ptr::null_mut();
     };
     if builders
@@ -537,17 +570,50 @@ fn active_event_subscriptions() -> &'static Mutex<BTreeMap<usize, SdkEventStream
     ACTIVE_EVENT_SUBSCRIPTIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn next_handle_identifier() -> Option<usize> {
+    NEXT_HANDLE_IDENTIFIER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
+            identifier.checked_add(1)
+        })
+        .ok()
+}
+
+fn c_event(envelope: SdkEventEnvelope) -> YeokchamEvent {
+    let (kind, message_identifier) = match envelope.event() {
+        SdkEvent::ClientStarted => (
+            YEOKCHAM_EVENT_CLIENT_STARTED,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+        ),
+        SdkEvent::ClientStopped => (
+            YEOKCHAM_EVENT_CLIENT_STOPPED,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+        ),
+        SdkEvent::MessageQueued(identifier) => {
+            (YEOKCHAM_EVENT_MESSAGE_QUEUED, *identifier.as_bytes())
+        }
+        SdkEvent::MessageDelivered(identifier) => {
+            (YEOKCHAM_EVENT_MESSAGE_DELIVERED, *identifier.as_bytes())
+        }
+        SdkEvent::MessageDeliveryFailed(identifier) => (
+            YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED,
+            *identifier.as_bytes(),
+        ),
+    };
+    YeokchamEvent {
+        version: envelope.version(),
+        sequence: envelope.sequence(),
+        kind,
+        message_identifier,
+    }
+}
+
 fn allocate_buffer(bytes: &[u8]) -> Result<*mut YeokchamBuffer, YeokchamStatus> {
     let active_buffers = active_buffers();
     let mut buffers = active_buffers.lock().map_err(|_| YeokchamStatus::State)?;
     if buffers.len() >= MAX_C_ABI_BUFFERS {
         return Err(YeokchamStatus::ResourceLimit);
     }
-    let identifier = NEXT_BUFFER_IDENTIFIER
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identifier| {
-            identifier.checked_add(1)
-        })
-        .map_err(|_| YeokchamStatus::ResourceLimit)?;
+    let identifier = next_handle_identifier().ok_or(YeokchamStatus::ResourceLimit)?;
     if buffers.insert(identifier, bytes.to_vec()).is_some() {
         return Err(YeokchamStatus::ResourceLimit);
     }
@@ -633,16 +699,17 @@ mod tests {
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
         MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
         MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
-        SdkClientError, YeokchamStatus, map_sdk_client_error, sdk_client_error_detail,
-        yeokcham_buffer_data, yeokcham_buffer_length, yeokcham_buffer_release,
-        yeokcham_client_complete_async, yeokcham_client_config_builder_build,
-        yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
+        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamEvent, YeokchamStatus, c_event,
+        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
+        yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
+        yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
+        yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
         yeokcham_client_create, yeokcham_client_release, yeokcham_client_start,
         yeokcham_client_stop, yeokcham_client_subscribe_events,
-        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_release,
-        yeokcham_secret_buffer_zeroize,
+        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
+        yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -727,12 +794,93 @@ mod tests {
                 YeokchamStatus::InvalidInput
             );
         }
-        assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
-        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_event_polling_contract(client);
         assert!(yeokcham_client_subscribe_events(client).is_null());
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::State);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    fn assert_event_polling_contract(client: *mut crate::YeokchamClient) {
+        let subscription = yeokcham_client_subscribe_events(client);
+        assert!(!subscription.is_null());
+        let mut event = YeokchamEvent {
+            version: u32::MAX,
+            sequence: u64::MAX,
+            kind: u32::MAX,
+            message_identifier: [u8::MAX; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+        };
+        let mut has_event = 1;
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(subscription, &raw mut event, &raw mut has_event)
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(client.cast(), &raw mut event, &raw mut has_event)
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(
+                    std::ptr::null_mut(),
+                    &raw mut event,
+                    &raw mut has_event,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(
+                    subscription,
+                    std::ptr::null_mut(),
+                    &raw mut has_event,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(subscription, &raw mut event, &raw mut has_event)
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(event.version, crate::YEOKCHAM_EVENT_VERSION);
+        assert_eq!(event.sequence, 2);
+        assert_eq!(event.kind, crate::YEOKCHAM_EVENT_CLIENT_STOPPED);
+        assert_eq!(
+            event.message_identifier,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES]
+        );
+        assert_eq!(has_event, 1);
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(subscription, &raw mut event, &raw mut has_event)
+            },
+            YeokchamStatus::State
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        assert_eq!(
+            yeokcham_event_subscription_release(subscription),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_event_subscription_release(subscription),
+            YeokchamStatus::InvalidInput
+        );
     }
 
     #[test]
@@ -747,6 +895,45 @@ mod tests {
             yeokcham_client_stop(std::ptr::null_mut()),
             YeokchamStatus::InvalidInput
         );
+    }
+
+    #[test]
+    fn event_records_preserve_the_stable_kind_and_identifier_contract() {
+        let identifier = yeokcham_protocol::MessageIdentifier::from_bytes([7; 16]).unwrap();
+        let cases = [
+            (
+                SdkEvent::ClientStarted,
+                crate::YEOKCHAM_EVENT_CLIENT_STARTED,
+                [0; 16],
+            ),
+            (
+                SdkEvent::ClientStopped,
+                crate::YEOKCHAM_EVENT_CLIENT_STOPPED,
+                [0; 16],
+            ),
+            (
+                SdkEvent::MessageQueued(identifier),
+                crate::YEOKCHAM_EVENT_MESSAGE_QUEUED,
+                *identifier.as_bytes(),
+            ),
+            (
+                SdkEvent::MessageDelivered(identifier),
+                crate::YEOKCHAM_EVENT_MESSAGE_DELIVERED,
+                *identifier.as_bytes(),
+            ),
+            (
+                SdkEvent::MessageDeliveryFailed(identifier),
+                crate::YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED,
+                *identifier.as_bytes(),
+            ),
+        ];
+        for (event, kind, message_identifier) in cases {
+            let record = c_event(SdkEventEnvelope::new(42, event).unwrap());
+            assert_eq!(record.version, crate::YEOKCHAM_EVENT_VERSION);
+            assert_eq!(record.sequence, 42);
+            assert_eq!(record.kind, kind);
+            assert_eq!(record.message_identifier, message_identifier);
+        }
     }
 
     #[test]

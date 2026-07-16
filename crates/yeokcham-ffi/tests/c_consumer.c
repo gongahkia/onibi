@@ -59,6 +59,10 @@ int yeokcham_c_embedded_client_lifecycle(
 ) {
     yeokcham_client_t *client;
     yeokcham_client_config_builder_t *builder;
+    yeokcham_event_subscription_t *subscription;
+    yeokcham_event_t event;
+    uint8_t has_event;
+    size_t index;
 
     if (state_directory == NULL || state_directory_length == 0) {
         return 1;
@@ -95,21 +99,61 @@ int yeokcham_c_embedded_client_lifecycle(
         (void)yeokcham_client_release(client);
         return 8;
     }
-    if (yeokcham_client_start(client) != YEOKCHAM_STATUS_STATE) {
+    subscription = yeokcham_client_subscribe_events(client);
+    if (subscription == NULL) {
         (void)yeokcham_client_stop(client);
         (void)yeokcham_client_release(client);
         return 9;
     }
-    if (yeokcham_client_stop(client) != YEOKCHAM_STATUS_OK) {
+    has_event = UINT8_C(1);
+    if (yeokcham_event_subscription_poll(subscription, &event, &has_event) != YEOKCHAM_STATUS_OK || has_event != 0 || event.version != 0 || event.sequence != 0 || event.kind != 0) {
+        (void)yeokcham_event_subscription_release(subscription);
+        (void)yeokcham_client_stop(client);
         (void)yeokcham_client_release(client);
         return 10;
     }
-    if (yeokcham_client_stop(client) != YEOKCHAM_STATUS_STATE) {
+    if (yeokcham_client_start(client) != YEOKCHAM_STATUS_STATE) {
+        (void)yeokcham_event_subscription_release(subscription);
+        (void)yeokcham_client_stop(client);
         (void)yeokcham_client_release(client);
         return 11;
     }
-    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_OK) {
+    if (yeokcham_client_stop(client) != YEOKCHAM_STATUS_OK) {
+        (void)yeokcham_event_subscription_release(subscription);
+        (void)yeokcham_client_release(client);
         return 12;
+    }
+    if (yeokcham_event_subscription_poll(subscription, &event, &has_event) != YEOKCHAM_STATUS_OK || has_event != UINT8_C(1) || event.version != YEOKCHAM_EVENT_VERSION || event.sequence != UINT64_C(2) || event.kind != YEOKCHAM_EVENT_CLIENT_STOPPED) {
+        (void)yeokcham_event_subscription_release(subscription);
+        (void)yeokcham_client_release(client);
+        return 13;
+    }
+    for (index = 0; index < YEOKCHAM_EVENT_MESSAGE_IDENTIFIER_BYTES; ++index) {
+        if (event.message_identifier[index] != 0) {
+            (void)yeokcham_event_subscription_release(subscription);
+            (void)yeokcham_client_release(client);
+            return 14;
+        }
+    }
+    if (yeokcham_event_subscription_poll(subscription, &event, &has_event) != YEOKCHAM_STATUS_STATE || has_event != 0 || event.version != 0 || event.sequence != 0 || event.kind != 0) {
+        (void)yeokcham_event_subscription_release(subscription);
+        (void)yeokcham_client_release(client);
+        return 15;
+    }
+    if (yeokcham_event_subscription_release(subscription) != YEOKCHAM_STATUS_OK) {
+        (void)yeokcham_client_release(client);
+        return 16;
+    }
+    if (yeokcham_event_subscription_release(subscription) != YEOKCHAM_STATUS_INVALID_INPUT) {
+        (void)yeokcham_client_release(client);
+        return 17;
+    }
+    if (yeokcham_client_stop(client) != YEOKCHAM_STATUS_STATE) {
+        (void)yeokcham_client_release(client);
+        return 18;
+    }
+    if (yeokcham_client_release(client) != YEOKCHAM_STATUS_OK) {
+        return 19;
     }
     return 0;
 }

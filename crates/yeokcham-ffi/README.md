@@ -35,3 +35,6 @@
 ## Event subscriptions
 
 - `yeokcham_client_subscribe_events` creates an opaque subscription only for a running client. At most 1,024 subscriptions may be active; release each subscription exactly once.
+- `yeokcham_event_subscription_poll` never blocks. It requires distinct caller-owned writable `yeokcham_event_t` and `uint8_t` outputs; once both are valid, it clears both before an empty or failing poll. `YEOKCHAM_STATUS_OK` with `has_event == 0` means no event is available; `has_event == 1` returns one event.
+- Every returned event has `version == YEOKCHAM_EVENT_VERSION`, a nonzero client event sequence, and one `YEOKCHAM_EVENT_*` kind. Lifecycle events have an all-zero `message_identifier`; message events carry its 16 bytes.
+- A lagged subscription returns `YEOKCHAM_STATUS_RESOURCE_LIMIT`; retrying may read the first retained event. A closed subscription returns `YEOKCHAM_STATUS_STATE`. No skipped-count, engine detail, or other internal event data crosses the ABI.

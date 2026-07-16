@@ -13,11 +13,24 @@
 #define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)
 #define YEOKCHAM_MAX_EVENT_SUBSCRIPTIONS UINT32_C(1024)
 #define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)
+#define YEOKCHAM_EVENT_VERSION UINT32_C(1)
+#define YEOKCHAM_EVENT_MESSAGE_IDENTIFIER_BYTES UINT32_C(16)
+#define YEOKCHAM_EVENT_CLIENT_STARTED UINT32_C(1)
+#define YEOKCHAM_EVENT_CLIENT_STOPPED UINT32_C(2)
+#define YEOKCHAM_EVENT_MESSAGE_QUEUED UINT32_C(3)
+#define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)
+#define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
 typedef struct yeokcham_buffer yeokcham_buffer_t; // library-owned opaque bytes; release with yeokcham_buffer_release
 typedef struct yeokcham_event_subscription yeokcham_event_subscription_t; // library-owned opaque stream; release with yeokcham_event_subscription_release
+typedef struct yeokcham_event {
+    uint32_t version;
+    uint64_t sequence;
+    uint32_t kind;
+    uint8_t message_identifier[YEOKCHAM_EVENT_MESSAGE_IDENTIFIER_BYTES];
+} yeokcham_event_t;
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -46,6 +59,11 @@ const uint8_t *yeokcham_buffer_data(const yeokcham_buffer_t *buffer); // valid u
 size_t yeokcham_buffer_length(const yeokcham_buffer_t *buffer); // zero for invalid buffers
 yeokcham_status_t yeokcham_buffer_release(yeokcham_buffer_t *buffer); // exactly one active release returns ok
 yeokcham_event_subscription_t *yeokcham_client_subscribe_events(const yeokcham_client_t *client); // null unless client is running or capacity is exhausted
+yeokcham_status_t yeokcham_event_subscription_poll(
+    yeokcham_event_subscription_t *subscription,
+    yeokcham_event_t *event,
+    uint8_t *has_event
+); // never blocks; with valid outputs, clears them before returning a non-ok status or an empty poll
 yeokcham_status_t yeokcham_event_subscription_release(yeokcham_event_subscription_t *subscription); // exactly one active release returns ok
 yeokcham_client_config_builder_t *yeokcham_client_config_builder_create(void); // null when builder capacity is exhausted
 yeokcham_status_t yeokcham_client_config_builder_release(yeokcham_client_config_builder_t *builder); // invalid input unless builder is active

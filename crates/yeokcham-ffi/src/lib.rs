@@ -7,6 +7,12 @@ pub const YEOKCHAM_ABI_VERSION_MAJOR: u32 = 1;
 pub const YEOKCHAM_ABI_VERSION_MINOR: u32 = 0;
 pub const YEOKCHAM_ABI_VERSION: u32 = 1;
 pub const YEOKCHAM_ABI_NEGOTIATION_REJECTED: u32 = 0;
+pub const YEOKCHAM_EVENT_VERSION: u32 = yeokcham_sdk::SDK_EVENT_ENVELOPE_VERSION;
+pub const YEOKCHAM_EVENT_CLIENT_STARTED: u32 = 1;
+pub const YEOKCHAM_EVENT_CLIENT_STOPPED: u32 = 2;
+pub const YEOKCHAM_EVENT_MESSAGE_QUEUED: u32 = 3;
+pub const YEOKCHAM_EVENT_MESSAGE_DELIVERED: u32 = 4;
+pub const YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED: u32 = 5;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -26,6 +32,15 @@ pub struct YeokchamBuffer {
 #[repr(C)]
 pub struct YeokchamEventSubscription {
     _private: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamEvent {
+    pub version: u32,
+    pub sequence: u64,
+    pub kind: u32,
+    pub message_identifier: [u8; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,7 +65,8 @@ pub use c_abi::{
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
     yeokcham_client_create, yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
     yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
-    yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
+    yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
+    yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -87,6 +103,13 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_EVENT_SUBSCRIPTIONS UINT32_C(1024)"));
         assert!(HEADER.contains("#define YEOKCHAM_MAX_PENDING_COMPLETIONS UINT32_C(1024)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_VERSION UINT32_C(1)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_IDENTIFIER_BYTES UINT32_C(16)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_CLIENT_STARTED UINT32_C(1)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_CLIENT_STOPPED UINT32_C(2)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_QUEUED UINT32_C(3)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)"));
+        assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)"));
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -94,6 +117,7 @@ mod tests {
                 "typedef struct yeokcham_event_subscription yeokcham_event_subscription_t;"
             )
         );
+        assert!(HEADER.contains("typedef struct yeokcham_event {"));
         assert!(HEADER.contains(
             "typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t;"
         ));
@@ -132,6 +156,7 @@ mod tests {
         assert!(HEADER.contains("yeokcham_buffer_length("));
         assert!(HEADER.contains("yeokcham_buffer_release("));
         assert!(HEADER.contains("yeokcham_client_subscribe_events("));
+        assert!(HEADER.contains("yeokcham_event_subscription_poll("));
         assert!(HEADER.contains("yeokcham_event_subscription_release("));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_client_complete_async("));
