@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod attachment_delivery;
 mod bluetooth_transport;
 mod client_identity;
 mod client_state;
@@ -38,6 +39,11 @@ mod x3dh_session_service;
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
 
+pub use attachment_delivery::{
+    AttachmentChunkSource, AttachmentDeliveryCycle, AttachmentDeliveryError,
+    AttachmentDeliveryOrchestrator, AttachmentDeliveryOutcome, AttachmentDeliveryTransport,
+    MAX_ATTACHMENT_DELIVERY_CHUNKS_PER_CYCLE,
+};
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use client_identity::{
     CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,

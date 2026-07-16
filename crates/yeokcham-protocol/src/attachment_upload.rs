@@ -62,6 +62,14 @@ impl AttachmentUploadJournal {
     }
 
     #[must_use]
+    pub fn expected_hash(&self, index: u32) -> Option<&AttachmentChunkHash> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.chunks.get(index))
+            .map(|chunk| &chunk.hash)
+    }
+
+    #[must_use]
     pub fn next_pending_index(&self) -> Option<u32> {
         self.chunks
             .iter()
